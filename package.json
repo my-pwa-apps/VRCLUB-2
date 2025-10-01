@@ -1,0 +1,30 @@
+{
+  "name": "vrclub",
+  "version": "1.0.0",
+  "description": "Hyperrealistic WebXR VR Club with music streaming and multiplayer support for Quest 3S",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server -p 8000 -o",
+    "dev": "npx http-server -p 8000 -o",
+    "serve": "python -m http.server 8000"
+  },
+  "keywords": [
+    "webxr",
+    "vr",
+    "aframe",
+    "quest",
+    "multiplayer",
+    "music",
+    "club",
+    "nightclub",
+    "virtual-reality"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/my-pwa-apps/VRCLUB-2"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

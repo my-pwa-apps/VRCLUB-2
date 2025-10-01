@@ -1,0 +1,383 @@
+// Club Environment Component
+AFRAME.registerComponent('club-environment', {
+  init: function() {
+    this.audioContext = null;
+    this.analyser = null;
+    this.dataArray = null;
+    this.currentLightMode = 'lasers'; // 'lasers', 'spotlights', 'strobes', 'mixed'
+    this.lightModeTimer = 0;
+    
+    this.setupLasers();
+    this.setupMusicSystem();
+    this.setupNetworking();
+    this.setupLightShowSequence();
+  },
+
+  setupLasers: function() {
+    const lasersContainer = document.querySelector('#lasers');
+    const emittersContainer = document.querySelector('#laser-emitters');
+    const colors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
+    
+    // Create 8 laser systems with visible sources mounted on truss
+    const positions = [
+      {x: -8, z: -5}, {x: 8, z: -5},
+      {x: -8, z: -15}, {x: 8, z: -15},
+      {x: -8, z: -20}, {x: 8, z: -20},
+      {x: 0, z: -8}, {x: 0, z: -18}
+    ];
+
+    positions.forEach((pos, i) => {
+      // Create visible laser emitter mounted on truss
+      const emitter = document.createElement('a-entity');
+      emitter.setAttribute('position', `${pos.x} 9.5 ${pos.z}`);
+      
+      // Mounting bracket
+      const bracket = document.createElement('a-box');
+      bracket.setAttribute('width', '0.15');
+      bracket.setAttribute('height', '0.25');
+      bracket.setAttribute('depth', '0.15');
+      bracket.setAttribute('position', '0 0.3 0');
+      bracket.setAttribute('material', {
+        color: '#2a2a2a',
+        metalness: 0.9,
+        roughness: 0.3
+      });
+      emitter.appendChild(bracket);
+
+      // Laser housing
+      const emitterBox = document.createElement('a-box');
+      emitterBox.setAttribute('width', '0.3');
+      emitterBox.setAttribute('height', '0.3');
+      emitterBox.setAttribute('depth', '0.3');
+      emitterBox.setAttribute('material', {
+        color: '#0a0a0a',
+        emissive: colors[i % colors.length],
+        emissiveIntensity: 0,
+        metalness: 0.9,
+        roughness: 0.2
+      });
+      emitterBox.classList.add('laser-emitter');
+      emitter.appendChild(emitterBox);
+
+      // Lens
+      const lens = document.createElement('a-circle');
+      lens.setAttribute('radius', '0.12');
+      lens.setAttribute('position', '0 0 0.16');
+      lens.setAttribute('material', {
+        color: colors[i % colors.length],
+        emissive: colors[i % colors.length],
+        emissiveIntensity: 0,
+        metalness: 0.9,
+        roughness: 0.1
+      });
+      lens.classList.add('laser-lens');
+      emitter.appendChild(lens);
+      
+      emittersContainer.appendChild(emitter);
+
+      // Create laser beam from emitter
+      const laser = document.createElement('a-entity');
+      laser.setAttribute('geometry', {
+        primitive: 'cylinder',
+        radius: 0.03,
+        height: 10
+      });
+      laser.setAttribute('material', {
+        color: colors[i % colors.length],
+        emissive: colors[i % colors.length],
+        emissiveIntensity: 0,
+        opacity: 0,
+        transparent: true
+      });
+      laser.setAttribute('position', `${pos.x} 5 ${pos.z}`);
+      laser.setAttribute('rotation', `${20 + Math.random() * 40} ${Math.random() * 360} 0`);
+      laser.setAttribute('animation', {
+        property: 'rotation',
+        to: `${20 + Math.random() * 40} ${Math.random() * 360 + 360} ${Math.random() * 20}`,
+        loop: true,
+        dur: 4000 + Math.random() * 3000,
+        easing: 'linear'
+      });
+      laser.classList.add('laser-beam');
+      
+      lasersContainer.appendChild(laser);
+    });
+  },
+
+  setupLightShowSequence: function() {
+    // Alternate between different lighting modes
+    setInterval(() => {
+      this.lightModeTimer++;
+      const modes = ['lasers', 'spotlights', 'strobes', 'mixed'];
+      this.currentLightMode = modes[this.lightModeTimer % modes.length];
+      this.switchLightMode(this.currentLightMode);
+    }, 8000); // Switch every 8 seconds
+
+    // Start animation loop for reactive lighting
+    this.tick = this.tick.bind(this);
+    this.el.sceneEl.addBehavior(this);
+  },
+
+  switchLightMode: function(mode) {
+    const lasers = document.querySelectorAll('.laser-beam');
+    const laserEmitters = document.querySelectorAll('.laser-emitter');
+    const laserLenses = document.querySelectorAll('.laser-lens');
+    const spotlights = document.querySelectorAll('#light-beams a-entity[light]');
+    const strobes = document.querySelectorAll('#strobe-lights a-entity[light]');
+    const strobePlanes = document.querySelectorAll('#strobe-lights a-plane');
+    const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
+
+    // Reset all
+    lasers.forEach(l => l.setAttribute('material', 'opacity', 0));
+    lasers.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
+    laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0));
+    laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
+    spotlights.forEach(s => s.setAttribute('light', 'intensity', 0));
+    strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
+    strobePlanes.forEach(b => b.setAttribute('material', 'emissiveIntensity', 0));
+    ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0));
+
+    switch(mode) {
+      case 'lasers':
+        lasers.forEach(l => {
+          l.setAttribute('material', 'opacity', 0.8);
+          l.setAttribute('material', 'emissiveIntensity', 2);
+        });
+        laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 1));
+        laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 2));
+        break;
+
+      case 'spotlights':
+        spotlights.forEach(s => s.setAttribute('light', 'intensity', 2.5));
+        ledPanels.forEach((p, i) => {
+          setTimeout(() => {
+            p.setAttribute('material', 'emissiveIntensity', 0.8);
+          }, i * 200);
+        });
+        break;
+
+      case 'strobes':
+        this.startStrobePattern(strobes, strobePlanes);
+        break;
+
+      case 'mixed':
+        lasers.forEach(l => {
+          l.setAttribute('material', 'opacity', 0.5);
+          l.setAttribute('material', 'emissiveIntensity', 1.5);
+        });
+        laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0.8));
+        laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 1.5));
+        spotlights.forEach(s => s.setAttribute('light', 'intensity', 1.5));
+        ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0.5));
+        break;
+    }
+  },
+
+  startStrobePattern: function(strobes, strobePlanes) {
+    let strobeIndex = 0;
+    const strobeInterval = setInterval(() => {
+      if (this.currentLightMode !== 'strobes') {
+        clearInterval(strobeInterval);
+        return;
+      }
+
+      // Turn off all strobes
+      strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
+      strobePlanes.forEach(b => b.setAttribute('material', 'emissiveIntensity', 0));
+
+      // Flash current strobe
+      strobes[strobeIndex].setAttribute('light', 'intensity', 5);
+      strobePlanes[strobeIndex].setAttribute('material', 'emissiveIntensity', 3);
+
+      setTimeout(() => {
+        strobes[strobeIndex].setAttribute('light', 'intensity', 0);
+        strobePlanes[strobeIndex].setAttribute('material', 'emissiveIntensity', 0);
+      }, 100);
+
+      strobeIndex = (strobeIndex + 1) % strobes.length;
+    }, 150);
+  },
+
+  tick: function(time, timeDelta) {
+    // Update lights based on audio analysis
+    if (this.analyser && this.dataArray) {
+      this.analyser.getByteFrequencyData(this.dataArray);
+      
+      // Get frequency bands
+      const bass = this.getAverageFrequency(0, 10);
+      const mid = this.getAverageFrequency(10, 40);
+      const high = this.getAverageFrequency(40, 100);
+
+      // Normalize values (0-1)
+      const bassLevel = bass / 255;
+      const midLevel = mid / 255;
+      const highLevel = high / 255;
+
+      // React disco ball to bass
+      const discoBall = document.querySelector('#disco-ball');
+      if (discoBall) {
+        const intensity = 1 + bassLevel * 3;
+        const light = discoBall.querySelector('[light]');
+        if (light) light.setAttribute('light', 'intensity', intensity);
+      }
+
+      // React lasers to mid frequencies
+      if (this.currentLightMode === 'lasers' || this.currentLightMode === 'mixed') {
+        const lasers = document.querySelectorAll('.laser-beam');
+        lasers.forEach((laser, i) => {
+          const intensity = 1 + midLevel * 2;
+          const opacity = 0.4 + midLevel * 0.6;
+          laser.setAttribute('material', 'emissiveIntensity', intensity);
+          laser.setAttribute('material', 'opacity', opacity);
+        });
+      }
+
+      // React LED panels to high frequencies
+      const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
+      ledPanels.forEach((panel, i) => {
+        const intensity = highLevel * 1.5;
+        panel.setAttribute('material', 'emissiveIntensity', intensity);
+      });
+
+      // React stage lights to bass
+      const mainStage = document.querySelector('#main-stage');
+      if (mainStage) {
+        const stageLights = mainStage.querySelectorAll('[light]');
+        stageLights.forEach(light => {
+          light.setAttribute('light', 'intensity', 1 + bassLevel * 2);
+        });
+      }
+    }
+  },
+
+  getAverageFrequency: function(startIndex, endIndex) {
+    let sum = 0;
+    for (let i = startIndex; i < endIndex && i < this.dataArray.length; i++) {
+      sum += this.dataArray[i];
+    }
+    return sum / (endIndex - startIndex);
+  },
+
+  setupMusicSystem: function() {
+    const musicControls = document.querySelector('.music-ui');
+    const audioElement = document.querySelector('#club-music');
+    let isPlaying = false;
+
+    // Click handler for music controls
+    musicControls.addEventListener('click', () => {
+      if (!audioElement.src) {
+        // Prompt for URL
+        const url = prompt('Enter music stream URL (YouTube embed, direct MP3, or streaming URL):\n\nFor YouTube: Use format https://www.youtube.com/embed/VIDEO_ID\nFor SoundCloud: Use embed URL\nFor direct streams: Use direct MP3/stream URL');
+        
+        if (url) {
+          // Handle different URL types
+          if (url.includes('youtube.com') && !url.includes('embed')) {
+            // Convert regular YouTube URL to embed
+            const videoId = url.match(/(?:v=|youtu\.be\/)([^&\s]+)/);
+            if (videoId && videoId[1]) {
+              alert('YouTube requires embedding. Please use: https://www.youtube.com/embed/' + videoId[1]);
+              return;
+            }
+          }
+          
+          audioElement.src = url;
+          audioElement.load();
+          musicControls.setAttribute('text', 'value', '🎵 Music Loaded\nClick to Play/Pause');
+        }
+      } else {
+        // Toggle play/pause
+        if (isPlaying) {
+          audioElement.pause();
+          musicControls.setAttribute('text', 'value', '▶️ Click to Play');
+          this.broadcastMusicState('pause');
+        } else {
+          audioElement.play().then(() => {
+            // Setup audio analysis when music starts
+            this.setupAudioAnalysis(audioElement);
+          }).catch(err => {
+            console.error('Error playing audio:', err);
+            alert('Error playing audio. Make sure the URL is a valid audio stream and CORS is enabled.');
+          });
+          musicControls.setAttribute('text', 'value', '⏸️ Click to Pause');
+          this.broadcastMusicState('play');
+        }
+        isPlaying = !isPlaying;
+      }
+    });
+
+    // Sync audio with positional audio (so everyone hears it)
+    audioElement.addEventListener('play', () => {
+      console.log('Music started playing');
+    });
+
+    audioElement.addEventListener('error', (e) => {
+      console.error('Audio error:', e);
+      alert('Error loading audio. Please check the URL and CORS settings.');
+    });
+  },
+
+  setupAudioAnalysis: function(audioElement) {
+    if (this.audioContext) return; // Already setup
+
+    try {
+      // Create audio context
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Create analyser
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.8;
+      
+      const bufferLength = this.analyser.frequencyBinCount;
+      this.dataArray = new Uint8Array(bufferLength);
+      
+      // Connect audio element to analyser
+      const source = this.audioContext.createMediaElementSource(audioElement);
+      source.connect(this.analyser);
+      this.analyser.connect(this.audioContext.destination);
+      
+      console.log('Audio analysis enabled - lights will react to music!');
+    } catch (error) {
+      console.error('Error setting up audio analysis:', error);
+      console.log('Lights will still work with timed patterns');
+    }
+  },
+
+  broadcastMusicState: function(action) {
+    // Broadcast music state to other players via networked-aframe
+    const scene = document.querySelector('a-scene');
+    if (scene.components && scene.components['networked-scene']) {
+      NAF.connection.broadcastData('music-sync', {
+        action: action,
+        timestamp: Date.now()
+      });
+    }
+  },
+
+  setupNetworking: function() {
+    const scene = document.querySelector('a-scene');
+    
+    // Wait for networked-scene to be ready
+    scene.addEventListener('connected', () => {
+      console.log('Connected to multiplayer server!');
+      
+      // Listen for music sync messages
+      NAF.connection.subscribeToDataChannel('music-sync', (senderId, dataType, data) => {
+        const audioElement = document.querySelector('#club-music');
+        if (data.action === 'play') {
+          audioElement.play();
+        } else if (data.action === 'pause') {
+          audioElement.pause();
+        }
+      });
+    });
+
+    scene.addEventListener('clientConnected', (evt) => {
+      console.log('New player joined!', evt.detail.clientId);
+    });
+
+    scene.addEventListener('clientDisconnected', (evt) => {
+      console.log('Player left', evt.detail.clientId);
+    });
+  }
+});
