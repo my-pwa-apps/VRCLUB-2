@@ -50,8 +50,6 @@ AFRAME.registerComponent('club-environment', {
       emitterBox.setAttribute('depth', '0.3');
       emitterBox.setAttribute('material', {
         color: '#0a0a0a',
-        emissive: colors[i % colors.length],
-        emissiveIntensity: 0,
         metalness: 0.9,
         roughness: 0.2
       });
@@ -63,9 +61,7 @@ AFRAME.registerComponent('club-environment', {
       lens.setAttribute('radius', '0.12');
       lens.setAttribute('position', '0 0 0.16');
       lens.setAttribute('material', {
-        color: colors[i % colors.length],
-        emissive: colors[i % colors.length],
-        emissiveIntensity: 0,
+        color: '#000000',
         metalness: 0.9,
         roughness: 0.1
       });
@@ -88,9 +84,8 @@ AFRAME.registerComponent('club-environment', {
       // Position beam so top is at emitter, extends downward
       beam.setAttribute('position', `0 ${-beamHeight / 2} 0`);
       beam.setAttribute('material', {
-        color: colors[0],  // Use same color for all beams initially
-        emissive: colors[0],
-        emissiveIntensity: 0,
+        shader: 'flat',
+        color: '#000000',
         opacity: 0,
         transparent: true
       });
@@ -161,33 +156,31 @@ AFRAME.registerComponent('club-environment', {
     // Reset all
     laserCylinders.forEach(l => {
       l.setAttribute('material', 'opacity', 0);
-      l.setAttribute('material', 'emissive', '#000000');
+      l.setAttribute('material', 'color', '#000000');
     });
-    laserEmitters.forEach(e => e.setAttribute('material', 'emissive', '#000000'));
-    laserLenses.forEach(l => l.setAttribute('material', 'emissive', '#000000'));
+    laserEmitters.forEach(e => e.setAttribute('material', 'color', '#0a0a0a'));
+    laserLenses.forEach(l => l.setAttribute('material', 'color', '#000000'));
     spotlights.forEach(s => s.setAttribute('light', 'intensity', 0));
     strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
-    strobePlanes.forEach(b => b.setAttribute('material', 'emissive', '#000000'));
-    ledPanels.forEach(p => p.setAttribute('material', 'emissive', '#000000'));
+    strobePlanes.forEach(b => b.setAttribute('material', 'color', '#000000'));
+    ledPanels.forEach(p => p.setAttribute('material', 'color', '#000000'));
 
     switch(mode) {
       case 'lasers':
         // Set all lasers to the same color
         laserCylinders.forEach(l => {
           l.setAttribute('material', {
+            shader: 'flat',
             color: currentColor,
-            emissive: currentColor,
-            opacity: 0.8
+            opacity: 0.8,
+            transparent: true
           });
         });
         laserEmitters.forEach(e => {
-          e.setAttribute('material', 'emissive', currentColor);
+          e.setAttribute('material', 'color', currentColor);
         });
         laserLenses.forEach(l => {
-          l.setAttribute('material', {
-            color: currentColor,
-            emissive: currentColor
-          });
+          l.setAttribute('material', 'color', currentColor);
         });
         break;
 
@@ -195,7 +188,10 @@ AFRAME.registerComponent('club-environment', {
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 2.5));
         ledPanels.forEach((p, i) => {
           setTimeout(() => {
-            p.setAttribute('material', 'emissive', '#ff00ff');
+            p.setAttribute('material', {
+              shader: 'flat',
+              color: '#ff00ff'
+            });
           }, i * 200);
         });
         break;
@@ -208,22 +204,23 @@ AFRAME.registerComponent('club-environment', {
         // Set all lasers to the same color in mixed mode too
         laserCylinders.forEach(l => {
           l.setAttribute('material', {
+            shader: 'flat',
             color: currentColor,
-            emissive: currentColor,
-            opacity: 0.5
+            opacity: 0.5,
+            transparent: true
           });
         });
         laserEmitters.forEach(e => {
-          e.setAttribute('material', 'emissive', currentColor);
+          e.setAttribute('material', 'color', currentColor);
         });
         laserLenses.forEach(l => {
-          l.setAttribute('material', {
-            color: currentColor,
-            emissive: currentColor
-          });
+          l.setAttribute('material', 'color', currentColor);
         });
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 1.5));
-        ledPanels.forEach(p => p.setAttribute('material', 'emissive', '#ff00ff'));
+        ledPanels.forEach(p => p.setAttribute('material', {
+          shader: 'flat',
+          color: '#ff00ff'
+        }));
         break;
     }
   },
@@ -238,15 +235,24 @@ AFRAME.registerComponent('club-environment', {
 
       // Turn off all strobes
       strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
-      strobePlanes.forEach(b => b.setAttribute('material', 'emissive', '#000000'));
+      strobePlanes.forEach(b => b.setAttribute('material', {
+        shader: 'flat',
+        color: '#000000'
+      }));
 
       // Flash current strobe
       strobes[strobeIndex].setAttribute('light', 'intensity', 5);
-      strobePlanes[strobeIndex].setAttribute('material', 'emissive', '#ffffff');
+      strobePlanes[strobeIndex].setAttribute('material', {
+        shader: 'flat',
+        color: '#ffffff'
+      });
 
       setTimeout(() => {
         strobes[strobeIndex].setAttribute('light', 'intensity', 0);
-        strobePlanes[strobeIndex].setAttribute('material', 'emissive', '#000000');
+        strobePlanes[strobeIndex].setAttribute('material', {
+          shader: 'flat',
+          color: '#000000'
+        });
       }, 100);
 
       strobeIndex = (strobeIndex + 1) % strobes.length;
