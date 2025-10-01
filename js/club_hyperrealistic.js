@@ -38,12 +38,7 @@ class VRClub {
         this.scene.fogDensity = 0.02; // Smoke machine effect
         this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
         
-        // Enable VR
-        const vrHelper = await this.scene.createDefaultXRExperienceAsync({
-            floorMeshes: []
-        });
-        
-        // Setup camera for non-VR testing
+        // Setup camera FIRST (needed for post-processing)
         this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.7, -10), this.scene);
         this.camera.setTarget(new BABYLON.Vector3(0, 1.7, 0));
         this.camera.attachControl(this.canvas, true);
@@ -75,6 +70,14 @@ class VRClub {
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
+        
+        // Enable VR (after camera and post-processing)
+        const vrHelper = await this.scene.createDefaultXRExperienceAsync({
+            floorMeshes: []
+        }).catch(err => {
+            console.log('⚠️ VR not available:', err.message);
+            return null;
+        });
         
         // Build hyperrealistic club
         this.createFloor();
@@ -313,19 +316,19 @@ class VRClub {
         platform.receiveShadows = true;
         
         // DJ console table
-        const console = BABYLON.MeshBuilder.CreateBox("djConsole", {
+        const djConsole = BABYLON.MeshBuilder.CreateBox("djConsole", {
             width: 5,
             height: 0.3,
             depth: 2
         }, this.scene);
-        console.position = new BABYLON.Vector3(0, 1.5, -24);
+        djConsole.position = new BABYLON.Vector3(0, 1.5, -24);
         
         const consoleMat = new BABYLON.PBRMetallicRoughnessMaterial("consoleMat", this.scene);
         consoleMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
         consoleMat.metallic = 0.95;
         consoleMat.roughness = 0.15;
         consoleMat.emissiveColor = new BABYLON.Color3(0.02, 0.05, 0.1); // Subtle glow
-        console.material = consoleMat;
+        djConsole.material = consoleMat;
         
         // CDJ Decks
         this.createCDJs();
