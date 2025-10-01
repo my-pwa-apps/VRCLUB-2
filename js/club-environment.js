@@ -236,7 +236,7 @@ AFRAME.registerComponent('club-environment', {
   },
 
   tick: function(time, timeDelta) {
-    // Update lights based on audio analysis
+    // Update lights based on audio analysis with enhanced realism
     if (this.analyser && this.dataArray) {
       this.analyser.getByteFrequencyData(this.dataArray);
       
@@ -250,40 +250,85 @@ AFRAME.registerComponent('club-environment', {
       const midLevel = mid / 255;
       const highLevel = high / 255;
 
-      // React disco ball to bass
+      // React disco ball to bass with enhanced intensity range
       const discoBall = document.querySelector('#disco-ball');
       if (discoBall) {
-        const intensity = 1 + bassLevel * 3;
-        const light = discoBall.querySelector('[light]');
-        if (light) light.setAttribute('light', 'intensity', intensity);
+        const intensity = 2.5 + bassLevel * 2.5;
+        const lights = discoBall.querySelectorAll('[light]');
+        lights.forEach(light => {
+          light.setAttribute('light', 'intensity', intensity);
+        });
       }
 
-      // React lasers to mid frequencies
+      // React lasers to mid frequencies with volumetric effects
       if (this.currentLightMode === 'lasers' || this.currentLightMode === 'mixed') {
         const laserCylinders = document.querySelectorAll('.laser-beam-cylinder');
         laserCylinders.forEach((laser, i) => {
-          const intensity = 1 + midLevel * 2;
-          const opacity = 0.4 + midLevel * 0.6;
+          const intensity = 1.2 + midLevel * 2.8;
+          const opacity = 0.5 + midLevel * 0.5;
+          const radius = 0.03 + midLevel * 0.02;
           laser.setAttribute('material', 'emissiveIntensity', intensity);
           laser.setAttribute('material', 'opacity', opacity);
+          laser.setAttribute('radius', radius);
+        });
+        
+        // React laser emitters
+        const laserEmitters = document.querySelectorAll('.laser-emitter');
+        laserEmitters.forEach(emitter => {
+          const emissiveInt = 0.3 + midLevel * 0.7;
+          const material = emitter.getAttribute('material');
+          if (material) {
+            material.emissiveIntensity = emissiveInt;
+            emitter.setAttribute('material', material);
+          }
+        });
+        
+        // React laser lenses
+        const laserLenses = document.querySelectorAll('.laser-lens');
+        laserLenses.forEach(lens => {
+          const emissiveInt = 0.5 + midLevel * 0.8;
+          const material = lens.getAttribute('material');
+          if (material) {
+            material.emissiveIntensity = emissiveInt;
+            lens.setAttribute('material', material);
+          }
         });
       }
 
-      // React LED panels to high frequencies
+      // React LED panels to high frequencies with dynamic intensity
       const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
       ledPanels.forEach((panel, i) => {
-        const intensity = highLevel * 1.5;
+        const intensity = 0.3 + highLevel * 1.2;
         panel.setAttribute('material', 'emissiveIntensity', intensity);
       });
 
-      // React stage lights to bass
-      const mainStage = document.querySelector('#main-stage');
-      if (mainStage) {
-        const stageLights = mainStage.querySelectorAll('[light]');
-        stageLights.forEach(light => {
-          light.setAttribute('light', 'intensity', 1 + bassLevel * 2);
+      // React spotlights to mid frequencies
+      if (this.currentLightMode === 'spotlights' || this.currentLightMode === 'mixed') {
+        const spotlights = document.querySelectorAll('#spotlight-1, #spotlight-2, #spotlight-3, #spotlight-4, #spotlight-5');
+        spotlights.forEach(spotlight => {
+          const light = spotlight.querySelector('[light]');
+          if (light) {
+            const intensity = 1.8 + midLevel * 2.7;
+            light.setAttribute('light', 'intensity', intensity);
+          }
         });
       }
+
+      // React ground haze to bass for atmospheric depth
+      const hazes = document.querySelectorAll('#ground-haze a-plane');
+      hazes.forEach((haze, i) => {
+        const baseOpacity = [0.15, 0.1, 0.12][i] || 0.12;
+        const opacity = baseOpacity + bassLevel * 0.18;
+        haze.setAttribute('material', 'opacity', opacity);
+      });
+      
+      // Subtle dust particle brightness variation
+      const particles = document.querySelectorAll('#dust-particles a-sphere');
+      particles.forEach((particle, i) => {
+        const baseOpacity = [0.3, 0.2, 0.25, 0.2][i] || 0.2;
+        const opacity = baseOpacity + highLevel * 0.15;
+        particle.setAttribute('material', 'opacity', opacity);
+      });
     }
   },
 
