@@ -45,9 +45,9 @@ class VRClub {
         );
         this.scene.environmentIntensity = 0.3; // Subtle reflections
         
-        // Add atmospheric haze/fog for depth
+        // Add atmospheric haze/fog for depth (reduced to see truss)
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXPONENTIAL;
-        this.scene.fogDensity = 0.02; // Smoke machine effect
+        this.scene.fogDensity = 0.008; // Reduced from 0.02 for visibility
         this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
         
         // Setup camera FIRST (needed for post-processing)
@@ -405,35 +405,70 @@ class VRClub {
     }
 
     createDJBooth() {
-        // DJ platform
+        // Professional DJ platform/riser
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
-            width: 8,
+            width: 9,
             height: 1.2,
-            depth: 4
+            depth: 5
         }, this.scene);
         platform.position = new BABYLON.Vector3(0, 0.6, -24);
         
         const platformMat = new BABYLON.PBRMetallicRoughnessMaterial("platformMat", this.scene);
-        platformMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.08);
+        platformMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
         platformMat.metallic = 0.9;
         platformMat.roughness = 0.2;
         platform.material = platformMat;
         platform.receiveShadows = true;
         
-        // DJ console table
+        // Platform safety rail (front)
+        const railMat = new BABYLON.PBRMetallicRoughnessMaterial("railMat", this.scene);
+        railMat.baseColor = new BABYLON.Color3(0.7, 0.7, 0.75);
+        railMat.metallic = 1.0;
+        railMat.roughness = 0.3;
+        
+        const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
+            width: 9,
+            height: 0.08,
+            depth: 0.08
+        }, this.scene);
+        frontRail.position = new BABYLON.Vector3(0, 1.5, -21.5);
+        frontRail.material = railMat;
+        
+        // DJ console table (main work surface)
         const djConsole = BABYLON.MeshBuilder.CreateBox("djConsole", {
-            width: 5,
-            height: 0.3,
-            depth: 2
+            width: 6,
+            height: 0.35,
+            depth: 2.5
         }, this.scene);
         djConsole.position = new BABYLON.Vector3(0, 1.5, -24);
         
         const consoleMat = new BABYLON.PBRMetallicRoughnessMaterial("consoleMat", this.scene);
-        consoleMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
+        consoleMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
         consoleMat.metallic = 0.95;
-        consoleMat.roughness = 0.15;
-        consoleMat.emissiveColor = new BABYLON.Color3(0.02, 0.05, 0.1); // Subtle glow
+        consoleMat.roughness = 0.1;
+        consoleMat.emissiveColor = new BABYLON.Color3(0, 0.02, 0.05);
         djConsole.material = consoleMat;
+        
+        // Console legs/supports
+        for (let x of [-2.8, 2.8]) {
+            const leg = BABYLON.MeshBuilder.CreateCylinder("consoleLeg", {
+                diameter: 0.08,
+                height: 0.3
+            }, this.scene);
+            leg.position = new BABYLON.Vector3(x, 1.35, -24);
+            leg.material = railMat;
+        }
+        
+        // Cable management tray under console
+        const cableTray = BABYLON.MeshBuilder.CreateBox("cableTray", {
+            width: 5.5,
+            height: 0.1,
+            depth: 2
+        }, this.scene);
+        cableTray.position = new BABYLON.Vector3(0, 1.25, -24);
+        const trayMat = new BABYLON.StandardMaterial("trayMat", this.scene);
+        trayMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        cableTray.material = trayMat;
         
         // CDJ Decks
         this.createCDJs();
@@ -446,6 +481,12 @@ class VRClub {
         
         // VU meters
         this.createVUMeters();
+        
+        // Laptop stand
+        this.createLaptopStand();
+        
+        // Accent lighting under platform
+        this.createBoothLighting();
         
     }
 
@@ -564,6 +605,62 @@ class VRClub {
             bar.material = barMat;
             
             this.vuMeters.push(bar);
+        }
+    }
+    
+    createLaptopStand() {
+        // Laptop stand/shelf
+        const laptopStand = BABYLON.MeshBuilder.CreateBox("laptopStand", {
+            width: 1.5,
+            height: 0.05,
+            depth: 1.0
+        }, this.scene);
+        laptopStand.position = new BABYLON.Vector3(-3, 1.7, -24.5);
+        
+        const standMat = new BABYLON.PBRMetallicRoughnessMaterial("standMat", this.scene);
+        standMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        standMat.metallic = 0.8;
+        standMat.roughness = 0.4;
+        laptopStand.material = standMat;
+        
+        // Laptop screen (glowing)
+        const laptop = BABYLON.MeshBuilder.CreateBox("laptop", {
+            width: 0.8,
+            height: 0.5,
+            depth: 0.02
+        }, this.scene);
+        laptop.position = new BABYLON.Vector3(-3, 1.98, -24.7);
+        laptop.rotation.x = -0.3;
+        
+        const screenMat = new BABYLON.StandardMaterial("screenMat", this.scene);
+        screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
+        screenMat.disableLighting = true;
+        laptop.material = screenMat;
+    }
+    
+    createBoothLighting() {
+        // LED strip under platform (accent lighting)
+        const stripMat = new BABYLON.StandardMaterial("ledStripMat", this.scene);
+        stripMat.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
+        stripMat.disableLighting = true;
+        stripMat.alpha = 0.8;
+        
+        for (let side of [-4.2, 4.2]) {
+            const strip = BABYLON.MeshBuilder.CreateBox("ledStrip", {
+                width: 8,
+                height: 0.05,
+                depth: 0.1
+            }, this.scene);
+            strip.position = new BABYLON.Vector3(0, 0.15, -24 + side);
+            strip.rotation.x = Math.PI / 2;
+            strip.material = stripMat;
+            
+            // Point light for LED strip effect
+            const stripLight = new BABYLON.PointLight("stripLight" + side,
+                new BABYLON.Vector3(0, 0.3, -24 + side), this.scene);
+            stripLight.diffuse = new BABYLON.Color3(0, 0.5, 1);
+            stripLight.intensity = 2;
+            stripLight.range = 3;
         }
     }
 
@@ -801,25 +898,25 @@ class VRClub {
         ];
         
         smokePositions.forEach((smokePos, idx) => {
-            const smokeSystem = new BABYLON.ParticleSystem("smoke" + idx, 1200, this.scene);
+            const smokeSystem = new BABYLON.ParticleSystem("smoke" + idx, 600, this.scene);
             smokeSystem.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
             
             smokeSystem.emitter = new BABYLON.Vector3(smokePos.x, 0.2, smokePos.z);
             smokeSystem.minEmitBox = new BABYLON.Vector3(-0.5, 0, -0.5);
             smokeSystem.maxEmitBox = new BABYLON.Vector3(0.5, 0, 0.5);
             
-            // Thicker, more visible smoke
-            smokeSystem.color1 = new BABYLON.Color4(0.2, 0.2, 0.3, 0.3);
-            smokeSystem.color2 = new BABYLON.Color4(0.3, 0.3, 0.4, 0.2);
-            smokeSystem.colorDead = new BABYLON.Color4(0.1, 0.1, 0.15, 0);
+            // Balanced smoke - visible but not overwhelming
+            smokeSystem.color1 = new BABYLON.Color4(0.15, 0.15, 0.25, 0.15);
+            smokeSystem.color2 = new BABYLON.Color4(0.2, 0.2, 0.3, 0.1);
+            smokeSystem.colorDead = new BABYLON.Color4(0.05, 0.05, 0.1, 0);
             
-            smokeSystem.minSize = 3;
-            smokeSystem.maxSize = 10;
+            smokeSystem.minSize = 2;
+            smokeSystem.maxSize = 6;
             
-            smokeSystem.minLifeTime = 5;
-            smokeSystem.maxLifeTime = 12;
+            smokeSystem.minLifeTime = 4;
+            smokeSystem.maxLifeTime = 8;
             
-            smokeSystem.emitRate = 80;
+            smokeSystem.emitRate = 40;
             
             smokeSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
@@ -861,15 +958,25 @@ class VRClub {
                 }, this.scene);
                 
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
-                const y = (row * panelHeight) + (panelHeight / 2) + 2;
-                const z = -27; // Further back, raised higher for visibility
+                const y = (row * panelHeight) + (panelHeight / 2) + 2.5;
+                const z = -26; // Behind DJ booth
                 
                 panel.position = new BABYLON.Vector3(x, y, z);
                 
+                // Make LED panels highly visible with bright emission
                 const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
-                panelMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+                panelMat.emissiveColor = new BABYLON.Color3(2, 0, 0); // Brighter red
                 panelMat.disableLighting = true;
                 panel.material = panelMat;
+                
+                // Add point light behind each panel for backlighting
+                if (row === 1 && col % 2 === 0) {
+                    const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
+                        new BABYLON.Vector3(x, y, z - 0.5), this.scene);
+                    backLight.diffuse = new BABYLON.Color3(1, 0, 0);
+                    backLight.intensity = 3;
+                    backLight.range = 5;
+                }
                 
                 this.ledPanels.push({
                     mesh: panel,
