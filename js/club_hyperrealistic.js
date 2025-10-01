@@ -459,7 +459,12 @@ class VRClub {
             height: 0.8
         }, this.scene);
         suspensionCable.position = new BABYLON.Vector3(0, 7.6, -12);
-        suspensionCable.material = cableMat; // Use existing cable material
+        
+        // Create cable material for suspension
+        const discoCableMat = new BABYLON.StandardMaterial("discoCableMat", this.scene);
+        discoCableMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        discoCableMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+        suspensionCable.material = discoCableMat;
         
         // Add dedicated spotlight hitting disco ball
         const discoSpot = new BABYLON.SpotLight("discoSpot",
