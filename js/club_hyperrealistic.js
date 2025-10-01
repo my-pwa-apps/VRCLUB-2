@@ -906,50 +906,12 @@ class VRClub {
         housingMat.emissiveColor = new BABYLON.Color3(0.3, 0, 0);
         laserHousing.material = housingMat;
         
-        // Create SINGLE WIDE LASER CURTAIN (vertical sheet effect)
-        // Creates a vertical "wall" of laser light that sweeps across dance floor
-        this.laserCurtain = BABYLON.MeshBuilder.CreatePlane("laserCurtain", {
-            width: 20,  // Wide (spans dance floor width)
-            height: 5   // Tall vertical plane (floor to ceiling)
-        }, this.scene);
-        // Position at LED wall, rotated to face sideways (perpendicular to Z axis)
-        this.laserCurtain.position = new BABYLON.Vector3(0, 3, -22); // Start near LED wall
-        this.laserCurtain.rotation.y = Math.PI / 2; // Rotate 90° to create vertical curtain perpendicular to dance floor
-        this.laserCurtain.isPickable = false;
+        // Laser curtain effect removed (was broken)
         
-        // Semi-transparent glowing material for laser sheet
-        const curtainMat = new BABYLON.StandardMaterial("laserCurtainMat", this.scene);
-        curtainMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red laser
-        curtainMat.alpha = 0.4; // Semi-transparent so you see through smoke
-        curtainMat.disableLighting = true;
-        curtainMat.backFaceCulling = false; // Visible from both sides
-        this.laserCurtain.material = curtainMat;
-        
-        // Spotlights emanating from LED wall position (where laser housing is)
-        // These create the volumetric beam effect in smoke
-        this.curtainLights = [];
-        for (let i = 0; i < 8; i++) {
-            const xPos = -10 + (i * 2.5); // Spread across LED wall width
-            const light = new BABYLON.SpotLight("curtainLight" + i,
-                new BABYLON.Vector3(xPos, 6.5, -25.5), // Origin at LED wall
-                new BABYLON.Vector3(0, 0, 1).normalize(), // Beam toward dance floor
-                Math.PI / 16, // Wide enough to create sheet effect
-                20,
-                this.scene
-            );
-            light.diffuse = new BABYLON.Color3(1, 0, 0);
-            light.intensity = 8; // Brighter for visibility
-            light.range = 30;
-            this.curtainLights.push(light);
-        }
-        
-        this.djLaserPhase = 0;
         this.djLaserHousing = laserHousing;
         this.djLaserHousingMat = housingMat;
         
         // Special mode tracking for dramatic effects
-        this.laserBlanketActive = false;
-        this.laserBlanketNextShow = 0;
         this.discoBallShowActive = false;
         this.discoBallShowNextShow = 30; // First disco show after 30s
     }
@@ -1435,9 +1397,9 @@ class VRClub {
         this.currentColorIndex = 0;
         this.colorSwitchTime = 0;
         
-        // Alternating lights/lasers control
-        this.lightsActive = true; // Start with lights
-        this.lasersActive = false;
+        // Lights and lasers control - BOTH ALWAYS ACTIVE for continuous show
+        this.lightsActive = true;
+        this.lasersActive = true; // Changed to true - always active
         this.lightModeSwitchTime = 0;
         
     }
@@ -1540,7 +1502,7 @@ class VRClub {
         const audioData = this.getAudioData();
         
         // Check if any special effect is active
-        const specialEffectActive = this.laserBlanketActive || this.discoBallShowActive;
+        const specialEffectActive = this.discoBallShowActive;
         
         // Update LED wall (with audio reactivity) - OFF during special effects
         if (this.ledPanels && !specialEffectActive) {
@@ -1629,7 +1591,7 @@ class VRClub {
         }
         
         // DISCO BALL SHOW MODE - activates every 45-75 seconds for 20 seconds
-        if (time > this.discoBallShowNextShow && !this.discoBallShowActive && !this.laserBlanketActive) {
+        if (time > this.discoBallShowNextShow && !this.discoBallShowActive) {
             this.discoBallShowActive = true;
             this.discoBallShowStartTime = time;
             this.discoBallShowNextShow = time + 45 + Math.random() * 30; // Next show in 45-75s
@@ -1654,12 +1616,9 @@ class VRClub {
             this.discoBallShowActive = false;
         }
         
-        // Alternate between lights and lasers (every 15-30 seconds) - but NOT during special effects
-        if (!specialEffectActive && time - this.lightModeSwitchTime > (15 + Math.random() * 15)) {
-            this.lightsActive = !this.lightsActive;
-            this.lasersActive = !this.lasersActive;
-            this.lightModeSwitchTime = time;
-        }
+        // Keep both lights and lasers always active (removed alternating behavior)
+        // Both spotlights and lasers run continuously for a fuller club experience
+        // Only turn off during special effects (disco ball or laser curtain shows)
         
         // Switch between synchronized and random lighting modes (every 20-40 seconds)
         if (time - this.modeSwitchTime > (20 + Math.random() * 20)) {
@@ -1854,89 +1813,7 @@ class VRClub {
             });
         }
         
-        // SPECIAL LASER BLANKET SHOW MODE - activates every 60-90 seconds for 15 seconds
-        // Only starts if disco ball show is not active
-        if (time > this.laserBlanketNextShow && !this.laserBlanketActive && !this.discoBallShowActive) {
-            this.laserBlanketActive = true;
-            this.laserBlanketStartTime = time;
-            this.laserBlanketNextShow = time + 60 + Math.random() * 30; // Next show in 60-90s
-            
-            // BLACKOUT all other lights for dramatic effect
-            if (this.spotlights) {
-                this.spotlights.forEach(spot => spot.light.intensity = 0);
-            }
-            if (this.lasers) {
-                this.lasers.forEach(laser => {
-                    laser.lights.forEach(light => light.intensity = 0);
-                    laser.beams.forEach(beam => {
-                        beam.mesh.visibility = 0;
-                        beam.material.alpha = 0;
-                    });
-                });
-            }
-            // Turn off disco ball spotlights during laser show
-            if (this.discoMainSpot) this.discoMainSpot.intensity = 0;
-            if (this.discoSpot2) this.discoSpot2.intensity = 0;
-        }
-        
-        // End laser blanket show after 15 seconds
-        if (this.laserBlanketActive && (time - this.laserBlanketStartTime > 15)) {
-            this.laserBlanketActive = false;
-        }
-        
-        // Update DRAMATIC LASER CURTAIN - vertical plane sweeping across dance floor
-        // Originates from LED wall, sweeps forward toward entrance
-        if (this.laserCurtain && this.curtainLights) {
-            const showActive = this.laserBlanketActive;
-            
-            if (showActive) {
-                this.djLaserPhase += 0.008; // Slow sweep movement
-                
-                // Sweep position from LED wall to dance floor entrance
-                // Range: -22 (near LED wall) to -5 (near entrance)
-                const minZ = -22; // Start at LED wall
-                const maxZ = -5;  // End at entrance
-                const sweepRange = maxZ - minZ;
-                const currentZ = minZ + (Math.sin(this.djLaserPhase) * 0.5 + 0.5) * sweepRange;
-                
-                // Update curtain Z position (sweeps across dance floor)
-                this.laserCurtain.position.z = currentZ;
-                // Keep at mid-height
-                this.laserCurtain.position.y = 3;
-                
-                // Slight sway left-right for realism
-                this.laserCurtain.position.x = Math.sin(this.djLaserPhase * 0.5) * 0.3;
-                
-                // Make curtain visible and bright red
-                this.laserCurtain.visibility = 1;
-                this.laserCurtain.material.emissiveColor = this.cachedColors.red;
-                this.laserCurtain.material.alpha = 0.5; // Semi-transparent sheet
-                
-                // Update housing
-                this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
-                
-                // Update spotlights - they emanate from LED wall and track curtain position
-                this.curtainLights.forEach((light, idx) => {
-                    const xPos = -10 + (idx * 2.5);
-                    // Position at LED wall
-                    light.position.set(xPos, 6.5, -25.5);
-                    
-                    // Aim at curtain position (which moves forward/back)
-                    const targetPoint = new BABYLON.Vector3(xPos * 0.3, 3, currentZ);
-                    const dirVec = targetPoint.subtract(light.position).normalize();
-                    light.direction = dirVec;
-                    
-                    light.diffuse = this.cachedColors.red;
-                    light.intensity = 15; // VERY BRIGHT for dramatic effect
-                });
-            } else {
-                // Turn off when not in special show mode
-                this.laserCurtain.visibility = 0;
-                this.curtainLights.forEach(light => {
-                    light.intensity = 0;
-                });
-            }
-        }
+        // Laser curtain show removed (was broken)
         
         // Update truss-mounted lights - all same color
         if (this.trussLights && this.trussLights.length > 0) {
