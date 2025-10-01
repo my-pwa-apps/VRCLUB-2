@@ -75,34 +75,40 @@ AFRAME.registerComponent('club-environment', {
       
       emittersContainer.appendChild(emitter);
 
-      // Create laser beam from emitter - positioned to shoot from the emitter housing
+      // Create laser beam from emitter - extends from truss (9.5) down to floor (0)
       const laser = document.createElement('a-entity');
-      laser.setAttribute('geometry', {
-        primitive: 'cylinder',
-        radius: 0.03,
-        height: 9.5  // Beam extends from emitter to floor
-      });
-      laser.setAttribute('material', {
-        color: colors[i % colors.length],
-        emissive: colors[i % colors.length],
+      
+      // Position at the emitter location (top of the beam)
+      laser.setAttribute('position', `${pos.x} 9.5 ${pos.z}`);
+      
+      // Beam cylinder - height is distance from truss to floor
+      const beamHeight = 9.5;
+      const beam = document.createElement('a-cylinder');
+      beam.setAttribute('radius', '0.03');
+      beam.setAttribute('height', beamHeight);
+      // Position beam so top is at emitter, extends downward
+      beam.setAttribute('position', `0 ${-beamHeight / 2} 0`);
+      beam.setAttribute('material', {
+        color: colors[0],  // Use same color for all beams initially
+        emissive: colors[0],
         emissiveIntensity: 0,
         opacity: 0,
         transparent: true
       });
-      // Position at emitter height minus half beam length to extend downward
-      laser.setAttribute('position', `${pos.x} ${9.5 - (9.5 / 2)} ${pos.z}`);
+      beam.classList.add('laser-beam-cylinder');
+      laser.appendChild(beam);
       
-      // Initial rotation pointing downward with slight angle
-      const initialRotX = 15 + Math.random() * 30;  // 15-45 degrees from vertical
-      const initialRotY = Math.random() * 360;      // Random horizontal rotation
+      // Rotate the entire laser entity (pivots at emitter position)
+      const initialRotX = 5 + Math.random() * 15;   // Small angle from vertical (5-20 degrees)
+      const initialRotY = Math.random() * 360;       // Random horizontal rotation
       laser.setAttribute('rotation', `${initialRotX} ${initialRotY} 0`);
       
-      // Animate rotation to create moving beam effect
+      // Animate rotation to create sweeping effect
       laser.setAttribute('animation', {
         property: 'rotation',
-        to: `${15 + Math.random() * 30} ${initialRotY + 360} ${Math.random() * 15}`,
+        to: `${5 + Math.random() * 15} ${initialRotY + 360} 0`,
         loop: true,
-        dur: 4000 + Math.random() * 3000,
+        dur: 5000 + Math.random() * 3000,
         easing: 'linear'
       });
       laser.classList.add('laser-beam');
@@ -127,6 +133,7 @@ AFRAME.registerComponent('club-environment', {
 
   switchLightMode: function(mode) {
     const lasers = document.querySelectorAll('.laser-beam');
+    const laserCylinders = document.querySelectorAll('.laser-beam-cylinder');
     const laserEmitters = document.querySelectorAll('.laser-emitter');
     const laserLenses = document.querySelectorAll('.laser-lens');
     const spotlights = document.querySelectorAll('#light-beams a-entity[light]');
@@ -134,9 +141,13 @@ AFRAME.registerComponent('club-environment', {
     const strobePlanes = document.querySelectorAll('#strobe-lights a-plane');
     const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
 
+    // Color array for laser cycling
+    const laserColors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
+    const currentColor = laserColors[this.lightModeTimer % laserColors.length];
+
     // Reset all
-    lasers.forEach(l => l.setAttribute('material', 'opacity', 0));
-    lasers.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
+    laserCylinders.forEach(l => l.setAttribute('material', 'opacity', 0));
+    laserCylinders.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
     laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0));
     laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
     spotlights.forEach(s => s.setAttribute('light', 'intensity', 0));
@@ -146,12 +157,22 @@ AFRAME.registerComponent('club-environment', {
 
     switch(mode) {
       case 'lasers':
-        lasers.forEach(l => {
+        // Set all lasers to the same color
+        laserCylinders.forEach(l => {
+          l.setAttribute('material', 'color', currentColor);
+          l.setAttribute('material', 'emissive', currentColor);
           l.setAttribute('material', 'opacity', 0.8);
           l.setAttribute('material', 'emissiveIntensity', 2);
         });
-        laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 1));
-        laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 2));
+        laserEmitters.forEach(e => {
+          e.setAttribute('material', 'emissive', currentColor);
+          e.setAttribute('material', 'emissiveIntensity', 1);
+        });
+        laserLenses.forEach(l => {
+          l.setAttribute('material', 'color', currentColor);
+          l.setAttribute('material', 'emissive', currentColor);
+          l.setAttribute('material', 'emissiveIntensity', 2);
+        });
         break;
 
       case 'spotlights':
@@ -168,12 +189,22 @@ AFRAME.registerComponent('club-environment', {
         break;
 
       case 'mixed':
-        lasers.forEach(l => {
+        // Set all lasers to the same color in mixed mode too
+        laserCylinders.forEach(l => {
+          l.setAttribute('material', 'color', currentColor);
+          l.setAttribute('material', 'emissive', currentColor);
           l.setAttribute('material', 'opacity', 0.5);
           l.setAttribute('material', 'emissiveIntensity', 1.5);
         });
-        laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0.8));
-        laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 1.5));
+        laserEmitters.forEach(e => {
+          e.setAttribute('material', 'emissive', currentColor);
+          e.setAttribute('material', 'emissiveIntensity', 0.8);
+        });
+        laserLenses.forEach(l => {
+          l.setAttribute('material', 'color', currentColor);
+          l.setAttribute('material', 'emissive', currentColor);
+          l.setAttribute('material', 'emissiveIntensity', 1.5);
+        });
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 1.5));
         ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0.5));
         break;
@@ -230,8 +261,8 @@ AFRAME.registerComponent('club-environment', {
 
       // React lasers to mid frequencies
       if (this.currentLightMode === 'lasers' || this.currentLightMode === 'mixed') {
-        const lasers = document.querySelectorAll('.laser-beam');
-        lasers.forEach((laser, i) => {
+        const laserCylinders = document.querySelectorAll('.laser-beam-cylinder');
+        laserCylinders.forEach((laser, i) => {
           const intensity = 1 + midLevel * 2;
           const opacity = 0.4 + midLevel * 0.6;
           laser.setAttribute('material', 'emissiveIntensity', intensity);
