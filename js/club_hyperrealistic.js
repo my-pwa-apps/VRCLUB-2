@@ -1215,6 +1215,11 @@ class VRClub {
                 this.ledPatternSwitchTime = time;
             }
             
+            // Initialize currentColorIndex if not set
+            if (this.currentColorIndex === undefined) {
+                this.currentColorIndex = 0;
+            }
+            
             // Get current color
             let ledColor;
             if (this.currentColorIndex === 0) {
