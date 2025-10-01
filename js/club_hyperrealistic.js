@@ -162,7 +162,7 @@ class VRClub {
     }
 
     createFloor() {
-        console.log('🏗️ Creating hyperrealistic floor...');
+        console.log('🏗️ Creating industrial concrete floor...');
         
         const floor = BABYLON.MeshBuilder.CreateGround("floor", {
             width: 35,
@@ -171,17 +171,27 @@ class VRClub {
         }, this.scene);
         floor.position.z = -10;
         
-        // Glossy black club floor with PBR
+        // Industrial concrete floor with PBR - worn and realistic
         const floorMat = new BABYLON.PBRMetallicRoughnessMaterial("floorMat", this.scene);
-        floorMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
-        floorMat.metallic = 0.95; // Very reflective
-        floorMat.roughness = 0.05; // Very glossy
-        floorMat.environmentIntensity = 2.0; // Strong reflections
+        floorMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.27); // Concrete gray
+        floorMat.metallic = 0.0; // Not metallic at all
+        floorMat.roughness = 0.9; // Very rough, matte concrete
+        
+        // Create procedural noise texture for concrete variation
+        const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene);
+        noiseTexture.octaves = 4;
+        noiseTexture.persistence = 0.8;
+        noiseTexture.animationSpeedFactor = 0; // Static texture
+        floorMat.bumpTexture = noiseTexture;
+        floorMat.bumpTexture.level = 0.3; // Subtle bump
+        
+        // Slightly dirty, aged concrete
+        floorMat.environmentIntensity = 0.1; // Minimal reflections
         
         floor.material = floorMat;
         floor.receiveShadows = true;
         
-        console.log('✅ Hyperrealistic floor created');
+        console.log('✅ Industrial concrete floor created');
     }
 
     createWalls() {
@@ -259,7 +269,7 @@ class VRClub {
     }
 
     createCeiling() {
-        console.log('🏗️ Creating ceiling with details...');
+        console.log('🏗️ Creating industrial hall ceiling...');
         
         const ceiling = BABYLON.MeshBuilder.CreateBox("ceiling", {
             width: 35,
@@ -268,33 +278,93 @@ class VRClub {
         }, this.scene);
         ceiling.position = new BABYLON.Vector3(0, 10, -10);
         
+        // Industrial concrete/metal ceiling
         const ceilingMat = new BABYLON.PBRMetallicRoughnessMaterial("ceilingMat", this.scene);
-        ceilingMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.05);
-        ceilingMat.metallic = 0.3;
-        ceilingMat.roughness = 0.7;
+        ceilingMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.17); // Dark industrial gray
+        ceilingMat.metallic = 0.2;
+        ceilingMat.roughness = 0.8;
         ceiling.material = ceilingMat;
         
-        // Add lighting truss
+        // Add lighting truss above dance floor
         this.createLightingTruss();
     }
 
     createLightingTruss() {
-        // Industrial lighting truss across ceiling
-        const trussMat = new BABYLON.PBRMetallicRoughnessMaterial("trussMat", this.scene);
-        trussMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.22);
-        trussMat.metallic = 1.0;
-        trussMat.roughness = 0.4;
+        console.log('🎪 Creating lighting truss above dance floor...');
         
-        // Main truss beams
-        for (let i = 0; i < 3; i++) {
-            const truss = BABYLON.MeshBuilder.CreateBox("truss" + i, {
-                width: 0.2,
-                height: 0.2,
-                depth: 30
+        // Professional stage truss material - metallic aluminum
+        const trussMat = new BABYLON.PBRMetallicRoughnessMaterial("trussMat", this.scene);
+        trussMat.baseColor = new BABYLON.Color3(0.6, 0.6, 0.65); // Aluminum color
+        trussMat.metallic = 1.0; // Fully metallic
+        trussMat.roughness = 0.3; // Somewhat shiny
+        
+        // Main horizontal truss beams (square tube)
+        const trussWidth = 0.25;
+        const trussHeight = 0.25;
+        
+        // Truss 1 - Front (above dance floor front)
+        const truss1 = BABYLON.MeshBuilder.CreateBox("truss1", {
+            width: 20,
+            height: trussHeight,
+            depth: trussWidth
+        }, this.scene);
+        truss1.position = new BABYLON.Vector3(0, 8, -8);
+        truss1.material = trussMat;
+        
+        // Truss 2 - Middle (center of dance floor)
+        const truss2 = BABYLON.MeshBuilder.CreateBox("truss2", {
+            width: 20,
+            height: trussHeight,
+            depth: trussWidth
+        }, this.scene);
+        truss2.position = new BABYLON.Vector3(0, 8, -12);
+        truss2.material = trussMat;
+        
+        // Truss 3 - Back (near LED wall)
+        const truss3 = BABYLON.MeshBuilder.CreateBox("truss3", {
+            width: 20,
+            height: trussHeight,
+            depth: trussWidth
+        }, this.scene);
+        truss3.position = new BABYLON.Vector3(0, 8, -16);
+        truss3.material = trussMat;
+        
+        // Cross beams connecting the trusses
+        for (let i = -8; i <= 8; i += 4) {
+            const crossBeam = BABYLON.MeshBuilder.CreateBox("crossBeam" + i, {
+                width: trussWidth,
+                height: trussHeight,
+                depth: 8
             }, this.scene);
-            truss.position = new BABYLON.Vector3(-10 + (i * 10), 9, -15);
-            truss.material = trussMat;
+            crossBeam.position = new BABYLON.Vector3(i, 8, -12);
+            crossBeam.material = trussMat;
         }
+        
+        // Diagonal support cables/wires from ceiling to truss
+        const cableMat = new BABYLON.StandardMaterial("cableMat", this.scene);
+        cableMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        cableMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+        
+        // Support cables
+        const cablePositions = [
+            { x: -10, z: -8 },
+            { x: -10, z: -16 },
+            { x: 10, z: -8 },
+            { x: 10, z: -16 },
+            { x: 0, z: -8 },
+            { x: 0, z: -16 }
+        ];
+        
+        cablePositions.forEach((pos, i) => {
+            const cable = BABYLON.MeshBuilder.CreateCylinder("cable" + i, {
+                diameter: 0.03,
+                height: 2
+            }, this.scene);
+            cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
+            cable.material = cableMat;
+        });
+        
+        console.log('✅ Professional lighting truss created above dance floor');
     }
 
     createDJBooth() {
@@ -594,41 +664,97 @@ class VRClub {
     }
 
     createDanceFloorLights() {
-        console.log('💡 Creating dance floor lights...');
+        console.log('💡 Creating truss-mounted lights, lasers, and strobes...');
         
-        // RGB floor tiles
-        const tileSize = 1.5;
-        const colors = [
-            new BABYLON.Color3(1, 0, 0),
-            new BABYLON.Color3(0, 1, 0),
-            new BABYLON.Color3(0, 0, 1),
-            new BABYLON.Color3(1, 1, 0),
-            new BABYLON.Color3(1, 0, 1),
-            new BABYLON.Color3(0, 1, 1)
+        // No floor tiles - just industrial concrete
+        // Lights will be mounted on the truss instead
+        this.floorTiles = []; // Keep empty to avoid errors in updateAnimations
+        
+        // Create truss-mounted lights
+        this.createTrussMountedLights();
+        
+        console.log('✅ Truss-mounted lighting system created');
+    }
+    
+    createTrussMountedLights() {
+        // Moving head lights on truss (PAR cans style)
+        const lightFixtureMat = new BABYLON.PBRMetallicRoughnessMaterial("lightFixtureMat", this.scene);
+        lightFixtureMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        lightFixtureMat.metallic = 0.9;
+        lightFixtureMat.roughness = 0.2;
+        
+        // Array of light positions on truss
+        const lightPositions = [
+            { x: -8, z: -12 },
+            { x: -4, z: -12 },
+            { x: 0, z: -12 },
+            { x: 4, z: -12 },
+            { x: 8, z: -12 },
+            { x: -6, z: -8 },
+            { x: 6, z: -8 },
+            { x: -6, z: -16 },
+            { x: 6, z: -16 }
         ];
         
-        this.floorTiles = [];
+        this.trussLights = [];
         
-        for (let x = -2; x <= 2; x++) {
-            for (let z = -2; z <= 2; z++) {
-                const tile = BABYLON.MeshBuilder.CreateBox("tile" + x + "_" + z, {
-                    width: tileSize - 0.1,
-                    height: 0.05,
-                    depth: tileSize - 0.1
-                }, this.scene);
-                tile.position = new BABYLON.Vector3(x * tileSize, 0.03, -12 + (z * tileSize));
-                
-                const tileMat = new BABYLON.StandardMaterial("tileMat" + x + "_" + z, this.scene);
-                // Use Math.abs to ensure positive index
-                const colorIndex = Math.abs(x + z) % colors.length;
-                tileMat.emissiveColor = colors[colorIndex].clone();
-                tileMat.emissiveColor.scale(0.3); // Dim initially
-                tileMat.disableLighting = true;
-                tile.material = tileMat;
-                
-                this.floorTiles.push(tile);
-            }
-        }
+        lightPositions.forEach((pos, i) => {
+            // Light fixture body
+            const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
+                diameter: 0.3,
+                height: 0.4
+            }, this.scene);
+            fixture.position = new BABYLON.Vector3(pos.x, 7.7, pos.z);
+            fixture.rotation.x = Math.PI / 2;
+            fixture.material = lightFixtureMat;
+            
+            // Light lens (glowing)
+            const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
+                diameter: 0.25,
+                height: 0.05
+            }, this.scene);
+            lens.position = new BABYLON.Vector3(pos.x, 7.5, pos.z);
+            lens.rotation.x = Math.PI / 2;
+            
+            const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
+            lensMat.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+            lensMat.disableLighting = true;
+            lens.material = lensMat;
+            
+            this.trussLights.push({ fixture, lens, lensMat });
+        });
+        
+        // Strobe lights on truss corners
+        this.createStrobeLights();
+    }
+    
+    createStrobeLights() {
+        console.log('⚡ Creating strobe lights on truss...');
+        
+        const strobePositions = [
+            { x: -10, z: -8 },
+            { x: 10, z: -8 },
+            { x: -10, z: -16 },
+            { x: 10, z: -16 }
+        ];
+        
+        this.strobes = [];
+        
+        strobePositions.forEach((pos, i) => {
+            const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
+                width: 0.4,
+                height: 0.3,
+                depth: 0.3
+            }, this.scene);
+            strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
+            
+            const strobeMat = new BABYLON.StandardMaterial("strobeMat" + i, this.scene);
+            strobeMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Off by default
+            strobeMat.disableLighting = true;
+            strobe.material = strobeMat;
+            
+            this.strobes.push({ mesh: strobe, material: strobeMat });
+        });
     }
 
     createSmokeParticles() {
@@ -717,90 +843,118 @@ class VRClub {
     }
 
     createLasers() {
-        console.log('🔦 Creating laser systems...');
+        console.log('🔦 Creating truss-mounted laser systems...');
         
         this.lasers = [];
+        
+        // Lasers mounted on the truss above dance floor
         const laserPositions = [
-            { x: -8, z: -20 },
-            { x: 8, z: -20 },
-            { x: -10, z: -10 },
-            { x: 10, z: -10 },
-            { x: -5, z: -5 },
-            { x: 5, z: -5 }
+            { x: -7, z: -10, trussY: 7.8 },
+            { x: -3, z: -10, trussY: 7.8 },
+            { x: 3, z: -10, trussY: 7.8 },
+            { x: 7, z: -10, trussY: 7.8 },
+            { x: -5, z: -14, trussY: 7.8 },
+            { x: 5, z: -14, trussY: 7.8 }
         ];
         
         laserPositions.forEach((pos, i) => {
-            const laser = BABYLON.MeshBuilder.CreateCylinder("laser" + i, {
-                diameter: 0.05,
-                height: 20
+            // Laser housing on truss
+            const housing = BABYLON.MeshBuilder.CreateBox("laserHousing" + i, {
+                width: 0.2,
+                height: 0.15,
+                depth: 0.3
             }, this.scene);
-            laser.position = new BABYLON.Vector3(pos.x, 5, pos.z);
-            laser.rotation.x = Math.PI / 4;
+            housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+            
+            const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("laserHousingMat" + i, this.scene);
+            housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+            housingMat.metallic = 0.8;
+            housingMat.roughness = 0.3;
+            housing.material = housingMat;
+            
+            // Laser beam
+            const laser = BABYLON.MeshBuilder.CreateCylinder("laser" + i, {
+                diameter: 0.04,
+                height: 15
+            }, this.scene);
+            laser.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.2, pos.z);
+            laser.rotation.x = Math.PI / 6; // Angle down
             
             const laserMat = new BABYLON.StandardMaterial("laserMat" + i, this.scene);
             laserMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
-            laserMat.alpha = 0.6;
+            laserMat.alpha = 0.7;
             laserMat.disableLighting = true;
             laser.material = laserMat;
             
             this.lasers.push({
                 mesh: laser,
+                housing: housing,
                 material: laserMat,
-                rotation: Math.random() * Math.PI * 2
+                rotation: Math.random() * Math.PI * 2,
+                baseY: pos.trussY - 0.2
             });
         });
         
-        console.log('✅ 6 laser systems created');
+        console.log('✅ 6 truss-mounted laser systems created');
     }
 
     createLights() {
-        console.log('💡 Creating atmospheric lighting...');
+        console.log('💡 Creating truss-mounted lighting system...');
         
-        // Very dim ambient
+        // Very dim ambient for industrial atmosphere
         const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), this.scene);
-        ambient.intensity = 0.1;
-        ambient.diffuse = new BABYLON.Color3(0.1, 0.1, 0.15);
+        ambient.intensity = 0.08;
+        ambient.diffuse = new BABYLON.Color3(0.1, 0.1, 0.12);
         
-        // Spotlights from ceiling
+        // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
         const spotPositions = [
-            { x: -8, z: -15 },
-            { x: 8, z: -15 },
-            { x: -5, z: -8 },
-            { x: 5, z: -8 },
-            { x: 0, z: -12 }
+            { x: -8, z: -12 },
+            { x: -4, z: -12 },
+            { x: 0, z: -12 },
+            { x: 4, z: -12 },
+            { x: 8, z: -12 },
+            { x: -6, z: -8 },
+            { x: 6, z: -8 },
+            { x: -6, z: -16 },
+            { x: 6, z: -16 }
         ];
         
         const spotColors = [
-            new BABYLON.Color3(1, 0, 0),
-            new BABYLON.Color3(0, 0, 1),
-            new BABYLON.Color3(0, 1, 0),
-            new BABYLON.Color3(1, 0, 1),
-            new BABYLON.Color3(1, 1, 0)
+            new BABYLON.Color3(1, 0, 0),      // Red
+            new BABYLON.Color3(0, 0, 1),      // Blue
+            new BABYLON.Color3(0, 1, 0),      // Green
+            new BABYLON.Color3(1, 0, 1),      // Magenta
+            new BABYLON.Color3(1, 1, 0),      // Yellow
+            new BABYLON.Color3(0, 1, 1),      // Cyan
+            new BABYLON.Color3(1, 0.5, 0),    // Orange
+            new BABYLON.Color3(0.5, 0, 1),    // Purple
+            new BABYLON.Color3(1, 1, 1)       // White
         ];
         
         spotPositions.forEach((pos, i) => {
+            // Spotlight from truss position
             const spot = new BABYLON.SpotLight("spot" + i,
-                new BABYLON.Vector3(pos.x, 9, pos.z),
-                new BABYLON.Vector3(0, -1, 0),
-                Math.PI / 3,
-                2,
+                new BABYLON.Vector3(pos.x, 7.8, pos.z),  // Truss height
+                new BABYLON.Vector3(0, -1, 0),           // Point down
+                Math.PI / 4,                              // 45 degree cone
+                3,                                        // Exponent
                 this.scene
             );
-            spot.diffuse = spotColors[i];
-            spot.intensity = 0;
-            spot.range = 15;
+            spot.diffuse = spotColors[i % spotColors.length];
+            spot.intensity = 0; // Start off, will pulse
+            spot.range = 20;
             
             this.spotlights.push(spot);
         });
         
         // LED wall backlight
         const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
-        ledLight.diffuse = new BABYLON.Color3(1, 1, 1);
-        ledLight.intensity = 12;
-        ledLight.range = 20;
+        ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
+        ledLight.intensity = 10;
+        ledLight.range = 25;
         
-        console.log('✅ Lighting created');
+        console.log('✅ Truss-mounted lighting system created');
     }
 
     updateAnimations() {
@@ -837,12 +991,37 @@ class VRClub {
             });
         }
         
-        // Update floor tiles
-        if (this.floorTiles) {
-            this.floorTiles.forEach((tile, i) => {
-                const pulse = 0.2 + Math.sin(time * 2 + i * 0.5) * 0.3;
-                tile.material.emissiveColor.scale(1 / tile.material.emissiveColor.length());
-                tile.material.emissiveColor.scaleInPlace(pulse);
+        // Update truss-mounted lights
+        if (this.trussLights && this.trussLights.length > 0) {
+            this.trussLights.forEach((light, i) => {
+                const pulse = 0.3 + Math.sin(time * 3 + i * 0.8) * 0.7;
+                const colorPhase = (time + i) % 6;
+                
+                // Cycle through colors
+                if (colorPhase < 1) {
+                    light.lensMat.emissiveColor = new BABYLON.Color3(pulse, 0, 0); // Red
+                } else if (colorPhase < 2) {
+                    light.lensMat.emissiveColor = new BABYLON.Color3(0, pulse, 0); // Green
+                } else if (colorPhase < 3) {
+                    light.lensMat.emissiveColor = new BABYLON.Color3(0, 0, pulse); // Blue
+                } else if (colorPhase < 4) {
+                    light.lensMat.emissiveColor = new BABYLON.Color3(pulse, 0, pulse); // Magenta
+                } else if (colorPhase < 5) {
+                    light.lensMat.emissiveColor = new BABYLON.Color3(pulse, pulse, 0); // Yellow
+                } else {
+                    light.lensMat.emissiveColor = new BABYLON.Color3(0, pulse, pulse); // Cyan
+                }
+            });
+        }
+        
+        // Update strobes (random flashes)
+        if (this.strobes && this.strobes.length > 0) {
+            this.strobes.forEach((strobe, i) => {
+                if (Math.random() < 0.02) { // 2% chance each frame
+                    strobe.material.emissiveColor = new BABYLON.Color3(10, 10, 10); // Bright flash
+                } else {
+                    strobe.material.emissiveColor = new BABYLON.Color3(0, 0, 0); // Off
+                }
             });
         }
     }
