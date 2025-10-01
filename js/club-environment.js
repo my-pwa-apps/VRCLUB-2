@@ -159,32 +159,35 @@ AFRAME.registerComponent('club-environment', {
     const currentColor = laserColors[this.lightModeTimer % laserColors.length];
 
     // Reset all
-    laserCylinders.forEach(l => l.setAttribute('material', 'opacity', 0));
-    laserCylinders.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
-    laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0));
-    laserLenses.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
+    laserCylinders.forEach(l => {
+      l.setAttribute('material', 'opacity', 0);
+      l.setAttribute('material', 'emissive', '#000000');
+    });
+    laserEmitters.forEach(e => e.setAttribute('material', 'emissive', '#000000'));
+    laserLenses.forEach(l => l.setAttribute('material', 'emissive', '#000000'));
     spotlights.forEach(s => s.setAttribute('light', 'intensity', 0));
     strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
-    strobePlanes.forEach(b => b.setAttribute('material', 'emissiveIntensity', 0));
-    ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0));
+    strobePlanes.forEach(b => b.setAttribute('material', 'emissive', '#000000'));
+    ledPanels.forEach(p => p.setAttribute('material', 'emissive', '#000000'));
 
     switch(mode) {
       case 'lasers':
         // Set all lasers to the same color
         laserCylinders.forEach(l => {
-          l.setAttribute('material', 'color', currentColor);
-          l.setAttribute('material', 'emissive', currentColor);
-          l.setAttribute('material', 'opacity', 0.8);
-          l.setAttribute('material', 'emissiveIntensity', 2);
+          l.setAttribute('material', {
+            color: currentColor,
+            emissive: currentColor,
+            opacity: 0.8
+          });
         });
         laserEmitters.forEach(e => {
           e.setAttribute('material', 'emissive', currentColor);
-          e.setAttribute('material', 'emissiveIntensity', 1);
         });
         laserLenses.forEach(l => {
-          l.setAttribute('material', 'color', currentColor);
-          l.setAttribute('material', 'emissive', currentColor);
-          l.setAttribute('material', 'emissiveIntensity', 2);
+          l.setAttribute('material', {
+            color: currentColor,
+            emissive: currentColor
+          });
         });
         break;
 
@@ -192,7 +195,7 @@ AFRAME.registerComponent('club-environment', {
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 2.5));
         ledPanels.forEach((p, i) => {
           setTimeout(() => {
-            p.setAttribute('material', 'emissiveIntensity', 0.8);
+            p.setAttribute('material', 'emissive', '#ff00ff');
           }, i * 200);
         });
         break;
@@ -204,22 +207,23 @@ AFRAME.registerComponent('club-environment', {
       case 'mixed':
         // Set all lasers to the same color in mixed mode too
         laserCylinders.forEach(l => {
-          l.setAttribute('material', 'color', currentColor);
-          l.setAttribute('material', 'emissive', currentColor);
-          l.setAttribute('material', 'opacity', 0.5);
-          l.setAttribute('material', 'emissiveIntensity', 1.5);
+          l.setAttribute('material', {
+            color: currentColor,
+            emissive: currentColor,
+            opacity: 0.5
+          });
         });
         laserEmitters.forEach(e => {
           e.setAttribute('material', 'emissive', currentColor);
-          e.setAttribute('material', 'emissiveIntensity', 0.8);
         });
         laserLenses.forEach(l => {
-          l.setAttribute('material', 'color', currentColor);
-          l.setAttribute('material', 'emissive', currentColor);
-          l.setAttribute('material', 'emissiveIntensity', 1.5);
+          l.setAttribute('material', {
+            color: currentColor,
+            emissive: currentColor
+          });
         });
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 1.5));
-        ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0.5));
+        ledPanels.forEach(p => p.setAttribute('material', 'emissive', '#ff00ff'));
         break;
     }
   },
@@ -234,15 +238,15 @@ AFRAME.registerComponent('club-environment', {
 
       // Turn off all strobes
       strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
-      strobePlanes.forEach(b => b.setAttribute('material', 'emissiveIntensity', 0));
+      strobePlanes.forEach(b => b.setAttribute('material', 'emissive', '#000000'));
 
       // Flash current strobe
       strobes[strobeIndex].setAttribute('light', 'intensity', 5);
-      strobePlanes[strobeIndex].setAttribute('material', 'emissiveIntensity', 3);
+      strobePlanes[strobeIndex].setAttribute('material', 'emissive', '#ffffff');
 
       setTimeout(() => {
         strobes[strobeIndex].setAttribute('light', 'intensity', 0);
-        strobePlanes[strobeIndex].setAttribute('material', 'emissiveIntensity', 0);
+        strobePlanes[strobeIndex].setAttribute('material', 'emissive', '#000000');
       }, 100);
 
       strobeIndex = (strobeIndex + 1) % strobes.length;
