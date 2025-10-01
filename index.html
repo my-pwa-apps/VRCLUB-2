@@ -6,18 +6,26 @@
 <style>
 html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%;}
 #canvas{width:100%;height:100%;touch-action:none;}
-#ui{position:absolute;top:20px;left:20px;background:rgba(0,0,0,0.8);padding:20px;border-radius:10px;color:white;z-index:100;}
-button{background:#667eea;border:none;color:white;padding:12px 24px;border-radius:5px;cursor:pointer;width:100%;margin:5px 0;}
-input{width:100%;padding:10px;margin:5px 0;border-radius:5px;border:none;}
+#ui{position:absolute;top:20px;left:20px;background:rgba(0,0,0,0.8);padding:20px;border-radius:10px;color:white;z-index:100;font-family:Arial,sans-serif;max-width:300px;}
+button{background:#667eea;border:none;color:white;padding:12px 24px;border-radius:5px;cursor:pointer;width:100%;margin:5px 0;font-size:14px;transition:all 0.3s;}
+button:hover{background:#764ba2;transform:translateY(-2px);}
+input{width:100%;padding:10px;margin:5px 0;border-radius:5px;border:none;box-sizing:border-box;}
+.status{font-size:11px;color:#4ade80;margin:10px 0;padding:8px;background:rgba(74,222,128,0.1);border-radius:5px;border-left:3px solid #4ade80;}
+.info{font-size:11px;opacity:0.7;margin:5px 0;}
+h2{margin:0 0 15px 0;font-size:20px;color:#667eea;}
 </style>
 </head>
 <body>
 <canvas id="canvas"></canvas>
 <div id="ui">
-<h2>VR CLUB</h2>
-<button id="vr">Enter VR</button>
-<input id="music" placeholder="Music URL">
-<button id="play">Play</button>
+<h2>🎵 VR CLUB</h2>
+<div class="status">✅ Club Loaded | 🎨 LED Wall Active | 💡 Lights On</div>
+<button id="vr">🎮 Enter VR Mode</button>
+<div class="info">⌨️ WASD to move | 🖱️ Mouse to look</div>
+<hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:15px 0;">
+<input id="music" placeholder="🎵 Enter Music Stream URL">
+<button id="play">▶️ Play Music</button>
+<div class="info" style="margin-top:10px;">💡 VR requires Quest 3S via Link/Air Link</div>
 </div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="js/club.js"></script>

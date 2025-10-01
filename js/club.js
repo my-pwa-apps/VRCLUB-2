@@ -82,7 +82,15 @@ class VRClub {
             this.engine.resize();
         });
         
-        console.log('✅ VR Club initialized successfully!');
+        console.log('%c✅ VR Club initialized successfully!', 'color: #4ade80; font-weight: bold; font-size: 14px;');
+        console.log('%c🎨 Features Active:', 'color: #667eea; font-weight: bold;');
+        console.log('  • LED Wall: 24 panels with 6 animated patterns');
+        console.log('  • Lasers: 6 systems with color cycling');
+        console.log('  • Spotlights: 5 dynamic lights');
+        console.log('  • Lighting: Bright environment optimized');
+        console.log('%c💡 Ready to use!', 'color: #4ade80; font-weight: bold;');
+        console.log('  Desktop: Use WASD to move, mouse to look around');
+        console.log('  VR: Click "Enter VR" button (requires Quest 3S connected)');
     }
 
     createFloor() {
@@ -365,9 +373,22 @@ class VRClub {
 
     setupUI(vrHelper) {
         // VR button
-        document.getElementById('vr').addEventListener('click', async () => {
+        const vrButton = document.getElementById('vr');
+        vrButton.addEventListener('click', async () => {
             if (vrHelper && vrHelper.baseExperience) {
-                await vrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
+                try {
+                    console.log('🎮 Attempting to enter VR mode...');
+                    await vrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
+                    console.log('✅ VR mode entered successfully!');
+                } catch (error) {
+                    console.warn('⚠️ VR not available:', error.message);
+                    alert('VR Not Available\n\n' +
+                          'This requires:\n' +
+                          '• Meta Quest 3S connected via Link/Air Link\n' +
+                          '• OR Firefox Reality browser\n' +
+                          '• OR Chrome with WebXR Device API\n\n' +
+                          'Desktop mode works without VR!');
+                }
             }
         });
         
