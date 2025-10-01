@@ -117,6 +117,11 @@ AFRAME.registerComponent('club-environment', {
   },
 
   setupLightShowSequence: function() {
+    // Initialize with first light mode
+    setTimeout(() => {
+      this.switchLightMode(this.currentLightMode);
+    }, 1000); // Small delay to ensure scene is loaded
+
     // Alternate between different lighting modes
     setInterval(() => {
       this.lightModeTimer++;
@@ -135,10 +140,19 @@ AFRAME.registerComponent('club-environment', {
     const laserCylinders = document.querySelectorAll('.laser-beam-cylinder');
     const laserEmitters = document.querySelectorAll('.laser-emitter');
     const laserLenses = document.querySelectorAll('.laser-lens');
-    const spotlights = document.querySelectorAll('#light-beams a-entity[light]');
-    const strobes = document.querySelectorAll('#strobe-lights a-entity[light]');
-    const strobePlanes = document.querySelectorAll('#strobe-lights a-plane');
-    const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
+    const spotlights = document.querySelectorAll('#spotlight-1 [light], #spotlight-2 [light], #spotlight-3 [light], #spotlight-4 [light], #spotlight-5 [light]');
+    const strobes = document.querySelectorAll('#strobe-1 [light], #strobe-2 [light], #strobe-3 [light], #strobe-4 [light], #strobe-5 [light]');
+    const strobePlanes = document.querySelectorAll('#strobe-1 a-plane, #strobe-2 a-plane, #strobe-3 a-plane, #strobe-4 a-plane, #strobe-5 a-plane');
+    const ledPanels = document.querySelectorAll('#led-panel-1 a-plane, #led-panel-2 a-plane, #led-panel-3 a-plane');
+
+    // Debug logging
+    console.log('Switching to mode:', mode);
+    console.log('Found elements:', {
+      laserCylinders: laserCylinders.length,
+      spotlights: spotlights.length,
+      strobes: strobes.length,
+      ledPanels: ledPanels.length
+    });
 
     // Color array for laser cycling
     const laserColors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
