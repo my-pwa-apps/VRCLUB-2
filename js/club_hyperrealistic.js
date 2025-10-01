@@ -844,6 +844,7 @@ class VRClub {
                 depth: 0.3
             }, this.scene);
             housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+            housing.isPickable = false; // Don't interfere with raycasting
             
             const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("laserHousingMat" + i, this.scene);
             housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
@@ -855,9 +856,11 @@ class VRClub {
             // Laser beam (will be resized dynamically)
             const laser = BABYLON.MeshBuilder.CreateCylinder("laser" + i, {
                 diameter: 0.04,
-                height: 1 // Initial height, will be updated
+                height: 10 // Initial height, will be updated
             }, this.scene);
-            laser.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+            laser.position = new BABYLON.Vector3(pos.x, pos.trussY - 5, pos.z);
+            laser.isPickable = false; // Don't hit the beam itself
+            laser.rotationQuaternion = BABYLON.Quaternion.Identity(); // Initialize quaternion
             
             const laserMat = new BABYLON.StandardMaterial("laserMat" + i, this.scene);
             laserMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
@@ -928,16 +931,30 @@ class VRClub {
             // Spotlight from truss position
             const spot = new BABYLON.SpotLight("spot" + i,
                 new BABYLON.Vector3(pos.x, 7.8, pos.z),  // Truss height
-                new BABYLON.Vector3(0, -1, 0),           // Point down
-                Math.PI / 4,                              // 45 degree cone
-                3,                                        // Exponent
+                new BABYLON.Vector3(0, -1, 0),           // Initial direction
+                Math.PI / 6,                              // Narrower cone for focused beams
+                5,                                        // Sharper falloff
                 this.scene
             );
             spot.diffuse = spotColors[i % spotColors.length];
-            spot.intensity = 0; // Start off, will pulse
-            spot.range = 20;
+            spot.intensity = 8;
+            spot.range = 25;
             
-            this.spotlights.push(spot);
+            // Enable shadows for more immersion (expensive but worth it for some lights)
+            if (i % 3 === 0) { // Only every 3rd light for performance
+                const shadowGenerator = new BABYLON.ShadowGenerator(512, spot);
+                shadowGenerator.useBlurExponentialShadowMap = true;
+                shadowGenerator.blurScale = 2;
+                shadowGenerator.setDarkness(0.4);
+            }
+            
+            this.spotlights.push({
+                light: spot,
+                basePos: new BABYLON.Vector3(pos.x, 7.8, pos.z),
+                phase: Math.random() * Math.PI * 2,
+                speed: 0.5 + Math.random() * 0.5,
+                color: spotColors[i % spotColors.length]
+            });
         });
         
         // LED wall backlight
@@ -972,12 +989,15 @@ class VRClub {
                 
                 // Raycast to find surface
                 const ray = new BABYLON.Ray(laser.originPos, direction, 30);
-                const hit = this.scene.pickWithRay(ray);
+                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                    // Only pick walls, floor, ceiling (not laser components)
+                    return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing');
+                });
                 
                 let beamLength = 15; // Default length
                 let hitPoint = laser.originPos.add(direction.scale(beamLength));
                 
-                if (hit && hit.pickedPoint) {
+                if (hit && hit.hit && hit.pickedPoint) {
                     const distance = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
                     beamLength = distance;
                     hitPoint = hit.pickedPoint;
@@ -991,9 +1011,17 @@ class VRClub {
                 // Orient beam along direction
                 const up = new BABYLON.Vector3(0, 1, 0);
                 const rotAxis = BABYLON.Vector3.Cross(up, direction);
-                const angle = Math.acos(BABYLON.Vector3.Dot(up, direction));
-                if (rotAxis.length() > 0) {
+                const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
+                
+                if (rotAxis.length() > 0.001) {
                     laser.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+                } else {
+                    // Vectors are parallel, use default orientation
+                    if (BABYLON.Vector3.Dot(up, direction) > 0) {
+                        laser.mesh.rotationQuaternion = BABYLON.Quaternion.Identity();
+                    } else {
+                        laser.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                    }
                 }
                 
                 // Update light position and direction
