@@ -20,7 +20,13 @@ class VRClub {
     async init() {
         // Create scene
         this.scene = new BABYLON.Scene(this.engine);
-        this.scene.clearColor = new BABYLON.Color3(0.02, 0.02, 0.05);
+        this.scene.clearColor = new BABYLON.Color3(0.05, 0.05, 0.08); // Slightly brighter background
+        
+        // Add fog for depth (optional, can be disabled)
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
+        this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
+        this.scene.fogStart = 30;
+        this.scene.fogEnd = 50;
         
         // Enable VR
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
@@ -447,21 +453,75 @@ class VRClub {
     moveCameraToPreset(presetName) {
         const preset = this.cameraPresets[presetName];
         if (preset) {
-            // Smooth transition
-            BABYLON.Animation.CreateAndStartAnimation(
-                'cameraMove',
-                this.camera,
-                'position',
-                60,
-                30,
-                this.camera.position.clone(),
-                preset.position,
-                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-            );
+            // Temporarily disable gravity and collision for smooth camera movement
+            const wasGravityEnabled = this.camera.applyGravity;
+            const wasCollisionEnabled = this.camera.checkCollisions;
             
+            this.camera.applyGravity = false;
+            this.camera.checkCollisions = false;
+            
+            // Directly set position and target (instant for better testing)
+            this.camera.position = preset.position.clone();
             this.camera.setTarget(preset.target);
+            
+            // Re-enable after a short delay to allow position to settle
+            setTimeout(() => {
+                this.camera.applyGravity = wasGravityEnabled;
+                this.camera.checkCollisions = wasCollisionEnabled;
+            }, 100);
+            
+            // Visual feedback - flash effect
+            this.showCameraTransitionFeedback(presetName);
+            
             console.log(`📷 Camera moved to: ${presetName}`);
+            console.log(`   Position:`, preset.position);
+            console.log(`   Target:`, preset.target);
         }
+    }
+    
+    showCameraTransitionFeedback(presetName) {
+        // Create or update feedback overlay
+        let feedback = document.getElementById('camera-feedback');
+        if (!feedback) {
+            feedback = document.createElement('div');
+            feedback.id = 'camera-feedback';
+            feedback.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(102, 126, 234, 0.95);
+                color: white;
+                padding: 20px 40px;
+                border-radius: 10px;
+                font-family: Arial, sans-serif;
+                font-size: 18px;
+                font-weight: bold;
+                z-index: 10000;
+                pointer-events: none;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            `;
+            document.body.appendChild(feedback);
+        }
+        
+        // Update text
+        const names = {
+            entrance: '🚪 Entrance View',
+            danceFloor: '💃 Dance Floor',
+            djBooth: '🎧 DJ Booth',
+            ledWallClose: '🎨 LED Wall Close-up',
+            overview: '🏢 Full Overview',
+            ceiling: '✨ Ceiling View'
+        };
+        
+        feedback.textContent = names[presetName] || presetName;
+        feedback.style.opacity = '1';
+        
+        // Fade out
+        setTimeout(() => {
+            feedback.style.transition = 'opacity 0.5s';
+            feedback.style.opacity = '0';
+        }, 1500);
     }
     
     showHelp() {
@@ -472,21 +532,22 @@ MOVEMENT:
   W - Move forward
   S - Move backward
   A - Strafe left
-  D - Strafe right
+  D - Strafe right (NOT debug mode - that's uppercase D)
   Q - Fly down
   E - Fly up
   Mouse - Look around
 
 CAMERA PRESETS (Click UI buttons):
-  1 - Entrance view
-  2 - Dance floor (see LED wall)
-  3 - DJ booth view
-  4 - LED wall close-up
-  5 - Overview (full club)
-  6 - Ceiling view (see lasers)
+  🚪 Entry - Starting position
+  💃 Floor - Dance floor view of LED wall
+  🎧 DJ - DJ booth perspective
+  🎨 LED - Close-up of LED wall
+  🏢 Full - Full club overview
+  ✨ Top - Ceiling view (see lasers)
 
 SHORTCUTS:
   H - Show this help
+  D - Toggle debug mode (shows camera position)
   ESC - Exit VR mode
 
 TESTING CHECKLIST:
@@ -495,6 +556,9 @@ TESTING CHECKLIST:
   ✓ Spotlights pulsing?
   ✓ Scene bright enough?
   ✓ Smooth movement?
+  
+TIP: If you see nothing after clicking a camera preset,
+press D to enable debug mode and check your position.
         `;
         console.log(helpText);
         alert(helpText);
@@ -539,19 +603,29 @@ TESTING CHECKLIST:
             padding: 12px 16px;
             border-radius: 8px;
             font-family: 'Courier New', monospace;
-            font-size: 14px;
+            font-size: 12px;
             font-weight: bold;
             z-index: 1000;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(74,222,128,0.3);
-            min-width: 100px;
-            text-align: center;
+            min-width: 120px;
+            text-align: left;
+            line-height: 1.6;
         `;
-        fpsDiv.innerHTML = 'FPS: --';
+        fpsDiv.innerHTML = 'FPS: --<br>Loading...';
         document.body.appendChild(fpsDiv);
         
         this.fpsDiv = fpsDiv;
         this.fpsUpdateCounter = 0;
+        
+        // Debug mode toggle (press D key)
+        this.debugMode = false;
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'd' || e.key === 'D') {
+                this.debugMode = !this.debugMode;
+                console.log('Debug mode:', this.debugMode ? 'ON' : 'OFF');
+            }
+        });
     }
     
     updatePerformanceMonitor() {
@@ -560,7 +634,17 @@ TESTING CHECKLIST:
         if (this.fpsUpdateCounter >= 10) {
             const fps = Math.round(this.engine.getFps());
             if (this.fpsDiv) {
-                this.fpsDiv.innerHTML = `FPS: ${fps}`;
+                let html = `FPS: ${fps}`;
+                
+                // Add camera position in debug mode
+                if (this.debugMode && this.camera) {
+                    const pos = this.camera.position;
+                    html += `<br>X: ${pos.x.toFixed(1)}`;
+                    html += `<br>Y: ${pos.y.toFixed(1)}`;
+                    html += `<br>Z: ${pos.z.toFixed(1)}`;
+                }
+                
+                this.fpsDiv.innerHTML = html;
                 
                 // Color based on performance
                 if (fps >= 55) {
