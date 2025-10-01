@@ -6,10 +6,14 @@ AFRAME.registerComponent('club-environment', {
     this.dataArray = null;
     this.currentLightMode = 'lasers'; // 'lasers', 'spotlights', 'strobes', 'mixed'
     this.lightModeTimer = 0;
+    this.ledWallTimer = 0;
+    this.ledWallPattern = 0; // Current pattern: 0-5
+    this.ledWallColor = '#ff0000'; // Current color
     
     this.setupLasers();
     this.setupMusicSystem();
-    this.setupNetworking();
+    this.setupLEDWall();
+    // this.setupNetworking(); // Disabled - requires proper server setup
     this.setupLightShowSequence();
   },
 
@@ -109,6 +113,62 @@ AFRAME.registerComponent('club-environment', {
       
       lasersContainer.appendChild(laser);
     });
+  },
+
+  setupLEDWall: function() {
+    // Get all LED wall panels
+    this.ledWallPanels = document.querySelectorAll('.led-wall-panel');
+    
+    // Start LED wall animation loop
+    setInterval(() => {
+      this.animateLEDWall();
+    }, 2000); // Change pattern every 2 seconds
+  },
+
+  animateLEDWall: function() {
+    if (!this.ledWallPanels || this.ledWallPanels.length === 0) return;
+    
+    // Cycle through colors
+    const colors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
+    this.ledWallColor = colors[Math.floor(this.ledWallTimer / 6) % colors.length];
+    
+    // 6 different patterns
+    const pattern = this.ledWallTimer % 6;
+    
+    this.ledWallPanels.forEach((panel, index) => {
+      const col = index % 6; // Column (0-5)
+      const row = Math.floor(index / 6); // Row (0-3)
+      let isOn = false;
+      
+      switch(pattern) {
+        case 0: // Wave from left to right
+          isOn = (col === (this.ledWallTimer % 6));
+          break;
+        case 1: // Wave from top to bottom
+          isOn = (row === (this.ledWallTimer % 4));
+          break;
+        case 2: // Checkerboard
+          isOn = ((row + col) % 2 === 0);
+          break;
+        case 3: // Stripes horizontal
+          isOn = (row % 2 === 0);
+          break;
+        case 4: // Stripes vertical
+          isOn = (col % 2 === 0);
+          break;
+        case 5: // Random sparkle
+          isOn = (Math.random() > 0.5);
+          break;
+      }
+      
+      // Set panel color
+      panel.setAttribute('material', {
+        shader: 'flat',
+        color: isOn ? this.ledWallColor : '#000000'
+      });
+    });
+    
+    this.ledWallTimer++;
   },
 
   setupLightShowSequence: function() {
