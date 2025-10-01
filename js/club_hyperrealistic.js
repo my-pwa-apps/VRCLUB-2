@@ -947,9 +947,11 @@ class VRClub {
         this.djLaserHousing = laserHousing;
         this.djLaserHousingMat = housingMat;
         
-        // Special mode tracking for laser blanket show
+        // Special mode tracking for dramatic effects
         this.laserBlanketActive = false;
         this.laserBlanketNextShow = 0;
+        this.discoBallShowActive = false;
+        this.discoBallShowNextShow = 30; // First disco show after 30s
     }
     
     createBoothLighting() {
@@ -1537,9 +1539,17 @@ class VRClub {
         // Get audio data for reactive lighting
         const audioData = this.getAudioData();
         
-        // Update LED wall (with audio reactivity)
-        if (this.ledPanels) {
+        // Check if any special effect is active
+        const specialEffectActive = this.laserBlanketActive || this.discoBallShowActive;
+        
+        // Update LED wall (with audio reactivity) - OFF during special effects
+        if (this.ledPanels && !specialEffectActive) {
             this.updateLEDWall(time, audioData);
+        } else if (this.ledPanels && specialEffectActive) {
+            // Turn off LED wall during special effects
+            this.ledPanels.forEach(panel => {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            });
         }
         
         // Rotate disco ball and update reflections
@@ -1547,23 +1557,31 @@ class VRClub {
             this.discoBallRotation += 0.003; // Slow rotation (18 seconds per rotation)
             this.discoBall.rotation.y = this.discoBallRotation;
             
-            // Alternate disco ball spotlights (every 8 seconds)
-            if (Math.floor(time) % 8 === 0 && Math.floor(time) !== this.discoSpotToggle) {
-                this.discoSpotToggle = Math.floor(time);
-                // Toggle between main spot and colored spot
-                if (this.discoMainSpot.intensity > 0) {
-                    this.discoMainSpot.intensity = 40;
-                    this.discoSpot2.intensity = 0;
-                } else {
-                    this.discoMainSpot.intensity = 0;
-                    this.discoSpot2.intensity = 30;
+            // Only activate spotlights during disco ball show
+            if (this.discoBallShowActive) {
+                // Alternate disco ball spotlights (every 8 seconds)
+                if (Math.floor(time) % 8 === 0 && Math.floor(time) !== this.discoSpotToggle) {
+                    this.discoSpotToggle = Math.floor(time);
+                    // Toggle between main spot and colored spot
+                    if (this.discoMainSpot.intensity > 0) {
+                        this.discoMainSpot.intensity = 40;
+                        this.discoSpot2.intensity = 0;
+                    } else {
+                        this.discoMainSpot.intensity = 0;
+                        this.discoSpot2.intensity = 30;
+                    }
                 }
+            } else {
+                // Turn off disco spotlights when not in show mode
+                this.discoMainSpot.intensity = 0;
+                this.discoSpot2.intensity = 0;
             }
             
-            // Update reflection spots from disco ball facets
-            const lightSource = this.discoMainSpot.intensity > 0 ? 
-                this.discoMainSpot.position : this.discoSpot2.position;
-            const ballCenter = this.discoBall.position;
+            // Update reflection spots from disco ball facets (only when show active)
+            if (this.discoBallShowActive) {
+                const lightSource = this.discoMainSpot.intensity > 0 ? 
+                    this.discoMainSpot.position : this.discoSpot2.position;
+                const ballCenter = this.discoBall.position;
             
             // Only update subset of facets each frame for performance
             const facetsToUpdate = 30; // Update 30 facets per frame
@@ -1596,15 +1614,48 @@ class VRClub {
                     facet.light.intensity = facingLight * 2; // Intensity based on angle
                     
                     // Color from main spotlight
-                    facet.light.diffuse = this.discoMainSpot.diffuse.clone();
+                    const activeSpot = this.discoMainSpot.intensity > 0 ? this.discoMainSpot : this.discoSpot2;
+                    facet.light.diffuse = activeSpot.diffuse.clone();
                 } else {
                     facet.light.intensity = 0; // Facet not facing light
                 }
             }
+            } else {
+                // Turn off all facet reflections when not in show mode
+                this.discoBallFacets.forEach(facet => {
+                    facet.light.intensity = 0;
+                });
+            }
         }
         
-        // Alternate between lights and lasers (every 15-30 seconds)
-        if (time - this.lightModeSwitchTime > (15 + Math.random() * 15)) {
+        // DISCO BALL SHOW MODE - activates every 45-75 seconds for 20 seconds
+        if (time > this.discoBallShowNextShow && !this.discoBallShowActive && !this.laserBlanketActive) {
+            this.discoBallShowActive = true;
+            this.discoBallShowStartTime = time;
+            this.discoBallShowNextShow = time + 45 + Math.random() * 30; // Next show in 45-75s
+            
+            // BLACKOUT all other lights for dramatic effect
+            if (this.spotlights) {
+                this.spotlights.forEach(spot => spot.light.intensity = 0);
+            }
+            if (this.lasers) {
+                this.lasers.forEach(laser => {
+                    laser.lights.forEach(light => light.intensity = 0);
+                    laser.beams.forEach(beam => {
+                        beam.mesh.visibility = 0;
+                        beam.material.alpha = 0;
+                    });
+                });
+            }
+        }
+        
+        // End disco ball show after 20 seconds
+        if (this.discoBallShowActive && (time - this.discoBallShowStartTime > 20)) {
+            this.discoBallShowActive = false;
+        }
+        
+        // Alternate between lights and lasers (every 15-30 seconds) - but NOT during special effects
+        if (!specialEffectActive && time - this.lightModeSwitchTime > (15 + Math.random() * 15)) {
             this.lightsActive = !this.lightsActive;
             this.lasersActive = !this.lasersActive;
             this.lightModeSwitchTime = time;
@@ -1631,7 +1682,8 @@ class VRClub {
         }
         
         // Update lasers with raycasting and dynamic positioning
-        if (this.lasers && this.lasersActive) {
+        // Turn off during special effects
+        if (this.lasers && this.lasersActive && !specialEffectActive) {
             this.lasers.forEach((laser, i) => {
                 // Movement depends on mode
                 if (this.lightingMode === 'synchronized') {
@@ -1751,7 +1803,8 @@ class VRClub {
         }
         
         // Update spotlights with synchronized movement patterns (AUDIO REACTIVE)
-        if (this.spotlights && this.lightsActive) {
+        // Turn off during special effects
+        if (this.spotlights && this.lightsActive && !specialEffectActive) {
             // Choose pattern based on lighting mode
             let globalPhase = time * 0.5;
             
@@ -1802,7 +1855,8 @@ class VRClub {
         }
         
         // SPECIAL LASER BLANKET SHOW MODE - activates every 60-90 seconds for 15 seconds
-        if (time > this.laserBlanketNextShow && !this.laserBlanketActive) {
+        // Only starts if disco ball show is not active
+        if (time > this.laserBlanketNextShow && !this.laserBlanketActive && !this.discoBallShowActive) {
             this.laserBlanketActive = true;
             this.laserBlanketStartTime = time;
             this.laserBlanketNextShow = time + 60 + Math.random() * 30; // Next show in 60-90s
@@ -1820,6 +1874,9 @@ class VRClub {
                     });
                 });
             }
+            // Turn off disco ball spotlights during laser show
+            if (this.discoMainSpot) this.discoMainSpot.intensity = 0;
+            if (this.discoSpot2) this.discoSpot2.intensity = 0;
         }
         
         // End laser blanket show after 15 seconds
