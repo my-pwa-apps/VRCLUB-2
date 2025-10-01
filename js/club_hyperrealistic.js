@@ -870,6 +870,9 @@ class VRClub {
         this.ledTime = 0;
         this.ledPattern = 0;
         this.ledPatternSwitchTime = 0;
+        this.ledColorIndex = 0;
+        this.lastColorChange = -1;
+        this.lastPatternChange = -1;
         
     }
 
