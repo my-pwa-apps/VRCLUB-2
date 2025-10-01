@@ -484,22 +484,36 @@ class VRClub {
         discoCableMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
         suspensionCable.material = discoCableMat;
         
-        // Main spotlight hitting disco ball
+        // Main spotlight hitting disco ball - ALWAYS ON to create reflections
         const discoSpot = new BABYLON.SpotLight("discoMainSpot",
-            new BABYLON.Vector3(2, 9, -12),
-            new BABYLON.Vector3(-0.2, -1, 0).normalize(),
-            Math.PI / 6,
-            5,
+            new BABYLON.Vector3(3, 9, -10), // From side/above
+            new BABYLON.Vector3(-0.25, -1, -0.15).normalize(), // Aimed at ball
+            Math.PI / 8, // Focused beam
+            8,
             this.scene
         );
-        discoSpot.diffuse = new BABYLON.Color3(1, 1, 1);
-        discoSpot.intensity = 20; // Bright to create reflections
-        discoSpot.range = 10;
+        discoSpot.diffuse = new BABYLON.Color3(1, 1, 1); // Bright white
+        discoSpot.intensity = 40; // Very bright to create strong reflections
+        discoSpot.range = 15;
+        
+        // Secondary disco spotlight (colored, alternates)
+        const discoSpot2 = new BABYLON.SpotLight("discoSpot2",
+            new BABYLON.Vector3(-3, 8.5, -14),
+            new BABYLON.Vector3(0.25, -1, 0.15).normalize(),
+            Math.PI / 7,
+            8,
+            this.scene
+        );
+        discoSpot2.diffuse = new BABYLON.Color3(1, 0.2, 0.8); // Pink/magenta
+        discoSpot2.intensity = 30;
+        discoSpot2.range = 15;
         
         // Store for animation
         this.discoBall = discoBall;
         this.discoBallRotation = 0;
         this.discoMainSpot = discoSpot;
+        this.discoSpot2 = discoSpot2;
+        this.discoSpotToggle = 0; // For alternating spots
     }
 
     createDJBooth() {
@@ -649,7 +663,7 @@ class VRClub {
         mixerMat.roughness = 0.25;
         mixer.material = mixerMat;
         
-        // Mixer display
+        // Mixer display with text label
         const display = BABYLON.MeshBuilder.CreateBox("mixerDisplay", {
             width: 1.5,
             height: 0.02,
@@ -661,6 +675,32 @@ class VRClub {
         displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
         displayMat.disableLighting = true;
         display.material = displayMat;
+        
+        // AUDIO STREAM CONTROL - Label above mixer
+        const audioLabel = BABYLON.MeshBuilder.CreatePlane("audioStreamLabel", {
+            width: 2.5,
+            height: 0.4
+        }, this.scene);
+        audioLabel.position = new BABYLON.Vector3(0, 1.5, -23.3);
+        audioLabel.rotation.x = -0.3;
+        
+        const audioLabelMat = new BABYLON.StandardMaterial("audioLabelMat", this.scene);
+        audioLabelMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0); // Bright yellow/orange
+        audioLabelMat.disableLighting = true;
+        audioLabel.material = audioLabelMat;
+        
+        // "STREAM" indicator lights on mixer
+        for (let i = 0; i < 3; i++) {
+            const indicator = BABYLON.MeshBuilder.CreateSphere("streamIndicator" + i, {
+                diameter: 0.08
+            }, this.scene);
+            indicator.position = new BABYLON.Vector3(-0.6 + i * 0.3, 1.23, -23.4);
+            
+            const indicatorMat = new BABYLON.StandardMaterial("indicatorMat" + i, this.scene);
+            indicatorMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green = active
+            indicatorMat.disableLighting = true;
+            indicator.material = indicatorMat;
+        }
     }
 
     createMonitorSpeakers() {
@@ -792,29 +832,60 @@ class VRClub {
             }
         }
         
+        // LIGHTING CONTROL PANEL - Clear labels
+        const lightingPanel = BABYLON.MeshBuilder.CreateBox("lightingControlPanel", {
+            width: 1.2,
+            height: 0.5,
+            depth: 0.15
+        }, this.scene);
+        lightingPanel.position = new BABYLON.Vector3(3.5, 1.5, -23.2);
+        lightingPanel.rotation.x = -0.25;
+        
+        const lightPanelMat = new BABYLON.StandardMaterial("lightPanelMat", this.scene);
+        lightPanelMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        lightPanelMat.emissiveColor = new BABYLON.Color3(0.8, 0.3, 0); // Orange glow
+        lightingPanel.material = lightPanelMat;
+        
+        // LIGHTING CONTROL - Big indicator
+        const lightControlLabel = BABYLON.MeshBuilder.CreatePlane("lightingLabel", {
+            width: 2.0,
+            height: 0.4
+        }, this.scene);
+        lightControlLabel.position = new BABYLON.Vector3(3.5, 1.9, -23.0);
+        lightControlLabel.rotation.x = -0.25;
+        
+        const lightLabelMat = new BABYLON.StandardMaterial("lightLabelMat", this.scene);
+        lightLabelMat.emissiveColor = new BABYLON.Color3(1, 0.5, 0); // Bright orange
+        lightLabelMat.disableLighting = true;
+        lightControlLabel.material = lightLabelMat;
+        
+        // Lighting mode indicator lights
+        const modes = ['SPOTS', 'LASERS', 'STROBE', 'LED'];
+        for (let i = 0; i < 4; i++) {
+            const modeLED = BABYLON.MeshBuilder.CreateSphere("modeLight" + i, {
+                diameter: 0.1
+            }, this.scene);
+            modeLED.position = new BABYLON.Vector3(3.2 + i * 0.2, 1.6, -23.15);
+            
+            const modeMat = new BABYLON.StandardMaterial("modeMat" + i, this.scene);
+            modeMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when active
+            modeMat.disableLighting = true;
+            modeLED.material = modeMat;
+        }
+        
         // Smoke machine control panel
         const smokePanel = BABYLON.MeshBuilder.CreateBox("smokePanel", {
             width: 0.8,
             height: 0.3,
             depth: 0.15
         }, this.scene);
-        smokePanel.position = new BABYLON.Vector3(3.5, 1.35, -23.2);
+        smokePanel.position = new BABYLON.Vector3(3.5, 1.2, -23.2);
         smokePanel.rotation.x = -0.3;
         
         const smokePanelMat = new BABYLON.StandardMaterial("smokePanelMat", this.scene);
         smokePanelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        smokePanelMat.emissiveColor = new BABYLON.Color3(0, 0.3, 0);
+        smokePanelMat.emissiveColor = new BABYLON.Color3(0, 0.5, 0); // Bright green
         smokePanel.material = smokePanelMat;
-        
-        // Label
-        const label = BABYLON.MeshBuilder.CreatePlane("vjLabel", { width: 1, height: 0.15 }, this.scene);
-        label.position = new BABYLON.Vector3(3.5, 1.0, -22.9);
-        label.rotation.x = Math.PI / 2;
-        
-        const labelMat = new BABYLON.StandardMaterial("vjLabelMat", this.scene);
-        labelMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3);
-        labelMat.disableLighting = true;
-        label.material = labelMat;
     }
     
     createDJBoothLaser() {
@@ -836,13 +907,14 @@ class VRClub {
         laserHousing.material = housingMat;
         
         // Create SINGLE WIDE LASER CURTAIN (diffused sheet effect)
-        // Like professional laser curtain using cylindrical lens diffusion
+        // Originates from LED wall, sweeps vertically across dance floor
         this.laserCurtain = BABYLON.MeshBuilder.CreatePlane("laserCurtain", {
-            width: 24,  // Very wide - covers entire dance floor
-            height: 0.15  // Thin sheet - creates "curtain" effect
+            width: 20,  // Wide horizontal sheet
+            height: 0.2  // Thin vertical beam - creates "curtain" effect
         }, this.scene);
-        this.laserCurtain.position = new BABYLON.Vector3(0, 4, -21); // Starts from above DJ booth
-        this.laserCurtain.rotation.x = Math.PI / 2; // Horizontal
+        // Position at LED wall origin, will animate forward over dance floor
+        this.laserCurtain.position = new BABYLON.Vector3(0, 3, -25); // Start at LED wall
+        this.laserCurtain.rotation.y = 0; // Faces forward into room
         this.laserCurtain.isPickable = false;
         
         // Semi-transparent glowing material for laser sheet
@@ -853,20 +925,21 @@ class VRClub {
         curtainMat.backFaceCulling = false; // Visible from both sides
         this.laserCurtain.material = curtainMat;
         
-        // Add multiple spotlights along the curtain for volumetric effect in smoke
+        // Spotlights emanating from LED wall position (where laser housing is)
+        // These create the volumetric beam effect in smoke
         this.curtainLights = [];
         for (let i = 0; i < 8; i++) {
-            const xPos = -10 + (i * 2.5); // Spread across width
+            const xPos = -10 + (i * 2.5); // Spread across LED wall width
             const light = new BABYLON.SpotLight("curtainLight" + i,
-                new BABYLON.Vector3(xPos, 7, -25.5),
-                new BABYLON.Vector3(0, -0.3, 0.9).normalize(),
-                Math.PI / 32, // Very narrow vertical beam
-                15,
+                new BABYLON.Vector3(xPos, 6.5, -25.5), // Origin at LED wall
+                new BABYLON.Vector3(0, 0, 1).normalize(), // Beam toward dance floor
+                Math.PI / 16, // Wide enough to create sheet effect
+                20,
                 this.scene
             );
             light.diffuse = new BABYLON.Color3(1, 0, 0);
-            light.intensity = 6;
-            light.range = 20;
+            light.intensity = 8; // Brighter for visibility
+            light.range = 30;
             this.curtainLights.push(light);
         }
         
@@ -1474,8 +1547,22 @@ class VRClub {
             this.discoBallRotation += 0.003; // Slow rotation (18 seconds per rotation)
             this.discoBall.rotation.y = this.discoBallRotation;
             
+            // Alternate disco ball spotlights (every 8 seconds)
+            if (Math.floor(time) % 8 === 0 && Math.floor(time) !== this.discoSpotToggle) {
+                this.discoSpotToggle = Math.floor(time);
+                // Toggle between main spot and colored spot
+                if (this.discoMainSpot.intensity > 0) {
+                    this.discoMainSpot.intensity = 40;
+                    this.discoSpot2.intensity = 0;
+                } else {
+                    this.discoMainSpot.intensity = 0;
+                    this.discoSpot2.intensity = 30;
+                }
+            }
+            
             // Update reflection spots from disco ball facets
-            const lightSource = this.discoMainSpot.position;
+            const lightSource = this.discoMainSpot.intensity > 0 ? 
+                this.discoMainSpot.position : this.discoSpot2.position;
             const ballCenter = this.discoBall.position;
             
             // Only update subset of facets each frame for performance
@@ -1740,25 +1827,28 @@ class VRClub {
             this.laserBlanketActive = false;
         }
         
-        // Update DRAMATIC LASER CURTAIN - thin horizontal sheet sweeping vertically
+        // Update DRAMATIC LASER CURTAIN - vertical sheet sweeping up/down
+        // Originates from LED wall position, sweeps across dance floor
         if (this.laserCurtain && this.curtainLights) {
             const showActive = this.laserBlanketActive;
             
             if (showActive) {
-                this.djLaserPhase += 0.004; // VERY SLOW dramatic sweep (takes ~2 minutes full cycle)
+                this.djLaserPhase += 0.006; // Slow vertical sweep movement
                 
-                // Vertical position sweeps slowly from floor to ceiling
-                // Range: 1m (floor) to 6m (ceiling) 
+                // Vertical position sweeps from floor to ceiling
+                // Range: 1m (floor) to 5.5m (ceiling) 
                 const minY = 1.5;
                 const maxY = 5.5;
                 const sweepRange = maxY - minY;
                 const currentY = minY + (Math.sin(this.djLaserPhase) * 0.5 + 0.5) * sweepRange;
                 
-                // Update curtain position
+                // Update curtain Y position (vertical sweep)
                 this.laserCurtain.position.y = currentY;
+                // Keep Z at LED wall origin
+                this.laserCurtain.position.z = -24.5;
                 
-                // Slight rotation for dynamic effect
-                this.laserCurtain.rotation.z = Math.sin(this.djLaserPhase * 0.3) * 0.05;
+                // Slight sway for realism
+                this.laserCurtain.position.x = Math.sin(this.djLaserPhase * 0.5) * 0.3;
                 
                 // Make curtain visible and bright red
                 this.laserCurtain.visibility = 1;
@@ -1768,18 +1858,19 @@ class VRClub {
                 // Update housing
                 this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
                 
-                // Update spotlight positions to follow curtain
+                // Update spotlights - they emanate from LED wall and track curtain height
                 this.curtainLights.forEach((light, idx) => {
                     const xPos = -10 + (idx * 2.5);
-                    light.position.set(xPos, 7, -25.5);
+                    // Position at LED wall height
+                    light.position.set(xPos, 6.5, -25.5);
                     
-                    // Direction points through the curtain position
-                    const targetY = currentY;
-                    const dirVec = new BABYLON.Vector3(xPos, targetY, -12).subtract(light.position).normalize();
+                    // Aim forward and at current curtain Y position
+                    const targetPoint = new BABYLON.Vector3(xPos * 0.5, currentY, -10);
+                    const dirVec = targetPoint.subtract(light.position).normalize();
                     light.direction = dirVec;
                     
                     light.diffuse = this.cachedColors.red;
-                    light.intensity = 8; // BRIGHT for silhouettes in smoke
+                    light.intensity = 12; // VERY BRIGHT for visibility
                 });
             } else {
                 // Turn off when not in special show mode
