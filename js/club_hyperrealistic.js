@@ -18,6 +18,18 @@ class VRClub {
         this.vuMeters = [];
         this.smokeMachines = [];
         
+        // Cache Color3 objects for performance (avoid creating new ones every frame)
+        this.cachedColors = {
+            red: new BABYLON.Color3(1, 0, 0),
+            green: new BABYLON.Color3(0, 1, 0),
+            blue: new BABYLON.Color3(0, 0, 1),
+            magenta: new BABYLON.Color3(1, 0, 1),
+            yellow: new BABYLON.Color3(1, 1, 0),
+            cyan: new BABYLON.Color3(0, 1, 1),
+            white: new BABYLON.Color3(10, 10, 10),
+            black: new BABYLON.Color3(0, 0, 0)
+        };
+        
         this.init();
     }
 
@@ -71,16 +83,18 @@ class VRClub {
         // Add post-processing for cinematic realism
         this.addPostProcessing();
         
-        // Enable VR (after camera and post-processing)
+        // Build hyperrealistic club (need floor first for VR setup)
+        this.createFloor();
+        
+        // Enable VR with teleportation on floor
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
-            floorMeshes: []
+            floorMeshes: [this.floorMesh]
         }).catch(err => {
-            console.log('⚠️ VR not available:', err.message);
+            // VR not available - continue with desktop mode
             return null;
         });
         
-        // Build hyperrealistic club
-        this.createFloor();
+        // Continue building club
         this.createWalls();
         this.createCeiling();
         this.createDJBooth();
@@ -90,7 +104,7 @@ class VRClub {
         this.createLights();
         this.createSmokeParticles();
         this.createBarArea();
-        this.createDanceFloorLights();
+        this.createTrussMountedLights();
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -106,19 +120,6 @@ class VRClub {
         window.addEventListener('resize', () => {
             this.engine.resize();
         });
-        
-        console.log('%c🎉 HYPERREALISTIC VR CLUB LOADED!', 'color: #00ff00; font-weight: bold; font-size: 16px; text-shadow: 0 0 10px #00ff00;');
-        console.log('%c✨ Features:', 'color: #00ffff; font-weight: bold;');
-        console.log('  🎨 PBR Materials with realistic reflections');
-        console.log('  💨 Atmospheric fog/smoke effects');
-        console.log('  ✨ Bloom & glow for lights');
-        console.log('  📺 24-panel LED wall with animations');
-        console.log('  🔦 6 laser systems');
-        console.log('  💡 Dynamic club lighting');
-        console.log('  🔊 PA speaker system');
-        console.log('  🎧 DJ booth with equipment details');
-        console.log('  🍹 Bar area');
-        console.log('  ⚡ Dance floor lights');
     }
 
     addPostProcessing() {
@@ -157,19 +158,18 @@ class VRClub {
         pipeline.imageProcessing.exposure = 1.0;
         pipeline.imageProcessing.toneMappingEnabled = true;
         pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
-        
-        console.log('✅ Post-processing pipeline created');
     }
 
     createFloor() {
-        console.log('🏗️ Creating industrial concrete floor...');
-        
         const floor = BABYLON.MeshBuilder.CreateGround("floor", {
             width: 35,
             height: 45,
             subdivisions: 20
         }, this.scene);
         floor.position.z = -10;
+        
+        // Store floor mesh for VR teleportation
+        this.floorMesh = floor;
         
         // Industrial concrete floor with PBR - worn and realistic
         const floorMat = new BABYLON.PBRMetallicRoughnessMaterial("floorMat", this.scene);
@@ -190,13 +190,9 @@ class VRClub {
         
         floor.material = floorMat;
         floor.receiveShadows = true;
-        
-        console.log('✅ Industrial concrete floor created');
     }
 
     createWalls() {
-        console.log('🏗️ Creating walls with details...');
-        
         // PBR material for walls
         const wallMat = new BABYLON.PBRMetallicRoughnessMaterial("wallMat", this.scene);
         wallMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.08);
@@ -235,8 +231,6 @@ class VRClub {
         
         // Add LED strips along walls
         this.createWallLEDStrips();
-        
-        console.log('✅ Walls created');
     }
 
     createWallLEDStrips() {
@@ -269,8 +263,6 @@ class VRClub {
     }
 
     createCeiling() {
-        console.log('🏗️ Creating industrial hall ceiling...');
-        
         const ceiling = BABYLON.MeshBuilder.CreateBox("ceiling", {
             width: 35,
             height: 0.3,
@@ -290,8 +282,6 @@ class VRClub {
     }
 
     createLightingTruss() {
-        console.log('🎪 Creating lighting truss above dance floor...');
-        
         // Professional stage truss material - metallic aluminum
         const trussMat = new BABYLON.PBRMetallicRoughnessMaterial("trussMat", this.scene);
         trussMat.baseColor = new BABYLON.Color3(0.6, 0.6, 0.65); // Aluminum color
@@ -363,13 +353,9 @@ class VRClub {
             cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
             cable.material = cableMat;
         });
-        
-        console.log('✅ Professional lighting truss created above dance floor');
     }
 
     createDJBooth() {
-        console.log('🎧 Creating hyperrealistic DJ booth...');
-        
         // DJ platform
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
             width: 8,
@@ -412,7 +398,6 @@ class VRClub {
         // VU meters
         this.createVUMeters();
         
-        console.log('✅ DJ booth created');
     }
 
     createCDJs() {
@@ -534,7 +519,6 @@ class VRClub {
     }
 
     createPASpeakers() {
-        console.log('🔊 Creating PA speaker stacks...');
         
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
         speakerMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.03);
@@ -594,7 +578,6 @@ class VRClub {
     }
 
     createBarArea() {
-        console.log('🍹 Creating bar area...');
         
         // Bar counter
         const bar = BABYLON.MeshBuilder.CreateBox("bar", {
@@ -663,19 +646,6 @@ class VRClub {
         }
     }
 
-    createDanceFloorLights() {
-        console.log('💡 Creating truss-mounted lights, lasers, and strobes...');
-        
-        // No floor tiles - just industrial concrete
-        // Lights will be mounted on the truss instead
-        this.floorTiles = []; // Keep empty to avoid errors in updateAnimations
-        
-        // Create truss-mounted lights
-        this.createTrussMountedLights();
-        
-        console.log('✅ Truss-mounted lighting system created');
-    }
-    
     createTrussMountedLights() {
         // Moving head lights on truss (PAR cans style)
         const lightFixtureMat = new BABYLON.PBRMetallicRoughnessMaterial("lightFixtureMat", this.scene);
@@ -729,8 +699,6 @@ class VRClub {
     }
     
     createStrobeLights() {
-        console.log('⚡ Creating strobe lights on truss...');
-        
         const strobePositions = [
             { x: -10, z: -8 },
             { x: 10, z: -8 },
@@ -753,12 +721,26 @@ class VRClub {
             strobeMat.disableLighting = true;
             strobe.material = strobeMat;
             
-            this.strobes.push({ mesh: strobe, material: strobeMat });
+            // Add powerful point light for each strobe
+            const strobeLight = new BABYLON.PointLight("strobeLight" + i,
+                new BABYLON.Vector3(pos.x, 7.6, pos.z),
+                this.scene
+            );
+            strobeLight.diffuse = new BABYLON.Color3(1, 1, 1);
+            strobeLight.intensity = 0; // Off by default
+            strobeLight.range = 30;
+            
+            this.strobes.push({ 
+                mesh: strobe, 
+                material: strobeMat,
+                light: strobeLight,
+                flashDuration: 0,
+                nextFlashTime: Math.random() * 2
+            });
         });
     }
 
     createSmokeParticles() {
-        console.log('💨 Creating smoke particles...');
         
         // Smoke machine effect near DJ booth
         const smokeSystem = new BABYLON.ParticleSystem("smoke", 800, this.scene);
@@ -797,7 +779,6 @@ class VRClub {
     }
 
     createLEDWall() {
-        console.log('🎨 Creating LED Wall...');
         
         const panelWidth = 1.45;
         const panelHeight = 1.25;
@@ -839,11 +820,9 @@ class VRClub {
         this.ledPattern = 0;
         this.ledColorIndex = 0;
         
-        console.log('✅ LED Wall created: 24 panels');
     }
 
     createLasers() {
-        console.log('🔦 Creating truss-mounted laser systems...');
         
         this.lasers = [];
         
@@ -870,36 +849,49 @@ class VRClub {
             housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
             housingMat.metallic = 0.8;
             housingMat.roughness = 0.3;
+            housingMat.emissiveColor = new BABYLON.Color3(0.1, 0, 0); // Slight red glow from housing
             housing.material = housingMat;
             
-            // Laser beam
+            // Laser beam (will be resized dynamically)
             const laser = BABYLON.MeshBuilder.CreateCylinder("laser" + i, {
                 diameter: 0.04,
-                height: 15
+                height: 1 // Initial height, will be updated
             }, this.scene);
-            laser.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.2, pos.z);
-            laser.rotation.x = Math.PI / 6; // Angle down
+            laser.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
             
             const laserMat = new BABYLON.StandardMaterial("laserMat" + i, this.scene);
             laserMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
-            laserMat.alpha = 0.7;
+            laserMat.alpha = 0.6;
             laserMat.disableLighting = true;
             laser.material = laserMat;
+            
+            // Spot light at the end of the laser for surface illumination
+            const laserLight = new BABYLON.SpotLight("laserLight" + i,
+                new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
+                new BABYLON.Vector3(0, -1, 0),
+                Math.PI / 8, // Narrow cone
+                5,
+                this.scene
+            );
+            laserLight.diffuse = new BABYLON.Color3(1, 0, 0);
+            laserLight.intensity = 5;
+            laserLight.range = 20;
             
             this.lasers.push({
                 mesh: laser,
                 housing: housing,
                 material: laserMat,
+                light: laserLight,
                 rotation: Math.random() * Math.PI * 2,
-                baseY: pos.trussY - 0.2
+                rotationSpeed: 0.01 + Math.random() * 0.01,
+                tiltPhase: Math.random() * Math.PI * 2,
+                originPos: new BABYLON.Vector3(pos.x, pos.trussY, pos.z)
             });
         });
         
-        console.log('✅ 6 truss-mounted laser systems created');
     }
 
     createLights() {
-        console.log('💡 Creating truss-mounted lighting system...');
         
         // Very dim ambient for industrial atmosphere
         const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), this.scene);
@@ -954,7 +946,6 @@ class VRClub {
         ledLight.intensity = 10;
         ledLight.range = 25;
         
-        console.log('✅ Truss-mounted lighting system created');
     }
 
     updateAnimations() {
@@ -966,19 +957,95 @@ class VRClub {
             this.updateLEDWall(time);
         }
         
-        // Update lasers
+        // Update lasers with raycasting and dynamic positioning
         if (this.lasers) {
             this.lasers.forEach((laser, i) => {
-                laser.rotation += 0.01;
-                laser.mesh.rotation.y = laser.rotation;
-                laser.mesh.rotation.x = Math.PI / 4 + Math.sin(time + i) * 0.3;
+                laser.rotation += laser.rotationSpeed;
+                laser.tiltPhase += 0.02;
+                
+                // Calculate laser direction with rotation and tilt
+                const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
+                const dirX = Math.sin(laser.rotation) * Math.sin(tilt);
+                const dirY = -Math.cos(tilt);
+                const dirZ = Math.cos(laser.rotation) * Math.sin(tilt);
+                const direction = new BABYLON.Vector3(dirX, dirY, dirZ);
+                
+                // Raycast to find surface
+                const ray = new BABYLON.Ray(laser.originPos, direction, 30);
+                const hit = this.scene.pickWithRay(ray);
+                
+                let beamLength = 15; // Default length
+                let hitPoint = laser.originPos.add(direction.scale(beamLength));
+                
+                if (hit && hit.pickedPoint) {
+                    const distance = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
+                    beamLength = distance;
+                    hitPoint = hit.pickedPoint;
+                }
+                
+                // Update beam geometry
+                laser.mesh.scaling.y = beamLength;
+                const midPoint = BABYLON.Vector3.Lerp(laser.originPos, hitPoint, 0.5);
+                laser.mesh.position = midPoint;
+                
+                // Orient beam along direction
+                const up = new BABYLON.Vector3(0, 1, 0);
+                const rotAxis = BABYLON.Vector3.Cross(up, direction);
+                const angle = Math.acos(BABYLON.Vector3.Dot(up, direction));
+                if (rotAxis.length() > 0) {
+                    laser.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+                }
+                
+                // Update light position and direction
+                laser.light.position = laser.originPos;
+                laser.light.direction = direction;
+                
+                // Cycle laser colors
+                const colorPhase = (time * 2 + i) % 3;
+                if (colorPhase < 1) {
+                    laser.material.emissiveColor = this.cachedColors.red;
+                    laser.light.diffuse = this.cachedColors.red;
+                    laser.housing.material.emissiveColor = new BABYLON.Color3(0.1, 0, 0);
+                } else if (colorPhase < 2) {
+                    laser.material.emissiveColor = this.cachedColors.green;
+                    laser.light.diffuse = this.cachedColors.green;
+                    laser.housing.material.emissiveColor = new BABYLON.Color3(0, 0.1, 0);
+                } else {
+                    laser.material.emissiveColor = this.cachedColors.blue;
+                    laser.light.diffuse = this.cachedColors.blue;
+                    laser.housing.material.emissiveColor = new BABYLON.Color3(0, 0, 0.1);
+                }
             });
         }
         
-        // Update spotlights
+        // Update spotlights with synchronized movement patterns
         if (this.spotlights) {
             this.spotlights.forEach((spot, i) => {
-                spot.intensity = 3 + Math.sin(time * 2 + i) * 2;
+                spot.phase += 0.016 * spot.speed;
+                
+                // Synchronized movement patterns
+                const patternType = i % 3;
+                let dirX, dirZ;
+                
+                if (patternType === 0) {
+                    // Circular sweep
+                    dirX = Math.sin(spot.phase);
+                    dirZ = Math.cos(spot.phase);
+                } else if (patternType === 1) {
+                    // Figure-8 pattern
+                    dirX = Math.sin(spot.phase * 2);
+                    dirZ = Math.sin(spot.phase) * Math.cos(spot.phase);
+                } else {
+                    // Cross pattern
+                    dirX = Math.sin(spot.phase) * 0.5;
+                    dirZ = Math.cos(spot.phase * 1.5) * 0.5;
+                }
+                
+                // Set direction (pointing from truss to dance floor)
+                spot.light.direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
+                
+                // Pulse intensity
+                spot.light.intensity = 6 + Math.sin(time * 3 + i) * 3;
             });
         }
         
@@ -997,30 +1064,46 @@ class VRClub {
                 const pulse = 0.3 + Math.sin(time * 3 + i * 0.8) * 0.7;
                 const colorPhase = (time + i) % 6;
                 
-                // Cycle through colors
+                // Cycle through colors (using cached Color3 objects scaled by pulse)
                 if (colorPhase < 1) {
-                    light.lensMat.emissiveColor = new BABYLON.Color3(pulse, 0, 0); // Red
+                    light.lensMat.emissiveColor = this.cachedColors.red.scale(pulse);
                 } else if (colorPhase < 2) {
-                    light.lensMat.emissiveColor = new BABYLON.Color3(0, pulse, 0); // Green
+                    light.lensMat.emissiveColor = this.cachedColors.green.scale(pulse);
                 } else if (colorPhase < 3) {
-                    light.lensMat.emissiveColor = new BABYLON.Color3(0, 0, pulse); // Blue
+                    light.lensMat.emissiveColor = this.cachedColors.blue.scale(pulse);
                 } else if (colorPhase < 4) {
-                    light.lensMat.emissiveColor = new BABYLON.Color3(pulse, 0, pulse); // Magenta
+                    light.lensMat.emissiveColor = this.cachedColors.magenta.scale(pulse);
                 } else if (colorPhase < 5) {
-                    light.lensMat.emissiveColor = new BABYLON.Color3(pulse, pulse, 0); // Yellow
+                    light.lensMat.emissiveColor = this.cachedColors.yellow.scale(pulse);
                 } else {
-                    light.lensMat.emissiveColor = new BABYLON.Color3(0, pulse, pulse); // Cyan
+                    light.lensMat.emissiveColor = this.cachedColors.cyan.scale(pulse);
                 }
             });
         }
         
-        // Update strobes (random flashes)
+        // Update strobes with realistic flash sequences
         if (this.strobes && this.strobes.length > 0) {
             this.strobes.forEach((strobe, i) => {
-                if (Math.random() < 0.02) { // 2% chance each frame
-                    strobe.material.emissiveColor = new BABYLON.Color3(10, 10, 10); // Bright flash
+                // Handle ongoing flash
+                if (strobe.flashDuration > 0) {
+                    strobe.flashDuration -= 0.016;
+                    // Intense flash with multiple bursts
+                    const burstPhase = Math.floor(strobe.flashDuration * 20) % 2;
+                    const intensity = burstPhase === 0 ? 15 : 0;
+                    
+                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity);
+                    strobe.light.intensity = intensity * 50; // Very bright illumination
+                    
+                    if (strobe.flashDuration <= 0) {
+                        strobe.material.emissiveColor = this.cachedColors.black;
+                        strobe.light.intensity = 0;
+                        strobe.nextFlashTime = time + 0.5 + Math.random() * 2;
+                    }
                 } else {
-                    strobe.material.emissiveColor = new BABYLON.Color3(0, 0, 0); // Off
+                    // Check if it's time for next flash
+                    if (time >= strobe.nextFlashTime) {
+                        strobe.flashDuration = 0.15 + Math.random() * 0.1; // 150-250ms flash
+                    }
                 }
             });
         }
@@ -1036,13 +1119,14 @@ class VRClub {
             this.patternBreathing
         ];
         
+        // Use cached colors instead of creating new ones
         const colors = [
-            new BABYLON.Color3(1, 0, 0),
-            new BABYLON.Color3(0, 1, 0),
-            new BABYLON.Color3(0, 0, 1),
-            new BABYLON.Color3(1, 0, 1),
-            new BABYLON.Color3(1, 1, 0),
-            new BABYLON.Color3(0, 1, 1)
+            this.cachedColors.red,
+            this.cachedColors.green,
+            this.cachedColors.blue,
+            this.cachedColors.magenta,
+            this.cachedColors.yellow,
+            this.cachedColors.cyan
         ];
         
         if (Math.floor(time) % 10 === 0 && Math.floor(time) !== this.lastColorChange) {
@@ -1166,8 +1250,7 @@ class VRClub {
             }, 100);
             
             this.showCameraTransitionFeedback(preset);
-            console.log('📷 Camera moved to:', preset, p.pos);
-        }
+            }
     }
 
     showCameraTransitionFeedback(preset) {
@@ -1211,7 +1294,6 @@ class VRClub {
         
         this.audioElement.src = url;
         this.audioElement.play();
-        console.log('🎵 Music playing');
     }
 
     setupPerformanceMonitor() {
