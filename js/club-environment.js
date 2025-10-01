@@ -75,12 +75,12 @@ AFRAME.registerComponent('club-environment', {
       
       emittersContainer.appendChild(emitter);
 
-      // Create laser beam from emitter
+      // Create laser beam from emitter - positioned to shoot from the emitter housing
       const laser = document.createElement('a-entity');
       laser.setAttribute('geometry', {
         primitive: 'cylinder',
         radius: 0.03,
-        height: 10
+        height: 9.5  // Beam extends from emitter to floor
       });
       laser.setAttribute('material', {
         color: colors[i % colors.length],
@@ -89,11 +89,18 @@ AFRAME.registerComponent('club-environment', {
         opacity: 0,
         transparent: true
       });
-      laser.setAttribute('position', `${pos.x} 5 ${pos.z}`);
-      laser.setAttribute('rotation', `${20 + Math.random() * 40} ${Math.random() * 360} 0`);
+      // Position at emitter height minus half beam length to extend downward
+      laser.setAttribute('position', `${pos.x} ${9.5 - (9.5 / 2)} ${pos.z}`);
+      
+      // Initial rotation pointing downward with slight angle
+      const initialRotX = 15 + Math.random() * 30;  // 15-45 degrees from vertical
+      const initialRotY = Math.random() * 360;      // Random horizontal rotation
+      laser.setAttribute('rotation', `${initialRotX} ${initialRotY} 0`);
+      
+      // Animate rotation to create moving beam effect
       laser.setAttribute('animation', {
         property: 'rotation',
-        to: `${20 + Math.random() * 40} ${Math.random() * 360 + 360} ${Math.random() * 20}`,
+        to: `${15 + Math.random() * 30} ${initialRotY + 360} ${Math.random() * 15}`,
         loop: true,
         dur: 4000 + Math.random() * 3000,
         easing: 'linear'
