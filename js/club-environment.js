@@ -116,59 +116,112 @@ AFRAME.registerComponent('club-environment', {
   },
 
   setupLEDWall: function() {
-    // Get all LED wall panels
-    this.ledWallPanels = document.querySelectorAll('.led-wall-panel');
-    
-    // Start LED wall animation loop
-    setInterval(() => {
-      this.animateLEDWall();
-    }, 2000); // Change pattern every 2 seconds
+    // Delay to ensure scene is loaded - INCREASED for reliability
+    setTimeout(() => {
+      this.ledWallPanels = document.querySelectorAll('.led-wall-panel');
+      this.ledWallAnimTime = 0; // Continuous animation time
+      
+      console.log('🎨 LED Wall initialized with', this.ledWallPanels.length, 'panels');
+      
+      // Make sure panels are visible initially - VERY BRIGHT
+      if (this.ledWallPanels.length > 0) {
+        this.ledWallPanels.forEach((panel, index) => {
+          panel.setAttribute('material', {
+            shader: 'flat',
+            color: '#ff0000',
+            side: 'double',
+            opacity: 1.0
+          });
+          // Add emissive appearance by setting very bright color
+          panel.setAttribute('visible', true);
+          console.log(`  Panel ${index + 1} initialized at position:`, panel.getAttribute('position'));
+        });
+        console.log('✅ LED Wall panels set to VISIBLE and BRIGHT');
+        console.log('📍 LED Wall parent position:', document.querySelector('#dj-led-wall').getAttribute('position'));
+      } else {
+        console.error('❌ LED Wall panels not found! Check HTML structure.');
+      }
+    }, 3000); // Wait 3 seconds for scene to load
   },
 
-  animateLEDWall: function() {
+  animateLEDWall: function(deltaTime) {
     if (!this.ledWallPanels || this.ledWallPanels.length === 0) return;
     
-    // Cycle through colors
-    const colors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
-    this.ledWallColor = colors[Math.floor(this.ledWallTimer / 6) % colors.length];
+    // Increment animation time for smooth continuous animation
+    this.ledWallAnimTime += deltaTime * 0.001; // Convert to seconds
     
-    // 6 different patterns
-    const pattern = this.ledWallTimer % 6;
+    // Cycle through colors slowly (change every 10 seconds)
+    const colors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
+    const colorIndex = Math.floor(this.ledWallAnimTime / 10) % colors.length;
+    this.ledWallColor = colors[colorIndex];
+    
+    // Choose pattern based on time (change every 15 seconds)
+    const pattern = Math.floor(this.ledWallAnimTime / 15) % 6;
     
     this.ledWallPanels.forEach((panel, index) => {
       const col = index % 6; // Column (0-5)
       const row = Math.floor(index / 6); // Row (0-3)
-      let isOn = false;
+      let brightness = 0;
       
       switch(pattern) {
-        case 0: // Wave from left to right
-          isOn = (col === (this.ledWallTimer % 6));
+        case 0: // Continuous wave left to right
+          const wavePos = (this.ledWallAnimTime * 2) % 6;
+          const distFromWave = Math.abs(col - wavePos);
+          brightness = Math.max(0, 1 - distFromWave * 0.5);
           break;
-        case 1: // Wave from top to bottom
-          isOn = (row === (this.ledWallTimer % 4));
+          
+        case 1: // Continuous wave top to bottom
+          const waveRow = (this.ledWallAnimTime * 2) % 4;
+          const distFromWaveRow = Math.abs(row - waveRow);
+          brightness = Math.max(0, 1 - distFromWaveRow * 0.5);
           break;
-        case 2: // Checkerboard
-          isOn = ((row + col) % 2 === 0);
+          
+        case 2: // Pulsing checkerboard
+          const pulse = (Math.sin(this.ledWallAnimTime * 2) + 1) / 2;
+          brightness = ((row + col) % 2 === 0) ? pulse : 0;
           break;
-        case 3: // Stripes horizontal
-          isOn = (row % 2 === 0);
+          
+        case 3: // Horizontal scan lines
+          const scanLine = (this.ledWallAnimTime * 2) % 4;
+          const distFromScan = Math.abs(row - scanLine);
+          brightness = Math.max(0, 1 - distFromScan * 0.5);
           break;
-        case 4: // Stripes vertical
-          isOn = (col % 2 === 0);
+          
+        case 4: // Ripple from center
+          const centerX = 2.5;
+          const centerY = 1.5;
+          const dist = Math.sqrt(Math.pow(col - centerX, 2) + Math.pow(row - centerY, 2));
+          const ripple = (this.ledWallAnimTime * 2) % 6;
+          const distFromRipple = Math.abs(dist - ripple);
+          brightness = Math.max(0, 1 - distFromRipple * 0.5);
           break;
-        case 5: // Random sparkle
-          isOn = (Math.random() > 0.5);
+          
+        case 5: // Breathing all panels
+          brightness = (Math.sin(this.ledWallAnimTime * 3) + 1) / 2;
           break;
       }
       
-      // Set panel color
+      // Convert brightness to color (fade between color and black) - BOOSTED minimum brightness
+      const r = parseInt(this.ledWallColor.substring(1, 3), 16);
+      const g = parseInt(this.ledWallColor.substring(3, 5), 16);
+      const b = parseInt(this.ledWallColor.substring(5, 7), 16);
+      
+      // Boost brightness - never go below 30% even when "off"
+      const boostedBrightness = 0.3 + (brightness * 0.7);
+      
+      const finalR = Math.floor(r * boostedBrightness);
+      const finalG = Math.floor(g * boostedBrightness);
+      const finalB = Math.floor(b * boostedBrightness);
+      
+      const finalColor = `#${finalR.toString(16).padStart(2, '0')}${finalG.toString(16).padStart(2, '0')}${finalB.toString(16).padStart(2, '0')}`;
+      
+      // Set panel color with smooth gradients
       panel.setAttribute('material', {
         shader: 'flat',
-        color: isOn ? this.ledWallColor : '#000000'
+        color: finalColor,
+        side: 'double'
       });
     });
-    
-    this.ledWallTimer++;
   },
 
   setupLightShowSequence: function() {
@@ -198,15 +251,14 @@ AFRAME.registerComponent('club-environment', {
     const spotlights = document.querySelectorAll('#spotlight-1 [light], #spotlight-2 [light], #spotlight-3 [light], #spotlight-4 [light], #spotlight-5 [light]');
     const strobes = document.querySelectorAll('#strobe-1 [light], #strobe-2 [light], #strobe-3 [light], #strobe-4 [light], #strobe-5 [light]');
     const strobePlanes = document.querySelectorAll('#strobe-1 a-plane, #strobe-2 a-plane, #strobe-3 a-plane, #strobe-4 a-plane, #strobe-5 a-plane');
-    const ledPanels = document.querySelectorAll('#led-panel-1 a-plane, #led-panel-2 a-plane, #led-panel-3 a-plane');
+    // Old LED panels removed - now using LED wall instead
 
     // Debug logging
     console.log('Switching to mode:', mode);
     console.log('Found elements:', {
       laserCylinders: laserCylinders.length,
       spotlights: spotlights.length,
-      strobes: strobes.length,
-      ledPanels: ledPanels.length
+      strobes: strobes.length
     });
 
     // Color array for laser cycling
@@ -223,7 +275,6 @@ AFRAME.registerComponent('club-environment', {
     spotlights.forEach(s => s.setAttribute('light', 'intensity', 0));
     strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
     strobePlanes.forEach(b => b.setAttribute('material', 'color', '#000000'));
-    ledPanels.forEach(p => p.setAttribute('material', 'color', '#000000'));
 
     switch(mode) {
       case 'lasers':
@@ -246,14 +297,7 @@ AFRAME.registerComponent('club-environment', {
 
       case 'spotlights':
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 2.5));
-        ledPanels.forEach((p, i) => {
-          setTimeout(() => {
-            p.setAttribute('material', {
-              shader: 'flat',
-              color: '#ff00ff'
-            });
-          }, i * 200);
-        });
+        // LED panels removed - using LED wall instead
         break;
 
       case 'strobes':
@@ -277,10 +321,7 @@ AFRAME.registerComponent('club-environment', {
           l.setAttribute('material', 'color', currentColor);
         });
         spotlights.forEach(s => s.setAttribute('light', 'intensity', 1.5));
-        ledPanels.forEach(p => p.setAttribute('material', {
-          shader: 'flat',
-          color: '#ff00ff'
-        }));
+        // LED panels removed - using LED wall instead
         break;
     }
   },
@@ -320,6 +361,9 @@ AFRAME.registerComponent('club-environment', {
   },
 
   tick: function(time, timeDelta) {
+    // Animate LED wall continuously
+    this.animateLEDWall(timeDelta);
+    
     // Update lights based on audio analysis with enhanced realism
     if (this.analyser && this.dataArray) {
       this.analyser.getByteFrequencyData(this.dataArray);
