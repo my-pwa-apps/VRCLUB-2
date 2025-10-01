@@ -408,49 +408,66 @@ class VRClub {
     }
     
     createDiscoBall() {
-        // Disco ball suspended from center truss
+        // REALISTIC DISCO BALL with actual light reflections
         const discoBall = BABYLON.MeshBuilder.CreateSphere("discoBall", {
-            diameter: 1.5,
-            segments: 32
+            diameter: 1.2,
+            segments: 16
         }, this.scene);
         discoBall.position = new BABYLON.Vector3(0, 7.2, -12); // Center of middle truss
         
-        // Create highly reflective mirror ball material
-        const discoBallMat = new BABYLON.PBRMetallicRoughnessMaterial("discoBallMat", this.scene);
-        discoBallMat.baseColor = new BABYLON.Color3(0.9, 0.9, 0.95);
-        discoBallMat.metallic = 1.0;
-        discoBallMat.roughness = 0.05; // Very smooth/reflective
-        discoBallMat.environmentIntensity = 2.0; // Enhanced reflections
+        // Simple dark base sphere
+        const discoBallMat = new BABYLON.StandardMaterial("discoBallMat", this.scene);
+        discoBallMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        discoBallMat.specularColor = new BABYLON.Color3(0, 0, 0);
         discoBall.material = discoBallMat;
         
-        // Add mirror facets to disco ball (create segmented mirror effect)
-        const facetCount = 200; // Number of mirror facets
-        const facetSize = 0.08;
+        // Create mirror facets that will actually cast light spots
+        this.discoBallFacets = [];
+        const facetCount = 150; // Mirror tiles on ball
         
         for (let i = 0; i < facetCount; i++) {
-            // Random position on sphere surface
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos(2 * Math.random() - 1);
-            const radius = 0.75;
+            // Evenly distribute facets on sphere surface using Fibonacci sphere
+            const offset = 2.0 / facetCount;
+            const increment = Math.PI * (3.0 - Math.sqrt(5.0));
+            const y = ((i * offset) - 1) + (offset / 2);
+            const r = Math.sqrt(1 - y * y);
+            const phi = ((i + 1) % facetCount) * increment;
             
-            const x = radius * Math.sin(phi) * Math.cos(theta);
-            const y = radius * Math.sin(phi) * Math.sin(theta);
-            const z = radius * Math.cos(phi);
+            const x = Math.cos(phi) * r * 0.6;
+            const z = Math.sin(phi) * r * 0.6;
             
+            // Create small square mirror facet
             const facet = BABYLON.MeshBuilder.CreatePlane("facet" + i, {
-                size: facetSize
+                size: 0.06
             }, this.scene);
-            facet.position = new BABYLON.Vector3(x, 7.2 + y, -12 + z);
+            facet.position = new BABYLON.Vector3(x, 7.2 + y * 0.6, -12 + z);
             facet.lookAt(discoBall.position);
             facet.parent = discoBall;
             
-            // Highly reflective mirror material
-            const facetMat = new BABYLON.PBRMetallicRoughnessMaterial("facetMat" + i, this.scene);
-            facetMat.metallic = 1.0;
-            facetMat.roughness = 0.02;
-            facetMat.baseColor = new BABYLON.Color3(1, 1, 1);
-            facetMat.environmentIntensity = 3.0;
+            // Mirror material
+            const facetMat = new BABYLON.StandardMaterial("facetMat" + i, this.scene);
+            facetMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.95);
+            facetMat.specularColor = new BABYLON.Color3(1, 1, 1);
+            facetMat.specularPower = 128;
             facet.material = facetMat;
+            
+            // Create a small spotlight for each facet to simulate reflection
+            const reflectionSpot = new BABYLON.SpotLight("discoBallReflection" + i,
+                facet.getAbsolutePosition(),
+                new BABYLON.Vector3(0, 0, 0), // Will be updated in animation
+                Math.PI / 16, // Tight beam
+                20, // Sharp falloff
+                this.scene
+            );
+            reflectionSpot.diffuse = new BABYLON.Color3(1, 1, 1);
+            reflectionSpot.intensity = 0; // Start off, will activate when lit
+            reflectionSpot.range = 30;
+            
+            this.discoBallFacets.push({
+                mesh: facet,
+                light: reflectionSpot,
+                normal: new BABYLON.Vector3(x, y * 0.6, z).normalize()
+            });
         }
         
         // Suspension cable
@@ -460,27 +477,27 @@ class VRClub {
         }, this.scene);
         suspensionCable.position = new BABYLON.Vector3(0, 7.6, -12);
         
-        // Create cable material for suspension
         const discoCableMat = new BABYLON.StandardMaterial("discoCableMat", this.scene);
         discoCableMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         discoCableMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
         suspensionCable.material = discoCableMat;
         
-        // Add dedicated spotlight hitting disco ball
-        const discoSpot = new BABYLON.SpotLight("discoSpot",
-            new BABYLON.Vector3(0, 9, -12),
-            new BABYLON.Vector3(0, -1, 0),
-            Math.PI / 8,
-            10,
+        // Main spotlight hitting disco ball
+        const discoSpot = new BABYLON.SpotLight("discoMainSpot",
+            new BABYLON.Vector3(2, 9, -12),
+            new BABYLON.Vector3(-0.2, -1, 0).normalize(),
+            Math.PI / 6,
+            5,
             this.scene
         );
         discoSpot.diffuse = new BABYLON.Color3(1, 1, 1);
-        discoSpot.intensity = 15;
-        discoSpot.range = 5;
+        discoSpot.intensity = 20; // Bright to create reflections
+        discoSpot.range = 10;
         
-        // Store disco ball for animation
+        // Store for animation
         this.discoBall = discoBall;
         this.discoBallRotation = 0;
+        this.discoMainSpot = discoSpot;
     }
 
     createDJBooth() {
@@ -816,47 +833,39 @@ class VRClub {
         housingMat.emissiveColor = new BABYLON.Color3(0.3, 0, 0);
         laserHousing.material = housingMat;
         
-        // Create WIDE blanket of laser beams (20 beams for full coverage)
-        this.djLaserBeams = [];
-        const laserOriginY = 7.0;
-        const laserOriginZ = -25.5;
+        // Create SINGLE WIDE LASER CURTAIN (diffused sheet effect)
+        // Like professional laser curtain using cylindrical lens diffusion
+        this.laserCurtain = BABYLON.MeshBuilder.CreatePlane("laserCurtain", {
+            width: 24,  // Very wide - covers entire dance floor
+            height: 0.15  // Thin sheet - creates "curtain" effect
+        }, this.scene);
+        this.laserCurtain.position = new BABYLON.Vector3(0, 4, -12); // Middle of dance floor
+        this.laserCurtain.rotation.x = Math.PI / 2; // Horizontal
+        this.laserCurtain.isPickable = false;
         
-        for (let i = 0; i < 20; i++) {
-            const beam = BABYLON.MeshBuilder.CreateCylinder("djLaserBeam" + i, {
-                diameter: 0.03,  // Thinner beams for blanket effect
-                height: 1,
-                tessellation: 8
-            }, this.scene);
-            beam.position = new BABYLON.Vector3(0, laserOriginY, laserOriginZ);
-            beam.isPickable = false;
-            beam.rotationQuaternion = BABYLON.Quaternion.Identity();
-            
-            const beamMat = new BABYLON.StandardMaterial("djLaserBeamMat" + i, this.scene);
-            beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
-            beamMat.alpha = 0.8;  // More visible
-            beamMat.disableLighting = true;
-            beam.material = beamMat;
-            
-            this.djLaserBeams.push({
-                mesh: beam,
-                material: beamMat,
-                beamIndex: i,
-                originPos: new BABYLON.Vector3(0, laserOriginY, laserOriginZ)
-            });
-        }
+        // Semi-transparent glowing material for laser sheet
+        const curtainMat = new BABYLON.StandardMaterial("laserCurtainMat", this.scene);
+        curtainMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red laser
+        curtainMat.alpha = 0.4; // Semi-transparent so you see through smoke
+        curtainMat.disableLighting = true;
+        curtainMat.backFaceCulling = false; // Visible from both sides
+        this.laserCurtain.material = curtainMat;
         
-        // Add volumetric spot lights for dramatic effect
-        this.djLaserLights = [];
-        for (let i = 0; i < 20; i++) {
-            const light = new BABYLON.SpotLight("djLaserLight" + i,
-                new BABYLON.Vector3(0, laserOriginY, laserOriginZ),
-                new BABYLON.Vector3(0, -0.5, 1).normalize(),
-                Math.PI / 20, 8, this.scene  // Very narrow beam
+        // Add multiple spotlights along the curtain for volumetric effect in smoke
+        this.curtainLights = [];
+        for (let i = 0; i < 8; i++) {
+            const xPos = -10 + (i * 2.5); // Spread across width
+            const light = new BABYLON.SpotLight("curtainLight" + i,
+                new BABYLON.Vector3(xPos, 7, -25.5),
+                new BABYLON.Vector3(0, -0.3, 0.9).normalize(),
+                Math.PI / 32, // Very narrow vertical beam
+                15,
+                this.scene
             );
             light.diffuse = new BABYLON.Color3(1, 0, 0);
-            light.intensity = 5;
-            light.range = 25;
-            this.djLaserLights.push(light);
+            light.intensity = 6;
+            light.range = 20;
+            this.curtainLights.push(light);
         }
         
         this.djLaserPhase = 0;
@@ -1458,10 +1467,51 @@ class VRClub {
             this.updateLEDWall(time, audioData);
         }
         
-        // Rotate disco ball
-        if (this.discoBall) {
-            this.discoBallRotation += 0.005; // Slow rotation
+        // Rotate disco ball and update reflections
+        if (this.discoBall && this.discoBallFacets) {
+            this.discoBallRotation += 0.003; // Slow rotation (18 seconds per rotation)
             this.discoBall.rotation.y = this.discoBallRotation;
+            
+            // Update reflection spots from disco ball facets
+            const lightSource = this.discoMainSpot.position;
+            const ballCenter = this.discoBall.position;
+            
+            // Only update subset of facets each frame for performance
+            const facetsToUpdate = 30; // Update 30 facets per frame
+            const startIdx = Math.floor(time * 50) % this.discoBallFacets.length;
+            
+            for (let i = 0; i < facetsToUpdate; i++) {
+                const idx = (startIdx + i) % this.discoBallFacets.length;
+                const facet = this.discoBallFacets[idx];
+                
+                // Get facet world position and normal (rotated with ball)
+                const facetPos = facet.mesh.getAbsolutePosition();
+                const rotatedNormal = BABYLON.Vector3.TransformNormal(
+                    facet.normal, 
+                    this.discoBall.getWorldMatrix()
+                );
+                
+                // Calculate if this facet is facing the light source
+                const toLight = lightSource.subtract(facetPos).normalize();
+                const facingLight = BABYLON.Vector3.Dot(rotatedNormal, toLight);
+                
+                if (facingLight > 0.3) { // Facet is facing light
+                    // Calculate reflection direction (perfect mirror reflection)
+                    const reflectionDir = toLight.subtract(
+                        rotatedNormal.scale(2 * BABYLON.Vector3.Dot(toLight, rotatedNormal))
+                    ).normalize();
+                    
+                    // Cast reflection ray into scene
+                    facet.light.position = facetPos;
+                    facet.light.direction = reflectionDir;
+                    facet.light.intensity = facingLight * 2; // Intensity based on angle
+                    
+                    // Color from main spotlight
+                    facet.light.diffuse = this.discoMainSpot.diffuse.clone();
+                } else {
+                    facet.light.intensity = 0; // Facet not facing light
+                }
+            }
         }
         
         // Alternate between lights and lasers (every 15-30 seconds)
@@ -1688,61 +1738,52 @@ class VRClub {
             this.laserBlanketActive = false;
         }
         
-        // Update DRAMATIC LASER BLANKET - horizontal sweep across dance floor
-        if (this.djLaserBeams) {
+        // Update DRAMATIC LASER CURTAIN - thin horizontal sheet sweeping vertically
+        if (this.laserCurtain && this.curtainLights) {
             const showActive = this.laserBlanketActive;
             
             if (showActive) {
-                this.djLaserPhase += 0.008; // SLOW dramatic sweep
+                this.djLaserPhase += 0.004; // VERY SLOW dramatic sweep (takes ~2 minutes full cycle)
                 
-                // Vertical sweep angle (moves up and down slowly)
-                const verticalSweep = Math.sin(this.djLaserPhase) * 0.3; // ±0.3 radians up/down
+                // Vertical position sweeps slowly from floor to ceiling
+                // Range: 1m (floor) to 6m (ceiling) 
+                const minY = 1.5;
+                const maxY = 5.5;
+                const sweepRange = maxY - minY;
+                const currentY = minY + (Math.sin(this.djLaserPhase) * 0.5 + 0.5) * sweepRange;
                 
-                this.djLaserBeams.forEach((beam, idx) => {
-                    // Create WIDE horizontal blanket (beams spread left to right)
-                    const horizontalSpread = (idx - 9.5) * 0.08; // 20 beams spread wide
+                // Update curtain position
+                this.laserCurtain.position.y = currentY;
+                
+                // Slight rotation for dynamic effect
+                this.laserCurtain.rotation.z = Math.sin(this.djLaserPhase * 0.3) * 0.05;
+                
+                // Make curtain visible and bright red
+                this.laserCurtain.visibility = 1;
+                this.laserCurtain.material.emissiveColor = this.cachedColors.red;
+                this.laserCurtain.material.alpha = 0.5; // Semi-transparent sheet
+                
+                // Update housing
+                this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
+                
+                // Update spotlight positions to follow curtain
+                this.curtainLights.forEach((light, idx) => {
+                    const xPos = -10 + (idx * 2.5);
+                    light.position.set(xPos, 7, -25.5);
                     
-                    // Direction: mostly horizontal, slight downward angle + vertical sweep
-                    const dirX = Math.sin(horizontalSpread);
-                    const dirY = -0.3 + Math.sin(verticalSweep); // Sweeps up/down
-                    const dirZ = Math.cos(horizontalSpread) * 0.95;
-                    const direction = new BABYLON.Vector3(dirX, dirY, dirZ).normalize();
+                    // Direction points through the curtain position
+                    const targetY = currentY;
+                    const dirVec = new BABYLON.Vector3(xPos, targetY, -12).subtract(light.position).normalize();
+                    light.direction = dirVec;
                     
-                    // Long beams to cover entire dance floor
-                    const beamLength = 22;
-                    
-                    // Update beam
-                    beam.mesh.scaling.y = beamLength;
-                    beam.mesh.position = beam.originPos.add(direction.scale(beamLength * 0.5));
-                    
-                    // Orient beam
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const rotAxis = BABYLON.Vector3.Cross(up, direction);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
-                    
-                    if (rotAxis.length() > 0.001) {
-                        beam.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
-                    }
-                    
-                    // Color - pure red for drama
-                    beam.material.emissiveColor = this.cachedColors.red;
-                    this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
-                    
-                    // Update light direction
-                    this.djLaserLights[idx].position = beam.originPos;
-                    this.djLaserLights[idx].direction = direction;
-                    this.djLaserLights[idx].diffuse = this.cachedColors.red;
-                    this.djLaserLights[idx].intensity = 8; // BRIGHT for silhouettes
-                    
-                    // Make visible
-                    beam.mesh.visibility = 1;
-                    beam.material.alpha = 0.9; // Very visible
+                    light.diffuse = this.cachedColors.red;
+                    light.intensity = 8; // BRIGHT for silhouettes in smoke
                 });
             } else {
                 // Turn off when not in special show mode
-                this.djLaserBeams.forEach((beam, idx) => {
-                    beam.mesh.visibility = 0;
-                    this.djLaserLights[idx].intensity = 0;
+                this.laserCurtain.visibility = 0;
+                this.curtainLights.forEach(light => {
+                    light.intensity = 0;
                 });
             }
         }
@@ -1844,26 +1885,34 @@ class VRClub {
 
     updateLEDWall(time, audioData) {
         const patterns = [
+            // Smooth patterns
             this.patternWaveHorizontal,
             this.patternWaveVertical,
-            this.patternCheckerboard,
-            this.patternScanLines,
             this.patternRipple,
             this.patternBreathing,
-            this.patternOuterBox,
-            this.patternInnerBox,
-            this.patternXShape,
-            this.patternPlusSign,
-            this.patternCorners,
-            this.patternDiagonalWipe,
-            this.patternExpandingBox,
-            this.patternSpiral,
-            this.patternVerticalSplit,
-            this.patternHorizontalSplit,
-            this.patternRandomFlicker,
-            this.patternChase,
-            this.patternPulsingRings,
-            this.patternStarburst
+            // BLACKOUT SHAPE PATTERNS (creative geometric forms)
+            this.patternOuterBox,          // Frame with black center
+            this.patternInnerBox,          // Small box, black surround
+            this.patternXShape,            // Big X, rest black
+            this.patternPlusSign,          // Plus/cross shape
+            this.patternCorners,           // 4 corner blocks
+            this.patternArrowUp,           // Arrow pointing up
+            this.patternArrowDown,         // Arrow pointing down
+            this.patternDiamond,           // Diamond outline
+            this.patternLetterH,           // Letter H
+            this.patternZigZag,            // Zig-zag pattern
+            // Animated blackout patterns
+            this.patternCheckerboard,      // Checker with black squares
+            this.patternScanLines,         // Single row lit, rest black
+            this.patternDiagonalWipe,      // Clean division
+            this.patternExpandingBox,      // Animated box outline
+            this.patternSpiral,            // Spiral with blackout
+            this.patternVerticalSplit,     // Left/right division
+            this.patternHorizontalSplit,   // Top/bottom division
+            this.patternRandomFlicker,     // Random on/off
+            this.patternChase,             // Perimeter chase
+            this.patternPulsingRings,      // Rings with blackout
+            this.patternStarburst          // Rays with blackout
         ];
         
         // Use cached colors instead of creating new ones
@@ -1952,66 +2001,184 @@ class VRClub {
         });
     }
 
-    // Shape patterns with blackout sections (updated for 10x6 grid)
-    patternOuterBox(color, time) {
-        // Only outer edge panels lit, center blacked out
+    // CREATIVE BLACKOUT PATTERNS - shapes formed by blacked out panels (10x6 grid)
+    
+    patternOuterBox(color, time, audioData) {
+        // OUTER FRAME lit, center completely BLACK
         this.ledPanels.forEach(panel => {
             const isEdge = panel.row === 0 || panel.row === 5 || panel.col === 0 || panel.col === 9;
             const brightness = isEdge ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            // Force black for center
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternInnerBox(color, time) {
-        // Only inner panels lit, outer edge blacked out
+    patternInnerBox(color, time, audioData) {
+        // SMALL BOX in center lit, everything else BLACK
         this.ledPanels.forEach(panel => {
             const isInner = panel.row >= 2 && panel.row <= 3 && panel.col >= 3 && panel.col <= 6;
             const brightness = isInner ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternXShape(color, time) {
-        // X pattern with rest blacked out (adjusted for 10x6 grid)
+    patternXShape(color, time, audioData) {
+        // BIG X pattern, rest BLACK
         this.ledPanels.forEach(panel => {
             const isDiagonal1 = Math.abs(panel.row - panel.col * 0.6) < 0.7;
             const isDiagonal2 = Math.abs(panel.row - (5 - panel.col * 0.6)) < 0.7;
             const brightness = (isDiagonal1 || isDiagonal2) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternPlusSign(color, time) {
-        // Plus/cross pattern (centered on 10x6 grid)
+    patternPlusSign(color, time, audioData) {
+        // PLUS/CROSS shape, rest BLACK
         this.ledPanels.forEach(panel => {
             const isMiddleRow = panel.row === 2 || panel.row === 3;
             const isMiddleCol = panel.col === 4 || panel.col === 5;
             const brightness = (isMiddleRow || isMiddleCol) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternCorners(color, time) {
-        // Only corner panels lit
+    patternCorners(color, time, audioData) {
+        // 4 CORNER BLOCKS (2x2 each), rest BLACK
         this.ledPanels.forEach(panel => {
-            const isCorner = (panel.row === 0 || panel.row === 5) && (panel.col === 0 || panel.col === 9);
-            const brightness = isCorner ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            const isTopLeft = panel.row <= 1 && panel.col <= 1;
+            const isTopRight = panel.row <= 1 && panel.col >= 8;
+            const isBottomLeft = panel.row >= 4 && panel.col <= 1;
+            const isBottomRight = panel.row >= 4 && panel.col >= 8;
+            const brightness = (isTopLeft || isTopRight || isBottomLeft || isBottomRight) ? 1.0 : 0;
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternDiagonalWipe(color, time) {
-        // Animated diagonal wipe
-        const wipePos = (Math.sin(this.ledTime) + 1) * 5;
+    patternDiagonalWipe(color, time, audioData) {
+        // Animated diagonal wipe - clear blackout division
+        const wipePos = (Math.sin(this.ledTime) + 1) * 7;
         this.ledPanels.forEach(panel => {
             const diagonalPos = panel.col + panel.row * 1.5;
             const brightness = (diagonalPos < wipePos) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
+        });
+    }
+    
+    patternArrowUp(color, time, audioData) {
+        // ARROW POINTING UP, rest BLACK
+        this.ledPanels.forEach(panel => {
+            // Arrow tip (top center)
+            const isTip = panel.row === 0 && (panel.col === 4 || panel.col === 5);
+            // Arrow sides expanding down
+            const isLeftSide = panel.row === 1 && (panel.col === 3 || panel.col === 4);
+            const isRightSide = panel.row === 1 && (panel.col === 5 || panel.col === 6);
+            const isLeftWing = panel.row === 2 && (panel.col === 2 || panel.col === 3);
+            const isRightWing = panel.row === 2 && (panel.col === 6 || panel.col === 7);
+            // Arrow shaft
+            const isShaft = (panel.row >= 3) && (panel.col === 4 || panel.col === 5);
+            
+            const brightness = (isTip || isLeftSide || isRightSide || isLeftWing || isRightWing || isShaft) ? 1.0 : 0;
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
+        });
+    }
+    
+    patternArrowDown(color, time, audioData) {
+        // ARROW POINTING DOWN, rest BLACK
+        this.ledPanels.forEach(panel => {
+            // Arrow shaft (top)
+            const isShaft = (panel.row <= 2) && (panel.col === 4 || panel.col === 5);
+            // Arrow sides
+            const isLeftWing = panel.row === 3 && (panel.col === 2 || panel.col === 3);
+            const isRightWing = panel.row === 3 && (panel.col === 6 || panel.col === 7);
+            const isLeftSide = panel.row === 4 && (panel.col === 3 || panel.col === 4);
+            const isRightSide = panel.row === 4 && (panel.col === 5 || panel.col === 6);
+            // Arrow tip (bottom)
+            const isTip = panel.row === 5 && (panel.col === 4 || panel.col === 5);
+            
+            const brightness = (isShaft || isLeftWing || isRightWing || isLeftSide || isRightSide || isTip) ? 1.0 : 0;
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
+        });
+    }
+    
+    patternDiamond(color, time, audioData) {
+        // DIAMOND shape, rest BLACK
+        this.ledPanels.forEach(panel => {
+            const centerX = 4.5;
+            const centerY = 2.5;
+            const manhattanDist = Math.abs(panel.col - centerX) + Math.abs(panel.row - centerY);
+            const brightness = (manhattanDist <= 4 && manhattanDist >= 3) ? 1.0 : 0;
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
+        });
+    }
+    
+    patternLetterH(color, time, audioData) {
+        // Letter H shape, rest BLACK
+        this.ledPanels.forEach(panel => {
+            const isLeftBar = panel.col === 2;
+            const isRightBar = panel.col === 7;
+            const isMiddleBar = panel.row === 3 && (panel.col >= 2 && panel.col <= 7);
+            const brightness = (isLeftBar || isRightBar || isMiddleBar) ? 1.0 : 0;
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
+        });
+    }
+    
+    patternZigZag(color, time, audioData) {
+        // ZIG-ZAG pattern, rest BLACK
+        this.ledPanels.forEach(panel => {
+            const isZig = (panel.row === 1 || panel.row === 4) && (panel.col === 1 || panel.col === 4 || panel.col === 7);
+            const isZag = (panel.row === 2 || panel.row === 3) && (panel.col === 2 || panel.col === 5 || panel.col === 8);
+            const isBorder = (panel.row === 0 || panel.row === 5) && (panel.col === 0 || panel.col === 3 || panel.col === 6 || panel.col === 9);
+            const brightness = (isZig || isZag || isBorder) ? 1.0 : 0;
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternExpandingBox(color, time) {
-        // Box that expands and contracts from center (updated for 10x6 grid)
+    patternExpandingBox(color, time, audioData) {
+        // Box that expands and contracts from center - TRUE BLACKOUT
         const size = Math.abs(Math.sin(this.ledTime * 0.5)) * 5;
         const centerRow = 2.5;
         const centerCol = 4.5;
@@ -2023,12 +2190,16 @@ class VRClub {
             );
             const isInBox = distFromCenter < size && distFromCenter > size - 1;
             const brightness = isInBox ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternSpiral(color, time) {
-        // Spiral pattern from center (updated for 10x6 grid)
+    patternSpiral(color, time, audioData) {
+        // Spiral pattern from center - TRUE BLACKOUT
         const centerRow = 2.5;
         const centerCol = 4.5;
         
@@ -2039,40 +2210,56 @@ class VRClub {
             const dist = Math.sqrt(dx * dx + dy * dy);
             const spiralValue = angle + dist - this.ledTime * 2;
             const brightness = (Math.sin(spiralValue) > 0) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternVerticalSplit(color, time) {
-        // Vertical split that moves (updated for 10 columns)
+    patternVerticalSplit(color, time, audioData) {
+        // Vertical split that moves - CLEAR DIVISION with blackout
         const splitPos = Math.floor((Math.sin(this.ledTime) + 1) * 5);
         this.ledPanels.forEach(panel => {
             const brightness = (panel.col < splitPos) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternHorizontalSplit(color, time) {
-        // Horizontal split that moves (updated for 6 rows)
+    patternHorizontalSplit(color, time, audioData) {
+        // Horizontal split that moves - CLEAR DIVISION with blackout
         const splitPos = Math.floor((Math.sin(this.ledTime) + 1) * 3);
         this.ledPanels.forEach(panel => {
             const brightness = (panel.row < splitPos) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternRandomFlicker(color, time) {
-        // Random panels flicker on/off
+    patternRandomFlicker(color, time, audioData) {
+        // Random panels flicker on/off - TRUE BLACKOUT
         const flickerSpeed = Math.floor(this.ledTime * 5);
         this.ledPanels.forEach(panel => {
             const random = Math.sin(panel.row * 12.9898 + panel.col * 78.233 + flickerSpeed) * 43758.5453;
             const brightness = (random - Math.floor(random) > 0.5) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternChase(color, time) {
-        // Chase lights around perimeter (updated for 10x6 grid)
+    patternChase(color, time, audioData) {
+        // Chase lights around perimeter - TRUE BLACKOUT for non-active
         const chasePos = Math.floor(this.ledTime * 3) % 32;
         const perimeter = [
             // Top row (left to right)
@@ -2093,12 +2280,16 @@ class VRClub {
                     brightness = 1.0 - i * 0.3;
                 }
             }
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternPulsingRings(color, time) {
-        // Concentric rings pulsing from center (updated for 10x6 grid)
+    patternPulsingRings(color, time, audioData) {
+        // Concentric rings pulsing from center - TRUE BLACKOUT between rings
         const centerRow = 2.5;
         const centerCol = 4.5;
         
@@ -2109,12 +2300,16 @@ class VRClub {
             );
             const ringValue = Math.sin(dist * 2 - this.ledTime * 3);
             const brightness = (ringValue > 0.5) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
-    patternStarburst(color, time) {
-        // Starburst/rays from center (updated for 10x6 grid)
+    patternStarburst(color, time, audioData) {
+        // Starburst/rays from center - TRUE BLACKOUT between rays
         const centerRow = 2.5;
         const centerCol = 4.5;
         const numRays = 8;
@@ -2125,7 +2320,11 @@ class VRClub {
             const angle = Math.atan2(dy, dx) + this.ledTime;
             const rayIndex = Math.floor((angle + Math.PI) / (2 * Math.PI) * numRays);
             const brightness = (rayIndex % 2 === 0) ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
+            if (brightness === 0) {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            } else {
+                panel.material.emissiveColor = color.scale(brightness);
+            }
         });
     }
 
