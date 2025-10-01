@@ -73,12 +73,12 @@ class VRClub {
         
         this.scene.activeCamera = this.camera;
         
-        // Add glow layer for neon/LED effects
+        // Add glow layer for neon/LED effects (works in both desktop and VR)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
-            mainTextureFixedSize: 512,
+            mainTextureFixedSize: 1024, // Increased for VR
             blurKernelSize: 64
         });
-        this.glowLayer.intensity = 1.5;
+        this.glowLayer.intensity = 2.5; // Increased intensity for VR visibility
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -93,6 +93,9 @@ class VRClub {
             // VR not available - continue with desktop mode
             return null;
         });
+        
+        // Store VR helper for later use
+        this.vrHelper = vrHelper;
         
         // Continue building club
         this.createWalls();
@@ -1004,9 +1007,12 @@ class VRClub {
                 }
                 
                 // Update beam geometry
-                laser.mesh.scaling.y = beamLength;
-                const midPoint = BABYLON.Vector3.Lerp(laser.originPos, hitPoint, 0.5);
-                laser.mesh.position = midPoint;
+                // Cylinder's pivot is at center, so we need to scale and position carefully
+                laser.mesh.scaling.y = beamLength / 10; // Divide by initial height
+                
+                // Position beam so it starts at originPos and extends along direction
+                // Move half the beam length along the direction
+                laser.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
                 
                 // Orient beam along direction
                 const up = new BABYLON.Vector3(0, 1, 0);
