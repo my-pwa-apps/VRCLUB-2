@@ -619,7 +619,9 @@ class VRClub {
                 tile.position = new BABYLON.Vector3(x * tileSize, 0.03, -12 + (z * tileSize));
                 
                 const tileMat = new BABYLON.StandardMaterial("tileMat" + x + "_" + z, this.scene);
-                tileMat.emissiveColor = colors[(x + z) % colors.length].clone();
+                // Use Math.abs to ensure positive index
+                const colorIndex = Math.abs(x + z) % colors.length;
+                tileMat.emissiveColor = colors[colorIndex].clone();
                 tileMat.emissiveColor.scale(0.3); // Dim initially
                 tileMat.disableLighting = true;
                 tile.material = tileMat;
