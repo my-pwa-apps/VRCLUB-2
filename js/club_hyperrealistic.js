@@ -405,13 +405,13 @@ class VRClub {
     }
 
     createDJBooth() {
-        // Professional DJ platform/riser
+        // Professional DJ platform/riser (lowered for better view)
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
             width: 9,
-            height: 1.2,
+            height: 0.6,
             depth: 5
         }, this.scene);
-        platform.position = new BABYLON.Vector3(0, 0.6, -24);
+        platform.position = new BABYLON.Vector3(0, 0.3, -24);
         
         const platformMat = new BABYLON.PBRMetallicRoughnessMaterial("platformMat", this.scene);
         platformMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
@@ -431,7 +431,7 @@ class VRClub {
             height: 0.08,
             depth: 0.08
         }, this.scene);
-        frontRail.position = new BABYLON.Vector3(0, 1.5, -21.5);
+        frontRail.position = new BABYLON.Vector3(0, 0.9, -21.5);
         frontRail.material = railMat;
         
         // DJ console table (main work surface)
@@ -440,7 +440,7 @@ class VRClub {
             height: 0.35,
             depth: 2.5
         }, this.scene);
-        djConsole.position = new BABYLON.Vector3(0, 1.5, -24);
+        djConsole.position = new BABYLON.Vector3(0, 0.9, -24);
         
         const consoleMat = new BABYLON.PBRMetallicRoughnessMaterial("consoleMat", this.scene);
         consoleMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
@@ -455,7 +455,7 @@ class VRClub {
                 diameter: 0.08,
                 height: 0.3
             }, this.scene);
-            leg.position = new BABYLON.Vector3(x, 1.35, -24);
+            leg.position = new BABYLON.Vector3(x, 0.75, -24);
             leg.material = railMat;
         }
         
@@ -465,7 +465,7 @@ class VRClub {
             height: 0.1,
             depth: 2
         }, this.scene);
-        cableTray.position = new BABYLON.Vector3(0, 1.25, -24);
+        cableTray.position = new BABYLON.Vector3(0, 0.65, -24);
         const trayMat = new BABYLON.StandardMaterial("trayMat", this.scene);
         trayMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         cableTray.material = trayMat;
@@ -479,11 +479,11 @@ class VRClub {
         // Monitor speakers
         this.createMonitorSpeakers();
         
-        // VU meters
-        this.createVUMeters();
-        
         // Laptop stand
         this.createLaptopStand();
+        
+        // DJ booth laser (front-facing floor sweeper)
+        this.createDJBoothLaser();
         
         // Accent lighting under platform
         this.createBoothLighting();
@@ -496,22 +496,22 @@ class VRClub {
         cdjMat.metallic = 0.8;
         cdjMat.roughness = 0.3;
         
-        // Left CDJ
+        // Left CDJ (lowered)
         const leftCDJ = BABYLON.MeshBuilder.CreateBox("leftCDJ", {
             width: 1.3,
             height: 0.12,
             depth: 1.3
         }, this.scene);
-        leftCDJ.position = new BABYLON.Vector3(-1.6, 1.72, -24);
+        leftCDJ.position = new BABYLON.Vector3(-1.6, 1.12, -24);
         leftCDJ.material = cdjMat;
         
-        // Right CDJ
+        // Right CDJ (lowered)
         const rightCDJ = BABYLON.MeshBuilder.CreateBox("rightCDJ", {
             width: 1.3,
             height: 0.12,
             depth: 1.3
         }, this.scene);
-        rightCDJ.position = new BABYLON.Vector3(1.6, 1.72, -24);
+        rightCDJ.position = new BABYLON.Vector3(1.6, 1.12, -24);
         rightCDJ.material = cdjMat;
         
         // Jog wheels (glowing)
@@ -523,14 +523,14 @@ class VRClub {
             diameter: 0.6,
             height: 0.05
         }, this.scene);
-        leftJog.position = new BABYLON.Vector3(-1.6, 1.8, -24);
+        leftJog.position = new BABYLON.Vector3(-1.6, 1.2, -24);
         leftJog.material = jogMat;
         
         const rightJog = BABYLON.MeshBuilder.CreateCylinder("rightJog", {
             diameter: 0.6,
             height: 0.05
         }, this.scene);
-        rightJog.position = new BABYLON.Vector3(1.6, 1.8, -24);
+        rightJog.position = new BABYLON.Vector3(1.6, 1.2, -24);
         rightJog.material = jogMat.clone("jogMatR");
     }
 
@@ -540,7 +540,7 @@ class VRClub {
             height: 0.15,
             depth: 1.1
         }, this.scene);
-        mixer.position = new BABYLON.Vector3(0, 1.72, -24);
+        mixer.position = new BABYLON.Vector3(0, 1.12, -24);
         
         const mixerMat = new BABYLON.PBRMetallicRoughnessMaterial("mixerMat", this.scene);
         mixerMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
@@ -554,7 +554,7 @@ class VRClub {
             height: 0.02,
             depth: 0.3
         }, this.scene);
-        display.position = new BABYLON.Vector3(0, 1.81, -23.7);
+        display.position = new BABYLON.Vector3(0, 1.21, -23.7);
         
         const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
         displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
@@ -568,54 +568,33 @@ class VRClub {
         speakerMat.metallic = 0.2;
         speakerMat.roughness = 0.8;
         
-        // Left monitor
+        // Left monitor (lowered)
         const leftMonitor = BABYLON.MeshBuilder.CreateBox("leftMonitor", {
             width: 0.5,
             height: 0.7,
             depth: 0.45
         }, this.scene);
-        leftMonitor.position = new BABYLON.Vector3(-3, 1.55, -24);
+        leftMonitor.position = new BABYLON.Vector3(-3, 0.95, -24);
         leftMonitor.material = speakerMat;
         
-        // Right monitor
+        // Right monitor (lowered)
         const rightMonitor = BABYLON.MeshBuilder.CreateBox("rightMonitor", {
             width: 0.5,
             height: 0.7,
             depth: 0.45
         }, this.scene);
-        rightMonitor.position = new BABYLON.Vector3(3, 1.55, -24);
+        rightMonitor.position = new BABYLON.Vector3(3, 0.95, -24);
         rightMonitor.material = speakerMat;
-    }
-
-    createVUMeters() {
-        this.vuMeters = [];
-        
-        // VU meter bars (animated with music)
-        for (let i = 0; i < 12; i++) {
-            const bar = BABYLON.MeshBuilder.CreateBox("vu" + i, {
-                width: 0.08,
-                height: 0.2,
-                depth: 0.02
-            }, this.scene);
-            bar.position = new BABYLON.Vector3(-0.8 + (i * 0.15), 1.81, -23.6);
-            
-            const barMat = new BABYLON.StandardMaterial("vuMat" + i, this.scene);
-            barMat.emissiveColor = i < 8 ? new BABYLON.Color3(0, 1, 0) : new BABYLON.Color3(1, 0.5, 0);
-            barMat.disableLighting = true;
-            bar.material = barMat;
-            
-            this.vuMeters.push(bar);
-        }
     }
     
     createLaptopStand() {
-        // Laptop stand/shelf
+        // Laptop stand/shelf (lowered)
         const laptopStand = BABYLON.MeshBuilder.CreateBox("laptopStand", {
             width: 1.5,
             height: 0.05,
             depth: 1.0
         }, this.scene);
-        laptopStand.position = new BABYLON.Vector3(-3, 1.7, -24.5);
+        laptopStand.position = new BABYLON.Vector3(-3, 1.1, -24.5);
         
         const standMat = new BABYLON.PBRMetallicRoughnessMaterial("standMat", this.scene);
         standMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
@@ -629,13 +608,74 @@ class VRClub {
             height: 0.5,
             depth: 0.02
         }, this.scene);
-        laptop.position = new BABYLON.Vector3(-3, 1.98, -24.7);
+        laptop.position = new BABYLON.Vector3(-3, 1.38, -24.7);
         laptop.rotation.x = -0.3;
         
         const screenMat = new BABYLON.StandardMaterial("screenMat", this.scene);
         screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
         screenMat.disableLighting = true;
         laptop.material = screenMat;
+    }
+    
+    createDJBoothLaser() {
+        // Floor sweeper laser at front of DJ booth
+        const laserHousing = BABYLON.MeshBuilder.CreateBox("djLaserHousing", {
+            width: 0.3,
+            height: 0.15,
+            depth: 0.2
+        }, this.scene);
+        laserHousing.position = new BABYLON.Vector3(0, 0.75, -21.5);
+        
+        const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("djLaserHousingMat", this.scene);
+        housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        housingMat.metallic = 0.8;
+        housingMat.roughness = 0.3;
+        housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
+        laserHousing.material = housingMat;
+        
+        // Create fan of laser beams (7 beams sweeping across dance floor)
+        this.djLaserBeams = [];
+        for (let i = 0; i < 7; i++) {
+            const beam = BABYLON.MeshBuilder.CreateCylinder("djLaserBeam" + i, {
+                diameter: 0.05,
+                height: 1,
+                tessellation: 8
+            }, this.scene);
+            beam.position = new BABYLON.Vector3(0, 0.75, -21.5);
+            beam.isPickable = false;
+            beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+            
+            const beamMat = new BABYLON.StandardMaterial("djLaserBeamMat" + i, this.scene);
+            beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+            beamMat.alpha = 0.7;
+            beamMat.disableLighting = true;
+            beam.material = beamMat;
+            
+            this.djLaserBeams.push({
+                mesh: beam,
+                material: beamMat,
+                beamIndex: i,
+                originPos: new BABYLON.Vector3(0, 0.75, -21.5)
+            });
+        }
+        
+        // Add spot lights for floor illumination
+        this.djLaserLights = [];
+        for (let i = 0; i < 7; i++) {
+            const light = new BABYLON.SpotLight("djLaserLight" + i,
+                new BABYLON.Vector3(0, 0.75, -21.5),
+                new BABYLON.Vector3(0, -0.5, 1).normalize(),
+                Math.PI / 12, 5, this.scene
+            );
+            light.diffuse = new BABYLON.Color3(1, 0, 0);
+            light.intensity = 3;
+            light.range = 15;
+            this.djLaserLights.push(light);
+        }
+        
+        this.djLaserPhase = 0;
+        this.djLaserHousing = laserHousing;
+        this.djLaserHousingMat = housingMat;
     }
     
     createBoothLighting() {
@@ -962,6 +1002,7 @@ class VRClub {
                 const z = -26; // Behind DJ booth
                 
                 panel.position = new BABYLON.Vector3(x, y, z);
+                panel.rotation.y = Math.PI; // Rotate 180° to face dance floor
                 
                 // Make LED panels highly visible with bright emission
                 const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
@@ -1415,12 +1456,78 @@ class VRClub {
             });
         }
         
-        // Update VU meters
-        if (this.vuMeters) {
-            this.vuMeters.forEach((bar, i) => {
-                const scale = 0.5 + Math.random() * 0.5;
-                bar.scaling.y = scale;
-                bar.position.y = 1.81 + (scale - 0.5) * 0.1;
+        // Update DJ booth laser (floor sweeper)
+        if (this.djLaserBeams && this.lasersActive) {
+            this.djLaserPhase += 0.02;
+            const sweepAngle = Math.sin(this.djLaserPhase) * 0.6; // -0.6 to +0.6 radians
+            
+            this.djLaserBeams.forEach((beam, idx) => {
+                // Spread beams in fan pattern
+                const beamAngle = sweepAngle + (idx - 3) * 0.15; // 7 beams spread out
+                
+                // Direction: angled down toward floor, sweeping left to right
+                const dirX = Math.sin(beamAngle) * 0.8;
+                const dirY = -0.5; // Angled down to hit floor
+                const dirZ = 0.8;
+                const direction = new BABYLON.Vector3(dirX, dirY, dirZ).normalize();
+                
+                // Raycast to floor
+                const ray = new BABYLON.Ray(beam.originPos, direction, 20);
+                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                    return mesh.name === 'floor';
+                });
+                
+                let beamLength = 10;
+                if (hit && hit.hit && hit.pickedPoint) {
+                    beamLength = BABYLON.Vector3.Distance(beam.originPos, hit.pickedPoint);
+                }
+                
+                // Update beam
+                beam.mesh.scaling.y = beamLength;
+                beam.mesh.position = beam.originPos.add(direction.scale(beamLength * 0.5));
+                
+                // Orient beam
+                const up = new BABYLON.Vector3(0, 1, 0);
+                const rotAxis = BABYLON.Vector3.Cross(up, direction);
+                const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
+                
+                if (rotAxis.length() > 0.001) {
+                    beam.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+                }
+                
+                // Update color
+                if (this.currentColorIndex === 0) {
+                    beam.material.emissiveColor = this.cachedColors.red;
+                    this.djLaserLights[idx].diffuse = this.cachedColors.red;
+                    this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
+                } else if (this.currentColorIndex === 1) {
+                    beam.material.emissiveColor = this.cachedColors.green;
+                    this.djLaserLights[idx].diffuse = this.cachedColors.green;
+                    this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
+                } else {
+                    beam.material.emissiveColor = this.cachedColors.blue;
+                    this.djLaserLights[idx].diffuse = this.cachedColors.blue;
+                    this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
+                }
+                
+                // Update light direction
+                this.djLaserLights[idx].position = beam.originPos;
+                this.djLaserLights[idx].direction = direction;
+                this.djLaserLights[idx].intensity = this.lasersActive ? 3 : 0;
+            });
+        } else if (this.djLaserBeams) {
+            // Turn off DJ booth laser when not active
+            this.djLaserBeams.forEach((beam, idx) => {
+                beam.mesh.visibility = 0;
+                this.djLaserLights[idx].intensity = 0;
+            });
+        }
+        
+        // Make DJ booth laser visible when lasers active
+        if (this.djLaserBeams && this.lasersActive) {
+            this.djLaserBeams.forEach(beam => {
+                beam.mesh.visibility = 1;
+                beam.material.alpha = 0.7;
             });
         }
         
@@ -1526,7 +1633,21 @@ class VRClub {
             this.patternCheckerboard,
             this.patternScanLines,
             this.patternRipple,
-            this.patternBreathing
+            this.patternBreathing,
+            this.patternOuterBox,
+            this.patternInnerBox,
+            this.patternXShape,
+            this.patternPlusSign,
+            this.patternCorners,
+            this.patternDiagonalWipe,
+            this.patternExpandingBox,
+            this.patternSpiral,
+            this.patternVerticalSplit,
+            this.patternHorizontalSplit,
+            this.patternRandomFlicker,
+            this.patternChase,
+            this.patternPulsingRings,
+            this.patternStarburst
         ];
         
         // Use cached colors instead of creating new ones
@@ -1544,7 +1665,7 @@ class VRClub {
             this.lastColorChange = Math.floor(time);
         }
         
-        if (Math.floor(time) % 15 === 0 && Math.floor(time) !== this.lastPatternChange) {
+        if (Math.floor(time) % 12 === 0 && Math.floor(time) !== this.lastPatternChange) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.lastPatternChange = Math.floor(time);
         }
@@ -1569,7 +1690,7 @@ class VRClub {
     patternCheckerboard(color, time) {
         this.ledPanels.forEach(panel => {
             const checker = (panel.row + panel.col + Math.floor(this.ledTime * 2)) % 2;
-            const brightness = checker ? 1.0 : 0.4;
+            const brightness = checker ? 1.0 : 0;
             panel.material.emissiveColor = color.scale(brightness);
         });
     }
@@ -1577,7 +1698,7 @@ class VRClub {
     patternScanLines(color, time) {
         this.ledPanels.forEach(panel => {
             const scanLine = Math.floor(this.ledTime * 2) % 4;
-            const brightness = panel.row === scanLine ? 1.0 : 0.4;
+            const brightness = panel.row === scanLine ? 1.0 : 0;
             panel.material.emissiveColor = color.scale(brightness);
         });
     }
@@ -1595,6 +1716,179 @@ class VRClub {
     patternBreathing(color, time) {
         const brightness = 0.4 + 0.6 * Math.sin(this.ledTime);
         this.ledPanels.forEach(panel => {
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    // Shape patterns with blackout sections
+    patternOuterBox(color, time) {
+        // Only outer edge panels lit, center blacked out
+        this.ledPanels.forEach(panel => {
+            const isEdge = panel.row === 0 || panel.row === 3 || panel.col === 0 || panel.col === 5;
+            const brightness = isEdge ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternInnerBox(color, time) {
+        // Only inner panels lit, outer edge blacked out
+        this.ledPanels.forEach(panel => {
+            const isInner = panel.row >= 1 && panel.row <= 2 && panel.col >= 1 && panel.col <= 4;
+            const brightness = isInner ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternXShape(color, time) {
+        // X pattern with rest blacked out
+        this.ledPanels.forEach(panel => {
+            const isDiagonal1 = Math.abs(panel.row - panel.col * 0.667) < 0.6;
+            const isDiagonal2 = Math.abs(panel.row - (3 - panel.col * 0.667)) < 0.6;
+            const brightness = (isDiagonal1 || isDiagonal2) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternPlusSign(color, time) {
+        // Plus/cross pattern
+        this.ledPanels.forEach(panel => {
+            const isMiddleRow = panel.row === 1 || panel.row === 2;
+            const isMiddleCol = panel.col === 2 || panel.col === 3;
+            const brightness = (isMiddleRow || isMiddleCol) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternCorners(color, time) {
+        // Only corner panels lit
+        this.ledPanels.forEach(panel => {
+            const isCorner = (panel.row === 0 || panel.row === 3) && (panel.col === 0 || panel.col === 5);
+            const brightness = isCorner ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternDiagonalWipe(color, time) {
+        // Animated diagonal wipe
+        const wipePos = (Math.sin(this.ledTime) + 1) * 5;
+        this.ledPanels.forEach(panel => {
+            const diagonalPos = panel.col + panel.row * 1.5;
+            const brightness = (diagonalPos < wipePos) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternExpandingBox(color, time) {
+        // Box that expands and contracts from center
+        const size = Math.abs(Math.sin(this.ledTime * 0.5)) * 3;
+        const centerRow = 1.5;
+        const centerCol = 2.5;
+        
+        this.ledPanels.forEach(panel => {
+            const distFromCenter = Math.max(
+                Math.abs(panel.row - centerRow),
+                Math.abs(panel.col - centerCol)
+            );
+            const isInBox = distFromCenter < size && distFromCenter > size - 1;
+            const brightness = isInBox ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternSpiral(color, time) {
+        // Spiral pattern from center
+        const centerRow = 1.5;
+        const centerCol = 2.5;
+        
+        this.ledPanels.forEach(panel => {
+            const dx = panel.col - centerCol;
+            const dy = panel.row - centerRow;
+            const angle = Math.atan2(dy, dx);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const spiralValue = angle + dist - this.ledTime * 2;
+            const brightness = (Math.sin(spiralValue) > 0) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternVerticalSplit(color, time) {
+        // Vertical split that moves
+        const splitPos = Math.floor((Math.sin(this.ledTime) + 1) * 3);
+        this.ledPanels.forEach(panel => {
+            const brightness = (panel.col < splitPos) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternHorizontalSplit(color, time) {
+        // Horizontal split that moves
+        const splitPos = Math.floor((Math.sin(this.ledTime) + 1) * 2);
+        this.ledPanels.forEach(panel => {
+            const brightness = (panel.row < splitPos) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternRandomFlicker(color, time) {
+        // Random panels flicker on/off
+        const flickerSpeed = Math.floor(this.ledTime * 5);
+        this.ledPanels.forEach(panel => {
+            const random = Math.sin(panel.row * 12.9898 + panel.col * 78.233 + flickerSpeed) * 43758.5453;
+            const brightness = (random - Math.floor(random) > 0.5) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternChase(color, time) {
+        // Chase lights around perimeter
+        const chasePos = Math.floor(this.ledTime * 3) % 16;
+        const perimeter = [
+            [0,0], [0,1], [0,2], [0,3], [0,4], [0,5], // Top
+            [1,5], [2,5], [3,5], // Right
+            [3,4], [3,3], [3,2], [3,1], [3,0], // Bottom
+            [2,0], [1,0] // Left
+        ];
+        
+        this.ledPanels.forEach(panel => {
+            let brightness = 0;
+            for (let i = 0; i < 3; i++) {
+                const idx = (chasePos + i) % perimeter.length;
+                if (perimeter[idx][0] === panel.row && perimeter[idx][1] === panel.col) {
+                    brightness = 1.0 - i * 0.3;
+                }
+            }
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternPulsingRings(color, time) {
+        // Concentric rings pulsing from center
+        const centerRow = 1.5;
+        const centerCol = 2.5;
+        
+        this.ledPanels.forEach(panel => {
+            const dist = Math.sqrt(
+                Math.pow(panel.row - centerRow, 2) + 
+                Math.pow((panel.col - centerCol) * 0.7, 2)
+            );
+            const ringValue = Math.sin(dist * 2 - this.ledTime * 3);
+            const brightness = (ringValue > 0.5) ? 1.0 : 0;
+            panel.material.emissiveColor = color.scale(brightness);
+        });
+    }
+
+    patternStarburst(color, time) {
+        // Starburst/rays from center
+        const centerRow = 1.5;
+        const centerCol = 2.5;
+        const numRays = 8;
+        
+        this.ledPanels.forEach(panel => {
+            const dx = panel.col - centerCol;
+            const dy = panel.row - centerRow;
+            const angle = Math.atan2(dy, dx) + this.ledTime;
+            const rayIndex = Math.floor((angle + Math.PI) / (2 * Math.PI) * numRays);
+            const brightness = (rayIndex % 2 === 0) ? 1.0 : 0;
             panel.material.emissiveColor = color.scale(brightness);
         });
     }
