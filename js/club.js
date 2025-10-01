@@ -20,13 +20,15 @@ class VRClub {
     async init() {
         // Create scene
         this.scene = new BABYLON.Scene(this.engine);
-        this.scene.clearColor = new BABYLON.Color3(0.05, 0.05, 0.08); // Slightly brighter background
+        this.scene.clearColor = new BABYLON.Color3(0.1, 0.1, 0.15); // Much brighter background for testing
         
-        // Add fog for depth (optional, can be disabled)
-        this.scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
-        this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
-        this.scene.fogStart = 30;
-        this.scene.fogEnd = 50;
+        // Fog disabled for now - testing visibility
+        // this.scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
+        // this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
+        // this.scene.fogStart = 30;
+        // this.scene.fogEnd = 50;
+        
+        console.log('🎬 Scene created with clear color:', this.scene.clearColor);
         
         // Enable VR
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
@@ -38,9 +40,9 @@ class VRClub {
         this.camera.setTarget(new BABYLON.Vector3(0, 1.7, 0));
         this.camera.attachControl(this.canvas, true);
         this.camera.speed = 0.3;
-        this.camera.applyGravity = true;
+        this.camera.applyGravity = false; // Disabled initially for easier testing
         this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5);
-        this.camera.checkCollisions = true;
+        this.camera.checkCollisions = false; // Disabled initially for easier testing
         
         // Enhanced camera controls for testing
         this.camera.keysUp = [87]; // W
@@ -53,6 +55,11 @@ class VRClub {
         // Mouse sensitivity for easier viewing
         this.camera.angularSensibility = 2000;
         this.camera.inertia = 0.9;
+        
+        // Explicitly set as active camera
+        this.scene.activeCamera = this.camera;
+        
+        console.log('📷 Camera created:', this.camera.name, 'at position', this.camera.position);
         
         // Lighting - BRIGHT and CLEAR
         const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), this.scene);
@@ -87,6 +94,9 @@ class VRClub {
         this.createLasers();
         this.createLights();
         
+        // Add debug sphere to verify rendering
+        this.createDebugSphere();
+        
         // Setup UI
         this.setupUI(vrHelper);
         
@@ -113,6 +123,14 @@ class VRClub {
         console.log('%c💡 Ready to use!', 'color: #4ade80; font-weight: bold;');
         console.log('  Desktop: Use WASD to move, mouse to look around');
         console.log('  VR: Click "Enter VR" button (requires Quest 3S connected)');
+        console.log('%c📷 Initial Camera:', 'color: #667eea; font-weight: bold;');
+        console.log('  Position:', this.camera.position);
+        console.log('  Target:', this.camera.getTarget());
+        console.log('  Active Camera:', this.scene.activeCamera ? this.scene.activeCamera.name : 'NONE');
+        console.log('%c🎬 Scene Info:', 'color: #667eea; font-weight: bold;');
+        console.log('  Meshes:', this.scene.meshes.length);
+        console.log('  Lights:', this.scene.lights.length);
+        console.log('  Materials:', this.scene.materials.length);
     }
 
     createFloor() {
@@ -318,6 +336,21 @@ class VRClub {
             spot.diffuse = new BABYLON.Color3(1, 1, 1);
             this.spotlights.push(spot);
         });
+    }
+    
+    createDebugSphere() {
+        // Create a bright sphere in front of camera to verify rendering
+        const sphere = BABYLON.MeshBuilder.CreateSphere("debugSphere", {
+            diameter: 2
+        }, this.scene);
+        sphere.position = new BABYLON.Vector3(0, 1.7, -5);
+        
+        const sphereMat = new BABYLON.StandardMaterial("debugSphereMat", this.scene);
+        sphereMat.emissiveColor = new BABYLON.Color3(1, 1, 0); // Bright yellow
+        sphereMat.diffuseColor = new BABYLON.Color3(1, 1, 0);
+        sphere.material = sphereMat;
+        
+        console.log('🔵 Debug sphere created at (0, 1.7, -5) - You should see a yellow sphere!');
     }
 
     updateAnimations() {
