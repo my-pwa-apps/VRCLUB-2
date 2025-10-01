@@ -415,10 +415,11 @@ class VRClub {
         }, this.scene);
         discoBall.position = new BABYLON.Vector3(0, 7.2, -12); // Center of middle truss
         
-        // Simple dark base sphere
+        // Reflective base sphere (visible mirror surface)
         const discoBallMat = new BABYLON.StandardMaterial("discoBallMat", this.scene);
-        discoBallMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        discoBallMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        discoBallMat.diffuseColor = new BABYLON.Color3(0.4, 0.4, 0.45); // Brighter, more visible
+        discoBallMat.specularColor = new BABYLON.Color3(0.8, 0.8, 0.9); // Shiny mirror surface
+        discoBallMat.specularPower = 64; // Glossy
         discoBall.material = discoBallMat;
         
         // Create mirror facets that will actually cast light spots
@@ -444,9 +445,10 @@ class VRClub {
             facet.lookAt(discoBall.position);
             facet.parent = discoBall;
             
-            // Mirror material
+            // Bright mirror material (highly reflective)
             const facetMat = new BABYLON.StandardMaterial("facetMat" + i, this.scene);
-            facetMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.95);
+            facetMat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 1.0); // Bright mirror
+            facetMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Slight glow
             facetMat.specularColor = new BABYLON.Color3(1, 1, 1);
             facetMat.specularPower = 128;
             facet.material = facetMat;
@@ -839,7 +841,7 @@ class VRClub {
             width: 24,  // Very wide - covers entire dance floor
             height: 0.15  // Thin sheet - creates "curtain" effect
         }, this.scene);
-        this.laserCurtain.position = new BABYLON.Vector3(0, 4, -12); // Middle of dance floor
+        this.laserCurtain.position = new BABYLON.Vector3(0, 4, -21); // Starts from above DJ booth
         this.laserCurtain.rotation.x = Math.PI / 2; // Horizontal
         this.laserCurtain.isPickable = false;
         
@@ -1204,19 +1206,19 @@ class VRClub {
                 panel.position = new BABYLON.Vector3(x, y, z);
                 panel.rotation.y = Math.PI; // Rotate 180° to face dance floor
                 
-                // REDUCED GLOW - more subtle emission so shapes are visible
+                // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
                 const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
-                panelMat.emissiveColor = new BABYLON.Color3(0.6, 0, 0); // Much dimmer (was 2.0)
+                panelMat.emissiveColor = new BABYLON.Color3(0.1, 0, 0); // MUCH dimmer for contrast
                 panelMat.disableLighting = true;
                 panel.material = panelMat;
                 
-                // Fewer backlights for less glow
-                if (row === 2 && col % 3 === 0) {
+                // Remove most backlights - only minimal ambient
+                if (row === 3 && col === 5) {
                     const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
                         new BABYLON.Vector3(x, y, z - 0.5), this.scene);
-                    backLight.diffuse = new BABYLON.Color3(1, 0, 0);
-                    backLight.intensity = 1.5; // Reduced from 3
-                    backLight.range = 4;
+                    backLight.diffuse = new BABYLON.Color3(0.5, 0, 0);
+                    backLight.intensity = 0.5; // Very subtle
+                    backLight.range = 3;
                 }
                 
                 this.ledPanels.push({
@@ -1807,52 +1809,10 @@ class VRClub {
             });
         }
         
-        // Update LED wall with abstract animations
+        // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
+        // with the new 26-pattern system including creative blackout shapes
         if (this.ledPanels && this.ledPanels.length > 0) {
             this.ledTime += 0.016;
-            
-            // Switch patterns every 15-25 seconds
-            if (time - this.ledPatternSwitchTime > (15 + Math.random() * 10)) {
-                this.ledPattern = (this.ledPattern + 1) % 4;
-                this.ledPatternSwitchTime = time;
-            }
-            
-            // Initialize currentColorIndex if not set
-            if (this.currentColorIndex === undefined) {
-                this.currentColorIndex = 0;
-            }
-            
-            // Get current color
-            let ledColor;
-            if (this.currentColorIndex === 0) {
-                ledColor = this.cachedColors.red;
-            } else if (this.currentColorIndex === 1) {
-                ledColor = this.cachedColors.green;
-            } else {
-                ledColor = this.cachedColors.blue;
-            }
-            
-            this.ledPanels.forEach((panel) => {
-                let brightness = 1;
-                
-                if (this.ledPattern === 0) {
-                    // Circular ripples from center
-                    const dist = Math.sqrt(panel.centerX * panel.centerX + panel.centerY * panel.centerY);
-                    brightness = 0.3 + 0.7 * Math.abs(Math.sin(dist * 0.8 - this.ledTime * 2));
-                } else if (this.ledPattern === 1) {
-                    // Horizontal waves
-                    brightness = 0.3 + 0.7 * Math.abs(Math.sin(panel.centerY * 1.2 + this.ledTime * 3));
-                } else if (this.ledPattern === 2) {
-                    // Vertical waves
-                    brightness = 0.3 + 0.7 * Math.abs(Math.sin(panel.centerX * 1.2 + this.ledTime * 3));
-                } else {
-                    // Checkerboard pulse
-                    const checker = ((panel.row + panel.col) % 2) * 2 - 1;
-                    brightness = 0.5 + 0.5 * Math.sin(this.ledTime * 2 + checker * Math.PI);
-                }
-                
-                panel.material.emissiveColor = ledColor.scale(brightness);
-            });
         }
         
         // Update strobes with realistic flash sequences
@@ -1925,10 +1885,10 @@ class VRClub {
             this.cachedColors.cyan
         ];
         
-        // AUDIO REACTIVE: Change patterns faster with high energy
-        const patternSpeed = audioData.average > 0.5 ? 8 : 12; // 8s when energetic, 12s when calm
+        // AUDIO REACTIVE: Quick pattern changes to match music energy
+        const patternSpeed = audioData.average > 0.6 ? 2 : 3; // 2s when energetic, 3s when calm
         
-        if (Math.floor(time) % 10 === 0 && Math.floor(time) !== this.lastColorChange) {
+        if (Math.floor(time) % 5 === 0 && Math.floor(time) !== this.lastColorChange) {
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
             this.lastColorChange = Math.floor(time);
         }
@@ -1945,7 +1905,8 @@ class VRClub {
         // AUDIO REACTIVE: Speed increases with bass
         const speed = 3 + (audioData ? audioData.bass * 3 : 0);
         this.ledPanels.forEach(panel => {
-            const brightness = 0.4 + 0.6 * Math.sin(panel.col * 0.8 + this.ledTime * speed);
+            // Reduced range for better contrast: 0.1 to 0.5
+            const brightness = 0.1 + 0.4 * Math.sin(panel.col * 0.8 + this.ledTime * speed);
             panel.material.emissiveColor = color.scale(brightness);
         });
     }
@@ -1954,7 +1915,8 @@ class VRClub {
         // AUDIO REACTIVE: Speed increases with bass
         const speed = 3 + (audioData ? audioData.bass * 3 : 0);
         this.ledPanels.forEach(panel => {
-            const brightness = 0.4 + 0.6 * Math.sin(panel.row * 0.8 + this.ledTime * speed);
+            // Reduced range for better contrast: 0.1 to 0.5
+            const brightness = 0.1 + 0.4 * Math.sin(panel.row * 0.8 + this.ledTime * speed);
             panel.material.emissiveColor = color.scale(brightness);
         });
     }
@@ -1986,16 +1948,18 @@ class VRClub {
         const speed = 2 + (audioData ? audioData.bass * 4 : 0);
         this.ledPanels.forEach(panel => {
             const dist = Math.sqrt(Math.pow(panel.col - centerX, 2) + Math.pow(panel.row - centerY, 2));
-            const brightness = 0.4 + 0.6 * Math.sin(dist - this.ledTime * speed);
+            // Reduced range for better contrast: 0.1 to 0.5
+            const brightness = 0.1 + 0.4 * Math.sin(dist - this.ledTime * speed);
             panel.material.emissiveColor = color.scale(brightness);
         });
     }
 
     patternBreathing(color, time, audioData) {
         // AUDIO REACTIVE: Breathe with overall music volume
-        const baseBrightness = 0.4 + 0.6 * Math.sin(this.ledTime);
-        const audioBrightness = audioData ? audioData.average * 0.3 : 0;
-        const brightness = Math.min(1.0, baseBrightness + audioBrightness);
+        // Reduced range for better contrast: 0.1 to 0.5
+        const baseBrightness = 0.1 + 0.4 * Math.sin(this.ledTime);
+        const audioBrightness = audioData ? audioData.average * 0.2 : 0;
+        const brightness = Math.min(0.6, baseBrightness + audioBrightness);
         this.ledPanels.forEach(panel => {
             panel.material.emissiveColor = color.scale(brightness);
         });
