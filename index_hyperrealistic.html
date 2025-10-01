@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎉 HYPERREALISTIC VR Club - Quest 3S</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            color: white;
+            z-index: 100;
+            max-width: 340px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        
+        h2 {
+            margin: 0 0 15px 0;
+            font-size: 22px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .section-title {
+            font-size: 12px;
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+            color: #667eea;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+            padding-bottom: 5px;
+        }
+        
+        .status {
+            font-size: 11px;
+            color: #4ade80;
+            margin: 0 0 15px 0;
+            padding: 10px;
+            background: rgba(74, 222, 128, 0.1);
+            border-radius: 8px;
+            border-left: 3px solid #4ade80;
+            line-height: 1.6;
+        }
+        
+        .preset-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin: 12px 0;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .preset-grid button {
+            padding: 10px 8px;
+            font-size: 11px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            font-size: 13px;
+        }
+        
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+        
+        .info {
+            font-size: 11px;
+            opacity: 0.7;
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+        
+        #fpsCounter {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            border-radius: 10px;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 100;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+            white-space: pre;
+            text-align: left;
+        }
+        
+        .checklist {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 15px;
+            border-radius: 12px;
+            color: white;
+            font-size: 11px;
+            max-width: 280px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        
+        .checklist-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #667eea;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .checklist-content {
+            opacity: 0.9;
+            line-height: 1.8;
+        }
+        
+        .checklist-footer {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 10px;
+            opacity: 0.6;
+        }
+        
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            70% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <!-- FPS Counter -->
+    <div id="fpsCounter">FPS: --</div>
+    
+    <!-- Main UI -->
+    <div id="ui">
+        <h2>🎉 HYPERREALISTIC VR CLUB</h2>
+        <div class="status">
+            ✅ Club Loaded<br>
+            🎨 24-Panel LED Wall Active<br>
+            💡 Dynamic Lighting On<br>
+            💨 Atmospheric Effects On
+        </div>
+        
+        <div class="section-title">🎥 Camera Presets</div>
+        <div class="preset-grid">
+            <button class="preset-btn" data-camera-preset="entrance">🚪 Entry</button>
+            <button class="preset-btn" data-camera-preset="danceFloor">💃 Floor</button>
+            <button class="preset-btn" data-camera-preset="djBooth">🎧 DJ</button>
+            <button class="preset-btn" data-camera-preset="ledWallClose">🎨 LED</button>
+            <button class="preset-btn" data-camera-preset="overview">🏢 Full</button>
+            <button class="preset-btn" data-camera-preset="ceiling">✨ Ceiling</button>
+        </div>
+        <div class="info">📷 Click buttons for instant camera movement</div>
+        
+        <div class="section-title">🎮 Desktop Controls</div>
+        <div class="info">
+            ⌨️ WASD - Move forward/back/left/right<br>
+            ⌨️ Q/E - Fly down/up<br>
+            🖱️ Mouse - Look around<br>
+            ⌨️ D - Toggle debug mode<br>
+            ⌨️ H - Show help overlay
+        </div>
+        
+        <div class="section-title">🎮 VR Mode</div>
+        <button id="vrButton">🥽 Enter VR (Quest 3S)</button>
+        <div class="info" style="margin-top:8px;">
+            💡 Requires Quest 3S connected via Link or Air Link
+        </div>
+        
+        <div class="section-title">🎵 Music Stream</div>
+        <input type="text" id="musicUrl" placeholder="Enter music stream URL (https://...)">
+        <button id="playMusicBtn">▶️ Play Music</button>
+        <div class="info" style="margin-top:8px;">
+            🎧 Add any streaming URL for club music
+        </div>
+    </div>
+    
+    <!-- Testing Checklist -->
+    <div class="checklist">
+        <div class="checklist-title">🔍 Hyperrealistic Features</div>
+        <div class="checklist-content">
+            ✓ PBR Materials (realistic reflections)<br>
+            ✓ Glossy reflective floor<br>
+            ✓ Atmospheric fog/smoke<br>
+            ✓ Bloom & glow effects<br>
+            ✓ 24-panel LED wall animations<br>
+            ✓ 6 laser systems<br>
+            ✓ Dynamic spotlights<br>
+            ✓ DJ booth with equipment<br>
+            ✓ PA speaker stacks<br>
+            ✓ Bar area with bottles<br>
+            ✓ RGB dance floor tiles<br>
+            ✓ Smoke particles<br>
+            ✓ Post-processing effects
+        </div>
+        <div class="checklist-footer">
+            Press H for keyboard shortcuts<br>
+            Press D for debug camera position
+        </div>
+    </div>
+    
+    <!-- Babylon.js -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    
+    <!-- VR Club Script -->
+    <script src="js/club_hyperrealistic.js"></script>
+</body>
+</html>

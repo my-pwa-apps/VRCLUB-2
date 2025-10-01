@@ -18,17 +18,49 @@ class VRClub {
     }
 
     async init() {
-        // Create scene
+        // Create scene with hyperrealistic atmosphere
         this.scene = new BABYLON.Scene(this.engine);
-        this.scene.clearColor = new BABYLON.Color3(0.1, 0.1, 0.15); // Much brighter background for testing
+        this.scene.clearColor = new BABYLON.Color3(0.02, 0.02, 0.05); // Dark club atmosphere
         
-        // Fog disabled for now - testing visibility
-        // this.scene.fogMode = BABYLON.Scene.FOGMODE_LINEAR;
-        // this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
-        // this.scene.fogStart = 30;
-        // this.scene.fogEnd = 50;
+        // Add atmospheric fog for depth and club ambiance
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXPONENTIAL;
+        this.scene.fogDensity = 0.015; // Subtle smoke/haze effect
+        this.scene.fogColor = new BABYLON.Color3(0.02, 0.02, 0.05);
         
-        console.log('🎬 Scene created with clear color:', this.scene.clearColor);
+        // Enable physically based rendering for realism
+        this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
+            "https://assets.babylonjs.com/environments/environmentSpecular.env",
+            this.scene
+        );
+        this.scene.environmentIntensity = 0.5;
+        
+        // Add glow layer for neon effects
+        this.glowLayer = new BABYLON.GlowLayer("glow", this.scene);
+        this.glowLayer.intensity = 1.2;
+        
+        // Add bloom for light effects
+        const pipeline = new BABYLON.DefaultRenderingPipeline(
+            "defaultPipeline",
+            true,
+            this.scene,
+            [this.camera]
+        );
+        pipeline.bloomEnabled = true;
+        pipeline.bloomThreshold = 0.5;
+        pipeline.bloomWeight = 0.3;
+        pipeline.bloomKernel = 64;
+        pipeline.bloomScale = 0.5;
+        
+        // Add chromatic aberration for camera realism
+        pipeline.chromaticAberrationEnabled = true;
+        pipeline.chromaticAberration.aberrationAmount = 3;
+        
+        // Add grain for film/camera effect
+        pipeline.grainEnabled = true;
+        pipeline.grain.intensity = 5;
+        pipeline.grain.animated = true;
+        
+        console.log('🎬 Hyperrealistic scene created with post-processing effects');
         
         // Enable VR
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
