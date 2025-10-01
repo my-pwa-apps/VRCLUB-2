@@ -291,46 +291,92 @@ class VRClub {
         trussMat.metallic = 1.0; // Fully metallic
         trussMat.roughness = 0.3; // Somewhat shiny
         
-        // Main horizontal truss beams (square tube)
-        const trussWidth = 0.25;
-        const trussHeight = 0.25;
+        // Darker material for diagonal bracing
+        const braceMat = new BABYLON.PBRMetallicRoughnessMaterial("braceMat", this.scene);
+        braceMat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.55);
+        braceMat.metallic = 1.0;
+        braceMat.roughness = 0.4;
+        
+        // Main horizontal truss beams (square tube) - make them triangular truss
+        const tubeSize = 0.05; // Individual tube diameter
+        const trussSize = 0.3; // Overall truss width/height
+        
+        // Helper function to create triangular truss section
+        const createTriangularTruss = (name, length, position) => {
+            const parent = new BABYLON.TransformNode(name + "_parent", this.scene);
+            parent.position = position;
+            
+            // Three main chords (corner tubes)
+            const chord1 = BABYLON.MeshBuilder.CreateCylinder(name + "_chord1", {
+                diameter: tubeSize,
+                height: length
+            }, this.scene);
+            chord1.rotation.z = Math.PI / 2;
+            chord1.position = new BABYLON.Vector3(0, trussSize * 0.289, 0); // Top
+            chord1.parent = parent;
+            chord1.material = trussMat;
+            
+            const chord2 = BABYLON.MeshBuilder.CreateCylinder(name + "_chord2", {
+                diameter: tubeSize,
+                height: length
+            }, this.scene);
+            chord2.rotation.z = Math.PI / 2;
+            chord2.position = new BABYLON.Vector3(0, -trussSize * 0.144, -trussSize * 0.25); // Bottom left
+            chord2.parent = parent;
+            chord2.material = trussMat;
+            
+            const chord3 = BABYLON.MeshBuilder.CreateCylinder(name + "_chord3", {
+                diameter: tubeSize,
+                height: length
+            }, this.scene);
+            chord3.rotation.z = Math.PI / 2;
+            chord3.position = new BABYLON.Vector3(0, -trussSize * 0.144, trussSize * 0.25); // Bottom right
+            chord3.parent = parent;
+            chord3.material = trussMat;
+            
+            // Diagonal bracing every 1m
+            const segments = Math.floor(length / 1);
+            for (let i = 0; i < segments; i++) {
+                const xPos = -length / 2 + (i * 1) + 0.5;
+                
+                // Create cross-braces in triangular pattern
+                const brace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_brace1_" + i, {
+                    diameter: tubeSize * 0.7,
+                    height: trussSize * 0.5
+                }, this.scene);
+                brace1.rotation.x = Math.PI / 4;
+                brace1.rotation.z = Math.PI / 2;
+                brace1.position = new BABYLON.Vector3(xPos, 0, 0);
+                brace1.parent = parent;
+                brace1.material = braceMat;
+                
+                // Add bolt connectors at joints
+                if (i % 2 === 0) {
+                    const bolt = BABYLON.MeshBuilder.CreateSphere(name + "_bolt_" + i, {
+                        diameter: tubeSize * 1.5
+                    }, this.scene);
+                    bolt.position = new BABYLON.Vector3(xPos, trussSize * 0.289, 0);
+                    bolt.parent = parent;
+                    bolt.material = trussMat;
+                }
+            }
+            
+            return parent;
+        };
         
         // Truss 1 - Front (above dance floor front)
-        const truss1 = BABYLON.MeshBuilder.CreateBox("truss1", {
-            width: 20,
-            height: trussHeight,
-            depth: trussWidth
-        }, this.scene);
-        truss1.position = new BABYLON.Vector3(0, 8, -8);
-        truss1.material = trussMat;
+        const truss1 = createTriangularTruss("truss1", 20, new BABYLON.Vector3(0, 8, -8));
         
         // Truss 2 - Middle (center of dance floor)
-        const truss2 = BABYLON.MeshBuilder.CreateBox("truss2", {
-            width: 20,
-            height: trussHeight,
-            depth: trussWidth
-        }, this.scene);
-        truss2.position = new BABYLON.Vector3(0, 8, -12);
-        truss2.material = trussMat;
+        const truss2 = createTriangularTruss("truss2", 20, new BABYLON.Vector3(0, 8, -12));
         
         // Truss 3 - Back (near LED wall)
-        const truss3 = BABYLON.MeshBuilder.CreateBox("truss3", {
-            width: 20,
-            height: trussHeight,
-            depth: trussWidth
-        }, this.scene);
-        truss3.position = new BABYLON.Vector3(0, 8, -16);
-        truss3.material = trussMat;
+        const truss3 = createTriangularTruss("truss3", 20, new BABYLON.Vector3(0, 8, -16));
         
-        // Cross beams connecting the trusses
+        // Cross beams connecting the trusses - also triangular
         for (let i = -8; i <= 8; i += 4) {
-            const crossBeam = BABYLON.MeshBuilder.CreateBox("crossBeam" + i, {
-                width: trussWidth,
-                height: trussHeight,
-                depth: 8
-            }, this.scene);
-            crossBeam.position = new BABYLON.Vector3(i, 8, -12);
-            crossBeam.material = trussMat;
+            const crossBeam = createTriangularTruss("crossBeam" + i, 8, new BABYLON.Vector3(i, 8, -12));
+            crossBeam.rotation.y = Math.PI / 2;
         }
         
         // Diagonal support cables/wires from ceiling to truss
@@ -814,14 +860,16 @@ class VRClub {
                     mesh: panel,
                     material: panelMat,
                     row: row,
-                    col: col
+                    col: col,
+                    centerX: col - (cols / 2) + 0.5,
+                    centerY: row - (rows / 2) + 0.5
                 });
             }
         }
         
         this.ledTime = 0;
         this.ledPattern = 0;
-        this.ledColorIndex = 0;
+        this.ledPatternSwitchTime = 0;
         
     }
 
@@ -857,11 +905,14 @@ class VRClub {
             housing.material = housingMat;
             
             // Laser beam (will be resized dynamically)
+            // Start from BOTTOM of housing (pos.trussY - 0.075 is bottom of 0.15 height housing)
             const laser = BABYLON.MeshBuilder.CreateCylinder("laser" + i, {
                 diameter: 0.04,
-                height: 10 // Initial height, will be updated
+                height: 1, // Will be scaled dynamically
+                tessellation: 8
             }, this.scene);
-            laser.position = new BABYLON.Vector3(pos.x, pos.trussY - 5, pos.z);
+            // Position at housing bottom, beam extends downward
+            laser.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.075, pos.z);
             laser.isPickable = false; // Don't hit the beam itself
             laser.rotationQuaternion = BABYLON.Quaternion.Identity(); // Initialize quaternion
             
@@ -887,13 +938,21 @@ class VRClub {
                 mesh: laser,
                 housing: housing,
                 material: laserMat,
+                housingMat: housingMat,
                 light: laserLight,
-                rotation: Math.random() * Math.PI * 2,
-                rotationSpeed: 0.01 + Math.random() * 0.01,
-                tiltPhase: Math.random() * Math.PI * 2,
-                originPos: new BABYLON.Vector3(pos.x, pos.trussY, pos.z)
+                rotation: 0, // Start synchronized
+                rotationSpeed: 0.01,
+                tiltPhase: 0, // Start synchronized
+                originPos: new BABYLON.Vector3(pos.x, pos.trussY - 0.075, pos.z), // Start from housing bottom
+                colorIndex: 0
             });
         });
+        
+        // Initialize lighting mode control
+        this.lightingMode = 'synchronized'; // or 'random'
+        this.modeSwitchTime = 0;
+        this.currentColorIndex = 0;
+        this.colorSwitchTime = 0;
         
     }
 
@@ -977,11 +1036,39 @@ class VRClub {
             this.updateLEDWall(time);
         }
         
+        // Switch between synchronized and random lighting modes (every 20-40 seconds)
+        if (time - this.modeSwitchTime > (20 + Math.random() * 20)) {
+            this.lightingMode = this.lightingMode === 'synchronized' ? 'random' : 'synchronized';
+            this.modeSwitchTime = time;
+            
+            // If switching to synchronized, reset all phases
+            if (this.lightingMode === 'synchronized' && this.lasers) {
+                this.lasers.forEach(laser => {
+                    laser.rotation = 0;
+                    laser.tiltPhase = 0;
+                });
+            }
+        }
+        
+        // Color switching (every 8-12 seconds)
+        if (time - this.colorSwitchTime > (8 + Math.random() * 4)) {
+            this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
+            this.colorSwitchTime = time;
+        }
+        
         // Update lasers with raycasting and dynamic positioning
         if (this.lasers) {
             this.lasers.forEach((laser, i) => {
-                laser.rotation += laser.rotationSpeed;
-                laser.tiltPhase += 0.02;
+                // Movement depends on mode
+                if (this.lightingMode === 'synchronized') {
+                    // All move together
+                    laser.rotation += 0.015;
+                    laser.tiltPhase += 0.02;
+                } else {
+                    // Individual random movement
+                    laser.rotation += laser.rotationSpeed;
+                    laser.tiltPhase += 0.015 + Math.sin(time + i) * 0.01;
+                }
                 
                 // Calculate laser direction with rotation and tilt
                 const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
@@ -1007,11 +1094,10 @@ class VRClub {
                 }
                 
                 // Update beam geometry
-                // Cylinder's pivot is at center, so we need to scale and position carefully
-                laser.mesh.scaling.y = beamLength / 10; // Divide by initial height
+                // Cylinder pivot is at center, scale from initial height of 1
+                laser.mesh.scaling.y = beamLength;
                 
-                // Position beam so it starts at originPos and extends along direction
-                // Move half the beam length along the direction
+                // Position: start at housing bottom (originPos), extend half beam length down
                 laser.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
                 
                 // Orient beam along direction
@@ -1034,52 +1120,60 @@ class VRClub {
                 laser.light.position = laser.originPos;
                 laser.light.direction = direction;
                 
-                // Cycle laser colors
-                const colorPhase = (time * 2 + i) % 3;
-                if (colorPhase < 1) {
+                // All lasers same color at same time
+                if (this.currentColorIndex === 0) {
                     laser.material.emissiveColor = this.cachedColors.red;
                     laser.light.diffuse = this.cachedColors.red;
-                    laser.housing.material.emissiveColor = new BABYLON.Color3(0.1, 0, 0);
-                } else if (colorPhase < 2) {
+                    laser.housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
+                } else if (this.currentColorIndex === 1) {
                     laser.material.emissiveColor = this.cachedColors.green;
                     laser.light.diffuse = this.cachedColors.green;
-                    laser.housing.material.emissiveColor = new BABYLON.Color3(0, 0.1, 0);
+                    laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
                 } else {
                     laser.material.emissiveColor = this.cachedColors.blue;
                     laser.light.diffuse = this.cachedColors.blue;
-                    laser.housing.material.emissiveColor = new BABYLON.Color3(0, 0, 0.1);
+                    laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
                 }
             });
         }
         
         // Update spotlights with synchronized movement patterns
         if (this.spotlights) {
+            // Choose pattern based on lighting mode
+            let globalPhase = time * 0.5;
+            
             this.spotlights.forEach((spot, i) => {
-                spot.phase += 0.016 * spot.speed;
-                
-                // Synchronized movement patterns
-                const patternType = i % 3;
                 let dirX, dirZ;
                 
-                if (patternType === 0) {
-                    // Circular sweep
-                    dirX = Math.sin(spot.phase);
-                    dirZ = Math.cos(spot.phase);
-                } else if (patternType === 1) {
-                    // Figure-8 pattern
-                    dirX = Math.sin(spot.phase * 2);
-                    dirZ = Math.sin(spot.phase) * Math.cos(spot.phase);
+                if (this.lightingMode === 'synchronized') {
+                    // All lights do same pattern
+                    dirX = Math.sin(globalPhase) * 0.8;
+                    dirZ = Math.cos(globalPhase) * 0.8;
                 } else {
-                    // Cross pattern
-                    dirX = Math.sin(spot.phase) * 0.5;
-                    dirZ = Math.cos(spot.phase * 1.5) * 0.5;
+                    // Individual patterns
+                    spot.phase += 0.016 * spot.speed;
+                    const patternType = i % 3;
+                    
+                    if (patternType === 0) {
+                        // Circular sweep
+                        dirX = Math.sin(spot.phase);
+                        dirZ = Math.cos(spot.phase);
+                    } else if (patternType === 1) {
+                        // Figure-8 pattern
+                        dirX = Math.sin(spot.phase * 2);
+                        dirZ = Math.sin(spot.phase) * Math.cos(spot.phase);
+                    } else {
+                        // Cross pattern
+                        dirX = Math.sin(spot.phase) * 0.5;
+                        dirZ = Math.cos(spot.phase * 1.5) * 0.5;
+                    }
                 }
                 
                 // Set direction (pointing from truss to dance floor)
                 spot.light.direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
                 
-                // Pulse intensity
-                spot.light.intensity = 6 + Math.sin(time * 3 + i) * 3;
+                // Synchronized intensity pulsing
+                spot.light.intensity = 6 + Math.sin(time * 3) * 3;
             });
         }
         
@@ -1092,26 +1186,65 @@ class VRClub {
             });
         }
         
-        // Update truss-mounted lights
+        // Update truss-mounted lights - all same color
         if (this.trussLights && this.trussLights.length > 0) {
+            const pulse = 0.4 + Math.sin(time * 3) * 0.6;
+            
+            // All lights same color based on current color index
+            let currentColor;
+            if (this.currentColorIndex === 0) {
+                currentColor = this.cachedColors.red;
+            } else if (this.currentColorIndex === 1) {
+                currentColor = this.cachedColors.green;
+            } else {
+                currentColor = this.cachedColors.blue;
+            }
+            
             this.trussLights.forEach((light, i) => {
-                const pulse = 0.3 + Math.sin(time * 3 + i * 0.8) * 0.7;
-                const colorPhase = (time + i) % 6;
+                light.lensMat.emissiveColor = currentColor.scale(pulse);
+            });
+        }
+        
+        // Update LED wall with abstract animations
+        if (this.ledPanels && this.ledPanels.length > 0) {
+            this.ledTime += 0.016;
+            
+            // Switch patterns every 15-25 seconds
+            if (time - this.ledPatternSwitchTime > (15 + Math.random() * 10)) {
+                this.ledPattern = (this.ledPattern + 1) % 4;
+                this.ledPatternSwitchTime = time;
+            }
+            
+            // Get current color
+            let ledColor;
+            if (this.currentColorIndex === 0) {
+                ledColor = this.cachedColors.red;
+            } else if (this.currentColorIndex === 1) {
+                ledColor = this.cachedColors.green;
+            } else {
+                ledColor = this.cachedColors.blue;
+            }
+            
+            this.ledPanels.forEach((panel) => {
+                let brightness = 1;
                 
-                // Cycle through colors (using cached Color3 objects scaled by pulse)
-                if (colorPhase < 1) {
-                    light.lensMat.emissiveColor = this.cachedColors.red.scale(pulse);
-                } else if (colorPhase < 2) {
-                    light.lensMat.emissiveColor = this.cachedColors.green.scale(pulse);
-                } else if (colorPhase < 3) {
-                    light.lensMat.emissiveColor = this.cachedColors.blue.scale(pulse);
-                } else if (colorPhase < 4) {
-                    light.lensMat.emissiveColor = this.cachedColors.magenta.scale(pulse);
-                } else if (colorPhase < 5) {
-                    light.lensMat.emissiveColor = this.cachedColors.yellow.scale(pulse);
+                if (this.ledPattern === 0) {
+                    // Circular ripples from center
+                    const dist = Math.sqrt(panel.centerX * panel.centerX + panel.centerY * panel.centerY);
+                    brightness = 0.3 + 0.7 * Math.abs(Math.sin(dist * 0.8 - this.ledTime * 2));
+                } else if (this.ledPattern === 1) {
+                    // Horizontal waves
+                    brightness = 0.3 + 0.7 * Math.abs(Math.sin(panel.centerY * 1.2 + this.ledTime * 3));
+                } else if (this.ledPattern === 2) {
+                    // Vertical waves
+                    brightness = 0.3 + 0.7 * Math.abs(Math.sin(panel.centerX * 1.2 + this.ledTime * 3));
                 } else {
-                    light.lensMat.emissiveColor = this.cachedColors.cyan.scale(pulse);
+                    // Checkerboard pulse
+                    const checker = ((panel.row + panel.col) % 2) * 2 - 1;
+                    brightness = 0.5 + 0.5 * Math.sin(this.ledTime * 2 + checker * Math.PI);
                 }
+                
+                panel.material.emissiveColor = ledColor.scale(brightness);
             });
         }
         
