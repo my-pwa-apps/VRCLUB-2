@@ -18,18 +18,17 @@ AFRAME.registerComponent('club-environment', {
     const emittersContainer = document.querySelector('#laser-emitters');
     const colors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
     
-    // Create 8 laser systems with visible sources mounted on truss
+    // Create 6 laser systems with visible sources mounted on simplified truss
     const positions = [
-      {x: -8, z: -5}, {x: 8, z: -5},
-      {x: -8, z: -15}, {x: 8, z: -15},
-      {x: -8, z: -20}, {x: 8, z: -20},
-      {x: 0, z: -8}, {x: 0, z: -18}
+      {x: -7, z: -8}, {x: 7, z: -8},
+      {x: -7, z: -16}, {x: 7, z: -16},
+      {x: -3.5, z: -12}, {x: 3.5, z: -12}
     ];
 
     positions.forEach((pos, i) => {
       // Create visible laser emitter mounted on truss
       const emitter = document.createElement('a-entity');
-      emitter.setAttribute('position', `${pos.x} 9.5 ${pos.z}`);
+      emitter.setAttribute('position', `${pos.x} 7.5 ${pos.z}`);
       
       // Mounting bracket
       const bracket = document.createElement('a-box');
@@ -75,14 +74,14 @@ AFRAME.registerComponent('club-environment', {
       
       emittersContainer.appendChild(emitter);
 
-      // Create laser beam from emitter - extends from truss (9.5) down to floor (0)
+      // Create laser beam from emitter - extends from truss (7.5) down to floor (0)
       const laser = document.createElement('a-entity');
       
       // Position at the emitter location (top of the beam)
-      laser.setAttribute('position', `${pos.x} 9.5 ${pos.z}`);
+      laser.setAttribute('position', `${pos.x} 7.5 ${pos.z}`);
       
       // Beam cylinder - height is distance from truss to floor
-      const beamHeight = 9.5;
+      const beamHeight = 7.5;
       const beam = document.createElement('a-cylinder');
       beam.setAttribute('radius', '0.03');
       beam.setAttribute('height', beamHeight);
