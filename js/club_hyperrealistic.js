@@ -791,40 +791,55 @@ class VRClub {
 
     createSmokeParticles() {
         
-        // Smoke machine effect near DJ booth
-        const smokeSystem = new BABYLON.ParticleSystem("smoke", 800, this.scene);
-        smokeSystem.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
+        // Heavy smoke machine effect on dance floor (multiple sources)
+        const smokePositions = [
+            { x: -8, z: -8 },   // Front left
+            { x: 8, z: -8 },    // Front right
+            { x: -8, z: -16 },  // Back left
+            { x: 8, z: -16 },   // Back right
+            { x: 0, z: -20 }    // DJ booth
+        ];
         
-        smokeSystem.emitter = new BABYLON.Vector3(0, 0.5, -20);
-        smokeSystem.minEmitBox = new BABYLON.Vector3(-5, 0, -2);
-        smokeSystem.maxEmitBox = new BABYLON.Vector3(5, 0, 2);
-        
-        smokeSystem.color1 = new BABYLON.Color4(0.1, 0.1, 0.2, 0.1);
-        smokeSystem.color2 = new BABYLON.Color4(0.2, 0.2, 0.4, 0.05);
-        smokeSystem.colorDead = new BABYLON.Color4(0, 0, 0, 0);
-        
-        smokeSystem.minSize = 2;
-        smokeSystem.maxSize = 6;
-        
-        smokeSystem.minLifeTime = 3;
-        smokeSystem.maxLifeTime = 8;
-        
-        smokeSystem.emitRate = 50;
-        
-        smokeSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        
-        smokeSystem.gravity = new BABYLON.Vector3(0, 0.3, 0);
-        
-        smokeSystem.direction1 = new BABYLON.Vector3(-1, 1, -1);
-        smokeSystem.direction2 = new BABYLON.Vector3(1, 2, 1);
-        
-        smokeSystem.minEmitPower = 0.5;
-        smokeSystem.maxEmitPower = 1.5;
-        smokeSystem.updateSpeed = 0.02;
-        
-        smokeSystem.start();
-        
-        this.smokeMachines.push(smokeSystem);
+        smokePositions.forEach((smokePos, idx) => {
+            const smokeSystem = new BABYLON.ParticleSystem("smoke" + idx, 1200, this.scene);
+            smokeSystem.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
+            
+            smokeSystem.emitter = new BABYLON.Vector3(smokePos.x, 0.2, smokePos.z);
+            smokeSystem.minEmitBox = new BABYLON.Vector3(-0.5, 0, -0.5);
+            smokeSystem.maxEmitBox = new BABYLON.Vector3(0.5, 0, 0.5);
+            
+            // Thicker, more visible smoke
+            smokeSystem.color1 = new BABYLON.Color4(0.2, 0.2, 0.3, 0.3);
+            smokeSystem.color2 = new BABYLON.Color4(0.3, 0.3, 0.4, 0.2);
+            smokeSystem.colorDead = new BABYLON.Color4(0.1, 0.1, 0.15, 0);
+            
+            smokeSystem.minSize = 3;
+            smokeSystem.maxSize = 10;
+            
+            smokeSystem.minLifeTime = 5;
+            smokeSystem.maxLifeTime = 12;
+            
+            smokeSystem.emitRate = 80;
+            
+            smokeSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+            
+            smokeSystem.gravity = new BABYLON.Vector3(0, 0.2, 0);
+            
+            // Spread smoke across dance floor
+            smokeSystem.direction1 = new BABYLON.Vector3(-2, 1, -2);
+            smokeSystem.direction2 = new BABYLON.Vector3(2, 3, 2);
+            
+            smokeSystem.minEmitPower = 0.8;
+            smokeSystem.maxEmitPower = 2.0;
+            smokeSystem.updateSpeed = 0.015;
+            
+            // Add turbulence for realistic swirling
+            smokeSystem.noiseStrength = new BABYLON.Vector3(2, 1, 2);
+            
+            smokeSystem.start();
+            
+            this.smokeMachines.push(smokeSystem);
+        });
     }
 
     createLEDWall() {
@@ -846,8 +861,8 @@ class VRClub {
                 }, this.scene);
                 
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
-                const y = (row * panelHeight) + (panelHeight / 2) + 1;
-                const z = -26.5;
+                const y = (row * panelHeight) + (panelHeight / 2) + 2;
+                const z = -27; // Further back, raised higher for visibility
                 
                 panel.position = new BABYLON.Vector3(x, y, z);
                 
@@ -880,73 +895,111 @@ class VRClub {
         
         this.lasers = [];
         
-        // Lasers mounted on the truss above dance floor
+        // Reduced lasers mounted UNDER the truss (hanging down)
+        // Each laser has a type: 'single', 'spread', 'multi'
         const laserPositions = [
-            { x: -7, z: -10, trussY: 7.8 },
-            { x: -3, z: -10, trussY: 7.8 },
-            { x: 3, z: -10, trussY: 7.8 },
-            { x: 7, z: -10, trussY: 7.8 },
-            { x: -5, z: -14, trussY: 7.8 },
-            { x: 5, z: -14, trussY: 7.8 }
+            { x: -6, z: -10, trussY: 7.55, type: 'spread' },   // Spread laser left
+            { x: 0, z: -10, trussY: 7.55, type: 'multi' },     // Multi-beam center
+            { x: 6, z: -10, trussY: 7.55, type: 'single' }     // Single beam right
         ];
         
         laserPositions.forEach((pos, i) => {
-            // Laser housing on truss
+            // Laser housing UNDER truss (hanging from clamp)
             const housing = BABYLON.MeshBuilder.CreateBox("laserHousing" + i, {
-                width: 0.2,
-                height: 0.15,
-                depth: 0.3
+                width: 0.25,
+                height: 0.2,
+                depth: 0.35
             }, this.scene);
             housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
-            housing.isPickable = false; // Don't interfere with raycasting
+            housing.isPickable = false;
             
             const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("laserHousingMat" + i, this.scene);
             housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
             housingMat.metallic = 0.8;
             housingMat.roughness = 0.3;
-            housingMat.emissiveColor = new BABYLON.Color3(0.1, 0, 0); // Slight red glow from housing
+            housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
             housing.material = housingMat;
             
-            // Laser beam (will be resized dynamically)
-            // Start from BOTTOM of housing (pos.trussY - 0.075 is bottom of 0.15 height housing)
-            const laser = BABYLON.MeshBuilder.CreateCylinder("laser" + i, {
-                diameter: 0.04,
-                height: 1, // Will be scaled dynamically
-                tessellation: 8
+            // Mounting clamp connecting to truss
+            const clamp = BABYLON.MeshBuilder.CreateBox("laserClamp" + i, {
+                width: 0.3,
+                height: 0.15,
+                depth: 0.3
             }, this.scene);
-            // Position at housing bottom, beam extends downward
-            laser.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.075, pos.z);
-            laser.isPickable = false; // Don't hit the beam itself
-            laser.rotationQuaternion = BABYLON.Quaternion.Identity(); // Initialize quaternion
+            clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
+            clamp.isPickable = false;
+            const clampMat = new BABYLON.PBRMetallicRoughnessMaterial("clampMat" + i, this.scene);
+            clampMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            clampMat.metallic = 1.0;
+            clampMat.roughness = 0.4;
+            clamp.material = clampMat;
             
-            const laserMat = new BABYLON.StandardMaterial("laserMat" + i, this.scene);
-            laserMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
-            laserMat.alpha = 0.6;
-            laserMat.disableLighting = true;
-            laser.material = laserMat;
+            // Create beams based on laser type
+            const beams = [];
+            const lights = [];
             
-            // Spot light at the end of the laser for surface illumination
-            const laserLight = new BABYLON.SpotLight("laserLight" + i,
-                new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
-                new BABYLON.Vector3(0, -1, 0),
-                Math.PI / 8, // Narrow cone
-                5,
-                this.scene
-            );
-            laserLight.diffuse = new BABYLON.Color3(1, 0, 0);
-            laserLight.intensity = 5;
-            laserLight.range = 20;
+            if (pos.type === 'single') {
+                // Single beam laser
+                const beam = this.createLaserBeam(i, 0, pos);
+                beams.push(beam);
+                
+                const light = new BABYLON.SpotLight("laserLight" + i,
+                    new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
+                    new BABYLON.Vector3(0, -1, 0),
+                    Math.PI / 8, 5, this.scene
+                );
+                light.diffuse = new BABYLON.Color3(1, 0, 0);
+                light.intensity = 5;
+                light.range = 20;
+                lights.push(light);
+                
+            } else if (pos.type === 'spread') {
+                // Spread laser (3 beams fanning out)
+                for (let j = -1; j <= 1; j++) {
+                    const beam = this.createLaserBeam(i, j, pos);
+                    beams.push(beam);
+                    
+                    const light = new BABYLON.SpotLight("laserLight" + i + "_" + j,
+                        new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
+                        new BABYLON.Vector3(j * 0.3, -1, 0).normalize(),
+                        Math.PI / 12, 5, this.scene
+                    );
+                    light.diffuse = new BABYLON.Color3(1, 0, 0);
+                    light.intensity = 3;
+                    light.range = 20;
+                    lights.push(light);
+                }
+                
+            } else if (pos.type === 'multi') {
+                // Multi-beam laser (5 rotating beams in circle)
+                for (let j = 0; j < 5; j++) {
+                    const beam = this.createLaserBeam(i, j, pos);
+                    beams.push(beam);
+                    
+                    const angle = (j / 5) * Math.PI * 2;
+                    const light = new BABYLON.SpotLight("laserLight" + i + "_" + j,
+                        new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
+                        new BABYLON.Vector3(Math.sin(angle) * 0.3, -1, Math.cos(angle) * 0.3).normalize(),
+                        Math.PI / 12, 5, this.scene
+                    );
+                    light.diffuse = new BABYLON.Color3(1, 0, 0);
+                    light.intensity = 2;
+                    light.range = 20;
+                    lights.push(light);
+                }
+            }
             
             this.lasers.push({
-                mesh: laser,
+                beams: beams,
                 housing: housing,
-                material: laserMat,
+                clamp: clamp,
                 housingMat: housingMat,
-                light: laserLight,
-                rotation: 0, // Start synchronized
+                lights: lights,
+                rotation: 0,
                 rotationSpeed: 0.01,
-                tiltPhase: 0, // Start synchronized
-                originPos: new BABYLON.Vector3(pos.x, pos.trussY - 0.075, pos.z), // Start from housing bottom
+                tiltPhase: 0,
+                originPos: new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z),
+                type: pos.type,
                 colorIndex: 0
             });
         });
@@ -957,6 +1010,30 @@ class VRClub {
         this.currentColorIndex = 0;
         this.colorSwitchTime = 0;
         
+        // Alternating lights/lasers control
+        this.lightsActive = true; // Start with lights
+        this.lasersActive = false;
+        this.lightModeSwitchTime = 0;
+        
+    }
+    
+    createLaserBeam(laserIndex, beamIndex, pos) {
+        const beam = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_beam" + beamIndex, {
+            diameter: 0.04,
+            height: 1,
+            tessellation: 8
+        }, this.scene);
+        beam.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
+        beam.isPickable = false;
+        beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+        
+        const beamMat = new BABYLON.StandardMaterial("laserBeamMat" + laserIndex + "_" + beamIndex, this.scene);
+        beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+        beamMat.alpha = 0.6;
+        beamMat.disableLighting = true;
+        beam.material = beamMat;
+        
+        return { mesh: beam, material: beamMat, beamIndex: beamIndex };
     }
 
     createLights() {
@@ -1039,6 +1116,13 @@ class VRClub {
             this.updateLEDWall(time);
         }
         
+        // Alternate between lights and lasers (every 15-30 seconds)
+        if (time - this.lightModeSwitchTime > (15 + Math.random() * 15)) {
+            this.lightsActive = !this.lightsActive;
+            this.lasersActive = !this.lasersActive;
+            this.lightModeSwitchTime = time;
+        }
+        
         // Switch between synchronized and random lighting modes (every 20-40 seconds)
         if (time - this.modeSwitchTime > (20 + Math.random() * 20)) {
             this.lightingMode = this.lightingMode === 'synchronized' ? 'random' : 'synchronized';
@@ -1060,88 +1144,127 @@ class VRClub {
         }
         
         // Update lasers with raycasting and dynamic positioning
-        if (this.lasers) {
+        if (this.lasers && this.lasersActive) {
             this.lasers.forEach((laser, i) => {
                 // Movement depends on mode
                 if (this.lightingMode === 'synchronized') {
-                    // All move together
                     laser.rotation += 0.015;
                     laser.tiltPhase += 0.02;
                 } else {
-                    // Individual random movement
                     laser.rotation += laser.rotationSpeed;
                     laser.tiltPhase += 0.015 + Math.sin(time + i) * 0.01;
                 }
                 
-                // Calculate laser direction with rotation and tilt
-                const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
-                const dirX = Math.sin(laser.rotation) * Math.sin(tilt);
-                const dirY = -Math.cos(tilt);
-                const dirZ = Math.cos(laser.rotation) * Math.sin(tilt);
-                const direction = new BABYLON.Vector3(dirX, dirY, dirZ);
-                
-                // Raycast to find surface
-                const ray = new BABYLON.Ray(laser.originPos, direction, 30);
-                const hit = this.scene.pickWithRay(ray, (mesh) => {
-                    // Only pick walls, floor, ceiling (not laser components)
-                    return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing');
+                // Update each beam in the laser
+                laser.beams.forEach((beam, beamIdx) => {
+                    let direction;
+                    
+                    if (laser.type === 'single') {
+                        // Single beam pointing down with movement
+                        const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
+                        const dirX = Math.sin(laser.rotation) * Math.sin(tilt);
+                        const dirY = -Math.cos(tilt);
+                        const dirZ = Math.cos(laser.rotation) * Math.sin(tilt);
+                        direction = new BABYLON.Vector3(dirX, dirY, dirZ);
+                        
+                    } else if (laser.type === 'spread') {
+                        // Spread laser (3 beams fanning out)
+                        const spreadAngle = (beam.beamIndex - 1) * 0.4; // -0.4, 0, 0.4
+                        const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.2;
+                        const dirX = Math.sin(laser.rotation + spreadAngle) * Math.sin(tilt);
+                        const dirY = -Math.cos(tilt);
+                        const dirZ = Math.cos(laser.rotation + spreadAngle) * Math.sin(tilt);
+                        direction = new BABYLON.Vector3(dirX, dirY, dirZ);
+                        
+                    } else if (laser.type === 'multi') {
+                        // Multi-beam (5 beams rotating in circle)
+                        const baseAngle = (beam.beamIndex / 5) * Math.PI * 2;
+                        const rotatingAngle = baseAngle + laser.rotation * 2;
+                        const tilt = Math.PI / 5;
+                        const dirX = Math.sin(rotatingAngle) * Math.sin(tilt);
+                        const dirY = -Math.cos(tilt);
+                        const dirZ = Math.cos(rotatingAngle) * Math.sin(tilt);
+                        direction = new BABYLON.Vector3(dirX, dirY, dirZ);
+                    }
+                    
+                    // Raycast to find surface
+                    const ray = new BABYLON.Ray(laser.originPos, direction, 30);
+                    const hit = this.scene.pickWithRay(ray, (mesh) => {
+                        return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing') && !mesh.name.includes('Clamp');
+                    });
+                    
+                    let beamLength = 15;
+                    if (hit && hit.hit && hit.pickedPoint) {
+                        beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
+                    }
+                    
+                    // Update beam geometry
+                    beam.mesh.scaling.y = beamLength;
+                    beam.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
+                    
+                    // Orient beam
+                    const up = new BABYLON.Vector3(0, 1, 0);
+                    const rotAxis = BABYLON.Vector3.Cross(up, direction);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
+                    
+                    if (rotAxis.length() > 0.001) {
+                        beam.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+                    } else {
+                        beam.mesh.rotationQuaternion = BABYLON.Vector3.Dot(up, direction) > 0 ?
+                            BABYLON.Quaternion.Identity() :
+                            BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                    }
+                    
+                    // Color all beams
+                    if (this.currentColorIndex === 0) {
+                        beam.material.emissiveColor = this.cachedColors.red;
+                    } else if (this.currentColorIndex === 1) {
+                        beam.material.emissiveColor = this.cachedColors.green;
+                    } else {
+                        beam.material.emissiveColor = this.cachedColors.blue;
+                    }
                 });
                 
-                let beamLength = 15; // Default length
-                let hitPoint = laser.originPos.add(direction.scale(beamLength));
-                
-                if (hit && hit.hit && hit.pickedPoint) {
-                    const distance = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
-                    beamLength = distance;
-                    hitPoint = hit.pickedPoint;
-                }
-                
-                // Update beam geometry
-                // Cylinder pivot is at center, scale from initial height of 1
-                laser.mesh.scaling.y = beamLength;
-                
-                // Position: start at housing bottom (originPos), extend half beam length down
-                laser.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
-                
-                // Orient beam along direction
-                const up = new BABYLON.Vector3(0, 1, 0);
-                const rotAxis = BABYLON.Vector3.Cross(up, direction);
-                const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
-                
-                if (rotAxis.length() > 0.001) {
-                    laser.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
-                } else {
-                    // Vectors are parallel, use default orientation
-                    if (BABYLON.Vector3.Dot(up, direction) > 0) {
-                        laser.mesh.rotationQuaternion = BABYLON.Quaternion.Identity();
+                // Update lights
+                laser.lights.forEach((light, lightIdx) => {
+                    if (this.currentColorIndex === 0) {
+                        light.diffuse = this.cachedColors.red;
+                        laser.housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
+                    } else if (this.currentColorIndex === 1) {
+                        light.diffuse = this.cachedColors.green;
+                        laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
                     } else {
-                        laser.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                        light.diffuse = this.cachedColors.blue;
+                        laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
                     }
-                }
-                
-                // Update light position and direction
-                laser.light.position = laser.originPos;
-                laser.light.direction = direction;
-                
-                // All lasers same color at same time
-                if (this.currentColorIndex === 0) {
-                    laser.material.emissiveColor = this.cachedColors.red;
-                    laser.light.diffuse = this.cachedColors.red;
-                    laser.housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
-                } else if (this.currentColorIndex === 1) {
-                    laser.material.emissiveColor = this.cachedColors.green;
-                    laser.light.diffuse = this.cachedColors.green;
-                    laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
-                } else {
-                    laser.material.emissiveColor = this.cachedColors.blue;
-                    laser.light.diffuse = this.cachedColors.blue;
-                    laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
-                }
+                    light.intensity = this.lasersActive ? 5 : 0;
+                });
+            });
+        } else if (this.lasers) {
+            // Turn off lasers when not active
+            this.lasers.forEach(laser => {
+                laser.lights.forEach(light => {
+                    light.intensity = 0;
+                });
+                laser.beams.forEach(beam => {
+                    beam.mesh.visibility = 0;
+                    beam.material.alpha = 0;
+                });
+            });
+        }
+        
+        // Make laser beams visible when active
+        if (this.lasers && this.lasersActive) {
+            this.lasers.forEach(laser => {
+                laser.beams.forEach(beam => {
+                    beam.mesh.visibility = 1;
+                    beam.material.alpha = 0.6;
+                });
             });
         }
         
         // Update spotlights with synchronized movement patterns
-        if (this.spotlights) {
+        if (this.spotlights && this.lightsActive) {
             // Choose pattern based on lighting mode
             let globalPhase = time * 0.5;
             
@@ -1176,7 +1299,12 @@ class VRClub {
                 spot.light.direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
                 
                 // Synchronized intensity pulsing
-                spot.light.intensity = 6 + Math.sin(time * 3) * 3;
+                spot.light.intensity = this.lightsActive ? (6 + Math.sin(time * 3) * 3) : 0;
+            });
+        } else if (this.spotlights) {
+            // Turn off spotlights when not active
+            this.spotlights.forEach(spot => {
+                spot.light.intensity = 0;
             });
         }
         
