@@ -6,13 +6,18 @@
 <style>
 html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%;}
 #canvas{width:100%;height:100%;touch-action:none;}
-#ui{position:absolute;top:20px;left:20px;background:rgba(0,0,0,0.8);padding:20px;border-radius:10px;color:white;z-index:100;font-family:Arial,sans-serif;max-width:300px;}
+#ui{position:absolute;top:20px;left:20px;background:rgba(0,0,0,0.9);padding:20px;border-radius:10px;color:white;z-index:100;font-family:Arial,sans-serif;max-width:320px;backdrop-filter:blur(10px);}
 button{background:#667eea;border:none;color:white;padding:12px 24px;border-radius:5px;cursor:pointer;width:100%;margin:5px 0;font-size:14px;transition:all 0.3s;}
-button:hover{background:#764ba2;transform:translateY(-2px);}
+button:hover{background:#764ba2;transform:translateY(-2px);box-shadow:0 4px 12px rgba(102,126,234,0.4);}
+button.small{padding:8px 12px;font-size:12px;}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin:10px 0;}
+.preset-grid button{margin:0;padding:8px;font-size:11px;}
 input{width:100%;padding:10px;margin:5px 0;border-radius:5px;border:none;box-sizing:border-box;}
 .status{font-size:11px;color:#4ade80;margin:10px 0;padding:8px;background:rgba(74,222,128,0.1);border-radius:5px;border-left:3px solid #4ade80;}
 .info{font-size:11px;opacity:0.7;margin:5px 0;}
+.section-title{font-size:12px;font-weight:bold;margin:15px 0 8px 0;color:#667eea;text-transform:uppercase;letter-spacing:1px;}
 h2{margin:0 0 15px 0;font-size:20px;color:#667eea;}
+hr{border:none;border-top:1px solid rgba(255,255,255,0.1);margin:15px 0;}
 </style>
 </head>
 <body>
@@ -20,13 +25,52 @@ h2{margin:0 0 15px 0;font-size:20px;color:#667eea;}
 <div id="ui">
 <h2>🎵 VR CLUB</h2>
 <div class="status">✅ Club Loaded | 🎨 LED Wall Active | 💡 Lights On</div>
-<button id="vr">🎮 Enter VR Mode</button>
-<div class="info">⌨️ WASD to move | 🖱️ Mouse to look</div>
-<hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:15px 0;">
-<input id="music" placeholder="🎵 Enter Music Stream URL">
-<button id="play">▶️ Play Music</button>
-<div class="info" style="margin-top:10px;">💡 VR requires Quest 3S via Link/Air Link</div>
+
+<div class="section-title">🎥 Camera Views</div>
+<div class="preset-grid">
+<button data-camera-preset="entrance" title="Entrance View">🚪 Entry</button>
+<button data-camera-preset="danceFloor" title="Dance Floor">💃 Floor</button>
+<button data-camera-preset="djBooth" title="DJ Booth">� DJ</button>
+<button data-camera-preset="ledWallClose" title="LED Wall Close-up">🎨 LED</button>
+<button data-camera-preset="overview" title="Full Club Overview">🏢 Full</button>
+<button data-camera-preset="ceiling" title="Ceiling/Lasers">✨ Top</button>
 </div>
+<div class="info">📷 Click for instant camera positions</div>
+
+<hr>
+
+<div class="section-title">🎮 Controls</div>
+<div class="info">⌨️ WASD - Move | Q/E - Up/Down</div>
+<div class="info">🖱️ Mouse - Look around</div>
+<div class="info">⌨️ H - Show help</div>
+<button id="vr">🎮 Enter VR Mode</button>
+
+<hr>
+
+<div class="section-title">🎵 Music</div>
+<input id="music" placeholder="Enter Music Stream URL">
+<button id="play">▶️ Play Music</button>
+<div class="info" style="margin-top:8px;">💡 VR requires Quest 3S via Link/Air Link</div>
+</div>
+
+<!-- Testing Checklist (bottom right) -->
+<div style="position:absolute;bottom:20px;right:20px;background:rgba(0,0,0,0.9);padding:15px;border-radius:10px;color:white;font-family:Arial,sans-serif;font-size:11px;max-width:250px;backdrop-filter:blur(10px);">
+<div style="font-weight:bold;margin-bottom:8px;color:#667eea;">🔍 TESTING CHECKLIST</div>
+<div style="opacity:0.9;line-height:1.6;">
+✓ Scene is bright & visible<br>
+✓ LED wall animating (behind DJ)<br>
+✓ 6 patterns cycling (15s each)<br>
+✓ 6 colors cycling (10s each)<br>
+✓ Lasers visible from ceiling<br>
+✓ Spotlights pulsing<br>
+✓ Movement smooth (WASD)<br>
+✓ Camera rotation works (mouse)<br>
+</div>
+<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:10px;opacity:0.7;">
+Press H for keyboard shortcuts
+</div>
+</div>
+
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="js/club.js"></script>
 </body>

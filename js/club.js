@@ -27,7 +27,7 @@ class VRClub {
             floorMeshes: []
         });
         
-        // Setup camera for non-VR
+        // Setup camera for non-VR testing - Enhanced controls
         this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.7, -10), this.scene);
         this.camera.setTarget(new BABYLON.Vector3(0, 1.7, 0));
         this.camera.attachControl(this.canvas, true);
@@ -35,6 +35,18 @@ class VRClub {
         this.camera.applyGravity = true;
         this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5);
         this.camera.checkCollisions = true;
+        
+        // Enhanced camera controls for testing
+        this.camera.keysUp = [87]; // W
+        this.camera.keysDown = [83]; // S
+        this.camera.keysLeft = [65]; // A
+        this.camera.keysRight = [68]; // D
+        this.camera.keysUpward = [69]; // E (fly up)
+        this.camera.keysDownward = [81]; // Q (fly down)
+        
+        // Mouse sensitivity for easier viewing
+        this.camera.angularSensibility = 2000;
+        this.camera.inertia = 0.9;
         
         // Lighting - BRIGHT and CLEAR
         const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), this.scene);
@@ -72,10 +84,14 @@ class VRClub {
         // Setup UI
         this.setupUI(vrHelper);
         
+        // Setup FPS counter
+        this.setupPerformanceMonitor();
+        
         // Start render loop
         this.engine.runRenderLoop(() => {
             this.scene.render();
             this.updateAnimations();
+            this.updatePerformanceMonitor();
         });
         
         window.addEventListener('resize', () => {
@@ -372,6 +388,16 @@ class VRClub {
     }
 
     setupUI(vrHelper) {
+        // Camera presets for testing different views
+        this.cameraPresets = {
+            entrance: { position: new BABYLON.Vector3(0, 1.7, -10), target: new BABYLON.Vector3(0, 1.7, 0) },
+            danceFloor: { position: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -24) },
+            djBooth: { position: new BABYLON.Vector3(0, 2.5, -18), target: new BABYLON.Vector3(0, 3, -24) },
+            ledWallClose: { position: new BABYLON.Vector3(0, 3, -21), target: new BABYLON.Vector3(0, 3, -24) },
+            overview: { position: new BABYLON.Vector3(-12, 6, -12), target: new BABYLON.Vector3(0, 2, -15) },
+            ceiling: { position: new BABYLON.Vector3(0, 7, -12), target: new BABYLON.Vector3(0, 0, -15) }
+        };
+        
         // VR button
         const vrButton = document.getElementById('vr');
         vrButton.addEventListener('click', async () => {
@@ -392,6 +418,14 @@ class VRClub {
             }
         });
         
+        // Camera preset buttons
+        document.querySelectorAll('[data-camera-preset]').forEach(button => {
+            button.addEventListener('click', () => {
+                const preset = button.dataset.cameraPreset;
+                this.moveCameraToPreset(preset);
+            });
+        });
+        
         // Music setup
         document.getElementById('play').addEventListener('click', () => {
             const url = document.getElementById('music').value;
@@ -401,6 +435,69 @@ class VRClub {
                 alert('Please enter a music stream URL');
             }
         });
+        
+        // Keyboard shortcuts info
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'h' || e.key === 'H') {
+                this.showHelp();
+            }
+        });
+    }
+    
+    moveCameraToPreset(presetName) {
+        const preset = this.cameraPresets[presetName];
+        if (preset) {
+            // Smooth transition
+            BABYLON.Animation.CreateAndStartAnimation(
+                'cameraMove',
+                this.camera,
+                'position',
+                60,
+                30,
+                this.camera.position.clone(),
+                preset.position,
+                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+            );
+            
+            this.camera.setTarget(preset.target);
+            console.log(`📷 Camera moved to: ${presetName}`);
+        }
+    }
+    
+    showHelp() {
+        const helpText = `
+🎮 DESKTOP TESTING CONTROLS:
+
+MOVEMENT:
+  W - Move forward
+  S - Move backward
+  A - Strafe left
+  D - Strafe right
+  Q - Fly down
+  E - Fly up
+  Mouse - Look around
+
+CAMERA PRESETS (Click UI buttons):
+  1 - Entrance view
+  2 - Dance floor (see LED wall)
+  3 - DJ booth view
+  4 - LED wall close-up
+  5 - Overview (full club)
+  6 - Ceiling view (see lasers)
+
+SHORTCUTS:
+  H - Show this help
+  ESC - Exit VR mode
+
+TESTING CHECKLIST:
+  ✓ LED wall animating?
+  ✓ Lasers visible?
+  ✓ Spotlights pulsing?
+  ✓ Scene bright enough?
+  ✓ Smooth movement?
+        `;
+        console.log(helpText);
+        alert(helpText);
     }
 
     playMusic(url) {
@@ -427,6 +524,58 @@ class VRClub {
         }).catch(err => {
             console.error('Music playback error:', err);
         });
+    }
+    
+    setupPerformanceMonitor() {
+        // Create FPS display element
+        const fpsDiv = document.createElement('div');
+        fpsDiv.id = 'fps-monitor';
+        fpsDiv.style.cssText = `
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            color: #4ade80;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(74,222,128,0.3);
+            min-width: 100px;
+            text-align: center;
+        `;
+        fpsDiv.innerHTML = 'FPS: --';
+        document.body.appendChild(fpsDiv);
+        
+        this.fpsDiv = fpsDiv;
+        this.fpsUpdateCounter = 0;
+    }
+    
+    updatePerformanceMonitor() {
+        // Update FPS every 10 frames
+        this.fpsUpdateCounter++;
+        if (this.fpsUpdateCounter >= 10) {
+            const fps = Math.round(this.engine.getFps());
+            if (this.fpsDiv) {
+                this.fpsDiv.innerHTML = `FPS: ${fps}`;
+                
+                // Color based on performance
+                if (fps >= 55) {
+                    this.fpsDiv.style.color = '#4ade80'; // Green
+                    this.fpsDiv.style.borderColor = 'rgba(74,222,128,0.3)';
+                } else if (fps >= 30) {
+                    this.fpsDiv.style.color = '#fbbf24'; // Yellow
+                    this.fpsDiv.style.borderColor = 'rgba(251,191,36,0.3)';
+                } else {
+                    this.fpsDiv.style.color = '#ef4444'; // Red
+                    this.fpsDiv.style.borderColor = 'rgba(239,68,68,0.3)';
+                }
+            }
+            this.fpsUpdateCounter = 0;
+        }
     }
 }
 
