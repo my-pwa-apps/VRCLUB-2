@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>VR Club - Quest 3S</title>
+  <meta name="description" content="Multiplayer VR Club with Music Streaming">
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+  <script src="https://unpkg.com/networked-aframe@^0.11.0/dist/networked-aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.1/dist/socket.io.min.js"></script>
+</head>
+<body>
+  <!-- Club Environment Scene -->
+  <a-scene 
+    networked-scene="
+      app: vrclub;
+      room: mainclub;
+      adapter: wss;
+      serverURL: wss://naf-server.herokuapp.com;
+      audio: true;
+      debug: false;"
+    background="color: #000000">
+    
+    <!-- Assets -->
+    <a-assets>
+      <!-- Audio element for music stream -->
+      <audio id="club-music" crossorigin="anonymous" loop></audio>
+      
+      <!-- Templates for networked avatars -->
+      <template id="avatar-template">
+        <a-entity class="avatar">
+          <a-sphere class="head" color="#5985ff" radius="0.2" position="0 1.6 0"></a-sphere>
+          <a-cylinder class="body" color="#3355dd" radius="0.15" height="0.8" position="0 1.0 0"></a-cylinder>
+          <a-entity class="name-tag" 
+            text="value: Player; align: center; color: white; width: 2"
+            position="0 2.0 0"
+            look-at="#camera"></a-entity>
+        </a-entity>
+      </template>
+    </a-assets>
+
+    <!-- Camera Rig (Player) -->
+    <a-entity id="rig" movement-controls="speed: 0.3" position="0 0 15">
+      <a-entity id="camera" camera position="0 1.6 0" look-controls wasd-controls>
+        <a-entity cursor="rayOrigin: mouse" 
+          position="0 0 -0.5"
+          geometry="primitive: ring; radiusInner: 0.01; radiusOuter: 0.015"
+          material="color: white; shader: flat"></a-entity>
+      </a-entity>
+      
+      <!-- VR Controllers -->
+      <a-entity id="leftHand" 
+        oculus-touch-controls="hand: left"
+        laser-controls
+        raycaster="objects: .clickable"></a-entity>
+      <a-entity id="rightHand" 
+        oculus-touch-controls="hand: right"
+        laser-controls
+        raycaster="objects: .clickable"></a-entity>
+    </a-entity>
+
+    <!-- Networked Players -->
+    <a-entity id="player" 
+      networked="template:#avatar-template;attachTemplateToLocal:false;"
+      position="0 0 0">
+    </a-entity>
+
+    <!-- GROUND FLOOR - Main Dance Floor -->
+    <a-entity id="ground-floor" position="0 0 0">
+      
+      <!-- Main Floor -->
+      <a-plane rotation="-90 0 0" width="40" height="50" color="#111111" position="0 0 0"
+        shadow="receive: true"
+        material="metalness: 0.8; roughness: 0.2"></a-plane>
+      
+      <!-- Dance Floor - Simple Concrete -->
+      <a-entity id="dance-floor" position="0 0.01 -10">
+        <a-plane rotation="-90 0 0" width="20" height="15" 
+          material="color: #2a2a2a; metalness: 0.2; roughness: 0.8"
+          shadow="receive: true"
+          class="dance-floor-tile"></a-plane>
+      </a-entity>
+
+      <!-- Main Stage -->
+      <a-entity id="main-stage" position="0 0.5 -20">
+        <a-box width="15" height="1" depth="8" color="#1a1a1a" 
+          material="metalness: 0.5"></a-box>
+        <!-- Stage Lights -->
+        <a-entity light="type: point; intensity: 1.5; color: #ff0055; distance: 15" 
+          position="-5 3 0"></a-entity>
+        <a-entity light="type: point; intensity: 1.5; color: #00ffff; distance: 15" 
+          position="5 3 0"></a-entity>
+      </a-entity>
+
+      <!-- DJ Booth -->
+      <a-entity id="dj-booth" position="0 1.5 -22">
+        <a-box width="3" height="1.5" depth="2" color="#0a0a0a"
+          material="metalness: 0.8"></a-box>
+        <!-- DJ Equipment -->
+        <a-box width="2" height="0.3" depth="1.5" color="#222222" position="0 0.9 0"
+          material="metalness: 0.9; emissive: #00ff88; emissiveIntensity: 0.3"></a-box>
+        <!-- Music Control UI -->
+        <a-entity id="music-controls" position="0 1.5 0.5">
+          <a-plane width="2" height="1" color="#000000" opacity="0.8"
+            class="clickable music-ui"
+            text="value: 🎵 Click to Set Music URL\nLeft Click: Play/Pause; align: center; color: #00ff88; width: 1.8"></a-plane>
+        </a-entity>
+      </a-entity>
+
+      <!-- Side Stages -->
+      <a-entity id="side-stage-left" position="-12 0.3 -5">
+        <a-box width="6" height="0.6" depth="6" color="#1a1a1a"></a-box>
+        <a-entity light="type: point; intensity: 1; color: #ff00ff; distance: 10" 
+          position="0 2 0"></a-entity>
+      </a-entity>
+      
+      <a-entity id="side-stage-right" position="12 0.3 -5">
+        <a-box width="6" height="0.6" depth="6" color="#1a1a1a"></a-box>
+        <a-entity light="type: point; intensity: 1; color: #ffff00; distance: 10" 
+          position="0 2 0"></a-entity>
+      </a-entity>
+
+      <!-- Disco Ball -->
+      <a-entity id="disco-ball" position="0 8 -10">
+        <a-sphere radius="1" 
+          material="metalness: 1; roughness: 0; color: #ffffff; envMap: #env"
+          animation="property: rotation; to: 0 360 0; loop: true; dur: 10000; easing: linear"></a-sphere>
+        <a-entity light="type: point; intensity: 2; color: #ffffff; distance: 25"></a-entity>
+      </a-entity>
+
+      <!-- Laser System with Visible Sources -->
+      <a-entity id="laser-system">
+        <!-- Laser Emitters (visible sources) -->
+        <a-entity id="laser-emitters"></a-entity>
+        <!-- Laser Beams -->
+        <a-entity id="lasers"></a-entity>
+      </a-entity>
+
+      <!-- Light Beam System -->
+      <a-entity id="light-beams">
+        <!-- Moving spotlights with visible fixtures -->
+        <a-entity id="spotlight-1" position="-8 10 -15">
+          <!-- Fixture -->
+          <a-cylinder radius="0.3" height="0.5" color="#1a1a1a" 
+            material="metalness: 0.8; emissive: #ff0000; emissiveIntensity: 0.5"></a-cylinder>
+          <!-- Light -->
+          <a-entity light="type: spot; angle: 25; intensity: 0; color: #ff0000; distance: 30; penumbra: 0.5"
+            animation="property: rotation; to: 0 360 0; loop: true; dur: 5000; easing: linear"></a-entity>
+        </a-entity>
+        
+        <a-entity id="spotlight-2" position="8 10 -15">
+          <a-cylinder radius="0.3" height="0.5" color="#1a1a1a" 
+            material="metalness: 0.8; emissive: #00ff00; emissiveIntensity: 0.5"></a-cylinder>
+          <a-entity light="type: spot; angle: 25; intensity: 0; color: #00ff00; distance: 30; penumbra: 0.5"
+            animation="property: rotation; to: 0 -360 0; loop: true; dur: 7000; easing: linear"></a-entity>
+        </a-entity>
+        
+        <a-entity id="spotlight-3" position="0 10 -5">
+          <a-cylinder radius="0.3" height="0.5" color="#1a1a1a" 
+            material="metalness: 0.8; emissive: #0000ff; emissiveIntensity: 0.5"></a-cylinder>
+          <a-entity light="type: spot; angle: 25; intensity: 0; color: #0000ff; distance: 30; penumbra: 0.5"
+            animation="property: rotation; to: 360 0 0; loop: true; dur: 6000; easing: linear"></a-entity>
+        </a-entity>
+
+        <a-entity id="spotlight-4" position="-5 10 -20">
+          <a-cylinder radius="0.3" height="0.5" color="#1a1a1a" 
+            material="metalness: 0.8; emissive: #ff00ff; emissiveIntensity: 0.5"></a-cylinder>
+          <a-entity light="type: spot; angle: 30; intensity: 0; color: #ff00ff; distance: 25; penumbra: 0.5"
+            animation="property: rotation; to: 45 360 0; loop: true; dur: 4500; easing: linear"></a-entity>
+        </a-entity>
+
+        <a-entity id="spotlight-5" position="5 10 -20">
+          <a-cylinder radius="0.3" height="0.5" color="#1a1a1a" 
+            material="metalness: 0.8; emissive: #ffff00; emissiveIntensity: 0.5"></a-cylinder>
+          <a-entity light="type: spot; angle: 30; intensity: 0; color: #ffff00; distance: 25; penumbra: 0.5"
+            animation="property: rotation; to: -45 -360 0; loop: true; dur: 5500; easing: linear"></a-entity>
+        </a-entity>
+      </a-entity>
+
+      <!-- Additional Lighting Types -->
+      <a-entity id="strobe-lights">
+        <!-- Strobe lights around the dance floor -->
+        <a-entity id="strobe-1" position="-10 5 -10">
+          <a-box width="0.5" height="0.5" depth="0.5" color="#ffffff"
+            material="emissive: #ffffff; emissiveIntensity: 0; metalness: 0.9"></a-box>
+          <a-entity light="type: point; intensity: 0; color: #ffffff; distance: 15"></a-entity>
+        </a-entity>
+        
+        <a-entity id="strobe-2" position="10 5 -10">
+          <a-box width="0.5" height="0.5" depth="0.5" color="#ffffff"
+            material="emissive: #ffffff; emissiveIntensity: 0; metalness: 0.9"></a-box>
+          <a-entity light="type: point; intensity: 0; color: #ffffff; distance: 15"></a-entity>
+        </a-entity>
+
+        <a-entity id="strobe-3" position="0 5 -3">
+          <a-box width="0.5" height="0.5" depth="0.5" color="#ffffff"
+            material="emissive: #ffffff; emissiveIntensity: 0; metalness: 0.9"></a-box>
+          <a-entity light="type: point; intensity: 0; color: #ffffff; distance: 15"></a-entity>
+        </a-entity>
+
+        <a-entity id="strobe-4" position="-10 5 -20">
+          <a-box width="0.5" height="0.5" depth="0.5" color="#ffffff"
+            material="emissive: #ffffff; emissiveIntensity: 0; metalness: 0.9"></a-box>
+          <a-entity light="type: point; intensity: 0; color: #ffffff; distance: 15"></a-entity>
+        </a-entity>
+
+        <a-entity id="strobe-5" position="10 5 -20">
+          <a-box width="0.5" height="0.5" depth="0.5" color="#ffffff"
+            material="emissive: #ffffff; emissiveIntensity: 0; metalness: 0.9"></a-box>
+          <a-entity light="type: point; intensity: 0; color: #ffffff; distance: 15"></a-entity>
+        </a-entity>
+      </a-entity>
+
+      <!-- LED Wall Panels -->
+      <a-entity id="led-wall-panels">
+        <!-- Left wall panels -->
+        <a-entity id="led-panel-1" position="-19 4 -10">
+          <a-plane width="2" height="3" rotation="0 90 0"
+            material="color: #ff0000; emissive: #ff0000; emissiveIntensity: 0; metalness: 0.5"></a-plane>
+        </a-entity>
+        
+        <a-entity id="led-panel-2" position="-19 4 -15">
+          <a-plane width="2" height="3" rotation="0 90 0"
+            material="color: #00ff00; emissive: #00ff00; emissiveIntensity: 0; metalness: 0.5"></a-plane>
+        </a-entity>
+
+        <!-- Right wall panels -->
+        <a-entity id="led-panel-3" position="19 4 -10">
+          <a-plane width="2" height="3" rotation="0 -90 0"
+            material="color: #0000ff; emissive: #0000ff; emissiveIntensity: 0; metalness: 0.5"></a-plane>
+        </a-entity>
+
+        <a-entity id="led-panel-4" position="19 4 -15">
+          <a-plane width="2" height="3" rotation="0 -90 0"
+            material="color: #ff00ff; emissive: #ff00ff; emissiveIntensity: 0; metalness: 0.5"></a-plane>
+        </a-entity>
+      </a-entity>
+
+      <!-- Walls -->
+      <a-box width="0.5" height="6" depth="50" position="-20 3 0" color="#0a0a0a"
+        material="metalness: 0.5"></a-box>
+      <a-box width="0.5" height="6" depth="50" position="20 3 0" color="#0a0a0a"
+        material="metalness: 0.5"></a-box>
+      <a-box width="40" height="6" depth="0.5" position="0 3 -25" color="#0a0a0a"
+        material="metalness: 0.5"></a-box>
+    </a-entity>
+
+    <!-- UPPER FLOOR - VIP Area -->
+    <a-entity id="upper-floor" position="0 6 0">
+      <!-- VIP Platform -->
+      <a-plane rotation="-90 0 0" width="15" height="15" color="#1a1a1a" 
+        position="15 0 -10"
+        material="metalness: 0.7; roughness: 0.3; opacity: 0.95"></a-plane>
+      
+      <!-- VIP Railing -->
+      <a-box width="15" height="1" depth="0.1" position="15 0.5 -2.5" color="#333333"></a-box>
+      
+      <!-- VIP Lounge Furniture -->
+      <a-entity id="vip-lounge">
+        <a-box width="2" height="0.5" depth="2" position="12 0.25 -8" color="#440044"
+          material="metalness: 0.3"></a-box>
+        <a-box width="2" height="0.5" depth="2" position="18 0.25 -8" color="#440044"
+          material="metalness: 0.3"></a-box>
+        <a-cylinder radius="0.4" height="1" position="15 0.5 -10" color="#222222"
+          material="metalness: 0.8"></a-cylinder>
+      </a-entity>
+
+      <!-- VIP Lighting -->
+      <a-entity light="type: point; intensity: 0.8; color: #ff00ff; distance: 10" 
+        position="15 2 -10"></a-entity>
+
+      <!-- Stairs to VIP -->
+      <a-entity id="stairs-vip" position="18 -3 0" rotation="0 -90 0">
+        <a-box width="3" height="0.2" depth="2" position="0 0.5 0" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 1 1" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 1.5 2" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 2 3" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 2.5 4" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 3 5" color="#333333"></a-box>
+      </a-entity>
+    </a-entity>
+
+    <!-- BASEMENT FLOOR - Chill Zone -->
+    <a-entity id="basement-floor" position="0 -6 0">
+      <!-- Basement Floor -->
+      <a-plane rotation="-90 0 0" width="25" height="25" color="#0a0a0a" 
+        position="-15 0 10"
+        material="metalness: 0.6; roughness: 0.4"></a-plane>
+      
+      <!-- Basement Walls -->
+      <a-box width="0.5" height="4" depth="25" position="-27.5 2 10" color="#1a1a1a"></a-box>
+      <a-box width="0.5" height="4" depth="25" position="-2.5 2 10" color="#1a1a1a"></a-box>
+      <a-box width="25" height="4" depth="0.5" position="-15 2 -2.5" color="#1a1a1a"></a-box>
+      <a-box width="25" height="4" depth="0.5" position="-15 2 22.5" color="#1a1a1a"></a-box>
+
+      <!-- Chill Lounge Area -->
+      <a-entity id="chill-lounge">
+        <!-- Circular seating -->
+        <a-torus radius="4" radius-tubular="0.5" position="-15 0.3 10" 
+          rotation="-90 0 0" color="#330033"
+          material="metalness: 0.2"></a-torus>
+        <!-- Center table -->
+        <a-cylinder radius="1.5" height="0.5" position="-15 0.5 10" color="#1a1a1a"
+          material="metalness: 0.8"></a-cylinder>
+      </a-entity>
+
+      <!-- Ambient lighting -->
+      <a-entity light="type: ambient; color: #220022; intensity: 0.5"></a-entity>
+      <a-entity light="type: point; intensity: 1; color: #00ffff; distance: 15" 
+        position="-15 3 10"></a-entity>
+
+      <!-- Stairs to Basement -->
+      <a-entity id="stairs-basement" position="-5 3 5" rotation="0 90 0">
+        <a-box width="3" height="0.2" depth="2" position="0 0.5 0" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 1 1" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 1.5 2" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 2 3" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 2.5 4" color="#333333"></a-box>
+        <a-box width="3" height="0.2" depth="2" position="0 3 5" color="#333333"></a-box>
+      </a-entity>
+    </a-entity>
+
+    <!-- SIDE ROOM 1 - Bar Area -->
+    <a-entity id="bar-room" position="0 0 20">
+      <!-- Bar Floor -->
+      <a-plane rotation="-90 0 0" width="20" height="15" color="#1a1a0a" position="0 0 0"></a-plane>
+      
+      <!-- Bar Counter -->
+      <a-entity id="bar-counter" position="0 0.5 5">
+        <a-box width="12" height="1" depth="2" color="#2a1a0a"
+          material="metalness: 0.7; roughness: 0.3"></a-box>
+        <!-- Bar Top -->
+        <a-box width="12" height="0.1" depth="2" position="0 0.55 0" color="#8b4513"
+          material="metalness: 0.9; roughness: 0.1"></a-box>
+      </a-entity>
+
+      <!-- Bar Stools -->
+      <a-cylinder radius="0.3" height="0.8" position="-4 0.4 3" color="#333333"></a-cylinder>
+      <a-cylinder radius="0.3" height="0.8" position="-2 0.4 3" color="#333333"></a-cylinder>
+      <a-cylinder radius="0.3" height="0.8" position="0 0.4 3" color="#333333"></a-cylinder>
+      <a-cylinder radius="0.3" height="0.8" position="2 0.4 3" color="#333333"></a-cylinder>
+      <a-cylinder radius="0.3" height="0.8" position="4 0.4 3" color="#333333"></a-cylinder>
+
+      <!-- Bar Lighting -->
+      <a-entity light="type: point; intensity: 1.2; color: #ffaa00; distance: 12" 
+        position="0 3 5"></a-entity>
+
+      <!-- Walls -->
+      <a-box width="0.5" height="5" depth="15" position="-10 2.5 0" color="#0a0a0a"></a-box>
+      <a-box width="0.5" height="5" depth="15" position="10 2.5 0" color="#0a0a0a"></a-box>
+      <a-box width="20" height="5" depth="0.5" position="0 2.5 7.5" color="#0a0a0a"></a-box>
+      
+      <!-- Doorway -->
+      <a-box width="3" height="3" depth="0.5" position="0 1.5 -7.5" color="#000000"
+        material="opacity: 0"></a-box>
+    </a-entity>
+
+    <!-- SIDE ROOM 2 - Private Booths -->
+    <a-entity id="booth-room" position="-25 0 -10">
+      <!-- Booth Floor -->
+      <a-plane rotation="-90 0 0" width="15" height="20" color="#0a0a1a" position="0 0 0"></a-plane>
+      
+      <!-- Private Booths -->
+      <a-entity id="booth-1" position="-5 0 -5">
+        <a-box width="3" height="0.5" depth="3" color="#1a001a" position="0 0.25 0"></a-box>
+        <a-box width="0.2" height="1.5" depth="3" color="#2a002a" position="-1.5 1 0"></a-box>
+        <a-box width="3" height="1.5" depth="0.2" color="#2a002a" position="0 1 -1.5"></a-box>
+        <a-entity light="type: point; intensity: 0.6; color: #ff0088; distance: 5" 
+          position="0 2 0"></a-entity>
+      </a-entity>
+
+      <a-entity id="booth-2" position="5 0 -5">
+        <a-box width="3" height="0.5" depth="3" color="#1a001a" position="0 0.25 0"></a-box>
+        <a-box width="0.2" height="1.5" depth="3" color="#2a002a" position="1.5 1 0"></a-box>
+        <a-box width="3" height="1.5" depth="0.2" color="#2a002a" position="0 1 -1.5"></a-box>
+        <a-entity light="type: point; intensity: 0.6; color: #0088ff; distance: 5" 
+          position="0 2 0"></a-entity>
+      </a-entity>
+
+      <a-entity id="booth-3" position="-5 0 5">
+        <a-box width="3" height="0.5" depth="3" color="#1a001a" position="0 0.25 0"></a-box>
+        <a-box width="0.2" height="1.5" depth="3" color="#2a002a" position="-1.5 1 0"></a-box>
+        <a-box width="3" height="1.5" depth="0.2" color="#2a002a" position="0 1 1.5"></a-box>
+        <a-entity light="type: point; intensity: 0.6; color: #88ff00; distance: 5" 
+          position="0 2 0"></a-entity>
+      </a-entity>
+
+      <a-entity id="booth-4" position="5 0 5">
+        <a-box width="3" height="0.5" depth="3" color="#1a001a" position="0 0.25 0"></a-box>
+        <a-box width="0.2" height="1.5" depth="3" color="#2a002a" position="1.5 1 0"></a-box>
+        <a-box width="3" height="1.5" depth="0.2" color="#2a002a" position="0 1 1.5"></a-box>
+        <a-entity light="type: point; intensity: 0.6; color: #ff8800; distance: 5" 
+          position="0 2 0"></a-entity>
+      </a-entity>
+
+      <!-- Walls -->
+      <a-box width="0.5" height="5" depth="20" position="-7.5 2.5 0" color="#0a0a0a"></a-box>
+      <a-box width="0.5" height="5" depth="20" position="7.5 2.5 0" color="#0a0a0a"></a-box>
+      <a-box width="15" height="5" depth="0.5" position="0 2.5 10" color="#0a0a0a"></a-box>
+      <a-box width="15" height="5" depth="0.5" position="0 2.5 -10" color="#0a0a0a"></a-box>
+
+      <!-- Doorway to main floor -->
+      <a-box width="3" height="3" depth="0.5" position="7.5 1.5 0" color="#000000"
+        material="opacity: 0"></a-box>
+    </a-entity>
+
+    <!-- Ceiling -->
+    <a-plane rotation="90 0 0" width="40" height="50" color="#000000" position="0 12 0"
+      material="metalness: 0.5; roughness: 0.5"></a-plane>
+
+    <!-- Ambient Lighting -->
+    <a-entity light="type: ambient; color: #111111; intensity: 0.3"></a-entity>
+
+    <!-- Environment Fog -->
+    <a-entity id="fog" fog="type: linear; color: #000011; near: 5; far: 50"></a-entity>
+
+  </a-scene>
+
+  <!-- JavaScript for Interactive Features -->
+  <script>
+    // Wait for scene to load
+    AFRAME.registerComponent('club-environment', {
+      init: function() {
+        this.audioContext = null;
+        this.analyser = null;
+        this.dataArray = null;
+        this.currentLightMode = 'lasers'; // 'lasers', 'spotlights', 'strobes', 'mixed'
+        this.lightModeTimer = 0;
+        
+        this.setupLasers();
+        this.setupMusicSystem();
+        this.setupNetworking();
+        this.setupLightShowSequence();
+      },
+
+      setupLasers: function() {
+        const lasersContainer = document.querySelector('#lasers');
+        const emittersContainer = document.querySelector('#laser-emitters');
+        const colors = ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffff00', '#00ffff'];
+        
+        // Create 8 laser systems with visible sources
+        const positions = [
+          {x: -15, z: -5}, {x: 15, z: -5},
+          {x: -15, z: -15}, {x: 15, z: -15},
+          {x: -10, z: -20}, {x: 10, z: -20},
+          {x: -5, z: -3}, {x: 5, z: -3}
+        ];
+
+        positions.forEach((pos, i) => {
+          // Create visible laser emitter
+          const emitter = document.createElement('a-entity');
+          emitter.setAttribute('position', `${pos.x} 10 ${pos.z}`);
+          
+          const emitterBox = document.createElement('a-box');
+          emitterBox.setAttribute('width', '0.4');
+          emitterBox.setAttribute('height', '0.4');
+          emitterBox.setAttribute('depth', '0.4');
+          emitterBox.setAttribute('material', {
+            color: '#0a0a0a',
+            emissive: colors[i % colors.length],
+            emissiveIntensity: 0,
+            metalness: 0.9
+          });
+          emitterBox.classList.add('laser-emitter');
+          emitter.appendChild(emitterBox);
+          emittersContainer.appendChild(emitter);
+
+          // Create laser beam from emitter
+          const laser = document.createElement('a-entity');
+          laser.setAttribute('geometry', {
+            primitive: 'cylinder',
+            radius: 0.03,
+            height: 10
+          });
+          laser.setAttribute('material', {
+            color: colors[i % colors.length],
+            emissive: colors[i % colors.length],
+            emissiveIntensity: 0,
+            opacity: 0,
+            transparent: true
+          });
+          laser.setAttribute('position', `${pos.x} 5 ${pos.z}`);
+          laser.setAttribute('rotation', `${20 + Math.random() * 40} ${Math.random() * 360} 0`);
+          laser.setAttribute('animation', {
+            property: 'rotation',
+            to: `${20 + Math.random() * 40} ${Math.random() * 360 + 360} ${Math.random() * 20}`,
+            loop: true,
+            dur: 4000 + Math.random() * 3000,
+            easing: 'linear'
+          });
+          laser.classList.add('laser-beam');
+          
+          lasersContainer.appendChild(laser);
+        });
+      },
+
+      setupLightShowSequence: function() {
+        // Alternate between different lighting modes
+        setInterval(() => {
+          this.lightModeTimer++;
+          const modes = ['lasers', 'spotlights', 'strobes', 'mixed'];
+          this.currentLightMode = modes[this.lightModeTimer % modes.length];
+          this.switchLightMode(this.currentLightMode);
+        }, 8000); // Switch every 8 seconds
+
+        // Start animation loop for reactive lighting
+        this.tick = this.tick.bind(this);
+        this.el.sceneEl.addBehavior(this);
+      },
+
+      switchLightMode: function(mode) {
+        const lasers = document.querySelectorAll('.laser-beam');
+        const laserEmitters = document.querySelectorAll('.laser-emitter');
+        const spotlights = document.querySelectorAll('#light-beams a-entity[light]');
+        const strobes = document.querySelectorAll('#strobe-lights a-entity[light]');
+        const strobeBoxes = document.querySelectorAll('#strobe-lights a-box');
+        const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
+
+        // Reset all
+        lasers.forEach(l => l.setAttribute('material', 'opacity', 0));
+        lasers.forEach(l => l.setAttribute('material', 'emissiveIntensity', 0));
+        laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0));
+        spotlights.forEach(s => s.setAttribute('light', 'intensity', 0));
+        strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
+        strobeBoxes.forEach(b => b.setAttribute('material', 'emissiveIntensity', 0));
+        ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0));
+
+        switch(mode) {
+          case 'lasers':
+            lasers.forEach(l => {
+              l.setAttribute('material', 'opacity', 0.8);
+              l.setAttribute('material', 'emissiveIntensity', 2);
+            });
+            laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 1));
+            break;
+
+          case 'spotlights':
+            spotlights.forEach(s => s.setAttribute('light', 'intensity', 2.5));
+            ledPanels.forEach((p, i) => {
+              setTimeout(() => {
+                p.setAttribute('material', 'emissiveIntensity', 0.8);
+              }, i * 200);
+            });
+            break;
+
+          case 'strobes':
+            this.startStrobePattern(strobes, strobeBoxes);
+            break;
+
+          case 'mixed':
+            lasers.forEach(l => {
+              l.setAttribute('material', 'opacity', 0.5);
+              l.setAttribute('material', 'emissiveIntensity', 1.5);
+            });
+            laserEmitters.forEach(e => e.setAttribute('material', 'emissiveIntensity', 0.8));
+            spotlights.forEach(s => s.setAttribute('light', 'intensity', 1.5));
+            ledPanels.forEach(p => p.setAttribute('material', 'emissiveIntensity', 0.5));
+            break;
+        }
+      },
+
+      startStrobePattern: function(strobes, strobeBoxes) {
+        let strobeIndex = 0;
+        const strobeInterval = setInterval(() => {
+          if (this.currentLightMode !== 'strobes') {
+            clearInterval(strobeInterval);
+            return;
+          }
+
+          // Turn off all strobes
+          strobes.forEach(s => s.setAttribute('light', 'intensity', 0));
+          strobeBoxes.forEach(b => b.setAttribute('material', 'emissiveIntensity', 0));
+
+          // Flash current strobe
+          strobes[strobeIndex].setAttribute('light', 'intensity', 5);
+          strobeBoxes[strobeIndex].setAttribute('material', 'emissiveIntensity', 3);
+
+          setTimeout(() => {
+            strobes[strobeIndex].setAttribute('light', 'intensity', 0);
+            strobeBoxes[strobeIndex].setAttribute('material', 'emissiveIntensity', 0);
+          }, 100);
+
+          strobeIndex = (strobeIndex + 1) % strobes.length;
+        }, 150);
+      },
+
+      tick: function(time, timeDelta) {
+        // Update lights based on audio analysis
+        if (this.analyser && this.dataArray) {
+          this.analyser.getByteFrequencyData(this.dataArray);
+          
+          // Get frequency bands
+          const bass = this.getAverageFrequency(0, 10);
+          const mid = this.getAverageFrequency(10, 40);
+          const high = this.getAverageFrequency(40, 100);
+
+          // Normalize values (0-1)
+          const bassLevel = bass / 255;
+          const midLevel = mid / 255;
+          const highLevel = high / 255;
+
+          // React disco ball to bass
+          const discoBall = document.querySelector('#disco-ball');
+          if (discoBall) {
+            const intensity = 1 + bassLevel * 3;
+            discoBall.querySelector('[light]').setAttribute('light', 'intensity', intensity);
+          }
+
+          // React lasers to mid frequencies
+          if (this.currentLightMode === 'lasers' || this.currentLightMode === 'mixed') {
+            const lasers = document.querySelectorAll('.laser-beam');
+            lasers.forEach((laser, i) => {
+              const intensity = 1 + midLevel * 2;
+              const opacity = 0.4 + midLevel * 0.6;
+              laser.setAttribute('material', 'emissiveIntensity', intensity);
+              laser.setAttribute('material', 'opacity', opacity);
+            });
+          }
+
+          // React LED panels to high frequencies
+          const ledPanels = document.querySelectorAll('#led-wall-panels a-plane');
+          ledPanels.forEach((panel, i) => {
+            const intensity = highLevel * 1.5;
+            panel.setAttribute('material', 'emissiveIntensity', intensity);
+          });
+
+          // React stage lights to bass
+          const stageLight1 = document.querySelector('#main-stage').querySelectorAll('[light]')[0];
+          const stageLight2 = document.querySelector('#main-stage').querySelectorAll('[light]')[1];
+          if (stageLight1) stageLight1.setAttribute('light', 'intensity', 1 + bassLevel * 2);
+          if (stageLight2) stageLight2.setAttribute('light', 'intensity', 1 + bassLevel * 2);
+        }
+      },
+
+      getAverageFrequency: function(startIndex, endIndex) {
+        let sum = 0;
+        for (let i = startIndex; i < endIndex && i < this.dataArray.length; i++) {
+          sum += this.dataArray[i];
+        }
+        return sum / (endIndex - startIndex);
+      },
+
+      setupMusicSystem: function() {
+        const musicControls = document.querySelector('.music-ui');
+        const audioElement = document.querySelector('#club-music');
+        let isPlaying = false;
+
+        // Click handler for music controls
+        musicControls.addEventListener('click', () => {
+          if (!audioElement.src) {
+            // Prompt for URL
+            const url = prompt('Enter music stream URL (YouTube embed, direct MP3, or streaming URL):\n\nFor YouTube: Use format https://www.youtube.com/embed/VIDEO_ID\nFor SoundCloud: Use embed URL\nFor direct streams: Use direct MP3/stream URL');
+            
+            if (url) {
+              // Handle different URL types
+              if (url.includes('youtube.com') && !url.includes('embed')) {
+                // Convert regular YouTube URL to embed
+                const videoId = url.match(/(?:v=|youtu\.be\/)([^&\s]+)/);
+                if (videoId && videoId[1]) {
+                  alert('YouTube requires embedding. Please use: https://www.youtube.com/embed/' + videoId[1]);
+                  return;
+                }
+              }
+              
+              audioElement.src = url;
+              audioElement.load();
+              musicControls.setAttribute('text', 'value', '🎵 Music Loaded\nClick to Play/Pause');
+            }
+          } else {
+            // Toggle play/pause
+            if (isPlaying) {
+              audioElement.pause();
+              musicControls.setAttribute('text', 'value', '▶️ Click to Play');
+              this.broadcastMusicState('pause');
+            } else {
+              audioElement.play().then(() => {
+                // Setup audio analysis when music starts
+                this.setupAudioAnalysis(audioElement);
+              }).catch(err => {
+                console.error('Error playing audio:', err);
+                alert('Error playing audio. Make sure the URL is a valid audio stream and CORS is enabled.');
+              });
+              musicControls.setAttribute('text', 'value', '⏸️ Click to Pause');
+              this.broadcastMusicState('play');
+            }
+            isPlaying = !isPlaying;
+          }
+        });
+
+        // Sync audio with positional audio (so everyone hears it)
+        audioElement.addEventListener('play', () => {
+          console.log('Music started playing');
+        });
+
+        audioElement.addEventListener('error', (e) => {
+          console.error('Audio error:', e);
+          alert('Error loading audio. Please check the URL and CORS settings.');
+        });
+      },
+
+      setupAudioAnalysis: function(audioElement) {
+        if (this.audioContext) return; // Already setup
+
+        try {
+          // Create audio context
+          this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          
+          // Create analyser
+          this.analyser = this.audioContext.createAnalyser();
+          this.analyser.fftSize = 256;
+          this.analyser.smoothingTimeConstant = 0.8;
+          
+          const bufferLength = this.analyser.frequencyBinCount;
+          this.dataArray = new Uint8Array(bufferLength);
+          
+          // Connect audio element to analyser
+          const source = this.audioContext.createMediaElementSource(audioElement);
+          source.connect(this.analyser);
+          this.analyser.connect(this.audioContext.destination);
+          
+          console.log('Audio analysis enabled - lights will react to music!');
+        } catch (error) {
+          console.error('Error setting up audio analysis:', error);
+          console.log('Lights will still work with timed patterns');
+        }
+      },
+
+      broadcastMusicState: function(action) {
+        // Broadcast music state to other players via networked-aframe
+        const scene = document.querySelector('a-scene');
+        if (scene.components && scene.components['networked-scene']) {
+          NAF.connection.broadcastData('music-sync', {
+            action: action,
+            timestamp: Date.now()
+          });
+        }
+      },
+
+      setupNetworking: function() {
+        const scene = document.querySelector('a-scene');
+        
+        // Wait for networked-scene to be ready
+        scene.addEventListener('connected', () => {
+          console.log('Connected to multiplayer server!');
+          
+          // Listen for music sync messages
+          NAF.connection.subscribeToDataChannel('music-sync', (senderId, dataType, data) => {
+            const audioElement = document.querySelector('#club-music');
+            if (data.action === 'play') {
+              audioElement.play();
+            } else if (data.action === 'pause') {
+              audioElement.pause();
+            }
+          });
+        });
+
+        scene.addEventListener('clientConnected', (evt) => {
+          console.log('New player joined!', evt.detail.clientId);
+        });
+
+        scene.addEventListener('clientDisconnected', (evt) => {
+          console.log('Player left', evt.detail.clientId);
+        });
+      }
+    });
+
+    // Attach component to scene
+    document.querySelector('a-scene').setAttribute('club-environment', '');
+
+    // Add VR entry button styling
+    const style = document.createElement('style');
+    style.textContent = `
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
+      .a-enter-vr-button {
+        background-color: #ff0055 !important;
+        border: 3px solid #00ffff !important;
+        font-size: 18px !important;
+        padding: 15px 30px !important;
+      }
+    `;
+    document.head.appendChild(style);
+  </script>
+</body>
+</html>
