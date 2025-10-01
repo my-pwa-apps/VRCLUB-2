@@ -906,15 +906,15 @@ class VRClub {
         housingMat.emissiveColor = new BABYLON.Color3(0.3, 0, 0);
         laserHousing.material = housingMat;
         
-        // Create SINGLE WIDE LASER CURTAIN (diffused sheet effect)
-        // Originates from LED wall, sweeps vertically across dance floor
+        // Create SINGLE WIDE LASER CURTAIN (vertical sheet effect)
+        // Creates a vertical "wall" of laser light that sweeps across dance floor
         this.laserCurtain = BABYLON.MeshBuilder.CreatePlane("laserCurtain", {
-            width: 20,  // Wide horizontal sheet
-            height: 0.2  // Thin vertical beam - creates "curtain" effect
+            width: 20,  // Wide (spans dance floor width)
+            height: 5   // Tall vertical plane (floor to ceiling)
         }, this.scene);
-        // Position at LED wall origin, will animate forward over dance floor
-        this.laserCurtain.position = new BABYLON.Vector3(0, 3, -25); // Start at LED wall
-        this.laserCurtain.rotation.y = 0; // Faces forward into room
+        // Position at LED wall, rotated to face sideways (perpendicular to Z axis)
+        this.laserCurtain.position = new BABYLON.Vector3(0, 3, -22); // Start near LED wall
+        this.laserCurtain.rotation.y = Math.PI / 2; // Rotate 90° to create vertical curtain perpendicular to dance floor
         this.laserCurtain.isPickable = false;
         
         // Semi-transparent glowing material for laser sheet
@@ -1884,27 +1884,27 @@ class VRClub {
             this.laserBlanketActive = false;
         }
         
-        // Update DRAMATIC LASER CURTAIN - vertical sheet sweeping up/down
-        // Originates from LED wall position, sweeps across dance floor
+        // Update DRAMATIC LASER CURTAIN - vertical plane sweeping across dance floor
+        // Originates from LED wall, sweeps forward toward entrance
         if (this.laserCurtain && this.curtainLights) {
             const showActive = this.laserBlanketActive;
             
             if (showActive) {
-                this.djLaserPhase += 0.006; // Slow vertical sweep movement
+                this.djLaserPhase += 0.008; // Slow sweep movement
                 
-                // Vertical position sweeps from floor to ceiling
-                // Range: 1m (floor) to 5.5m (ceiling) 
-                const minY = 1.5;
-                const maxY = 5.5;
-                const sweepRange = maxY - minY;
-                const currentY = minY + (Math.sin(this.djLaserPhase) * 0.5 + 0.5) * sweepRange;
+                // Sweep position from LED wall to dance floor entrance
+                // Range: -22 (near LED wall) to -5 (near entrance)
+                const minZ = -22; // Start at LED wall
+                const maxZ = -5;  // End at entrance
+                const sweepRange = maxZ - minZ;
+                const currentZ = minZ + (Math.sin(this.djLaserPhase) * 0.5 + 0.5) * sweepRange;
                 
-                // Update curtain Y position (vertical sweep)
-                this.laserCurtain.position.y = currentY;
-                // Keep Z at LED wall origin
-                this.laserCurtain.position.z = -24.5;
+                // Update curtain Z position (sweeps across dance floor)
+                this.laserCurtain.position.z = currentZ;
+                // Keep at mid-height
+                this.laserCurtain.position.y = 3;
                 
-                // Slight sway for realism
+                // Slight sway left-right for realism
                 this.laserCurtain.position.x = Math.sin(this.djLaserPhase * 0.5) * 0.3;
                 
                 // Make curtain visible and bright red
@@ -1915,19 +1915,19 @@ class VRClub {
                 // Update housing
                 this.djLaserHousingMat.emissiveColor = new BABYLON.Color3(0.5, 0, 0);
                 
-                // Update spotlights - they emanate from LED wall and track curtain height
+                // Update spotlights - they emanate from LED wall and track curtain position
                 this.curtainLights.forEach((light, idx) => {
                     const xPos = -10 + (idx * 2.5);
-                    // Position at LED wall height
+                    // Position at LED wall
                     light.position.set(xPos, 6.5, -25.5);
                     
-                    // Aim forward and at current curtain Y position
-                    const targetPoint = new BABYLON.Vector3(xPos * 0.5, currentY, -10);
+                    // Aim at curtain position (which moves forward/back)
+                    const targetPoint = new BABYLON.Vector3(xPos * 0.3, 3, currentZ);
                     const dirVec = targetPoint.subtract(light.position).normalize();
                     light.direction = dirVec;
                     
                     light.diffuse = this.cachedColors.red;
-                    light.intensity = 12; // VERY BRIGHT for visibility
+                    light.intensity = 15; // VERY BRIGHT for dramatic effect
                 });
             } else {
                 // Turn off when not in special show mode
