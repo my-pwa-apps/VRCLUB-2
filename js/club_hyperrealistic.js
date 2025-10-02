@@ -126,9 +126,10 @@ class VRClub {
         this.createLEDWall();
         this.createLasers();
         this.createLights();
-        // Smoke particles removed
-        // Bar removed - not visible from main area
         this.createTrussMountedLights();
+        
+        // VOLUMETRIC FOG SYSTEM - Makes light beams visible!
+        this.createVolumetricFog();
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -182,6 +183,111 @@ class VRClub {
         pipeline.imageProcessing.exposure = 1.0;
         pipeline.imageProcessing.toneMappingEnabled = true;
         pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+        
+        // Store pipeline for fog effects
+        this.renderPipeline = pipeline;
+    }
+    
+    createVolumetricFog() {
+        // HYPERREALISTIC ATMOSPHERIC FOG - Makes light beams visible!
+        
+        // Create fog particle systems for volumetric atmosphere
+        this.fogSystems = [];
+        
+        // Main dance floor fog (low-lying, dense)
+        const danceFloorFog = new BABYLON.ParticleSystem("danceFloorFog", 2000, this.scene);
+        danceFloorFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
+        danceFloorFog.emitter = new BABYLON.Vector3(0, 0.5, -12); // Low to ground
+        danceFloorFog.minEmitBox = new BABYLON.Vector3(-8, 0, -8);
+        danceFloorFog.maxEmitBox = new BABYLON.Vector3(8, 0.5, 8);
+        
+        // Fog appearance - white/gray mist
+        danceFloorFog.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.15);
+        danceFloorFog.color2 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.08);
+        danceFloorFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
+        
+        // Particle properties
+        danceFloorFog.minSize = 2.0; // Large fog particles
+        danceFloorFog.maxSize = 5.0;
+        danceFloorFog.minLifeTime = 8;
+        danceFloorFog.maxLifeTime = 15;
+        danceFloorFog.emitRate = 80;
+        
+        // Slow, drifting movement
+        danceFloorFog.direction1 = new BABYLON.Vector3(-0.2, 0.1, -0.1);
+        danceFloorFog.direction2 = new BABYLON.Vector3(0.2, 0.3, 0.1);
+        danceFloorFog.minEmitPower = 0.1;
+        danceFloorFog.maxEmitPower = 0.3;
+        danceFloorFog.updateSpeed = 0.01;
+        
+        // Blending for realistic fog
+        danceFloorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        danceFloorFog.start();
+        this.fogSystems.push(danceFloorFog);
+        
+        // Upper atmosphere fog (lighter, more diffuse)
+        const upperFog = new BABYLON.ParticleSystem("upperFog", 1500, this.scene);
+        upperFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
+        upperFog.emitter = new BABYLON.Vector3(0, 4, -12); // Mid-height
+        upperFog.minEmitBox = new BABYLON.Vector3(-12, -1, -12);
+        upperFog.maxEmitBox = new BABYLON.Vector3(12, 1, 12);
+        
+        // Lighter, more transparent
+        upperFog.color1 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.08);
+        upperFog.color2 = new BABYLON.Color4(0.5, 0.5, 0.6, 0.04);
+        upperFog.colorDead = new BABYLON.Color4(0.4, 0.4, 0.5, 0);
+        
+        upperFog.minSize = 3.0;
+        upperFog.maxSize = 8.0;
+        upperFog.minLifeTime = 10;
+        upperFog.maxLifeTime = 20;
+        upperFog.emitRate = 50;
+        
+        upperFog.direction1 = new BABYLON.Vector3(-0.3, -0.1, -0.2);
+        upperFog.direction2 = new BABYLON.Vector3(0.3, 0.1, 0.2);
+        upperFog.minEmitPower = 0.05;
+        upperFog.maxEmitPower = 0.2;
+        upperFog.updateSpeed = 0.008;
+        
+        upperFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        upperFog.start();
+        this.fogSystems.push(upperFog);
+        
+        // DJ Booth fog machine effect (periodic bursts)
+        const djFog = new BABYLON.ParticleSystem("djFog", 800, this.scene);
+        djFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
+        djFog.emitter = new BABYLON.Vector3(0, 1, -24); // DJ booth area
+        djFog.minEmitBox = new BABYLON.Vector3(-3, 0, -1);
+        djFog.maxEmitBox = new BABYLON.Vector3(3, 0.5, 1);
+        
+        // Thicker fog from machine
+        djFog.color1 = new BABYLON.Color4(0.9, 0.9, 1.0, 0.2);
+        djFog.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.12);
+        djFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
+        
+        djFog.minSize = 1.5;
+        djFog.maxSize = 4.0;
+        djFog.minLifeTime = 6;
+        djFog.maxLifeTime = 12;
+        djFog.emitRate = 60;
+        
+        // Fog spreads forward into crowd
+        djFog.direction1 = new BABYLON.Vector3(-1, 0.2, 2);
+        djFog.direction2 = new BABYLON.Vector3(1, 0.5, 4);
+        djFog.minEmitPower = 0.5;
+        djFog.maxEmitPower = 1.2;
+        djFog.updateSpeed = 0.015;
+        
+        djFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        djFog.start();
+        this.fogSystems.push(djFog);
+        
+        // Scene fog for depth/atmosphere
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+        this.scene.fogDensity = 0.015; // Subtle exponential fog
+        this.scene.fogColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark blue-gray
+        
+        console.log("✅ Created volumetric fog system (3 particle systems + scene fog)");
     }
 
     createFloor() {
@@ -1279,23 +1385,20 @@ class VRClub {
     }
 
     createTrussMountedLights() {
-        // Moving head lights on truss (PAR cans style)
+        // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
         const lightFixtureMat = new BABYLON.PBRMetallicRoughnessMaterial("lightFixtureMat", this.scene);
         lightFixtureMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
         lightFixtureMat.metallic = 0.9;
         lightFixtureMat.roughness = 0.2;
         
-        // Array of light positions on truss
+        // Array of light positions on truss - MATCH spotlight positions exactly
         const lightPositions = [
-            { x: -8, z: -12 },
-            { x: -4, z: -12 },
-            { x: 0, z: -12 },
-            { x: 4, z: -12 },
-            { x: 8, z: -12 },
-            { x: -6, z: -8 },
-            { x: 6, z: -8 },
-            { x: -6, z: -16 },
-            { x: 6, z: -16 }
+            { x: -8, z: -10 },  // Left front - matches spotlight
+            { x: -8, z: -14 },  // Left middle - matches spotlight
+            { x: -8, z: -18 },  // Left back - matches spotlight
+            { x: 8, z: -10 },   // Right front - matches spotlight
+            { x: 8, z: -14 },   // Right middle - matches spotlight
+            { x: 8, z: -18 }    // Right back - matches spotlight
         ];
         
         this.trussLights = [];
@@ -1539,6 +1642,29 @@ class VRClub {
             housing.material = housingMat;
             housing.isPickable = false;
             
+            // BRIGHT LASER EMITTER - Visible light source on housing front
+            const emitter = BABYLON.MeshBuilder.CreateCylinder("laserEmitter" + i, {
+                diameter: 0.12,
+                height: 0.03,
+                tessellation: 16
+            }, this.scene);
+            
+            if (parentTruss) {
+                emitter.position = new BABYLON.Vector3(localX, -0.45, localZ + 0.18);
+                emitter.parent = parentTruss;
+            } else {
+                emitter.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z + 0.18);
+            }
+            emitter.rotation.x = Math.PI / 2;
+            emitter.isPickable = false;
+            
+            const emitterMat = new BABYLON.StandardMaterial("laserEmitterMat" + i, this.scene);
+            emitterMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red
+            emitterMat.disableLighting = true;
+            emitterMat.backFaceCulling = false;
+            emitter.material = emitterMat;
+            emitter.renderingGroupId = 2; // Render on top for visibility
+            
             // Create beams based on laser type
             const beams = [];
             const lights = [];
@@ -1599,6 +1725,8 @@ class VRClub {
                 housing: housing,
                 clamp: clamp,
                 housingMat: housingMat,
+                emitter: emitter,
+                emitterMat: emitterMat,
                 lights: lights,
                 rotation: 0,
                 rotationSpeed: 0.01,
@@ -1678,9 +1806,9 @@ class VRClub {
         beamGlow.material = beamGlowMat;
         beamGlow.renderingGroupId = 1;
         
-        // FLOOR HIT SPOT - Where laser hits the ground
+        // FLOOR HIT SPOT - Where laser hits the ground (small, focused like real laser)
         const hitSpot = BABYLON.MeshBuilder.CreateDisc("laserHit" + laserIndex + "_" + beamIndex, {
-            radius: 0.15,
+            radius: 0.04,  // Much smaller - reduced from 0.15 to 0.04 (realistic laser spot)
             tessellation: 16
         }, this.scene);
         hitSpot.rotation.x = Math.PI / 2;
@@ -1689,8 +1817,8 @@ class VRClub {
         
         const hitSpotMat = new BABYLON.StandardMaterial("laserHitMat" + laserIndex + "_" + beamIndex, this.scene);
         hitSpotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        hitSpotMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red spot
-        hitSpotMat.alpha = 0.7;
+        hitSpotMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red spot (will be updated with color)
+        hitSpotMat.alpha = 0.9;  // More opaque for brighter spot
         hitSpotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive for bright glow
         hitSpotMat.disableLighting = true;
         hitSpot.material = hitSpotMat;
@@ -2105,17 +2233,20 @@ class VRClub {
                     // Apply color to hit spot (already handled above with visibility check)
                 });
                 
-                // Update lights
+                // Update lights and emitter color
                 laser.lights.forEach((light, lightIdx) => {
                     if (this.currentColorIndex === 0) {
                         light.diffuse = this.cachedColors.red;
                         laser.housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
+                        if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.red.scale(3.0); // Bright red emitter
                     } else if (this.currentColorIndex === 1) {
                         light.diffuse = this.cachedColors.green;
                         laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
+                        if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.green.scale(3.0); // Bright green emitter
                     } else {
                         light.diffuse = this.cachedColors.blue;
                         laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
+                        if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.blue.scale(3.0); // Bright blue emitter
                     }
                     light.intensity = this.lasersActive ? 5 : 0;
                 });
