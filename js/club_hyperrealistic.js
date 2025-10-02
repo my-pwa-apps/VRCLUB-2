@@ -1636,16 +1636,14 @@ class VRClub {
         
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
+        // 6 spotlights: 3 on left side, 3 on right side
         const spotPositions = [
-            { x: -8, z: -12 },
-            { x: -4, z: -12 },
-            { x: 0, z: -12 },
-            { x: 4, z: -12 },
-            { x: 8, z: -12 },
-            { x: -6, z: -8 },
-            { x: 6, z: -8 },
-            { x: -6, z: -16 },
-            { x: 6, z: -16 }
+            { x: -8, z: -10 },  // Left front
+            { x: -8, z: -14 },  // Left middle
+            { x: -8, z: -18 },  // Left back
+            { x: 8, z: -10 },   // Right front
+            { x: 8, z: -14 },   // Right middle
+            { x: 8, z: -18 }    // Right back
         ];
         
         const spotColors = [
