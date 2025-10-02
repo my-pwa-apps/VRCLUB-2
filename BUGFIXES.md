@@ -433,6 +433,77 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
+### Enhancement #8: Fog Haze Conversion (October 2, 2025)
+
+**Problem:** Fog appeared as visible moving balls/particles instead of atmospheric haze
+- Particles too small (1.5-6m) - visible as individual spheres
+- Too much movement - particles actively moving through space
+- Too opaque - particles stood out as objects
+- Result: Looked like floating orbs, not realistic club haze
+
+**Solution: Convert to Subtle Atmospheric Haze**
+
+1. **Massive Particle Sizes (Not Visible as Balls)**
+   - Dance floor: 8-15m particles (was 1.5-6m)
+   - Upper atmosphere: 10-20m particles (was 4-12m)
+   - DJ area: 6-12m particles (was 1.2-5m)
+   - Result: Particles so large they blend into soft haze
+
+2. **Ultra-Low Alpha (Nearly Invisible)**
+   - Dance floor: 0.03/0.02 alpha (was 0.08/0.04)
+   - Upper atmosphere: 0.02/0.01 alpha (was 0.04/0.02)
+   - DJ area: 0.04/0.02 alpha (was 0.12/0.06)
+   - 60-70% reduction in opacity
+
+3. **Minimal Movement (Hanging Haze)**
+   - Dance floor: 0.01-0.03 emit power (was 0.08-0.25)
+   - Upper atmosphere: 0.005-0.02 emit power (was 0.03-0.15)
+   - DJ area: 0.05-0.15 emit power (was 0.4-1.0)
+   - Update speeds: 0.001-0.003 (was 0.006-0.012)
+   - Result: Haze hangs nearly still, barely drifting
+
+4. **Minimal Turbulence (Stable Atmosphere)**
+   - All systems: 0.05-0.1 noise strength (was 0.5-1.0)
+   - 80-90% reduction in swirling motion
+   - Gravity reduced: -0.05 (was -0.15)
+
+5. **Fewer Particles**
+   - Dance floor: 20 emit rate (was 40)
+   - Upper atmosphere: 12 emit rate (was 25)
+   - DJ area: 15 emit rate (was 35)
+   - 40-50% fewer particles
+
+6. **Longer Lifetimes (Static Layer)**
+   - Dance floor: 20-40 seconds (was 10-20)
+   - Upper atmosphere: 30-60 seconds (was 15-30)
+   - DJ area: 20-40 seconds (was 8-16)
+   - Particles persist longer, creating stable haze layer
+
+**Technical Details:**
+- Lines 203-221: Dance floor fog - large particles, minimal movement
+- Lines 245-263: Upper atmosphere - huge particles, nearly static
+- Lines 287-305: DJ fog - gentle drift, stable haze
+- Lines 2145-2165: Updated spotlight fog lighting (lower alpha)
+- Lines 2195-2215: Updated laser fog lighting (lower alpha)
+- Lines 2219-2231: Reset function updated for haze values
+
+**Visual Result:**
+✅ **Invisible individual particles** (blended into soft haze)
+✅ **Subtle atmospheric layer** (not visible fog balls)
+✅ **Hanging in air** (minimal drift, nearly static)
+✅ **Light beams still clearly visible** through haze
+✅ **Realistic club atmosphere** (professional venue haze)
+✅ **No distracting movement** (stable, ambient layer)
+✅ **Colored by lights** (still responds to spotlight/laser colors)
+
+**Before vs After:**
+- **Before:** Visible balls of fog actively moving through space
+- **After:** Invisible atmospheric haze hanging in air (only visible when lights pass through it)
+
+The fog is now **true atmospheric haze** - you don't see it directly, you only see it when light beams cut through it! 🌫️✨
+
+---
+
 ### Bug Fix #7: Laser Positioning & Spotlight Alignment (October 2, 2025)
 
 **Problem 1:** Side lasers (left/right) were not emitting beams from the correct position

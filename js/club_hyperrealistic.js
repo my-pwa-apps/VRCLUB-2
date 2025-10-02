@@ -201,36 +201,36 @@ class VRClub {
         danceFloorFog.minEmitBox = new BABYLON.Vector3(-10, 0, -10);
         danceFloorFog.maxEmitBox = new BABYLON.Vector3(10, 0.8, 10);
         
-        // Fog appearance - very subtle white/gray mist (REDUCED DENSITY)
-        danceFloorFog.color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.08); // Reduced from 0.15 to 0.08
-        danceFloorFog.color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.04); // Reduced from 0.08 to 0.04
+        // Fog appearance - ultra-subtle atmospheric haze (not visible particles)
+        danceFloorFog.color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.03); // Very low alpha
+        danceFloorFog.color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.02); // Very low alpha
         danceFloorFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
         
-        // Varied particle sizes for realism
-        danceFloorFog.minSize = 1.5;
-        danceFloorFog.maxSize = 6.0; // More size variation
-        danceFloorFog.minLifeTime = 10;
-        danceFloorFog.maxLifeTime = 20;
-        danceFloorFog.emitRate = 40; // Reduced from 80 to 40
+        // LARGE particles for haze effect (not visible as individual balls)
+        danceFloorFog.minSize = 8.0;  // Much larger - creates soft haze
+        danceFloorFog.maxSize = 15.0; // Very large - blends into atmosphere
+        danceFloorFog.minLifeTime = 20; // Long lifetime
+        danceFloorFog.maxLifeTime = 40; // Very long - particles hang in air
+        danceFloorFog.emitRate = 20; // Fewer particles
         
-        // More natural, turbulent movement
-        danceFloorFog.direction1 = new BABYLON.Vector3(-0.3, 0.08, -0.15);
-        danceFloorFog.direction2 = new BABYLON.Vector3(0.3, 0.25, 0.15);
-        danceFloorFog.minEmitPower = 0.08;
-        danceFloorFog.maxEmitPower = 0.25;
-        danceFloorFog.updateSpeed = 0.008; // Slower for more realistic drift
+        // MINIMAL movement - haze hangs in air, barely drifts
+        danceFloorFog.direction1 = new BABYLON.Vector3(-0.05, 0.01, -0.02);
+        danceFloorFog.direction2 = new BABYLON.Vector3(0.05, 0.02, 0.02);
+        danceFloorFog.minEmitPower = 0.01; // Almost no power
+        danceFloorFog.maxEmitPower = 0.03; // Very gentle
+        danceFloorFog.updateSpeed = 0.002; // Extremely slow - nearly static
         
-        // Add turbulence for realistic swirling
+        // Minimal turbulence - haze should be stable, not swirling
         danceFloorFog.noiseTexture = new BABYLON.NoiseProceduralTexture("fogNoise", 256, this.scene);
-        danceFloorFog.noiseStrength = new BABYLON.Vector3(0.5, 0.3, 0.5); // Subtle turbulence
+        danceFloorFog.noiseStrength = new BABYLON.Vector3(0.1, 0.05, 0.1); // Very subtle
         
-        // Blending for realistic fog
+        // Blending for soft atmospheric haze
         danceFloorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         
         // LIGHT INTERACTION - Make fog particles receive light from scene
-        // This makes spotlights/lasers realistically illuminate the fog
-        danceFloorFog.addColorGradient(0, new BABYLON.Color4(0.85, 0.85, 0.92, 0.08));
-        danceFloorFog.addColorGradient(0.5, new BABYLON.Color4(0.75, 0.75, 0.85, 0.06));
+        // Color gradients for soft fade (lower alpha values)
+        danceFloorFog.addColorGradient(0, new BABYLON.Color4(0.85, 0.85, 0.92, 0.03));
+        danceFloorFog.addColorGradient(0.5, new BABYLON.Color4(0.75, 0.75, 0.85, 0.02));
         danceFloorFog.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0));
         
         danceFloorFog.start();
@@ -243,34 +243,34 @@ class VRClub {
         upperFog.minEmitBox = new BABYLON.Vector3(-14, -1.5, -14);
         upperFog.maxEmitBox = new BABYLON.Vector3(14, 1.5, 14);
         
-        // Ultra-light, barely visible (REDUCED DENSITY)
-        upperFog.color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.04); // Reduced from 0.08 to 0.04
-        upperFog.color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.02); // Reduced from 0.04 to 0.02
+        // Ultra-light atmospheric haze (barely visible)
+        upperFog.color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.02); // Extremely low alpha
+        upperFog.color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.01); // Nearly invisible
         upperFog.colorDead = new BABYLON.Color4(0.4, 0.4, 0.5, 0);
         
-        // Large, wispy particles
-        upperFog.minSize = 4.0;
-        upperFog.maxSize = 12.0; // Very large for atmospheric effect
-        upperFog.minLifeTime = 15;
-        upperFog.maxLifeTime = 30;
-        upperFog.emitRate = 25; // Reduced from 50 to 25
+        // HUGE particles for soft atmospheric haze
+        upperFog.minSize = 10.0;  // Very large
+        upperFog.maxSize = 20.0;  // Massive - creates soft haze layer
+        upperFog.minLifeTime = 30; // Very long lifetime
+        upperFog.maxLifeTime = 60; // Hangs in air
+        upperFog.emitRate = 12;    // Very few particles
         
-        // Very slow, gentle drift
-        upperFog.direction1 = new BABYLON.Vector3(-0.4, -0.08, -0.25);
-        upperFog.direction2 = new BABYLON.Vector3(0.4, 0.08, 0.25);
-        upperFog.minEmitPower = 0.03;
-        upperFog.maxEmitPower = 0.15;
-        upperFog.updateSpeed = 0.006; // Even slower
+        // BARELY any movement - static atmospheric layer
+        upperFog.direction1 = new BABYLON.Vector3(-0.02, -0.01, -0.01);
+        upperFog.direction2 = new BABYLON.Vector3(0.02, 0.01, 0.01);
+        upperFog.minEmitPower = 0.005; // Almost stationary
+        upperFog.maxEmitPower = 0.02;  // Very gentle
+        upperFog.updateSpeed = 0.001;  // Nearly frozen
         
-        // Add turbulence for realistic air currents
+        // Minimal turbulence - stable atmospheric layer
         upperFog.noiseTexture = new BABYLON.NoiseProceduralTexture("upperFogNoise", 256, this.scene);
-        upperFog.noiseStrength = new BABYLON.Vector3(0.8, 0.4, 0.8); // More turbulence
+        upperFog.noiseStrength = new BABYLON.Vector3(0.05, 0.02, 0.05); // Almost none
         
         upperFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         
         // LIGHT INTERACTION - Upper fog catches colored light from spotlights
-        upperFog.addColorGradient(0, new BABYLON.Color4(0.72, 0.72, 0.8, 0.04));
-        upperFog.addColorGradient(0.5, new BABYLON.Color4(0.62, 0.62, 0.72, 0.03));
+        upperFog.addColorGradient(0, new BABYLON.Color4(0.72, 0.72, 0.8, 0.02));
+        upperFog.addColorGradient(0.5, new BABYLON.Color4(0.62, 0.62, 0.72, 0.01));
         upperFog.addColorGradient(1.0, new BABYLON.Color4(0.4, 0.4, 0.5, 0));
         
         upperFog.start();
@@ -283,37 +283,37 @@ class VRClub {
         djFog.minEmitBox = new BABYLON.Vector3(-3.5, 0, -0.5);
         djFog.maxEmitBox = new BABYLON.Vector3(3.5, 0.3, 0.5);
         
-        // Moderate fog from machine (REDUCED DENSITY)
-        djFog.color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.12); // Reduced from 0.2 to 0.12
-        djFog.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.06);   // Reduced from 0.12 to 0.06
+        // Subtle atmospheric haze from DJ area
+        djFog.color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.04); // Very low alpha
+        djFog.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.02);   // Very low alpha
         djFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
         
-        // Varied sizes for realistic fog plume
-        djFog.minSize = 1.2;
-        djFog.maxSize = 5.0; // More variation
-        djFog.minLifeTime = 8;
-        djFog.maxLifeTime = 16;
-        djFog.emitRate = 35; // Reduced from 60 to 35
+        // LARGE particles for haze (not visible fog plume)
+        djFog.minSize = 6.0;  // Larger
+        djFog.maxSize = 12.0; // Much larger - creates haze
+        djFog.minLifeTime = 20; // Longer lifetime
+        djFog.maxLifeTime = 40; // Hangs around
+        djFog.emitRate = 15;    // Fewer particles
         
-        // Fog spreads forward into crowd with realistic motion
-        djFog.direction1 = new BABYLON.Vector3(-1.2, 0.15, 2.5);
-        djFog.direction2 = new BABYLON.Vector3(1.2, 0.4, 4.5);
-        djFog.minEmitPower = 0.4;
-        djFog.maxEmitPower = 1.0;
-        djFog.updateSpeed = 0.012;
+        // GENTLE spread - haze drifts slowly, not billowing
+        djFog.direction1 = new BABYLON.Vector3(-0.2, 0.05, 0.5);
+        djFog.direction2 = new BABYLON.Vector3(0.2, 0.1, 1.0);
+        djFog.minEmitPower = 0.05; // Very gentle
+        djFog.maxEmitPower = 0.15; // Slow drift
+        djFog.updateSpeed = 0.003; // Very slow
         
-        // Add turbulence for realistic fog machine plume
+        // Minimal turbulence - stable haze
         djFog.noiseTexture = new BABYLON.NoiseProceduralTexture("djFogNoise", 256, this.scene);
-        djFog.noiseStrength = new BABYLON.Vector3(1.0, 0.5, 1.0); // Strong turbulence
+        djFog.noiseStrength = new BABYLON.Vector3(0.1, 0.05, 0.1); // Very subtle
         
-        // Gravity effect - fog sinks slightly
-        djFog.gravity = new BABYLON.Vector3(0, -0.15, 0);
+        // Slight gravity - haze settles gently
+        djFog.gravity = new BABYLON.Vector3(0, -0.05, 0);
         
         djFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         
         // LIGHT INTERACTION - DJ fog catches colored light beams
-        djFog.addColorGradient(0, new BABYLON.Color4(0.88, 0.88, 0.98, 0.12));
-        djFog.addColorGradient(0.5, new BABYLON.Color4(0.78, 0.78, 0.88, 0.08));
+        djFog.addColorGradient(0, new BABYLON.Color4(0.88, 0.88, 0.98, 0.04));
+        djFog.addColorGradient(0.5, new BABYLON.Color4(0.78, 0.78, 0.88, 0.02));
         djFog.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0));
         
         djFog.start();
@@ -2142,24 +2142,24 @@ class VRClub {
         // Add subtle pulsing based on time (simulates light intensity variation)
         const pulse = 0.85 + Math.sin(time * 1.5) * 0.15; // Subtle 15% variation
         
-        // Update all fog systems with light-tinted colors
+        // Update all fog systems with light-tinted colors (SUBTLE HAZE)
         if (this.fogSystems[0]) { // Dance floor fog
-            const alpha1 = 0.08 * pulse;
-            const alpha2 = 0.04 * pulse;
+            const alpha1 = 0.03 * pulse; // Reduced for haze effect
+            const alpha2 = 0.02 * pulse;
             this.fogSystems[0].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
             this.fogSystems[0].color2 = new BABYLON.Color4(tintedR * 0.85, tintedG * 0.85, tintedB * 0.85, alpha2);
         }
         
         if (this.fogSystems[1]) { // Upper atmosphere fog
-            const alpha1 = 0.04 * pulse;
-            const alpha2 = 0.02 * pulse;
+            const alpha1 = 0.02 * pulse; // Reduced for haze effect
+            const alpha2 = 0.01 * pulse;
             this.fogSystems[1].color1 = new BABYLON.Color4(tintedR * 0.9, tintedG * 0.9, tintedB * 0.9, alpha1);
             this.fogSystems[1].color2 = new BABYLON.Color4(tintedR * 0.75, tintedG * 0.75, tintedB * 0.75, alpha2);
         }
         
         if (this.fogSystems[2]) { // DJ booth fog
-            const alpha1 = 0.12 * pulse;
-            const alpha2 = 0.06 * pulse;
+            const alpha1 = 0.04 * pulse; // Reduced for haze effect
+            const alpha2 = 0.02 * pulse;
             this.fogSystems[2].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
             this.fogSystems[2].color2 = new BABYLON.Color4(tintedR * 0.8, tintedG * 0.8, tintedB * 0.8, alpha2);
         }
@@ -2190,42 +2190,42 @@ class VRClub {
         const pulse = 0.8 + Math.sin(time * 2.5) * 0.2;
         
         if (this.fogSystems[0]) {
-            const alpha1 = 0.08 * pulse;
-            const alpha2 = 0.04 * pulse;
+            const alpha1 = 0.03 * pulse; // Reduced for haze effect
+            const alpha2 = 0.02 * pulse;
             this.fogSystems[0].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
             this.fogSystems[0].color2 = new BABYLON.Color4(tintedR * 0.85, tintedG * 0.85, tintedB * 0.85, alpha2);
         }
         
         if (this.fogSystems[1]) {
-            const alpha1 = 0.04 * pulse;
-            const alpha2 = 0.02 * pulse;
+            const alpha1 = 0.02 * pulse; // Reduced for haze effect
+            const alpha2 = 0.01 * pulse;
             this.fogSystems[1].color1 = new BABYLON.Color4(tintedR * 0.9, tintedG * 0.9, tintedB * 0.9, alpha1);
             this.fogSystems[1].color2 = new BABYLON.Color4(tintedR * 0.75, tintedG * 0.75, tintedB * 0.75, alpha2);
         }
         
         if (this.fogSystems[2]) {
-            const alpha1 = 0.12 * pulse;
-            const alpha2 = 0.06 * pulse;
+            const alpha1 = 0.04 * pulse; // Reduced for haze effect
+            const alpha2 = 0.02 * pulse;
             this.fogSystems[2].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
             this.fogSystems[2].color2 = new BABYLON.Color4(tintedR * 0.8, tintedG * 0.8, tintedB * 0.8, alpha2);
         }
     }
     
     resetFogToNeutral() {
-        // Return fog to neutral white/gray when no lights are active
+        // Return fog to neutral white/gray when no lights are active (SUBTLE HAZE)
         if (this.fogSystems[0]) {
-            this.fogSystems[0].color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.08);
-            this.fogSystems[0].color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.04);
+            this.fogSystems[0].color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.03);
+            this.fogSystems[0].color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.02);
         }
         
         if (this.fogSystems[1]) {
-            this.fogSystems[1].color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.04);
-            this.fogSystems[1].color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.02);
+            this.fogSystems[1].color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.02);
+            this.fogSystems[1].color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.01);
         }
         
         if (this.fogSystems[2]) {
-            this.fogSystems[2].color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.12);
-            this.fogSystems[2].color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.06);
+            this.fogSystems[2].color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.04);
+            this.fogSystems[2].color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.02);
         }
     }
 
