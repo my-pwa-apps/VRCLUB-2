@@ -1307,7 +1307,7 @@ class VRClub {
             fixture.rotation.x = Math.PI / 2;
             fixture.material = lightFixtureMat;
             
-            // Light lens (glowing)
+            // Light lens (glowing) - The actual visible light source
             const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
                 diameter: 0.25,
                 height: 0.05
@@ -1316,11 +1316,26 @@ class VRClub {
             lens.rotation.x = Math.PI / 2;
             
             const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
-            lensMat.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+            lensMat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Start bright
             lensMat.disableLighting = true;
+            lensMat.backFaceCulling = false; // Visible from all angles
             lens.material = lensMat;
+            lens.renderingGroupId = 2; // Render on top for maximum visibility
             
-            this.trussLights.push({ fixture, lens, lensMat });
+            // Add bright glow sphere inside lens for extra visibility
+            const lightSource = BABYLON.MeshBuilder.CreateSphere("lightSource" + i, {
+                diameter: 0.2
+            }, this.scene);
+            lightSource.position = new BABYLON.Vector3(pos.x, 7.5, pos.z);
+            
+            const sourceMat = new BABYLON.StandardMaterial("sourceMat" + i, this.scene);
+            sourceMat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Very bright
+            sourceMat.disableLighting = true;
+            sourceMat.backFaceCulling = false;
+            lightSource.material = sourceMat;
+            lightSource.renderingGroupId = 2;
+            
+            this.trussLights.push({ fixture, lens, lensMat, lightSource, sourceMat });
         });
         
         // Strobe lights on truss corners
@@ -1680,9 +1695,10 @@ class VRClub {
             // When cylinder points DOWN, its +Y local axis points toward floor
             // So: diameterTop (at +Y local) should be WIDE (at floor)
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
+            // Reduced size for more realistic club spotlights
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 4.0,      // Wide end - will be at floor when rotated down
-                diameterBottom: 0.3,   // Narrow end - will be at fixture when rotated down
+                diameterTop: 2.0,      // Wide end - reduced from 4.0 to 2.0m for realism
+                diameterBottom: 0.25,  // Narrow end - slightly reduced for tighter beam
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 16,
                 cap: BABYLON.Mesh.NO_CAP
@@ -1726,6 +1742,35 @@ class VRClub {
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
             
+            // VOLUMETRIC GLOW - Outer soft glow around the beam for realism
+            const beamGlow = BABYLON.MeshBuilder.CreateCylinder("spotBeamGlow" + i, {
+                diameterTop: 2.6,      // Slightly larger than beam (2.0 + 0.6)
+                diameterBottom: 0.4,   // Slightly larger than beam (0.25 + 0.15)
+                height: 1,
+                tessellation: 16,
+                cap: BABYLON.Mesh.NO_CAP
+            }, this.scene);
+            
+            beamGlow.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            beamGlow.isPickable = false;
+            beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
+            
+            // Ultra-soft glow material
+            const beamGlowMat = new BABYLON.PBRMaterial("spotBeamGlowMat" + i, this.scene);
+            beamGlowMat.albedoColor = new BABYLON.Color3(0, 0, 0);
+            beamGlowMat.metallic = 0;
+            beamGlowMat.roughness = 1;
+            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15); // Softer than main beam
+            beamGlowMat.emissiveIntensity = 1.5;
+            beamGlowMat.alpha = 0.02; // Even more transparent for soft glow effect
+            beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+            beamGlowMat.backFaceCulling = false;
+            beamGlowMat.disableLighting = true;
+            beamGlowMat.unlit = true;
+            
+            beamGlow.material = beamGlowMat;
+            beamGlow.visibility = 1.0;
+            beamGlow.renderingGroupId = 1;
 
             
             // HYPERREALISTIC FLOOR LIGHT SPLASH - Multi-layer gradient effect
@@ -1798,6 +1843,8 @@ class VRClub {
                 light: spot,
                 beam: beam,
                 beamMat: beamMat,
+                beamGlow: beamGlow,
+                beamGlowMat: beamGlowMat,
                 lightPool: lightPool,
                 poolMat: poolMat,
                 lightPoolCore: lightPoolCore,
@@ -2122,8 +2169,16 @@ class VRClub {
                         floorIntersection = spot.basePos.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // Beam ends exactly at floor intersection (y=0)
-                    const beamLength = centerDistanceToFloor;
+                    // IMPORTANT: Calculate beam length to ensure FULL CONE reaches floor
+                    // The cone widens from 0.25m to 2.0m, so at angles the edge hits floor first
+                    // We need to extend the beam so the WIDE END fully reaches floor
+                    // Cone radius at floor = 1.0m (diameter 2.0m)
+                    // When beam is angled, we need extra length for the outer edge to reach floor
+                    const coneRadiusAtFloor = 1.0; // Half of diameterTop (2.0)
+                    const horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
+                    const angleFromVertical = Math.atan2(horizontalDistance, Math.abs(direction.y));
+                    const extraLength = coneRadiusAtFloor * Math.tan(angleFromVertical);
+                    const beamLength = centerDistanceToFloor + extraLength;
                     const endPoint = floorIntersection.clone();
                     
                     // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
@@ -2182,6 +2237,31 @@ class VRClub {
                     spot.beam.scaling.x = zoomFactor;
                     spot.beam.scaling.z = zoomFactor;
                     
+                    // UPDATE GLOW BEAM - Same position/rotation/scale as main beam
+                    if (spot.beamGlow) {
+                        spot.beamGlow.position.copyFrom(midPoint);
+                        spot.beamGlow.scaling.x = zoomFactor;
+                        spot.beamGlow.scaling.y = beamLength;
+                        spot.beamGlow.scaling.z = zoomFactor;
+                        
+                        // Copy rotation
+                        if (rotAxis.length() > 0.0001) {
+                            spot.beamGlow.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+                                rotAxis.normalize(),
+                                rotAngle
+                            );
+                        } else {
+                            if (beamDirection.y > 0) {
+                                spot.beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
+                            } else {
+                                spot.beamGlow.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(0, Math.PI, 0);
+                            }
+                        }
+                        
+                        spot.beamGlow.visibility = this.lightsActive ? 1.0 : 0;
+                        spot.beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15);
+                    }
+                    
                     // Beam visibility and color - HYPERREALISTIC with subtle variation
                     spot.beam.visibility = this.lightsActive ? 1.0 : 0;
                     
@@ -2201,9 +2281,9 @@ class VRClub {
                     
                     // Update HYPERREALISTIC floor light splash - 3-layer gradient effect
                     if (spot.lightPool && this.lightsActive) {
-                        // Calculate beam width at floor (cone: 0.3m → 4.0m)
+                        // Calculate beam width at floor (cone: 0.25m → 2.0m)
                         const beamProgress = centerDistanceToFloor / beamLength;
-                        const beamWidthAtFloor = 0.3 + 3.7 * beamProgress; // 3.7 = 4.0 - 0.3
+                        const beamWidthAtFloor = 0.25 + 1.75 * beamProgress; // 1.75 = 2.0 - 0.25
                         const baseSize = (beamWidthAtFloor * 0.5) * zoomFactor;
                         
                         // Audio reactive effects
@@ -2236,12 +2316,16 @@ class VRClub {
                         spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
                         spot.lightPoolGlow.visibility = 0.7;
                         spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
-                    } else if (!this.lightsActive) {
-                        // Hide all floor pools when lights off
-                        spot.lightPoolCore.visibility = 0;
-                        spot.lightPool.visibility = 0;
-                        spot.lightPoolGlow.visibility = 0;
                     }
+                }
+                
+                // CRITICAL: Hide EVERYTHING when lights are off (no reflections without light source!)
+                if (!this.lightsActive) {
+                    if (spot.beam) spot.beam.visibility = 0;
+                    if (spot.beamGlow) spot.beamGlow.visibility = 0;
+                    if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
+                    if (spot.lightPool) spot.lightPool.visibility = 0;
+                    if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                 }
                 
                 // PROFESSIONAL AUDIO REACTIVE INTENSITY
@@ -2277,7 +2361,7 @@ class VRClub {
         
         // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
-        // These are the actual light sources visible on the moving heads
+        // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
             this.spotlights.forEach((spot, i) => {
                 if (spot.fixture) {
@@ -2285,13 +2369,21 @@ class VRClub {
                     const trussLight = this.trussLights && this.trussLights[i];
                     if (trussLight && trussLight.lensMat) {
                         if (this.lightsActive) {
-                            // VERY BRIGHT lens when active - brighter than beam
-                            const pulse = 0.7 + Math.sin(time * 4 + i * 0.5) * 0.3; // 0.4-1.0
+                            // EXTREMELY BRIGHT lens when active - the actual light source
+                            const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2; // 0.6-1.0
                             const audioPulse = 1.0 + audioData.bass * 0.5;
-                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(3.0 * pulse * audioPulse); // 3x brighter than beam
+                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0 * pulse * audioPulse); // 5x brighter!
+                            
+                            // Update the bright inner light source sphere
+                            if (trussLight.sourceMat) {
+                                trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse * audioPulse); // Even brighter center
+                            }
                         } else {
-                            // Dim but visible when off
-                            trussLight.lensMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                            // Completely dark when off (no light without light source!)
+                            trussLight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                            if (trussLight.sourceMat) {
+                                trussLight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                            }
                         }
                     }
                 }

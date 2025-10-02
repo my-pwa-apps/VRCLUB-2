@@ -173,5 +173,45 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
-Last Updated: October 1, 2025
-Status: ✅ All Known Bugs Fixed
+### Enhancement #1: Spotlight Beam Improvements (October 2, 2025)
+
+**Issue:** Light beams were too wide at the floor and lacked realistic volumetric glow effect
+
+**Changes Made:**
+
+1. **Reduced Cone Size for Realism**
+   - Changed beam diameter from 4.0m to 2.0m at floor (50% smaller)
+   - Changed narrow end from 0.3m to 0.25m at fixture
+   - Updated cone radius calculations from 2.0m to 1.0m
+   - Adjusted floor pool calculations to match new beam width
+   - Result: More focused, professional club spotlight appearance
+
+2. **Added Volumetric Glow Effect**
+   - Created outer glow cone (`beamGlow`) around each main beam
+   - Glow dimensions: 2.6m wide end (130% of main beam)
+   - Ultra-soft transparency: alpha = 0.02 (vs 0.04 for main beam)
+   - Softer emissive intensity: 0.15x color (vs 0.3x for main beam)
+   - Uses same PBR material with Fresnel for realistic side-viewing
+   - Synchronized position, rotation, and scaling with main beam
+   - Result: Soft atmospheric halo around each beam simulating light scatter
+
+3. **Technical Updates**
+   - Added `beamGlow` and `beamGlowMat` to spotlight data structure
+   - Glow beam updates in animation loop (lines ~2243-2263)
+   - Glow visibility synced with main beam (off during laser phase)
+   - Floor pool calculations updated for smaller cone (0.25 → 2.0 instead of 0.3 → 4.0)
+
+**Files Modified:**
+- `js/club_hyperrealistic.js` - Lines 1695-1774, 2175-2263, 2285-2325
+- `BUGFIXES.md` - Added enhancement documentation
+
+**Visual Result:**
+✅ Tighter, more focused spotlight beams
+✅ Soft volumetric glow creates depth and atmosphere
+✅ More realistic light scatter through haze/fog
+✅ Professional club lighting aesthetic
+
+---
+
+Last Updated: October 2, 2025
+Status: ✅ All Known Bugs Fixed + Enhanced Volumetric Beams
