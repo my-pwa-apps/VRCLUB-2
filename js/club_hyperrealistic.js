@@ -262,43 +262,154 @@ class VRClub {
         rightWall.material = wallMat;
         rightWall.receiveShadows = true;
         
-        // Add LED strips along walls
-        this.createWallLEDStrips();
+        // Add industrial wall details
+        this.createIndustrialWallDetails();
     }
 
-    createWallLEDStrips() {
-        // Vertical LED strips for atmosphere - sync with spotlight colors
-        this.wallStrips = []; // Store for color syncing
+    createIndustrialWallDetails() {
+        // Create exposed brick sections, pipes, conduits, and graffiti for authentic warehouse feel
         
-        const stripMat = new BABYLON.StandardMaterial("stripMat", this.scene);
-        stripMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Start with red (will sync)
-        stripMat.disableLighting = true;
+        // Exposed brick material - old red brick
+        const brickMat = new BABYLON.PBRMetallicRoughnessMaterial("brickMat", this.scene);
+        brickMat.baseColor = new BABYLON.Color3(0.4, 0.15, 0.1); // Rusty red brick
+        brickMat.metallic = 0;
+        brickMat.roughness = 1;
+        brickMat.maxSimultaneousLights = this.maxLights;
         
-        // Left wall strips
-        for (let i = 0; i < 6; i++) {
-            const strip = BABYLON.MeshBuilder.CreateBox("leftStrip" + i, {
-                width: 0.05,
-                height: 9,
-                depth: 0.02
+        // Concrete pillar material
+        const pillarMat = new BABYLON.PBRMetallicRoughnessMaterial("pillarMat", this.scene);
+        pillarMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.32);
+        pillarMat.metallic = 0;
+        pillarMat.roughness = 0.95;
+        pillarMat.maxSimultaneousLights = this.maxLights;
+        
+        // Metal pipe material
+        const pipeMat = new BABYLON.PBRMetallicRoughnessMaterial("pipeMat", this.scene);
+        pipeMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.22);
+        pipeMat.metallic = 0.8;
+        pipeMat.roughness = 0.6;
+        pipeMat.maxSimultaneousLights = this.maxLights;
+        
+        // Add concrete support pillars along walls
+        const pillarPositions = [
+            { x: -17, z: -5 }, { x: -17, z: -15 }, { x: -17, z: -25 },
+            { x: 17, z: -5 }, { x: 17, z: -15 }, { x: 17, z: -25 }
+        ];
+        
+        pillarPositions.forEach((pos, i) => {
+            const pillar = BABYLON.MeshBuilder.CreateBox("pillar" + i, {
+                width: 0.6,
+                height: 10,
+                depth: 0.6
             }, this.scene);
-            strip.position = new BABYLON.Vector3(-16.8, 5, -25 + (i * 7));
-            const mat = stripMat.clone("stripL" + i);
-            strip.material = mat;
-            this.wallStrips.push({ mesh: strip, material: mat });
-        }
+            pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
+            pillar.material = pillarMat;
+            pillar.receiveShadows = true;
+        });
         
-        // Right wall strips
-        for (let i = 0; i < 6; i++) {
-            const strip = BABYLON.MeshBuilder.CreateBox("rightStrip" + i, {
-                width: 0.05,
-                height: 9,
-                depth: 0.02
+        // Add exposed brick sections between pillars
+        const brickSections = [
+            { x: -16.5, z: -10, width: 1, height: 4 },
+            { x: -16.5, z: -20, width: 1, height: 3 },
+            { x: 16.5, z: -10, width: 1, height: 4 },
+            { x: 16.5, z: -20, width: 1, height: 3 }
+        ];
+        
+        brickSections.forEach((section, i) => {
+            const brick = BABYLON.MeshBuilder.CreateBox("brick" + i, {
+                width: section.width,
+                height: section.height,
+                depth: 0.3
             }, this.scene);
-            strip.position = new BABYLON.Vector3(16.8, 5, -25 + (i * 7));
-            const mat = stripMat.clone("stripR" + i);
-            strip.material = mat;
-            this.wallStrips.push({ mesh: strip, material: mat });
-        }
+            brick.position = new BABYLON.Vector3(section.x, 2 + section.height/2, section.z);
+            brick.material = brickMat;
+            brick.receiveShadows = true;
+        });
+        
+        // Add industrial pipes running along ceiling (near walls)
+        const pipeRuns = [
+            { start: { x: -16, z: -25 }, end: { x: -16, z: 5 } },  // Left wall
+            { start: { x: 16, z: -25 }, end: { x: 16, z: 5 } }     // Right wall
+        ];
+        
+        pipeRuns.forEach((run, i) => {
+            const pipeLength = Math.abs(run.end.z - run.start.z);
+            const pipe = BABYLON.MeshBuilder.CreateCylinder("pipe" + i, {
+                diameter: 0.15,
+                height: pipeLength,
+                tessellation: 12
+            }, this.scene);
+            pipe.position = new BABYLON.Vector3(run.start.x, 9.5, (run.start.z + run.end.z) / 2);
+            pipe.rotation.x = Math.PI / 2;
+            pipe.material = pipeMat;
+            
+            // Add smaller conduit pipes next to main pipe
+            const conduit = BABYLON.MeshBuilder.CreateCylinder("conduit" + i, {
+                diameter: 0.08,
+                height: pipeLength,
+                tessellation: 8
+            }, this.scene);
+            conduit.position = new BABYLON.Vector3(run.start.x - 0.25, 9.3, (run.start.z + run.end.z) / 2);
+            conduit.rotation.x = Math.PI / 2;
+            conduit.material = pipeMat;
+        });
+        
+        // Add graffiti decals on back wall
+        this.createGraffitiDecals();
+        
+        console.log("✅ Created industrial wall details");
+    }
+    
+    createGraffitiDecals() {
+        // Create simple graffiti using emissive colored boxes (tags/art)
+        const graffitiMat1 = new BABYLON.StandardMaterial("graffiti1", this.scene);
+        graffitiMat1.emissiveColor = new BABYLON.Color3(1, 0.2, 0.8); // Hot pink
+        graffitiMat1.disableLighting = true;
+        graffitiMat1.alpha = 0.7;
+        
+        const graffitiMat2 = new BABYLON.StandardMaterial("graffiti2", this.scene);
+        graffitiMat2.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Cyan
+        graffitiMat2.disableLighting = true;
+        graffitiMat2.alpha = 0.7;
+        
+        const graffitiMat3 = new BABYLON.StandardMaterial("graffiti3", this.scene);
+        graffitiMat3.emissiveColor = new BABYLON.Color3(1, 1, 0); // Yellow
+        graffitiMat3.disableLighting = true;
+        graffitiMat3.alpha = 0.7;
+        
+        // Abstract graffiti shapes on back wall
+        const graffiti1 = BABYLON.MeshBuilder.CreateBox("graffiti1", {
+            width: 2,
+            height: 1.5,
+            depth: 0.02
+        }, this.scene);
+        graffiti1.position = new BABYLON.Vector3(-8, 4, -26.9);
+        graffiti1.material = graffitiMat1;
+        
+        const graffiti2 = BABYLON.MeshBuilder.CreateBox("graffiti2", {
+            width: 1.5,
+            height: 2,
+            depth: 0.02
+        }, this.scene);
+        graffiti2.position = new BABYLON.Vector3(6, 5, -26.9);
+        graffiti2.material = graffitiMat2;
+        
+        // Side wall graffiti
+        const graffiti3 = BABYLON.MeshBuilder.CreateBox("graffiti3", {
+            width: 0.02,
+            height: 1,
+            depth: 1.5
+        }, this.scene);
+        graffiti3.position = new BABYLON.Vector3(-16.9, 3, -8);
+        graffiti3.material = graffitiMat3;
+        
+        const graffiti4 = BABYLON.MeshBuilder.CreateBox("graffiti4", {
+            width: 0.02,
+            height: 1.2,
+            depth: 2
+        }, this.scene);
+        graffiti4.position = new BABYLON.Vector3(16.9, 6, -18);
+        graffiti4.material = graffitiMat1;
     }
 
     createCeiling() {
@@ -935,71 +1046,284 @@ class VRClub {
 
     createBarArea() {
         
-        // Bar counter
+        // Bar counter - solid wood
         const bar = BABYLON.MeshBuilder.CreateBox("bar", {
-            width: 8,
+            width: 10,
             height: 1.2,
-            depth: 1.2
+            depth: 1.5
         }, this.scene);
         bar.position = new BABYLON.Vector3(-10, 0.6, 5);
         
         const barMat = new BABYLON.PBRMetallicRoughnessMaterial("barMat", this.scene);
-        barMat.baseColor = new BABYLON.Color3(0.15, 0.08, 0.05);
-        barMat.metallic = 0.7;
-        barMat.roughness = 0.3;
+        barMat.baseColor = new BABYLON.Color3(0.2, 0.12, 0.08); // Dark wood
+        barMat.metallic = 0.1;
+        barMat.roughness = 0.6;
+        barMat.maxSimultaneousLights = this.maxLights;
         bar.material = barMat;
+        bar.receiveShadows = true;
         
-        // Bar top
+        // Bar top - polished glossy surface
         const barTop = BABYLON.MeshBuilder.CreateBox("barTop", {
-            width: 8.2,
+            width: 10.2,
             height: 0.08,
-            depth: 1.4
+            depth: 1.7
         }, this.scene);
         barTop.position = new BABYLON.Vector3(-10, 1.24, 5);
         
         const topMat = new BABYLON.PBRMetallicRoughnessMaterial("barTopMat", this.scene);
         topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.08);
         topMat.metallic = 0.95;
-        topMat.roughness = 0.1; // Very glossy
+        topMat.roughness = 0.05; // Very glossy polished surface
+        topMat.maxSimultaneousLights = this.maxLights;
         barTop.material = topMat;
         
-        // Back bar with bottles
+        // Back bar wall and shelves with bottles
         this.createBackBar();
+        
+        // Create bartender character
+        this.createBartender();
     }
 
     createBackBar() {
-        // Shelf
-        const shelf = BABYLON.MeshBuilder.CreateBox("backShelf", {
-            width: 7.5,
-            height: 0.05,
-            depth: 0.4
+        // Back bar wall/mirror
+        const backWall = BABYLON.MeshBuilder.CreateBox("backBarWall", {
+            width: 10,
+            height: 3,
+            depth: 0.2
         }, this.scene);
-        shelf.position = new BABYLON.Vector3(-10, 2, 4.4);
+        backWall.position = new BABYLON.Vector3(-10, 2.5, 3.8);
         
-        const shelfMat = new BABYLON.StandardMaterial("shelfMat", this.scene);
-        shelfMat.diffuseColor = new BABYLON.Color3(0.2, 0.15, 0.1);
-        shelf.material = shelfMat;
+        const backWallMat = new BABYLON.PBRMetallicRoughnessMaterial("backWallMat", this.scene);
+        backWallMat.baseColor = new BABYLON.Color3(0.15, 0.12, 0.1);
+        backWallMat.metallic = 0.3;
+        backWallMat.roughness = 0.7;
+        backWallMat.maxSimultaneousLights = this.maxLights;
+        backWall.material = backWallMat;
         
-        // Bottles with colored lights
-        const bottleColors = [
-            new BABYLON.Color3(0, 1, 0.5),
-            new BABYLON.Color3(1, 0.5, 0),
-            new BABYLON.Color3(0.5, 0, 1),
-            new BABYLON.Color3(1, 0, 0.5)
+        // Wood shelf material
+        const shelfMat = new BABYLON.PBRMetallicRoughnessMaterial("shelfMat", this.scene);
+        shelfMat.baseColor = new BABYLON.Color3(0.25, 0.18, 0.12);
+        shelfMat.metallic = 0;
+        shelfMat.roughness = 0.8;
+        shelfMat.maxSimultaneousLights = this.maxLights;
+        
+        // Create 3 shelves
+        for (let i = 0; i < 3; i++) {
+            const shelf = BABYLON.MeshBuilder.CreateBox("backShelf" + i, {
+                width: 9.5,
+                height: 0.08,
+                depth: 0.4
+            }, this.scene);
+            shelf.position = new BABYLON.Vector3(-10, 1.8 + (i * 0.8), 3.9);
+            shelf.material = shelfMat;
+        }
+        
+        // Glass material for bottles
+        const glassMat = new BABYLON.PBRMetallicRoughnessMaterial("glassMat", this.scene);
+        glassMat.baseColor = new BABYLON.Color3(0.9, 0.9, 0.9);
+        glassMat.metallic = 0;
+        glassMat.roughness = 0.1;
+        glassMat.alpha = 0.3;
+        glassMat.indexOfRefraction = 1.5;
+        glassMat.maxSimultaneousLights = this.maxLights;
+        
+        // Bottle liquid colors (various spirits)
+        const liquidColors = [
+            { color: new BABYLON.Color3(0.6, 0.3, 0.1), name: "whiskey" },    // Amber whiskey
+            { color: new BABYLON.Color3(0.9, 0.9, 0.85), name: "vodka" },     // Clear vodka
+            { color: new BABYLON.Color3(0.2, 0.6, 0.2), name: "absinthe" },   // Green absinthe
+            { color: new BABYLON.Color3(0.8, 0.5, 0.2), name: "rum" },        // Golden rum
+            { color: new BABYLON.Color3(0.9, 0.2, 0.2), name: "campari" },    // Red campari
+            { color: new BABYLON.Color3(0.3, 0.5, 0.8), name: "gin" },        // Blue gin
+            { color: new BABYLON.Color3(0.7, 0.4, 0.2), name: "cognac" },     // Cognac
+            { color: new BABYLON.Color3(0.95, 0.95, 0.9), name: "tequila" }   // Clear tequila
         ];
         
-        for (let i = 0; i < 8; i++) {
-            const bottle = BABYLON.MeshBuilder.CreateCylinder("bottle" + i, {
-                diameter: 0.1,
-                height: 0.4
-            }, this.scene);
-            bottle.position = new BABYLON.Vector3(-13 + (i * 0.9), 2.25, 4.4);
-            
-            const bottleMat = new BABYLON.StandardMaterial("bottleMat" + i, this.scene);
-            bottleMat.emissiveColor = bottleColors[i % 4];
-            bottleMat.alpha = 0.7;
-            bottle.material = bottleMat;
+        // Create multiple bottles on shelves
+        let bottleIndex = 0;
+        for (let shelf = 0; shelf < 3; shelf++) {
+            for (let i = 0; i < 8; i++) {
+                const liquidColor = liquidColors[bottleIndex % liquidColors.length];
+                
+                // Bottle body
+                const bottle = BABYLON.MeshBuilder.CreateCylinder("bottle" + bottleIndex, {
+                    diameterTop: 0.08,
+                    diameterBottom: 0.1,
+                    height: 0.45,
+                    tessellation: 16
+                }, this.scene);
+                bottle.position = new BABYLON.Vector3(-14 + (i * 1.15), 1.85 + (shelf * 0.8), 3.9);
+                bottle.material = glassMat.clone("glassMat" + bottleIndex);
+                
+                // Liquid inside bottle
+                const liquid = BABYLON.MeshBuilder.CreateCylinder("liquid" + bottleIndex, {
+                    diameterTop: 0.07,
+                    diameterBottom: 0.09,
+                    height: 0.35,
+                    tessellation: 16
+                }, this.scene);
+                liquid.position = new BABYLON.Vector3(-14 + (i * 1.15), 1.8 + (shelf * 0.8), 3.9);
+                
+                const liquidMat = new BABYLON.StandardMaterial("liquidMat" + bottleIndex, this.scene);
+                liquidMat.diffuseColor = liquidColor.color;
+                liquidMat.emissiveColor = liquidColor.color.scale(0.2);
+                liquidMat.alpha = 0.7;
+                liquid.material = liquidMat;
+                
+                // Bottle cap
+                const cap = BABYLON.MeshBuilder.CreateCylinder("cap" + bottleIndex, {
+                    diameter: 0.06,
+                    height: 0.05,
+                    tessellation: 16
+                }, this.scene);
+                cap.position = new BABYLON.Vector3(-14 + (i * 1.15), 2.1 + (shelf * 0.8), 3.9);
+                
+                const capMat = new BABYLON.PBRMetallicRoughnessMaterial("capMat" + bottleIndex, this.scene);
+                capMat.baseColor = new BABYLON.Color3(0.7, 0.6, 0.4); // Gold cap
+                capMat.metallic = 1;
+                capMat.roughness = 0.3;
+                capMat.maxSimultaneousLights = this.maxLights;
+                cap.material = capMat;
+                
+                bottleIndex++;
+            }
         }
+        
+        console.log(`✅ Created bar with ${bottleIndex} bottles`);
+    }
+    
+    createBartender() {
+        // Bartender body (simplified humanoid)
+        const bodyMat = new BABYLON.PBRMetallicRoughnessMaterial("bodyMat", this.scene);
+        bodyMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.25); // Dark clothing
+        bodyMat.metallic = 0;
+        bodyMat.roughness = 0.9;
+        bodyMat.maxSimultaneousLights = this.maxLights;
+        
+        const skinMat = new BABYLON.PBRMetallicRoughnessMaterial("skinMat", this.scene);
+        skinMat.baseColor = new BABYLON.Color3(0.7, 0.5, 0.4); // Skin tone
+        skinMat.metallic = 0;
+        skinMat.roughness = 0.7;
+        skinMat.maxSimultaneousLights = this.maxLights;
+        
+        // Torso
+        const torso = BABYLON.MeshBuilder.CreateCylinder("bartenderTorso", {
+            diameterTop: 0.4,
+            diameterBottom: 0.45,
+            height: 0.8,
+            tessellation: 16
+        }, this.scene);
+        torso.position = new BABYLON.Vector3(-10, 1.7, 4.5);
+        torso.material = bodyMat;
+        
+        // Head
+        const head = BABYLON.MeshBuilder.CreateSphere("bartenderHead", {
+            diameter: 0.3,
+            segments: 16
+        }, this.scene);
+        head.position = new BABYLON.Vector3(-10, 2.25, 4.5);
+        head.material = skinMat;
+        
+        // Arms (will animate for glass cleaning)
+        const armMat = bodyMat.clone("armMat");
+        
+        // Left arm (upper)
+        const leftArmUpper = BABYLON.MeshBuilder.CreateCylinder("leftArmUpper", {
+            diameter: 0.1,
+            height: 0.35,
+            tessellation: 12
+        }, this.scene);
+        leftArmUpper.position = new BABYLON.Vector3(-10.25, 1.85, 4.5);
+        leftArmUpper.rotation.z = Math.PI / 6;
+        leftArmUpper.material = armMat;
+        
+        // Left forearm
+        const leftForearm = BABYLON.MeshBuilder.CreateCylinder("leftForearm", {
+            diameter: 0.08,
+            height: 0.3,
+            tessellation: 12
+        }, this.scene);
+        leftForearm.position = new BABYLON.Vector3(-10.4, 1.6, 4.5);
+        leftForearm.rotation.z = Math.PI / 4;
+        leftForearm.material = armMat;
+        
+        // Left hand holding glass
+        const leftHand = BABYLON.MeshBuilder.CreateSphere("leftHand", {
+            diameter: 0.08,
+            segments: 12
+        }, this.scene);
+        leftHand.position = new BABYLON.Vector3(-10.5, 1.4, 4.5);
+        leftHand.material = skinMat;
+        
+        // Right arm (upper)
+        const rightArmUpper = BABYLON.MeshBuilder.CreateCylinder("rightArmUpper", {
+            diameter: 0.1,
+            height: 0.35,
+            tessellation: 12
+        }, this.scene);
+        rightArmUpper.position = new BABYLON.Vector3(-9.75, 1.85, 4.5);
+        rightArmUpper.rotation.z = -Math.PI / 6;
+        rightArmUpper.material = armMat;
+        
+        // Right forearm with cloth
+        const rightForearm = BABYLON.MeshBuilder.CreateCylinder("rightForearm", {
+            diameter: 0.08,
+            height: 0.3,
+            tessellation: 12
+        }, this.scene);
+        rightForearm.position = new BABYLON.Vector3(-9.6, 1.6, 4.5);
+        rightForearm.rotation.z = -Math.PI / 4;
+        rightForearm.material = armMat;
+        
+        // Right hand with cloth
+        const rightHand = BABYLON.MeshBuilder.CreateSphere("rightHand", {
+            diameter: 0.08,
+            segments: 12
+        }, this.scene);
+        rightHand.position = new BABYLON.Vector3(-9.5, 1.4, 4.5);
+        rightHand.material = skinMat;
+        
+        // Glass being cleaned
+        const glassBeingCleaned = BABYLON.MeshBuilder.CreateCylinder("cleaningGlass", {
+            diameterTop: 0.08,
+            diameterBottom: 0.06,
+            height: 0.15,
+            tessellation: 16
+        }, this.scene);
+        glassBeingCleaned.position = new BABYLON.Vector3(-10.5, 1.35, 4.5);
+        
+        const cleanGlassMat = new BABYLON.PBRMetallicRoughnessMaterial("cleanGlassMat", this.scene);
+        cleanGlassMat.baseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+        cleanGlassMat.metallic = 0;
+        cleanGlassMat.roughness = 0.05;
+        cleanGlassMat.alpha = 0.4;
+        cleanGlassMat.maxSimultaneousLights = this.maxLights;
+        glassBeingCleaned.material = cleanGlassMat;
+        
+        // Cleaning cloth in right hand
+        const cloth = BABYLON.MeshBuilder.CreateBox("cleaningCloth", {
+            width: 0.12,
+            height: 0.02,
+            depth: 0.12
+        }, this.scene);
+        cloth.position = new BABYLON.Vector3(-9.5, 1.38, 4.5);
+        
+        const clothMat = new BABYLON.StandardMaterial("clothMat", this.scene);
+        clothMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.85); // White cloth
+        cloth.material = clothMat;
+        
+        // Store references for animation
+        this.bartender = {
+            leftHand: leftHand,
+            rightHand: rightHand,
+            leftForearm: leftForearm,
+            rightForearm: rightForearm,
+            glass: glassBeingCleaned,
+            cloth: cloth,
+            animationPhase: 0
+        };
+        
+        console.log("✅ Created bartender with glass cleaning animation");
     }
 
     createTrussMountedLights() {
@@ -1320,10 +1644,14 @@ class VRClub {
         this.currentColorIndex = 0;
         this.colorSwitchTime = 0;
         
-        // Lights and lasers control - BOTH ALWAYS ACTIVE for continuous show
+        // Lights and lasers control - ALTERNATING PATTERN
+        // Pattern: Lights on for 15s, then Lasers on for 25s, repeat
         this.lightsActive = true;
-        this.lasersActive = true; // Changed to true - always active
+        this.lasersActive = false;
         this.lightModeSwitchTime = 0;
+        this.lightingPhase = 'lights'; // 'lights' or 'lasers'
+        this.lightsPhaseDuration = 15; // Lights show for 15 seconds
+        this.lasersPhaseDuration = 25; // Lasers show for 25 seconds (longer, less frequent)
         
     }
     
@@ -1462,6 +1790,24 @@ class VRClub {
         // Check if any special effect is active
         const specialEffectActive = this.discoBallShowActive;
         
+        // ALTERNATING PATTERN: Lights and Lasers don't mix
+        // Lights: 15 seconds, Lasers: 25 seconds (longer but less frequent)
+        if (time - this.lightModeSwitchTime > (this.lightingPhase === 'lights' ? this.lightsPhaseDuration : this.lasersPhaseDuration)) {
+            // Switch phases
+            if (this.lightingPhase === 'lights') {
+                this.lightingPhase = 'lasers';
+                this.lightsActive = false;
+                this.lasersActive = true;
+                console.log('🔴 LASER PHASE - 25 seconds');
+            } else {
+                this.lightingPhase = 'lights';
+                this.lightsActive = true;
+                this.lasersActive = false;
+                console.log('💡 LIGHTS PHASE - 15 seconds');
+            }
+            this.lightModeSwitchTime = time;
+        }
+        
         // Update LED wall (with audio reactivity) - OFF during special effects
         if (this.ledPanels && !specialEffectActive) {
             this.updateLEDWall(time, audioData);
@@ -1473,10 +1819,6 @@ class VRClub {
         }
         
         // Disco ball code removed
-        
-        // Keep both lights and lasers always active (removed alternating behavior)
-        // Both spotlights and lasers run continuously for a fuller club experience
-        // Only turn off during special effects (disco ball or laser curtain shows)
         
         // Switch between synchronized and random lighting modes (every 20-40 seconds)
         if (time - this.modeSwitchTime > (20 + Math.random() * 20)) {
@@ -1631,15 +1973,16 @@ class VRClub {
         }
         
         // Update spotlights with synchronized movement patterns (AUDIO REACTIVE)
-        // Turn off during special effects
-        if (this.spotlights && this.lightsActive && !specialEffectActive) {
-            // Change color every 10 seconds for ALL lights at once
-            if (time - this.lastColorChange > 10) {
-                this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
-                this.currentSpotColor = this.spotColorList[this.spotColorIndex];
-                this.lastColorChange = time;
-                
-                // Update ALL lights to new color
+        // ALWAYS change color every 10 seconds for ALL lights (outside the lightsActive check)
+        if (time - this.lastColorChange > 10) {
+            this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
+            this.currentSpotColor = this.spotColorList[this.spotColorIndex];
+            this.lastColorChange = time;
+            
+            console.log(`🎨 COLOR CHANGE! Index: ${this.spotColorIndex}, Color:`, this.currentSpotColor);
+            
+            // Update ALL lights to new color
+            if (this.spotlights) {
                 this.spotlights.forEach(spot => {
                     spot.light.diffuse = this.currentSpotColor;
                     spot.color = this.currentSpotColor;
@@ -1648,16 +1991,11 @@ class VRClub {
                         spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.6);
                     }
                 });
-                
-                // Update wall LED strips to match spotlight color
-                if (this.wallStrips) {
-                    this.wallStrips.forEach(strip => {
-                        strip.material.emissiveColor = this.currentSpotColor;
-                    });
-                }
-                
-                console.log(`🎨 All spotlights changed to: ${this.spotColorIndex}`);
             }
+        }
+        
+        // Turn off during special effects
+        if (this.spotlights && this.lightsActive && !specialEffectActive) {
             
             // Choose pattern based on lighting mode
             let globalPhase = time * 0.5;
@@ -1751,32 +2089,67 @@ class VRClub {
             this.ledTime += 0.016;
         }
         
-        // Update strobes with AGGRESSIVE flash sequences
+        // Update strobes - ALWAYS ACTIVE with variable intensity
         if (this.strobes && this.strobes.length > 0) {
             this.strobes.forEach((strobe, i) => {
                 // Handle ongoing flash
                 if (strobe.flashDuration > 0) {
                     strobe.flashDuration -= 0.016;
-                    // SUPER INTENSE rapid bursts
-                    const burstPhase = Math.floor(strobe.flashDuration * 40) % 2; // Faster bursts (was 20, now 40)
-                    const intensity = burstPhase === 0 ? 50 : 0; // MUCH brighter (was 15, now 50)
+                    
+                    // Variable intensity - sometimes super bright, sometimes moderate
+                    const intensityVariation = strobe.currentIntensity || 50; // Store current intensity
+                    const burstPhase = Math.floor(strobe.flashDuration * 40) % 2; // Fast bursts
+                    const intensity = burstPhase === 0 ? intensityVariation : 0;
                     
                     strobe.material.emissiveColor = this.cachedColors.white.scale(intensity);
-                    strobe.light.intensity = intensity * 100; // EXTREMELY bright (was 50, now 100)
-                    strobe.light.range = 50; // Wider range
+                    strobe.light.intensity = intensity * 120; // Very bright
+                    strobe.light.range = 50 + (intensityVariation * 0.5); // Wider range for brighter flashes
                     
                     if (strobe.flashDuration <= 0) {
                         strobe.material.emissiveColor = this.cachedColors.black;
                         strobe.light.intensity = 0;
-                        strobe.nextFlashTime = time + 0.2 + Math.random() * 0.8; // More frequent (was 0.5-2.5s, now 0.2-1.0s)
+                        strobe.nextFlashTime = time + 0.1 + Math.random() * 0.9; // Frequent flashes (0.1-1.0s)
                     }
                 } else {
-                    // Check if it's time for next flash
+                    // Check if it's time for next flash (ALWAYS fires, no condition)
                     if (time >= strobe.nextFlashTime) {
-                        strobe.flashDuration = 0.2 + Math.random() * 0.15; // Longer flash (was 0.15-0.25s, now 0.2-0.35s)
+                        // Vary intensity: 60% chance medium (30-40), 40% chance super bright (50-70)
+                        strobe.currentIntensity = Math.random() > 0.6 ? 
+                            (30 + Math.random() * 10) : // Medium intensity
+                            (50 + Math.random() * 20);  // Super bright
+                        
+                        strobe.flashDuration = 0.15 + Math.random() * 0.2; // Duration 0.15-0.35s
                     }
                 }
             });
+        }
+        
+        // Animate bartender cleaning glass
+        if (this.bartender) {
+            this.bartender.animationPhase += 0.03;
+            
+            // Circular wiping motion with right hand (cloth)
+            const wipeRadius = 0.05;
+            const wipeX = Math.cos(this.bartender.animationPhase * 3) * wipeRadius;
+            const wipeZ = Math.sin(this.bartender.animationPhase * 3) * wipeRadius;
+            
+            this.bartender.rightHand.position.x = -9.5 + wipeX;
+            this.bartender.rightHand.position.z = 4.5 + wipeZ;
+            this.bartender.cloth.position.x = -9.5 + wipeX;
+            this.bartender.cloth.position.z = 4.5 + wipeZ;
+            
+            // Slight arm rotation for wiping
+            this.bartender.rightForearm.rotation.z = -Math.PI / 4 + Math.sin(this.bartender.animationPhase * 3) * 0.2;
+            
+            // Left hand holds glass steady with slight rotation
+            const glassRotation = Math.sin(this.bartender.animationPhase * 2) * 0.3;
+            this.bartender.glass.rotation.z = glassRotation;
+            this.bartender.leftForearm.rotation.z = Math.PI / 4 + Math.sin(this.bartender.animationPhase) * 0.1;
+            
+            // Occasionally look around (head movement simulation through glass position)
+            if (Math.floor(this.bartender.animationPhase) % 10 === 0) {
+                // Could add head turning animation here if we stored head reference
+            }
         }
     }
 
