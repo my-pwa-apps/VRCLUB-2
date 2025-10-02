@@ -1698,8 +1698,8 @@ class VRClub {
             // HYPERREALISTIC VISIBLE BEAM - Like light through haze
             const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
             beamMat.diffuseColor = this.currentSpotColor;
-            beamMat.emissiveColor = this.currentSpotColor.scale(1.0); // VERY BRIGHT
-            beamMat.alpha = 0.4; // Semi-transparent but VISIBLE
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.8); // Bright but not too much
+            beamMat.alpha = 0.15; // More transparent - ethereal light beam effect
             beamMat.disableLighting = true;
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND; // Proper alpha blending
