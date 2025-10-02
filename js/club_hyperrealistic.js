@@ -1693,15 +1693,35 @@ class VRClub {
             beam.isPickable = false;
             beam.rotationQuaternion = BABYLON.Quaternion.Identity();
             
-            // HYPERREALISTIC VOLUMETRIC BEAM - Like light cutting through atmospheric haze
-            const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
-            beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0); // No diffuse
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.6); // Soft glow
-            beamMat.specularColor = new BABYLON.Color3(0, 0, 0); // No specular
-            beamMat.alpha = 0.08; // Very transparent - like atmospheric particles
-            beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for volumetric effect
-            beamMat.disableLighting = true;
+            // HYPERREALISTIC VOLUMETRIC BEAM - Simulates light scattering through haze/fog
+            // Use PBR material for more realistic light interaction
+            const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
+            
+            // No base color - pure emission and transparency
+            beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.metallic = 0;
+            beamMat.roughness = 1;
+            
+            // Soft emissive glow - the "light particles" in the air
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.3);
+            beamMat.emissiveIntensity = 2.0; // Boost intensity for visibility
+            
+            // Critical: Very low alpha with additive-like blending
+            beamMat.alpha = 0.04; // Extremely transparent - builds up with overlapping views
+            beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+            
+            // Fresnel effect - more visible from the side (like real light beams)
+            beamMat.opacityFresnel = new BABYLON.FresnelParameters();
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.1, 0.1, 0.1); // More opaque from side
+            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0); // Transparent when looking along beam
+            beamMat.opacityFresnel.bias = 0.2;
+            beamMat.opacityFresnel.power = 2;
+            
+            // Important settings for realism
             beamMat.backFaceCulling = false; // Visible from all angles
+            beamMat.disableLighting = true; // Self-illuminated
+            beamMat.unlit = true; // Don't receive lighting
+            
             beam.material = beamMat;
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
@@ -2148,10 +2168,20 @@ class VRClub {
                     spot.beam.scaling.x = zoomFactor;
                     spot.beam.scaling.z = zoomFactor;
                     
-                    // Beam visibility and color - BRIGHT and VISIBLE
+                    // Beam visibility and color - HYPERREALISTIC with subtle variation
                     spot.beam.visibility = this.lightsActive ? 1.0 : 0;
-                    spot.beamMat.diffuseColor = this.currentSpotColor;
-                    spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.4); // BRIGHTER (was 0.4)
+                    
+                    // Subtle atmospheric variation - simulates particles moving through beam
+                    const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
+                    const audioReactivity = audioData.bass * 0.3;
+                    
+                    // Update emissive color with variation
+                    const baseIntensity = 0.3 + atmosphericNoise + audioReactivity;
+                    spot.beamMat.emissiveColor = this.currentSpotColor.scale(baseIntensity);
+                    spot.beamMat.emissiveIntensity = 1.8 + audioData.bass * 0.5; // Boost for PBR material
+                    
+                    // Very subtle alpha variation - creates "depth" in the beam
+                    spot.beamMat.alpha = 0.04 + Math.abs(atmosphericNoise) * 0.02;
                     
                     // Debug first spotlight occasionally
                     if (i === 0 && Math.random() < 0.1) {
