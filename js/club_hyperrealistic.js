@@ -10,6 +10,10 @@ class VRClub {
             antialias: true // Enable antialiasing for smoothness
         });
         
+        // Detect device capabilities for optimal light count
+        this.maxLights = this.detectMaxLights();
+        console.log(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
+        
         this.audioContext = null;
         this.audioAnalyser = null;
         this.audioSource = null;
@@ -31,6 +35,26 @@ class VRClub {
         };
         
         this.init();
+    }
+
+    detectMaxLights() {
+        // Detect device type and GPU capabilities
+        const ua = navigator.userAgent.toLowerCase();
+        const isQuest = ua.includes('quest') || ua.includes('oculus');
+        const isMobile = /android|iphone|ipad|mobile/i.test(ua);
+        
+        // Quest 3/3S has a powerful Snapdragon XR2 Gen 2 GPU
+        // Can handle significantly more lights than a laptop
+        if (isQuest) {
+            console.log('🥽 Quest VR headset detected - using high light count');
+            return 24; // Quest 3S can handle more lights
+        } else if (isMobile) {
+            console.log('📱 Mobile device detected - using moderate light count');
+            return 16; // Mobile devices moderate
+        } else {
+            console.log('💻 Desktop/laptop detected - using conservative light count');
+            return 12; // Conservative for laptops/desktops
+        }
     }
 
     async init() {
@@ -76,9 +100,9 @@ class VRClub {
         // Add glow layer for neon/LED effects (works in both desktop and VR)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
             mainTextureFixedSize: 1024, // Increased for VR
-            blurKernelSize: 32  // Reduced for sharper shapes
+            blurKernelSize: 16  // Very sharp for crisp LED shapes
         });
-        this.glowLayer.intensity = 0.8; // Reduced for sharper LED shapes
+        this.glowLayer.intensity = 0.5; // Minimal glow for sharp definition
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -179,6 +203,7 @@ class VRClub {
         floorMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.27); // Concrete gray
         floorMat.metallic = 0.0; // Not metallic at all
         floorMat.roughness = 0.9; // Very rough, matte concrete
+        floorMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
         
         // Create procedural noise texture for concrete variation
         const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene);
@@ -201,6 +226,7 @@ class VRClub {
         wallMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.08);
         wallMat.metallic = 0.1;
         wallMat.roughness = 0.9; // Rough industrial surface
+        wallMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
         
         // Back wall
         const backWall = BABYLON.MeshBuilder.CreateBox("backWall", {
@@ -278,6 +304,7 @@ class VRClub {
         ceilingMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.17); // Dark industrial gray
         ceilingMat.metallic = 0.2;
         ceilingMat.roughness = 0.8;
+        ceilingMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
         ceiling.material = ceilingMat;
         
         // Add lighting truss above dance floor
@@ -408,55 +435,76 @@ class VRClub {
     }
     
     createDiscoBall() {
-        // REALISTIC DISCO BALL with actual light reflections
+        // REALISTIC DISCO BALL with VISIBLE mirror tiles
+        const ballRadius = 0.6; // 1.2m diameter
+        const ballCenter = new BABYLON.Vector3(0, 7.2, -12); // Center of middle truss
+        
+        // Dark core sphere (represents gaps between mirrors)
         const discoBall = BABYLON.MeshBuilder.CreateSphere("discoBall", {
-            diameter: 1.2,
-            segments: 16
+            diameter: 1.15, // Slightly smaller than mirrors
+            segments: 32
         }, this.scene);
-        discoBall.position = new BABYLON.Vector3(0, 7.2, -12); // Center of middle truss
+        discoBall.position = ballCenter;
+        discoBall.isPickable = false;
         
-        // Reflective base sphere (visible mirror surface)
-        const discoBallMat = new BABYLON.StandardMaterial("discoBallMat", this.scene);
-        discoBallMat.diffuseColor = new BABYLON.Color3(0.4, 0.4, 0.45); // Brighter, more visible
-        discoBallMat.specularColor = new BABYLON.Color3(0.8, 0.8, 0.9); // Shiny mirror surface
-        discoBallMat.specularPower = 64; // Glossy
-        discoBall.material = discoBallMat;
+        const coreMat = new BABYLON.StandardMaterial("discoBallCore", this.scene);
+        coreMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gray/black
+        coreMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.06);
+        discoBall.material = coreMat;
         
-        // Create mirror facets that will actually cast light spots
+        console.log('🪩 Disco ball created at:', ballCenter.toString());
+        
+        // Create VISIBLE mirror tiles covering the sphere
         this.discoBallFacets = [];
-        const facetCount = 150; // Mirror tiles on ball
+        const facetCount = 200; // More tiles for better coverage
+        
+        // Shared mirror material for all tiles (more efficient)
+        const mirrorMat = new BABYLON.StandardMaterial("mirrorTileMat", this.scene);
+        mirrorMat.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white
+        mirrorMat.emissiveColor = new BABYLON.Color3(1, 1, 1); // FULL BRIGHTNESS - can't miss it!
+        mirrorMat.specularColor = new BABYLON.Color3(1, 1, 1);
+        mirrorMat.specularPower = 512; // Ultra glossy
+        mirrorMat.maxSimultaneousLights = this.maxLights;
+        
+        console.log('✨ Creating mirror tiles with FULL emissive brightness');
         
         for (let i = 0; i < facetCount; i++) {
-            // Evenly distribute facets on sphere surface using Fibonacci sphere
+            // Evenly distribute tiles on sphere using Fibonacci sphere
             const offset = 2.0 / facetCount;
             const increment = Math.PI * (3.0 - Math.sqrt(5.0));
             const y = ((i * offset) - 1) + (offset / 2);
             const r = Math.sqrt(1 - y * y);
             const phi = ((i + 1) % facetCount) * increment;
             
-            const x = Math.cos(phi) * r * 0.6;
-            const z = Math.sin(phi) * r * 0.6;
+            const x = Math.cos(phi) * r;
+            const z = Math.sin(phi) * r;
             
-            // Create small square mirror facet
-            const facet = BABYLON.MeshBuilder.CreatePlane("facet" + i, {
-                size: 0.06
+            // Normal vector from center to this point
+            const normal = new BABYLON.Vector3(x, y, z).normalize();
+            
+            // Create 3D BOX tile (not flat plane) - more visible!
+            const facet = BABYLON.MeshBuilder.CreateBox("facet" + i, {
+                width: 0.18,  // Wide enough to see
+                height: 0.18, // Square shape
+                depth: 0.03   // Thick enough to be visible
             }, this.scene);
-            facet.position = new BABYLON.Vector3(x, 7.2 + y * 0.6, -12 + z);
-            facet.lookAt(discoBall.position);
-            facet.parent = discoBall;
             
-            // Bright mirror material (highly reflective)
-            const facetMat = new BABYLON.StandardMaterial("facetMat" + i, this.scene);
-            facetMat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 1.0); // Bright mirror
-            facetMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Slight glow
-            facetMat.specularColor = new BABYLON.Color3(1, 1, 1);
-            facetMat.specularPower = 128;
-            facet.material = facetMat;
+            // LOCAL position relative to ball center (for proper parenting)
+            facet.position = normal.scale(ballRadius);
+            facet.parent = discoBall; // Parent so it rotates with ball
+            
+            // Rotate tile to face outward
+            facet.lookAt(facet.getAbsolutePosition().add(normal));
+            facet.isPickable = false;
+            
+            // Apply shared mirror material
+            facet.material = mirrorMat;
             
             // Create a small spotlight for each facet to simulate reflection
+            const facetWorldPos = ballCenter.add(normal.scale(ballRadius));
             const reflectionSpot = new BABYLON.SpotLight("discoBallReflection" + i,
-                facet.getAbsolutePosition(),
-                new BABYLON.Vector3(0, 0, 0), // Will be updated in animation
+                facetWorldPos,
+                normal, // Points outward initially
                 Math.PI / 16, // Tight beam
                 20, // Sharp falloff
                 this.scene
@@ -468,52 +516,89 @@ class VRClub {
             this.discoBallFacets.push({
                 mesh: facet,
                 light: reflectionSpot,
-                normal: new BABYLON.Vector3(x, y * 0.6, z).normalize()
+                normal: normal // Store the actual normal vector
             });
         }
         
-        // Suspension cable
+        console.log(`✨ Created ${facetCount} visible mirror tiles on disco ball`);
+        console.log(`   Tile size: 0.18x0.18x0.03m`);
+        console.log(`   Material: Full white emissive (1,1,1)`);
+        
+        // Add ALL mirror tiles to glow layer for maximum visibility
+        if (this.glowLayer) {
+            this.discoBallFacets.forEach(facet => {
+                this.glowLayer.addIncludedOnlyMesh(facet.mesh);
+            });
+            console.log(`🌟 Added ${facetCount} mirror tiles to glow layer`);
+        }
+        
+        // Suspension cable - more visible
         const suspensionCable = BABYLON.MeshBuilder.CreateCylinder("discoCable", {
-            diameter: 0.02,
+            diameter: 0.03,  // Thicker for visibility
             height: 0.8
         }, this.scene);
         suspensionCable.position = new BABYLON.Vector3(0, 7.6, -12);
+        suspensionCable.isPickable = false;
         
         const discoCableMat = new BABYLON.StandardMaterial("discoCableMat", this.scene);
-        discoCableMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        discoCableMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+        discoCableMat.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Lighter for visibility
+        discoCableMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); // Slight glow
+        discoCableMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
         suspensionCable.material = discoCableMat;
         
         // Main spotlight hitting disco ball - ALWAYS ON to create reflections
+        // Disco ball is at (0, 7.2, -12)
+        const ballPos = new BABYLON.Vector3(0, 7.2, -12);
+        const spot1Pos = new BABYLON.Vector3(3, 9, -10);
+        const spot1Dir = ballPos.subtract(spot1Pos).normalize();
+        
         const discoSpot = new BABYLON.SpotLight("discoMainSpot",
-            new BABYLON.Vector3(3, 9, -10), // From side/above
-            new BABYLON.Vector3(-0.25, -1, -0.15).normalize(), // Aimed at ball
-            Math.PI / 8, // Focused beam
+            spot1Pos, // From side/above
+            spot1Dir, // Aimed DIRECTLY at ball center
+            Math.PI / 6, // Wide enough to cover ball
             8,
             this.scene
         );
         discoSpot.diffuse = new BABYLON.Color3(1, 1, 1); // Bright white
-        discoSpot.intensity = 60; // VERY bright to light up mirror ball and create strong reflections
-        discoSpot.range = 20;
+        discoSpot.intensity = 80; // START ON - EXTREMELY bright to light up mirror ball
+        discoSpot.range = 25;
+        
+        console.log('💡 Main disco spotlight:', {
+            position: spot1Pos.toString(),
+            direction: spot1Dir.toString(),
+            intensity: discoSpot.intensity,
+            aimingAt: ballPos.toString()
+        });
         
         // Secondary disco spotlight (colored, alternates)
+        const spot2Pos = new BABYLON.Vector3(-3, 8.5, -14);
+        const spot2Dir = ballPos.subtract(spot2Pos).normalize();
+        
         const discoSpot2 = new BABYLON.SpotLight("discoSpot2",
-            new BABYLON.Vector3(-3, 8.5, -14),
-            new BABYLON.Vector3(0.25, -1, 0.15).normalize(),
-            Math.PI / 7,
+            spot2Pos,
+            spot2Dir, // Aimed DIRECTLY at ball center
+            Math.PI / 6,
             8,
             this.scene
         );
         discoSpot2.diffuse = new BABYLON.Color3(1, 0.2, 0.8); // Pink/magenta
-        discoSpot2.intensity = 50; // Bright to create visible reflections
-        discoSpot2.range = 20;
+        discoSpot2.intensity = 0; // START OFF - will alternate with main spot
+        discoSpot2.range = 25;
+        
+        console.log('💡 Secondary disco spotlight:', {
+            position: spot2Pos.toString(),
+            direction: spot2Dir.toString(),
+            intensity: discoSpot2.intensity
+        });
         
         // Store for animation
         this.discoBall = discoBall;
         this.discoBallRotation = 0;
         this.discoMainSpot = discoSpot;
         this.discoSpot2 = discoSpot2;
-        this.discoSpotToggle = 0; // For alternating spots
+        this.discoSpotToggle = -1; // For alternating spots (start at -1 to trigger immediately)
+        this.lastDiscoDebug = -1;
+        this.lastFacetDebug = -1;
     }
 
     createDJBooth() {
@@ -1276,6 +1361,19 @@ class VRClub {
         this.lastColorChange = -1;
         this.lastPatternChange = -1;
         
+        // Beat detection and BPM tracking
+        this.bpm = 130; // Default 130 BPM
+        this.beatInterval = 60 / this.bpm; // ~0.46 seconds per beat
+        this.lastBeat = 0;
+        this.beatThreshold = 0.15; // Bass threshold for beat detection
+        this.lastBassLevel = 0;
+        
+        // BPM detection from audio
+        this.beatHistory = []; // Track detected beat times
+        this.maxBeatHistory = 8; // Use last 8 beats for BPM calculation
+        this.detectedBPM = 130; // Detected BPM from music
+        this.lastBPMUpdate = 0;
+        
     }
 
     createLasers() {
@@ -1525,37 +1623,40 @@ class VRClub {
                 this.discoSpotToggle = Math.floor(time);
                 // Toggle between main spot and colored spot
                 if (this.discoMainSpot.intensity > 0) {
-                    this.discoMainSpot.intensity = 60;
-                    this.discoSpot2.intensity = 0;
-                } else {
+                    // Switch to pink spot
                     this.discoMainSpot.intensity = 0;
-                    this.discoSpot2.intensity = 50;
+                    this.discoSpot2.intensity = 70;
+                } else {
+                    // Switch to white spot
+                    this.discoMainSpot.intensity = 80;
+                    this.discoSpot2.intensity = 0;
                 }
             }
             
             // During special show, increase intensity even more
             if (this.discoBallShowActive) {
                 if (this.discoMainSpot.intensity > 0) {
-                    this.discoMainSpot.intensity = 100;
+                    this.discoMainSpot.intensity = 120; // Boost white to 120
                 } else {
-                    this.discoSpot2.intensity = 80;
+                    this.discoSpot2.intensity = 100; // Boost pink to 100
                 }
             }
             
             // Update reflection spots from disco ball facets (always active now)
             if (true) {
-                const lightSource = this.discoMainSpot.intensity > 0 ? 
-                    this.discoMainSpot.position : this.discoSpot2.position;
-                const ballCenter = this.discoBall.position;
-            
-            // Only update subset of facets each frame for performance
-            const facetsToUpdate = 30; // Update 30 facets per frame
-            const startIdx = Math.floor(time * 50) % this.discoBallFacets.length;
-            
-            for (let i = 0; i < facetsToUpdate; i++) {
-                const idx = (startIdx + i) % this.discoBallFacets.length;
-                const facet = this.discoBallFacets[idx];
+                // Determine which spotlight is active
+                const activeSpot = this.discoMainSpot.intensity > 0 ? this.discoMainSpot : this.discoSpot2;
+                const lightSource = activeSpot.position;
                 
+                // Debug: Log once per second
+                if (Math.floor(time) !== this.lastDiscoDebug) {
+                    this.lastDiscoDebug = Math.floor(time);
+                    console.log(`🪩 Disco: MainSpot=${this.discoMainSpot.intensity}, Spot2=${this.discoSpot2.intensity}, Facets=${this.discoBallFacets.length}`);
+                }
+            
+            // Update ALL facets every frame for maximum reflection effect
+            let activeFacets = 0;
+            this.discoBallFacets.forEach(facet => {
                 // Get facet world position and normal (rotated with ball)
                 const facetPos = facet.mesh.getAbsolutePosition();
                 const rotatedNormal = BABYLON.Vector3.TransformNormal(
@@ -1567,29 +1668,31 @@ class VRClub {
                 const toLight = lightSource.subtract(facetPos).normalize();
                 const facingLight = BABYLON.Vector3.Dot(rotatedNormal, toLight);
                 
-                if (facingLight > 0.3) { // Facet is facing light
-                    // Calculate reflection direction (perfect mirror reflection)
-                    const reflectionDir = toLight.subtract(
-                        rotatedNormal.scale(2 * BABYLON.Vector3.Dot(toLight, rotatedNormal))
+                if (facingLight > 0.1) { // Facet is facing light (lower threshold for more reflections)
+                    // Calculate reflection direction (mirror reflection formula: R = I - 2(N·I)N)
+                    // Where I is incident direction (toLight negated), N is normal
+                    const incidentDir = toLight.scale(-1); // Light TO facet
+                    const dotProduct = BABYLON.Vector3.Dot(rotatedNormal, incidentDir);
+                    const reflectionDir = incidentDir.subtract(
+                        rotatedNormal.scale(2 * dotProduct)
                     ).normalize();
                     
                     // Cast reflection ray into scene
                     facet.light.position = facetPos;
                     facet.light.direction = reflectionDir;
-                    facet.light.intensity = facingLight * 2; // Intensity based on angle
-                    
-                    // Color from main spotlight
-                    const activeSpot = this.discoMainSpot.intensity > 0 ? this.discoMainSpot : this.discoSpot2;
+                    facet.light.intensity = facingLight * 50; // MAXIMUM BRIGHT reflections
                     facet.light.diffuse = activeSpot.diffuse.clone();
+                    activeFacets++;
                 } else {
                     facet.light.intensity = 0; // Facet not facing light
                 }
+            });
+            
+            // Debug: Show active facet count
+            if (Math.floor(time * 2) !== this.lastFacetDebug) {
+                this.lastFacetDebug = Math.floor(time * 2);
+                console.log(`💡 Active reflections: ${activeFacets}/${this.discoBallFacets.length}`);
             }
-            } else {
-                // Turn off all facet reflections when not in show mode
-                this.discoBallFacets.forEach(facet => {
-                    facet.light.intensity = 0;
-                });
             }
         }
         
@@ -1644,7 +1747,7 @@ class VRClub {
         }
         
         // Update lasers with raycasting and dynamic positioning
-        // Turn off during special effects
+        // Turn off during special effects, hide beams when not spinning
         if (this.lasers && this.lasersActive && !specialEffectActive) {
             this.lasers.forEach((laser, i) => {
                 // Movement depends on mode
@@ -1655,6 +1758,8 @@ class VRClub {
                     laser.rotation += laser.rotationSpeed;
                     laser.tiltPhase += 0.015 + Math.sin(time + i) * 0.01;
                 }
+                // Mark laser as spinning
+                laser.isSpinning = true;
                 
                 // Update each beam in the laser
                 laser.beams.forEach((beam, beamIdx) => {
@@ -1754,13 +1859,22 @@ class VRClub {
             });
         }
         
-        // Make laser beams visible when active
-        if (this.lasers && this.lasersActive) {
+        // Make laser beams visible only when spinning
+        if (this.lasers) {
             this.lasers.forEach(laser => {
                 laser.beams.forEach(beam => {
-                    beam.mesh.visibility = 1;
-                    beam.material.alpha = 0.6;
+                    // Only show beams if laser is actively spinning
+                    if (laser.isSpinning && this.lasersActive && !specialEffectActive) {
+                        beam.mesh.visibility = 1;
+                        beam.material.alpha = 0.6;
+                    } else {
+                        // Turn off beams when not spinning
+                        beam.mesh.visibility = 0;
+                        beam.material.alpha = 0;
+                    }
                 });
+                // Reset spinning flag for next frame
+                laser.isSpinning = false;
             });
         }
         
@@ -1913,17 +2027,74 @@ class VRClub {
             this.cachedColors.cyan
         ];
         
-        // AUDIO REACTIVE: Quick pattern changes for club energy
-        const patternSpeed = audioData.average > 0.6 ? 1 : 1.5; // 1s when energetic, 1.5s when calm - FASTER for club atmosphere
+        // BEAT DETECTION: Auto-detect BPM from music or use 130 BPM fallback
+        let beatDetected = false;
         
-        if (Math.floor(time * 2) % 6 === 0 && Math.floor(time * 2) !== this.lastColorChange) { // Change color every 3 seconds
-            this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
-            this.lastColorChange = Math.floor(time * 2);
+        // If music playing: detect beats from bass peaks
+        if (audioData.hasAudio && audioData.bass > this.beatThreshold && audioData.bass > this.lastBassLevel * 1.3) {
+            // Bass spike detected = beat!
+            if (time - this.lastBeat > 0.2) { // Prevent double-triggering (max 300 BPM)
+                beatDetected = true;
+                this.lastBeat = time;
+                
+                // Track beat time for BPM calculation
+                this.beatHistory.push(time);
+                if (this.beatHistory.length > this.maxBeatHistory) {
+                    this.beatHistory.shift(); // Keep only recent beats
+                }
+                
+                // Calculate BPM from beat intervals (every 2 seconds)
+                if (this.beatHistory.length >= 4 && time - this.lastBPMUpdate > 2) {
+                    const intervals = [];
+                    for (let i = 1; i < this.beatHistory.length; i++) {
+                        intervals.push(this.beatHistory[i] - this.beatHistory[i-1]);
+                    }
+                    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+                    this.detectedBPM = Math.round(60 / avgInterval);
+                    
+                    // Clamp to realistic range (60-200 BPM)
+                    this.detectedBPM = Math.max(60, Math.min(200, this.detectedBPM));
+                    this.bpm = this.detectedBPM;
+                    this.beatInterval = 60 / this.bpm;
+                    this.lastBPMUpdate = time;
+                    
+                    console.log(`🎵 Detected BPM: ${this.bpm}`);
+                }
+            }
         }
         
-        if (Math.floor(time * 2) % (patternSpeed * 2) === 0 && Math.floor(time * 2) !== this.lastPatternChange) {
+        // Fallback: If no audio or no beats detected, sync to current BPM timing
+        if (!beatDetected && time - this.lastBeat > this.beatInterval) {
+            beatDetected = true;
+            this.lastBeat = time;
+            
+            // If no audio, reset to 130 BPM
+            if (!audioData.hasAudio && this.bpm !== 130) {
+                this.bpm = 130;
+                this.beatInterval = 60 / 130;
+                this.beatHistory = [];
+                console.log('🎵 No audio - using default 130 BPM');
+            }
+        }
+        
+        this.lastBassLevel = audioData.bass;
+        
+        // Change pattern every 8 beats (at 130 BPM = ~3.7 seconds)
+        const beatsPerPattern = 8;
+        const patternChangeTime = this.beatInterval * beatsPerPattern;
+        
+        if (time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
-            this.lastPatternChange = Math.floor(time * 2);
+            this.ledPatternSwitchTime = time;
+        }
+        
+        // Change color every 16 beats (at 130 BPM = ~7.4 seconds)
+        const beatsPerColor = 16;
+        const colorChangeTime = this.beatInterval * beatsPerColor;
+        
+        if (time - this.lastColorChange > colorChangeTime || this.lastColorChange === -1) {
+            this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
+            this.lastColorChange = time;
         }
         
         patterns[this.ledPattern].call(this, colors[this.ledColorIndex], time, audioData);
@@ -2441,7 +2612,8 @@ class VRClub {
                 bass: 0,
                 mid: 0,
                 treble: 0,
-                average: 0
+                average: 0,
+                hasAudio: false
             };
         }
         
@@ -2468,7 +2640,10 @@ class VRClub {
         const treble = trebleSum / (this.audioDataArray.length - midEnd) / 255;
         const average = (bass + mid + treble) / 3;
         
-        return { bass, mid, treble, average };
+        // Check if audio is actually playing
+        const hasAudio = average > 0.01;
+        
+        return { bass, mid, treble, average, hasAudio };
     }
 
     setupPerformanceMonitor() {
