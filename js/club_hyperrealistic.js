@@ -2053,15 +2053,17 @@ class VRClub {
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
                 if (spot.beam) {
-                    // Calculate beam length to reach floor (y=0) or maximum distance
-                    // This ensures beams always extend fully, even when hitting surfaces diagonally
+                    // Calculate beam length - extend far enough so the ENTIRE cone reaches through space
+                    // For diagonal beams, we need extra length so the wide end reaches the floor
                     let beamLength;
                     let endPoint;
                     
                     if (direction.y < -0.01) {
                         // Beam pointing downward - calculate distance to floor plane (y=0)
                         const distanceToFloor = spot.basePos.y / Math.abs(direction.y);
-                        beamLength = Math.min(distanceToFloor, 20); // Cap at 20m
+                        // Add extra length to account for cone width at diagonal angles
+                        // At 4m diameter, we need ~2m extra for the cone edge to reach floor
+                        beamLength = Math.min(distanceToFloor + 3, 25); // Extra 3m for cone width
                         endPoint = spot.basePos.add(direction.scale(beamLength));
                     } else {
                         // Beam pointing horizontal or upward - use fixed length
@@ -2070,7 +2072,7 @@ class VRClub {
                     }
                     
                     // Raycast ONLY for floor pool positioning (where light hits)
-                    const ray = new BABYLON.Ray(spot.basePos, direction, beamLength + 5);
+                    const ray = new BABYLON.Ray(spot.basePos, direction, 30);
                     const hit = this.scene.pickWithRay(ray, (mesh) => {
                         // ONLY accept floor, walls, and LED wall
                         return mesh.isPickable && 
