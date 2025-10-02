@@ -118,6 +118,13 @@ class VRClub {
         // Store VR helper for later use
         this.vrHelper = vrHelper;
         
+        // Clean up any leftover disco ball meshes (in case of browser cache)
+        const discoBallMesh = this.scene.getMeshByName("discoBall");
+        if (discoBallMesh) {
+            discoBallMesh.dispose();
+            console.log("🗑️ Removed leftover disco ball mesh");
+        }
+        
         // Continue building club
         this.createWalls();
         this.createCeiling();
@@ -1330,6 +1337,11 @@ class VRClub {
             new BABYLON.Color3(1, 1, 1)       // White
         ];
         
+        // Track current color for all lights (changes periodically)
+        this.currentSpotColor = spotColors[0];
+        this.spotColorIndex = 0;
+        this.lastColorChange = 0;
+        
         spotPositions.forEach((pos, i) => {
             // Spotlight from truss position
             const spot = new BABYLON.SpotLight("spot" + i,
@@ -1339,23 +1351,30 @@ class VRClub {
                 5,                                        // Sharper falloff
                 this.scene
             );
-            spot.diffuse = spotColors[i % spotColors.length];
+            spot.diffuse = this.currentSpotColor; // All start with same color
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
             
-            // Create VISIBLE LIGHT BEAM (cone mesh)
-            const beamHeight = 8; // From truss to floor
+            // Create VISIBLE LIGHT BEAM (cone mesh) attached to fixture
+            const beamHeight = 7; // From fixture to floor
             const beam = BABYLON.MeshBuilder.CreateCylinder("beam" + i, {
-                diameterTop: 0.3,
-                diameterBottom: 2.0,
+                diameterTop: 0.2,
+                diameterBottom: 2.5,
                 height: beamHeight,
                 tessellation: 16
             }, this.scene);
-            beam.position = new BABYLON.Vector3(pos.x, 7.8 - beamHeight/2, pos.z);
+            
+            // Position beam LOCALLY relative to fixture (starts pointing down)
+            beam.position = new BABYLON.Vector3(0, -beamHeight/2 - 0.2, 0);
+            
+            // Parent beam to the fixture so it moves with it
+            if (this.trussLights && this.trussLights[i]) {
+                beam.parent = this.trussLights[i].fixture;
+            }
             
             const beamMat = new BABYLON.StandardMaterial("beamMat" + i, this.scene);
-            beamMat.diffuseColor = spotColors[i % spotColors.length];
-            beamMat.emissiveColor = spotColors[i % spotColors.length].scale(0.6);
+            beamMat.diffuseColor = this.currentSpotColor;
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.6);
             beamMat.alpha = 0.3; // Semi-transparent
             beamMat.disableLighting = true;
             beam.material = beamMat;
@@ -1373,12 +1392,15 @@ class VRClub {
                 light: spot,
                 beam: beam,
                 beamMat: beamMat,
+                fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
                 basePos: new BABYLON.Vector3(pos.x, 7.8, pos.z),
                 phase: i * (Math.PI * 2 / spotPositions.length), // Synchronized phases
                 speed: 0.8, // Same speed for all = synchronized
-                color: spotColors[i % spotColors.length]
+                color: this.currentSpotColor
             });
         });
+        
+        this.spotColorList = spotColors;
         
         // LED wall backlight
         const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
@@ -1569,6 +1591,25 @@ class VRClub {
         // Update spotlights with synchronized movement patterns (AUDIO REACTIVE)
         // Turn off during special effects
         if (this.spotlights && this.lightsActive && !specialEffectActive) {
+            // Change color every 10 seconds for ALL lights at once
+            if (time - this.lastColorChange > 10) {
+                this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
+                this.currentSpotColor = this.spotColorList[this.spotColorIndex];
+                this.lastColorChange = time;
+                
+                // Update ALL lights to new color
+                this.spotlights.forEach(spot => {
+                    spot.light.diffuse = this.currentSpotColor;
+                    spot.color = this.currentSpotColor;
+                    if (spot.beamMat) {
+                        spot.beamMat.diffuseColor = this.currentSpotColor;
+                        spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.6);
+                    }
+                });
+                
+                console.log(`🎨 All spotlights changed to: ${this.spotColorIndex}`);
+            }
+            
             // Choose pattern based on lighting mode
             let globalPhase = time * 0.5;
             
@@ -1606,12 +1647,11 @@ class VRClub {
                 const direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
                 spot.light.direction = direction;
                 
-                // Rotate BEAM MESH to match spotlight direction
-                if (spot.beam) {
-                    // Calculate rotation to point beam in light direction
-                    const targetPos = spot.basePos.add(direction.scale(8));
-                    spot.beam.lookAt(targetPos);
-                    spot.beam.rotation.x += Math.PI / 2; // Correct orientation for cylinder
+                // Rotate FIXTURE (which automatically rotates the beam since it's parented)
+                if (spot.fixture) {
+                    // Calculate target point on dance floor
+                    const targetPoint = spot.basePos.add(direction.scale(8));
+                    spot.fixture.lookAt(targetPoint);
                 }
                 
                 // AUDIO REACTIVE intensity - pulses with music
@@ -1662,28 +1702,29 @@ class VRClub {
             this.ledTime += 0.016;
         }
         
-        // Update strobes with realistic flash sequences
+        // Update strobes with AGGRESSIVE flash sequences
         if (this.strobes && this.strobes.length > 0) {
             this.strobes.forEach((strobe, i) => {
                 // Handle ongoing flash
                 if (strobe.flashDuration > 0) {
                     strobe.flashDuration -= 0.016;
-                    // Intense flash with multiple bursts
-                    const burstPhase = Math.floor(strobe.flashDuration * 20) % 2;
-                    const intensity = burstPhase === 0 ? 15 : 0;
+                    // SUPER INTENSE rapid bursts
+                    const burstPhase = Math.floor(strobe.flashDuration * 40) % 2; // Faster bursts (was 20, now 40)
+                    const intensity = burstPhase === 0 ? 50 : 0; // MUCH brighter (was 15, now 50)
                     
                     strobe.material.emissiveColor = this.cachedColors.white.scale(intensity);
-                    strobe.light.intensity = intensity * 50; // Very bright illumination
+                    strobe.light.intensity = intensity * 100; // EXTREMELY bright (was 50, now 100)
+                    strobe.light.range = 50; // Wider range
                     
                     if (strobe.flashDuration <= 0) {
                         strobe.material.emissiveColor = this.cachedColors.black;
                         strobe.light.intensity = 0;
-                        strobe.nextFlashTime = time + 0.5 + Math.random() * 2;
+                        strobe.nextFlashTime = time + 0.2 + Math.random() * 0.8; // More frequent (was 0.5-2.5s, now 0.2-1.0s)
                     }
                 } else {
                     // Check if it's time for next flash
                     if (time >= strobe.nextFlashTime) {
-                        strobe.flashDuration = 0.15 + Math.random() * 0.1; // 150-250ms flash
+                        strobe.flashDuration = 0.2 + Math.random() * 0.15; // Longer flash (was 0.15-0.25s, now 0.2-0.35s)
                     }
                 }
             });
