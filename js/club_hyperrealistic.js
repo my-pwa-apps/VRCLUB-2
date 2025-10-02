@@ -1457,7 +1457,7 @@ class VRClub {
         ];
         
         laserPositions.forEach((pos, i) => {
-            console.log(`Creating laser ${i}: type=${pos.type}, position=(${pos.x}, ${pos.trussY}, ${pos.z})`);
+
             
             // Determine parent truss for side lasers
             let parentTruss = null;
@@ -1726,7 +1726,7 @@ class VRClub {
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
             
-            console.log(`✅ Created spotlight ${i} beam at (${pos.x}, 7.8, ${pos.z})`);
+
             
             // HYPERREALISTIC FLOOR LIGHT SPLASH - Multi-layer gradient effect
             // Core bright spot (center hotspot)
@@ -1783,7 +1783,7 @@ class VRClub {
             lightPoolGlow.material = poolGlowMat;
             lightPoolGlow.renderingGroupId = 1;
             
-            console.log(`✅ Created spotlight ${i} floor pool at (${pos.x}, 0.03, ${pos.z - 5})`);
+
 
             
             // Enable shadows for more immersion (expensive but worth it for some lights)
@@ -1838,12 +1838,12 @@ class VRClub {
                 this.lightingPhase = 'lasers';
                 this.lightsActive = false;
                 this.lasersActive = true;
-                console.log('🔴 LASER PHASE - 15 seconds');
+
             } else {
                 this.lightingPhase = 'lights';
                 this.lightsActive = true;
                 this.lasersActive = false;
-                console.log('💡 LIGHTS PHASE - 30 seconds (6 synchronized patterns)');
+
             }
             this.lightModeSwitchTime = time;
         }
@@ -2011,7 +2011,7 @@ class VRClub {
             this.currentSpotColor = this.spotColorList[this.spotColorIndex];
             this.lastColorChange = time;
             
-            console.log(`🎨 COLOR CHANGE! Index: ${this.spotColorIndex}, Color:`, this.currentSpotColor);
+
             
             // Update ALL lights to new color
             if (this.spotlights) {
@@ -2093,10 +2093,7 @@ class VRClub {
                 const direction = new BABYLON.Vector3(dirX, -1.5, dirZ).normalize(); // Stronger downward bias
                 spot.light.direction = direction;
                 
-                // Debug direction occasionally
-                if (i === 0 && Math.random() < 0.005) {
-                    console.log(`Spot 0 direction: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)}, ${direction.z.toFixed(2)}), basePos: (${spot.basePos.x}, ${spot.basePos.y}, ${spot.basePos.z})`);
-                }
+
                 
                 // Dynamic beam angle (simulates zoom adjustment) - subtle variation
                 const baseAngle = Math.PI / 6; // 30 degrees base
@@ -2125,22 +2122,9 @@ class VRClub {
                         floorIntersection = spot.basePos.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // Calculate beam length - STOP at floor, don't extend below
-                    // The beam should END when its centerline hits y=0
-                    let beamLength = centerDistanceToFloor;
-                    let endPoint = floorIntersection.clone();
-                    
-                    // Raycast ONLY for floor pool positioning (where light hits)
-                    const ray = new BABYLON.Ray(spot.basePos, direction, 30);
-                    const hit = this.scene.pickWithRay(ray, (mesh) => {
-                        // ONLY accept floor, walls, and LED wall
-                        return mesh.isPickable && 
-                               (mesh.name === 'floor' || 
-                                mesh.name === 'leftWall' || 
-                                mesh.name === 'rightWall' || 
-                                mesh.name === 'backWall' || 
-                                mesh.name.includes('ledPanel'));
-                    });
+                    // Beam ends exactly at floor intersection (y=0)
+                    const beamLength = centerDistanceToFloor;
+                    const endPoint = floorIntersection.clone();
                     
                     // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
                     // Cylinder with height=1 extends from -0.5 to +0.5 in local Y
@@ -2185,17 +2169,7 @@ class VRClub {
                         }
                     }
                     
-                    // Debug first spotlight - MORE FREQUENT
-                    if (i === 0 && Math.random() < 0.1) {
-                        console.log(`🔦 Spot 0 BEAM:`);
-                        console.log(`  Start: (${startPoint.x.toFixed(1)}, ${startPoint.y.toFixed(1)}, ${startPoint.z.toFixed(1)})`);
-                        console.log(`  End: (${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)}, ${endPoint.z.toFixed(1)})`);
-                        console.log(`  Mid: (${midPoint.x.toFixed(1)}, ${midPoint.y.toFixed(1)}, ${midPoint.z.toFixed(1)})`);
-                        console.log(`  Length: ${beamLength.toFixed(2)}m`);
-                        console.log(`  Scaling.y: ${spot.beam.scaling.y.toFixed(2)}`);
-                        console.log(`  Direction: (${beamDirection.x.toFixed(2)}, ${beamDirection.y.toFixed(2)}, ${beamDirection.z.toFixed(2)})`);
-                        console.log(`  Hit: ${hit && hit.hit ? 'YES' : 'NO'}`);
-                    }
+
                     
                     // Dynamic zoom effect (beam width variation)
                     const sweepPattern = Math.floor((time * 0.4) / 5) % 6;
@@ -2223,71 +2197,50 @@ class VRClub {
                     // Very subtle alpha variation - creates "depth" in the beam
                     spot.beamMat.alpha = 0.04 + Math.abs(atmosphericNoise) * 0.02;
                     
-                    // Debug first spotlight occasionally
-                    if (i === 0 && Math.random() < 0.1) {
-                        console.log(`🔦 Spot 0 FULL DEBUG:`);
-                        console.log(`  Fixture position: (${spot.basePos.x.toFixed(1)}, ${spot.basePos.y.toFixed(1)}, ${spot.basePos.z.toFixed(1)})`);
-                        console.log(`  Direction: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)}, ${direction.z.toFixed(2)})`);
-                        console.log(`  Floor intersection dist: ${centerDistanceToFloor.toFixed(2)}m`);
-                        console.log(`  Floor intersection pos: (${floorIntersection.x.toFixed(1)}, ${floorIntersection.y.toFixed(1)}, ${floorIntersection.z.toFixed(1)})`);
-                        console.log(`  Beam length: ${beamLength.toFixed(2)}m`);
-                        console.log(`  Beam endpoint: (${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)}, ${endPoint.z.toFixed(1)})`);
-                        console.log(`  Beam midpoint: (${midPoint.x.toFixed(1)}, ${midPoint.y.toFixed(1)}, ${midPoint.z.toFixed(1)})`);
-                    }
+
                     
                     // Update HYPERREALISTIC floor light splash - 3-layer gradient effect
-                    if (spot.lightPool) {
-                        // Use the pre-calculated floor intersection point
-                        const poolPosition = floorIntersection.clone();
-                        
-                        // Calculate beam width at floor intersection point
-                        const narrowDiameter = 0.3;
-                        const wideDiameter = 4.0;
+                    if (spot.lightPool && this.lightsActive) {
+                        // Calculate beam width at floor (cone: 0.3m → 4.0m)
                         const beamProgress = centerDistanceToFloor / beamLength;
-                        const beamWidthAtFloor = narrowDiameter + (wideDiameter - narrowDiameter) * beamProgress;
+                        const beamWidthAtFloor = 0.3 + 3.7 * beamProgress; // 3.7 = 4.0 - 0.3
+                        const baseSize = (beamWidthAtFloor * 0.5) * zoomFactor;
                         
-                        // Base size for gradient layers
-                        const baseSize = (beamWidthAtFloor / 2) * zoomFactor;
-                        
-                        // Audio reactive pulse for all layers
+                        // Audio reactive effects
                         const audioPulse = 1.0 + audioData.bass * 0.3;
-                        const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1; // Subtle shimmer
+                        const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1;
                         
-                        // CORE (bright center hotspot) - smallest, brightest
-                        if (this.lightsActive) {
-                            poolPosition.y = 0.04;
-                            spot.lightPoolCore.position.copyFrom(poolPosition);
-                            spot.lightPoolCore.scaling.x = baseSize * 0.3 * audioPulse;
-                            spot.lightPoolCore.scaling.y = baseSize * 0.3 * audioPulse;
-                            spot.lightPoolCore.visibility = 1.0;
-                            spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5 * audioPulse);
-                        } else {
-                            spot.lightPoolCore.visibility = 0;
-                        }
+                        // Reuse floor intersection point
+                        const poolPosition = floorIntersection;
                         
-                        // MID GLOW (medium gradient) - medium size
-                        if (this.lightsActive) {
-                            poolPosition.y = 0.03;
-                            spot.lightPool.position.copyFrom(poolPosition);
-                            spot.lightPool.scaling.x = baseSize * 0.7 * atmosphericShimmer;
-                            spot.lightPool.scaling.y = baseSize * 0.7 * atmosphericShimmer;
-                            spot.lightPool.visibility = 0.9;
-                            spot.poolMat.emissiveColor = this.currentSpotColor.scale(1.0 * atmosphericShimmer);
-                        } else {
-                            spot.lightPool.visibility = 0;
-                        }
+                        // CORE (bright center hotspot)
+                        poolPosition.y = 0.04;
+                        spot.lightPoolCore.position.copyFrom(poolPosition);
+                        const coreSize = baseSize * 0.3 * audioPulse;
+                        spot.lightPoolCore.scaling.set(coreSize, coreSize, 1);
+                        spot.lightPoolCore.visibility = 1.0;
+                        spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5 * audioPulse);
                         
-                        // OUTER GLOW (soft falloff) - largest, softest
-                        if (this.lightsActive) {
-                            poolPosition.y = 0.02;
-                            spot.lightPoolGlow.position.copyFrom(poolPosition);
-                            spot.lightPoolGlow.scaling.x = baseSize * 1.5 * atmosphericShimmer;
-                            spot.lightPoolGlow.scaling.y = baseSize * 1.5 * atmosphericShimmer;
-                            spot.lightPoolGlow.visibility = 0.7;
-                            spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
-                        } else {
-                            spot.lightPoolGlow.visibility = 0;
-                        }
+                        // MID GLOW (medium gradient)
+                        poolPosition.y = 0.03;
+                        spot.lightPool.position.copyFrom(poolPosition);
+                        const midSize = baseSize * 0.7 * atmosphericShimmer;
+                        spot.lightPool.scaling.set(midSize, midSize, 1);
+                        spot.lightPool.visibility = 0.9;
+                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(atmosphericShimmer);
+                        
+                        // OUTER GLOW (soft falloff)
+                        poolPosition.y = 0.02;
+                        spot.lightPoolGlow.position.copyFrom(poolPosition);
+                        const glowSize = baseSize * 1.5 * atmosphericShimmer;
+                        spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
+                        spot.lightPoolGlow.visibility = 0.7;
+                        spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
+                    } else if (!this.lightsActive) {
+                        // Hide all floor pools when lights off
+                        spot.lightPoolCore.visibility = 0;
+                        spot.lightPool.visibility = 0;
+                        spot.lightPoolGlow.visibility = 0;
                     }
                 }
                 
