@@ -213,5 +213,134 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
+### Enhancement #2: Spotlight Visibility & Truss Coverage Fixes (October 2, 2025)
+
+**Issues Found:**
+1. Floor reflections still visible after spotlights turn off
+2. Spotlight fixtures not visible/too small
+3. Some spotlights and lasers not attached to truss (truss too short)
+4. Beam sizes varying inconsistently
+
+**Fixes Applied:**
+
+1. **Floor Reflection Hiding Bug - CRITICAL FIX**
+   - Problem: Floor pools were set visible during active phase, but hiding code only ran on next frame
+   - Solution: Restructured floor pool update to hide immediately in else block
+   - Changed from: `if (spot.lightPool && this.lightsActive)` then separate hide code
+   - Changed to: `if (spot.lightPool) { if (this.lightsActive) {...} else {hide immediately} }`
+   - Also added complete hiding in the else block for inactive spotlights
+   - Result: Floor reflections now disappear instantly when lights turn off
+
+2. **Spotlight Fixture Visibility**
+   - Increased fixture body: 0.3m → 0.4m diameter, 0.4m → 0.6m height
+   - Increased lens: 0.25m → 0.35m diameter, 0.05m → 0.08m height
+   - Increased light source sphere: 0.2m → 0.3m diameter
+   - Lowered position from y:7.7/7.5 to y:7.6/7.3 for better visibility
+   - Result: Spotlights now clearly visible as physical fixtures on truss
+
+3. **Extended Truss Coverage**
+   - Problem: Spotlights at z:-18 were beyond truss range (z:-8 to -16)
+   - Extended main trusses from 20m to 24m length
+   - Added 4th truss at z:-20 (was only 3 trusses)
+   - Extended cross beams from 8m to 14m length, repositioned to z:-14
+   - Extended cross beam range from x:-8 to 8 → x:-12 to 12
+   - Result: All 6 spotlights (z:-10/-14/-18) now fully covered by truss structure
+   - Lasers at side positions now properly attached to extended side trusses
+
+4. **Consistent Beam Size**
+   - Removed dynamic zoom effect that changed beam width
+   - Changed from: `zoomFactor = 0.75/1.0/1.3` based on pattern
+   - Changed to: `zoomFactor = 1.0` (constant)
+   - Result: All spotlight beams maintain consistent size throughout movement patterns
+
+**Technical Changes:**
+- Lines 456-471: Extended truss dimensions and added 4th truss
+- Lines 1310-1318: Increased spotlight fixture sizes
+- Lines 2228-2232: Removed beam zoom variation
+- Lines 2280-2324: Restructured floor pool visibility logic with immediate hiding
+- Lines 2350-2358: Added complete visibility hiding for all elements in else block
+
+**Visual Result:**
+✅ No ghost floor reflections when lights off (physically correct!)
+✅ Spotlight fixtures clearly visible as physical moving heads
+✅ All lights properly mounted on extended truss structure
+✅ Consistent professional beam appearance
+✅ Lasers properly attached to side trusses
+
+---
+
+### Enhancement #3: Hyperrealistic Laser Beams (October 2, 2025)
+
+**Objective:** Make laser beams look as realistic as professional club lasers cutting through atmospheric haze
+
+**Improvements Applied:**
+
+1. **Ultra-Thin Laser Core**
+   - Reduced beam diameter from 0.04m to **0.015m** (62% thinner)
+   - Real laser beams are extremely thin, not thick tubes
+   - Increased emissive intensity to **4.0** (was implicit 1.0)
+   - Nearly opaque core: alpha = **0.9** (was 0.6)
+   - Result: Sharp, intense laser beam like real club lasers
+
+2. **PBR Materials with High Intensity**
+   - Upgraded from StandardMaterial to **PBRMaterial**
+   - Metallic = 0, Roughness = 1 (non-reflective light emission)
+   - EmissiveIntensity = 4.0 for core (super bright)
+   - EmissiveIntensity = 1.5 for glow (softer halo)
+   - Unlit = true (self-illuminated, not affected by scene lighting)
+   - Result: Professional laser appearance with proper light physics
+
+3. **Volumetric Glow Halo**
+   - Added outer glow cylinder around each laser beam
+   - Glow diameter: **0.08m** (wider than 0.015m core)
+   - Very transparent: alpha = **0.15** (soft atmospheric scatter)
+   - Simulates light scatter through fog/haze particles
+   - Uses same PBR material system as core
+   - Result: Realistic atmospheric glow around intense laser core
+
+4. **Floor Hit Spots**
+   - Created disc where laser hits floor surface
+   - Radius: 0.15m with additive blending
+   - Positioned at raycast hit point (y = 0.02 to avoid z-fighting)
+   - Pulsing effect: `0.8 + sin(time * 8) * 0.2`
+   - Brightness: 2x color intensity for impact effect
+   - Hidden when laser doesn't hit surface
+   - Result: Clear visual feedback where laser beams terminate
+
+5. **Color System Enhancement**
+   - RGB color cycling (red → green → blue)
+   - Applied consistently to: core beam, glow halo, hit spot, housing
+   - Hit spots 2x brighter than beams for emphasis
+   - Housing emissive matches laser color (0.2 intensity)
+   - Result: Cohesive color scheme across all laser elements
+
+6. **Visibility Management**
+   - Core beam, glow, and hit spots all hide when lasers inactive
+   - Visibility synced across all laser elements
+   - No ghost beams or lingering effects
+   - Result: Clean on/off transitions
+
+**Technical Implementation:**
+- Lines 1628-1708: Enhanced `createLaserBeam()` with PBR materials, glow, and hit spots
+- Lines 2030-2100: Updated laser animation loop with glow/hit spot positioning
+- Lines 2120-2125: Added visibility hiding for glow beams and hit spots
+- Each laser beam now consists of 3 elements: core (0.015m), glow (0.08m), hit spot (0.15m)
+
+**Visual Result:**
+✅ Ultra-thin, intense laser beams (realistic laser thickness)
+✅ Soft volumetric glow simulates atmospheric scatter
+✅ Bright floor hit spots show laser termination points
+✅ PBR materials with proper light physics
+✅ Pulsing hit spots add dynamic club atmosphere
+✅ Professional club laser aesthetic matching industry standards
+
+**Performance Impact:**
+- Each laser beam: 3 cylinders + 1 disc (4 meshes total)
+- 3 lasers × multiple beams = ~30-45 total mesh objects
+- PBR materials well-optimized by Babylon.js
+- Negligible FPS impact on modern hardware
+
+---
+
 Last Updated: October 2, 2025
-Status: ✅ All Known Bugs Fixed + Enhanced Volumetric Beams
+Status: ✅ All Bugs Fixed + Hyperrealistic Volumetric Beams + Visibility Fixes + **Hyperrealistic Lasers**
