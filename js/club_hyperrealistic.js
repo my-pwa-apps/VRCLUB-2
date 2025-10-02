@@ -2155,8 +2155,12 @@ class VRClub {
                     spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.4); // BRIGHTER (was 0.4)
                     
                     // Debug first spotlight occasionally
-                    if (i === 0 && Math.random() < 0.01) {
-                        console.log(`Spot 0: active=${this.lightsActive}, beamVis=${spot.beam.visibility}, beamLen=${beamLength.toFixed(1)}m, poolPos=(${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(2)}, ${endPoint.z.toFixed(1)})`);
+                    if (i === 0 && Math.random() < 0.05) {
+                        console.log(`🔦 Spot 0 DEBUG:`);
+                        console.log(`  Direction: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)}, ${direction.z.toFixed(2)})`);
+                        console.log(`  Beam start: (${startPoint.x.toFixed(1)}, ${startPoint.y.toFixed(1)}, ${startPoint.z.toFixed(1)})`);
+                        console.log(`  Beam length: ${beamLength.toFixed(2)}m`);
+                        console.log(`  Beam endpoint: (${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)}, ${endPoint.z.toFixed(1)})`);
                     }
                     
                     // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
@@ -2168,6 +2172,12 @@ class VRClub {
                             const distanceToFloor = spot.basePos.y / Math.abs(direction.y);
                             poolPosition = spot.basePos.add(direction.scale(distanceToFloor));
                             poolPosition.y = 0.02; // Slightly above floor to prevent z-fighting
+                            
+                            // Debug pool positioning
+                            if (i === 0 && Math.random() < 0.05) {
+                                console.log(`  Floor intersection: distToFloor=${distanceToFloor.toFixed(2)}m`);
+                                console.log(`  Pool position: (${poolPosition.x.toFixed(1)}, ${poolPosition.y.toFixed(2)}, ${poolPosition.z.toFixed(1)})`);
+                            }
                         } else if (hit && hit.hit && hit.pickedPoint) {
                             // Use raycast hit for horizontal beams
                             poolPosition = hit.pickedPoint.clone();
