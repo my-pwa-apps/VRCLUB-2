@@ -1728,24 +1728,60 @@ class VRClub {
             
             console.log(`✅ Created spotlight ${i} beam at (${pos.x}, 7.8, ${pos.z})`);
             
-            // BRIGHT FLOOR LIGHT POOL (where beam hits the floor)
-            const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 1.5, // Smaller distinct spots
-                tessellation: 32 // Smoother
+            // HYPERREALISTIC FLOOR LIGHT SPLASH - Multi-layer gradient effect
+            // Core bright spot (center hotspot)
+            const lightPoolCore = BABYLON.MeshBuilder.CreateDisc("lightPoolCore" + i, {
+                radius: 0.5,
+                tessellation: 32
             }, this.scene);
-            lightPool.rotation.x = Math.PI / 2; // Horizontal
-            lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5); // On floor
+            lightPoolCore.rotation.x = Math.PI / 2;
+            lightPoolCore.position = new BABYLON.Vector3(pos.x, 0.04, pos.z - 5);
+            lightPoolCore.isPickable = false;
+            
+            const poolCoreMat = new BABYLON.StandardMaterial("poolCoreMat" + i, this.scene);
+            poolCoreMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5); // Very bright center
+            poolCoreMat.alpha = 0.8; // Nearly opaque center
+            poolCoreMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive for glow
+            poolCoreMat.disableLighting = true;
+            lightPoolCore.material = poolCoreMat;
+            lightPoolCore.renderingGroupId = 1;
+            
+            // Mid glow (gradient falloff)
+            const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
+                radius: 1.5,
+                tessellation: 32
+            }, this.scene);
+            lightPool.rotation.x = Math.PI / 2;
+            lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5);
             lightPool.isPickable = false;
             
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveColor = this.currentSpotColor.scale(1.2); // Bright but localized
-            poolMat.alpha = 0.5; // More transparent so spots don't flood
+            poolMat.emissiveColor = this.currentSpotColor.scale(1.0); // Medium bright
+            poolMat.alpha = 0.35; // Semi-transparent
+            poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
-            poolMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
             lightPool.material = poolMat;
-            lightPool.visibility = 1.0;
-            lightPool.renderingGroupId = 1; // Render after opaque objects
+            lightPool.renderingGroupId = 1;
+            
+            // Outer soft glow (wide falloff)
+            const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
+                radius: 3.0,
+                tessellation: 32
+            }, this.scene);
+            lightPoolGlow.rotation.x = Math.PI / 2;
+            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
+            lightPoolGlow.isPickable = false;
+            
+            const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
+            poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3); // Soft glow
+            poolGlowMat.alpha = 0.15; // Very transparent
+            poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
+            poolGlowMat.disableLighting = true;
+            lightPoolGlow.material = poolGlowMat;
+            lightPoolGlow.renderingGroupId = 1;
             
             console.log(`✅ Created spotlight ${i} floor pool at (${pos.x}, 0.03, ${pos.z - 5})`);
 
@@ -1764,6 +1800,10 @@ class VRClub {
                 beamMat: beamMat,
                 lightPool: lightPool,
                 poolMat: poolMat,
+                lightPoolCore: lightPoolCore,
+                poolCoreMat: poolCoreMat,
+                lightPoolGlow: lightPoolGlow,
+                poolGlowMat: poolGlowMat,
                 fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
                 basePos: new BABYLON.Vector3(pos.x, 7.8, pos.z),
                 phase: i * (Math.PI * 2 / spotPositions.length),
@@ -2195,35 +2235,47 @@ class VRClub {
                         console.log(`  Beam midpoint: (${midPoint.x.toFixed(1)}, ${midPoint.y.toFixed(1)}, ${midPoint.z.toFixed(1)})`);
                     }
                     
-                    // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
+                    // Update HYPERREALISTIC floor light splash - 3-layer gradient effect
                     if (spot.lightPool) {
                         // Use the pre-calculated floor intersection point
                         const poolPosition = floorIntersection.clone();
-                        poolPosition.y = 0.02; // Slightly above floor to prevent z-fighting
-                        spot.lightPool.position.copyFrom(poolPosition);
                         
                         // Calculate beam width at floor intersection point
-                        // Cone: narrow end = 0.3m diameter, wide end = 4.0m diameter
-                        // Linear interpolation based on distance along beam
                         const narrowDiameter = 0.3;
                         const wideDiameter = 4.0;
-                        const beamProgress = centerDistanceToFloor / beamLength; // How far along beam (0-1)
+                        const beamProgress = centerDistanceToFloor / beamLength;
                         const beamWidthAtFloor = narrowDiameter + (wideDiameter - narrowDiameter) * beamProgress;
                         
-                        // Pool size matches beam width at floor, with zoom effect
-                        const poolSize = (beamWidthAtFloor / 2) * zoomFactor; // Radius = diameter/2
-                        spot.lightPool.scaling.x = poolSize;
-                        spot.lightPool.scaling.y = poolSize;
+                        // Base size for gradient layers
+                        const baseSize = (beamWidthAtFloor / 2) * zoomFactor;
                         
-                        // Debug pool sizing and position
-                        if (i === 0 && Math.random() < 0.1) {
-                            console.log(`  📍 POOL: pos=(${poolPosition.x.toFixed(1)}, ${poolPosition.y.toFixed(2)}, ${poolPosition.z.toFixed(1)}), size=${poolSize.toFixed(2)}, width=${beamWidthAtFloor.toFixed(2)}m`);
-                        }
+                        // Audio reactive pulse for all layers
+                        const audioPulse = 1.0 + audioData.bass * 0.3;
+                        const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1; // Subtle shimmer
                         
-                        // Brightness based on distance (closer = brighter)
-                        const distanceBrightness = Math.max(0.6, 1 - (beamLength / 18));
-                        spot.lightPool.visibility = this.lightsActive ? distanceBrightness : 0;
-                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.3); // Moderate brightness
+                        // CORE (bright center hotspot) - smallest, brightest
+                        poolPosition.y = 0.04;
+                        spot.lightPoolCore.position.copyFrom(poolPosition);
+                        spot.lightPoolCore.scaling.x = baseSize * 0.3 * audioPulse; // 30% of base
+                        spot.lightPoolCore.scaling.y = baseSize * 0.3 * audioPulse;
+                        spot.lightPoolCore.visibility = this.lightsActive ? 1.0 : 0;
+                        spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5 * audioPulse);
+                        
+                        // MID GLOW (medium gradient) - medium size
+                        poolPosition.y = 0.03;
+                        spot.lightPool.position.copyFrom(poolPosition);
+                        spot.lightPool.scaling.x = baseSize * 0.7 * atmosphericShimmer;
+                        spot.lightPool.scaling.y = baseSize * 0.7 * atmosphericShimmer;
+                        spot.lightPool.visibility = this.lightsActive ? 0.9 : 0;
+                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(1.0 * atmosphericShimmer);
+                        
+                        // OUTER GLOW (soft falloff) - largest, softest
+                        poolPosition.y = 0.02;
+                        spot.lightPoolGlow.position.copyFrom(poolPosition);
+                        spot.lightPoolGlow.scaling.x = baseSize * 1.5 * atmosphericShimmer;
+                        spot.lightPoolGlow.scaling.y = baseSize * 1.5 * atmosphericShimmer;
+                        spot.lightPoolGlow.visibility = this.lightsActive ? 0.7 : 0;
+                        spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
                     }
                 }
                 
