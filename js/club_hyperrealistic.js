@@ -69,10 +69,7 @@ class VRClub {
         );
         this.scene.environmentIntensity = 0.3; // Subtle reflections
         
-        // Add atmospheric haze/fog for depth (reduced to see truss)
-        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXPONENTIAL;
-        this.scene.fogDensity = 0.008; // Reduced from 0.02 for visibility
-        this.scene.fogColor = new BABYLON.Color3(0.05, 0.05, 0.08);
+        // No fog/smoke for now - removed for clarity
         
         // Setup camera FIRST (needed for post-processing)
         this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.7, -10), this.scene);
@@ -129,7 +126,7 @@ class VRClub {
         this.createLEDWall();
         this.createLasers();
         this.createLights();
-        this.createSmokeParticles();
+        // Smoke particles removed
         this.createBarArea();
         this.createTrussMountedLights();
         
@@ -1081,59 +1078,6 @@ class VRClub {
         });
     }
 
-    createSmokeParticles() {
-        
-        // Heavy smoke machine effect on dance floor (multiple sources)
-        const smokePositions = [
-            { x: -8, z: -8 },   // Front left
-            { x: 8, z: -8 },    // Front right
-            { x: -8, z: -16 },  // Back left
-            { x: 8, z: -16 },   // Back right
-            { x: 0, z: -20 }    // DJ booth
-        ];
-        
-        smokePositions.forEach((smokePos, idx) => {
-            const smokeSystem = new BABYLON.ParticleSystem("smoke" + idx, 600, this.scene);
-            smokeSystem.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-            
-            smokeSystem.emitter = new BABYLON.Vector3(smokePos.x, 0.2, smokePos.z);
-            smokeSystem.minEmitBox = new BABYLON.Vector3(-0.5, 0, -0.5);
-            smokeSystem.maxEmitBox = new BABYLON.Vector3(0.5, 0, 0.5);
-            
-            // Balanced smoke - visible but not overwhelming
-            smokeSystem.color1 = new BABYLON.Color4(0.15, 0.15, 0.25, 0.15);
-            smokeSystem.color2 = new BABYLON.Color4(0.2, 0.2, 0.3, 0.1);
-            smokeSystem.colorDead = new BABYLON.Color4(0.05, 0.05, 0.1, 0);
-            
-            smokeSystem.minSize = 2;
-            smokeSystem.maxSize = 6;
-            
-            smokeSystem.minLifeTime = 4;
-            smokeSystem.maxLifeTime = 8;
-            
-            smokeSystem.emitRate = 40;
-            
-            smokeSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-            
-            smokeSystem.gravity = new BABYLON.Vector3(0, 0.2, 0);
-            
-            // Spread smoke across dance floor
-            smokeSystem.direction1 = new BABYLON.Vector3(-2, 1, -2);
-            smokeSystem.direction2 = new BABYLON.Vector3(2, 3, 2);
-            
-            smokeSystem.minEmitPower = 0.8;
-            smokeSystem.maxEmitPower = 2.0;
-            smokeSystem.updateSpeed = 0.015;
-            
-            // Add turbulence for realistic swirling
-            smokeSystem.noiseStrength = new BABYLON.Vector3(2, 1, 2);
-            
-            smokeSystem.start();
-            
-            this.smokeMachines.push(smokeSystem);
-        });
-    }
-
     createLEDWall() {
         
         // BIGGER LED WALL - covers entire wall behind DJ booth
@@ -1396,8 +1340,26 @@ class VRClub {
                 this.scene
             );
             spot.diffuse = spotColors[i % spotColors.length];
-            spot.intensity = 8;
+            spot.intensity = 12; // Increased for visibility
             spot.range = 25;
+            
+            // Create VISIBLE LIGHT BEAM (cone mesh)
+            const beamHeight = 8; // From truss to floor
+            const beam = BABYLON.MeshBuilder.CreateCylinder("beam" + i, {
+                diameterTop: 0.3,
+                diameterBottom: 2.0,
+                height: beamHeight,
+                tessellation: 16
+            }, this.scene);
+            beam.position = new BABYLON.Vector3(pos.x, 7.8 - beamHeight/2, pos.z);
+            
+            const beamMat = new BABYLON.StandardMaterial("beamMat" + i, this.scene);
+            beamMat.diffuseColor = spotColors[i % spotColors.length];
+            beamMat.emissiveColor = spotColors[i % spotColors.length].scale(0.6);
+            beamMat.alpha = 0.3; // Semi-transparent
+            beamMat.disableLighting = true;
+            beam.material = beamMat;
+            beam.visibility = 0.7;
             
             // Enable shadows for more immersion (expensive but worth it for some lights)
             if (i % 3 === 0) { // Only every 3rd light for performance
@@ -1409,9 +1371,11 @@ class VRClub {
             
             this.spotlights.push({
                 light: spot,
+                beam: beam,
+                beamMat: beamMat,
                 basePos: new BABYLON.Vector3(pos.x, 7.8, pos.z),
-                phase: Math.random() * Math.PI * 2,
-                speed: 0.5 + Math.random() * 0.5,
+                phase: i * (Math.PI * 2 / spotPositions.length), // Synchronized phases
+                speed: 0.8, // Same speed for all = synchronized
                 color: spotColors[i % spotColors.length]
             });
         });
@@ -1639,18 +1603,35 @@ class VRClub {
                 }
                 
                 // Set direction (pointing from truss to dance floor)
-                spot.light.direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
+                const direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
+                spot.light.direction = direction;
+                
+                // Rotate BEAM MESH to match spotlight direction
+                if (spot.beam) {
+                    // Calculate rotation to point beam in light direction
+                    const targetPos = spot.basePos.add(direction.scale(8));
+                    spot.beam.lookAt(targetPos);
+                    spot.beam.rotation.x += Math.PI / 2; // Correct orientation for cylinder
+                }
                 
                 // AUDIO REACTIVE intensity - pulses with music
-                const baseIntensity = 6;
+                const baseIntensity = 12; // Increased for visibility
                 const audioPulse = audioData.average * 8; // React to overall volume
                 const timePulse = Math.sin(time * 3) * 2;
                 spot.light.intensity = this.lightsActive ? (baseIntensity + audioPulse + timePulse) : 0;
+                
+                // Update beam visibility to match light intensity
+                if (spot.beam) {
+                    spot.beam.visibility = this.lightsActive ? 0.7 : 0;
+                }
             });
         } else if (this.spotlights) {
             // Turn off spotlights when not active
             this.spotlights.forEach(spot => {
                 spot.light.intensity = 0;
+                if (spot.beam) {
+                    spot.beam.visibility = 0;
+                }
             });
         }
         
