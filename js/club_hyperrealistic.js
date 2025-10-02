@@ -194,100 +194,118 @@ class VRClub {
         // Create fog particle systems for volumetric atmosphere
         this.fogSystems = [];
         
-        // Main dance floor fog (low-lying, dense)
-        const danceFloorFog = new BABYLON.ParticleSystem("danceFloorFog", 2000, this.scene);
+        // Main dance floor fog (low-lying, subtle)
+        const danceFloorFog = new BABYLON.ParticleSystem("danceFloorFog", 1200, this.scene);
         danceFloorFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
         danceFloorFog.emitter = new BABYLON.Vector3(0, 0.5, -12); // Low to ground
-        danceFloorFog.minEmitBox = new BABYLON.Vector3(-8, 0, -8);
-        danceFloorFog.maxEmitBox = new BABYLON.Vector3(8, 0.5, 8);
+        danceFloorFog.minEmitBox = new BABYLON.Vector3(-10, 0, -10);
+        danceFloorFog.maxEmitBox = new BABYLON.Vector3(10, 0.8, 10);
         
-        // Fog appearance - white/gray mist
-        danceFloorFog.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.15);
-        danceFloorFog.color2 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.08);
+        // Fog appearance - very subtle white/gray mist (REDUCED DENSITY)
+        danceFloorFog.color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.08); // Reduced from 0.15 to 0.08
+        danceFloorFog.color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.04); // Reduced from 0.08 to 0.04
         danceFloorFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
         
-        // Particle properties
-        danceFloorFog.minSize = 2.0; // Large fog particles
-        danceFloorFog.maxSize = 5.0;
-        danceFloorFog.minLifeTime = 8;
-        danceFloorFog.maxLifeTime = 15;
-        danceFloorFog.emitRate = 80;
+        // Varied particle sizes for realism
+        danceFloorFog.minSize = 1.5;
+        danceFloorFog.maxSize = 6.0; // More size variation
+        danceFloorFog.minLifeTime = 10;
+        danceFloorFog.maxLifeTime = 20;
+        danceFloorFog.emitRate = 40; // Reduced from 80 to 40
         
-        // Slow, drifting movement
-        danceFloorFog.direction1 = new BABYLON.Vector3(-0.2, 0.1, -0.1);
-        danceFloorFog.direction2 = new BABYLON.Vector3(0.2, 0.3, 0.1);
-        danceFloorFog.minEmitPower = 0.1;
-        danceFloorFog.maxEmitPower = 0.3;
-        danceFloorFog.updateSpeed = 0.01;
+        // More natural, turbulent movement
+        danceFloorFog.direction1 = new BABYLON.Vector3(-0.3, 0.08, -0.15);
+        danceFloorFog.direction2 = new BABYLON.Vector3(0.3, 0.25, 0.15);
+        danceFloorFog.minEmitPower = 0.08;
+        danceFloorFog.maxEmitPower = 0.25;
+        danceFloorFog.updateSpeed = 0.008; // Slower for more realistic drift
+        
+        // Add turbulence for realistic swirling
+        danceFloorFog.noiseTexture = new BABYLON.NoiseProceduralTexture("fogNoise", 256, this.scene);
+        danceFloorFog.noiseStrength = new BABYLON.Vector3(0.5, 0.3, 0.5); // Subtle turbulence
         
         // Blending for realistic fog
         danceFloorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         danceFloorFog.start();
         this.fogSystems.push(danceFloorFog);
         
-        // Upper atmosphere fog (lighter, more diffuse)
-        const upperFog = new BABYLON.ParticleSystem("upperFog", 1500, this.scene);
+        // Upper atmosphere fog (ultra-light, barely visible)
+        const upperFog = new BABYLON.ParticleSystem("upperFog", 800, this.scene);
         upperFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-        upperFog.emitter = new BABYLON.Vector3(0, 4, -12); // Mid-height
-        upperFog.minEmitBox = new BABYLON.Vector3(-12, -1, -12);
-        upperFog.maxEmitBox = new BABYLON.Vector3(12, 1, 12);
+        upperFog.emitter = new BABYLON.Vector3(0, 5, -12); // Mid-height
+        upperFog.minEmitBox = new BABYLON.Vector3(-14, -1.5, -14);
+        upperFog.maxEmitBox = new BABYLON.Vector3(14, 1.5, 14);
         
-        // Lighter, more transparent
-        upperFog.color1 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.08);
-        upperFog.color2 = new BABYLON.Color4(0.5, 0.5, 0.6, 0.04);
+        // Ultra-light, barely visible (REDUCED DENSITY)
+        upperFog.color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.04); // Reduced from 0.08 to 0.04
+        upperFog.color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.02); // Reduced from 0.04 to 0.02
         upperFog.colorDead = new BABYLON.Color4(0.4, 0.4, 0.5, 0);
         
-        upperFog.minSize = 3.0;
-        upperFog.maxSize = 8.0;
-        upperFog.minLifeTime = 10;
-        upperFog.maxLifeTime = 20;
-        upperFog.emitRate = 50;
+        // Large, wispy particles
+        upperFog.minSize = 4.0;
+        upperFog.maxSize = 12.0; // Very large for atmospheric effect
+        upperFog.minLifeTime = 15;
+        upperFog.maxLifeTime = 30;
+        upperFog.emitRate = 25; // Reduced from 50 to 25
         
-        upperFog.direction1 = new BABYLON.Vector3(-0.3, -0.1, -0.2);
-        upperFog.direction2 = new BABYLON.Vector3(0.3, 0.1, 0.2);
-        upperFog.minEmitPower = 0.05;
-        upperFog.maxEmitPower = 0.2;
-        upperFog.updateSpeed = 0.008;
+        // Very slow, gentle drift
+        upperFog.direction1 = new BABYLON.Vector3(-0.4, -0.08, -0.25);
+        upperFog.direction2 = new BABYLON.Vector3(0.4, 0.08, 0.25);
+        upperFog.minEmitPower = 0.03;
+        upperFog.maxEmitPower = 0.15;
+        upperFog.updateSpeed = 0.006; // Even slower
+        
+        // Add turbulence for realistic air currents
+        upperFog.noiseTexture = new BABYLON.NoiseProceduralTexture("upperFogNoise", 256, this.scene);
+        upperFog.noiseStrength = new BABYLON.Vector3(0.8, 0.4, 0.8); // More turbulence
         
         upperFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         upperFog.start();
         this.fogSystems.push(upperFog);
         
-        // DJ Booth fog machine effect (periodic bursts)
-        const djFog = new BABYLON.ParticleSystem("djFog", 800, this.scene);
+        // DJ Booth fog machine effect (realistic bursts)
+        const djFog = new BABYLON.ParticleSystem("djFog", 600, this.scene);
         djFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-        djFog.emitter = new BABYLON.Vector3(0, 1, -24); // DJ booth area
-        djFog.minEmitBox = new BABYLON.Vector3(-3, 0, -1);
-        djFog.maxEmitBox = new BABYLON.Vector3(3, 0.5, 1);
+        djFog.emitter = new BABYLON.Vector3(0, 0.8, -24); // DJ booth area, lower
+        djFog.minEmitBox = new BABYLON.Vector3(-3.5, 0, -0.5);
+        djFog.maxEmitBox = new BABYLON.Vector3(3.5, 0.3, 0.5);
         
-        // Thicker fog from machine
-        djFog.color1 = new BABYLON.Color4(0.9, 0.9, 1.0, 0.2);
-        djFog.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.12);
+        // Moderate fog from machine (REDUCED DENSITY)
+        djFog.color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.12); // Reduced from 0.2 to 0.12
+        djFog.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.06);   // Reduced from 0.12 to 0.06
         djFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
         
-        djFog.minSize = 1.5;
-        djFog.maxSize = 4.0;
-        djFog.minLifeTime = 6;
-        djFog.maxLifeTime = 12;
-        djFog.emitRate = 60;
+        // Varied sizes for realistic fog plume
+        djFog.minSize = 1.2;
+        djFog.maxSize = 5.0; // More variation
+        djFog.minLifeTime = 8;
+        djFog.maxLifeTime = 16;
+        djFog.emitRate = 35; // Reduced from 60 to 35
         
-        // Fog spreads forward into crowd
-        djFog.direction1 = new BABYLON.Vector3(-1, 0.2, 2);
-        djFog.direction2 = new BABYLON.Vector3(1, 0.5, 4);
-        djFog.minEmitPower = 0.5;
-        djFog.maxEmitPower = 1.2;
-        djFog.updateSpeed = 0.015;
+        // Fog spreads forward into crowd with realistic motion
+        djFog.direction1 = new BABYLON.Vector3(-1.2, 0.15, 2.5);
+        djFog.direction2 = new BABYLON.Vector3(1.2, 0.4, 4.5);
+        djFog.minEmitPower = 0.4;
+        djFog.maxEmitPower = 1.0;
+        djFog.updateSpeed = 0.012;
+        
+        // Add turbulence for realistic fog machine plume
+        djFog.noiseTexture = new BABYLON.NoiseProceduralTexture("djFogNoise", 256, this.scene);
+        djFog.noiseStrength = new BABYLON.Vector3(1.0, 0.5, 1.0); // Strong turbulence
+        
+        // Gravity effect - fog sinks slightly
+        djFog.gravity = new BABYLON.Vector3(0, -0.15, 0);
         
         djFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         djFog.start();
         this.fogSystems.push(djFog);
         
-        // Scene fog for depth/atmosphere
+        // Scene fog for depth/atmosphere (REDUCED DENSITY)
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
-        this.scene.fogDensity = 0.015; // Subtle exponential fog
-        this.scene.fogColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark blue-gray
+        this.scene.fogDensity = 0.008; // Reduced from 0.015 to 0.008 (nearly half)
+        this.scene.fogColor = new BABYLON.Color3(0.08, 0.08, 0.1); // Slightly darker for subtlety
         
-        console.log("✅ Created volumetric fog system (3 particle systems + scene fog)");
+        console.log("✅ Created hyperrealistic volumetric fog system (3 particle systems + scene fog)");
     }
 
     createFloor() {
