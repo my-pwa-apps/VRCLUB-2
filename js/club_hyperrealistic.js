@@ -127,7 +127,7 @@ class VRClub {
         this.createLasers();
         this.createLights();
         // Smoke particles removed
-        this.createBarArea();
+        // Bar removed - not visible from main area
         this.createTrussMountedLights();
         
         // Setup UI
@@ -901,12 +901,12 @@ class VRClub {
         speakerMat.alpha = 1.0; // Completely solid
         speakerMat.backFaceCulling = true;
         
-        // MASSIVE speakers positioned next to DJ booth (at z: -21, next to DJ platform at z: -24)
-        // Left PA stack 
-        this.createPAStack(-5, -21, speakerMat);
+        // MASSIVE speakers positioned to the SIDES (not blocking LED wall)
+        // Left PA stack - moved further left
+        this.createPAStack(-10, -18, speakerMat);
         
-        // Right PA stack
-        this.createPAStack(5, -21, speakerMat);
+        // Right PA stack - moved further right
+        this.createPAStack(10, -18, speakerMat);
         
         console.log("✅ Created MASSIVE solid PA speakers next to DJ booth");
     }
@@ -1457,6 +1457,8 @@ class VRClub {
         ];
         
         laserPositions.forEach((pos, i) => {
+            console.log(`Creating laser ${i}: type=${pos.type}, position=(${pos.x}, ${pos.trussY}, ${pos.z})`);
+            
             // Determine parent truss for side lasers
             let parentTruss = null;
             let localX = pos.x;
@@ -1515,8 +1517,9 @@ class VRClub {
             housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
             housingMat.metallic = 0.8;
             housingMat.roughness = 0.3;
-            housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
+            housingMat.emissiveColor = new BABYLON.Color3(0.05, 0, 0); // Dimmer red glow (was 0.2)
             housing.material = housingMat;
+            housing.isPickable = false;
             
             // Create beams based on laser type
             const beams = [];
@@ -1675,30 +1678,42 @@ class VRClub {
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
             
-            // Create VISIBLE LIGHT BEAM (cone mesh) attached to fixture
-            const beamHeight = 7; // From fixture to floor
-            const beam = BABYLON.MeshBuilder.CreateCylinder("beam" + i, {
-                diameterTop: 0.2,
-                diameterBottom: 2.5,
-                height: beamHeight,
-                tessellation: 16
-            }, this.scene);
+            // Create HYPERREALISTIC VOLUMETRIC BEAM with layered effect
+            // Multiple cone layers create depth and realistic light scattering
+            const beamLayers = [];
+            const layerCount = 3; // 3 layers for volumetric depth
             
-            // Position beam LOCALLY relative to fixture (starts pointing down)
-            beam.position = new BABYLON.Vector3(0, -beamHeight/2 - 0.2, 0);
-            
-            // Parent beam to the fixture so it moves with it
-            if (this.trussLights && this.trussLights[i]) {
-                beam.parent = this.trussLights[i].fixture;
+            for (let layer = 0; layer < layerCount; layer++) {
+                const alphaFactor = 1 - (layer * 0.3); // Inner layers brighter
+                const sizeFactor = 1 + (layer * 0.2); // Outer layers wider
+                
+                const beamLayer = BABYLON.MeshBuilder.CreateCylinder("beam" + i + "_layer" + layer, {
+                    diameterTop: 0.15 * sizeFactor,
+                    diameterBottom: 2.5 * sizeFactor,
+                    height: 1, // Will be scaled dynamically
+                    tessellation: 24,
+                    cap: BABYLON.Mesh.NO_CAP // No end caps for better blending
+                }, this.scene);
+                
+                beamLayer.position = new BABYLON.Vector3(pos.x, 3, pos.z);
+                beamLayer.isPickable = false;
+                beamLayer.rotationQuaternion = BABYLON.Quaternion.Identity();
+                
+                const layerMat = new BABYLON.StandardMaterial("beamMat" + i + "_layer" + layer, this.scene);
+                layerMat.diffuseColor = this.currentSpotColor;
+                layerMat.emissiveColor = this.currentSpotColor.scale(0.7 - (layer * 0.2)); // Brighter core
+                layerMat.alpha = (0.25 - (layer * 0.08)) * alphaFactor; // Fade outer layers
+                layerMat.disableLighting = true;
+                layerMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for glow
+                beamLayer.material = layerMat;
+                beamLayer.visibility = 0;
+                
+                beamLayers.push({ mesh: beamLayer, material: layerMat, alphaBase: layerMat.alpha });
             }
             
-            const beamMat = new BABYLON.StandardMaterial("beamMat" + i, this.scene);
-            beamMat.diffuseColor = this.currentSpotColor;
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.6);
-            beamMat.alpha = 0.3; // Semi-transparent
-            beamMat.disableLighting = true;
-            beam.material = beamMat;
-            beam.visibility = 0.7;
+            // Main beam reference (innermost layer)
+            const beam = beamLayers[0].mesh;
+            const beamMat = beamLayers[0].material;
             
             // Enable shadows for more immersion (expensive but worth it for some lights)
             if (i % 3 === 0) { // Only every 3rd light for performance
@@ -1712,6 +1727,7 @@ class VRClub {
                 light: spot,
                 beam: beam,
                 beamMat: beamMat,
+                beamLayers: beamLayers, // All layers for volumetric effect
                 fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
                 basePos: new BABYLON.Vector3(pos.x, 7.8, pos.z),
                 phase: i * (Math.PI * 2 / spotPositions.length), // Synchronized phases
@@ -1920,14 +1936,17 @@ class VRClub {
             
             console.log(`🎨 COLOR CHANGE! Index: ${this.spotColorIndex}, Color:`, this.currentSpotColor);
             
-            // Update ALL lights to new color
+            // Update ALL lights and beam layers to new color
             if (this.spotlights) {
                 this.spotlights.forEach(spot => {
                     spot.light.diffuse = this.currentSpotColor;
                     spot.color = this.currentSpotColor;
-                    if (spot.beamMat) {
-                        spot.beamMat.diffuseColor = this.currentSpotColor;
-                        spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.6);
+                    // Update all volumetric beam layers
+                    if (spot.beamLayers) {
+                        spot.beamLayers.forEach(layer => {
+                            layer.material.diffuseColor = this.currentSpotColor;
+                            // Emissive will be updated in animation loop
+                        });
                     }
                 });
             }
@@ -2002,11 +2021,72 @@ class VRClub {
                 const direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
                 spot.light.direction = direction;
                 
-                // Rotate FIXTURE (which automatically rotates the beam since it's parented)
+                // Rotate FIXTURE if available
                 if (spot.fixture) {
                     // Calculate target point on dance floor
                     const targetPoint = spot.basePos.add(direction.scale(8));
                     spot.fixture.lookAt(targetPoint);
+                }
+                
+                // HYPERREALISTIC VOLUMETRIC BEAM - raycast for dynamic length
+                if (spot.beamLayers && spot.beamLayers.length > 0) {
+                    const ray = new BABYLON.Ray(spot.basePos, direction, 30);
+                    const hit = this.scene.pickWithRay(ray, (mesh) => {
+                        return mesh.isPickable && !mesh.name.includes('beam') && !mesh.name.includes('Housing') && 
+                               !mesh.name.includes('fixture') && !mesh.name.includes('truss') && !mesh.name.includes('layer');
+                    });
+                    
+                    let beamLength = 10; // Default length
+                    if (hit && hit.hit && hit.pickedPoint) {
+                        beamLength = BABYLON.Vector3.Distance(spot.basePos, hit.pickedPoint);
+                    }
+                    
+                    // Orient beam along direction (calculate once for all layers)
+                    const up = new BABYLON.Vector3(0, 1, 0);
+                    const rotAxis = BABYLON.Vector3.Cross(up, direction);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
+                    let beamRotation;
+                    
+                    if (rotAxis.length() > 0.001) {
+                        beamRotation = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+                    } else {
+                        beamRotation = BABYLON.Vector3.Dot(up, direction) > 0 ?
+                            BABYLON.Quaternion.Identity() :
+                            BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                    }
+                    
+                    // Distance-based effects
+                    const distanceFactor = Math.max(0.2, 1 - (beamLength / 25));
+                    const audioIntensity = audioData.average * 0.3; // Subtle audio pulse
+                    
+                    // Update ALL beam layers for volumetric depth
+                    spot.beamLayers.forEach((layer, layerIdx) => {
+                        // Scale each layer to beam length
+                        layer.mesh.scaling.y = beamLength;
+                        
+                        // Position layer midpoint along direction
+                        layer.mesh.position = spot.basePos.add(direction.scale(beamLength * 0.5));
+                        
+                        // Apply rotation
+                        layer.mesh.rotationQuaternion = beamRotation.clone();
+                        
+                        // Volumetric visibility - inner brighter, outer softer
+                        const layerIntensity = 1 - (layerIdx * 0.25);
+                        const finalVisibility = this.lightsActive ? 
+                            (0.8 * distanceFactor * layerIntensity + audioIntensity) : 0;
+                        
+                        layer.mesh.visibility = finalVisibility;
+                        
+                        // Dynamic alpha for depth
+                        const baseAlpha = layer.alphaBase;
+                        layer.material.alpha = baseAlpha * distanceFactor * (1 + audioIntensity);
+                        
+                        // Emissive intensity varies per layer
+                        const emissivePulse = 0.6 + Math.sin(time * 2 + layerIdx) * 0.2;
+                        layer.material.emissiveColor = this.currentSpotColor.scale(
+                            emissivePulse * distanceFactor * layerIntensity
+                        );
+                    });
                 }
                 
                 // AUDIO REACTIVE intensity - pulses with music
@@ -2014,18 +2094,16 @@ class VRClub {
                 const audioPulse = audioData.average * 8; // React to overall volume
                 const timePulse = Math.sin(time * 3) * 2;
                 spot.light.intensity = this.lightsActive ? (baseIntensity + audioPulse + timePulse) : 0;
-                
-                // Update beam visibility to match light intensity
-                if (spot.beam) {
-                    spot.beam.visibility = this.lightsActive ? 0.7 : 0;
-                }
             });
         } else if (this.spotlights) {
             // Turn off spotlights when not active
             this.spotlights.forEach(spot => {
                 spot.light.intensity = 0;
-                if (spot.beam) {
-                    spot.beam.visibility = 0;
+                if (spot.beamLayers) {
+                    spot.beamLayers.forEach(layer => {
+                        layer.mesh.visibility = 0;
+                        layer.material.alpha = 0;
+                    });
                 }
             });
         }
