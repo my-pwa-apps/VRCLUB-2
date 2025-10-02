@@ -932,84 +932,105 @@ class VRClub {
 
     createPASpeakers() {
         
+        // MASSIVE solid speaker material - heavy duty PA system
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        speakerMat.metallic = 0.4;
-        speakerMat.roughness = 0.6;
+        speakerMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.02); // Almost black
+        speakerMat.metallic = 0.3;
+        speakerMat.roughness = 0.8; // Matte black finish
         speakerMat.maxSimultaneousLights = this.maxLights;
+        speakerMat.alpha = 1.0; // Completely solid
+        speakerMat.backFaceCulling = true;
         
-        // Larger speakers positioned next to DJ booth (at z: -21, next to DJ platform at z: -24)
+        // MASSIVE speakers positioned next to DJ booth (at z: -21, next to DJ platform at z: -24)
         // Left PA stack 
         this.createPAStack(-5, -21, speakerMat);
         
         // Right PA stack
         this.createPAStack(5, -21, speakerMat);
         
-        console.log("✅ Created prominent PA speakers next to DJ booth");
+        console.log("✅ Created MASSIVE solid PA speakers next to DJ booth");
     }
 
     createPAStack(xPos, zPos, material) {
-        // Large sub-woofer (bottom)
+        // MASSIVE sub-woofer (bottom) - club-style double 18" subs
         const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
-            width: 2.5,
-            height: 2.8,
-            depth: 2.5
+            width: 3.2,
+            height: 3.5,
+            depth: 3.2
         }, this.scene);
-        sub.position = new BABYLON.Vector3(xPos, 1.4, zPos);
+        sub.position = new BABYLON.Vector3(xPos, 1.75, zPos);
         sub.material = material;
         sub.receiveShadows = true;
+        sub.checkCollisions = true;
         
-        // Mid-range speaker
+        // Large mid-range speaker cabinet
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
+            width: 2.5,
+            height: 2.5,
+            depth: 2.5
+        }, this.scene);
+        mid.position = new BABYLON.Vector3(xPos, 4.75, zPos);
+        mid.material = material;
+        mid.receiveShadows = true;
+        mid.checkCollisions = true;
+        
+        // High frequency horn array
+        const high = BABYLON.MeshBuilder.CreateBox("high" + xPos, {
             width: 2,
             height: 2,
             depth: 2
         }, this.scene);
-        mid.position = new BABYLON.Vector3(xPos, 3.8, zPos);
-        mid.material = material;
-        mid.receiveShadows = true;
-        
-        // High frequency horn
-        const high = BABYLON.MeshBuilder.CreateBox("high" + xPos, {
-            width: 1.5,
-            height: 1.5,
-            depth: 1.5
-        }, this.scene);
-        high.position = new BABYLON.Vector3(xPos, 5.5, zPos);
+        high.position = new BABYLON.Vector3(xPos, 6.75, zPos);
         high.material = material;
         high.receiveShadows = true;
+        high.checkCollisions = true;
         
         // Prominent glowing speaker grills with better visibility
         const grillMat = new BABYLON.StandardMaterial("grill" + xPos, this.scene);
-        grillMat.emissiveColor = new BABYLON.Color3(0.1, 0.15, 0.2); // Blue glow
-        grillMat.disableLighting = true;
+        grillMat.emissiveColor = new BABYLON.Color3(0.05, 0.1, 0.15); // Subtle blue glow
+        grillMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gray base
+        grillMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+        grillMat.alpha = 1.0; // Solid
         
-        // Sub grill (larger, more visible)
+        // MASSIVE sub grill - double 18" drivers
         const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
-            width: 1.8,
-            height: 2,
-            depth: 0.08
+            width: 2.6,
+            height: 2.8,
+            depth: 0.15
         }, this.scene);
-        subGrill.position = new BABYLON.Vector3(xPos, 1.4, zPos + 1.3);
+        subGrill.position = new BABYLON.Vector3(xPos, 1.75, zPos + 1.65);
         subGrill.material = grillMat.clone("subGrillMat" + xPos);
         
-        // Mid grill
+        // Large mid grill
         const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
-            width: 1.4,
-            height: 1.4,
-            depth: 0.08
+            width: 2,
+            height: 2,
+            depth: 0.15
         }, this.scene);
-        midGrill.position = new BABYLON.Vector3(xPos, 3.8, zPos + 1.05);
+        midGrill.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.3);
         midGrill.material = grillMat.clone("midGrillMat" + xPos);
         
-        // High grill
+        // High frequency horn grill
         const highGrill = BABYLON.MeshBuilder.CreateBox("highGrill" + xPos, {
-            width: 1,
-            height: 1,
-            depth: 0.08
+            width: 1.5,
+            height: 1.5,
+            depth: 0.15
         }, this.scene);
-        highGrill.position = new BABYLON.Vector3(xPos, 5.5, zPos + 0.8);
+        highGrill.position = new BABYLON.Vector3(xPos, 6.75, zPos + 1.05);
         highGrill.material = grillMat.clone("highGrillMat" + xPos);
+        
+        // Add speaker logo plates (optional detail)
+        const logoMat = new BABYLON.StandardMaterial("logo" + xPos, this.scene);
+        logoMat.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+        logoMat.alpha = 1.0;
+        
+        const logo = BABYLON.MeshBuilder.CreateBox("logo" + xPos, {
+            width: 0.8,
+            height: 0.3,
+            depth: 0.05
+        }, this.scene);
+        logo.position = new BABYLON.Vector3(xPos, 0.3, zPos + 1.65);
+        logo.material = logoMat;
     }
 
     createBarArea() {
@@ -1613,13 +1634,13 @@ class VRClub {
         this.colorSwitchTime = 0;
         
         // Lights and lasers control - ALTERNATING PATTERN
-        // Pattern: Lights on for 15s, then Lasers on for 25s, repeat
+        // Pattern: Lights on for 30s (longer with varied patterns), then Lasers on for 15s
         this.lightsActive = true;
         this.lasersActive = false;
         this.lightModeSwitchTime = 0;
         this.lightingPhase = 'lights'; // 'lights' or 'lasers'
-        this.lightsPhaseDuration = 15; // Lights show for 15 seconds
-        this.lasersPhaseDuration = 25; // Lasers show for 25 seconds (longer, less frequent)
+        this.lightsPhaseDuration = 30; // Lights show for 30 seconds (LONGER with pattern changes)
+        this.lasersPhaseDuration = 15; // Lasers show for 15 seconds (shorter, more impactful)
         
     }
     
@@ -1766,12 +1787,12 @@ class VRClub {
                 this.lightingPhase = 'lasers';
                 this.lightsActive = false;
                 this.lasersActive = true;
-                console.log('🔴 LASER PHASE - 25 seconds');
+                console.log('🔴 LASER PHASE - 15 seconds');
             } else {
                 this.lightingPhase = 'lights';
                 this.lightsActive = true;
                 this.lasersActive = false;
-                console.log('💡 LIGHTS PHASE - 15 seconds');
+                console.log('💡 LIGHTS PHASE - 30 seconds (6 synchronized patterns)');
             }
             this.lightModeSwitchTime = time;
         }
@@ -1977,23 +1998,36 @@ class VRClub {
                 
                 if (this.lightingMode === 'synchronized') {
                     // SYNCHRONIZED SWEEPING: All lights sweep together across dance floor
-                    // Create dramatic left-right sweeps with smooth transitions
+                    // Multiple patterns that change every 5 seconds during the 30-second light phase
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
-                    const sweepPattern = Math.floor(sweepPhase / 3) % 3; // Change pattern every 3 seconds
+                    const sweepPattern = Math.floor(sweepPhase / 5) % 6; // Change pattern every 5 seconds (6 patterns)
                     
                     if (sweepPattern === 0) {
-                        // Linear sweep left to right
-                        dirX = Math.sin(sweepPhase * 1.2) * 1.2; // Wider sweep
+                        // Linear sweep left to right - classic club move
+                        dirX = Math.sin(sweepPhase * 1.2) * 1.3; // Wide sweep
                         dirZ = -0.5; // Point towards back of dance floor
                     } else if (sweepPattern === 1) {
                         // Circular sweep - all lights rotate together
-                        dirX = Math.sin(sweepPhase * 0.8) * 1.0;
-                        dirZ = Math.cos(sweepPhase * 0.8) * 1.0;
-                    } else {
+                        dirX = Math.sin(sweepPhase * 0.8) * 1.1;
+                        dirZ = Math.cos(sweepPhase * 0.8) * 1.1;
+                    } else if (sweepPattern === 2) {
                         // Fan sweep - from center outwards and back
                         const fanPhase = Math.sin(sweepPhase * 0.7);
-                        dirX = fanPhase * 1.3;
-                        dirZ = Math.abs(fanPhase) * -0.8;
+                        dirX = fanPhase * 1.4;
+                        dirZ = Math.abs(fanPhase) * -0.9;
+                    } else if (sweepPattern === 3) {
+                        // Cross sweep - diagonal sweeps
+                        dirX = Math.sin(sweepPhase * 1.0) * 1.2;
+                        dirZ = Math.sin(sweepPhase * 1.0 + Math.PI / 4) * 1.2;
+                    } else if (sweepPattern === 4) {
+                        // Figure-8 sweep - complex synchronized pattern
+                        dirX = Math.sin(sweepPhase * 0.6) * 1.3;
+                        dirZ = Math.sin(sweepPhase * 1.2) * 0.9;
+                    } else {
+                        // Pulse sweep - beams converge to center then spread out
+                        const pulsePhase = Math.sin(sweepPhase * 0.8);
+                        dirX = pulsePhase * Math.cos(sweepPhase * 0.5) * 1.2;
+                        dirZ = pulsePhase * Math.sin(sweepPhase * 0.5) * 1.0;
                     }
                 } else {
                     // Individual patterns for variety
