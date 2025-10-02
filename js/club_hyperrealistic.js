@@ -2053,17 +2053,23 @@ class VRClub {
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
                 if (spot.beam) {
-                    // Calculate beam length to reach floor intersection point
-                    // The beam should END where it hits the floor, not extend beyond
+                    // Calculate beam length - needs to be longer than floor intersection
+                    // so the EDGES of the 4m-wide cone reach the floor at diagonal angles
                     let beamLength;
                     let endPoint;
                     
                     if (direction.y < -0.01) {
                         // Beam pointing downward - calculate distance to floor plane (y=0)
-                        const distanceToFloor = spot.basePos.y / Math.abs(direction.y);
-                        beamLength = distanceToFloor; // Beam ends exactly at floor
+                        const centerDistanceToFloor = spot.basePos.y / Math.abs(direction.y);
+                        
+                        // Calculate how much extra length we need for cone edges to reach floor
+                        // Cone diameter at floor = 4m, so radius = 2m
+                        // For diagonal beams, we need: extra = radius / cos(angle from vertical)
+                        const verticalComponent = Math.abs(direction.y); // How "downward" it points (0-1)
+                        const extraForConeWidth = verticalComponent > 0.5 ? (2.0 / verticalComponent) : 4.0;
+                        
+                        beamLength = centerDistanceToFloor + extraForConeWidth;
                         endPoint = spot.basePos.add(direction.scale(beamLength));
-                        endPoint.y = 0; // Clamp to floor level for precision
                     } else {
                         // Beam pointing horizontal or upward - use fixed length
                         beamLength = 15;
