@@ -226,6 +226,13 @@ class VRClub {
         
         // Blending for realistic fog
         danceFloorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        
+        // LIGHT INTERACTION - Make fog particles receive light from scene
+        // This makes spotlights/lasers realistically illuminate the fog
+        danceFloorFog.addColorGradient(0, new BABYLON.Color4(0.85, 0.85, 0.92, 0.08));
+        danceFloorFog.addColorGradient(0.5, new BABYLON.Color4(0.75, 0.75, 0.85, 0.06));
+        danceFloorFog.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0));
+        
         danceFloorFog.start();
         this.fogSystems.push(danceFloorFog);
         
@@ -260,6 +267,12 @@ class VRClub {
         upperFog.noiseStrength = new BABYLON.Vector3(0.8, 0.4, 0.8); // More turbulence
         
         upperFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        
+        // LIGHT INTERACTION - Upper fog catches colored light from spotlights
+        upperFog.addColorGradient(0, new BABYLON.Color4(0.72, 0.72, 0.8, 0.04));
+        upperFog.addColorGradient(0.5, new BABYLON.Color4(0.62, 0.62, 0.72, 0.03));
+        upperFog.addColorGradient(1.0, new BABYLON.Color4(0.4, 0.4, 0.5, 0));
+        
         upperFog.start();
         this.fogSystems.push(upperFog);
         
@@ -297,6 +310,12 @@ class VRClub {
         djFog.gravity = new BABYLON.Vector3(0, -0.15, 0);
         
         djFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        
+        // LIGHT INTERACTION - DJ fog catches colored light beams
+        djFog.addColorGradient(0, new BABYLON.Color4(0.88, 0.88, 0.98, 0.12));
+        djFog.addColorGradient(0.5, new BABYLON.Color4(0.78, 0.78, 0.88, 0.08));
+        djFog.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0));
+        
         djFog.start();
         this.fogSystems.push(djFog);
         
@@ -2081,6 +2100,120 @@ class VRClub {
         
     }
 
+    updateFogLighting(time) {
+        // Dynamically tint fog particles based on current spotlight color
+        // This creates realistic light scattering through the atmosphere
+        
+        // Get current spotlight color
+        let lightColor;
+        if (this.currentColorIndex === 0) {
+            lightColor = this.cachedColors.red; // Red
+        } else if (this.currentColorIndex === 1) {
+            lightColor = this.cachedColors.green; // Green
+        } else {
+            lightColor = this.cachedColors.blue; // Blue/Cyan
+        }
+        
+        // Mix base fog color with light color for realistic illumination
+        // Base fog is white/gray, tinted by colored lights passing through
+        const baseFogColor = new BABYLON.Color3(0.85, 0.85, 0.92); // Neutral white fog
+        const mixFactor = 0.4; // 40% light color, 60% base fog color
+        
+        // Calculate tinted fog color (light scattering effect)
+        const tintedR = baseFogColor.r * (1 - mixFactor) + lightColor.r * mixFactor;
+        const tintedG = baseFogColor.g * (1 - mixFactor) + lightColor.g * mixFactor;
+        const tintedB = baseFogColor.b * (1 - mixFactor) + lightColor.b * mixFactor;
+        
+        // Add subtle pulsing based on time (simulates light intensity variation)
+        const pulse = 0.85 + Math.sin(time * 1.5) * 0.15; // Subtle 15% variation
+        
+        // Update all fog systems with light-tinted colors
+        if (this.fogSystems[0]) { // Dance floor fog
+            const alpha1 = 0.08 * pulse;
+            const alpha2 = 0.04 * pulse;
+            this.fogSystems[0].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
+            this.fogSystems[0].color2 = new BABYLON.Color4(tintedR * 0.85, tintedG * 0.85, tintedB * 0.85, alpha2);
+        }
+        
+        if (this.fogSystems[1]) { // Upper atmosphere fog
+            const alpha1 = 0.04 * pulse;
+            const alpha2 = 0.02 * pulse;
+            this.fogSystems[1].color1 = new BABYLON.Color4(tintedR * 0.9, tintedG * 0.9, tintedB * 0.9, alpha1);
+            this.fogSystems[1].color2 = new BABYLON.Color4(tintedR * 0.75, tintedG * 0.75, tintedB * 0.75, alpha2);
+        }
+        
+        if (this.fogSystems[2]) { // DJ booth fog
+            const alpha1 = 0.12 * pulse;
+            const alpha2 = 0.06 * pulse;
+            this.fogSystems[2].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
+            this.fogSystems[2].color2 = new BABYLON.Color4(tintedR * 0.8, tintedG * 0.8, tintedB * 0.8, alpha2);
+        }
+    }
+    
+    updateFogLightingForLasers(time) {
+        // Tint fog based on laser colors (RGB cycling)
+        // Lasers are thinner and more focused, so fog tint is more subtle
+        
+        let laserColor;
+        if (this.currentColorIndex === 0) {
+            laserColor = this.cachedColors.red;
+        } else if (this.currentColorIndex === 1) {
+            laserColor = this.cachedColors.green;
+        } else {
+            laserColor = this.cachedColors.blue;
+        }
+        
+        // Less mixing for lasers (they're more focused than spotlights)
+        const baseFogColor = new BABYLON.Color3(0.85, 0.85, 0.92);
+        const mixFactor = 0.25; // 25% laser color, 75% base fog (subtle)
+        
+        const tintedR = baseFogColor.r * (1 - mixFactor) + laserColor.r * mixFactor;
+        const tintedG = baseFogColor.g * (1 - mixFactor) + laserColor.g * mixFactor;
+        const tintedB = baseFogColor.b * (1 - mixFactor) + laserColor.b * mixFactor;
+        
+        // Faster pulse for lasers (more energetic)
+        const pulse = 0.8 + Math.sin(time * 2.5) * 0.2;
+        
+        if (this.fogSystems[0]) {
+            const alpha1 = 0.08 * pulse;
+            const alpha2 = 0.04 * pulse;
+            this.fogSystems[0].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
+            this.fogSystems[0].color2 = new BABYLON.Color4(tintedR * 0.85, tintedG * 0.85, tintedB * 0.85, alpha2);
+        }
+        
+        if (this.fogSystems[1]) {
+            const alpha1 = 0.04 * pulse;
+            const alpha2 = 0.02 * pulse;
+            this.fogSystems[1].color1 = new BABYLON.Color4(tintedR * 0.9, tintedG * 0.9, tintedB * 0.9, alpha1);
+            this.fogSystems[1].color2 = new BABYLON.Color4(tintedR * 0.75, tintedG * 0.75, tintedB * 0.75, alpha2);
+        }
+        
+        if (this.fogSystems[2]) {
+            const alpha1 = 0.12 * pulse;
+            const alpha2 = 0.06 * pulse;
+            this.fogSystems[2].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
+            this.fogSystems[2].color2 = new BABYLON.Color4(tintedR * 0.8, tintedG * 0.8, tintedB * 0.8, alpha2);
+        }
+    }
+    
+    resetFogToNeutral() {
+        // Return fog to neutral white/gray when no lights are active
+        if (this.fogSystems[0]) {
+            this.fogSystems[0].color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.08);
+            this.fogSystems[0].color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.04);
+        }
+        
+        if (this.fogSystems[1]) {
+            this.fogSystems[1].color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.04);
+            this.fogSystems[1].color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.02);
+        }
+        
+        if (this.fogSystems[2]) {
+            this.fogSystems[2].color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.12);
+            this.fogSystems[2].color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.06);
+        }
+    }
+
     updateAnimations() {
         const time = performance.now() / 1000;
         this.ledTime += 0.016;
@@ -2129,6 +2262,20 @@ class VRClub {
         if (time - this.colorSwitchTime > (8 + Math.random() * 4)) {
             this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
             this.colorSwitchTime = time;
+        }
+        
+        // UPDATE FOG COLORS - Make fog realistically reflect current light colors
+        if (this.fogSystems) {
+            if (this.lightsActive) {
+                // Fog reflects spotlight colors
+                this.updateFogLighting(time);
+            } else if (this.lasersActive) {
+                // Fog reflects laser colors (RGB cycling)
+                this.updateFogLightingForLasers(time);
+            } else {
+                // Reset to neutral fog when no lights
+                this.resetFogToNeutral();
+            }
         }
         
         // Update lasers with raycasting and dynamic positioning

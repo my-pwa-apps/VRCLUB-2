@@ -433,6 +433,67 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
+### Enhancement #6: Realistic Fog Light Reflection (October 2, 2025)
+
+**Objective:** Make fog particles realistically reflect colored light from spotlights and lasers
+
+**Problem:** Fog was static white/gray and didn't interact with scene lighting - looked flat and unrealistic
+
+**Solution Implemented:**
+
+1. **Dynamic Color Tinting System**
+   - Added `updateFogLighting()` method for spotlight illumination
+   - Added `updateFogLightingForLasers()` method for laser illumination
+   - Added `resetFogToNeutral()` method for transitions
+   - Fog now dynamically changes color based on active lights
+
+2. **Light Scattering Simulation**
+   - **Spotlights:** 40% light color mixed with 60% base fog (strong tint)
+   - **Lasers:** 25% laser color mixed with 75% base fog (subtle tint)
+   - Simulates realistic Rayleigh/Mie scattering through particles
+   - Result: Red spotlights → pinkish fog, Blue lasers → cyan-tinted fog
+
+3. **Realistic Pulsing Effect**
+   - Spotlights: Slow pulse (1.5 Hz) for ambient variation
+   - Lasers: Faster pulse (2.5 Hz) for energetic feel
+   - Pulsing simulates intensity variation as lights move/rotate
+   - Range: ±15-20% alpha variation
+
+4. **Color Gradient System**
+   - Added `addColorGradient()` to all 3 fog systems
+   - Particles fade naturally from bright → dim → transparent
+   - Enhances depth perception and volumetric appearance
+
+5. **Phase-Based Lighting**
+   - **Lights Phase:** Fog reflects current spotlight color (red/green/blue cycling)
+   - **Lasers Phase:** Fog reflects laser colors with subtle tint
+   - **Transition:** Smooth fade back to neutral white during phase changes
+
+**Technical Details:**
+- Lines 219-225: Dance floor fog gradients
+- Lines 241-247: Upper atmosphere fog gradients  
+- Lines 273-279: DJ fog gradients
+- Lines 2103-2162: Three new fog lighting methods
+- Lines 2206-2213: Fog update calls in animation loop
+- Color mixing uses linear interpolation (lerp) for smooth transitions
+
+**Visual Result:**
+✅ **Red spotlights cast reddish glow through fog** 🔴
+✅ **Green lasers tint fog with subtle emerald hue** 🟢
+✅ **Blue lights create cyan atmospheric glow** 🔵
+✅ **Fog pulses subtly with light intensity**
+✅ **Realistic light scattering like real club haze**
+✅ **Smooth transitions between colors as lights cycle**
+✅ **Enhanced volumetric depth and realism**
+
+**Before vs After:**
+- **Before:** Static white fog (no light interaction)
+- **After:** Dynamic colored fog that responds to every light in the scene!
+
+The fog now behaves like **real atmospheric particles** that scatter and reflect colored light - just like in a professional nightclub! 🎭💡
+
+---
+
 ### Enhancement #5: Hyperrealistic Fog Refinement (October 2, 2025)
 
 **Objective:** Reduce fog density and add realistic turbulence effects for more natural atmosphere
