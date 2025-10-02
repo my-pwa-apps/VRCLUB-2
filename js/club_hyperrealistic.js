@@ -1692,32 +1692,41 @@ class VRClub {
             beam.isPickable = false;
             beam.rotationQuaternion = BABYLON.Quaternion.Identity();
             
-            // Professional beam material with proper transparency
+            // HYPERREALISTIC VISIBLE BEAM - Like light through haze
             const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
             beamMat.diffuseColor = this.currentSpotColor;
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.4); // Moderate glow
-            beamMat.alpha = 0.15; // Semi-transparent like real haze beams
+            beamMat.emissiveColor = this.currentSpotColor.scale(1.0); // VERY BRIGHT
+            beamMat.alpha = 0.4; // Semi-transparent but VISIBLE
             beamMat.disableLighting = true;
             beamMat.backFaceCulling = false; // Visible from all angles
+            beamMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND; // Proper alpha blending
             beam.material = beamMat;
-            beam.visibility = 0;
+            beam.visibility = 1.0;
+            beam.renderingGroupId = 1; // Render after opaque objects
             
-            // Optional: Add floor light pool (where beam hits the floor)
+            console.log(`✅ Created spotlight ${i} beam at (${pos.x}, 7.8, ${pos.z})`);
+            
+            // BRIGHT FLOOR LIGHT POOL (where beam hits the floor)
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 2.0,
-                tessellation: 24
+                radius: 2.5, // LARGER for visibility
+                tessellation: 32 // Smoother
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2; // Horizontal
-            lightPool.position = new BABYLON.Vector3(pos.x, 0.05, pos.z - 5); // On floor
+            lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5); // On floor
             lightPool.isPickable = false;
             
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveColor = this.currentSpotColor.scale(0.8); // Bright floor spot
-            poolMat.alpha = 0.6;
+            poolMat.emissiveColor = this.currentSpotColor.scale(2.0); // SUPER BRIGHT
+            poolMat.alpha = 0.85; // Nearly opaque
             poolMat.disableLighting = true;
+            poolMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
             lightPool.material = poolMat;
-            lightPool.visibility = 0;
+            lightPool.visibility = 1.0;
+            lightPool.renderingGroupId = 1; // Render after opaque objects
+            
+            console.log(`✅ Created spotlight ${i} floor pool at (${pos.x}, 0.03, ${pos.z - 5})`);
+
             
             // Enable shadows for more immersion (expensive but worth it for some lights)
             if (i % 3 === 0) { // Only every 3rd light for performance
@@ -2083,27 +2092,32 @@ class VRClub {
                     spot.beam.scaling.x = zoomFactor;
                     spot.beam.scaling.z = zoomFactor;
                     
-                    // Beam visibility and color
+                    // Beam visibility and color - BRIGHT and VISIBLE
                     spot.beam.visibility = this.lightsActive ? 1.0 : 0;
                     spot.beamMat.diffuseColor = this.currentSpotColor;
-                    spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.4 + audioData.bass * 0.3);
+                    spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.4); // BRIGHTER (was 0.4)
                     
-                    // Update light pool (floor spot)
+                    // Debug first spotlight occasionally
+                    if (i === 0 && Math.random() < 0.01) {
+                        console.log(`Spot 0: active=${this.lightsActive}, beamVis=${spot.beam.visibility}, beamLen=${beamLength.toFixed(1)}m, poolPos=(${hitPoint.x.toFixed(1)}, ${hitPoint.y.toFixed(2)}, ${hitPoint.z.toFixed(1)})`);
+                    }
+                    
+                    // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
                     if (spot.lightPool) {
-                        // Position at hit point
+                        // Position at hit point (slightly above surface to prevent z-fighting)
                         spot.lightPool.position.x = hitPoint.x;
-                        spot.lightPool.position.y = hitPoint.y + 0.05;
+                        spot.lightPool.position.y = hitPoint.y + 0.02; // Very close to surface
                         spot.lightPool.position.z = hitPoint.z;
                         
                         // Size based on beam width and distance
-                        const poolSize = 1.5 + (beamLength * 0.15) * zoomFactor;
+                        const poolSize = 2.0 + (beamLength * 0.2) * zoomFactor; // LARGER (was 1.5)
                         spot.lightPool.scaling.x = poolSize;
                         spot.lightPool.scaling.y = poolSize;
                         
                         // Brightness based on distance (closer = brighter)
-                        const distanceBrightness = Math.max(0.3, 1 - (beamLength / 15));
+                        const distanceBrightness = Math.max(0.5, 1 - (beamLength / 18)); // BRIGHTER minimum
                         spot.lightPool.visibility = this.lightsActive ? distanceBrightness : 0;
-                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.4);
+                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(1.5 + audioData.bass * 0.5); // MUCH BRIGHTER
                     }
                 }
                 
