@@ -1711,7 +1711,7 @@ class VRClub {
             
             // BRIGHT FLOOR LIGHT POOL (where beam hits the floor)
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 2.5, // LARGER for visibility
+                radius: 1.5, // Smaller distinct spots
                 tessellation: 32 // Smoother
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2; // Horizontal
@@ -1720,8 +1720,8 @@ class VRClub {
             
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveColor = this.currentSpotColor.scale(2.0); // SUPER BRIGHT
-            poolMat.alpha = 0.85; // Nearly opaque
+            poolMat.emissiveColor = this.currentSpotColor.scale(1.2); // Bright but localized
+            poolMat.alpha = 0.5; // More transparent so spots don't flood
             poolMat.disableLighting = true;
             poolMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
             lightPool.material = poolMat;
