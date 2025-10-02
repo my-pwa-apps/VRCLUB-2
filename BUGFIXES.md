@@ -433,6 +433,97 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
+### Bug Fix #7: Laser Positioning & Spotlight Alignment (October 2, 2025)
+
+**Problem 1:** Side lasers (left/right) were not emitting beams from the correct position
+- Laser housings parented to side trusses but beam origin position was hardcoded
+- Result: Beams appeared to come from empty space instead of laser fixtures
+
+**Problem 2:** Lasers not aligned on same truss arm
+- Left laser at z: -10, center at z: -10, right at z: -10 (inconsistent parenting)
+- Side lasers had complex offset calculations that didn't work correctly
+
+**Problem 3:** Spotlights white instead of colored
+- Fixture lens emissiveColor was white (1,1,1) initially
+- Not updated immediately when spotlight color changed
+- Result: White light sources with colored beams (unrealistic)
+
+**Problem 4:** Spotlight beams not starting from fixture
+- Spotlight position at y: 7.8, fixture lens at y: 7.3 (0.5m gap!)
+- Beams appeared to float above the actual light fixture
+
+**Solutions Applied:**
+
+1. **Fixed Laser Positions (All on z: -14)**
+   ```javascript
+   const laserPositions = [
+       { x: -8, z: -14, type: 'spread' },   // Left - aligned
+       { x: 0, z: -14, type: 'multi' },     // Center - aligned
+       { x: 8, z: -14, type: 'single' }     // Right - aligned
+   ];
+   ```
+   - ALL lasers now on same Z position (-14) for visual consistency
+   - Each laser centered on its respective truss (x: -8, 0, 8)
+
+2. **Fixed Laser Beam Origin for Parented Lasers**
+   ```javascript
+   // Update origin position dynamically from housing world position
+   if (laser.parentTruss) {
+       laser.originPos = laser.housing.getAbsolutePosition().clone();
+   }
+   ```
+   - Beams now emit from actual laser housing position
+   - Uses `getAbsolutePosition()` to get world coordinates from parented mesh
+
+3. **Fixed Spotlight Position Alignment**
+   ```javascript
+   // Match spotlight position to fixture lens (y: 7.3)
+   const spot = new BABYLON.SpotLight("spot" + i,
+       new BABYLON.Vector3(pos.x, 7.3, pos.z), // Was 7.8, now 7.3
+   ```
+   - Spotlight now at same position as visible fixture lens
+   - Beam starts exactly where light source is visible
+
+4. **Fixed Spotlight Color Matching**
+   ```javascript
+   // Update fixture colors immediately on color change
+   if (spot.lensMat && this.lightsActive) {
+       spot.lensMat.emissiveColor = this.currentSpotColor.scale(5.0);
+   }
+   if (spot.sourceMat && this.lightsActive) {
+       spot.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0);
+   }
+   ```
+   - Fixture lens now matches spotlight beam color
+   - Updated immediately when color cycles (not just in animation loop)
+   - 5x brightness for lens, 8x for inner source (very visible)
+
+**Technical Details:**
+- Lines 1611-1616: Laser positions unified to z: -14
+- Lines 1623-1631: Simplified laser parenting (localX: 0 for center alignment)
+- Lines 1757-1771: Dynamic origin position tracking for parented lasers
+- Lines 1920: Spotlight position changed from 7.8 to 7.3
+- Lines 1936: Beam initial position changed from 7.8 to 7.3
+- Lines 2085: basePos changed from 7.8 to 7.3
+- Lines 2295-2304: Update laser originPos every frame for parented lasers
+- Lines 2485-2495: Immediate fixture color updates on color change
+
+**Visual Result:**
+✅ **All three lasers now aligned on same truss arm** (z: -14)
+✅ **Laser beams emit from actual laser housings** (not empty space)
+✅ **Spotlights are colored** (red/green/blue matching beams)
+✅ **Spotlight beams start exactly at fixture lens** (no floating gap)
+✅ **Realistic light source visibility** (colored fixtures, not white)
+✅ **Professional nightclub appearance** (everything aligned and realistic)
+
+**Before vs After:**
+- **Before:** White spotlights with colored beams floating 0.5m below, side lasers not emitting
+- **After:** Colored spotlights with beams starting from source, all lasers working perfectly!
+
+The lighting system is now **fully aligned and realistic** - every beam comes from a visible, colored light source! 🎯💡
+
+---
+
 ### Enhancement #6: Realistic Fog Light Reflection (October 2, 2025)
 
 **Objective:** Make fog particles realistically reflect colored light from spotlights and lasers

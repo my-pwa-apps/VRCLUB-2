@@ -1607,32 +1607,32 @@ class VRClub {
         
         // Lasers mounted UNDER the truss (hanging down)
         // Each laser has a type: 'single', 'spread', 'multi'
-        // Center laser on truss, side lasers on side trusses
+        // ALL LASERS ON SAME Z POSITION for consistency (z: -14)
         const laserPositions = [
-            { x: -6, z: -10, trussY: 7.55, type: 'spread' },   // Spread laser left (side truss)
-            { x: 0, z: -10, trussY: 7.55, type: 'multi' },     // Multi-beam center (main truss)
-            { x: 6, z: -10, trussY: 7.55, type: 'single' }     // Single beam right (side truss)
+            { x: -8, z: -14, trussY: 7.55, type: 'spread' },   // Spread laser left (left truss)
+            { x: 0, z: -14, trussY: 7.55, type: 'multi' },     // Multi-beam center (main truss)
+            { x: 8, z: -14, trussY: 7.55, type: 'single' }     // Single beam right (right truss)
         ];
         
         laserPositions.forEach((pos, i) => {
 
             
-            // Determine parent truss for side lasers
+            // Determine parent truss for each laser
             let parentTruss = null;
             let localX = pos.x;
             let localZ = pos.z;
             
-            // Side lasers mount to side trusses (±8)
+            // Side lasers mount to side trusses (x: ±8)
             if (pos.x < -3 && this.sideTrusses && this.sideTrusses[-8]) {
                 // Left laser mounts to left side truss at x: -8
                 parentTruss = this.sideTrusses[-8];
-                localX = 2; // Offset from truss center (truss is at x:-8, laser at x:-6)
-                localZ = pos.z - (-12); // Relative to truss z position
+                localX = 0; // Center on truss
+                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
             } else if (pos.x > 3 && this.sideTrusses && this.sideTrusses[8]) {
                 // Right laser mounts to right side truss at x: 8
                 parentTruss = this.sideTrusses[8];
-                localX = -2; // Offset from truss center (truss is at x:8, laser at x:6)
-                localZ = pos.z - (-12); // Relative to truss z position
+                localX = 0; // Center on truss
+                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
             }
             
             // Mounting clamp connecting to truss
@@ -1757,6 +1757,17 @@ class VRClub {
                 }
             }
             
+            // Calculate actual world position for beam origin
+            let actualWorldPos;
+            if (parentTruss) {
+                // Get world position from parented housing
+                actualWorldPos = housing.getAbsolutePosition().clone();
+                actualWorldPos.y = housing.getAbsolutePosition().y; // Use actual Y
+            } else {
+                // Center laser - use direct position
+                actualWorldPos = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+            }
+            
             this.lasers.push({
                 beams: beams,
                 housing: housing,
@@ -1768,7 +1779,9 @@ class VRClub {
                 rotation: 0,
                 rotationSpeed: 0.01,
                 tiltPhase: 0,
-                originPos: new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z),
+                originPos: actualWorldPos,
+                parentTruss: parentTruss, // Store parent reference
+                localPos: new BABYLON.Vector3(localX, -0.45, localZ), // Store local position
                 type: pos.type,
                 colorIndex: 0
             });
@@ -1909,9 +1922,9 @@ class VRClub {
         this.lastColorChange = 0;
         
         spotPositions.forEach((pos, i) => {
-            // Spotlight from truss position
+            // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
             const spot = new BABYLON.SpotLight("spot" + i,
-                new BABYLON.Vector3(pos.x, 7.8, pos.z),  // Truss height
+                new BABYLON.Vector3(pos.x, 7.3, pos.z),  // Match fixture lens position
                 new BABYLON.Vector3(0, -1, 0),           // Initial direction
                 Math.PI / 6,                              // Narrower cone for focused beams
                 5,                                        // Sharper falloff
@@ -1934,8 +1947,8 @@ class VRClub {
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            // Start at fixture position (will be updated each frame)
-            beam.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            // Start at fixture position (will be updated each frame) - MATCH FIXTURE POSITION
+            beam.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);
             beam.isPickable = false;
             beam.rotationQuaternion = BABYLON.Quaternion.Identity();
             
@@ -2082,7 +2095,9 @@ class VRClub {
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
                 fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
-                basePos: new BABYLON.Vector3(pos.x, 7.8, pos.z),
+                lensMat: this.trussLights ? this.trussLights[i]?.lensMat : null,
+                sourceMat: this.trussLights ? this.trussLights[i]?.sourceMat : null,
+                basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
                 phase: i * (Math.PI * 2 / spotPositions.length),
                 speed: 0.8,
                 color: this.currentSpotColor,
@@ -2281,6 +2296,11 @@ class VRClub {
         // Update lasers with raycasting and dynamic positioning
         if (this.lasers && this.lasersActive) {
             this.lasers.forEach((laser, i) => {
+                // Update origin position for parented lasers (get world position)
+                if (laser.parentTruss) {
+                    laser.originPos = laser.housing.getAbsolutePosition().clone();
+                }
+                
                 // Movement depends on mode
                 if (this.lightingMode === 'synchronized') {
                     laser.rotation += 0.015;
@@ -2461,9 +2481,17 @@ class VRClub {
             
             // Update ALL lights to new color
             if (this.spotlights) {
-                this.spotlights.forEach(spot => {
+                this.spotlights.forEach((spot, i) => {
                     spot.light.diffuse = this.currentSpotColor;
                     spot.color = this.currentSpotColor;
+                    
+                    // Update fixture lens and light source colors immediately
+                    if (spot.lensMat && this.lightsActive) {
+                        spot.lensMat.emissiveColor = this.currentSpotColor.scale(5.0);
+                    }
+                    if (spot.sourceMat && this.lightsActive) {
+                        spot.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0);
+                    }
                     // Beam color updated in animation loop
                 });
             }
