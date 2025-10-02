@@ -354,62 +354,7 @@ class VRClub {
             conduit.material = pipeMat;
         });
         
-        // Add graffiti decals on back wall
-        this.createGraffitiDecals();
-        
         console.log("✅ Created industrial wall details");
-    }
-    
-    createGraffitiDecals() {
-        // Create simple graffiti using emissive colored boxes (tags/art)
-        const graffitiMat1 = new BABYLON.StandardMaterial("graffiti1", this.scene);
-        graffitiMat1.emissiveColor = new BABYLON.Color3(1, 0.2, 0.8); // Hot pink
-        graffitiMat1.disableLighting = true;
-        graffitiMat1.alpha = 0.7;
-        
-        const graffitiMat2 = new BABYLON.StandardMaterial("graffiti2", this.scene);
-        graffitiMat2.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Cyan
-        graffitiMat2.disableLighting = true;
-        graffitiMat2.alpha = 0.7;
-        
-        const graffitiMat3 = new BABYLON.StandardMaterial("graffiti3", this.scene);
-        graffitiMat3.emissiveColor = new BABYLON.Color3(1, 1, 0); // Yellow
-        graffitiMat3.disableLighting = true;
-        graffitiMat3.alpha = 0.7;
-        
-        // Abstract graffiti shapes on back wall
-        const graffiti1 = BABYLON.MeshBuilder.CreateBox("graffiti1", {
-            width: 2,
-            height: 1.5,
-            depth: 0.02
-        }, this.scene);
-        graffiti1.position = new BABYLON.Vector3(-8, 4, -26.9);
-        graffiti1.material = graffitiMat1;
-        
-        const graffiti2 = BABYLON.MeshBuilder.CreateBox("graffiti2", {
-            width: 1.5,
-            height: 2,
-            depth: 0.02
-        }, this.scene);
-        graffiti2.position = new BABYLON.Vector3(6, 5, -26.9);
-        graffiti2.material = graffitiMat2;
-        
-        // Side wall graffiti
-        const graffiti3 = BABYLON.MeshBuilder.CreateBox("graffiti3", {
-            width: 0.02,
-            height: 1,
-            depth: 1.5
-        }, this.scene);
-        graffiti3.position = new BABYLON.Vector3(-16.9, 3, -8);
-        graffiti3.material = graffitiMat3;
-        
-        const graffiti4 = BABYLON.MeshBuilder.CreateBox("graffiti4", {
-            width: 0.02,
-            height: 1.2,
-            depth: 2
-        }, this.scene);
-        graffiti4.position = new BABYLON.Vector3(16.9, 6, -18);
-        graffiti4.material = graffitiMat1;
     }
 
     createCeiling() {
@@ -988,60 +933,83 @@ class VRClub {
     createPASpeakers() {
         
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.03);
-        speakerMat.metallic = 0.3;
-        speakerMat.roughness = 0.7;
+        speakerMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        speakerMat.metallic = 0.4;
+        speakerMat.roughness = 0.6;
+        speakerMat.maxSimultaneousLights = this.maxLights;
         
-        // Left PA stack (3-way system)
-        this.createPAStack(-13, speakerMat);
+        // Larger speakers positioned next to DJ booth (at z: -21, next to DJ platform at z: -24)
+        // Left PA stack 
+        this.createPAStack(-5, -21, speakerMat);
         
         // Right PA stack
-        this.createPAStack(13, speakerMat);
+        this.createPAStack(5, -21, speakerMat);
+        
+        console.log("✅ Created prominent PA speakers next to DJ booth");
     }
 
-    createPAStack(xPos, material) {
-        // Sub
+    createPAStack(xPos, zPos, material) {
+        // Large sub-woofer (bottom)
         const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
-            width: 1.8,
-            height: 2.2,
-            depth: 1.8
+            width: 2.5,
+            height: 2.8,
+            depth: 2.5
         }, this.scene);
-        sub.position = new BABYLON.Vector3(xPos, 1.1, -23);
+        sub.position = new BABYLON.Vector3(xPos, 1.4, zPos);
         sub.material = material;
+        sub.receiveShadows = true;
         
-        // Mid
+        // Mid-range speaker
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
-            width: 1.4,
-            height: 1.6,
-            depth: 1.4
+            width: 2,
+            height: 2,
+            depth: 2
         }, this.scene);
-        mid.position = new BABYLON.Vector3(xPos, 3, -23);
+        mid.position = new BABYLON.Vector3(xPos, 3.8, zPos);
         mid.material = material;
+        mid.receiveShadows = true;
         
-        // High
+        // High frequency horn
         const high = BABYLON.MeshBuilder.CreateBox("high" + xPos, {
+            width: 1.5,
+            height: 1.5,
+            depth: 1.5
+        }, this.scene);
+        high.position = new BABYLON.Vector3(xPos, 5.5, zPos);
+        high.material = material;
+        high.receiveShadows = true;
+        
+        // Prominent glowing speaker grills with better visibility
+        const grillMat = new BABYLON.StandardMaterial("grill" + xPos, this.scene);
+        grillMat.emissiveColor = new BABYLON.Color3(0.1, 0.15, 0.2); // Blue glow
+        grillMat.disableLighting = true;
+        
+        // Sub grill (larger, more visible)
+        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
+            width: 1.8,
+            height: 2,
+            depth: 0.08
+        }, this.scene);
+        subGrill.position = new BABYLON.Vector3(xPos, 1.4, zPos + 1.3);
+        subGrill.material = grillMat.clone("subGrillMat" + xPos);
+        
+        // Mid grill
+        const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
+            width: 1.4,
+            height: 1.4,
+            depth: 0.08
+        }, this.scene);
+        midGrill.position = new BABYLON.Vector3(xPos, 3.8, zPos + 1.05);
+        midGrill.material = grillMat.clone("midGrillMat" + xPos);
+        
+        // High grill
+        const highGrill = BABYLON.MeshBuilder.CreateBox("highGrill" + xPos, {
             width: 1,
             height: 1,
-            depth: 1
+            depth: 0.08
         }, this.scene);
-        high.position = new BABYLON.Vector3(xPos, 4.4, -23);
-        high.material = material;
-        
-        // Glowing speaker mesh
-        const grillMat = new BABYLON.StandardMaterial("grill" + xPos, this.scene);
-        grillMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.1);
-        grillMat.alpha = 0.6;
-        
-        [sub, mid, high].forEach((speaker, i) => {
-            const grill = BABYLON.MeshBuilder.CreateBox("grill", {
-                width: speaker.scaling.x * 0.7,
-                height: speaker.scaling.y * 0.7,
-                depth: 0.05
-            }, this.scene);
-            grill.position = speaker.position.clone();
-            grill.position.z += 0.91;
-            grill.material = grillMat.clone("grillMat" + xPos + i);
-        });
+        highGrill.position = new BABYLON.Vector3(xPos, 5.5, zPos + 0.8);
+        highGrill.material = grillMat.clone("highGrillMat" + xPos);
     }
 
     createBarArea() {
@@ -1500,9 +1468,9 @@ class VRClub {
         
         // Reduced lasers mounted UNDER the truss (hanging down)
         // Each laser has a type: 'single', 'spread', 'multi'
+        // Center laser removed - only side lasers remain
         const laserPositions = [
             { x: -6, z: -10, trussY: 7.55, type: 'spread' },   // Spread laser left
-            { x: 0, z: -10, trussY: 7.55, type: 'multi' },     // Multi-beam center
             { x: 6, z: -10, trussY: 7.55, type: 'single' }     // Single beam right
         ];
         
@@ -1997,21 +1965,38 @@ class VRClub {
         // Turn off during special effects
         if (this.spotlights && this.lightsActive && !specialEffectActive) {
             
-            // Choose pattern based on lighting mode
-            let globalPhase = time * 0.5;
+            // SYNCHRONIZED SWEEPING - recreate iconic club vibe
+            // All lights move together, sweeping their beams across the dance floor
+            let globalPhase = time * 0.4; // Slower, more dramatic
             
             // Audio reactivity - make movement speed react to bass
-            const audioSpeedMultiplier = 1 + (audioData.bass * 2);
+            const audioSpeedMultiplier = 1 + (audioData.bass * 1.5);
             
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
                 
                 if (this.lightingMode === 'synchronized') {
-                    // All lights do same pattern
-                    dirX = Math.sin(globalPhase * audioSpeedMultiplier) * 0.8;
-                    dirZ = Math.cos(globalPhase * audioSpeedMultiplier) * 0.8;
+                    // SYNCHRONIZED SWEEPING: All lights sweep together across dance floor
+                    // Create dramatic left-right sweeps with smooth transitions
+                    const sweepPhase = globalPhase * audioSpeedMultiplier;
+                    const sweepPattern = Math.floor(sweepPhase / 3) % 3; // Change pattern every 3 seconds
+                    
+                    if (sweepPattern === 0) {
+                        // Linear sweep left to right
+                        dirX = Math.sin(sweepPhase * 1.2) * 1.2; // Wider sweep
+                        dirZ = -0.5; // Point towards back of dance floor
+                    } else if (sweepPattern === 1) {
+                        // Circular sweep - all lights rotate together
+                        dirX = Math.sin(sweepPhase * 0.8) * 1.0;
+                        dirZ = Math.cos(sweepPhase * 0.8) * 1.0;
+                    } else {
+                        // Fan sweep - from center outwards and back
+                        const fanPhase = Math.sin(sweepPhase * 0.7);
+                        dirX = fanPhase * 1.3;
+                        dirZ = Math.abs(fanPhase) * -0.8;
+                    }
                 } else {
-                    // Individual patterns
+                    // Individual patterns for variety
                     spot.phase += 0.016 * spot.speed * audioSpeedMultiplier;
                     const patternType = i % 3;
                     
