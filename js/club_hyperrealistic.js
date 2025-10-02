@@ -2157,15 +2157,15 @@ class VRClub {
                         spot.lightPool.position.y = endPoint.y + 0.02; // Very close to surface
                         spot.lightPool.position.z = endPoint.z;
                         
-                        // Size based on beam width and distance
-                        const poolSize = 2.0 + (beamLength * 0.2) * zoomFactor; // LARGER (was 1.5)
+                        // Size based on beam width and distance - keep spots distinct
+                        const poolSize = 0.8 + (beamLength * 0.05) * zoomFactor; // Smaller, more focused
                         spot.lightPool.scaling.x = poolSize;
                         spot.lightPool.scaling.y = poolSize;
                         
                         // Brightness based on distance (closer = brighter)
-                        const distanceBrightness = Math.max(0.5, 1 - (beamLength / 18)); // BRIGHTER minimum
+                        const distanceBrightness = Math.max(0.6, 1 - (beamLength / 18));
                         spot.lightPool.visibility = this.lightsActive ? distanceBrightness : 0;
-                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(1.5 + audioData.bass * 0.5); // MUCH BRIGHTER
+                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.3); // Moderate brightness
                     }
                 }
                 
