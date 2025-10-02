@@ -1678,17 +1678,20 @@ class VRClub {
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
             
-            // PROFESSIONAL VOLUMETRIC BEAM - Single optimized cone with gradient
-            // Real club lights use haze/fog for beam visibility, we simulate with semi-transparent cone
+            // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor
+            // When cylinder points DOWN, its +Y local axis points toward floor
+            // So: diameterTop (at +Y local) should be WIDE (at floor)
+            //     diameterBottom (at -Y local) should be NARROW (at fixture)
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 0.2,      // Small at fixture (realistic aperture)
-                diameterBottom: 3.5,   // Wide at floor (12° beam angle)
-                height: 1,             // Will be scaled to actual distance
-                tessellation: 16,      // Smooth but not excessive
-                cap: BABYLON.Mesh.NO_CAP // No caps for seamless blending
+                diameterTop: 4.0,      // Wide end - will be at floor when rotated down
+                diameterBottom: 0.3,   // Narrow end - will be at fixture when rotated down
+                height: 1,             // Will be scaled to actual beam length
+                tessellation: 16,
+                cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            beam.position = new BABYLON.Vector3(pos.x, 3, pos.z);
+            // Start at fixture position (will be updated each frame)
+            beam.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
             beam.isPickable = false;
             beam.rotationQuaternion = BABYLON.Quaternion.Identity();
             
@@ -2053,49 +2056,77 @@ class VRClub {
                     // Raycast to find actual surface distance
                     const ray = new BABYLON.Ray(spot.basePos, direction, 30);
                     const hit = this.scene.pickWithRay(ray, (mesh) => {
-                        return mesh.isPickable && !mesh.name.includes('Beam') && !mesh.name.includes('beam') &&
-                               !mesh.name.includes('Pool') && !mesh.name.includes('pool') &&
-                               !mesh.name.includes('Housing') && !mesh.name.includes('fixture') && 
-                               !mesh.name.includes('truss') && !mesh.name.includes('laser');
+                        // ONLY accept floor, walls, and LED wall - ignore everything else
+                        return mesh.isPickable && 
+                               (mesh.name === 'floor' || 
+                                mesh.name === 'leftWall' || 
+                                mesh.name === 'rightWall' || 
+                                mesh.name === 'backWall' || 
+                                mesh.name.includes('ledPanel'));
                     });
                     
-                    let beamLength = 10; // Default if no hit
-                    let hitPoint = spot.basePos.add(direction.scale(beamLength));
+                    // Calculate where beam ends (either hit surface or default distance)
+                    let beamLength = 10; // Default beam length
+                    let endPoint = spot.basePos.add(direction.scale(beamLength));
                     
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(spot.basePos, hit.pickedPoint);
-                        hitPoint = hit.pickedPoint;
+                        endPoint = hit.pickedPoint;
                     }
                     
-                    // Scale beam to actual length
+                    // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
+                    // Cylinder with height=1 extends from -0.5 to +0.5 in local Y
+                    // When we scale.y = beamLength, it extends from -beamLength/2 to +beamLength/2
+                    // So we position at the MIDDLE and rotate to point downward
+                    
+                    const startPoint = spot.basePos; // Fixture position (narrow end)
+                    const midPoint = new BABYLON.Vector3(
+                        (startPoint.x + endPoint.x) / 2,
+                        (startPoint.y + endPoint.y) / 2,
+                        (startPoint.z + endPoint.z) / 2
+                    );
+                    
+                    // Position beam at midpoint
+                    spot.beam.position.copyFrom(midPoint);
+                    
+                    // Scale to actual length - set full scaling vector
+                    spot.beam.scaling.x = 1.0;
                     spot.beam.scaling.y = beamLength;
+                    spot.beam.scaling.z = 1.0;
                     
-                    // Position beam midpoint along direction from source
-                    const beamMidpoint = spot.basePos.add(direction.scale(beamLength * 0.5));
-                    spot.beam.position.copyFrom(beamMidpoint);
+                    // Rotate beam to point from start to end
+                    // The cylinder's Y-axis should align with (endPoint - startPoint) direction
+                    const beamDirection = endPoint.subtract(startPoint).normalize();
                     
-                    // Debug beam positioning
-                    if (i === 0 && Math.random() < 0.005) {
-                        console.log(`Spot 0 beam: length=${beamLength.toFixed(2)}m, midpoint=(${beamMidpoint.x.toFixed(1)}, ${beamMidpoint.y.toFixed(1)}, ${beamMidpoint.z.toFixed(1)})`);
-                    }
-                    
-                    // Orient beam using rotation from Y-axis to direction vector
-                    // Cylinder is created along positive Y axis, we need to rotate it to match direction
+                    // Create rotation from Y-axis (0,1,0) to beam direction
                     const yAxis = new BABYLON.Vector3(0, 1, 0);
-                    const axis = BABYLON.Vector3.Cross(yAxis, direction);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(yAxis, direction));
+                    const rotAxis = BABYLON.Vector3.Cross(yAxis, beamDirection);
+                    const rotAngle = Math.acos(BABYLON.Vector3.Dot(yAxis, beamDirection));
                     
-                    if (axis.length() > 0.0001) {
-                        // Normal case - rotate around perpendicular axis
-                        const quat = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
-                        spot.beam.rotationQuaternion = quat;
+                    if (rotAxis.length() > 0.0001) {
+                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
+                            rotAxis.normalize(),
+                            rotAngle
+                        );
                     } else {
-                        // Edge case - direction aligned with Y axis
-                        if (direction.y > 0) {
+                        // Pointing straight up or down
+                        if (beamDirection.y > 0) {
                             spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
                         } else {
-                            spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI);
+                            spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(0, Math.PI, 0);
                         }
+                    }
+                    
+                    // Debug first spotlight - MORE FREQUENT
+                    if (i === 0 && Math.random() < 0.1) {
+                        console.log(`🔦 Spot 0 BEAM:`);
+                        console.log(`  Start: (${startPoint.x.toFixed(1)}, ${startPoint.y.toFixed(1)}, ${startPoint.z.toFixed(1)})`);
+                        console.log(`  End: (${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)}, ${endPoint.z.toFixed(1)})`);
+                        console.log(`  Mid: (${midPoint.x.toFixed(1)}, ${midPoint.y.toFixed(1)}, ${midPoint.z.toFixed(1)})`);
+                        console.log(`  Length: ${beamLength.toFixed(2)}m`);
+                        console.log(`  Scaling.y: ${spot.beam.scaling.y.toFixed(2)}`);
+                        console.log(`  Direction: (${beamDirection.x.toFixed(2)}, ${beamDirection.y.toFixed(2)}, ${beamDirection.z.toFixed(2)})`);
+                        console.log(`  Hit: ${hit && hit.hit ? 'YES' : 'NO'}`);
                     }
                     
                     // Dynamic zoom effect (beam width variation)
@@ -2116,15 +2147,15 @@ class VRClub {
                     
                     // Debug first spotlight occasionally
                     if (i === 0 && Math.random() < 0.01) {
-                        console.log(`Spot 0: active=${this.lightsActive}, beamVis=${spot.beam.visibility}, beamLen=${beamLength.toFixed(1)}m, poolPos=(${hitPoint.x.toFixed(1)}, ${hitPoint.y.toFixed(2)}, ${hitPoint.z.toFixed(1)})`);
+                        console.log(`Spot 0: active=${this.lightsActive}, beamVis=${spot.beam.visibility}, beamLen=${beamLength.toFixed(1)}m, poolPos=(${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(2)}, ${endPoint.z.toFixed(1)})`);
                     }
                     
                     // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
                     if (spot.lightPool) {
-                        // Position at hit point (slightly above surface to prevent z-fighting)
-                        spot.lightPool.position.x = hitPoint.x;
-                        spot.lightPool.position.y = hitPoint.y + 0.02; // Very close to surface
-                        spot.lightPool.position.z = hitPoint.z;
+                        // Position at end point (slightly above surface to prevent z-fighting)
+                        spot.lightPool.position.x = endPoint.x;
+                        spot.lightPool.position.y = endPoint.y + 0.02; // Very close to surface
+                        spot.lightPool.position.z = endPoint.z;
                         
                         // Size based on beam width and distance
                         const poolSize = 2.0 + (beamLength * 0.2) * zoomFactor; // LARGER (was 1.5)
