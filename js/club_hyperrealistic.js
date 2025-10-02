@@ -118,13 +118,6 @@ class VRClub {
         // Store VR helper for later use
         this.vrHelper = vrHelper;
         
-        // Clean up any leftover disco ball meshes (in case of browser cache)
-        const discoBallMesh = this.scene.getMeshByName("discoBall");
-        if (discoBallMesh) {
-            discoBallMesh.dispose();
-            console.log("🗑️ Removed leftover disco ball mesh");
-        }
-        
         // Continue building club
         this.createWalls();
         this.createCeiling();
@@ -500,8 +493,6 @@ class VRClub {
             cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
             cable.material = cableMat;
         });
-        
-        // Disco ball removed (not working properly)
     }
     
     createDJBooth() {
@@ -584,9 +575,6 @@ class VRClub {
         
         // VJ station (right side of booth)
         this.createVJStation();
-        
-        // DJ booth laser (front-facing floor sweeper)
-        this.createDJBoothLaser();
         
         // Accent lighting under platform
         this.createBoothLighting();
@@ -874,34 +862,6 @@ class VRClub {
         smokePanelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         smokePanelMat.emissiveColor = new BABYLON.Color3(0, 0.5, 0); // Bright green
         smokePanel.material = smokePanelMat;
-    }
-    
-    createDJBoothLaser() {
-        // DRAMATIC LASER BLANKET - mounted ABOVE DJ on LED wall
-        // Creates horizontal sweeping "blanket" of light that moves up/down
-        const laserHousing = BABYLON.MeshBuilder.CreateBox("djLaserHousing", {
-            width: 2.0,  // Wider housing for more beams
-            height: 0.25,
-            depth: 0.3
-        }, this.scene);
-        laserHousing.position = new BABYLON.Vector3(0, 7.0, -25.5); // Above DJ, on LED wall
-        laserHousing.rotation.x = Math.PI / 18; // Slight downward tilt
-        
-        const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("djLaserHousingMat", this.scene);
-        housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        housingMat.metallic = 0.9;
-        housingMat.roughness = 0.2;
-        housingMat.emissiveColor = new BABYLON.Color3(0.3, 0, 0);
-        laserHousing.material = housingMat;
-        
-        // Laser curtain effect removed (was broken)
-        
-        this.djLaserHousing = laserHousing;
-        this.djLaserHousingMat = housingMat;
-        
-        // Special mode tracking for dramatic effects
-        this.discoBallShowActive = false;
-        this.discoBallShowNextShow = 30; // First disco show after 30s
     }
     
     createBoothLighting() {
@@ -1487,12 +1447,13 @@ class VRClub {
         
         this.lasers = [];
         
-        // Reduced lasers mounted UNDER the truss (hanging down)
+        // Lasers mounted UNDER the truss (hanging down)
         // Each laser has a type: 'single', 'spread', 'multi'
-        // Center laser removed - only side lasers remain
+        // Center laser on truss, side lasers on side trusses
         const laserPositions = [
-            { x: -6, z: -10, trussY: 7.55, type: 'spread' },   // Spread laser left
-            { x: 6, z: -10, trussY: 7.55, type: 'single' }     // Single beam right
+            { x: -6, z: -10, trussY: 7.55, type: 'spread' },   // Spread laser left (side truss)
+            { x: 0, z: -10, trussY: 7.55, type: 'multi' },     // Multi-beam center (main truss)
+            { x: 6, z: -10, trussY: 7.55, type: 'single' }     // Single beam right (side truss)
         ];
         
         laserPositions.forEach((pos, i) => {
@@ -1776,9 +1737,6 @@ class VRClub {
         // Get audio data for reactive lighting
         const audioData = this.getAudioData();
         
-        // Check if any special effect is active
-        const specialEffectActive = this.discoBallShowActive;
-        
         // ALTERNATING PATTERN: Lights and Lasers don't mix
         // Lights: 15 seconds, Lasers: 25 seconds (longer but less frequent)
         if (time - this.lightModeSwitchTime > (this.lightingPhase === 'lights' ? this.lightsPhaseDuration : this.lasersPhaseDuration)) {
@@ -1797,17 +1755,10 @@ class VRClub {
             this.lightModeSwitchTime = time;
         }
         
-        // Update LED wall (with audio reactivity) - OFF during special effects
-        if (this.ledPanels && !specialEffectActive) {
+        // Update LED wall (with audio reactivity)
+        if (this.ledPanels) {
             this.updateLEDWall(time, audioData);
-        } else if (this.ledPanels && specialEffectActive) {
-            // Turn off LED wall during special effects
-            this.ledPanels.forEach(panel => {
-                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-            });
         }
-        
-        // Disco ball code removed
         
         // Switch between synchronized and random lighting modes (every 20-40 seconds)
         if (time - this.modeSwitchTime > (20 + Math.random() * 20)) {
@@ -1830,8 +1781,7 @@ class VRClub {
         }
         
         // Update lasers with raycasting and dynamic positioning
-        // Turn off during special effects, hide beams when not spinning
-        if (this.lasers && this.lasersActive && !specialEffectActive) {
+        if (this.lasers && this.lasersActive) {
             this.lasers.forEach((laser, i) => {
                 // Movement depends on mode
                 if (this.lightingMode === 'synchronized') {
@@ -1947,7 +1897,7 @@ class VRClub {
             this.lasers.forEach(laser => {
                 laser.beams.forEach(beam => {
                     // Only show beams if laser is actively spinning
-                    if (laser.isSpinning && this.lasersActive && !specialEffectActive) {
+                    if (laser.isSpinning && this.lasersActive) {
                         beam.mesh.visibility = 1;
                         beam.material.alpha = 0.6;
                     } else {
@@ -1983,8 +1933,7 @@ class VRClub {
             }
         }
         
-        // Turn off during special effects
-        if (this.spotlights && this.lightsActive && !specialEffectActive) {
+        if (this.spotlights && this.lightsActive) {
             
             // SYNCHRONIZED SWEEPING - recreate iconic club vibe
             // All lights move together, sweeping their beams across the dance floor
