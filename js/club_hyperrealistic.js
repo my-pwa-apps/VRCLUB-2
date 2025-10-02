@@ -2411,18 +2411,24 @@ class VRClub {
         
         this.lastBassLevel = audioData.bass;
         
-        // Change pattern every 8 beats (at 130 BPM = ~3.7 seconds)
-        const beatsPerPattern = 8;
-        const patternChangeTime = this.beatInterval * beatsPerPattern;
+        // Change pattern more frequently - especially without audio for energy
+        // With audio: every 4 beats (~1.8s), Without audio: every 2 seconds
+        const beatsPerPattern = audioData.hasAudio ? 4 : 4; // Reduced from 8 to 4
+        const patternChangeTime = audioData.hasAudio 
+            ? this.beatInterval * beatsPerPattern 
+            : 2.0; // Fast 2-second changes without audio
         
         if (time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
         }
         
-        // Change color every 16 beats (at 130 BPM = ~7.4 seconds)
-        const beatsPerColor = 16;
-        const colorChangeTime = this.beatInterval * beatsPerColor;
+        // Change color more frequently too
+        // With audio: every 8 beats (~3.7s), Without audio: every 4 seconds
+        const beatsPerColor = audioData.hasAudio ? 8 : 8; // Reduced from 16 to 8
+        const colorChangeTime = audioData.hasAudio 
+            ? this.beatInterval * beatsPerColor 
+            : 4.0; // 4-second color changes without audio
         
         if (time - this.lastColorChange > colorChangeTime || this.lastColorChange === -1) {
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
