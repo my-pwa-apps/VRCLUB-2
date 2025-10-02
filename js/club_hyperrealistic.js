@@ -2254,28 +2254,40 @@ class VRClub {
                         const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1; // Subtle shimmer
                         
                         // CORE (bright center hotspot) - smallest, brightest
-                        poolPosition.y = 0.04;
-                        spot.lightPoolCore.position.copyFrom(poolPosition);
-                        spot.lightPoolCore.scaling.x = baseSize * 0.3 * audioPulse; // 30% of base
-                        spot.lightPoolCore.scaling.y = baseSize * 0.3 * audioPulse;
-                        spot.lightPoolCore.visibility = this.lightsActive ? 1.0 : 0;
-                        spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5 * audioPulse);
+                        if (this.lightsActive) {
+                            poolPosition.y = 0.04;
+                            spot.lightPoolCore.position.copyFrom(poolPosition);
+                            spot.lightPoolCore.scaling.x = baseSize * 0.3 * audioPulse;
+                            spot.lightPoolCore.scaling.y = baseSize * 0.3 * audioPulse;
+                            spot.lightPoolCore.visibility = 1.0;
+                            spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5 * audioPulse);
+                        } else {
+                            spot.lightPoolCore.visibility = 0;
+                        }
                         
                         // MID GLOW (medium gradient) - medium size
-                        poolPosition.y = 0.03;
-                        spot.lightPool.position.copyFrom(poolPosition);
-                        spot.lightPool.scaling.x = baseSize * 0.7 * atmosphericShimmer;
-                        spot.lightPool.scaling.y = baseSize * 0.7 * atmosphericShimmer;
-                        spot.lightPool.visibility = this.lightsActive ? 0.9 : 0;
-                        spot.poolMat.emissiveColor = this.currentSpotColor.scale(1.0 * atmosphericShimmer);
+                        if (this.lightsActive) {
+                            poolPosition.y = 0.03;
+                            spot.lightPool.position.copyFrom(poolPosition);
+                            spot.lightPool.scaling.x = baseSize * 0.7 * atmosphericShimmer;
+                            spot.lightPool.scaling.y = baseSize * 0.7 * atmosphericShimmer;
+                            spot.lightPool.visibility = 0.9;
+                            spot.poolMat.emissiveColor = this.currentSpotColor.scale(1.0 * atmosphericShimmer);
+                        } else {
+                            spot.lightPool.visibility = 0;
+                        }
                         
                         // OUTER GLOW (soft falloff) - largest, softest
-                        poolPosition.y = 0.02;
-                        spot.lightPoolGlow.position.copyFrom(poolPosition);
-                        spot.lightPoolGlow.scaling.x = baseSize * 1.5 * atmosphericShimmer;
-                        spot.lightPoolGlow.scaling.y = baseSize * 1.5 * atmosphericShimmer;
-                        spot.lightPoolGlow.visibility = this.lightsActive ? 0.7 : 0;
-                        spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
+                        if (this.lightsActive) {
+                            poolPosition.y = 0.02;
+                            spot.lightPoolGlow.position.copyFrom(poolPosition);
+                            spot.lightPoolGlow.scaling.x = baseSize * 1.5 * atmosphericShimmer;
+                            spot.lightPoolGlow.scaling.y = baseSize * 1.5 * atmosphericShimmer;
+                            spot.lightPoolGlow.visibility = 0.7;
+                            spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
+                        } else {
+                            spot.lightPoolGlow.visibility = 0;
+                        }
                     }
                 }
                 
@@ -2311,22 +2323,27 @@ class VRClub {
         // Laser curtain show removed (was broken)
         
         // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR
-        // Truss fixture lens animation - DISABLED to avoid overlap with moving heads
-        // The moving head beams themselves provide the visual effect
-        /*
-        if (this.trussLights && this.trussLights.length > 0) {
-            const pulse = 0.5 + Math.sin(time * 4) * 0.5;
-            
-            // Fixtures glow with current spotlight color when lights are active
-            // Dim when spotlights off (during laser phase)
-            const fixtureIntensity = this.lightsActive ? pulse : 0.1;
-            
-            this.trussLights.forEach((light, i) => {
-                // Use spotlight color for hyperrealistic effect
-                light.lensMat.emissiveColor = this.currentSpotColor.scale(fixtureIntensity);
+        // Update spotlight fixture lenses - make them VERY BRIGHT when active
+        // These are the actual light sources visible on the moving heads
+        if (this.spotlights && this.spotlights.length > 0) {
+            this.spotlights.forEach((spot, i) => {
+                if (spot.fixture) {
+                    // Find corresponding lens from trussLights if available
+                    const trussLight = this.trussLights && this.trussLights[i];
+                    if (trussLight && trussLight.lensMat) {
+                        if (this.lightsActive) {
+                            // VERY BRIGHT lens when active - brighter than beam
+                            const pulse = 0.7 + Math.sin(time * 4 + i * 0.5) * 0.3; // 0.4-1.0
+                            const audioPulse = 1.0 + audioData.bass * 0.5;
+                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(3.0 * pulse * audioPulse); // 3x brighter than beam
+                        } else {
+                            // Dim but visible when off
+                            trussLight.lensMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                        }
+                    }
+                }
             });
         }
-        */
         
         // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
         // with the new 26-pattern system including creative blackout shapes
