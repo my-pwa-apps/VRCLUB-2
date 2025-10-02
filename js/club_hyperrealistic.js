@@ -1695,14 +1695,15 @@ class VRClub {
             beam.isPickable = false;
             beam.rotationQuaternion = BABYLON.Quaternion.Identity();
             
-            // HYPERREALISTIC VISIBLE BEAM - Like light through haze
+            // HYPERREALISTIC VOLUMETRIC BEAM - Like light cutting through atmospheric haze
             const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
-            beamMat.diffuseColor = this.currentSpotColor;
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.8); // Bright but not too much
-            beamMat.alpha = 0.15; // More transparent - ethereal light beam effect
+            beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0); // No diffuse
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.6); // Soft glow
+            beamMat.specularColor = new BABYLON.Color3(0, 0, 0); // No specular
+            beamMat.alpha = 0.08; // Very transparent - like atmospheric particles
+            beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for volumetric effect
             beamMat.disableLighting = true;
             beamMat.backFaceCulling = false; // Visible from all angles
-            beamMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND; // Proper alpha blending
             beam.material = beamMat;
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
@@ -2155,12 +2156,15 @@ class VRClub {
                     spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.8 + audioData.bass * 0.4); // BRIGHTER (was 0.4)
                     
                     // Debug first spotlight occasionally
-                    if (i === 0 && Math.random() < 0.05) {
-                        console.log(`🔦 Spot 0 DEBUG:`);
+                    if (i === 0 && Math.random() < 0.1) {
+                        console.log(`🔦 Spot 0 FULL DEBUG:`);
+                        console.log(`  Fixture position: (${spot.basePos.x.toFixed(1)}, ${spot.basePos.y.toFixed(1)}, ${spot.basePos.z.toFixed(1)})`);
                         console.log(`  Direction: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)}, ${direction.z.toFixed(2)})`);
-                        console.log(`  Beam start: (${startPoint.x.toFixed(1)}, ${startPoint.y.toFixed(1)}, ${startPoint.z.toFixed(1)})`);
+                        console.log(`  Floor intersection dist: ${centerDistanceToFloor.toFixed(2)}m`);
+                        console.log(`  Floor intersection pos: (${floorIntersection.x.toFixed(1)}, ${floorIntersection.y.toFixed(1)}, ${floorIntersection.z.toFixed(1)})`);
                         console.log(`  Beam length: ${beamLength.toFixed(2)}m`);
                         console.log(`  Beam endpoint: (${endPoint.x.toFixed(1)}, ${endPoint.y.toFixed(1)}, ${endPoint.z.toFixed(1)})`);
+                        console.log(`  Beam midpoint: (${midPoint.x.toFixed(1)}, ${midPoint.y.toFixed(1)}, ${midPoint.z.toFixed(1)})`);
                     }
                     
                     // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
@@ -2183,9 +2187,9 @@ class VRClub {
                         spot.lightPool.scaling.x = poolSize;
                         spot.lightPool.scaling.y = poolSize;
                         
-                        // Debug pool sizing
-                        if (i === 0 && Math.random() < 0.05) {
-                            console.log(`  Floor dist: ${centerDistanceToFloor.toFixed(2)}m, beam width: ${beamWidthAtFloor.toFixed(2)}m, pool size: ${poolSize.toFixed(2)}`);
+                        // Debug pool sizing and position
+                        if (i === 0 && Math.random() < 0.1) {
+                            console.log(`  📍 POOL: pos=(${poolPosition.x.toFixed(1)}, ${poolPosition.y.toFixed(2)}, ${poolPosition.z.toFixed(1)}), size=${poolSize.toFixed(2)}, width=${beamWidthAtFloor.toFixed(2)}m`);
                         }
                         
                         // Brightness based on distance (closer = brighter)
