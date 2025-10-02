@@ -2026,9 +2026,15 @@ class VRClub {
                     }
                 }
                 
-                // Set direction (pointing from truss to dance floor)
-                const direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
+                // Set direction (pointing from truss DOWN to dance floor)
+                // Direction should always have strong downward component (negative Y)
+                const direction = new BABYLON.Vector3(dirX, -1.5, dirZ).normalize(); // Stronger downward bias
                 spot.light.direction = direction;
+                
+                // Debug direction occasionally
+                if (i === 0 && Math.random() < 0.005) {
+                    console.log(`Spot 0 direction: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)}, ${direction.z.toFixed(2)}), basePos: (${spot.basePos.x}, ${spot.basePos.y}, ${spot.basePos.z})`);
+                }
                 
                 // Dynamic beam angle (simulates zoom adjustment) - subtle variation
                 const baseAngle = Math.PI / 6; // 30 degrees base
@@ -2064,21 +2070,32 @@ class VRClub {
                     // Scale beam to actual length
                     spot.beam.scaling.y = beamLength;
                     
-                    // Position beam midpoint
+                    // Position beam midpoint along direction from source
                     const beamMidpoint = spot.basePos.add(direction.scale(beamLength * 0.5));
                     spot.beam.position.copyFrom(beamMidpoint);
                     
-                    // Rotate beam to point along direction
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const rotAxis = BABYLON.Vector3.Cross(up, direction);
-                    const rotAngle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
+                    // Debug beam positioning
+                    if (i === 0 && Math.random() < 0.005) {
+                        console.log(`Spot 0 beam: length=${beamLength.toFixed(2)}m, midpoint=(${beamMidpoint.x.toFixed(1)}, ${beamMidpoint.y.toFixed(1)}, ${beamMidpoint.z.toFixed(1)})`);
+                    }
                     
-                    if (rotAxis.length() > 0.001) {
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), rotAngle);
+                    // Orient beam using rotation from Y-axis to direction vector
+                    // Cylinder is created along positive Y axis, we need to rotate it to match direction
+                    const yAxis = new BABYLON.Vector3(0, 1, 0);
+                    const axis = BABYLON.Vector3.Cross(yAxis, direction);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(yAxis, direction));
+                    
+                    if (axis.length() > 0.0001) {
+                        // Normal case - rotate around perpendicular axis
+                        const quat = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
+                        spot.beam.rotationQuaternion = quat;
                     } else {
-                        spot.beam.rotationQuaternion = BABYLON.Vector3.Dot(up, direction) > 0 ?
-                            BABYLON.Quaternion.Identity() :
-                            BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                        // Edge case - direction aligned with Y axis
+                        if (direction.y > 0) {
+                            spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+                        } else {
+                            spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI);
+                        }
                     }
                     
                     // Dynamic zoom effect (beam width variation)
