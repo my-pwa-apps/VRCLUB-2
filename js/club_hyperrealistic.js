@@ -2053,10 +2053,26 @@ class VRClub {
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
                 if (spot.beam) {
-                    // Raycast to find actual surface distance
-                    const ray = new BABYLON.Ray(spot.basePos, direction, 30);
+                    // Calculate beam length to reach floor (y=0) or maximum distance
+                    // This ensures beams always extend fully, even when hitting surfaces diagonally
+                    let beamLength;
+                    let endPoint;
+                    
+                    if (direction.y < -0.01) {
+                        // Beam pointing downward - calculate distance to floor plane (y=0)
+                        const distanceToFloor = spot.basePos.y / Math.abs(direction.y);
+                        beamLength = Math.min(distanceToFloor, 20); // Cap at 20m
+                        endPoint = spot.basePos.add(direction.scale(beamLength));
+                    } else {
+                        // Beam pointing horizontal or upward - use fixed length
+                        beamLength = 15;
+                        endPoint = spot.basePos.add(direction.scale(beamLength));
+                    }
+                    
+                    // Raycast ONLY for floor pool positioning (where light hits)
+                    const ray = new BABYLON.Ray(spot.basePos, direction, beamLength + 5);
                     const hit = this.scene.pickWithRay(ray, (mesh) => {
-                        // ONLY accept floor, walls, and LED wall - ignore everything else
+                        // ONLY accept floor, walls, and LED wall
                         return mesh.isPickable && 
                                (mesh.name === 'floor' || 
                                 mesh.name === 'leftWall' || 
@@ -2064,15 +2080,6 @@ class VRClub {
                                 mesh.name === 'backWall' || 
                                 mesh.name.includes('ledPanel'));
                     });
-                    
-                    // Calculate where beam ends (either hit surface or default distance)
-                    let beamLength = 10; // Default beam length
-                    let endPoint = spot.basePos.add(direction.scale(beamLength));
-                    
-                    if (hit && hit.hit && hit.pickedPoint) {
-                        beamLength = BABYLON.Vector3.Distance(spot.basePos, hit.pickedPoint);
-                        endPoint = hit.pickedPoint;
-                    }
                     
                     // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
                     // Cylinder with height=1 extends from -0.5 to +0.5 in local Y
@@ -2152,10 +2159,11 @@ class VRClub {
                     
                     // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
                     if (spot.lightPool) {
-                        // Position at end point (slightly above surface to prevent z-fighting)
-                        spot.lightPool.position.x = endPoint.x;
-                        spot.lightPool.position.y = endPoint.y + 0.02; // Very close to surface
-                        spot.lightPool.position.z = endPoint.z;
+                        // Position at raycast hit point if available, otherwise at beam endpoint
+                        const poolPosition = (hit && hit.hit && hit.pickedPoint) ? hit.pickedPoint : endPoint;
+                        spot.lightPool.position.x = poolPosition.x;
+                        spot.lightPool.position.y = poolPosition.y + 0.02; // Very close to surface
+                        spot.lightPool.position.z = poolPosition.z;
                         
                         // Size based on beam width and distance - keep spots distinct
                         const poolSize = 0.8 + (beamLength * 0.05) * zoomFactor; // Smaller, more focused
@@ -2201,6 +2209,9 @@ class VRClub {
         // Laser curtain show removed (was broken)
         
         // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR
+        // Truss fixture lens animation - DISABLED to avoid overlap with moving heads
+        // The moving head beams themselves provide the visual effect
+        /*
         if (this.trussLights && this.trussLights.length > 0) {
             const pulse = 0.5 + Math.sin(time * 4) * 0.5;
             
@@ -2213,6 +2224,7 @@ class VRClub {
                 light.lensMat.emissiveColor = this.currentSpotColor.scale(fixtureIntensity);
             });
         }
+        */
         
         // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
         // with the new 26-pattern system including creative blackout shapes
@@ -2221,6 +2233,7 @@ class VRClub {
         }
         
         // Update strobes - ALWAYS ACTIVE with variable intensity
+        // Strobe lights animation
         if (this.strobes && this.strobes.length > 0) {
             this.strobes.forEach((strobe, i) => {
                 // Handle ongoing flash
