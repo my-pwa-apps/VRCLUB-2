@@ -2053,28 +2053,23 @@ class VRClub {
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
                 if (spot.beam) {
-                    // Calculate beam length - needs to be longer than floor intersection
-                    // so the EDGES of the 4m-wide cone reach the floor at diagonal angles
-                    let beamLength;
-                    let endPoint;
+                    // Calculate where beam centerline intersects floor (for pool positioning)
+                    let centerDistanceToFloor;
+                    let floorIntersection;
                     
                     if (direction.y < -0.01) {
-                        // Beam pointing downward - calculate distance to floor plane (y=0)
-                        const centerDistanceToFloor = spot.basePos.y / Math.abs(direction.y);
-                        
-                        // Calculate how much extra length we need for cone edges to reach floor
-                        // Cone diameter at floor = 4m, so radius = 2m
-                        // For diagonal beams, we need: extra = radius / cos(angle from vertical)
-                        const verticalComponent = Math.abs(direction.y); // How "downward" it points (0-1)
-                        const extraForConeWidth = verticalComponent > 0.5 ? (2.0 / verticalComponent) : 4.0;
-                        
-                        beamLength = centerDistanceToFloor + extraForConeWidth;
-                        endPoint = spot.basePos.add(direction.scale(beamLength));
+                        centerDistanceToFloor = spot.basePos.y / Math.abs(direction.y);
+                        floorIntersection = spot.basePos.add(direction.scale(centerDistanceToFloor));
+                        floorIntersection.y = 0; // Clamp to floor
                     } else {
-                        // Beam pointing horizontal or upward - use fixed length
-                        beamLength = 15;
-                        endPoint = spot.basePos.add(direction.scale(beamLength));
+                        centerDistanceToFloor = 15;
+                        floorIntersection = spot.basePos.add(direction.scale(centerDistanceToFloor));
                     }
+                    
+                    // Calculate beam length - STOP at floor, don't extend below
+                    // The beam should END when its centerline hits y=0
+                    let beamLength = centerDistanceToFloor;
+                    let endPoint = floorIntersection.clone();
                     
                     // Raycast ONLY for floor pool positioning (where light hits)
                     const ray = new BABYLON.Ray(spot.basePos, direction, 30);
@@ -2170,35 +2165,28 @@ class VRClub {
                     
                     // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
                     if (spot.lightPool) {
-                        // Calculate exact point where beam centerline hits floor (y=0)
-                        let poolPosition;
-                        if (direction.y < -0.01) {
-                            // Calculate intersection with floor plane (y=0)
-                            const distanceToFloor = spot.basePos.y / Math.abs(direction.y);
-                            poolPosition = spot.basePos.add(direction.scale(distanceToFloor));
-                            poolPosition.y = 0.02; // Slightly above floor to prevent z-fighting
-                            
-                            // Debug pool positioning
-                            if (i === 0 && Math.random() < 0.05) {
-                                console.log(`  Floor intersection: distToFloor=${distanceToFloor.toFixed(2)}m`);
-                                console.log(`  Pool position: (${poolPosition.x.toFixed(1)}, ${poolPosition.y.toFixed(2)}, ${poolPosition.z.toFixed(1)})`);
-                            }
-                        } else if (hit && hit.hit && hit.pickedPoint) {
-                            // Use raycast hit for horizontal beams
-                            poolPosition = hit.pickedPoint.clone();
-                            poolPosition.y += 0.02;
-                        } else {
-                            // Fallback to endpoint
-                            poolPosition = endPoint.clone();
-                            poolPosition.y = 0.02;
-                        }
-                        
+                        // Use the pre-calculated floor intersection point
+                        const poolPosition = floorIntersection.clone();
+                        poolPosition.y = 0.02; // Slightly above floor to prevent z-fighting
                         spot.lightPool.position.copyFrom(poolPosition);
                         
-                        // Size based on beam width and distance - keep spots distinct
-                        const poolSize = 0.8 + (beamLength * 0.05) * zoomFactor; // Smaller, more focused
+                        // Calculate beam width at floor intersection point
+                        // Cone: narrow end = 0.3m diameter, wide end = 4.0m diameter
+                        // Linear interpolation based on distance along beam
+                        const narrowDiameter = 0.3;
+                        const wideDiameter = 4.0;
+                        const beamProgress = centerDistanceToFloor / beamLength; // How far along beam (0-1)
+                        const beamWidthAtFloor = narrowDiameter + (wideDiameter - narrowDiameter) * beamProgress;
+                        
+                        // Pool size matches beam width at floor, with zoom effect
+                        const poolSize = (beamWidthAtFloor / 2) * zoomFactor; // Radius = diameter/2
                         spot.lightPool.scaling.x = poolSize;
                         spot.lightPool.scaling.y = poolSize;
+                        
+                        // Debug pool sizing
+                        if (i === 0 && Math.random() < 0.05) {
+                            console.log(`  Floor dist: ${centerDistanceToFloor.toFixed(2)}m, beam width: ${beamWidthAtFloor.toFixed(2)}m, pool size: ${poolSize.toFixed(2)}`);
+                        }
                         
                         // Brightness based on distance (closer = brighter)
                         const distanceBrightness = Math.max(0.6, 1 - (beamLength / 18));
