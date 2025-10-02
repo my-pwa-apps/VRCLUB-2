@@ -2030,15 +2030,20 @@ class VRClub {
                 
                 // HYPERREALISTIC VOLUMETRIC BEAM - raycast for dynamic length
                 if (spot.beamLayers && spot.beamLayers.length > 0) {
-                    const ray = new BABYLON.Ray(spot.basePos, direction, 30);
+                    const ray = new BABYLON.Ray(spot.basePos, direction, 35);
                     const hit = this.scene.pickWithRay(ray, (mesh) => {
                         return mesh.isPickable && !mesh.name.includes('beam') && !mesh.name.includes('Housing') && 
                                !mesh.name.includes('fixture') && !mesh.name.includes('truss') && !mesh.name.includes('layer');
                     });
                     
-                    let beamLength = 10; // Default length
+                    let beamLength = 12; // Default length (if no hit, beam extends 12m)
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(spot.basePos, hit.pickedPoint);
+                    }
+                    
+                    // Debug first spotlight
+                    if (i === 0 && Math.random() < 0.01) {
+                        console.log(`Spotlight 0: beamLength=${beamLength.toFixed(2)}m, hit=${hit?.hit}, direction=`, direction);
                     }
                     
                     // Orient beam along direction (calculate once for all layers)
@@ -2061,30 +2066,34 @@ class VRClub {
                     
                     // Update ALL beam layers for volumetric depth
                     spot.beamLayers.forEach((layer, layerIdx) => {
-                        // Scale each layer to beam length
+                        // Scale each layer to beam length (cylinder height = 1, so scaling.y = actual length)
                         layer.mesh.scaling.y = beamLength;
                         
-                        // Position layer midpoint along direction
-                        layer.mesh.position = spot.basePos.add(direction.scale(beamLength * 0.5));
+                        // Position layer midpoint along direction from light source
+                        const beamMidpoint = spot.basePos.add(direction.scale(beamLength * 0.5));
+                        layer.mesh.position.copyFrom(beamMidpoint);
                         
-                        // Apply rotation
+                        // Apply rotation to point along direction
                         layer.mesh.rotationQuaternion = beamRotation.clone();
                         
                         // Volumetric visibility - inner brighter, outer softer
-                        const layerIntensity = 1 - (layerIdx * 0.25);
+                        const layerIntensity = 1 - (layerIdx * 0.2); // Less falloff (was 0.25)
                         const finalVisibility = this.lightsActive ? 
-                            (0.8 * distanceFactor * layerIntensity + audioIntensity) : 0;
+                            (0.95 * layerIntensity + audioIntensity) : 0; // Higher base visibility
                         
                         layer.mesh.visibility = finalVisibility;
                         
-                        // Dynamic alpha for depth
+                        // Dynamic alpha for depth - MORE VISIBLE
                         const baseAlpha = layer.alphaBase;
-                        layer.material.alpha = baseAlpha * distanceFactor * (1 + audioIntensity);
+                        layer.material.alpha = baseAlpha * (0.8 + audioIntensity * 0.5); // Less distance fade
                         
-                        // Emissive intensity varies per layer
-                        const emissivePulse = 0.6 + Math.sin(time * 2 + layerIdx) * 0.2;
+                        // UPDATE COLOR EVERY FRAME to match current spot color
+                        layer.material.diffuseColor = this.currentSpotColor;
+                        
+                        // Emissive intensity varies per layer - matches current color
+                        const emissivePulse = 0.7 + Math.sin(time * 2 + layerIdx) * 0.2;
                         layer.material.emissiveColor = this.currentSpotColor.scale(
-                            emissivePulse * distanceFactor * layerIntensity
+                            emissivePulse * layerIntensity
                         );
                     });
                 }
