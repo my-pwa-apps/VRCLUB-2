@@ -2161,11 +2161,24 @@ class VRClub {
                     
                     // Update light pool (floor spot) - BRIGHT VISIBLE CIRCLE
                     if (spot.lightPool) {
-                        // Position at raycast hit point if available, otherwise at beam endpoint
-                        const poolPosition = (hit && hit.hit && hit.pickedPoint) ? hit.pickedPoint : endPoint;
-                        spot.lightPool.position.x = poolPosition.x;
-                        spot.lightPool.position.y = poolPosition.y + 0.02; // Very close to surface
-                        spot.lightPool.position.z = poolPosition.z;
+                        // Calculate exact point where beam centerline hits floor (y=0)
+                        let poolPosition;
+                        if (direction.y < -0.01) {
+                            // Calculate intersection with floor plane (y=0)
+                            const distanceToFloor = spot.basePos.y / Math.abs(direction.y);
+                            poolPosition = spot.basePos.add(direction.scale(distanceToFloor));
+                            poolPosition.y = 0.02; // Slightly above floor to prevent z-fighting
+                        } else if (hit && hit.hit && hit.pickedPoint) {
+                            // Use raycast hit for horizontal beams
+                            poolPosition = hit.pickedPoint.clone();
+                            poolPosition.y += 0.02;
+                        } else {
+                            // Fallback to endpoint
+                            poolPosition = endPoint.clone();
+                            poolPosition.y = 0.02;
+                        }
+                        
+                        spot.lightPool.position.copyFrom(poolPosition);
                         
                         // Size based on beam width and distance - keep spots distinct
                         const poolSize = 0.8 + (beamLength * 0.05) * zoomFactor; // Smaller, more focused
