@@ -267,9 +267,11 @@ class VRClub {
     }
 
     createWallLEDStrips() {
-        // Vertical LED strips for atmosphere
+        // Vertical LED strips for atmosphere - sync with spotlight colors
+        this.wallStrips = []; // Store for color syncing
+        
         const stripMat = new BABYLON.StandardMaterial("stripMat", this.scene);
-        stripMat.emissiveColor = new BABYLON.Color3(0, 0.5, 1); // Cyan glow
+        stripMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Start with red (will sync)
         stripMat.disableLighting = true;
         
         // Left wall strips
@@ -280,7 +282,9 @@ class VRClub {
                 depth: 0.02
             }, this.scene);
             strip.position = new BABYLON.Vector3(-16.8, 5, -25 + (i * 7));
-            strip.material = stripMat.clone("stripL" + i);
+            const mat = stripMat.clone("stripL" + i);
+            strip.material = mat;
+            this.wallStrips.push({ mesh: strip, material: mat });
         }
         
         // Right wall strips
@@ -291,7 +295,9 @@ class VRClub {
                 depth: 0.02
             }, this.scene);
             strip.position = new BABYLON.Vector3(16.8, 5, -25 + (i * 7));
-            strip.material = stripMat.clone("stripR" + i);
+            const mat = stripMat.clone("stripR" + i);
+            strip.material = mat;
+            this.wallStrips.push({ mesh: strip, material: mat });
         }
     }
 
@@ -405,9 +411,14 @@ class VRClub {
         const truss3 = createTriangularTruss("truss3", 20, new BABYLON.Vector3(0, 8, -16));
         
         // Cross beams connecting the trusses - also triangular
+        // Store side beams for laser mounting
+        this.sideTrusses = {};
         for (let i = -8; i <= 8; i += 4) {
             const crossBeam = createTriangularTruss("crossBeam" + i, 8, new BABYLON.Vector3(i, 8, -12));
             crossBeam.rotation.y = Math.PI / 2;
+            if (i === -8 || i === 8) {
+                this.sideTrusses[i] = crossBeam; // Store left (-8) and right (8) side trusses
+            }
         }
         
         // Diagonal support cables/wires from ceiling to truss
@@ -1172,13 +1183,58 @@ class VRClub {
         ];
         
         laserPositions.forEach((pos, i) => {
+            // Determine parent truss for side lasers
+            let parentTruss = null;
+            let localX = pos.x;
+            let localZ = pos.z;
+            
+            // Side lasers mount to side trusses (±8)
+            if (pos.x < -3 && this.sideTrusses && this.sideTrusses[-8]) {
+                // Left laser mounts to left side truss at x: -8
+                parentTruss = this.sideTrusses[-8];
+                localX = 2; // Offset from truss center (truss is at x:-8, laser at x:-6)
+                localZ = pos.z - (-12); // Relative to truss z position
+            } else if (pos.x > 3 && this.sideTrusses && this.sideTrusses[8]) {
+                // Right laser mounts to right side truss at x: 8
+                parentTruss = this.sideTrusses[8];
+                localX = -2; // Offset from truss center (truss is at x:8, laser at x:6)
+                localZ = pos.z - (-12); // Relative to truss z position
+            }
+            
+            // Mounting clamp connecting to truss
+            const clamp = BABYLON.MeshBuilder.CreateBox("laserClamp" + i, {
+                width: 0.3,
+                height: 0.15,
+                depth: 0.3
+            }, this.scene);
+            
+            if (parentTruss) {
+                clamp.position = new BABYLON.Vector3(localX, -0.2, localZ);
+                clamp.parent = parentTruss;
+            } else {
+                clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
+            }
+            clamp.isPickable = false;
+            
+            const clampMat = new BABYLON.PBRMetallicRoughnessMaterial("clampMat" + i, this.scene);
+            clampMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            clampMat.metallic = 1.0;
+            clampMat.roughness = 0.4;
+            clamp.material = clampMat;
+            
             // Laser housing UNDER truss (hanging from clamp)
             const housing = BABYLON.MeshBuilder.CreateBox("laserHousing" + i, {
                 width: 0.25,
                 height: 0.2,
                 depth: 0.35
             }, this.scene);
-            housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+            
+            if (parentTruss) {
+                housing.position = new BABYLON.Vector3(localX, -0.45, localZ);
+                housing.parent = parentTruss;
+            } else {
+                housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
+            }
             housing.isPickable = false;
             
             const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("laserHousingMat" + i, this.scene);
@@ -1187,20 +1243,6 @@ class VRClub {
             housingMat.roughness = 0.3;
             housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
             housing.material = housingMat;
-            
-            // Mounting clamp connecting to truss
-            const clamp = BABYLON.MeshBuilder.CreateBox("laserClamp" + i, {
-                width: 0.3,
-                height: 0.15,
-                depth: 0.3
-            }, this.scene);
-            clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
-            clamp.isPickable = false;
-            const clampMat = new BABYLON.PBRMetallicRoughnessMaterial("clampMat" + i, this.scene);
-            clampMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.3);
-            clampMat.metallic = 1.0;
-            clampMat.roughness = 0.4;
-            clamp.material = clampMat;
             
             // Create beams based on laser type
             const beams = [];
@@ -1606,6 +1648,13 @@ class VRClub {
                         spot.beamMat.emissiveColor = this.currentSpotColor.scale(0.6);
                     }
                 });
+                
+                // Update wall LED strips to match spotlight color
+                if (this.wallStrips) {
+                    this.wallStrips.forEach(strip => {
+                        strip.material.emissiveColor = this.currentSpotColor;
+                    });
+                }
                 
                 console.log(`🎨 All spotlights changed to: ${this.spotColorIndex}`);
             }
