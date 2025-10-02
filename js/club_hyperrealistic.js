@@ -76,9 +76,9 @@ class VRClub {
         // Add glow layer for neon/LED effects (works in both desktop and VR)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
             mainTextureFixedSize: 1024, // Increased for VR
-            blurKernelSize: 64
+            blurKernelSize: 32  // Reduced for sharper shapes
         });
-        this.glowLayer.intensity = 2.5; // Increased intensity for VR visibility
+        this.glowLayer.intensity = 0.8; // Reduced for sharper LED shapes
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -493,8 +493,8 @@ class VRClub {
             this.scene
         );
         discoSpot.diffuse = new BABYLON.Color3(1, 1, 1); // Bright white
-        discoSpot.intensity = 40; // Very bright to create strong reflections
-        discoSpot.range = 15;
+        discoSpot.intensity = 60; // VERY bright to light up mirror ball and create strong reflections
+        discoSpot.range = 20;
         
         // Secondary disco spotlight (colored, alternates)
         const discoSpot2 = new BABYLON.SpotLight("discoSpot2",
@@ -505,8 +505,8 @@ class VRClub {
             this.scene
         );
         discoSpot2.diffuse = new BABYLON.Color3(1, 0.2, 0.8); // Pink/magenta
-        discoSpot2.intensity = 30;
-        discoSpot2.range = 15;
+        discoSpot2.intensity = 50; // Bright to create visible reflections
+        discoSpot2.range = 20;
         
         // Store for animation
         this.discoBall = discoBall;
@@ -1519,28 +1519,31 @@ class VRClub {
             this.discoBallRotation += 0.003; // Slow rotation (18 seconds per rotation)
             this.discoBall.rotation.y = this.discoBallRotation;
             
-            // Only activate spotlights during disco ball show
-            if (this.discoBallShowActive) {
-                // Alternate disco ball spotlights (every 8 seconds)
-                if (Math.floor(time) % 8 === 0 && Math.floor(time) !== this.discoSpotToggle) {
-                    this.discoSpotToggle = Math.floor(time);
-                    // Toggle between main spot and colored spot
-                    if (this.discoMainSpot.intensity > 0) {
-                        this.discoMainSpot.intensity = 40;
-                        this.discoSpot2.intensity = 0;
-                    } else {
-                        this.discoMainSpot.intensity = 0;
-                        this.discoSpot2.intensity = 30;
-                    }
+            // Disco ball spotlights ALWAYS ON to create reflections around the room
+            // Alternate between main spot and colored spot (every 8 seconds)
+            if (Math.floor(time) % 8 === 0 && Math.floor(time) !== this.discoSpotToggle) {
+                this.discoSpotToggle = Math.floor(time);
+                // Toggle between main spot and colored spot
+                if (this.discoMainSpot.intensity > 0) {
+                    this.discoMainSpot.intensity = 60;
+                    this.discoSpot2.intensity = 0;
+                } else {
+                    this.discoMainSpot.intensity = 0;
+                    this.discoSpot2.intensity = 50;
                 }
-            } else {
-                // Turn off disco spotlights when not in show mode
-                this.discoMainSpot.intensity = 0;
-                this.discoSpot2.intensity = 0;
             }
             
-            // Update reflection spots from disco ball facets (only when show active)
+            // During special show, increase intensity even more
             if (this.discoBallShowActive) {
+                if (this.discoMainSpot.intensity > 0) {
+                    this.discoMainSpot.intensity = 100;
+                } else {
+                    this.discoSpot2.intensity = 80;
+                }
+            }
+            
+            // Update reflection spots from disco ball facets (always active now)
+            if (true) {
                 const lightSource = this.discoMainSpot.intensity > 0 ? 
                     this.discoMainSpot.position : this.discoSpot2.position;
                 const ballCenter = this.discoBall.position;
@@ -1910,17 +1913,17 @@ class VRClub {
             this.cachedColors.cyan
         ];
         
-        // AUDIO REACTIVE: Quick pattern changes to match music energy
-        const patternSpeed = audioData.average > 0.6 ? 2 : 3; // 2s when energetic, 3s when calm
+        // AUDIO REACTIVE: Quick pattern changes for club energy
+        const patternSpeed = audioData.average > 0.6 ? 1 : 1.5; // 1s when energetic, 1.5s when calm - FASTER for club atmosphere
         
-        if (Math.floor(time) % 5 === 0 && Math.floor(time) !== this.lastColorChange) {
+        if (Math.floor(time * 2) % 6 === 0 && Math.floor(time * 2) !== this.lastColorChange) { // Change color every 3 seconds
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
-            this.lastColorChange = Math.floor(time);
+            this.lastColorChange = Math.floor(time * 2);
         }
         
-        if (Math.floor(time) % patternSpeed === 0 && Math.floor(time) !== this.lastPatternChange) {
+        if (Math.floor(time * 2) % (patternSpeed * 2) === 0 && Math.floor(time * 2) !== this.lastPatternChange) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
-            this.lastPatternChange = Math.floor(time);
+            this.lastPatternChange = Math.floor(time * 2);
         }
         
         patterns[this.ledPattern].call(this, colors[this.ledColorIndex], time, audioData);
