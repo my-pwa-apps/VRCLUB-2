@@ -875,17 +875,7 @@ class VRClub {
         vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24);
         vjConsole.material = tableMat;
         
-        // VJ Console label
-        const vjLabel = BABYLON.MeshBuilder.CreatePlane("vjLabel", {
-            width: 2.0,
-            height: 0.3
-        }, this.scene);
-        vjLabel.position = new BABYLON.Vector3(3.5, 1.2, -24);
-        // Removed rotation to avoid diagonal appearance
-        const vjLabelMat = new BABYLON.StandardMaterial("vjLabelMat", this.scene);
-        vjLabelMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0);
-        vjLabelMat.disableLighting = true;
-        vjLabel.material = vjLabelMat;
+        // VJ Console label removed - buttons are self-explanatory by color
         
         // === VJ CONTROL BUTTONS ===
         const toggleButtons = [
@@ -960,18 +950,7 @@ class VRClub {
                 label: btnDef.label
             });
             
-            // Label above button (removed to avoid diagonal clutter)
-            const labelPlane = BABYLON.MeshBuilder.CreatePlane("label_" + btnDef.control, {
-                width: 0.4,
-                height: 0.12
-            }, this.scene);
-            labelPlane.position = new BABYLON.Vector3(btnDef.x, 1.12, zPos);
-            // Removed rotation.x to keep labels flat and clean
-            
-            const labelMat = new BABYLON.StandardMaterial("labelMat_" + btnDef.control, this.scene);
-            labelMat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8);
-            labelMat.disableLighting = true;
-            labelPlane.material = labelMat;
+            // Labels removed - they were blocking button access
         });
         
         // Laptop removed - doesn't add useful functionality
@@ -993,13 +972,13 @@ class VRClub {
         speakerMat.roughness = 0.7;
         speakerMat.maxSimultaneousLights = this.maxLights;
         
-        // Left PA stack - FRONT OF DANCE FLOOR (moved forward)
-        this.createPAStack(-10, -8, speakerMat);
+        // Left PA stack - NEXT TO DJ BOOTH (beside LED wall)
+        this.createPAStack(-7, -25, speakerMat);
         
-        // Right PA stack - FRONT OF DANCE FLOOR (moved forward)
-        this.createPAStack(10, -8, speakerMat);
+        // Right PA stack - NEXT TO DJ BOOTH (beside LED wall)
+        this.createPAStack(7, -25, speakerMat);
         
-        console.log("✅ PA speaker system created at x=±10, z=-8 (front of dance floor)");
+        console.log("✅ PA speaker system created at x=±7, z=-25 (beside DJ booth)");
     }
 
     createPAStack(xPos, zPos, material) {
@@ -1087,19 +1066,7 @@ class VRClub {
         ledLight.intensity = 2;
         ledLight.range = 5;
         
-        // DEBUG: Add bright glowing marker box at speaker location
-        const marker = BABYLON.MeshBuilder.CreateBox("speakerMarker" + xPos, {
-            width: 0.5,
-            height: 8, // Tall marker
-            depth: 0.5
-        }, this.scene);
-        marker.position = new BABYLON.Vector3(xPos, 4, zPos);
-        const markerMat = new BABYLON.StandardMaterial("markerMat" + xPos, this.scene);
-        markerMat.emissiveColor = new BABYLON.Color3(1, 0, 1); // Bright magenta
-        markerMat.disableLighting = true;
-        marker.material = markerMat;
-        
-        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m with MAGENTA MARKER`);
+        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m`);
     }
 
     createLEDWall() {
