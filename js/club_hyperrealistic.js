@@ -2031,7 +2031,7 @@ class VRClub {
             );
             strobeLight.diffuse = new BABYLON.Color3(1, 1, 1);
             strobeLight.intensity = 0; // Off by default
-            strobeLight.range = 30;
+            strobeLight.range = 50; // Increased from 30
             
             this.strobes.push({ 
                 mesh: strobe, 
@@ -3009,7 +3009,16 @@ class VRClub {
         }
         
         // Calculate global phase for spotlight patterns (used in multiple places)
-        const globalPhase = time * 0.8; // FASTER movement (was 0.4, now 0.8 - 2x speed)
+        // ONLY advance patterns when spotlights are active - freeze when disabled
+        if (this.lightsActive && !this.pausedPhase) {
+            this.lastActivePhase = time * 0.8; // Update phase while active
+        } else if (!this.pausedPhase && !this.lightsActive) {
+            this.pausedPhase = this.lastActivePhase || 0; // Store phase when disabled
+        }
+        if (this.lightsActive && this.pausedPhase) {
+            this.pausedPhase = null; // Resume from pause
+        }
+        const globalPhase = this.lightsActive ? this.lastActivePhase : (this.pausedPhase || 0);
         const audioSpeedMultiplier = 1.0; // Audio control disabled - focus on basics
         
         if (this.spotlights && this.lightsActive) {
@@ -3411,14 +3420,14 @@ class VRClub {
                     if (strobe.flashDuration > 0) {
                         strobe.flashDuration -= 0.016;
                     
-                    // Variable intensity - sometimes super bright, sometimes moderate
-                    const intensityVariation = strobe.currentIntensity || 50; // Store current intensity
+                    // Variable intensity - SUPER BRIGHT strobes
+                    const intensityVariation = strobe.currentIntensity || 80; // Store current intensity (increased from 50)
                     const burstPhase = Math.floor(strobe.flashDuration * 40) % 2; // Fast bursts
                     const intensity = burstPhase === 0 ? intensityVariation : 0;
                     
-                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity);
-                    strobe.light.intensity = intensity * 120; // Very bright
-                    strobe.light.range = 50 + (intensityVariation * 0.5); // Wider range for brighter flashes
+                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5); // Brighter emissive (1.5x)
+                    strobe.light.intensity = intensity * 200; // MUCH brighter (was 120, now 200)
+                    strobe.light.range = 80 + (intensityVariation * 0.8); // Wider range (was 50, now 80)
                     
                     if (strobe.flashDuration <= 0) {
                         strobe.material.emissiveColor = this.cachedColors.black;
@@ -3428,10 +3437,10 @@ class VRClub {
                 } else {
                     // Check if it's time for next flash (ALWAYS fires, no condition)
                     if (time >= strobe.nextFlashTime) {
-                        // Vary intensity: 60% chance medium (30-40), 40% chance super bright (50-70)
+                        // Vary intensity: MUCH BRIGHTER - 60% bright (60-80), 40% super bright (80-100)
                         strobe.currentIntensity = Math.random() > 0.6 ? 
-                            (30 + Math.random() * 10) : // Medium intensity
-                            (50 + Math.random() * 20);  // Super bright
+                            (60 + Math.random() * 20) : // Bright (was 30-40, now 60-80)
+                            (80 + Math.random() * 20);  // Super bright (was 50-70, now 80-100)
                         
                         strobe.flashDuration = 0.15 + Math.random() * 0.2; // Duration 0.15-0.35s
                     }
@@ -4322,6 +4331,8 @@ class VRClub {
             this.audioElement = new Audio();
             this.audioElement.crossOrigin = "anonymous";
             this.audioElement.loop = true;
+            this.audioElement.autoplay = true; // Enable autoplay
+            this.audioElement.preload = "auto"; // Preload audio
         }
         
         // Set source
@@ -4333,26 +4344,35 @@ class VRClub {
             console.log(`🎵 Loading audio stream: ${url}`);
         }
         
-        // Play the audio
-        this.audioElement.play().then(() => {
-            this.audioStreamButton.isPlaying = true;
-            this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-            console.log("🔊 Audio stream playing");
-            
-            // Connect to audio analyzer
-            if (!this.audioContext && window.AudioContext) {
-                this.audioContext = new AudioContext();
-                this.audioAnalyser = this.audioContext.createAnalyser();
-                this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                this.audioSource.connect(this.audioAnalyser);
-                this.audioAnalyser.connect(this.audioContext.destination);
-                this.audioAnalyser.fftSize = 256;
-                console.log("🎚️ Audio analyzer connected");
-            }
-        }).catch(err => {
-            console.error("❌ Failed to play audio:", err);
-            this.showErrorMessage("Failed to play audio stream. Check the URL and CORS settings.");
-        });
+        // Force load and play immediately
+        this.audioElement.load();
+        
+        // Try to play immediately (user already interacted by clicking button)
+        const playPromise = this.audioElement.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                this.audioStreamButton.isPlaying = true;
+                this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+                console.log("🔊 Audio stream playing");
+                
+                // Connect to audio analyzer
+                if (!this.audioContext && window.AudioContext) {
+                    this.audioContext = new AudioContext();
+                    this.audioAnalyser = this.audioContext.createAnalyser();
+                    this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                    this.audioSource.connect(this.audioAnalyser);
+                    this.audioAnalyser.connect(this.audioContext.destination);
+                    this.audioAnalyser.fftSize = 256;
+                    console.log("🎚️ Audio analyzer connected");
+                }
+            }).catch(err => {
+                console.error("❌ Failed to play audio:", err);
+                // If autoplay fails, show message but keep audio ready
+                console.log("⚠️ Browser blocked autoplay - audio is loaded but paused");
+                this.showErrorMessage("Audio loaded but paused. Click the audio button again to play.");
+            });
+        }
     }
 
     startAudioFromFile(file) {
@@ -4363,32 +4383,42 @@ class VRClub {
             this.audioElement = new Audio();
             this.audioElement.crossOrigin = "anonymous";
             this.audioElement.loop = true;
+            this.audioElement.autoplay = true; // Enable autoplay
+            this.audioElement.preload = "auto"; // Preload audio
         }
         
         // Create object URL from file
         const fileUrl = URL.createObjectURL(file);
         this.audioElement.src = fileUrl;
         
-        // Play the audio
-        this.audioElement.play().then(() => {
-            this.audioStreamButton.isPlaying = true;
-            this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-            console.log(`🔊 Playing audio file: ${file.name}`);
-            
-            // Connect to audio analyzer
-            if (!this.audioContext && window.AudioContext) {
-                this.audioContext = new AudioContext();
-                this.audioAnalyser = this.audioContext.createAnalyser();
-                this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                this.audioSource.connect(this.audioAnalyser);
-                this.audioAnalyser.connect(this.audioContext.destination);
-                this.audioAnalyser.fftSize = 256;
-                console.log("🎚️ Audio analyzer connected");
-            }
-        }).catch(err => {
-            console.error("❌ Failed to play audio file:", err);
-            this.showErrorMessage(`Failed to play ${file.name}`);
-        });
+        // Force load
+        this.audioElement.load();
+        
+        // Try to play immediately (user already interacted by clicking button)
+        const playPromise = this.audioElement.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                this.audioStreamButton.isPlaying = true;
+                this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+                console.log(`🔊 Playing audio file: ${file.name}`);
+                
+                // Connect to audio analyzer
+                if (!this.audioContext && window.AudioContext) {
+                    this.audioContext = new AudioContext();
+                    this.audioAnalyser = this.audioContext.createAnalyser();
+                    this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                    this.audioSource.connect(this.audioAnalyser);
+                    this.audioAnalyser.connect(this.audioContext.destination);
+                    this.audioAnalyser.fftSize = 256;
+                    console.log("🎚️ Audio analyzer connected");
+                }
+            }).catch(err => {
+                console.error("❌ Failed to play audio file:", err);
+                console.log("⚠️ Browser blocked autoplay - audio is loaded but paused");
+                this.showErrorMessage(`Audio loaded but paused. Click the audio button again to play.`);
+            });
+        }
     }
 
     showErrorMessage(message) {
