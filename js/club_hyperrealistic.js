@@ -2503,54 +2503,50 @@ class VRClub {
                 // SYNCHRONIZED SWEEPING: All lights sweep together across dance floor
                 // Multiple patterns that change every 5 seconds + FLASHING PATTERN
                 const sweepPhase = globalPhase * audioSpeedMultiplier;
-                const sweepPattern = Math.floor(sweepPhase / 5) % 7; // 7 patterns now (added flashing)
+                const sweepPattern = Math.floor(sweepPhase / 5) % 7; // 7 patterns (6 sweeps + 1 strobe)
+                
+                // MAX 45 DEGREES = tan(45°) ≈ 1.0, so dirX and dirZ should be ≤ 0.6 for smooth angles
+                // This keeps beams within reasonable club range
                     
                     if (sweepPattern === 0) {
-                        // Linear sweep left to right - classic club move
-                        dirX = Math.sin(sweepPhase * 1.2) * 1.3; // Wide sweep
-                        dirZ = -0.5; // Point towards back of dance floor
+                        // Linear sweep left to right - SMOOTH continuous sweep
+                        dirX = Math.sin(sweepPhase * 0.8) * 0.6; // 45° max angle
+                        dirZ = -0.3; // Slight forward angle
                     } else if (sweepPattern === 1) {
-                        // Circular sweep - all lights rotate together
-                        dirX = Math.sin(sweepPhase * 0.8) * 1.1;
-                        dirZ = Math.cos(sweepPhase * 0.8) * 1.1;
+                        // Circular sweep - SMOOTH rotation
+                        dirX = Math.sin(sweepPhase * 0.6) * 0.5;
+                        dirZ = Math.cos(sweepPhase * 0.6) * 0.5;
                     } else if (sweepPattern === 2) {
-                        // Fan sweep - from center outwards and back
-                        const fanPhase = Math.sin(sweepPhase * 0.7);
-                        dirX = fanPhase * 1.4;
-                        dirZ = Math.abs(fanPhase) * -0.9;
+                        // Fan sweep - SMOOTH sine wave (no abs)
+                        const fanPhase = Math.sin(sweepPhase * 0.5);
+                        dirX = fanPhase * 0.6; // Full left-right smooth
+                        dirZ = -0.2; // Slight forward
                     } else if (sweepPattern === 3) {
-                        // Cross sweep - diagonal sweeps
-                        dirX = Math.sin(sweepPhase * 1.0) * 1.2;
-                        dirZ = Math.sin(sweepPhase * 1.0 + Math.PI / 4) * 1.2;
+                        // Cross sweep - SMOOTH diagonal
+                        dirX = Math.sin(sweepPhase * 0.7) * 0.5;
+                        dirZ = Math.cos(sweepPhase * 0.7) * 0.5;
                     } else if (sweepPattern === 4) {
-                        // Figure-8 sweep - complex synchronized pattern
-                        dirX = Math.sin(sweepPhase * 0.6) * 1.3;
-                        dirZ = Math.sin(sweepPhase * 1.2) * 0.9;
+                        // Figure-8 sweep - SMOOTH lissajous
+                        dirX = Math.sin(sweepPhase * 0.5) * 0.6;
+                        dirZ = Math.sin(sweepPhase * 1.0) * 0.4; // 2:1 ratio for figure-8
                     } else if (sweepPattern === 5) {
-                        // Pulse sweep - beams converge to center then spread out
-                        const pulsePhase = Math.sin(sweepPhase * 0.8);
-                        dirX = pulsePhase * Math.cos(sweepPhase * 0.5) * 1.2;
-                        dirZ = pulsePhase * Math.sin(sweepPhase * 0.5) * 1.0;
+                        // Pulse sweep - SMOOTH in/out breathing
+                        const pulsePhase = Math.sin(sweepPhase * 0.4); // Smooth sine
+                        const angle = sweepPhase * 0.3; // Slow rotation
+                        dirX = pulsePhase * Math.cos(angle) * 0.6;
+                        dirZ = pulsePhase * Math.sin(angle) * 0.6;
                     } else {
-                        // FLASHING PATTERN - Pattern 6: Rapid on/off with position changes
-                        // Fast strobe-like effect with synchronized position jumps
-                        const flashPhase = sweepPhase * 3.0; // 3x faster for flashing
-                        const flashOn = Math.floor(flashPhase * 8) % 2 === 0; // On/off at 8Hz
+                        // STROBE FLASHING - Pattern 6: All lights flash in place
+                        // Static position with rapid on/off
+                        const flashPhase = sweepPhase * 2.5; // Fast flashing
+                        const flashOn = Math.floor(flashPhase * 10) % 2 === 0; // 10Hz strobe
                         
                         if (flashOn) {
-                            // Snap to different positions on each flash
-                            const positionIndex = Math.floor(flashPhase) % 4;
-                            if (positionIndex === 0) {
-                                dirX = -1.2; dirZ = -0.3; // Left
-                            } else if (positionIndex === 1) {
-                                dirX = 1.2; dirZ = -0.3;  // Right
-                            } else if (positionIndex === 2) {
-                                dirX = 0; dirZ = -1.2;    // Center back
-                            } else {
-                                dirX = 0; dirZ = 0.3;     // Center front
-                            }
+                            // All lights point straight down center when flashing
+                            dirX = 0;
+                            dirZ = 0;
                         } else {
-                            // Off position - point straight down (will be hidden by visibility)
+                            // Off position (will be hidden by visibility)
                             dirX = 0;
                             dirZ = 0;
                         }
