@@ -2517,32 +2517,32 @@ class VRClub {
                 let dirX1 = 0, dirZ1 = 0; // Current pattern
                 let dirX2 = 0, dirZ2 = 0; // Next pattern
                 
-                // Calculate CURRENT pattern position
+                // Calculate CURRENT pattern position - FASTER for more energy
                 if (currentPattern === 0) {
-                    // Linear sweep left to right
-                    dirX1 = Math.sin(sweepPhase * 0.8) * 0.6;
+                    // Linear sweep left to right - FAST
+                    dirX1 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster (0.8 → 1.6)
                     dirZ1 = -0.3;
                 } else if (currentPattern === 1) {
-                    // Circular sweep
-                    dirX1 = Math.sin(sweepPhase * 0.6) * 0.5;
-                    dirZ1 = Math.cos(sweepPhase * 0.6) * 0.5;
+                    // Circular sweep - ENERGETIC
+                    dirX1 = Math.sin(sweepPhase * 1.2) * 0.5; // 2x faster (0.6 → 1.2)
+                    dirZ1 = Math.cos(sweepPhase * 1.2) * 0.5;
                 } else if (currentPattern === 2) {
-                    // Fan sweep
-                    const fanPhase = Math.sin(sweepPhase * 0.5);
+                    // Fan sweep - RAPID
+                    const fanPhase = Math.sin(sweepPhase * 1.0); // 2x faster (0.5 → 1.0)
                     dirX1 = fanPhase * 0.6;
                     dirZ1 = -0.2;
                 } else if (currentPattern === 3) {
-                    // Cross sweep
-                    dirX1 = Math.sin(sweepPhase * 0.7) * 0.5;
-                    dirZ1 = Math.cos(sweepPhase * 0.7) * 0.5;
+                    // Cross sweep - DYNAMIC
+                    dirX1 = Math.sin(sweepPhase * 1.4) * 0.5; // 2x faster (0.7 → 1.4)
+                    dirZ1 = Math.cos(sweepPhase * 1.4) * 0.5;
                 } else if (currentPattern === 4) {
-                    // Figure-8 sweep
-                    dirX1 = Math.sin(sweepPhase * 0.5) * 0.6;
-                    dirZ1 = Math.sin(sweepPhase * 1.0) * 0.4;
+                    // Figure-8 sweep - FLOWING
+                    dirX1 = Math.sin(sweepPhase * 1.0) * 0.6; // 2x faster (0.5 → 1.0)
+                    dirZ1 = Math.sin(sweepPhase * 2.0) * 0.4; // 2x faster (1.0 → 2.0)
                 } else if (currentPattern === 5) {
-                    // Pulse sweep
-                    const pulsePhase = Math.sin(sweepPhase * 0.4);
-                    const angle = sweepPhase * 0.3;
+                    // Pulse sweep - PULSING
+                    const pulsePhase = Math.sin(sweepPhase * 0.8); // 2x faster (0.4 → 0.8)
+                    const angle = sweepPhase * 0.6; // 2x faster (0.3 → 0.6)
                     dirX1 = pulsePhase * Math.cos(angle) * 0.6;
                     dirZ1 = pulsePhase * Math.sin(angle) * 0.6;
                 } else {
@@ -2551,26 +2551,26 @@ class VRClub {
                     dirZ1 = 0;
                 }
                 
-                // Calculate NEXT pattern position
+                // Calculate NEXT pattern position - FASTER for more energy
                 if (nextPattern === 0) {
-                    dirX2 = Math.sin(sweepPhase * 0.8) * 0.6;
+                    dirX2 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster
                     dirZ2 = -0.3;
                 } else if (nextPattern === 1) {
-                    dirX2 = Math.sin(sweepPhase * 0.6) * 0.5;
-                    dirZ2 = Math.cos(sweepPhase * 0.6) * 0.5;
+                    dirX2 = Math.sin(sweepPhase * 1.2) * 0.5; // 2x faster
+                    dirZ2 = Math.cos(sweepPhase * 1.2) * 0.5;
                 } else if (nextPattern === 2) {
-                    const fanPhase = Math.sin(sweepPhase * 0.5);
+                    const fanPhase = Math.sin(sweepPhase * 1.0); // 2x faster
                     dirX2 = fanPhase * 0.6;
                     dirZ2 = -0.2;
                 } else if (nextPattern === 3) {
-                    dirX2 = Math.sin(sweepPhase * 0.7) * 0.5;
-                    dirZ2 = Math.cos(sweepPhase * 0.7) * 0.5;
+                    dirX2 = Math.sin(sweepPhase * 1.4) * 0.5; // 2x faster
+                    dirZ2 = Math.cos(sweepPhase * 1.4) * 0.5;
                 } else if (nextPattern === 4) {
-                    dirX2 = Math.sin(sweepPhase * 0.5) * 0.6;
-                    dirZ2 = Math.sin(sweepPhase * 1.0) * 0.4;
+                    dirX2 = Math.sin(sweepPhase * 1.0) * 0.6; // 2x faster
+                    dirZ2 = Math.sin(sweepPhase * 2.0) * 0.4; // 2x faster
                 } else if (nextPattern === 5) {
-                    const pulsePhase = Math.sin(sweepPhase * 0.4);
-                    const angle = sweepPhase * 0.3;
+                    const pulsePhase = Math.sin(sweepPhase * 0.8); // 2x faster
+                    const angle = sweepPhase * 0.6; // 2x faster
                     dirX2 = pulsePhase * Math.cos(angle) * 0.6;
                     dirZ2 = pulsePhase * Math.sin(angle) * 0.6;
                 } else {
