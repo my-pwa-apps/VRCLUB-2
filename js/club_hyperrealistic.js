@@ -814,17 +814,7 @@ class VRClub {
         audioBtnMat.disableLighting = true;
         audioBtn.material = audioBtnMat;
         
-        // Label
-        const audioLabel = BABYLON.MeshBuilder.CreatePlane("audioLabel", {
-            width: 0.5,
-            height: 0.15
-        }, this.scene);
-        audioLabel.position = new BABYLON.Vector3(0, 1.15, -22.5);
-        audioLabel.rotation.x = Math.PI / 6;
-        const audioLabelMat = new BABYLON.StandardMaterial("audioLabelMat", this.scene);
-        audioLabelMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-        audioLabelMat.disableLighting = true;
-        audioLabel.material = audioLabelMat;
+        // Label (removed diagonal plane - was confusing)
         
         // Store for interaction
         this.audioStreamButton = {
@@ -870,7 +860,7 @@ class VRClub {
             height: 0.3
         }, this.scene);
         vjLabel.position = new BABYLON.Vector3(3.5, 1.2, -24);
-        vjLabel.rotation.x = Math.PI / 6;
+        // Removed rotation to avoid diagonal appearance
         const vjLabelMat = new BABYLON.StandardMaterial("vjLabelMat", this.scene);
         vjLabelMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0);
         vjLabelMat.disableLighting = true;
@@ -941,13 +931,13 @@ class VRClub {
                 label: btnDef.label
             });
             
-            // Label above button
+            // Label above button (removed to avoid diagonal clutter)
             const labelPlane = BABYLON.MeshBuilder.CreatePlane("label_" + btnDef.control, {
                 width: 0.4,
                 height: 0.12
             }, this.scene);
             labelPlane.position = new BABYLON.Vector3(btnDef.x, 1.12, zPos);
-            labelPlane.rotation.x = Math.PI / 6;
+            // Removed rotation.x to keep labels flat and clean
             
             const labelMat = new BABYLON.StandardMaterial("labelMat_" + btnDef.control, this.scene);
             labelMat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8);
@@ -4110,22 +4100,12 @@ class VRClub {
     }
 
     showAudioStreamInputUI() {
-        // Create overlay panel in 3D space in front of DJ
-        const panel = BABYLON.MeshBuilder.CreatePlane("audioInputPanel", {
-            width: 3,
-            height: 1.5
-        }, this.scene);
-        panel.position = new BABYLON.Vector3(0, 1.7, -22); // In front of DJ booth
-        panel.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; // Always face camera
+        // Pause pointer lock to allow input interaction
+        if (this.scene.activeCamera && this.scene.activeCamera.detachControl) {
+            this.scene.activeCamera.detachControl();
+        }
         
-        // Panel material
-        const panelMat = new BABYLON.StandardMaterial("audioInputPanelMat", this.scene);
-        panelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.15);
-        panelMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.1);
-        panelMat.alpha = 0.95;
-        panel.material = panelMat;
-        
-        // Create HTML input overlay
+        // Create HTML input overlay (NO 3D panel - was blocking view)
         const inputDiv = document.createElement('div');
         inputDiv.id = 'vrAudioInput';
         inputDiv.style.cssText = `
@@ -4162,43 +4142,61 @@ class VRClub {
         
         document.body.appendChild(inputDiv);
         
-        // Focus input
+        // Store camera reference for cleanup
+        const camera = this.scene.activeCamera;
+        
+        // Focus input after slight delay
         setTimeout(() => {
-            document.getElementById('audioUrlInput').focus();
+            const input = document.getElementById('audioUrlInput');
+            if (input) {
+                input.focus();
+                input.select(); // Select all text for easy replacement
+            }
         }, 100);
+        
+        // Cleanup function
+        const cleanup = () => {
+            const div = document.getElementById('vrAudioInput');
+            if (div && div.parentNode) {
+                document.body.removeChild(div);
+            }
+            // Re-attach camera control
+            if (camera && camera.attachControl) {
+                camera.attachControl(this.canvas, true);
+            }
+        };
         
         // Handle play button
         document.getElementById('audioPlayBtn').onclick = () => {
             const url = document.getElementById('audioUrlInput').value.trim();
+            cleanup();
             this.startAudioStream(url);
-            document.body.removeChild(inputDiv);
-            panel.dispose();
         };
         
         // Handle cancel button
         document.getElementById('audioCancelBtn').onclick = () => {
-            document.body.removeChild(inputDiv);
-            panel.dispose();
+            cleanup();
         };
         
         // Handle Enter key
-        document.getElementById('audioUrlInput').onkeypress = (e) => {
+        document.getElementById('audioUrlInput').onkeydown = (e) => {
             if (e.key === 'Enter') {
+                e.preventDefault();
                 document.getElementById('audioPlayBtn').click();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cleanup();
             }
         };
         
-        // Handle Escape key
-        document.addEventListener('keydown', function escHandler(e) {
+        // Handle Escape key globally
+        const escHandler = (e) => {
             if (e.key === 'Escape') {
-                const div = document.getElementById('vrAudioInput');
-                if (div) {
-                    document.body.removeChild(div);
-                    panel.dispose();
-                }
+                cleanup();
                 document.removeEventListener('keydown', escHandler);
             }
-        });
+        };
+        document.addEventListener('keydown', escHandler);
     }
 
     startAudioStream(url) {
