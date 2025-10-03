@@ -1623,12 +1623,12 @@ class VRClub {
         this.lasers = [];
         
         // Lasers mounted UNDER the truss (hanging down)
-        // Each laser has a type: 'single', 'spread', 'multi'
+        // ALL LASERS ARE MULTI-BEAM TYPE (5 rotating beams each)
         // ALL LASERS ON SAME Z POSITION for consistency (z: -14)
         const laserPositions = [
-            { x: -8, z: -14, trussY: 7.55, type: 'spread' },   // Spread laser left (left truss)
-            { x: 0, z: -14, trussY: 7.55, type: 'multi' },     // Multi-beam center (main truss)
-            { x: 8, z: -14, trussY: 7.55, type: 'single' }     // Single beam right (right truss)
+            { x: -8, z: -14, trussY: 7.55, type: 'multi' },   // Multi-beam left (left truss) - CHANGED
+            { x: 0, z: -14, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss)
+            { x: 8, z: -14, trussY: 7.55, type: 'multi' }     // Multi-beam right (right truss) - CHANGED
         ];
         
         laserPositions.forEach((pos, i) => {
