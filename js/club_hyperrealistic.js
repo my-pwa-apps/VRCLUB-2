@@ -660,20 +660,38 @@ class VRClub {
     }
     
     createDJBooth() {
-        // Professional DJ platform/riser (lowered for better view)
+        // === HYPERREALISTIC PROFESSIONAL DJ PLATFORM ===
+        // Main platform structure with realistic metal finish
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
-            width: 9,
+            width: 10,
             height: 0.6,
-            depth: 5
+            depth: 5.5
         }, this.scene);
         platform.position = new BABYLON.Vector3(0, 0.3, -24);
         
         const platformMat = new BABYLON.PBRMetallicRoughnessMaterial("platformMat", this.scene);
         platformMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
-        platformMat.metallic = 0.9;
-        platformMat.roughness = 0.2;
+        platformMat.metallic = 0.95;
+        platformMat.roughness = 0.15; // Polished metal
+        platformMat.maxSimultaneousLights = this.maxLights;
         platform.material = platformMat;
         platform.receiveShadows = true;
+        
+        // Anti-slip platform surface (textured top)
+        const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
+            width: 10,
+            height: 0.02,
+            depth: 5.5
+        }, this.scene);
+        platformTop.position = new BABYLON.Vector3(0, 0.61, -24);
+        
+        const topMat = new BABYLON.PBRMetallicRoughnessMaterial("platformTopMat", this.scene);
+        topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        topMat.metallic = 0.1;
+        topMat.roughness = 0.95; // Very rough, anti-slip
+        topMat.maxSimultaneousLights = this.maxLights;
+        platformTop.material = topMat;
+        platformTop.receiveShadows = true;
         
         // Platform safety rail (front)
         const railMat = new BABYLON.PBRMetallicRoughnessMaterial("railMat", this.scene);
@@ -899,133 +917,228 @@ class VRClub {
     }
     
     createVJStation() {
-        // VJ control station on right side of booth
-        const vjTable = BABYLON.MeshBuilder.CreateBox("vjTable", {
-            width: 2.5,
-            height: 0.15,
-            depth: 1.8
+        // === HYPERREALISTIC PROFESSIONAL VJ & LIGHTING CONTROL STATION ===
+        
+        // Professional lighting console base (flight case style)
+        const consoleBase = BABYLON.MeshBuilder.CreateBox("lightingConsoleBase", {
+            width: 3.5,
+            height: 0.25,
+            depth: 2.4
         }, this.scene);
-        vjTable.position = new BABYLON.Vector3(3.5, 1.05, -24);
+        consoleBase.position = new BABYLON.Vector3(3.7, 0.88, -24);
+        
+        const baseMat = new BABYLON.PBRMetallicRoughnessMaterial("consoleBaseMat", this.scene);
+        baseMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
+        baseMat.metallic = 0.9;
+        baseMat.roughness = 0.3;
+        baseMat.maxSimultaneousLights = this.maxLights;
+        consoleBase.material = baseMat;
+        
+        // Main lighting control surface (angled for ergonomics)
+        const vjTable = BABYLON.MeshBuilder.CreateBox("vjTable", {
+            width: 3.2,
+            height: 0.15,
+            depth: 2.0
+        }, this.scene);
+        vjTable.position = new BABYLON.Vector3(3.7, 1.05, -24);
+        vjTable.rotation.x = -0.10; // Angle toward operator
         
         const vjTableMat = new BABYLON.PBRMetallicRoughnessMaterial("vjTableMat", this.scene);
         vjTableMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
         vjTableMat.metallic = 0.85;
-        vjTableMat.roughness = 0.25;
+        vjTableMat.roughness = 0.2;
+        vjTableMat.maxSimultaneousLights = this.maxLights;
         vjTable.material = vjTableMat;
         
-        // Main VJ screen/monitor (larger for visuals)
-        const vjScreen = BABYLON.MeshBuilder.CreateBox("vjScreen", {
-            width: 2.0,
-            height: 1.2,
+        // === PROFESSIONAL TOUCHSCREEN DISPLAY ===
+        const mainDisplay = BABYLON.MeshBuilder.CreateBox("lightingDisplay", {
+            width: 2.8,
+            height: 1.5,
+            depth: 0.06
+        }, this.scene);
+        mainDisplay.position = new BABYLON.Vector3(3.7, 1.9, -24.8);
+        mainDisplay.rotation.x = -0.18;
+        
+        const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
+        displayMat.emissiveColor = new BABYLON.Color3(0.15, 0.25, 0.4); // Professional blue UI
+        displayMat.disableLighting = true;
+        mainDisplay.material = displayMat;
+        
+        // Display frame (bezel)
+        const displayFrame = BABYLON.MeshBuilder.CreateBox("displayFrame", {
+            width: 2.9,
+            height: 1.6,
             depth: 0.05
         }, this.scene);
-        vjScreen.position = new BABYLON.Vector3(3.5, 1.8, -24.8);
-        vjScreen.rotation.x = -0.15;
+        displayFrame.position = new BABYLON.Vector3(3.7, 1.9, -24.75);
+        displayFrame.rotation.x = -0.18;
+        displayFrame.material = baseMat;
         
-        const vjScreenMat = new BABYLON.StandardMaterial("vjScreenMat", this.scene);
-        vjScreenMat.emissiveColor = new BABYLON.Color3(0.6, 0.2, 0.8); // Purple/magenta glow
-        vjScreenMat.disableLighting = true;
-        vjScreen.material = vjScreenMat;
+        // === MOTORIZED FADERS (Intensity Control) ===
+        const faderCount = 10;
+        for (let i = 0; i < faderCount; i++) {
+            const xOffset = -1.5 + i * 0.33;
+            
+            // Fader track
+            const faderTrack = BABYLON.MeshBuilder.CreateBox("faderTrack" + i, {
+                width: 0.08,
+                height: 0.02,
+                depth: 0.9
+            }, this.scene);
+            faderTrack.position = new BABYLON.Vector3(3.7 + xOffset, 1.15, -24.4);
+            faderTrack.material = baseMat;
+            
+            // Fader cap (glowing)
+            const faderCap = BABYLON.MeshBuilder.CreateBox("faderCap" + i, {
+                width: 0.12,
+                height: 0.04,
+                depth: 0.16
+            }, this.scene);
+            const faderPos = Math.random() * 0.7 - 0.35; // Random position
+            faderCap.position = new BABYLON.Vector3(3.7 + xOffset, 1.17, -24.4 + faderPos);
+            
+            const faderMat = new BABYLON.StandardMaterial("faderMat" + i, this.scene);
+            faderMat.emissiveColor = new BABYLON.Color3(0, 0.9, 0.3); // Green = active
+            faderMat.disableLighting = true;
+            faderCap.material = faderMat;
+        }
         
-        // VJ controller/pad (like MIDI controller)
-        const vjController = BABYLON.MeshBuilder.CreateBox("vjController", {
-            width: 1.5,
-            height: 0.08,
-            depth: 1.2
-        }, this.scene);
-        vjController.position = new BABYLON.Vector3(3.5, 1.14, -24);
-        
-        const controllerMat = new BABYLON.PBRMetallicRoughnessMaterial("vjControllerMat", this.scene);
-        controllerMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.18);
-        controllerMat.metallic = 0.7;
-        controllerMat.roughness = 0.4;
-        vjController.material = controllerMat;
-        
-        // Controller buttons (grid of illuminated pads)
-        const buttonMat = new BABYLON.StandardMaterial("vjButtonMat", this.scene);
-        buttonMat.emissiveColor = new BABYLON.Color3(0.8, 0.4, 0);
-        buttonMat.disableLighting = true;
-        
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 4; col++) {
-                const button = BABYLON.MeshBuilder.CreateBox("vjButton" + row + col, {
-                    width: 0.2,
-                    height: 0.02,
-                    depth: 0.2
+        // === ROTARY ENCODERS (Parameter Control) ===
+        for (let row = 0; row < 2; row++) {
+            for (let col = 0; col < 10; col++) {
+                const encoder = BABYLON.MeshBuilder.CreateCylinder("encoder" + row + col, {
+                    diameter: 0.11,
+                    height: 0.06,
+                    tessellation: 32
                 }, this.scene);
-                button.position = new BABYLON.Vector3(
-                    3.5 - 0.5 + col * 0.35,
-                    1.19,
-                    -24 - 0.3 + row * 0.35
+                encoder.position = new BABYLON.Vector3(
+                    3.7 - 1.5 + col * 0.33,
+                    1.12,
+                    -23.5 - row * 0.28
                 );
-                button.material = buttonMat.clone("vjButtonMat" + row + col);
+                encoder.material = baseMat;
                 
-                // Randomize button colors
-                const randomColor = Math.random();
-                if (randomColor < 0.33) {
-                    button.material.emissiveColor = new BABYLON.Color3(1, 0, 0.2); // Red
-                } else if (randomColor < 0.66) {
-                    button.material.emissiveColor = new BABYLON.Color3(0, 1, 0.5); // Green
-                } else {
-                    button.material.emissiveColor = new BABYLON.Color3(0.2, 0.5, 1); // Blue
-                }
+                // Encoder LED ring
+                const ledRing = BABYLON.MeshBuilder.CreateTorus("ledRing" + row + col, {
+                    diameter: 0.13,
+                    thickness: 0.01,
+                    tessellation: 24
+                }, this.scene);
+                ledRing.position = encoder.position.clone();
+                ledRing.position.y += 0.04;
+                ledRing.rotation.x = Math.PI / 2;
+                
+                const ledMat = new BABYLON.StandardMaterial("ledMat" + row + col, this.scene);
+                ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.7, 1); // Blue indicator
+                ledMat.disableLighting = true;
+                ledRing.material = ledMat;
             }
         }
         
-        // LIGHTING CONTROL PANEL - Clear labels
-        const lightingPanel = BABYLON.MeshBuilder.CreateBox("lightingControlPanel", {
-            width: 1.2,
-            height: 0.5,
-            depth: 0.15
-        }, this.scene);
-        lightingPanel.position = new BABYLON.Vector3(3.5, 1.5, -23.2);
-        lightingPanel.rotation.x = -0.25;
+        // === SCENE/PATTERN BUTTONS (Lighting Patterns) ===
+        const sceneButtons = [
+            { label: "LINEAR", color: new BABYLON.Color3(1, 0, 0) },
+            { label: "CIRCLE", color: new BABYLON.Color3(0, 1, 0) },
+            { label: "FAN", color: new BABYLON.Color3(0, 0, 1) },
+            { label: "CROSS", color: new BABYLON.Color3(1, 1, 0) },
+            { label: "FIG-8", color: new BABYLON.Color3(1, 0, 1) },
+            { label: "PULSE", color: new BABYLON.Color3(0, 1, 1) },
+            { label: "STROBE", color: new BABYLON.Color3(1, 0.5, 0) },
+            { label: "AUTO", color: new BABYLON.Color3(1, 1, 1) }
+        ];
         
-        const lightPanelMat = new BABYLON.StandardMaterial("lightPanelMat", this.scene);
-        lightPanelMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        lightPanelMat.emissiveColor = new BABYLON.Color3(0.8, 0.3, 0); // Orange glow
-        lightingPanel.material = lightPanelMat;
-        
-        // LIGHTING CONTROL - Big indicator
-        const lightControlLabel = BABYLON.MeshBuilder.CreatePlane("lightingLabel", {
-            width: 2.0,
-            height: 0.4
-        }, this.scene);
-        lightControlLabel.position = new BABYLON.Vector3(3.5, 1.9, -23.0);
-        lightControlLabel.rotation.x = -0.25;
-        
-        const lightLabelMat = new BABYLON.StandardMaterial("lightLabelMat", this.scene);
-        lightLabelMat.emissiveColor = new BABYLON.Color3(1, 0.5, 0); // Bright orange
-        lightLabelMat.disableLighting = true;
-        lightControlLabel.material = lightLabelMat;
-        
-        // Lighting mode indicator lights
-        const modes = ['SPOTS', 'LASERS', 'STROBE', 'LED'];
-        for (let i = 0; i < 4; i++) {
-            const modeLED = BABYLON.MeshBuilder.CreateSphere("modeLight" + i, {
-                diameter: 0.1
-            }, this.scene);
-            modeLED.position = new BABYLON.Vector3(3.2 + i * 0.2, 1.6, -23.15);
+        sceneButtons.forEach((btn, i) => {
+            const col = i % 4;
+            const row = Math.floor(i / 4);
             
-            const modeMat = new BABYLON.StandardMaterial("modeMat" + i, this.scene);
-            modeMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when active
-            modeMat.disableLighting = true;
-            modeLED.material = modeMat;
-        }
+            const button = BABYLON.MeshBuilder.CreateBox("sceneBtn" + i, {
+                width: 0.28,
+                height: 0.03,
+                depth: 0.2
+            }, this.scene);
+            button.position = new BABYLON.Vector3(
+                3.7 - 1.0 + col * 0.7,
+                1.14,
+                -25.0 - row * 0.28
+            );
+            
+            const btnMat = new BABYLON.StandardMaterial("sceneBtnMat" + i, this.scene);
+            btnMat.emissiveColor = btn.color.scale(0.9);
+            btnMat.disableLighting = true;
+            button.material = btnMat;
+        });
         
-        // Smoke machine control panel
-        const smokePanel = BABYLON.MeshBuilder.CreateBox("smokePanel", {
-            width: 0.8,
-            height: 0.3,
-            depth: 0.15
+        // === MASTER CONTROLS (Right Side) ===
+        
+        // Grand Master fader (overall intensity)
+        const grandMasterTrack = BABYLON.MeshBuilder.CreateBox("grandMasterTrack", {
+            width: 0.12,
+            height: 0.03,
+            depth: 1.3
         }, this.scene);
-        smokePanel.position = new BABYLON.Vector3(3.5, 1.2, -23.2);
-        smokePanel.rotation.x = -0.3;
+        grandMasterTrack.position = new BABYLON.Vector3(5.3, 1.15, -24);
+        grandMasterTrack.material = baseMat;
         
-        const smokePanelMat = new BABYLON.StandardMaterial("smokePanelMat", this.scene);
-        smokePanelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        smokePanelMat.emissiveColor = new BABYLON.Color3(0, 0.5, 0); // Bright green
-        smokePanel.material = smokePanelMat;
+        const grandMaster = BABYLON.MeshBuilder.CreateBox("grandMaster", {
+            width: 0.18,
+            height: 0.06,
+            depth: 0.2
+        }, this.scene);
+        grandMaster.position = new BABYLON.Vector3(5.3, 1.17, -23.5);
+        
+        const masterMat = new BABYLON.StandardMaterial("masterMat", this.scene);
+        masterMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0); // Red = critical control
+        masterMat.disableLighting = true;
+        grandMaster.material = masterMat;
+        
+        // Blackout button (emergency off)
+        const blackoutBtn = BABYLON.MeshBuilder.CreateCylinder("blackoutBtn", {
+            diameter: 0.18,
+            height: 0.08,
+            tessellation: 32
+        }, this.scene);
+        blackoutBtn.position = new BABYLON.Vector3(5.3, 1.18, -23.0);
+        
+        const blackoutMat = new BABYLON.StandardMaterial("blackoutMat", this.scene);
+        blackoutMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // RED emergency button
+        blackoutMat.disableLighting = true;
+        blackoutBtn.material = blackoutMat;
+        
+        // === STATUS INDICATORS ===
+        const indicators = [
+            { label: "DMX", color: new BABYLON.Color3(0, 1, 0) },
+            { label: "SYNC", color: new BABYLON.Color3(0, 1, 0) },
+            { label: "AUDIO", color: new BABYLON.Color3(0, 1, 0) },
+            { label: "ACTIVE", color: new BABYLON.Color3(0, 1, 0) }
+        ];
+        
+        indicators.forEach((ind, i) => {
+            const led = BABYLON.MeshBuilder.CreateSphere("statusLED" + i, {
+                diameter: 0.07,
+                segments: 16
+            }, this.scene);
+            led.position = new BABYLON.Vector3(5.3, 1.18, -25.0 + i * 0.18);
+            
+            const ledMat = new BABYLON.StandardMaterial("statusLEDMat" + i, this.scene);
+            ledMat.emissiveColor = ind.color;
+            ledMat.disableLighting = true;
+            led.material = ledMat;
+        });
+        
+        // === CONTROL LABELS ===
+        const mainLabel = BABYLON.MeshBuilder.CreatePlane("lightingConsolLabel", {
+            width: 3.2,
+            height: 0.38
+        }, this.scene);
+        mainLabel.position = new BABYLON.Vector3(3.7, 2.55, -23.3);
+        mainLabel.rotation.x = -0.28;
+        
+        const labelMat = new BABYLON.StandardMaterial("labelMat", this.scene);
+        labelMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0); // Orange - "LIGHTING CONTROL"
+        labelMat.disableLighting = true;
+        mainLabel.material = labelMat;
+        
+        console.log("✅ Created hyperrealistic VJ lighting control station with professional DMX console");
     }
     
     createBoothLighting() {
@@ -1055,6 +1168,20 @@ class VRClub {
     }
 
     createPASpeakers() {
+        // Clean up any old speaker meshes that might be floating
+        const oldSpeakers = this.scene.meshes.filter(m => 
+            m.name.includes('sub') || 
+            m.name.includes('mid') || 
+            m.name.includes('high') || 
+            m.name.includes('Grill') ||
+            m.name.includes('Cone') ||
+            m.name.includes('horn') ||
+            m.name.includes('ampPanel') ||
+            m.name.includes('powerLED') ||
+            m.name.includes('logo') ||
+            m.name.includes('corner')
+        );
+        oldSpeakers.forEach(mesh => mesh.dispose());
         
         // MASSIVE solid speaker material - heavy duty PA system
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
@@ -1615,7 +1742,8 @@ class VRClub {
                 height: 0.6       // Increased from 0.4 to 0.6
             }, this.scene);
             fixture.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);  // Lower to 7.6 from 7.7
-            fixture.rotation.x = Math.PI / 2;
+            // Start horizontal - will rotate via lookAt() in animation
+            fixture.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
             fixture.material = lightFixtureMat;
             
             // Light lens (glowing) - The actual visible light source - make larger
@@ -1624,7 +1752,8 @@ class VRClub {
                 height: 0.08      // Increased from 0.05 to 0.08
             }, this.scene);
             lens.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);  // Adjusted position
-            lens.rotation.x = Math.PI / 2;
+            // Start horizontal - will rotate via lookAt() in animation
+            lens.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
             
             const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
             lensMat.emissiveColor = this.currentSpotColor.scale(5.0); // Start with CURRENT COLOR (not white!)
