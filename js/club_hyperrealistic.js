@@ -1065,14 +1065,10 @@ class VRClub {
     }
 
     createLEDWall() {
-        
         // BIGGER LED WALL - covers entire wall behind DJ booth
         const panelWidth = 1.2;
         const panelHeight = 1.2;
         const cols = 10;  // Increased from 6 to 10
-        platformMat.roughness = 0.15; // Polished metal
-        platformMat.maxSimultaneousLights = this.maxLights;
-        platform.material = platformMat;
         platform.receiveShadows = true;
         
         // Anti-slip platform surface (textured top)
@@ -1336,202 +1332,6 @@ class VRClub {
         console.log("✅ Created VJ lighting control console with 5 toggle buttons");
     }
 
-    createPASpeakers() {
-        // Clean up any old speaker meshes that might be floating
-        const oldSpeakers = this.scene.meshes.filter(m => 
-            m.name.includes('sub') || 
-            m.name.includes('mid') || 
-            m.name.includes('high') || 
-            m.name.includes('Grill') ||
-            m.name.includes('Cone') ||
-            m.name.includes('horn') ||
-            m.name.includes('ampPanel') ||
-            m.name.includes('powerLED') ||
-            m.name.includes('logo') ||
-            m.name.includes('corner')
-        );
-        oldSpeakers.forEach(mesh => mesh.dispose());
-        
-        // MASSIVE solid speaker material - heavy duty PA system
-        const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.02);
-        speakerMat.metallic = 0.3;
-        speakerMat.roughness = 0.8;
-        speakerMat.maxSimultaneousLights = this.maxLights;
-        speakerMat.alpha = 1.0;
-        speakerMat.backFaceCulling = true;
-        
-        // MASSIVE speakers positioned to the SIDES (not blocking LED wall)
-        this.createPAStack(-10, -18, speakerMat);
-        this.createPAStack(10, -18, speakerMat);
-        
-        console.log("✅ Created MASSIVE solid PA speakers next to DJ booth");
-    }
-
-    createPAStack(xPos, zPos, material) {
-        // === HYPERREALISTIC SUB-WOOFER CABINET (bottom) ===
-        const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
-            width: 3.2,
-            height: 3.5,
-            depth: 3.2
-        }, this.scene);
-        sub.position = new BABYLON.Vector3(xPos, 1.75, zPos);
-        sub.material = material;
-        sub.receiveShadows = true;
-        sub.checkCollisions = true;
-        
-        // Double 18" sub-woofer cones
-        const subConeMat = new BABYLON.PBRMetallicRoughnessMaterial("subConeMat" + xPos, this.scene);
-        subConeMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.08); // Dark gray cone
-        subConeMat.metallic = 0.1;
-        subConeMat.roughness = 0.7;
-        subConeMat.maxSimultaneousLights = this.maxLights;
-        
-        // Left sub cone
-        const subConeLeft = BABYLON.MeshBuilder.CreateCylinder("subConeLeft" + xPos, {
-            diameterTop: 0.9,
-            diameterBottom: 1.2,
-            height: 0.3,
-            tessellation: 32
-        }, this.scene);
-        subConeLeft.position = new BABYLON.Vector3(xPos - 0.7, 1.75, zPos + 1.5);
-        subConeLeft.rotation.x = Math.PI / 2;
-        subConeLeft.material = subConeMat;
-        
-        // Right sub cone
-        const subConeRight = BABYLON.MeshBuilder.CreateCylinder("subConeRight" + xPos, {
-            diameterTop: 0.9,
-            diameterBottom: 1.2,
-            height: 0.3,
-            tessellation: 32
-        }, this.scene);
-        subConeRight.position = new BABYLON.Vector3(xPos + 0.7, 1.75, zPos + 1.5);
-        subConeRight.rotation.x = Math.PI / 2;
-        subConeRight.material = subConeMat;
-        
-        // Mesh grille for subs (professional perforated metal)
-        const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
-        grillMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        grillMat.metallic = 0.8;
-        grillMat.roughness = 0.3;
-        grillMat.alpha = 0.7;
-        grillMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
-        grillMat.maxSimultaneousLights = this.maxLights;
-        
-        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
-            width: 2.8,
-            height: 3.0,
-            depth: 0.08
-        }, this.scene);
-        subGrill.position = new BABYLON.Vector3(xPos, 1.75, zPos + 1.68);
-        subGrill.material = grillMat;
-        
-        // === HYPERREALISTIC MID-RANGE CABINET ===
-        const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
-            width: 2.5,
-            height: 2.5,
-            depth: 2.5
-        }, this.scene);
-        mid.position = new BABYLON.Vector3(xPos, 4.75, zPos);
-        mid.material = material;
-        mid.receiveShadows = true;
-        mid.checkCollisions = true;
-        
-        // Mixer display with text label
-        const display = BABYLON.MeshBuilder.CreateBox("mixerDisplay", {
-            width: 1.5,
-            height: 0.02,
-            depth: 0.3
-        }, this.scene);
-        display.position = new BABYLON.Vector3(0, 1.21, -20); // Facing backward toward DJ
-        
-        const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
-        displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
-        displayMat.disableLighting = true;
-        display.material = displayMat;
-        
-        // AUDIO STREAM CONTROL - Label above mixer
-        const audioLabel = BABYLON.MeshBuilder.CreatePlane("audioStreamLabel", {
-            width: 2.5,
-            height: 0.4
-        }, this.scene);
-        audioLabel.position = new BABYLON.Vector3(0, 1.5, -20.5); // Behind mixer, facing DJ
-        audioLabel.rotation.x = -0.3; // Tilted toward DJ (negative z direction)
-        
-        const audioLabelMat = new BABYLON.StandardMaterial("audioLabelMat", this.scene);
-        audioLabelMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0); // Bright yellow/orange
-        audioLabelMat.disableLighting = true;
-        audioLabel.material = audioLabelMat;
-        
-        // "STREAM" indicator lights on mixer
-        for (let i = 0; i < 3; i++) {
-            const indicator = BABYLON.MeshBuilder.CreateSphere("streamIndicator" + i, {
-                diameter: 0.08
-            }, this.scene);
-            indicator.position = new BABYLON.Vector3(-0.6 + i * 0.3, 1.23, -19.7); // On back of mixer, visible to DJ
-            
-            const indicatorMat = new BABYLON.StandardMaterial("indicatorMat" + i, this.scene);
-            indicatorMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green = active
-            indicatorMat.disableLighting = true;
-            indicator.material = indicatorMat;
-        }
-    }
-
-    createMonitorSpeakers() {
-        const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("monitorSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.03);
-        speakerMat.metallic = 0.2;
-        speakerMat.roughness = 0.8;
-        
-        // Left monitor (lowered)
-        const leftMonitor = BABYLON.MeshBuilder.CreateBox("leftMonitor", {
-            width: 0.5,
-            height: 0.7,
-            depth: 0.45
-        }, this.scene);
-        leftMonitor.position = new BABYLON.Vector3(-3, 0.95, -20);
-        leftMonitor.material = speakerMat;
-        
-        // Right monitor (lowered)
-        const rightMonitor = BABYLON.MeshBuilder.CreateBox("rightMonitor", {
-            width: 0.5,
-            height: 0.7,
-            depth: 0.45
-        }, this.scene);
-        rightMonitor.position = new BABYLON.Vector3(3, 0.95, -20);
-        rightMonitor.material = speakerMat;
-    }
-    
-    createLaptopStand() {
-        // Laptop stand/shelf at the BACK of DJ booth
-        const laptopStand = BABYLON.MeshBuilder.CreateBox("laptopStand", {
-            width: 1.5,
-            height: 0.05,
-            depth: 0.8
-        }, this.scene);
-        laptopStand.position = new BABYLON.Vector3(-3, 1.1, -22.3); // At back edge of booth
-        
-        const standMat = new BABYLON.PBRMetallicRoughnessMaterial("standMat", this.scene);
-        standMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        standMat.metallic = 0.8;
-        standMat.roughness = 0.4;
-        laptopStand.material = standMat;
-        
-        // Laptop screen (glowing) - facing forward toward dance floor
-        const laptop = BABYLON.MeshBuilder.CreateBox("laptop", {
-            width: 0.8,
-            height: 0.5,
-            depth: 0.02
-        }, this.scene);
-        laptop.position = new BABYLON.Vector3(-3, 1.38, -22.0); // In front of stand, screen faces forward
-        laptop.rotation.x = 0.3; // Tilted forward toward DJ (positive z direction)
-        
-        const screenMat = new BABYLON.StandardMaterial("screenMat", this.scene);
-        screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
-        screenMat.disableLighting = true;
-        laptop.material = screenMat;
-    }
-    
     createVJStation() {
         // === HYPERREALISTIC PROFESSIONAL VJ & LIGHTING CONTROL STATION ===
         
@@ -1869,275 +1669,7 @@ class VRClub {
         }
     }
 
-    createPASpeakers() {
-        // Clean up any old speaker meshes that might be floating
-        const oldSpeakers = this.scene.meshes.filter(m => 
-            m.name.includes('sub') || 
-            m.name.includes('mid') || 
-            m.name.includes('high') || 
-            m.name.includes('Grill') ||
-            m.name.includes('Cone') ||
-            m.name.includes('horn') ||
-            m.name.includes('ampPanel') ||
-            m.name.includes('powerLED') ||
-            m.name.includes('logo') ||
-            m.name.includes('corner')
-        );
-        oldSpeakers.forEach(mesh => mesh.dispose());
-        
-        // MASSIVE solid speaker material - heavy duty PA system
-        const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.02); // Almost black
-        speakerMat.metallic = 0.3;
-        speakerMat.roughness = 0.8; // Matte black finish
-        speakerMat.maxSimultaneousLights = this.maxLights;
-        speakerMat.alpha = 1.0; // Completely solid
-        speakerMat.backFaceCulling = true;
-        
-        // MASSIVE speakers positioned to the SIDES (not blocking LED wall)
-        // Left PA stack - moved further left
-        this.createPAStack(-10, -18, speakerMat);
-        
-        // Right PA stack - moved further right
-        this.createPAStack(10, -18, speakerMat);
-        
-        console.log("✅ Created MASSIVE solid PA speakers next to DJ booth");
-    }
-
-    createPAStack(xPos, zPos, material) {
-        // === HYPERREALISTIC SUB-WOOFER CABINET (bottom) ===
-        const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
-            width: 3.2,
-            height: 3.5,
-            depth: 3.2
-        }, this.scene);
-        sub.position = new BABYLON.Vector3(xPos, 1.75, zPos);
-        sub.material = material;
-        sub.receiveShadows = true;
-        sub.checkCollisions = true;
-        
-        // Double 18" sub-woofer cones
-        const subConeMat = new BABYLON.PBRMetallicRoughnessMaterial("subConeMat" + xPos, this.scene);
-        subConeMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.08); // Dark gray cone
-        subConeMat.metallic = 0.1;
-        subConeMat.roughness = 0.7;
-        subConeMat.maxSimultaneousLights = this.maxLights;
-        
-        // Left sub cone
-        const subConeLeft = BABYLON.MeshBuilder.CreateCylinder("subConeLeft" + xPos, {
-            diameterTop: 0.9,
-            diameterBottom: 1.2,
-            height: 0.3,
-            tessellation: 32
-        }, this.scene);
-        subConeLeft.position = new BABYLON.Vector3(xPos - 0.7, 1.75, zPos + 1.5);
-        subConeLeft.rotation.x = Math.PI / 2;
-        subConeLeft.material = subConeMat;
-        
-        // Right sub cone
-        const subConeRight = BABYLON.MeshBuilder.CreateCylinder("subConeRight" + xPos, {
-            diameterTop: 0.9,
-            diameterBottom: 1.2,
-            height: 0.3,
-            tessellation: 32
-        }, this.scene);
-        subConeRight.position = new BABYLON.Vector3(xPos + 0.7, 1.75, zPos + 1.5);
-        subConeRight.rotation.x = Math.PI / 2;
-        subConeRight.material = subConeMat;
-        
-        // Mesh grille for subs (professional perforated metal)
-        const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
-        grillMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        grillMat.metallic = 0.8;
-        grillMat.roughness = 0.3;
-        grillMat.alpha = 0.7; // Semi-transparent to show cones
-        grillMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
-        grillMat.maxSimultaneousLights = this.maxLights;
-        
-        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
-            width: 2.8,
-            height: 3.0,
-            depth: 0.08
-        }, this.scene);
-        subGrill.position = new BABYLON.Vector3(xPos, 1.75, zPos + 1.68);
-        subGrill.material = grillMat;
-        
-        // === HYPERREALISTIC MID-RANGE CABINET ===
-        const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
-            width: 2.5,
-            height: 2.5,
-            depth: 2.5
-        }, this.scene);
-        mid.position = new BABYLON.Vector3(xPos, 4.75, zPos);
-        mid.material = material;
-        mid.receiveShadows = true;
-        mid.checkCollisions = true;
-        
-        // 15" mid-range driver cone
-        const midConeMat = new BABYLON.PBRMetallicRoughnessMaterial("midConeMat" + xPos, this.scene);
-        midConeMat.baseColor = new BABYLON.Color3(0.1, 0.08, 0.05); // Brownish paper cone
-        midConeMat.metallic = 0.0;
-        midConeMat.roughness = 0.9;
-        midConeMat.maxSimultaneousLights = this.maxLights;
-        
-        const midCone = BABYLON.MeshBuilder.CreateCylinder("midCone" + xPos, {
-            diameterTop: 0.7,
-            diameterBottom: 1.0,
-            height: 0.25,
-            tessellation: 32
-        }, this.scene);
-        midCone.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.2);
-        midCone.rotation.x = Math.PI / 2;
-        midCone.material = midConeMat;
-        
-        // Dust cap (center of cone)
-        const dustCapMat = new BABYLON.PBRMetallicRoughnessMaterial("dustCapMat" + xPos, this.scene);
-        dustCapMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        dustCapMat.metallic = 0.3;
-        dustCapMat.roughness = 0.6;
-        dustCapMat.maxSimultaneousLights = this.maxLights;
-        
-        const dustCap = BABYLON.MeshBuilder.CreateSphere("dustCap" + xPos, {
-            diameter: 0.35,
-            segments: 16
-        }, this.scene);
-        dustCap.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.32);
-        dustCap.scaling.z = 0.5; // Flatten to dome shape
-        dustCap.material = dustCapMat;
-        
-        // Mid-range grille
-        const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
-            width: 2.2,
-            height: 2.2,
-            depth: 0.08
-        }, this.scene);
-        midGrill.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.33);
-        midGrill.material = grillMat.clone("midGrillMat" + xPos);
-        
-        // === HYPERREALISTIC HIGH-FREQUENCY HORN ===
-        const high = BABYLON.MeshBuilder.CreateBox("high" + xPos, {
-            width: 2,
-            height: 2,
-            depth: 2
-        }, this.scene);
-        high.position = new BABYLON.Vector3(xPos, 6.75, zPos);
-        high.material = material;
-        high.receiveShadows = true;
-        high.checkCollisions = true;
-        
-        // Professional horn driver (conical horn)
-        const hornMat = new BABYLON.PBRMetallicRoughnessMaterial("hornMat" + xPos, this.scene);
-        hornMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        hornMat.metallic = 0.7;
-        hornMat.roughness = 0.2;
-        hornMat.maxSimultaneousLights = this.maxLights;
-        
-        const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
-            diameterTop: 0.8,
-            diameterBottom: 0.3,
-            height: 0.4,
-            tessellation: 32
-        }, this.scene);
-        horn.position = new BABYLON.Vector3(xPos, 6.75, zPos + 0.95);
-        horn.rotation.x = Math.PI / 2;
-        horn.material = hornMat;
-        
-        // Horn mouth opening (bright interior)
-        const hornMouthMat = new BABYLON.StandardMaterial("hornMouthMat" + xPos, this.scene);
-        hornMouthMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.12);
-        hornMouthMat.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.22);
-        
-        const hornMouth = BABYLON.MeshBuilder.CreateCylinder("hornMouth" + xPos, {
-            diameter: 0.8,
-            height: 0.05,
-            tessellation: 32
-        }, this.scene);
-        hornMouth.position = new BABYLON.Vector3(xPos, 6.75, zPos + 1.15);
-        hornMouth.rotation.x = Math.PI / 2;
-        hornMouth.material = hornMouthMat;
-        
-        // High-frequency grille
-        const highGrill = BABYLON.MeshBuilder.CreateBox("highGrill" + xPos, {
-            width: 1.7,
-            height: 1.7,
-            depth: 0.08
-        }, this.scene);
-        highGrill.position = new BABYLON.Vector3(xPos, 6.75, zPos + 1.08);
-        highGrill.material = grillMat.clone("highGrillMat" + xPos);
-        
-        // === PROFESSIONAL DETAILS ===
-        
-        // Amplifier/crossover panel on sub (back plate)
-        const ampPanelMat = new BABYLON.PBRMetallicRoughnessMaterial("ampPanelMat" + xPos, this.scene);
-        ampPanelMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        ampPanelMat.metallic = 0.6;
-        ampPanelMat.roughness = 0.4;
-        ampPanelMat.maxSimultaneousLights = this.maxLights;
-        
-        const ampPanel = BABYLON.MeshBuilder.CreateBox("ampPanel" + xPos, {
-            width: 1.5,
-            height: 1.0,
-            depth: 0.08
-        }, this.scene);
-        ampPanel.position = new BABYLON.Vector3(xPos, 2.8, zPos - 1.58);
-        ampPanel.material = ampPanelMat;
-        
-        // Power LED indicator
-        const ledMat = new BABYLON.StandardMaterial("ledMat" + xPos, this.scene);
-        ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green = powered
-        ledMat.disableLighting = true;
-        
-        const powerLED = BABYLON.MeshBuilder.CreateSphere("powerLED" + xPos, {
-            diameter: 0.08,
-            segments: 8
-        }, this.scene);
-        powerLED.position = new BABYLON.Vector3(xPos - 0.5, 3.3, zPos - 1.54);
-        powerLED.material = ledMat;
-        
-        // Brand logo plate (top of high cabinet)
-        const logoMat = new BABYLON.StandardMaterial("logo" + xPos, this.scene);
-        logoMat.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
-        logoMat.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-        logoMat.alpha = 1.0;
-        
-        const logo = BABYLON.MeshBuilder.CreateBox("logo" + xPos, {
-            width: 1.2,
-            height: 0.25,
-            depth: 0.05
-        }, this.scene);
-        logo.position = new BABYLON.Vector3(xPos, 7.85, zPos + 1.03);
-        logo.material = logoMat;
-        
-        // Corner protectors (metal corners on cabinets)
-        const cornerMat = new BABYLON.PBRMetallicRoughnessMaterial("cornerMat" + xPos, this.scene);
-        cornerMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.25);
-        cornerMat.metallic = 0.9;
-        cornerMat.roughness = 0.3;
-        cornerMat.maxSimultaneousLights = this.maxLights;
-        
-        // Add corner protectors to each cabinet (8 corners per box)
-        const corners = [
-            { x: xPos - 1.6, y: 3.5, z: zPos + 1.6 },
-            { x: xPos + 1.6, y: 3.5, z: zPos + 1.6 },
-            { x: xPos - 1.6, y: 0.0, z: zPos + 1.6 },
-            { x: xPos + 1.6, y: 0.0, z: zPos + 1.6 }
-        ];
-        
-        corners.forEach((pos, idx) => {
-            const corner = BABYLON.MeshBuilder.CreateBox("corner" + xPos + "_" + idx, {
-                width: 0.08,
-                height: 0.3,
-                depth: 0.08
-            }, this.scene);
-            corner.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
-            corner.material = cornerMat;
-        });
-        
-        console.log("✅ Created hyperrealistic PA speaker stack at x=" + xPos);
-    }
-
     createBarArea() {
-        
         // Bar counter - solid wood
         const bar = BABYLON.MeshBuilder.CreateBox("bar", {
             width: 10,
@@ -4515,6 +4047,26 @@ class VRClub {
                         this.currentSpotColor = this.spotColorList[this.spotColorIndex];
                         this.lastColorChange = performance.now() / 1000;
                         
+                        // Update ALL light colors immediately (diffuse AND specular for reflections)
+                        if (this.spotlights) {
+                            this.spotlights.forEach((spot, i) => {
+                                spot.light.diffuse = this.currentSpotColor;
+                                spot.light.specular = this.currentSpotColor; // ADD SPECULAR for reflections
+                                spot.color = this.currentSpotColor;
+                                
+                                // Update fixture lens and light source colors
+                                if (this.trussLights && this.trussLights[i]) {
+                                    const trussLight = this.trussLights[i];
+                                    if (trussLight.lensMat && this.lightsActive) {
+                                        trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0);
+                                    }
+                                    if (trussLight.sourceMat && this.lightsActive) {
+                                        trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0);
+                                    }
+                                }
+                            });
+                        }
+                        
                         // Flash button feedback
                         clickedButton.material.emissiveColor = clickedButton.onColor;
                         setTimeout(() => {
@@ -4552,49 +4104,163 @@ class VRClub {
             this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
             console.log("🔇 Audio stream stopped");
         } else {
-            // Start audio - prompt user for stream URL
-            const streamUrl = prompt("Enter audio stream URL (or leave empty for demo):", "");
-            
-            if (streamUrl !== null) {
-                // Create or reuse audio element
-                if (!this.audioElement) {
-                    this.audioElement = new Audio();
-                    this.audioElement.crossOrigin = "anonymous";
-                    this.audioElement.loop = true;
-                }
-                
-                // Set source and play
-                if (streamUrl === "") {
-                    // Use a demo stream or local file
-                    this.audioElement.src = "https://stream.example.com/radio"; // Replace with actual stream
-                    console.log("🎵 Using demo audio stream");
-                } else {
-                    this.audioElement.src = streamUrl;
-                    console.log(`🎵 Loading audio stream: ${streamUrl}`);
-                }
-                
-                // Play the audio
-                this.audioElement.play().then(() => {
-                    this.audioStreamButton.isPlaying = true;
-                    this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-                    console.log("🔊 Audio stream playing");
-                    
-                    // Connect to audio analyzer if available
-                    if (!this.audioContext && window.AudioContext) {
-                        this.audioContext = new AudioContext();
-                        this.audioAnalyser = this.audioContext.createAnalyser();
-                        this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                        this.audioSource.connect(this.audioAnalyser);
-                        this.audioAnalyser.connect(this.audioContext.destination);
-                        this.audioAnalyser.fftSize = 256;
-                        console.log("🎚️ Audio analyzer connected");
-                    }
-                }).catch(err => {
-                    console.error("❌ Failed to play audio:", err);
-                    alert("Failed to play audio stream. Check the URL and CORS settings.");
-                });
-            }
+            // Show in-VR UI for stream URL input
+            this.showAudioStreamInputUI();
         }
+    }
+
+    showAudioStreamInputUI() {
+        // Create overlay panel in 3D space in front of DJ
+        const panel = BABYLON.MeshBuilder.CreatePlane("audioInputPanel", {
+            width: 3,
+            height: 1.5
+        }, this.scene);
+        panel.position = new BABYLON.Vector3(0, 1.7, -22); // In front of DJ booth
+        panel.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; // Always face camera
+        
+        // Panel material
+        const panelMat = new BABYLON.StandardMaterial("audioInputPanelMat", this.scene);
+        panelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.15);
+        panelMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.1);
+        panelMat.alpha = 0.95;
+        panel.material = panelMat;
+        
+        // Create HTML input overlay
+        const inputDiv = document.createElement('div');
+        inputDiv.id = 'vrAudioInput';
+        inputDiv.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 20, 30, 0.95);
+            border: 3px solid #00ff88;
+            border-radius: 15px;
+            padding: 30px;
+            z-index: 10000;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+        `;
+        
+        inputDiv.innerHTML = `
+            <h2 style="color: #00ff88; margin: 0 0 20px 0; font-size: 24px;">🎵 Audio Stream URL</h2>
+            <input type="text" id="audioUrlInput" placeholder="https://stream.example.com/radio" 
+                style="width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; 
+                background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 20px;">
+            <div style="margin-top: 15px;">
+                <button id="audioPlayBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
+                    background: #00ff88; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    ▶️ PLAY
+                </button>
+                <button id="audioCancelBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
+                    background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    ✖️ CANCEL
+                </button>
+            </div>
+            <p style="color: #888; font-size: 14px; margin-top: 15px;">Leave empty for demo stream</p>
+        `;
+        
+        document.body.appendChild(inputDiv);
+        
+        // Focus input
+        setTimeout(() => {
+            document.getElementById('audioUrlInput').focus();
+        }, 100);
+        
+        // Handle play button
+        document.getElementById('audioPlayBtn').onclick = () => {
+            const url = document.getElementById('audioUrlInput').value.trim();
+            this.startAudioStream(url);
+            document.body.removeChild(inputDiv);
+            panel.dispose();
+        };
+        
+        // Handle cancel button
+        document.getElementById('audioCancelBtn').onclick = () => {
+            document.body.removeChild(inputDiv);
+            panel.dispose();
+        };
+        
+        // Handle Enter key
+        document.getElementById('audioUrlInput').onkeypress = (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('audioPlayBtn').click();
+            }
+        };
+        
+        // Handle Escape key
+        document.addEventListener('keydown', function escHandler(e) {
+            if (e.key === 'Escape') {
+                const div = document.getElementById('vrAudioInput');
+                if (div) {
+                    document.body.removeChild(div);
+                    panel.dispose();
+                }
+                document.removeEventListener('keydown', escHandler);
+            }
+        });
+    }
+
+    startAudioStream(url) {
+        // Create or reuse audio element
+        if (!this.audioElement) {
+            this.audioElement = new Audio();
+            this.audioElement.crossOrigin = "anonymous";
+            this.audioElement.loop = true;
+        }
+        
+        // Set source
+        if (url === "") {
+            this.audioElement.src = "https://stream.example.com/radio"; // Replace with actual demo
+            console.log("🎵 Using demo audio stream");
+        } else {
+            this.audioElement.src = url;
+            console.log(`🎵 Loading audio stream: ${url}`);
+        }
+        
+        // Play the audio
+        this.audioElement.play().then(() => {
+            this.audioStreamButton.isPlaying = true;
+            this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+            console.log("🔊 Audio stream playing");
+            
+            // Connect to audio analyzer
+            if (!this.audioContext && window.AudioContext) {
+                this.audioContext = new AudioContext();
+                this.audioAnalyser = this.audioContext.createAnalyser();
+                this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                this.audioSource.connect(this.audioAnalyser);
+                this.audioAnalyser.connect(this.audioContext.destination);
+                this.audioAnalyser.fftSize = 256;
+                console.log("🎚️ Audio analyzer connected");
+            }
+        }).catch(err => {
+            console.error("❌ Failed to play audio:", err);
+            this.showErrorMessage("Failed to play audio stream. Check the URL and CORS settings.");
+        });
+    }
+
+    showErrorMessage(message) {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(200, 0, 0, 0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 10px;
+            z-index: 10000;
+            font-size: 18px;
+            font-weight: bold;
+        `;
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        
+        setTimeout(() => {
+            document.body.removeChild(errorDiv);
+        }, 3000);
     }
 
     moveCameraToPreset(preset) {
