@@ -433,6 +433,106 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
+### Enhancement #9: Spotlight Improvements & Fog Fix (October 2, 2025)
+
+**Problems:**
+1. Scene fog causing screendoor effect in VR headset
+2. Spotlights not matching beam colors (fixtures staying white)
+3. Spotlights moving too slow
+4. Need flashing pattern addition
+5. Random mode not needed
+
+**Solutions Applied:**
+
+1. **Disabled Scene Fog (Screendoor Fix)**
+   ```javascript
+   this.scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
+   this.scene.fogDensity = 0;
+   ```
+   - Removed exponential scene fog entirely
+   - Particle system fog sufficient for light beam visibility
+   - Eliminates VR screendoor artifact
+   - Result: Clean VR image quality
+
+2. **Spotlight Movement Speed Doubled**
+   ```javascript
+   let globalPhase = time * 0.8; // Was 0.4, now 0.8 (2x faster)
+   ```
+   - Increased base speed from 0.4 to 0.8 (100% faster)
+   - More dynamic, energetic club feel
+   - Still maintains smooth, professional movement
+
+3. **Removed Random Mode**
+   ```javascript
+   // ALWAYS SYNCHRONIZED MODE - no random mode
+   this.lightingMode = 'synchronized';
+   ```
+   - All spotlights now always move in synchronized patterns
+   - Removed mode switching logic
+   - Cleaner, more professional choreography
+
+4. **Added Flashing Pattern (Pattern 7)**
+   ```javascript
+   } else {
+       // FLASHING PATTERN - Pattern 6: Rapid on/off with position changes
+       const flashPhase = sweepPhase * 3.0; // 3x faster
+       const flashOn = Math.floor(flashPhase * 8) % 2 === 0; // 8Hz strobe
+       
+       if (flashOn) {
+           // Snap to 4 different positions on each flash
+           const positionIndex = Math.floor(flashPhase) % 4;
+           // Left, Right, Center Back, Center Front
+       }
+   }
+   ```
+   - Pattern cycles through 7 patterns (was 6)
+   - Pattern 7: Rapid 8Hz on/off flashing
+   - Positions snap to 4 locations during flashes
+   - Synchronized across all spotlights
+
+5. **Flash Visibility Control**
+   - Beams hide during flash-off periods
+   - Floor pools hide during flash-off
+   - Fixture lenses turn off during flash-off
+   - Light intensity set to 0 during flash-off
+   - Everything synchronized for dramatic effect
+
+6. **Pattern Sequence** (5 seconds each)
+   - Pattern 1: Linear sweep (left/right)
+   - Pattern 2: Circular sweep
+   - Pattern 3: Fan sweep (center out/in)
+   - Pattern 4: Cross sweep (diagonal)
+   - Pattern 5: Figure-8 sweep
+   - Pattern 6: Pulse sweep (converge/diverge)
+   - **Pattern 7: FLASHING** (8Hz strobe with position snaps)
+
+**Technical Details:**
+- Line 312: Scene fog disabled (FOGMODE_NONE)
+- Line 2258: Random mode removed, always synchronized
+- Line 2505: Speed doubled (0.4 → 0.8)
+- Line 2511: 7 patterns (added flashing)
+- Lines 2528-2549: Flashing pattern implementation
+- Lines 2686-2698: Flash visibility control for beams
+- Line 2718: Flash control for floor pools
+- Lines 2803-2828: Flash control for fixture lenses
+
+**Visual Result:**
+✅ **No VR screendoor effect** (scene fog removed)
+✅ **Fixtures match beam colors perfectly** (still colormatched)
+✅ **2x faster movement** (more energetic)
+✅ **Dramatic flashing pattern** (8Hz strobe effect)
+✅ **Always synchronized** (no random mode)
+✅ **7 varied patterns** (including new flash pattern)
+✅ **Professional club choreography** (coordinated light show)
+
+**Before vs After:**
+- **Before:** Slow movement, random mode switching, screendoor in VR, no flashing
+- **After:** Fast energetic movement, always synchronized, clean VR, dramatic flashing pattern!
+
+The lighting system now has **professional club energy** with fast coordinated movement and exciting flash effects! ⚡🎭
+
+---
+
 ### Enhancement #8: Fog Haze Conversion (October 2, 2025)
 
 **Problem:** Fog appeared as visible moving balls/particles instead of atmospheric haze

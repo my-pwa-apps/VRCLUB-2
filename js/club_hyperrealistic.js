@@ -319,10 +319,11 @@ class VRClub {
         djFog.start();
         this.fogSystems.push(djFog);
         
-        // Scene fog for depth/atmosphere (REDUCED DENSITY)
-        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
-        this.scene.fogDensity = 0.008; // Reduced from 0.015 to 0.008 (nearly half)
-        this.scene.fogColor = new BABYLON.Color3(0.08, 0.08, 0.1); // Slightly darker for subtlety
+        // Scene fog DISABLED - was causing screendoor effect in VR
+        // Particle systems provide enough atmospheric haze
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
+        this.scene.fogDensity = 0;
+        this.scene.fogColor = new BABYLON.Color3(0, 0, 0);
         
         console.log("✅ Created hyperrealistic volumetric fog system (3 particle systems + scene fog)");
     }
@@ -2259,19 +2260,9 @@ class VRClub {
             this.updateLEDWall(time, audioData);
         }
         
-        // Switch between synchronized and random lighting modes (every 20-40 seconds)
-        if (time - this.modeSwitchTime > (20 + Math.random() * 20)) {
-            this.lightingMode = this.lightingMode === 'synchronized' ? 'random' : 'synchronized';
-            this.modeSwitchTime = time;
-            
-            // If switching to synchronized, reset all phases
-            if (this.lightingMode === 'synchronized' && this.lasers) {
-                this.lasers.forEach(laser => {
-                    laser.rotation = 0;
-                    laser.tiltPhase = 0;
-                });
-            }
-        }
+        // ALWAYS SYNCHRONIZED MODE - no random mode
+        // Spotlights always move together in coordinated patterns
+        this.lightingMode = 'synchronized';
         
         // Color switching (every 8-12 seconds)
         if (time - this.colorSwitchTime > (8 + Math.random() * 4)) {
@@ -2501,7 +2492,7 @@ class VRClub {
             
             // SYNCHRONIZED SWEEPING - recreate iconic club vibe
             // All lights move together, sweeping their beams across the dance floor
-            let globalPhase = time * 0.4; // Slower, more dramatic
+            let globalPhase = time * 0.8; // FASTER movement (was 0.4, now 0.8 - 2x speed)
             
             // Audio reactivity - make movement speed react to bass
             const audioSpeedMultiplier = 1 + (audioData.bass * 1.5);
@@ -2509,11 +2500,10 @@ class VRClub {
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
                 
-                if (this.lightingMode === 'synchronized') {
-                    // SYNCHRONIZED SWEEPING: All lights sweep together across dance floor
-                    // Multiple patterns that change every 5 seconds during the 30-second light phase
-                    const sweepPhase = globalPhase * audioSpeedMultiplier;
-                    const sweepPattern = Math.floor(sweepPhase / 5) % 6; // Change pattern every 5 seconds (6 patterns)
+                // SYNCHRONIZED SWEEPING: All lights sweep together across dance floor
+                // Multiple patterns that change every 5 seconds + FLASHING PATTERN
+                const sweepPhase = globalPhase * audioSpeedMultiplier;
+                const sweepPattern = Math.floor(sweepPhase / 5) % 7; // 7 patterns now (added flashing)
                     
                     if (sweepPattern === 0) {
                         // Linear sweep left to right - classic club move
@@ -2536,31 +2526,35 @@ class VRClub {
                         // Figure-8 sweep - complex synchronized pattern
                         dirX = Math.sin(sweepPhase * 0.6) * 1.3;
                         dirZ = Math.sin(sweepPhase * 1.2) * 0.9;
-                    } else {
+                    } else if (sweepPattern === 5) {
                         // Pulse sweep - beams converge to center then spread out
                         const pulsePhase = Math.sin(sweepPhase * 0.8);
                         dirX = pulsePhase * Math.cos(sweepPhase * 0.5) * 1.2;
                         dirZ = pulsePhase * Math.sin(sweepPhase * 0.5) * 1.0;
-                    }
-                } else {
-                    // Individual patterns for variety
-                    spot.phase += 0.016 * spot.speed * audioSpeedMultiplier;
-                    const patternType = i % 3;
-                    
-                    if (patternType === 0) {
-                        // Circular sweep
-                        dirX = Math.sin(spot.phase);
-                        dirZ = Math.cos(spot.phase);
-                    } else if (patternType === 1) {
-                        // Figure-8 pattern
-                        dirX = Math.sin(spot.phase * 2);
-                        dirZ = Math.sin(spot.phase) * Math.cos(spot.phase);
                     } else {
-                        // Cross pattern
-                        dirX = Math.sin(spot.phase) * 0.5;
-                        dirZ = Math.cos(spot.phase * 1.5) * 0.5;
+                        // FLASHING PATTERN - Pattern 6: Rapid on/off with position changes
+                        // Fast strobe-like effect with synchronized position jumps
+                        const flashPhase = sweepPhase * 3.0; // 3x faster for flashing
+                        const flashOn = Math.floor(flashPhase * 8) % 2 === 0; // On/off at 8Hz
+                        
+                        if (flashOn) {
+                            // Snap to different positions on each flash
+                            const positionIndex = Math.floor(flashPhase) % 4;
+                            if (positionIndex === 0) {
+                                dirX = -1.2; dirZ = -0.3; // Left
+                            } else if (positionIndex === 1) {
+                                dirX = 1.2; dirZ = -0.3;  // Right
+                            } else if (positionIndex === 2) {
+                                dirX = 0; dirZ = -1.2;    // Center back
+                            } else {
+                                dirX = 0; dirZ = 0.3;     // Center front
+                            }
+                        } else {
+                            // Off position - point straight down (will be hidden by visibility)
+                            dirX = 0;
+                            dirZ = 0;
+                        }
                     }
-                }
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
@@ -2683,8 +2677,22 @@ class VRClub {
                         spot.beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15);
                     }
                     
-                    // Beam visibility and color - HYPERREALISTIC with subtle variation
-                    spot.beam.visibility = this.lightsActive ? 1.0 : 0;
+                    // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
+                    // Check if we're in flashing pattern (pattern 6)
+                    const sweepPhase = globalPhase * audioSpeedMultiplier;
+                    const sweepPattern = Math.floor(sweepPhase / 5) % 7;
+                    const isFlashing = (sweepPattern === 6);
+                    
+                    let beamVisible = this.lightsActive;
+                    if (isFlashing) {
+                        // Flash on/off during pattern 6
+                        const flashPhase = sweepPhase * 3.0;
+                        const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
+                        beamVisible = beamVisible && flashOn;
+                    }
+                    
+                    spot.beam.visibility = beamVisible ? 1.0 : 0;
+                    spot.light.intensity = beamVisible ? 12 : 0; // Also control light intensity
                     
                     // Subtle atmospheric variation - simulates particles moving through beam
                     const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
@@ -2702,7 +2710,7 @@ class VRClub {
                     
                     // Update HYPERREALISTIC floor light splash - 3-layer gradient effect
                     if (spot.lightPool) {
-                        if (this.lightsActive) {
+                        if (this.lightsActive && beamVisible) { // Also check beamVisible for flashing
                             // Calculate beam width at floor (cone: 0.25m → 2.0m)
                             const beamProgress = centerDistanceToFloor / beamLength;
                             const beamWidthAtFloor = 0.25 + 1.75 * beamProgress; // 1.75 = 2.0 - 0.25
@@ -2739,7 +2747,7 @@ class VRClub {
                             spot.lightPoolGlow.visibility = 0.7;
                             spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
                         } else {
-                            // CRITICAL: Hide floor pools immediately when lights turn off
+                            // CRITICAL: Hide floor pools immediately when lights turn off or flashing off
                             spot.lightPoolCore.visibility = 0;
                             spot.lightPool.visibility = 0;
                             spot.lightPoolGlow.visibility = 0;
@@ -2783,16 +2791,25 @@ class VRClub {
         
         // Laser curtain show removed (was broken)
         
-        // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR
+        // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR + FLASHING
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
+            // Check if we're in flashing pattern
+            const sweepPhase = globalPhase * audioSpeedMultiplier;
+            const sweepPattern = Math.floor(sweepPhase / 5) % 7;
+            const isFlashing = (sweepPattern === 6);
+            const flashPhase = sweepPhase * 3.0;
+            const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
+            
             this.spotlights.forEach((spot, i) => {
                 if (spot.fixture) {
                     // Find corresponding lens from trussLights if available
                     const trussLight = this.trussLights && this.trussLights[i];
                     if (trussLight && trussLight.lensMat) {
-                        if (this.lightsActive) {
+                        const fixtureVisible = this.lightsActive && (!isFlashing || flashOn);
+                        
+                        if (fixtureVisible) {
                             // EXTREMELY BRIGHT lens when active - the actual light source
                             const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2; // 0.6-1.0
                             const audioPulse = 1.0 + audioData.bass * 0.5;
@@ -2803,7 +2820,7 @@ class VRClub {
                                 trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse * audioPulse); // Even brighter center
                             }
                         } else {
-                            // Completely dark when off (no light without light source!)
+                            // Completely dark when off or flashing off
                             trussLight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                             if (trussLight.sourceMat) {
                                 trussLight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
