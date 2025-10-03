@@ -3398,30 +3398,36 @@ class VRClub {
     }
 
     setupUI(vrHelper) {
-        // VR button
-        document.getElementById('vrButton').addEventListener('click', async () => {
-            try {
-                if (vrHelper.baseExperience) {
-                    await vrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
+        // VR button (optional - only if element exists)
+        const vrButton = document.getElementById('vrButton');
+        if (vrButton) {
+            vrButton.addEventListener('click', async () => {
+                try {
+                    if (vrHelper.baseExperience) {
+                        await vrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
+                    }
+                } catch (error) {
+                    console.error('VR Error:', error);
+                    alert('VR not available. Make sure your Quest 3S is connected via Link/Air Link.');
                 }
-            } catch (error) {
-                console.error('VR Error:', error);
-                alert('VR not available. Make sure your Quest 3S is connected via Link/Air Link.');
-            }
-        });
+            });
+        }
         
-        // Camera presets
-        document.querySelectorAll('.preset-btn').forEach(btn => {
+        // Camera presets - support both old class and new data attribute
+        document.querySelectorAll('[data-camera-preset]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const preset = btn.dataset.cameraPreset;
                 this.moveCameraToPreset(preset);
             });
         });
         
-        // Music
-        document.getElementById('playMusicBtn').addEventListener('click', () => {
-            this.playMusic();
-        });
+        // Music (optional - only if elements exist)
+        const playMusicBtn = document.getElementById('playMusicBtn');
+        if (playMusicBtn) {
+            playMusicBtn.addEventListener('click', () => {
+                this.playMusic();
+            });
+        }
         
         // Help
         document.addEventListener('keydown', (e) => {
@@ -3484,7 +3490,10 @@ class VRClub {
     }
 
     playMusic() {
-        const url = document.getElementById('musicUrl').value;
+        const musicUrlInput = document.getElementById('musicUrl');
+        if (!musicUrlInput) return; // No music input available
+        
+        const url = musicUrlInput.value;
         if (!url) {
             alert('Please enter a music stream URL');
             return;
@@ -3505,11 +3514,13 @@ class VRClub {
         this.audioElement.src = url;
         this.audioElement.play();
         
-        // Show success message
-        document.getElementById('musicUrl').style.borderColor = '#00ff00';
-        setTimeout(() => {
-            document.getElementById('musicUrl').style.borderColor = '';
-        }, 2000);
+        // Show success message (if element exists)
+        if (musicUrlInput) {
+            musicUrlInput.style.borderColor = '#00ff00';
+            setTimeout(() => {
+                musicUrlInput.style.borderColor = '';
+            }, 2000);
+        }
     }
     
     getAudioData() {
@@ -3569,16 +3580,19 @@ class VRClub {
             this.frames = 0;
             this.lastTime = now;
             
-            const color = this.fps >= 60 ? '#00ff00' : this.fps >= 30 ? '#ffff00' : '#ff0000';
-            let text = `FPS: ${this.fps}`;
-            
-            if (this.debugMode) {
-                const pos = this.camera.position;
-                text += `\nX: ${pos.x.toFixed(1)} Y: ${pos.y.toFixed(1)} Z: ${pos.z.toFixed(1)}`;
+            // Only update if element exists
+            if (this.fpsElement) {
+                const color = this.fps >= 60 ? '#00ff00' : this.fps >= 30 ? '#ffff00' : '#ff0000';
+                let text = `FPS: ${this.fps}`;
+                
+                if (this.debugMode) {
+                    const pos = this.camera.position;
+                    text += `\nX: ${pos.x.toFixed(1)} Y: ${pos.y.toFixed(1)} Z: ${pos.z.toFixed(1)}`;
+                }
+                
+                this.fpsElement.textContent = text;
+                this.fpsElement.style.color = color;
             }
-            
-            this.fpsElement.textContent = text;
-            this.fpsElement.style.color = color;
         }
     }
 
