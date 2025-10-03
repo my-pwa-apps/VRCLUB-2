@@ -2488,14 +2488,14 @@ class VRClub {
             }
         }
         
+        // Calculate global phase and audio multiplier for spotlight patterns (used in multiple places)
+        const globalPhase = time * 0.8; // FASTER movement (was 0.4, now 0.8 - 2x speed)
+        const audioSpeedMultiplier = 1 + (audioData.bass * 1.5);
+        
         if (this.spotlights && this.lightsActive) {
             
             // SYNCHRONIZED SWEEPING - recreate iconic club vibe
             // All lights move together, sweeping their beams across the dance floor
-            let globalPhase = time * 0.8; // FASTER movement (was 0.4, now 0.8 - 2x speed)
-            
-            // Audio reactivity - make movement speed react to bass
-            const audioSpeedMultiplier = 1 + (audioData.bass * 1.5);
             
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
