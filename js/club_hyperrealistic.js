@@ -50,6 +50,15 @@ class VRClub {
         this.spotColorIndex = 0;
         this.lastColorChange = 0;
         
+        // Initialize VJ control buttons array (populated later in createVJStation)
+        this.vjControlButtons = [];
+        
+        // Initialize lighting control state
+        this.lightsActive = true;
+        this.lasersActive = false;
+        this.ledWallActive = true;
+        this.strobesActive = true;
+        
         this.init();
     }
 
@@ -2182,17 +2191,10 @@ class VRClub {
         
         // Lights and lasers control - ALTERNATING PATTERN
         // Pattern: Lights on for 30s (longer with varied patterns), then Lasers on for 15s
-        this.lightsActive = true;
-        this.lasersActive = false;
-        this.ledWallActive = true; // LED wall control
-        this.strobesActive = true; // Strobes control
         this.lightModeSwitchTime = 0;
         this.lightingPhase = 'lights'; // 'lights' or 'lasers'
         this.lightsPhaseDuration = 30; // Lights show for 30 seconds (LONGER with pattern changes)
         this.lasersPhaseDuration = 15; // Lasers show for 15 seconds (shorter, more impactful)
-        
-        // VJ control buttons (will be populated in createVJStation)
-        this.vjControlButtons = [];
         
     }
     
