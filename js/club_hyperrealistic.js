@@ -840,7 +840,7 @@ class VRClub {
             height: 0.02,
             depth: 0.3
         }, this.scene);
-        display.position = new BABYLON.Vector3(0, 1.21, -18); // Facing forward toward dance floor
+        display.position = new BABYLON.Vector3(0, 1.21, -20); // Facing backward toward DJ
         
         const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
         displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
@@ -852,8 +852,8 @@ class VRClub {
             width: 2.5,
             height: 0.4
         }, this.scene);
-        audioLabel.position = new BABYLON.Vector3(0, 1.5, -17.5);
-        audioLabel.rotation.x = 0.3; // Flipped to face forward
+        audioLabel.position = new BABYLON.Vector3(0, 1.5, -20.5); // Behind mixer, facing DJ
+        audioLabel.rotation.x = -0.3; // Tilted toward DJ (negative z direction)
         
         const audioLabelMat = new BABYLON.StandardMaterial("audioLabelMat", this.scene);
         audioLabelMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0); // Bright yellow/orange
@@ -865,7 +865,7 @@ class VRClub {
             const indicator = BABYLON.MeshBuilder.CreateSphere("streamIndicator" + i, {
                 diameter: 0.08
             }, this.scene);
-            indicator.position = new BABYLON.Vector3(-0.6 + i * 0.3, 1.23, -18.3);
+            indicator.position = new BABYLON.Vector3(-0.6 + i * 0.3, 1.23, -19.7); // On back of mixer, visible to DJ
             
             const indicatorMat = new BABYLON.StandardMaterial("indicatorMat" + i, this.scene);
             indicatorMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green = active
@@ -920,8 +920,8 @@ class VRClub {
             height: 0.5,
             depth: 0.02
         }, this.scene);
-        laptop.position = new BABYLON.Vector3(-3, 1.38, -20.8); // Facing DJ
-        laptop.rotation.x = 0.3; // Tilted toward DJ
+        laptop.position = new BABYLON.Vector3(-3, 1.38, -21.2); // Behind stand, facing DJ
+        laptop.rotation.x = -0.3; // Tilted backward toward DJ (negative z direction)
         
         const screenMat = new BABYLON.StandardMaterial("screenMat", this.scene);
         screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
@@ -954,7 +954,7 @@ class VRClub {
             depth: 2.0
         }, this.scene);
         vjTable.position = new BABYLON.Vector3(3.7, 1.05, -20);
-        vjTable.rotation.x = 0.10; // Angle toward dance floor (reversed)
+        vjTable.rotation.x = -0.10; // Angled backward toward DJ
         
         const vjTableMat = new BABYLON.PBRMetallicRoughnessMaterial("vjTableMat", this.scene);
         vjTableMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
@@ -969,8 +969,8 @@ class VRClub {
             height: 1.5,
             depth: 0.06
         }, this.scene);
-        mainDisplay.position = new BABYLON.Vector3(3.7, 1.9, -21.2); // Behind console
-        mainDisplay.rotation.x = 0.18; // Tilted forward toward dance floor
+        mainDisplay.position = new BABYLON.Vector3(3.7, 1.9, -20.8); // Behind console, facing DJ
+        mainDisplay.rotation.x = -0.18; // Tilted backward toward DJ
         
         const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
         displayMat.emissiveColor = new BABYLON.Color3(0.15, 0.25, 0.4); // Professional blue UI
@@ -983,8 +983,8 @@ class VRClub {
             height: 1.6,
             depth: 0.05
         }, this.scene);
-        displayFrame.position = new BABYLON.Vector3(3.7, 1.9, -21.25);
-        displayFrame.rotation.x = 0.18;
+        displayFrame.position = new BABYLON.Vector3(3.7, 1.9, -20.75); // Slightly in front of display
+        displayFrame.rotation.x = -0.18;
         displayFrame.material = baseMat;
         
         // === MOTORIZED FADERS (Intensity Control) ===
@@ -1229,8 +1229,8 @@ class VRClub {
             width: 3.2,
             height: 0.38
         }, this.scene);
-        mainLabel.position = new BABYLON.Vector3(3.7, 2.55, -17.5);
-        mainLabel.rotation.x = 0.28; // Facing forward
+        mainLabel.position = new BABYLON.Vector3(3.7, 2.55, -21.5); // Above console, facing DJ
+        mainLabel.rotation.x = -0.28; // Tilted backward toward DJ
         
         const labelMat = new BABYLON.StandardMaterial("labelMat", this.scene);
         labelMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0); // Orange - "LIGHTING CONTROL"
