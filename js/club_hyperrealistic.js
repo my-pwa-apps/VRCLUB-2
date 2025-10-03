@@ -2488,9 +2488,9 @@ class VRClub {
             }
         }
         
-        // Calculate global phase and audio multiplier for spotlight patterns (used in multiple places)
+        // Calculate global phase for spotlight patterns (used in multiple places)
         const globalPhase = time * 0.8; // FASTER movement (was 0.4, now 0.8 - 2x speed)
-        const audioSpeedMultiplier = 1 + (audioData.bass * 1.5);
+        const audioSpeedMultiplier = 1.0; // Audio control disabled - focus on basics
         
         if (this.spotlights && this.lightsActive) {
             
@@ -2696,12 +2696,11 @@ class VRClub {
                     
                     // Subtle atmospheric variation - simulates particles moving through beam
                     const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
-                    const audioReactivity = audioData.bass * 0.3;
                     
-                    // Update emissive color with variation
-                    const baseIntensity = 0.3 + atmosphericNoise + audioReactivity;
+                    // Update emissive color with variation (audio disabled)
+                    const baseIntensity = 0.3 + atmosphericNoise;
                     spot.beamMat.emissiveColor = this.currentSpotColor.scale(baseIntensity);
-                    spot.beamMat.emissiveIntensity = 1.8 + audioData.bass * 0.5; // Boost for PBR material
+                    spot.beamMat.emissiveIntensity = 1.8; // Constant intensity
                     
                     // Very subtle alpha variation - creates "depth" in the beam
                     spot.beamMat.alpha = 0.04 + Math.abs(atmosphericNoise) * 0.02;
@@ -2716,8 +2715,7 @@ class VRClub {
                             const beamWidthAtFloor = 0.25 + 1.75 * beamProgress; // 1.75 = 2.0 - 0.25
                             const baseSize = (beamWidthAtFloor * 0.5) * zoomFactor;
                             
-                            // Audio reactive effects
-                            const audioPulse = 1.0 + audioData.bass * 0.3;
+                            // Atmospheric shimmer (audio disabled)
                             const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1;
                             
                             // Reuse floor intersection point
@@ -2726,10 +2724,10 @@ class VRClub {
                             // CORE (bright center hotspot)
                             poolPosition.y = 0.04;
                             spot.lightPoolCore.position.copyFrom(poolPosition);
-                            const coreSize = baseSize * 0.3 * audioPulse;
+                            const coreSize = baseSize * 0.3;
                             spot.lightPoolCore.scaling.set(coreSize, coreSize, 1);
                             spot.lightPoolCore.visibility = 1.0;
-                            spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5 * audioPulse);
+                            spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5);
                             
                             // MID GLOW (medium gradient)
                             poolPosition.y = 0.03;
@@ -2761,21 +2759,11 @@ class VRClub {
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                 }
                 
-                // PROFESSIONAL AUDIO REACTIVE INTENSITY
+                // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
                 const baseIntensity = 18; // Professional moving head (300W equivalent)
-                const volumePulse = audioData.average * 12; // Strong music reaction
-                const bassPulse = audioData.bass * 8; // Heavy bass punch
-                const smoothPulse = Math.sin(time * 2.5) * 3; // Smooth breathing
+                const smoothPulse = Math.sin(time * 2.5) * 3; // Smooth breathing effect
                 
-                // Dynamic strobe bursts on drops (every 8-12 seconds)
-                let strobeMultiplier = 1.0;
-                const strobePhase = (time * 0.12) % 1; // 0-1 over ~8.3s
-                if (strobePhase < 0.05) {
-                    strobeMultiplier = 1.8 + Math.sin(time * 30) * 0.4; // 200ms strobe burst
-                }
-                
-                spot.light.intensity = this.lightsActive ? 
-                    ((baseIntensity + volumePulse + bassPulse + smoothPulse) * strobeMultiplier) : 0;
+                spot.light.intensity = this.lightsActive ? (baseIntensity + smoothPulse) : 0;
             });
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
@@ -2810,14 +2798,13 @@ class VRClub {
                         const fixtureVisible = this.lightsActive && (!isFlashing || flashOn);
                         
                         if (fixtureVisible) {
-                            // EXTREMELY BRIGHT lens when active - the actual light source
+                            // EXTREMELY BRIGHT lens when active - the actual light source (audio disabled)
                             const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2; // 0.6-1.0
-                            const audioPulse = 1.0 + audioData.bass * 0.5;
-                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0 * pulse * audioPulse); // 5x brighter!
+                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0 * pulse); // 5x brighter!
                             
                             // Update the bright inner light source sphere
                             if (trussLight.sourceMat) {
-                                trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse * audioPulse); // Even brighter center
+                                trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse); // Even brighter center
                             }
                         } else {
                             // Completely dark when off or flashing off

@@ -433,6 +433,66 @@ If performance is slow, check `HYPERREALISTIC_GUIDE.md` for optimization tips.
 
 ---
 
+### Bug Fix #10: Scope Error & Audio Disable (October 3, 2025)
+
+**Problem 1:** `globalPhase is not defined` error at line 2799
+- Variables defined inside spotlight block not accessible in fixture update section
+- Caused runtime error when trying to coordinate flashing
+
+**Problem 2:** Audio reactivity too complex for initial setup
+- Focus on basic lighting first before adding audio features
+- Simplify to get core functionality working properly
+
+**Solutions Applied:**
+
+1. **Fixed Variable Scope**
+   ```javascript
+   // Moved outside spotlight block (now accessible everywhere)
+   const globalPhase = time * 0.8;
+   const audioSpeedMultiplier = 1.0; // Audio disabled
+   ```
+   - Moved `globalPhase` and `audioSpeedMultiplier` to higher scope
+   - Now accessible in both spotlight movement AND fixture update sections
+   - Allows proper coordination of flashing pattern
+
+2. **Disabled Audio Reactivity**
+   - Set `audioSpeedMultiplier = 1.0` (constant, no audio variation)
+   - Removed `audioData.bass` from beam emissive intensity
+   - Removed `audioPulse` from floor pool sizing
+   - Removed `volumePulse` and `bassPulse` from light intensity
+   - Removed strobe burst multiplier
+   - Removed `audioPulse` from fixture lens brightness
+   - Kept only smooth breathing pulse: `Math.sin(time * 2.5) * 3`
+
+3. **Simplified Intensity Calculations**
+   - Spotlights: Base 18 + smooth pulse (was: base + volume + bass + smooth + strobe)
+   - Beams: Constant 1.8 intensity (was: 1.8 + bass * 0.5)
+   - Floor pools: Constant size (was: size * audioPulse)
+   - Fixtures: 5x/8x brightness with pulse (was: 5x/8x * pulse * audioPulse)
+
+**Technical Details:**
+- Line 2490: Moved variables outside spotlight block
+- Line 2491: Set audioSpeedMultiplier to 1.0 (disabled)
+- Line 2697: Removed audioReactivity from beam intensity
+- Line 2718: Removed audioPulse from floor pool sizing
+- Line 2761: Simplified light intensity (removed audio pulses)
+- Line 2811: Removed audioPulse from fixture brightness
+
+**Result:**
+✅ **No runtime errors** - proper variable scope
+✅ **Simplified lighting** - focus on basics
+✅ **Smooth breathing effect** - natural pulsing retained
+✅ **No audio dependency** - predictable behavior
+✅ **Easier debugging** - fewer variables to track
+
+**Before vs After:**
+- **Before:** Complex audio reactivity, scope error
+- **After:** Simple smooth animations, no errors, focus on basics
+
+Audio reactivity can be re-enabled later once core functionality is solid!
+
+---
+
 ### Enhancement #9: Spotlight Improvements & Fog Fix (October 2, 2025)
 
 **Problems:**
