@@ -62,6 +62,11 @@ class VRClub {
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
         this.spotlightMode = 0;
         
+        // VJ manual control tracking - pause automated patterns when VJ interacts
+        this.lastVJInteraction = 0;
+        this.vjManualMode = false;
+        this.VJ_TIMEOUT = 30; // Seconds before resuming automated patterns
+        
         this.init();
     }
 
@@ -3008,17 +3013,27 @@ class VRClub {
             }
         }
         
-        // Calculate global phase for spotlight patterns (used in multiple places)
-        // ONLY advance patterns when spotlights are active - freeze when disabled
-        if (this.lightsActive && !this.pausedPhase) {
-            this.lastActivePhase = time * 0.8; // Update phase while active
-        } else if (!this.pausedPhase && !this.lightsActive) {
-            this.pausedPhase = this.lastActivePhase || 0; // Store phase when disabled
+        // Check if VJ manual mode should expire (30 seconds of no interaction)
+        if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
+            this.vjManualMode = false;
+            console.log("🤖 Automated patterns resumed - no VJ interaction for 30s");
         }
-        if (this.lightsActive && this.pausedPhase) {
+        
+        // Calculate global phase for spotlight patterns (used in multiple places)
+        // ONLY advance patterns when:
+        // 1. Spotlights are active (lightsActive = true)
+        // 2. VJ is NOT in manual mode (automated patterns allowed)
+        const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
+        
+        if (allowAutomatedPatterns && !this.pausedPhase) {
+            this.lastActivePhase = time * 0.8; // Update phase while active
+        } else if (!this.pausedPhase && !allowAutomatedPatterns) {
+            this.pausedPhase = this.lastActivePhase || 0; // Store phase when disabled or manual mode
+        }
+        if (allowAutomatedPatterns && this.pausedPhase) {
             this.pausedPhase = null; // Resume from pause
         }
-        const globalPhase = this.lightsActive ? this.lastActivePhase : (this.pausedPhase || 0);
+        const globalPhase = allowAutomatedPatterns ? this.lastActivePhase : (this.pausedPhase || 0);
         const audioSpeedMultiplier = 1.0; // Audio control disabled - focus on basics
         
         if (this.spotlights && this.lightsActive) {
@@ -4056,6 +4071,11 @@ class VRClub {
                 if (clickedButton) {
                     console.log(`🎛️ VJ Control: ${clickedButton.label} clicked`);
                     
+                    // Track VJ interaction - pause automated patterns for 30 seconds
+                    this.lastVJInteraction = performance.now() / 1000;
+                    this.vjManualMode = true;
+                    console.log("🎛️ VJ manual mode: Automated patterns paused for 30s");
+                    
                     if (clickedButton.control === "changeColor") {
                         // Change color button - cycle to next color
                         this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
@@ -4146,6 +4166,18 @@ class VRClub {
         // Pause pointer lock to allow input interaction
         if (this.scene.activeCamera && this.scene.activeCamera.detachControl) {
             this.scene.activeCamera.detachControl();
+        }
+        
+        // Create audio element NOW during user interaction to satisfy autoplay policy
+        if (!this.audioElement) {
+            this.audioElement = document.createElement('audio');
+            this.audioElement.crossOrigin = "anonymous";
+            this.audioElement.loop = true;
+            this.audioElement.autoplay = true;
+            this.audioElement.preload = "auto";
+            this.audioElement.style.display = 'none';
+            document.body.appendChild(this.audioElement);
+            console.log("🎵 Audio element created during user interaction");
         }
         
         // Create HTML input overlay (NO 3D panel - was blocking view)
@@ -4326,13 +4358,10 @@ class VRClub {
     }
 
     startAudioStream(url) {
-        // Create or reuse audio element
+        // Audio element should already exist from showAudioStreamInputUI()
         if (!this.audioElement) {
-            this.audioElement = new Audio();
-            this.audioElement.crossOrigin = "anonymous";
-            this.audioElement.loop = true;
-            this.audioElement.autoplay = true; // Enable autoplay
-            this.audioElement.preload = "auto"; // Preload audio
+            console.error("❌ Audio element not created! This shouldn't happen.");
+            return;
         }
         
         // Set source
@@ -4344,47 +4373,44 @@ class VRClub {
             console.log(`🎵 Loading audio stream: ${url}`);
         }
         
-        // Force load and play immediately
+        // Force load
         this.audioElement.load();
         
-        // Try to play immediately (user already interacted by clicking button)
-        const playPromise = this.audioElement.play();
-        
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                this.audioStreamButton.isPlaying = true;
-                this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-                console.log("🔊 Audio stream playing");
-                
-                // Connect to audio analyzer
-                if (!this.audioContext && window.AudioContext) {
-                    this.audioContext = new AudioContext();
-                    this.audioAnalyser = this.audioContext.createAnalyser();
-                    this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                    this.audioSource.connect(this.audioAnalyser);
-                    this.audioAnalyser.connect(this.audioContext.destination);
-                    this.audioAnalyser.fftSize = 256;
-                    console.log("🎚️ Audio analyzer connected");
-                }
-            }).catch(err => {
-                console.error("❌ Failed to play audio:", err);
-                // If autoplay fails, show message but keep audio ready
-                console.log("⚠️ Browser blocked autoplay - audio is loaded but paused");
-                this.showErrorMessage("Audio loaded but paused. Click the audio button again to play.");
-            });
-        }
+        // Play immediately - should work because element was created during user gesture
+        setTimeout(() => {
+            const playPromise = this.audioElement.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    this.audioStreamButton.isPlaying = true;
+                    this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+                    console.log("🔊 Audio stream playing automatically!");
+                    
+                    // Connect to audio analyzer
+                    if (!this.audioContext && window.AudioContext) {
+                        this.audioContext = new AudioContext();
+                        this.audioAnalyser = this.audioContext.createAnalyser();
+                        this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                        this.audioSource.connect(this.audioAnalyser);
+                        this.audioAnalyser.connect(this.audioContext.destination);
+                        this.audioAnalyser.fftSize = 256;
+                        console.log("🎚️ Audio analyzer connected");
+                    }
+                }).catch(err => {
+                    console.error("❌ Failed to play audio:", err);
+                    this.showErrorMessage("Audio loaded. Click play on the audio button to start.");
+                });
+            }
+        }, 100); // Small delay to ensure load completes
     }
 
     startAudioFromFile(file) {
         console.log(`🎵 Loading audio file: ${file.name}`);
         
-        // Create or reuse audio element
+        // Audio element should already exist from showAudioStreamInputUI()
         if (!this.audioElement) {
-            this.audioElement = new Audio();
-            this.audioElement.crossOrigin = "anonymous";
-            this.audioElement.loop = true;
-            this.audioElement.autoplay = true; // Enable autoplay
-            this.audioElement.preload = "auto"; // Preload audio
+            console.error("❌ Audio element not created! This shouldn't happen.");
+            return;
         }
         
         // Create object URL from file
@@ -4394,31 +4420,32 @@ class VRClub {
         // Force load
         this.audioElement.load();
         
-        // Try to play immediately (user already interacted by clicking button)
-        const playPromise = this.audioElement.play();
-        
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                this.audioStreamButton.isPlaying = true;
-                this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-                console.log(`🔊 Playing audio file: ${file.name}`);
-                
-                // Connect to audio analyzer
-                if (!this.audioContext && window.AudioContext) {
-                    this.audioContext = new AudioContext();
-                    this.audioAnalyser = this.audioContext.createAnalyser();
-                    this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                    this.audioSource.connect(this.audioAnalyser);
-                    this.audioAnalyser.connect(this.audioContext.destination);
-                    this.audioAnalyser.fftSize = 256;
-                    console.log("🎚️ Audio analyzer connected");
-                }
-            }).catch(err => {
-                console.error("❌ Failed to play audio file:", err);
-                console.log("⚠️ Browser blocked autoplay - audio is loaded but paused");
-                this.showErrorMessage(`Audio loaded but paused. Click the audio button again to play.`);
-            });
-        }
+        // Play immediately - should work because element was created during user gesture
+        setTimeout(() => {
+            const playPromise = this.audioElement.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    this.audioStreamButton.isPlaying = true;
+                    this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+                    console.log(`🔊 Playing audio file automatically: ${file.name}`);
+                    
+                    // Connect to audio analyzer
+                    if (!this.audioContext && window.AudioContext) {
+                        this.audioContext = new AudioContext();
+                        this.audioAnalyser = this.audioContext.createAnalyser();
+                        this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                        this.audioSource.connect(this.audioAnalyser);
+                        this.audioAnalyser.connect(this.audioContext.destination);
+                        this.audioAnalyser.fftSize = 256;
+                        console.log("🎚️ Audio analyzer connected");
+                    }
+                }).catch(err => {
+                    console.error("❌ Failed to play audio file:", err);
+                    this.showErrorMessage(`Audio loaded. Click play on the audio button to start.`);
+                });
+            }
+        }, 100); // Small delay to ensure load completes
     }
 
     showErrorMessage(message) {
