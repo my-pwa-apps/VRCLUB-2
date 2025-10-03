@@ -2500,57 +2500,87 @@ class VRClub {
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
                 
-                // SYNCHRONIZED SWEEPING: All lights sweep together across dance floor
-                // Multiple patterns that change every 5 seconds + FLASHING PATTERN
+                // SYNCHRONIZED SWEEPING: All lights sweep together continuously
+                // SMOOTH pattern transitions - patterns blend into each other naturally
                 const sweepPhase = globalPhase * audioSpeedMultiplier;
-                const sweepPattern = Math.floor(sweepPhase / 5) % 7; // 7 patterns (6 sweeps + 1 strobe)
+                
+                // Slow pattern selector that cycles through patterns smoothly
+                // Each pattern lasts ~10 seconds with smooth transitions
+                const patternCycle = (sweepPhase / 10) % 7; // 0-7, smoothly increasing
+                const currentPattern = Math.floor(patternCycle);
+                const nextPattern = (currentPattern + 1) % 7;
+                const blendFactor = patternCycle - currentPattern; // 0-1 smooth blend
                 
                 // MAX 45 DEGREES = tan(45°) ≈ 1.0, so dirX and dirZ should be ≤ 0.6 for smooth angles
-                // This keeps beams within reasonable club range
-                    
-                    if (sweepPattern === 0) {
-                        // Linear sweep left to right - SMOOTH continuous sweep
-                        dirX = Math.sin(sweepPhase * 0.8) * 0.6; // 45° max angle
-                        dirZ = -0.3; // Slight forward angle
-                    } else if (sweepPattern === 1) {
-                        // Circular sweep - SMOOTH rotation
-                        dirX = Math.sin(sweepPhase * 0.6) * 0.5;
-                        dirZ = Math.cos(sweepPhase * 0.6) * 0.5;
-                    } else if (sweepPattern === 2) {
-                        // Fan sweep - SMOOTH sine wave (no abs)
-                        const fanPhase = Math.sin(sweepPhase * 0.5);
-                        dirX = fanPhase * 0.6; // Full left-right smooth
-                        dirZ = -0.2; // Slight forward
-                    } else if (sweepPattern === 3) {
-                        // Cross sweep - SMOOTH diagonal
-                        dirX = Math.sin(sweepPhase * 0.7) * 0.5;
-                        dirZ = Math.cos(sweepPhase * 0.7) * 0.5;
-                    } else if (sweepPattern === 4) {
-                        // Figure-8 sweep - SMOOTH lissajous
-                        dirX = Math.sin(sweepPhase * 0.5) * 0.6;
-                        dirZ = Math.sin(sweepPhase * 1.0) * 0.4; // 2:1 ratio for figure-8
-                    } else if (sweepPattern === 5) {
-                        // Pulse sweep - SMOOTH in/out breathing
-                        const pulsePhase = Math.sin(sweepPhase * 0.4); // Smooth sine
-                        const angle = sweepPhase * 0.3; // Slow rotation
-                        dirX = pulsePhase * Math.cos(angle) * 0.6;
-                        dirZ = pulsePhase * Math.sin(angle) * 0.6;
-                    } else {
-                        // STROBE FLASHING - Pattern 6: All lights flash in place
-                        // Static position with rapid on/off
-                        const flashPhase = sweepPhase * 2.5; // Fast flashing
-                        const flashOn = Math.floor(flashPhase * 10) % 2 === 0; // 10Hz strobe
-                        
-                        if (flashOn) {
-                            // All lights point straight down center when flashing
-                            dirX = 0;
-                            dirZ = 0;
-                        } else {
-                            // Off position (will be hidden by visibility)
-                            dirX = 0;
-                            dirZ = 0;
-                        }
-                    }
+                // Calculate current and next pattern positions, then blend
+                
+                let dirX1 = 0, dirZ1 = 0; // Current pattern
+                let dirX2 = 0, dirZ2 = 0; // Next pattern
+                
+                // Calculate CURRENT pattern position
+                if (currentPattern === 0) {
+                    // Linear sweep left to right
+                    dirX1 = Math.sin(sweepPhase * 0.8) * 0.6;
+                    dirZ1 = -0.3;
+                } else if (currentPattern === 1) {
+                    // Circular sweep
+                    dirX1 = Math.sin(sweepPhase * 0.6) * 0.5;
+                    dirZ1 = Math.cos(sweepPhase * 0.6) * 0.5;
+                } else if (currentPattern === 2) {
+                    // Fan sweep
+                    const fanPhase = Math.sin(sweepPhase * 0.5);
+                    dirX1 = fanPhase * 0.6;
+                    dirZ1 = -0.2;
+                } else if (currentPattern === 3) {
+                    // Cross sweep
+                    dirX1 = Math.sin(sweepPhase * 0.7) * 0.5;
+                    dirZ1 = Math.cos(sweepPhase * 0.7) * 0.5;
+                } else if (currentPattern === 4) {
+                    // Figure-8 sweep
+                    dirX1 = Math.sin(sweepPhase * 0.5) * 0.6;
+                    dirZ1 = Math.sin(sweepPhase * 1.0) * 0.4;
+                } else if (currentPattern === 5) {
+                    // Pulse sweep
+                    const pulsePhase = Math.sin(sweepPhase * 0.4);
+                    const angle = sweepPhase * 0.3;
+                    dirX1 = pulsePhase * Math.cos(angle) * 0.6;
+                    dirZ1 = pulsePhase * Math.sin(angle) * 0.6;
+                } else {
+                    // STROBE FLASHING - static center position
+                    dirX1 = 0;
+                    dirZ1 = 0;
+                }
+                
+                // Calculate NEXT pattern position
+                if (nextPattern === 0) {
+                    dirX2 = Math.sin(sweepPhase * 0.8) * 0.6;
+                    dirZ2 = -0.3;
+                } else if (nextPattern === 1) {
+                    dirX2 = Math.sin(sweepPhase * 0.6) * 0.5;
+                    dirZ2 = Math.cos(sweepPhase * 0.6) * 0.5;
+                } else if (nextPattern === 2) {
+                    const fanPhase = Math.sin(sweepPhase * 0.5);
+                    dirX2 = fanPhase * 0.6;
+                    dirZ2 = -0.2;
+                } else if (nextPattern === 3) {
+                    dirX2 = Math.sin(sweepPhase * 0.7) * 0.5;
+                    dirZ2 = Math.cos(sweepPhase * 0.7) * 0.5;
+                } else if (nextPattern === 4) {
+                    dirX2 = Math.sin(sweepPhase * 0.5) * 0.6;
+                    dirZ2 = Math.sin(sweepPhase * 1.0) * 0.4;
+                } else if (nextPattern === 5) {
+                    const pulsePhase = Math.sin(sweepPhase * 0.4);
+                    const angle = sweepPhase * 0.3;
+                    dirX2 = pulsePhase * Math.cos(angle) * 0.6;
+                    dirZ2 = pulsePhase * Math.sin(angle) * 0.6;
+                } else {
+                    dirX2 = 0;
+                    dirZ2 = 0;
+                }
+                
+                // SMOOTH BLEND between patterns - no jumps!
+                dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
+                dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
@@ -2677,12 +2707,13 @@ class VRClub {
                     // Check if we're in flashing pattern (pattern 6)
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
                     const sweepPattern = Math.floor(sweepPhase / 5) % 7;
-                    const isFlashing = (sweepPattern === 6);
+                    // Check if we're in STROBE pattern (pattern 6)
+                    const isFlashing = (currentPattern === 6 || nextPattern === 6);
                     
                     let beamVisible = this.lightsActive;
                     if (isFlashing) {
-                        // Flash on/off during pattern 6
-                        const flashPhase = sweepPhase * 3.0;
+                        // STROBE: Rapid on/off flashing at 8Hz (8 flashes per second)
+                        const flashPhase = sweepPhase * 2.5;
                         const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
                         beamVisible = beamVisible && flashOn;
                     }
@@ -2779,11 +2810,13 @@ class VRClub {
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
-            // Check if we're in flashing pattern
+            // Check if we're in flashing pattern using same logic as beams
             const sweepPhase = globalPhase * audioSpeedMultiplier;
-            const sweepPattern = Math.floor(sweepPhase / 5) % 7;
-            const isFlashing = (sweepPattern === 6);
-            const flashPhase = sweepPhase * 3.0;
+            const patternCycle = (sweepPhase / 10) % 7;
+            const currentPattern = Math.floor(patternCycle);
+            const nextPattern = (currentPattern + 1) % 7;
+            const isFlashing = (currentPattern === 6 || nextPattern === 6);
+            const flashPhase = sweepPhase * 2.5;
             const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
             
             this.spotlights.forEach((spot, i) => {
@@ -2796,11 +2829,11 @@ class VRClub {
                         if (fixtureVisible) {
                             // EXTREMELY BRIGHT lens when active - the actual light source (audio disabled)
                             const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2; // 0.6-1.0
-                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0 * pulse); // 5x brighter!
+                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0 * pulse); // COLORED, not white!
                             
                             // Update the bright inner light source sphere
                             if (trussLight.sourceMat) {
-                                trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse); // Even brighter center
+                                trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse); // Even brighter center, COLORED
                             }
                         } else {
                             // Completely dark when off or flashing off

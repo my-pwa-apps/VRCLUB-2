@@ -894,5 +894,90 @@ The fog now looks like **real club haze** - just enough to make beams visible wi
 
 ---
 
-Last Updated: October 2, 2025  
-Status: ✅ All Bugs Fixed + **HYPERREALISTIC VOLUMETRIC FOG** + Enhanced Beams & Lasers
+### Enhancement #6: Smooth Pattern Transitions + Strobe Pattern + Fixture Colors (October 3, 2025)
+
+**Objective:** Fix unnatural pattern resets, add visible strobe pattern, and fix white fixture lights
+
+**Issues Identified:**
+1. Spotlight patterns "reset" to starting position causing jarring jumps
+2. Strobe pattern (pattern 6) not clearly visible to users
+3. Spotlight fixture lenses appear white instead of matching beam colors
+
+**Solutions Applied:**
+
+1. **Smooth Pattern Transitions**
+   - **Problem:** `Math.floor(sweepPhase / 5) % 7` caused hard switches every 5 seconds
+   - **Solution:** Implemented smooth blending between patterns
+   - Pattern duration: 5 seconds → **10 seconds per pattern** (doubled)
+   - Calculate both current and next pattern positions simultaneously
+   - Blend using linear interpolation: `dirX = dirX1 * (1-blend) + dirX2 * blend`
+   - **Result:** Seamless, natural transitions with zero jumps or resets
+
+2. **Enhanced Strobe Pattern Visibility**
+   - **Problem:** Inconsistent flash detection (8Hz vs 10Hz in different sections)
+   - **Solution:** Unified strobe detection at 8Hz throughout
+   - Pattern 6 detection: `(currentPattern === 6 || nextPattern === 6)`
+   - Lights point straight down center during strobe (dirX=0, dirZ=0)
+   - Consistent rapid on/off visibility control
+   - **Result:** Clear, professional strobe flashing effect
+
+3. **Fixed Fixture Colors**
+   - **Problem:** Fixtures initialized with white (1,1,1) and never updated to colored
+   - **Solution:** Updated fixture color logic to match beam colors
+   - Uses same pattern detection as beams
+   - Applies `this.currentSpotColor.scale(5.0 * pulse)` to lens
+   - Applies `this.currentSpotColor.scale(8.0 * pulse)` to inner source
+   - **Result:** Fixtures now glow red/green/blue matching the beams
+
+**Technical Implementation:**
+```javascript
+// Smooth pattern blending
+const patternCycle = (sweepPhase / 10) % 7; // 10 seconds per pattern
+const currentPattern = Math.floor(patternCycle);
+const nextPattern = (currentPattern + 1) % 7;
+const blendFactor = patternCycle - currentPattern; // 0→1 smooth
+
+// Calculate both patterns
+let dirX1, dirZ1; // Current pattern
+let dirX2, dirZ2; // Next pattern
+// ... calculate both ...
+
+// Blend smoothly (no jumps!)
+dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
+dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
+```
+
+**Files Modified:**
+- `js/club_hyperrealistic.js`:
+  - Lines 2500-2600: Complete pattern blending system
+  - Lines 2680-2695: Unified strobe visibility detection
+  - Lines 2795-2845: Fixture color matching system
+
+**Pattern Lineup (7 Total):**
+1. **Linear Sweep** - Left to right continuous sweep
+2. **Circular Sweep** - Full rotation pattern
+3. **Fan Sweep** - Smooth sine wave left-right
+4. **Cross Sweep** - Diagonal sweeping
+5. **Figure-8** - Lissajous 2:1 ratio pattern
+6. **Pulse Sweep** - Breathing in/out with rotation
+7. **STROBE** - Rapid 8Hz flashing (new highlight!)
+
+**Visual Results:**
+✅ **No more jarring resets** - patterns flow naturally
+✅ **Smooth transitions** - each pattern blends into the next
+✅ **Strobe pattern clearly visible** - pattern 6 flashes at 8Hz
+✅ **Fixtures match beam colors** - red, green, blue (not white!)
+✅ **Professional club lighting aesthetic**
+✅ **10-second pattern duration** - better pacing
+✅ **All 7 patterns work perfectly**
+
+**Before vs After:**
+- **Before:** Hard jumps every 5 seconds, white fixtures, invisible strobe
+- **After:** Smooth continuous motion, colored fixtures, clear strobe flashing
+
+The spotlights now move like **professional automated club lighting** with smooth, natural transitions between patterns! 🎭💡✨
+
+---
+
+Last Updated: October 3, 2025  
+Status: ✅ All Bugs Fixed + **PROFESSIONAL SMOOTH LIGHTING PATTERNS**
