@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎉 HYPERREALISTIC VR Club - Quest 3S</title>
+    <title>VR Club</title>
     <style>
         * {
             margin: 0;
@@ -25,162 +25,39 @@
             touch-action: none;
         }
         
-        #ui {
+        #cameraControls {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.95);
-            padding: 20px;
-            border-radius: 15px;
-            color: white;
-            z-index: 100;
-            max-width: 340px;
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        }
-        
-        h2 {
-            margin: 0 0 15px 0;
-            font-size: 22px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .section-title {
-            font-size: 12px;
-            font-weight: bold;
-            margin: 20px 0 10px 0;
-            color: #667eea;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            border-bottom: 2px solid rgba(102, 126, 234, 0.3);
-            padding-bottom: 5px;
-        }
-        
-        .status {
-            font-size: 11px;
-            color: #4ade80;
-            margin: 0 0 15px 0;
-            padding: 10px;
-            background: rgba(74, 222, 128, 0.1);
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.75);
+            padding: 10px 15px;
             border-radius: 8px;
-            border-left: 3px solid #4ade80;
-            line-height: 1.6;
+            backdrop-filter: blur(10px);
+            z-index: 100;
         }
         
         .preset-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: repeat(6, 1fr);
             gap: 8px;
-            margin: 12px 0;
-        }
-        
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        }
-        
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
-        }
-        
-        button:active {
-            transform: translateY(0);
         }
         
         .preset-grid button {
-            padding: 10px 8px;
-            font-size: 11px;
-        }
-        
-        input {
-            width: 100%;
-            padding: 12px;
-            margin: 8px 0;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(255, 255, 255, 0.05);
+            background: #667eea;
+            border: none;
             color: white;
-            font-size: 13px;
-        }
-        
-        input::placeholder {
-            color: rgba(255, 255, 255, 0.4);
-        }
-        
-        .info {
-            font-size: 11px;
-            opacity: 0.7;
-            margin: 8px 0;
-            line-height: 1.5;
-        }
-        
-        #fpsCounter {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.9);
-            padding: 15px 20px;
-            border-radius: 10px;
-            color: #00ff00;
-            font-family: 'Courier New', monospace;
-            font-size: 16px;
-            font-weight: bold;
-            z-index: 100;
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(0, 255, 0, 0.3);
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
-            white-space: pre;
-            text-align: left;
-        }
-        
-        .checklist {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.95);
-            padding: 15px;
-            border-radius: 12px;
-            color: white;
-            font-size: 11px;
-            max-width: 280px;
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        }
-        
-        .checklist-title {
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #667eea;
+            padding: 10px 14px;
             font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
         }
         
-        .checklist-content {
-            opacity: 0.9;
-            line-height: 1.8;
-        }
-        
-        .checklist-footer {
-            margin-top: 12px;
-            padding-top: 10px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            font-size: 10px;
-            opacity: 0.6;
+        .preset-grid button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
         
         @keyframes fadeOut {
@@ -193,98 +70,15 @@
 <body>
     <canvas id="canvas"></canvas>
     
-    <!-- FPS Counter -->
-    <div id="fpsCounter">FPS: --</div>
-    
-    <!-- Main UI -->
-    <div id="ui">
-        <h2>🎉 HYPERREALISTIC VR CLUB</h2>
-        <div class="status">
-            ✅ Club Loaded<br>
-            🎨 24-Panel LED Wall Active<br>
-            💡 Dynamic Lighting On<br>
-            💨 Atmospheric Effects On
-        </div>
-        
-        <div class="section-title">🎥 Camera Presets</div>
+    <!-- Camera Controls Only -->
+    <div id="cameraControls">
         <div class="preset-grid">
-            <button class="preset-btn" data-camera-preset="entrance">🚪 Entry</button>
-            <button class="preset-btn" data-camera-preset="danceFloor">💃 Floor</button>
-            <button class="preset-btn" data-camera-preset="djBooth">🎧 DJ</button>
-            <button class="preset-btn" data-camera-preset="ledWallClose">🎨 LED</button>
-            <button class="preset-btn" data-camera-preset="overview">🏢 Full</button>
-            <button class="preset-btn" data-camera-preset="ceiling">✨ Ceiling</button>
-        </div>
-        <div class="info">📷 Click buttons for instant camera movement</div>
-        
-        <div class="section-title">🎮 Desktop Controls</div>
-        <div class="info">
-            ⌨️ WASD - Move forward/back/left/right<br>
-            ⌨️ Q/E - Fly down/up<br>
-            🖱️ Mouse - Look around<br>
-            ⌨️ D - Toggle debug mode<br>
-            ⌨️ H - Show help overlay
-        </div>
-        
-        <div class="section-title">🎮 VR Mode</div>
-        <button id="vrButton">🥽 Enter VR (Quest 3S)</button>
-        <div class="info" style="margin-top:8px;">
-            💡 Requires Quest 3S connected via Link or Air Link
-        </div>
-        
-        <div class="section-title">🎵 Music Stream</div>
-        <input type="text" id="musicUrl" placeholder="Enter music stream URL (https://...)">
-        <button id="playMusicBtn">▶️ Play Music</button>
-        <div class="info" style="margin-top:8px;">
-            🎧 Add any streaming URL for club music<br>
-            🎵 Lighting reacts to bass, mids, and treble
-        </div>
-    </div>
-    
-    <!-- DJ Booth Control Panel (shown when near DJ booth) -->
-    <div id="djPanel" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.95); padding: 30px; border-radius: 20px; border: 2px solid #667eea; box-shadow: 0 0 40px rgba(102, 126, 234, 0.6); z-index: 200; min-width: 400px;">
-        <h2 style="text-align: center; margin-bottom: 20px;">🎧 DJ BOOTH CONTROLS</h2>
-        
-        <div class="section-title">🎵 Change Audio Stream</div>
-        <input type="text" id="djMusicUrl" placeholder="Enter new stream URL..." style="margin-bottom: 10px;">
-        <button id="djChangeStreamBtn" style="width: 100%; margin-bottom: 20px;">🔄 Change Stream</button>
-        
-        <div class="section-title">💨 VJ Smoke Controls</div>
-        <button id="smokeToggleBtn" style="width: 100%; margin-bottom: 10px;">💨 Toggle Smoke</button>
-        <button id="smokeBoostBtn" style="width: 100%; margin-bottom: 20px;">🌫️ Smoke Boost</button>
-        
-        <div class="section-title">💡 VJ Lighting Controls</div>
-        <button id="strobeBtn" style="width: 100%; margin-bottom: 10px;">⚡ Trigger Strobes</button>
-        <button id="blackoutBtn" style="width: 100%; margin-bottom: 20px;">🌑 Blackout</button>
-        
-        <button id="closeDJPanel" style="width: 100%; background: rgba(255, 255, 255, 0.1);">✖ Close</button>
-        
-        <div class="info" style="margin-top: 15px; text-align: center;">
-            Press E key near DJ booth to access these controls
-        </div>
-    </div>
-    
-    <!-- Testing Checklist -->
-    <div class="checklist">
-        <div class="checklist-title">🏭 Industrial Club Features</div>
-        <div class="checklist-content">
-            ✓ Industrial concrete floor<br>
-            ✓ Professional lighting truss<br>
-            ✓ 9 truss-mounted spotlights<br>
-            ✓ 6 truss-mounted lasers<br>
-            ✓ 4 strobe lights<br>
-            ✓ 24-panel LED wall animations<br>
-            ✓ DJ booth with equipment<br>
-            ✓ PA speaker stacks<br>
-            ✓ Bar area with bottles<br>
-            ✓ Atmospheric fog/smoke<br>
-            ✓ Bloom & glow effects<br>
-            ✓ Post-processing effects<br>
-            ✓ Warehouse atmosphere
-        </div>
-        <div class="checklist-footer">
-            Press H for keyboard shortcuts<br>
-            Press D for debug camera position
+            <button data-camera-preset="entrance" title="Entrance View">🚪 Entry</button>
+            <button data-camera-preset="danceFloor" title="Dance Floor">💃 Floor</button>
+            <button data-camera-preset="djBooth" title="DJ Booth">� DJ</button>
+            <button data-camera-preset="ledWallClose" title="LED Wall Close-up">� LED</button>
+            <button data-camera-preset="overview" title="Full Club Overview">🏢 Full</button>
+            <button data-camera-preset="ceiling" title="Ceiling/Lasers">✨ Top</button>
         </div>
     </div>
     
