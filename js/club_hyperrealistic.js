@@ -670,13 +670,398 @@ class VRClub {
     }
     
     createDJBooth() {
-        // TODO: Rebuild clean DJ booth
-        console.log("⚠️ DJ Booth removed - needs rebuild");
+        // === HYPERREALISTIC INTEGRATED DJ/VJ BOOTH ===
+        // Positioned at BACK of club (z=-24)
+        // DJ faces DANCE FLOOR (toward positive z direction)
+        
+        console.log("🎛️ Creating integrated DJ/VJ booth...");
+        
+        // === RAISED PLATFORM (STAGE) ===
+        const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
+            width: 10,
+            height: 0.5,
+            depth: 4
+        }, this.scene);
+        platform.position = new BABYLON.Vector3(0, 0.25, -24);
+        
+        const platformMat = new BABYLON.PBRMetallicRoughnessMaterial("platformMat", this.scene);
+        platformMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
+        platformMat.metallic = 0.95;
+        platformMat.roughness = 0.15;
+        platformMat.maxSimultaneousLights = this.maxLights;
+        platform.material = platformMat;
+        platform.receiveShadows = true;
+        
+        // Anti-slip surface
+        const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
+            width: 10,
+            height: 0.02,
+            depth: 4
+        }, this.scene);
+        platformTop.position = new BABYLON.Vector3(0, 0.51, -24);
+        
+        const topMat = new BABYLON.PBRMetallicRoughnessMaterial("platformTopMat", this.scene);
+        topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        topMat.metallic = 0.1;
+        topMat.roughness = 0.95;
+        topMat.maxSimultaneousLights = this.maxLights;
+        platformTop.material = topMat;
+        platformTop.receiveShadows = true;
+        
+        // Front safety rail
+        const railMat = new BABYLON.PBRMetallicRoughnessMaterial("railMat", this.scene);
+        railMat.baseColor = new BABYLON.Color3(0.7, 0.7, 0.75);
+        railMat.metallic = 1.0;
+        railMat.roughness = 0.3;
+        
+        const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
+            width: 9,
+            height: 0.08,
+            depth: 0.08
+        }, this.scene);
+        frontRail.position = new BABYLON.Vector3(0, 0.8, -22);
+        frontRail.material = railMat;
+        
+        // === DJ EQUIPMENT TABLE (CENTER) ===
+        const djTable = BABYLON.MeshBuilder.CreateBox("djTable", {
+            width: 5,
+            height: 0.08,
+            depth: 1.5
+        }, this.scene);
+        djTable.position = new BABYLON.Vector3(0, 0.8, -23);
+        
+        const tableMat = new BABYLON.PBRMetallicRoughnessMaterial("tableMat", this.scene);
+        tableMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
+        tableMat.metallic = 0.9;
+        tableMat.roughness = 0.2;
+        djTable.material = tableMat;
+        
+        // === CDJ DECKS ===
+        const cdjMat = new BABYLON.PBRMetallicRoughnessMaterial("cdjMat", this.scene);
+        cdjMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
+        cdjMat.metallic = 0.85;
+        cdjMat.roughness = 0.3;
+        
+        // Left CDJ
+        const leftCDJ = BABYLON.MeshBuilder.CreateBox("leftCDJ", {
+            width: 1.2,
+            height: 0.1,
+            depth: 1.0
+        }, this.scene);
+        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -23);
+        leftCDJ.material = cdjMat;
+        
+        // Left jog wheel (glowing)
+        const leftJog = BABYLON.MeshBuilder.CreateCylinder("leftJog", {
+            diameter: 0.5,
+            height: 0.04
+        }, this.scene);
+        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -23);
+        const jogMat = new BABYLON.StandardMaterial("jogMat", this.scene);
+        jogMat.emissiveColor = new BABYLON.Color3(0, 0.6, 0.3);
+        jogMat.disableLighting = true;
+        leftJog.material = jogMat;
+        
+        // Right CDJ
+        const rightCDJ = BABYLON.MeshBuilder.CreateBox("rightCDJ", {
+            width: 1.2,
+            height: 0.1,
+            depth: 1.0
+        }, this.scene);
+        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -23);
+        rightCDJ.material = cdjMat;
+        
+        // Right jog wheel
+        const rightJog = BABYLON.MeshBuilder.CreateCylinder("rightJog", {
+            diameter: 0.5,
+            height: 0.04
+        }, this.scene);
+        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -23);
+        rightJog.material = jogMat.clone("rightJogMat");
+        
+        // === DJ MIXER (CENTER) ===
+        const mixer = BABYLON.MeshBuilder.CreateBox("mixer", {
+            width: 1.8,
+            height: 0.12,
+            depth: 0.9
+        }, this.scene);
+        mixer.position = new BABYLON.Vector3(0, 0.89, -23);
+        mixer.material = cdjMat;
+        
+        // Mixer display (facing DJ)
+        const mixerDisplay = BABYLON.MeshBuilder.CreatePlane("mixerDisplay", {
+            width: 1.2,
+            height: 0.2
+        }, this.scene);
+        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -23.5);
+        mixerDisplay.rotation.x = Math.PI / 6;
+        const displayMat = new BABYLON.StandardMaterial("mixerDisplayMat", this.scene);
+        displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
+        displayMat.disableLighting = true;
+        mixerDisplay.material = displayMat;
+        
+        // === AUDIO STREAM CONTROL BUTTON ===
+        const audioBtn = BABYLON.MeshBuilder.CreateBox("audioStreamBtn", {
+            width: 0.4,
+            height: 0.08,
+            depth: 0.25
+        }, this.scene);
+        audioBtn.position = new BABYLON.Vector3(0, 0.96, -22.5);
+        audioBtn.isPickable = true;
+        
+        const audioBtnMat = new BABYLON.StandardMaterial("audioBtnMat", this.scene);
+        audioBtnMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0);
+        audioBtnMat.disableLighting = true;
+        audioBtn.material = audioBtnMat;
+        
+        // Label
+        const audioLabel = BABYLON.MeshBuilder.CreatePlane("audioLabel", {
+            width: 0.5,
+            height: 0.15
+        }, this.scene);
+        audioLabel.position = new BABYLON.Vector3(0, 1.15, -22.5);
+        audioLabel.rotation.x = Math.PI / 6;
+        const audioLabelMat = new BABYLON.StandardMaterial("audioLabelMat", this.scene);
+        audioLabelMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+        audioLabelMat.disableLighting = true;
+        audioLabel.material = audioLabelMat;
+        
+        // Store for interaction
+        this.audioStreamButton = {
+            mesh: audioBtn,
+            material: audioBtnMat,
+            isPlaying: false
+        };
+        
+        // === MONITOR SPEAKERS (behind table, facing DJ) ===
+        const monitorMat = new BABYLON.PBRMetallicRoughnessMaterial("monitorMat", this.scene);
+        monitorMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.03);
+        monitorMat.metallic = 0.2;
+        monitorMat.roughness = 0.8;
+        
+        const leftMonitor = BABYLON.MeshBuilder.CreateBox("leftMonitor", {
+            width: 0.4,
+            height: 0.6,
+            depth: 0.35
+        }, this.scene);
+        leftMonitor.position = new BABYLON.Vector3(-2.3, 0.85, -23.8);
+        leftMonitor.material = monitorMat;
+        
+        const rightMonitor = BABYLON.MeshBuilder.CreateBox("rightMonitor", {
+            width: 0.4,
+            height: 0.6,
+            depth: 0.35
+        }, this.scene);
+        rightMonitor.position = new BABYLON.Vector3(2.3, 0.85, -23.8);
+        rightMonitor.material = monitorMat;
+        
+        // === VJ LIGHTING CONTROL CONSOLE (RIGHT SIDE) ===
+        const vjConsole = BABYLON.MeshBuilder.CreateBox("vjConsole", {
+            width: 2.5,
+            height: 0.15,
+            depth: 1.2
+        }, this.scene);
+        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24);
+        vjConsole.material = tableMat;
+        
+        // VJ Console label
+        const vjLabel = BABYLON.MeshBuilder.CreatePlane("vjLabel", {
+            width: 2.0,
+            height: 0.3
+        }, this.scene);
+        vjLabel.position = new BABYLON.Vector3(3.5, 1.2, -24);
+        vjLabel.rotation.x = Math.PI / 6;
+        const vjLabelMat = new BABYLON.StandardMaterial("vjLabelMat", this.scene);
+        vjLabelMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0);
+        vjLabelMat.disableLighting = true;
+        vjLabel.material = vjLabelMat;
+        
+        // === VJ CONTROL BUTTONS ===
+        const toggleButtons = [
+            { 
+                label: "SPOTS", 
+                control: "lightsActive",
+                onColor: new BABYLON.Color3(1, 0.5, 0),
+                offColor: new BABYLON.Color3(0.2, 0.1, 0),
+                x: 2.8
+            },
+            { 
+                label: "LASERS", 
+                control: "lasersActive",
+                onColor: new BABYLON.Color3(1, 0, 0),
+                offColor: new BABYLON.Color3(0.2, 0, 0),
+                x: 3.3
+            },
+            { 
+                label: "LED WALL", 
+                control: "ledWallActive",
+                onColor: new BABYLON.Color3(0, 0.5, 1),
+                offColor: new BABYLON.Color3(0, 0.1, 0.2),
+                x: 3.8
+            },
+            { 
+                label: "STROBES", 
+                control: "strobesActive",
+                onColor: new BABYLON.Color3(1, 1, 1),
+                offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
+                x: 4.3
+            },
+            { 
+                label: "NEXT COLOR", 
+                control: "changeColor",
+                onColor: new BABYLON.Color3(0.5, 1, 0.5),
+                offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
+                x: 2.8,
+                row2: true
+            }
+        ];
+        
+        toggleButtons.forEach((btnDef) => {
+            const toggleBtn = BABYLON.MeshBuilder.CreateBox("toggleBtn_" + btnDef.control, {
+                width: 0.4,
+                height: 0.1,
+                depth: 0.3
+            }, this.scene);
+            const zPos = btnDef.row2 ? -24.5 : -23.7;
+            toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, zPos);
+            toggleBtn.isPickable = true;
+            
+            const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
+            const isActive = btnDef.control === "changeColor" ? false : this[btnDef.control];
+            toggleMat.emissiveColor = isActive ? btnDef.onColor : btnDef.offColor;
+            toggleMat.disableLighting = true;
+            toggleBtn.material = toggleMat;
+            
+            this.vjControlButtons.push({
+                mesh: toggleBtn,
+                control: btnDef.control,
+                material: toggleMat,
+                onColor: btnDef.onColor,
+                offColor: btnDef.offColor,
+                label: btnDef.label
+            });
+            
+            // Label above button
+            const labelPlane = BABYLON.MeshBuilder.CreatePlane("label_" + btnDef.control, {
+                width: 0.4,
+                height: 0.12
+            }, this.scene);
+            labelPlane.position = new BABYLON.Vector3(btnDef.x, 1.12, zPos);
+            labelPlane.rotation.x = Math.PI / 6;
+            
+            const labelMat = new BABYLON.StandardMaterial("labelMat_" + btnDef.control, this.scene);
+            labelMat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+            labelMat.disableLighting = true;
+            labelPlane.material = labelMat;
+        });
+        
+        // === LAPTOP (back corner for track browsing) ===
+        const laptopStand = BABYLON.MeshBuilder.CreateBox("laptopStand", {
+            width: 1.0,
+            height: 0.04,
+            depth: 0.6
+        }, this.scene);
+        laptopStand.position = new BABYLON.Vector3(-3.5, 0.8, -25.5);
+        laptopStand.material = tableMat;
+        
+        const laptop = BABYLON.MeshBuilder.CreateBox("laptop", {
+            width: 0.7,
+            height: 0.45,
+            depth: 0.02
+        }, this.scene);
+        laptop.position = new BABYLON.Vector3(-3.5, 1.05, -25.3);
+        laptop.rotation.x = Math.PI / 6;
+        const laptopMat = new BABYLON.StandardMaterial("laptopMat", this.scene);
+        laptopMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
+        laptopMat.disableLighting = true;
+        laptop.material = laptopMat;
+        
+        console.log("✅ Created hyperrealistic integrated DJ/VJ booth");
     }
 
     createPASpeakers() {
-        // TODO: Rebuild clean PA speakers
-        console.log("⚠️ PA Speakers removed - needs rebuild");
+        // === HYPERREALISTIC PA SPEAKER SYSTEM ===
+        // Positioned on sides of dance floor
+        
+        console.log("🔊 Creating PA speaker system...");
+        
+        const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
+        speakerMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.02);
+        speakerMat.metallic = 0.3;
+        speakerMat.roughness = 0.8;
+        speakerMat.maxSimultaneousLights = this.maxLights;
+        
+        // Left PA stack
+        this.createPAStack(-10, -15, speakerMat);
+        
+        // Right PA stack
+        this.createPAStack(10, -15, speakerMat);
+        
+        console.log("✅ PA speaker system created");
+    }
+
+    createPAStack(xPos, zPos, material) {
+        // Sub-woofer (bottom)
+        const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
+            width: 2.5,
+            height: 2.5,
+            depth: 2.5
+        }, this.scene);
+        sub.position = new BABYLON.Vector3(xPos, 1.25, zPos);
+        sub.material = material;
+        sub.receiveShadows = true;
+        
+        // Sub grille
+        const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
+        grillMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        grillMat.metallic = 0.8;
+        grillMat.roughness = 0.3;
+        grillMat.alpha = 0.7;
+        grillMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
+        grillMat.maxSimultaneousLights = this.maxLights;
+        
+        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
+            width: 2.2,
+            height: 2.2,
+            depth: 0.08
+        }, this.scene);
+        subGrill.position = new BABYLON.Vector3(xPos, 1.25, zPos + 1.2);
+        subGrill.material = grillMat;
+        
+        // Mid-range cabinet (top)
+        const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
+            width: 2.0,
+            height: 2.0,
+            depth: 2.0
+        }, this.scene);
+        mid.position = new BABYLON.Vector3(xPos, 3.5, zPos);
+        mid.material = material;
+        mid.receiveShadows = true;
+        
+        // Mid grille
+        const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
+            width: 1.7,
+            height: 1.7,
+            depth: 0.08
+        }, this.scene);
+        midGrill.position = new BABYLON.Vector3(xPos, 3.5, zPos + 0.95);
+        midGrill.material = grillMat;
+        
+        // Horn tweeter
+        const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
+            diameterTop: 0.4,
+            diameterBottom: 0.2,
+            height: 0.3,
+            tessellation: 16
+        }, this.scene);
+        horn.position = new BABYLON.Vector3(xPos, 4.3, zPos + 0.95);
+        horn.rotation.x = Math.PI / 2;
+        const hornMat = new BABYLON.PBRMetallicRoughnessMaterial("hornMat" + xPos, this.scene);
+        hornMat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+        hornMat.metallic = 0.9;
+        hornMat.roughness = 0.2;
+        hornMat.maxSimultaneousLights = this.maxLights;
+        horn.material = hornMat;
     }
 
     createLEDWall() {
@@ -4109,9 +4494,15 @@ class VRClub {
     }
 
     setupVJControlInteraction() {
-        // Setup click handling for VJ control buttons in 3D scene
+        // Setup click handling for VJ control buttons and audio stream in 3D scene
         this.scene.onPointerDown = (evt, pickResult) => {
             if (pickResult.hit && pickResult.pickedMesh) {
+                // Check if audio stream button was clicked
+                if (this.audioStreamButton && pickResult.pickedMesh === this.audioStreamButton.mesh) {
+                    this.toggleAudioStream();
+                    return;
+                }
+                
                 // Check if a VJ control button was clicked
                 const clickedButton = this.vjControlButtons.find(btn => btn.mesh === pickResult.pickedMesh);
                 
@@ -4146,6 +4537,64 @@ class VRClub {
         };
         
         console.log("✅ VJ Control interaction enabled - click buttons to control lights!");
+    }
+
+    toggleAudioStream() {
+        if (!this.audioStreamButton) return;
+        
+        if (this.audioStreamButton.isPlaying) {
+            // Stop audio
+            if (this.audioElement) {
+                this.audioElement.pause();
+                this.audioElement.currentTime = 0;
+            }
+            this.audioStreamButton.isPlaying = false;
+            this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
+            console.log("🔇 Audio stream stopped");
+        } else {
+            // Start audio - prompt user for stream URL
+            const streamUrl = prompt("Enter audio stream URL (or leave empty for demo):", "");
+            
+            if (streamUrl !== null) {
+                // Create or reuse audio element
+                if (!this.audioElement) {
+                    this.audioElement = new Audio();
+                    this.audioElement.crossOrigin = "anonymous";
+                    this.audioElement.loop = true;
+                }
+                
+                // Set source and play
+                if (streamUrl === "") {
+                    // Use a demo stream or local file
+                    this.audioElement.src = "https://stream.example.com/radio"; // Replace with actual stream
+                    console.log("🎵 Using demo audio stream");
+                } else {
+                    this.audioElement.src = streamUrl;
+                    console.log(`🎵 Loading audio stream: ${streamUrl}`);
+                }
+                
+                // Play the audio
+                this.audioElement.play().then(() => {
+                    this.audioStreamButton.isPlaying = true;
+                    this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+                    console.log("🔊 Audio stream playing");
+                    
+                    // Connect to audio analyzer if available
+                    if (!this.audioContext && window.AudioContext) {
+                        this.audioContext = new AudioContext();
+                        this.audioAnalyser = this.audioContext.createAnalyser();
+                        this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                        this.audioSource.connect(this.audioAnalyser);
+                        this.audioAnalyser.connect(this.audioContext.destination);
+                        this.audioAnalyser.fftSize = 256;
+                        console.log("🎚️ Audio analyzer connected");
+                    }
+                }).catch(err => {
+                    console.error("❌ Failed to play audio:", err);
+                    alert("Failed to play audio stream. Check the URL and CORS settings.");
+                });
+            }
+        }
     }
 
     moveCameraToPreset(preset) {
