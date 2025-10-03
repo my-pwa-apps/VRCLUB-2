@@ -1,54 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V</head>
-<body>
-    <canvas id="canvas"></canvas>
-    
-    <!-- Settings Toggle Button -->
-    <button id="settingsToggle" title="Settings">⚙️</button>
-    
-    <!-- Settings Panel (hidden by default) -->
-    <div id="settingsPanel">
-        <div class="setting-label">🎮 VR Mode</div>
-        <button id="vrButton">🥽 Enter VR</button>
-        <div class="setting-label">🎵 Audio Stream</div>
-        <input type="text" id="musicUrl" placeholder="Enter stream URL (https://...)">
-        <button id="playMusicBtn">▶️ Play Music</button>
-    </div>
-    
-    <!-- Camera Controls -->
-    <div id="cameraControls">
-        <div class="preset-grid">
-            <button data-camera-preset="entrance" title="Entrance View">🚪 Entry</button>
-            <button data-camera-preset="danceFloor" title="Dance Floor">💃 Floor</button>
-            <button data-camera-preset="djBooth" title="DJ Booth">🎧 DJ</button>
-            <button data-camera-preset="ledWallClose" title="LED Wall Close-up">🎨 LED</button>
-            <button data-camera-preset="overview" title="Full Club Overview">🏢 Full</button>
-            <button data-camera-preset="ceiling" title="Ceiling/Lasers">✨ Top</button>
-        </div>
-    </div>
-    
-    <script>
-    // Settings panel toggle
-    document.getElementById('settingsToggle').addEventListener('click', function() {
-        const panel = document.getElementById('settingsPanel');
-        panel.classList.toggle('visible');
-    });
-    // Close panel when clicking outside
-    document.addEventListener('click', function(e) {
-        const toggle = document.getElementById('settingsToggle');
-        const panel = document.getElementById('settingsPanel');
-        if (!toggle.contains(e.target) && !panel.contains(e.target)) {
-            panel.classList.remove('visible');
-        }
-    });
-    </script>
-    
-    <!-- Babylon.js -->
-    <script src="https://cdn.babylonjs.com/babylon.js"></script>  <style>
+    <title>VR Club</title>
+    <style>
         * {
             margin: 0;
             padding: 0;
@@ -195,17 +151,45 @@
 <body>
     <canvas id="canvas"></canvas>
     
-    <!-- Camera Controls Only -->
+    <!-- Settings Toggle Button -->
+    <button id="settingsToggle" title="Settings">⚙️</button>
+    
+    <!-- Settings Panel (hidden by default) -->
+    <div id="settingsPanel">
+        <div class="setting-label">🎮 VR Mode</div>
+        <button id="vrButton">🥽 Enter VR</button>
+        <div class="setting-label">🎵 Audio Stream</div>
+        <input type="text" id="musicUrl" placeholder="Enter stream URL (https://...)">
+        <button id="playMusicBtn">▶️ Play Music</button>
+    </div>
+    
+    <!-- Camera Controls -->
     <div id="cameraControls">
         <div class="preset-grid">
             <button data-camera-preset="entrance" title="Entrance View">🚪 Entry</button>
             <button data-camera-preset="danceFloor" title="Dance Floor">💃 Floor</button>
-            <button data-camera-preset="djBooth" title="DJ Booth">� DJ</button>
-            <button data-camera-preset="ledWallClose" title="LED Wall Close-up">� LED</button>
+            <button data-camera-preset="djBooth" title="DJ Booth">🎧 DJ</button>
+            <button data-camera-preset="ledWallClose" title="LED Wall Close-up">🎨 LED</button>
             <button data-camera-preset="overview" title="Full Club Overview">🏢 Full</button>
             <button data-camera-preset="ceiling" title="Ceiling/Lasers">✨ Top</button>
         </div>
     </div>
+    
+    <script>
+    // Settings panel toggle
+    document.getElementById('settingsToggle').addEventListener('click', function() {
+        const panel = document.getElementById('settingsPanel');
+        panel.classList.toggle('visible');
+    });
+    // Close panel when clicking outside
+    document.addEventListener('click', function(e) {
+        const toggle = document.getElementById('settingsToggle');
+        const panel = document.getElementById('settingsPanel');
+        if (!toggle.contains(e.target) && !panel.contains(e.target)) {
+            panel.classList.remove('visible');
+        }
+    });
+    </script>
     
     <!-- Babylon.js -->
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
