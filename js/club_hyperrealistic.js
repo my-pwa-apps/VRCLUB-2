@@ -34,6 +34,22 @@ class VRClub {
             black: new BABYLON.Color3(0, 0, 0)
         };
         
+        // Initialize spotlight color EARLY (needed for fixture creation)
+        this.spotColorList = [
+            new BABYLON.Color3(1, 0, 0),      // Red
+            new BABYLON.Color3(0, 0, 1),      // Blue
+            new BABYLON.Color3(0, 1, 0),      // Green
+            new BABYLON.Color3(1, 0, 1),      // Magenta
+            new BABYLON.Color3(1, 1, 0),      // Yellow
+            new BABYLON.Color3(0, 1, 1),      // Cyan
+            new BABYLON.Color3(1, 0.5, 0),    // Orange
+            new BABYLON.Color3(0.5, 0, 1),    // Purple
+            new BABYLON.Color3(1, 1, 1)       // White
+        ];
+        this.currentSpotColor = this.spotColorList[0]; // Start with RED
+        this.spotColorIndex = 0;
+        this.lastColorChange = 0;
+        
         this.init();
     }
 
@@ -1460,7 +1476,7 @@ class VRClub {
             lens.rotation.x = Math.PI / 2;
             
             const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
-            lensMat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Start bright
+            lensMat.emissiveColor = this.currentSpotColor.scale(5.0); // Start with CURRENT COLOR (not white!)
             lensMat.disableLighting = true;
             lensMat.backFaceCulling = false; // Visible from all angles
             lens.material = lensMat;
@@ -1473,7 +1489,7 @@ class VRClub {
             lightSource.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);  // Match lens position
             
             const sourceMat = new BABYLON.StandardMaterial("sourceMat" + i, this.scene);
-            sourceMat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Very bright
+            sourceMat.emissiveColor = this.currentSpotColor.scale(8.0); // Start with CURRENT COLOR (not white!)
             sourceMat.disableLighting = true;
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
