@@ -175,6 +175,24 @@ class VRClub {
         window.addEventListener('resize', () => {
             this.engine.resize();
         });
+        
+        // Prevent default drag and drop behavior on the page (except in our audio UI)
+        window.addEventListener('dragover', (e) => {
+            // Only prevent if not in our audio input
+            if (!e.target.id || e.target.id !== 'audioUrlInput') {
+                e.preventDefault();
+                e.dataTransfer.effectAllowed = 'none';
+                e.dataTransfer.dropEffect = 'none';
+            }
+        }, false);
+        
+        window.addEventListener('drop', (e) => {
+            // Only prevent if not in our audio input
+            if (!e.target.id || e.target.id !== 'audioUrlInput') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, false);
     }
 
     addPostProcessing() {
@@ -967,9 +985,10 @@ class VRClub {
         
         console.log("🔊 Creating PA speaker system...");
         
-        // MASSIVE professional PA speaker material - visible matte black
+        // MASSIVE professional PA speaker material - VERY VISIBLE with emissive glow
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.08); // Lighter black (was too dark)
+        speakerMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15); // Much lighter (was 0.08)
+        speakerMat.emissiveColor = new BABYLON.Color3(0.02, 0.02, 0.02); // Slight glow for visibility
         speakerMat.metallic = 0.2;
         speakerMat.roughness = 0.7;
         speakerMat.maxSimultaneousLights = this.maxLights;
@@ -998,9 +1017,10 @@ class VRClub {
         sub.receiveShadows = true;
         sub.checkCollisions = true;
         
-        // Sub grille - visible speaker cone area
+        // Sub grille - visible speaker cone area with emissive glow
         const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
-        grillMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Lighter gray
+        grillMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Brighter gray (was 0.2)
+        grillMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); // Glow for visibility
         grillMat.metallic = 0.6;
         grillMat.roughness = 0.4;
         grillMat.maxSimultaneousLights = this.maxLights;
@@ -1043,23 +1063,43 @@ class VRClub {
         horn.position = new BABYLON.Vector3(xPos, 5.4, zPos + 1.15);
         horn.rotation.x = Math.PI / 2;
         const hornMat = new BABYLON.PBRMetallicRoughnessMaterial("hornMat" + xPos, this.scene);
-        hornMat.baseColor = new BABYLON.Color3(0.6, 0.6, 0.6); // Lighter metal
+        hornMat.baseColor = new BABYLON.Color3(0.7, 0.7, 0.7); // Brighter metal (was 0.6)
+        hornMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); // Glow for visibility
         hornMat.metallic = 0.9;
         hornMat.roughness = 0.2;
         hornMat.maxSimultaneousLights = this.maxLights;
         horn.material = hornMat;
         
-        // Add LED indicator light for visibility
+        // Add LARGE LED indicator light for visibility
         const led = BABYLON.MeshBuilder.CreateSphere("speakerLED" + xPos, {
-            diameter: 0.15
+            diameter: 0.3 // Doubled size (was 0.15)
         }, this.scene);
-        led.position = new BABYLON.Vector3(xPos - 1.0, 0.5, zPos + 1.4);
+        led.position = new BABYLON.Vector3(xPos - 1.0, 1.5, zPos + 1.4); // Higher position (was 0.5)
         const ledMat = new BABYLON.StandardMaterial("ledMat" + xPos, this.scene);
-        ledMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green LED
+        ledMat.emissiveColor = new BABYLON.Color3(0, 2, 0); // BRIGHTER green LED (was 1)
         ledMat.disableLighting = true;
         led.material = ledMat;
         
-        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m`);
+        // Add point light at LED for extra visibility
+        const ledLight = new BABYLON.PointLight("ledLight" + xPos, 
+            new BABYLON.Vector3(xPos - 1.0, 1.5, zPos + 1.4), this.scene);
+        ledLight.diffuse = new BABYLON.Color3(0, 1, 0);
+        ledLight.intensity = 2;
+        ledLight.range = 5;
+        
+        // DEBUG: Add bright glowing marker box at speaker location
+        const marker = BABYLON.MeshBuilder.CreateBox("speakerMarker" + xPos, {
+            width: 0.5,
+            height: 8, // Tall marker
+            depth: 0.5
+        }, this.scene);
+        marker.position = new BABYLON.Vector3(xPos, 4, zPos);
+        const markerMat = new BABYLON.StandardMaterial("markerMat" + xPos, this.scene);
+        markerMat.emissiveColor = new BABYLON.Color3(1, 0, 1); // Bright magenta
+        markerMat.disableLighting = true;
+        marker.material = markerMat;
+        
+        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m with MAGENTA MARKER`);
     }
 
     createLEDWall() {
@@ -4150,10 +4190,17 @@ class VRClub {
         `;
         
         inputDiv.innerHTML = `
-            <h2 style="color: #00ff88; margin: 0 0 20px 0; font-size: 24px;">🎵 Audio Stream URL</h2>
-            <input type="text" id="audioUrlInput" placeholder="https://stream.example.com/radio" 
+            <h2 style="color: #00ff88; margin: 0 0 20px 0; font-size: 24px;">🎵 Audio Stream</h2>
+            <input type="text" id="audioUrlInput" placeholder="Paste URL or drop audio file here" 
                 style="width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; 
-                background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 20px;">
+                background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 10px;">
+            <div style="margin: 10px 0;">
+                <button id="audioFileBrowseBtn" style="padding: 8px 20px; font-size: 14px; 
+                    background: #0088ff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    📁 Browse File
+                </button>
+                <input type="file" id="audioFileInput" accept="audio/*" style="display: none;">
+            </div>
             <div style="margin-top: 15px;">
                 <button id="audioPlayBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
                     background: #00ff88; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
@@ -4164,13 +4211,16 @@ class VRClub {
                     ✖️ CANCEL
                 </button>
             </div>
-            <p style="color: #888; font-size: 14px; margin-top: 15px;">Leave empty for demo stream</p>
+            <p style="color: #888; font-size: 14px; margin-top: 15px;">Stream URL, local file, or drag & drop</p>
         `;
         
         document.body.appendChild(inputDiv);
         
         // Store camera reference for cleanup
         const camera = this.scene.activeCamera;
+        
+        // Variable to store selected file
+        let selectedFile = null;
         
         // Focus input after slight delay
         setTimeout(() => {
@@ -4180,6 +4230,70 @@ class VRClub {
                 input.select(); // Select all text for easy replacement
             }
         }, 100);
+        
+        // File browse button handler
+        document.getElementById('audioFileBrowseBtn').onclick = (e) => {
+            e.preventDefault();
+            document.getElementById('audioFileInput').click();
+        };
+        
+        // File input handler
+        document.getElementById('audioFileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('audio/')) {
+                selectedFile = file;
+                document.getElementById('audioUrlInput').value = `📁 ${file.name}`;
+                console.log(`📁 File selected: ${file.name}`);
+            }
+        };
+        
+        // Drag and drop support
+        const urlInput = document.getElementById('audioUrlInput');
+        urlInput.ondragover = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            urlInput.style.borderColor = '#00ffff';
+            urlInput.style.background = 'rgba(0, 100, 100, 0.3)';
+        };
+        
+        urlInput.ondragleave = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            urlInput.style.borderColor = '#00ff88';
+            urlInput.style.background = 'rgba(0, 0, 0, 0.7)';
+        };
+        
+        urlInput.ondrop = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            urlInput.style.borderColor = '#00ff88';
+            urlInput.style.background = 'rgba(0, 0, 0, 0.7)';
+            
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('audio/')) {
+                selectedFile = file;
+                urlInput.value = `📁 ${file.name}`;
+                console.log(`📁 File dropped: ${file.name}`);
+            } else {
+                console.warn('⚠️ Please drop an audio file');
+            }
+        };
+        
+        // Paste support for files
+        urlInput.onpaste = (e) => {
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file' && item.type.startsWith('audio/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    selectedFile = file;
+                    urlInput.value = `📁 ${file.name}`;
+                    console.log(`📁 File pasted: ${file.name}`);
+                    break;
+                }
+            }
+        };
         
         // Cleanup function
         const cleanup = () => {
@@ -4195,9 +4309,18 @@ class VRClub {
         
         // Handle play button
         document.getElementById('audioPlayBtn').onclick = () => {
-            const url = document.getElementById('audioUrlInput').value.trim();
-            cleanup();
-            this.startAudioStream(url);
+            if (selectedFile) {
+                // Play local file
+                cleanup();
+                this.startAudioFromFile(selectedFile);
+            } else {
+                // Play URL
+                const url = document.getElementById('audioUrlInput').value.trim();
+                // Remove file indicator if present
+                const cleanUrl = url.startsWith('📁') ? '' : url;
+                cleanup();
+                this.startAudioStream(cleanUrl);
+            }
         };
         
         // Handle cancel button
@@ -4262,6 +4385,42 @@ class VRClub {
         }).catch(err => {
             console.error("❌ Failed to play audio:", err);
             this.showErrorMessage("Failed to play audio stream. Check the URL and CORS settings.");
+        });
+    }
+
+    startAudioFromFile(file) {
+        console.log(`🎵 Loading audio file: ${file.name}`);
+        
+        // Create or reuse audio element
+        if (!this.audioElement) {
+            this.audioElement = new Audio();
+            this.audioElement.crossOrigin = "anonymous";
+            this.audioElement.loop = true;
+        }
+        
+        // Create object URL from file
+        const fileUrl = URL.createObjectURL(file);
+        this.audioElement.src = fileUrl;
+        
+        // Play the audio
+        this.audioElement.play().then(() => {
+            this.audioStreamButton.isPlaying = true;
+            this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
+            console.log(`🔊 Playing audio file: ${file.name}`);
+            
+            // Connect to audio analyzer
+            if (!this.audioContext && window.AudioContext) {
+                this.audioContext = new AudioContext();
+                this.audioAnalyser = this.audioContext.createAnalyser();
+                this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+                this.audioSource.connect(this.audioAnalyser);
+                this.audioAnalyser.connect(this.audioContext.destination);
+                this.audioAnalyser.fftSize = 256;
+                console.log("🎚️ Audio analyzer connected");
+            }
+        }).catch(err => {
+            console.error("❌ Failed to play audio file:", err);
+            this.showErrorMessage(`Failed to play ${file.name}`);
         });
     }
 
