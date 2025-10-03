@@ -88,8 +88,9 @@ class VRClub {
         // No fog/smoke for now - removed for clarity
         
         // Setup camera FIRST (needed for post-processing)
-        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.7, -10), this.scene);
-        this.camera.setTarget(new BABYLON.Vector3(0, 1.7, 0));
+        // Default to OVERVIEW position for desktop mode (full club view)
+        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
+        this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
         this.camera.attachControl(this.canvas, true);
         this.camera.speed = 0.3; // Realistic walking speed
         this.camera.applyGravity = false;
@@ -144,8 +145,8 @@ class VRClub {
         this.createLights();
         this.createTrussMountedLights();
         
-        // VOLUMETRIC FOG SYSTEM - Makes light beams visible!
-        this.createVolumetricFog();
+        // VOLUMETRIC FOG SYSTEM - DISABLED for performance (can re-enable later)
+        // this.createVolumetricFog();
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -1075,7 +1076,7 @@ class VRClub {
     }
 
     createPAStack(xPos, zPos, material) {
-        // MASSIVE sub-woofer (bottom) - club-style double 18" subs
+        // === HYPERREALISTIC SUB-WOOFER CABINET (bottom) ===
         const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
             width: 3.2,
             height: 3.5,
@@ -1086,7 +1087,53 @@ class VRClub {
         sub.receiveShadows = true;
         sub.checkCollisions = true;
         
-        // Large mid-range speaker cabinet
+        // Double 18" sub-woofer cones
+        const subConeMat = new BABYLON.PBRMetallicRoughnessMaterial("subConeMat" + xPos, this.scene);
+        subConeMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.08); // Dark gray cone
+        subConeMat.metallic = 0.1;
+        subConeMat.roughness = 0.7;
+        subConeMat.maxSimultaneousLights = this.maxLights;
+        
+        // Left sub cone
+        const subConeLeft = BABYLON.MeshBuilder.CreateCylinder("subConeLeft" + xPos, {
+            diameterTop: 0.9,
+            diameterBottom: 1.2,
+            height: 0.3,
+            tessellation: 32
+        }, this.scene);
+        subConeLeft.position = new BABYLON.Vector3(xPos - 0.7, 1.75, zPos + 1.5);
+        subConeLeft.rotation.x = Math.PI / 2;
+        subConeLeft.material = subConeMat;
+        
+        // Right sub cone
+        const subConeRight = BABYLON.MeshBuilder.CreateCylinder("subConeRight" + xPos, {
+            diameterTop: 0.9,
+            diameterBottom: 1.2,
+            height: 0.3,
+            tessellation: 32
+        }, this.scene);
+        subConeRight.position = new BABYLON.Vector3(xPos + 0.7, 1.75, zPos + 1.5);
+        subConeRight.rotation.x = Math.PI / 2;
+        subConeRight.material = subConeMat;
+        
+        // Mesh grille for subs (professional perforated metal)
+        const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
+        grillMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        grillMat.metallic = 0.8;
+        grillMat.roughness = 0.3;
+        grillMat.alpha = 0.7; // Semi-transparent to show cones
+        grillMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
+        grillMat.maxSimultaneousLights = this.maxLights;
+        
+        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
+            width: 2.8,
+            height: 3.0,
+            depth: 0.08
+        }, this.scene);
+        subGrill.position = new BABYLON.Vector3(xPos, 1.75, zPos + 1.68);
+        subGrill.material = grillMat;
+        
+        // === HYPERREALISTIC MID-RANGE CABINET ===
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
             width: 2.5,
             height: 2.5,
@@ -1097,7 +1144,48 @@ class VRClub {
         mid.receiveShadows = true;
         mid.checkCollisions = true;
         
-        // High frequency horn array
+        // 15" mid-range driver cone
+        const midConeMat = new BABYLON.PBRMetallicRoughnessMaterial("midConeMat" + xPos, this.scene);
+        midConeMat.baseColor = new BABYLON.Color3(0.1, 0.08, 0.05); // Brownish paper cone
+        midConeMat.metallic = 0.0;
+        midConeMat.roughness = 0.9;
+        midConeMat.maxSimultaneousLights = this.maxLights;
+        
+        const midCone = BABYLON.MeshBuilder.CreateCylinder("midCone" + xPos, {
+            diameterTop: 0.7,
+            diameterBottom: 1.0,
+            height: 0.25,
+            tessellation: 32
+        }, this.scene);
+        midCone.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.2);
+        midCone.rotation.x = Math.PI / 2;
+        midCone.material = midConeMat;
+        
+        // Dust cap (center of cone)
+        const dustCapMat = new BABYLON.PBRMetallicRoughnessMaterial("dustCapMat" + xPos, this.scene);
+        dustCapMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        dustCapMat.metallic = 0.3;
+        dustCapMat.roughness = 0.6;
+        dustCapMat.maxSimultaneousLights = this.maxLights;
+        
+        const dustCap = BABYLON.MeshBuilder.CreateSphere("dustCap" + xPos, {
+            diameter: 0.35,
+            segments: 16
+        }, this.scene);
+        dustCap.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.32);
+        dustCap.scaling.z = 0.5; // Flatten to dome shape
+        dustCap.material = dustCapMat;
+        
+        // Mid-range grille
+        const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
+            width: 2.2,
+            height: 2.2,
+            depth: 0.08
+        }, this.scene);
+        midGrill.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.33);
+        midGrill.material = grillMat.clone("midGrillMat" + xPos);
+        
+        // === HYPERREALISTIC HIGH-FREQUENCY HORN ===
         const high = BABYLON.MeshBuilder.CreateBox("high" + xPos, {
             width: 2,
             height: 2,
@@ -1108,52 +1196,115 @@ class VRClub {
         high.receiveShadows = true;
         high.checkCollisions = true;
         
-        // Prominent glowing speaker grills with better visibility
-        const grillMat = new BABYLON.StandardMaterial("grill" + xPos, this.scene);
-        grillMat.emissiveColor = new BABYLON.Color3(0.05, 0.1, 0.15); // Subtle blue glow
-        grillMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gray base
-        grillMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
-        grillMat.alpha = 1.0; // Solid
+        // Professional horn driver (conical horn)
+        const hornMat = new BABYLON.PBRMetallicRoughnessMaterial("hornMat" + xPos, this.scene);
+        hornMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        hornMat.metallic = 0.7;
+        hornMat.roughness = 0.2;
+        hornMat.maxSimultaneousLights = this.maxLights;
         
-        // MASSIVE sub grill - double 18" drivers
-        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
-            width: 2.6,
-            height: 2.8,
-            depth: 0.15
+        const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
+            diameterTop: 0.8,
+            diameterBottom: 0.3,
+            height: 0.4,
+            tessellation: 32
         }, this.scene);
-        subGrill.position = new BABYLON.Vector3(xPos, 1.75, zPos + 1.65);
-        subGrill.material = grillMat.clone("subGrillMat" + xPos);
+        horn.position = new BABYLON.Vector3(xPos, 6.75, zPos + 0.95);
+        horn.rotation.x = Math.PI / 2;
+        horn.material = hornMat;
         
-        // Large mid grill
-        const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
-            width: 2,
-            height: 2,
-            depth: 0.15
+        // Horn mouth opening (bright interior)
+        const hornMouthMat = new BABYLON.StandardMaterial("hornMouthMat" + xPos, this.scene);
+        hornMouthMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.12);
+        hornMouthMat.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.22);
+        
+        const hornMouth = BABYLON.MeshBuilder.CreateCylinder("hornMouth" + xPos, {
+            diameter: 0.8,
+            height: 0.05,
+            tessellation: 32
         }, this.scene);
-        midGrill.position = new BABYLON.Vector3(xPos, 4.75, zPos + 1.3);
-        midGrill.material = grillMat.clone("midGrillMat" + xPos);
+        hornMouth.position = new BABYLON.Vector3(xPos, 6.75, zPos + 1.15);
+        hornMouth.rotation.x = Math.PI / 2;
+        hornMouth.material = hornMouthMat;
         
-        // High frequency horn grill
+        // High-frequency grille
         const highGrill = BABYLON.MeshBuilder.CreateBox("highGrill" + xPos, {
-            width: 1.5,
-            height: 1.5,
-            depth: 0.15
+            width: 1.7,
+            height: 1.7,
+            depth: 0.08
         }, this.scene);
-        highGrill.position = new BABYLON.Vector3(xPos, 6.75, zPos + 1.05);
+        highGrill.position = new BABYLON.Vector3(xPos, 6.75, zPos + 1.08);
         highGrill.material = grillMat.clone("highGrillMat" + xPos);
         
-        // Add speaker logo plates (optional detail)
+        // === PROFESSIONAL DETAILS ===
+        
+        // Amplifier/crossover panel on sub (back plate)
+        const ampPanelMat = new BABYLON.PBRMetallicRoughnessMaterial("ampPanelMat" + xPos, this.scene);
+        ampPanelMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        ampPanelMat.metallic = 0.6;
+        ampPanelMat.roughness = 0.4;
+        ampPanelMat.maxSimultaneousLights = this.maxLights;
+        
+        const ampPanel = BABYLON.MeshBuilder.CreateBox("ampPanel" + xPos, {
+            width: 1.5,
+            height: 1.0,
+            depth: 0.08
+        }, this.scene);
+        ampPanel.position = new BABYLON.Vector3(xPos, 2.8, zPos - 1.58);
+        ampPanel.material = ampPanelMat;
+        
+        // Power LED indicator
+        const ledMat = new BABYLON.StandardMaterial("ledMat" + xPos, this.scene);
+        ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green = powered
+        ledMat.disableLighting = true;
+        
+        const powerLED = BABYLON.MeshBuilder.CreateSphere("powerLED" + xPos, {
+            diameter: 0.08,
+            segments: 8
+        }, this.scene);
+        powerLED.position = new BABYLON.Vector3(xPos - 0.5, 3.3, zPos - 1.54);
+        powerLED.material = ledMat;
+        
+        // Brand logo plate (top of high cabinet)
         const logoMat = new BABYLON.StandardMaterial("logo" + xPos, this.scene);
-        logoMat.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+        logoMat.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
+        logoMat.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
         logoMat.alpha = 1.0;
         
         const logo = BABYLON.MeshBuilder.CreateBox("logo" + xPos, {
-            width: 0.8,
-            height: 0.3,
+            width: 1.2,
+            height: 0.25,
             depth: 0.05
         }, this.scene);
-        logo.position = new BABYLON.Vector3(xPos, 0.3, zPos + 1.65);
+        logo.position = new BABYLON.Vector3(xPos, 7.85, zPos + 1.03);
         logo.material = logoMat;
+        
+        // Corner protectors (metal corners on cabinets)
+        const cornerMat = new BABYLON.PBRMetallicRoughnessMaterial("cornerMat" + xPos, this.scene);
+        cornerMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.25);
+        cornerMat.metallic = 0.9;
+        cornerMat.roughness = 0.3;
+        cornerMat.maxSimultaneousLights = this.maxLights;
+        
+        // Add corner protectors to each cabinet (8 corners per box)
+        const corners = [
+            { x: xPos - 1.6, y: 3.5, z: zPos + 1.6 },
+            { x: xPos + 1.6, y: 3.5, z: zPos + 1.6 },
+            { x: xPos - 1.6, y: 0.0, z: zPos + 1.6 },
+            { x: xPos + 1.6, y: 0.0, z: zPos + 1.6 }
+        ];
+        
+        corners.forEach((pos, idx) => {
+            const corner = BABYLON.MeshBuilder.CreateBox("corner" + xPos + "_" + idx, {
+                width: 0.08,
+                height: 0.3,
+                depth: 0.08
+            }, this.scene);
+            corner.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
+            corner.material = cornerMat;
+        });
+        
+        console.log("✅ Created hyperrealistic PA speaker stack at x=" + xPos);
     }
 
     createBarArea() {
@@ -2112,6 +2263,8 @@ class VRClub {
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
                 fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
+                lens: this.trussLights ? this.trussLights[i]?.lens : null,
+                lightSource: this.trussLights ? this.trussLights[i]?.lightSource : null,
                 lensMat: this.trussLights ? this.trussLights[i]?.lensMat : null,
                 sourceMat: this.trussLights ? this.trussLights[i]?.sourceMat : null,
                 basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
@@ -2610,11 +2763,19 @@ class VRClub {
                 const angleVariation = Math.sin(time * 0.3 + i * 0.5) * 0.1; // ±6 degrees
                 spot.light.angle = baseAngle + angleVariation;
                 
-                // Rotate FIXTURE if available
+                // Rotate FIXTURE, LENS, and LIGHT SOURCE for realistic movement
                 if (spot.fixture) {
-                    // Calculate target point on dance floor
+                    // Calculate target point where beam aims
                     const targetPoint = spot.basePos.add(direction.scale(8));
                     spot.fixture.lookAt(targetPoint);
+                    
+                    // Rotate lens and light source to match
+                    if (spot.lens) {
+                        spot.lens.lookAt(targetPoint);
+                    }
+                    if (spot.lightSource) {
+                        spot.lightSource.lookAt(targetPoint);
+                    }
                 }
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
