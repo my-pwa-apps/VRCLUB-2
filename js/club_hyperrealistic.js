@@ -59,6 +59,9 @@ class VRClub {
         this.ledWallActive = true;
         this.strobesActive = true;
         
+        // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
+        this.spotlightMode = 0;
+        
         this.init();
     }
 
@@ -903,6 +906,14 @@ class VRClub {
                 offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
                 x: 2.8,
                 row2: true
+            },
+            { 
+                label: "SPOT MODE", 
+                control: "cycleSpotMode",
+                onColor: new BABYLON.Color3(0, 1, 1), // Cyan
+                offColor: new BABYLON.Color3(0, 0.3, 0.3), // Dark cyan
+                x: 3.3,
+                row2: true
             }
         ];
         
@@ -945,113 +956,110 @@ class VRClub {
             labelPlane.material = labelMat;
         });
         
-        // === LAPTOP (back corner for track browsing) ===
-        const laptopStand = BABYLON.MeshBuilder.CreateBox("laptopStand", {
-            width: 1.0,
-            height: 0.04,
-            depth: 0.6
-        }, this.scene);
-        laptopStand.position = new BABYLON.Vector3(-3.5, 0.8, -25.5);
-        laptopStand.material = tableMat;
-        
-        const laptop = BABYLON.MeshBuilder.CreateBox("laptop", {
-            width: 0.7,
-            height: 0.45,
-            depth: 0.02
-        }, this.scene);
-        laptop.position = new BABYLON.Vector3(-3.5, 1.05, -25.3);
-        laptop.rotation.x = Math.PI / 6;
-        const laptopMat = new BABYLON.StandardMaterial("laptopMat", this.scene);
-        laptopMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
-        laptopMat.disableLighting = true;
-        laptop.material = laptopMat;
+        // Laptop removed - doesn't add useful functionality
         
         console.log("✅ Created hyperrealistic integrated DJ/VJ booth");
     }
 
     createPASpeakers() {
         // === HYPERREALISTIC PA SPEAKER SYSTEM ===
-        // Positioned on sides of dance floor
+        // Positioned on sides of dance floor, facing center
         
         console.log("🔊 Creating PA speaker system...");
         
+        // MASSIVE professional PA speaker material - visible matte black
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.02);
-        speakerMat.metallic = 0.3;
-        speakerMat.roughness = 0.8;
+        speakerMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.08); // Lighter black (was too dark)
+        speakerMat.metallic = 0.2;
+        speakerMat.roughness = 0.7;
         speakerMat.maxSimultaneousLights = this.maxLights;
         
-        // Left PA stack
-        this.createPAStack(-10, -15, speakerMat);
+        // Left PA stack - FRONT OF DANCE FLOOR (moved forward)
+        this.createPAStack(-10, -8, speakerMat);
         
-        // Right PA stack
-        this.createPAStack(10, -15, speakerMat);
+        // Right PA stack - FRONT OF DANCE FLOOR (moved forward)
+        this.createPAStack(10, -8, speakerMat);
         
-        console.log("✅ PA speaker system created");
+        console.log("✅ PA speaker system created at x=±10, z=-8 (front of dance floor)");
     }
 
     createPAStack(xPos, zPos, material) {
-        // Sub-woofer (bottom)
+        // === MASSIVE PROFESSIONAL PA SPEAKER STACK ===
+        console.log(`📦 Creating PA stack at x=${xPos}, z=${zPos}`);
+        
+        // Sub-woofer (bottom) - BIGGER
         const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
-            width: 2.5,
-            height: 2.5,
-            depth: 2.5
+            width: 3.0,
+            height: 3.0,
+            depth: 3.0
         }, this.scene);
-        sub.position = new BABYLON.Vector3(xPos, 1.25, zPos);
+        sub.position = new BABYLON.Vector3(xPos, 1.5, zPos);
         sub.material = material;
         sub.receiveShadows = true;
+        sub.checkCollisions = true;
         
-        // Sub grille
+        // Sub grille - visible speaker cone area
         const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
-        grillMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        grillMat.metallic = 0.8;
-        grillMat.roughness = 0.3;
-        grillMat.alpha = 0.7;
-        grillMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
+        grillMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Lighter gray
+        grillMat.metallic = 0.6;
+        grillMat.roughness = 0.4;
         grillMat.maxSimultaneousLights = this.maxLights;
         
         const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
-            width: 2.2,
-            height: 2.2,
-            depth: 0.08
+            width: 2.6,
+            height: 2.6,
+            depth: 0.1
         }, this.scene);
-        subGrill.position = new BABYLON.Vector3(xPos, 1.25, zPos + 1.2);
+        subGrill.position = new BABYLON.Vector3(xPos, 1.5, zPos + 1.45);
         subGrill.material = grillMat;
         
-        // Mid-range cabinet (top)
+        // Mid-range cabinet (top) - BIGGER
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
-            width: 2.0,
-            height: 2.0,
-            depth: 2.0
+            width: 2.4,
+            height: 2.4,
+            depth: 2.4
         }, this.scene);
-        mid.position = new BABYLON.Vector3(xPos, 3.5, zPos);
+        mid.position = new BABYLON.Vector3(xPos, 4.2, zPos);
         mid.material = material;
         mid.receiveShadows = true;
+        mid.checkCollisions = true;
         
         // Mid grille
         const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
-            width: 1.7,
-            height: 1.7,
-            depth: 0.08
+            width: 2.0,
+            height: 2.0,
+            depth: 0.1
         }, this.scene);
-        midGrill.position = new BABYLON.Vector3(xPos, 3.5, zPos + 0.95);
+        midGrill.position = new BABYLON.Vector3(xPos, 4.2, zPos + 1.15);
         midGrill.material = grillMat;
         
-        // Horn tweeter
+        // Horn tweeter - MORE VISIBLE
         const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
-            diameterTop: 0.4,
-            diameterBottom: 0.2,
-            height: 0.3,
+            diameterTop: 0.5,
+            diameterBottom: 0.25,
+            height: 0.35,
             tessellation: 16
         }, this.scene);
-        horn.position = new BABYLON.Vector3(xPos, 4.3, zPos + 0.95);
+        horn.position = new BABYLON.Vector3(xPos, 5.4, zPos + 1.15);
         horn.rotation.x = Math.PI / 2;
         const hornMat = new BABYLON.PBRMetallicRoughnessMaterial("hornMat" + xPos, this.scene);
-        hornMat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+        hornMat.baseColor = new BABYLON.Color3(0.6, 0.6, 0.6); // Lighter metal
         hornMat.metallic = 0.9;
         hornMat.roughness = 0.2;
         hornMat.maxSimultaneousLights = this.maxLights;
         horn.material = hornMat;
+        
+        // Add LED indicator light for visibility
+        const led = BABYLON.MeshBuilder.CreateSphere("speakerLED" + xPos, {
+            diameter: 0.15
+        }, this.scene);
+        led.position = new BABYLON.Vector3(xPos - 1.0, 0.5, zPos + 1.4);
+        const ledMat = new BABYLON.StandardMaterial("ledMat" + xPos, this.scene);
+        ledMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green LED
+        ledMat.disableLighting = true;
+        led.material = ledMat;
+        
+        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m`);
     }
 
     createLEDWall() {
@@ -1195,27 +1203,7 @@ class VRClub {
         rightMonitor.position = new BABYLON.Vector3(2.3, 0.85, -24.3); // Behind table
         rightMonitor.material = monitorMat;
         
-        // === LAPTOP (at back corner) ===
-        const laptopStand = BABYLON.MeshBuilder.CreateBox("laptopStand", {
-            width: 1.2,
-            height: 0.04,
-            depth: 0.7
-        }, this.scene);
-        laptopStand.position = new BABYLON.Vector3(-2.5, 0.8, -25.2); // Back left corner
-        laptopStand.material = tableMat;
-        
-        // Laptop screen (facing DJ)
-        const laptop = BABYLON.MeshBuilder.CreateBox("laptop", {
-            width: 0.7,
-            height: 0.45,
-            depth: 0.02
-        }, this.scene);
-        laptop.position = new BABYLON.Vector3(-2.5, 1.05, -24.95); // In front of stand
-        laptop.rotation.x = Math.PI / 6; // Tilted forward toward DJ
-        const laptopMat = new BABYLON.StandardMaterial("laptopMat", this.scene);
-        laptopMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
-        laptopMat.disableLighting = true;
-        laptop.material = laptopMat;
+        // Laptop removed - doesn't add useful functionality
         
         // === VJ LIGHTING CONTROL STATION (right side) ===
         this.createVJLightingControls();
@@ -3025,6 +3013,11 @@ class VRClub {
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
                 
+                // SPOTLIGHT MODE CONTROL
+                // Mode 0: strobe+sweep, Mode 1: sweep only, Mode 2: strobe static, Mode 3: static
+                const isSweepMode = (this.spotlightMode === 0 || this.spotlightMode === 1);
+                const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
+                
                 // SYNCHRONIZED SWEEPING: All lights sweep together continuously
                 // SMOOTH pattern transitions - patterns blend into each other naturally
                 const sweepPhase = globalPhase * audioSpeedMultiplier;
@@ -3042,8 +3035,23 @@ class VRClub {
                 let dirX1 = 0, dirZ1 = 0; // Current pattern
                 let dirX2 = 0, dirZ2 = 0; // Next pattern
                 
-                // Calculate CURRENT pattern position - FASTER for more energy
-                if (currentPattern === 0) {
+                // Static positions for non-sweep modes (centered on dance floor)
+                const staticPositions = [
+                    { x: -0.3, z: -0.3 },  // Spotlight 0: front-left
+                    { x: 0.3, z: -0.3 },   // Spotlight 1: front-right
+                    { x: -0.3, z: 0.3 },   // Spotlight 2: back-left
+                    { x: 0.3, z: 0.3 }     // Spotlight 3: back-right
+                ];
+                
+                if (!isSweepMode) {
+                    // Static mode: use fixed positions based on spotlight index
+                    const staticPos = staticPositions[i % staticPositions.length];
+                    dirX = staticPos.x;
+                    dirZ = staticPos.z;
+                } else {
+                    // Sweep mode: calculate animated pattern positions
+                    // Calculate CURRENT pattern position - FASTER for more energy
+                    if (currentPattern === 0) {
                     // Linear sweep left to right - FAST
                     dirX1 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster (0.8 → 1.6)
                     dirZ1 = -0.3;
@@ -3103,9 +3111,10 @@ class VRClub {
                     dirZ2 = 0;
                 }
                 
-                // SMOOTH BLEND between patterns - no jumps!
-                dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
-                dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
+                    // SMOOTH BLEND between patterns - no jumps!
+                    dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
+                    dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
+                }
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
@@ -3237,11 +3246,11 @@ class VRClub {
                     }
                     
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
-                    // Check if we're in flashing pattern (pattern 6)
+                    // Check if we're in flashing pattern (pattern 6) OR strobe mode is enabled
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
                     const sweepPattern = Math.floor(sweepPhase / 5) % 7;
-                    // Check if we're in STROBE pattern (pattern 6)
-                    const isFlashing = (currentPattern === 6 || nextPattern === 6);
+                    // Check if we're in STROBE pattern (pattern 6) OR spotlight mode is set to strobe
+                    const isFlashing = isStrobeMode && ((currentPattern === 6 || nextPattern === 6) || !isSweepMode);
                     
                     let beamVisible = this.lightsActive;
                     if (isFlashing) {
@@ -4064,6 +4073,24 @@ class VRClub {
                         }, 200);
                         
                         console.log(`🎨 Color changed to index ${this.spotColorIndex}`);
+                    } else if (clickedButton.control === "cycleSpotMode") {
+                        // Cycle through spotlight modes: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
+                        this.spotlightMode = (this.spotlightMode + 1) % 4;
+                        
+                        // Flash button feedback with different colors for each mode
+                        const modeColors = [
+                            new BABYLON.Color3(1, 0, 1),    // Mode 0: Magenta (strobe+sweep)
+                            new BABYLON.Color3(0, 1, 1),    // Mode 1: Cyan (sweep only)
+                            new BABYLON.Color3(1, 1, 0),    // Mode 2: Yellow (strobe static)
+                            new BABYLON.Color3(0, 1, 0)     // Mode 3: Green (static)
+                        ];
+                        clickedButton.material.emissiveColor = modeColors[this.spotlightMode];
+                        setTimeout(() => {
+                            clickedButton.material.emissiveColor = clickedButton.offColor;
+                        }, 300);
+                        
+                        const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
+                        console.log(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
                     } else {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
