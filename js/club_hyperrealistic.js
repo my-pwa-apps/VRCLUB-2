@@ -151,6 +151,7 @@ class VRClub {
         // Setup UI
         this.setupUI(vrHelper);
         this.setupPerformanceMonitor();
+        this.setupVJControlInteraction(); // Add VJ control button clicks
         
         // Start render loop
         this.engine.runRenderLoop(() => {
@@ -661,13 +662,16 @@ class VRClub {
     
     createDJBooth() {
         // === HYPERREALISTIC PROFESSIONAL DJ PLATFORM ===
+        // DJ booth now faces the DANCE FLOOR (toward positive z)
+        // Positioned at back of club but facing forward
+        
         // Main platform structure with realistic metal finish
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
             width: 10,
             height: 0.6,
             depth: 5.5
         }, this.scene);
-        platform.position = new BABYLON.Vector3(0, 0.3, -24);
+        platform.position = new BABYLON.Vector3(0, 0.3, -20); // Moved forward from -24
         
         const platformMat = new BABYLON.PBRMetallicRoughnessMaterial("platformMat", this.scene);
         platformMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
@@ -683,7 +687,7 @@ class VRClub {
             height: 0.02,
             depth: 5.5
         }, this.scene);
-        platformTop.position = new BABYLON.Vector3(0, 0.61, -24);
+        platformTop.position = new BABYLON.Vector3(0, 0.61, -20);
         
         const topMat = new BABYLON.PBRMetallicRoughnessMaterial("platformTopMat", this.scene);
         topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
@@ -704,7 +708,7 @@ class VRClub {
             height: 0.08,
             depth: 0.08
         }, this.scene);
-        frontRail.position = new BABYLON.Vector3(0, 0.9, -21.5);
+        frontRail.position = new BABYLON.Vector3(0, 0.9, -17.5); // Front facing dance floor
         frontRail.material = railMat;
         
         // DJ console table (main work surface)
@@ -713,7 +717,7 @@ class VRClub {
             height: 0.35,
             depth: 2.5
         }, this.scene);
-        djConsole.position = new BABYLON.Vector3(0, 0.9, -24);
+        djConsole.position = new BABYLON.Vector3(0, 0.9, -19); // Facing forward
         
         const consoleMat = new BABYLON.PBRMetallicRoughnessMaterial("consoleMat", this.scene);
         consoleMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
@@ -728,7 +732,7 @@ class VRClub {
                 diameter: 0.08,
                 height: 0.3
             }, this.scene);
-            leg.position = new BABYLON.Vector3(x, 0.75, -24);
+            leg.position = new BABYLON.Vector3(x, 0.75, -19);
             leg.material = railMat;
         }
         
@@ -738,7 +742,7 @@ class VRClub {
             height: 0.1,
             depth: 2
         }, this.scene);
-        cableTray.position = new BABYLON.Vector3(0, 0.65, -24);
+        cableTray.position = new BABYLON.Vector3(0, 0.65, -19);
         const trayMat = new BABYLON.StandardMaterial("trayMat", this.scene);
         trayMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         cableTray.material = trayMat;
@@ -775,7 +779,7 @@ class VRClub {
             height: 0.12,
             depth: 1.3
         }, this.scene);
-        leftCDJ.position = new BABYLON.Vector3(-1.6, 1.12, -24);
+        leftCDJ.position = new BABYLON.Vector3(-1.6, 1.12, -19);
         leftCDJ.material = cdjMat;
         
         // Right CDJ (lowered)
@@ -784,7 +788,7 @@ class VRClub {
             height: 0.12,
             depth: 1.3
         }, this.scene);
-        rightCDJ.position = new BABYLON.Vector3(1.6, 1.12, -24);
+        rightCDJ.position = new BABYLON.Vector3(1.6, 1.12, -19);
         rightCDJ.material = cdjMat;
         
         // Jog wheels (glowing)
@@ -796,14 +800,14 @@ class VRClub {
             diameter: 0.6,
             height: 0.05
         }, this.scene);
-        leftJog.position = new BABYLON.Vector3(-1.6, 1.2, -24);
+        leftJog.position = new BABYLON.Vector3(-1.6, 1.2, -19);
         leftJog.material = jogMat;
         
         const rightJog = BABYLON.MeshBuilder.CreateCylinder("rightJog", {
             diameter: 0.6,
             height: 0.05
         }, this.scene);
-        rightJog.position = new BABYLON.Vector3(1.6, 1.2, -24);
+        rightJog.position = new BABYLON.Vector3(1.6, 1.2, -19);
         rightJog.material = jogMat.clone("jogMatR");
     }
 
@@ -813,7 +817,7 @@ class VRClub {
             height: 0.15,
             depth: 1.1
         }, this.scene);
-        mixer.position = new BABYLON.Vector3(0, 1.12, -24);
+        mixer.position = new BABYLON.Vector3(0, 1.12, -19);
         
         const mixerMat = new BABYLON.PBRMetallicRoughnessMaterial("mixerMat", this.scene);
         mixerMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
@@ -827,7 +831,7 @@ class VRClub {
             height: 0.02,
             depth: 0.3
         }, this.scene);
-        display.position = new BABYLON.Vector3(0, 1.21, -23.7);
+        display.position = new BABYLON.Vector3(0, 1.21, -18); // Facing forward toward dance floor
         
         const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
         displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
@@ -839,8 +843,8 @@ class VRClub {
             width: 2.5,
             height: 0.4
         }, this.scene);
-        audioLabel.position = new BABYLON.Vector3(0, 1.5, -23.3);
-        audioLabel.rotation.x = -0.3;
+        audioLabel.position = new BABYLON.Vector3(0, 1.5, -17.5);
+        audioLabel.rotation.x = 0.3; // Flipped to face forward
         
         const audioLabelMat = new BABYLON.StandardMaterial("audioLabelMat", this.scene);
         audioLabelMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0); // Bright yellow/orange
@@ -852,7 +856,7 @@ class VRClub {
             const indicator = BABYLON.MeshBuilder.CreateSphere("streamIndicator" + i, {
                 diameter: 0.08
             }, this.scene);
-            indicator.position = new BABYLON.Vector3(-0.6 + i * 0.3, 1.23, -23.4);
+            indicator.position = new BABYLON.Vector3(-0.6 + i * 0.3, 1.23, -18.3);
             
             const indicatorMat = new BABYLON.StandardMaterial("indicatorMat" + i, this.scene);
             indicatorMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Green = active
@@ -873,7 +877,7 @@ class VRClub {
             height: 0.7,
             depth: 0.45
         }, this.scene);
-        leftMonitor.position = new BABYLON.Vector3(-3, 0.95, -24);
+        leftMonitor.position = new BABYLON.Vector3(-3, 0.95, -20);
         leftMonitor.material = speakerMat;
         
         // Right monitor (lowered)
@@ -882,7 +886,7 @@ class VRClub {
             height: 0.7,
             depth: 0.45
         }, this.scene);
-        rightMonitor.position = new BABYLON.Vector3(3, 0.95, -24);
+        rightMonitor.position = new BABYLON.Vector3(3, 0.95, -20);
         rightMonitor.material = speakerMat;
     }
     
@@ -893,7 +897,7 @@ class VRClub {
             height: 0.05,
             depth: 1.0
         }, this.scene);
-        laptopStand.position = new BABYLON.Vector3(-3, 1.1, -24.5);
+        laptopStand.position = new BABYLON.Vector3(-3, 1.1, -21); // Behind DJ, facing forward
         
         const standMat = new BABYLON.PBRMetallicRoughnessMaterial("standMat", this.scene);
         standMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
@@ -907,8 +911,8 @@ class VRClub {
             height: 0.5,
             depth: 0.02
         }, this.scene);
-        laptop.position = new BABYLON.Vector3(-3, 1.38, -24.7);
-        laptop.rotation.x = -0.3;
+        laptop.position = new BABYLON.Vector3(-3, 1.38, -20.8); // Facing DJ
+        laptop.rotation.x = 0.3; // Tilted toward DJ
         
         const screenMat = new BABYLON.StandardMaterial("screenMat", this.scene);
         screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 0.8);
@@ -925,7 +929,7 @@ class VRClub {
             height: 0.25,
             depth: 2.4
         }, this.scene);
-        consoleBase.position = new BABYLON.Vector3(3.7, 0.88, -24);
+        consoleBase.position = new BABYLON.Vector3(3.7, 0.88, -20);
         
         const baseMat = new BABYLON.PBRMetallicRoughnessMaterial("consoleBaseMat", this.scene);
         baseMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
@@ -940,8 +944,8 @@ class VRClub {
             height: 0.15,
             depth: 2.0
         }, this.scene);
-        vjTable.position = new BABYLON.Vector3(3.7, 1.05, -24);
-        vjTable.rotation.x = -0.10; // Angle toward operator
+        vjTable.position = new BABYLON.Vector3(3.7, 1.05, -20);
+        vjTable.rotation.x = 0.10; // Angle toward dance floor (reversed)
         
         const vjTableMat = new BABYLON.PBRMetallicRoughnessMaterial("vjTableMat", this.scene);
         vjTableMat.baseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
@@ -956,8 +960,8 @@ class VRClub {
             height: 1.5,
             depth: 0.06
         }, this.scene);
-        mainDisplay.position = new BABYLON.Vector3(3.7, 1.9, -24.8);
-        mainDisplay.rotation.x = -0.18;
+        mainDisplay.position = new BABYLON.Vector3(3.7, 1.9, -21.2); // Behind console
+        mainDisplay.rotation.x = 0.18; // Tilted forward toward dance floor
         
         const displayMat = new BABYLON.StandardMaterial("displayMat", this.scene);
         displayMat.emissiveColor = new BABYLON.Color3(0.15, 0.25, 0.4); // Professional blue UI
@@ -970,8 +974,8 @@ class VRClub {
             height: 1.6,
             depth: 0.05
         }, this.scene);
-        displayFrame.position = new BABYLON.Vector3(3.7, 1.9, -24.75);
-        displayFrame.rotation.x = -0.18;
+        displayFrame.position = new BABYLON.Vector3(3.7, 1.9, -21.25);
+        displayFrame.rotation.x = 0.18;
         displayFrame.material = baseMat;
         
         // === MOTORIZED FADERS (Intensity Control) ===
@@ -985,7 +989,7 @@ class VRClub {
                 height: 0.02,
                 depth: 0.9
             }, this.scene);
-            faderTrack.position = new BABYLON.Vector3(3.7 + xOffset, 1.15, -24.4);
+            faderTrack.position = new BABYLON.Vector3(3.7 + xOffset, 1.15, -19.5);
             faderTrack.material = baseMat;
             
             // Fader cap (glowing)
@@ -995,7 +999,7 @@ class VRClub {
                 depth: 0.16
             }, this.scene);
             const faderPos = Math.random() * 0.7 - 0.35; // Random position
-            faderCap.position = new BABYLON.Vector3(3.7 + xOffset, 1.17, -24.4 + faderPos);
+            faderCap.position = new BABYLON.Vector3(3.7 + xOffset, 1.17, -19.5 + faderPos);
             
             const faderMat = new BABYLON.StandardMaterial("faderMat" + i, this.scene);
             faderMat.emissiveColor = new BABYLON.Color3(0, 0.9, 0.3); // Green = active
@@ -1014,7 +1018,7 @@ class VRClub {
                 encoder.position = new BABYLON.Vector3(
                     3.7 - 1.5 + col * 0.33,
                     1.12,
-                    -23.5 - row * 0.28
+                    -18.5 + row * 0.28 // Reversed direction
                 );
                 encoder.material = baseMat;
                 
@@ -1059,7 +1063,7 @@ class VRClub {
             button.position = new BABYLON.Vector3(
                 3.7 - 1.0 + col * 0.7,
                 1.14,
-                -25.0 - row * 0.28
+                -20.5 + row * 0.28 // Reversed - closer to DJ
             );
             
             const btnMat = new BABYLON.StandardMaterial("sceneBtnMat" + i, this.scene);
@@ -1076,7 +1080,7 @@ class VRClub {
             height: 0.03,
             depth: 1.3
         }, this.scene);
-        grandMasterTrack.position = new BABYLON.Vector3(5.3, 1.15, -24);
+        grandMasterTrack.position = new BABYLON.Vector3(5.3, 1.15, -20);
         grandMasterTrack.material = baseMat;
         
         const grandMaster = BABYLON.MeshBuilder.CreateBox("grandMaster", {
@@ -1084,7 +1088,7 @@ class VRClub {
             height: 0.06,
             depth: 0.2
         }, this.scene);
-        grandMaster.position = new BABYLON.Vector3(5.3, 1.17, -23.5);
+        grandMaster.position = new BABYLON.Vector3(5.3, 1.17, -19.5);
         
         const masterMat = new BABYLON.StandardMaterial("masterMat", this.scene);
         masterMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0); // Red = critical control
@@ -1097,12 +1101,98 @@ class VRClub {
             height: 0.08,
             tessellation: 32
         }, this.scene);
-        blackoutBtn.position = new BABYLON.Vector3(5.3, 1.18, -23.0);
+        blackoutBtn.position = new BABYLON.Vector3(5.3, 1.18, -18.5);
         
         const blackoutMat = new BABYLON.StandardMaterial("blackoutMat", this.scene);
         blackoutMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // RED emergency button
         blackoutMat.disableLighting = true;
         blackoutBtn.material = blackoutMat;
+        
+        // === EASY-TO-UNDERSTAND LIGHTING CONTROL TOGGLES ===
+        // Clear, labeled buttons for each lighting system
+        
+        const toggleButtons = [
+            { 
+                label: "SPOTS", 
+                control: "lightsActive",
+                onColor: new BABYLON.Color3(1, 0.5, 0), // Orange when ON
+                offColor: new BABYLON.Color3(0.2, 0.1, 0), // Dark when OFF
+                position: new BABYLON.Vector3(2.2, 1.18, -18.3)
+            },
+            { 
+                label: "LASERS", 
+                control: "lasersActive",
+                onColor: new BABYLON.Color3(1, 0, 0), // Red when ON
+                offColor: new BABYLON.Color3(0.2, 0, 0),
+                position: new BABYLON.Vector3(2.8, 1.18, -18.3)
+            },
+            { 
+                label: "LED WALL", 
+                control: "ledWallActive",
+                onColor: new BABYLON.Color3(0, 0.5, 1), // Blue when ON
+                offColor: new BABYLON.Color3(0, 0.1, 0.2),
+                position: new BABYLON.Vector3(3.4, 1.18, -18.3)
+            },
+            { 
+                label: "STROBES", 
+                control: "strobesActive",
+                onColor: new BABYLON.Color3(1, 1, 1), // White when ON
+                offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
+                position: new BABYLON.Vector3(4.0, 1.18, -18.3)
+            },
+            { 
+                label: "NEXT COLOR", 
+                control: "changeColor",
+                onColor: new BABYLON.Color3(0.5, 1, 0.5), // Green (action button)
+                offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
+                position: new BABYLON.Vector3(4.6, 1.18, -18.3)
+            }
+        ];
+        
+        toggleButtons.forEach((btnDef, i) => {
+            // Button base
+            const toggleBtn = BABYLON.MeshBuilder.CreateBox("toggleBtn_" + btnDef.control, {
+                width: 0.45,
+                height: 0.08,
+                depth: 0.25
+            }, this.scene);
+            toggleBtn.position = btnDef.position.clone();
+            toggleBtn.isPickable = true; // Make it clickable
+            
+            const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
+            // Set initial state
+            const isActive = btnDef.control === "changeColor" ? false : this[btnDef.control];
+            toggleMat.emissiveColor = isActive ? btnDef.onColor : btnDef.offColor;
+            toggleMat.disableLighting = true;
+            toggleBtn.material = toggleMat;
+            
+            // Store button data for click handling
+            this.vjControlButtons.push({
+                mesh: toggleBtn,
+                control: btnDef.control,
+                material: toggleMat,
+                onColor: btnDef.onColor,
+                offColor: btnDef.offColor,
+                label: btnDef.label
+            });
+            
+            // Label above button
+            const labelPlane = BABYLON.MeshBuilder.CreatePlane("label_" + btnDef.control, {
+                width: 0.45,
+                height: 0.12
+            }, this.scene);
+            labelPlane.position = new BABYLON.Vector3(
+                btnDef.position.x,
+                btnDef.position.y + 0.15,
+                btnDef.position.z
+            );
+            labelPlane.rotation.x = 0.2; // Facing forward toward dance floor
+            
+            const labelMat = new BABYLON.StandardMaterial("labelMat_" + btnDef.control, this.scene);
+            labelMat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+            labelMat.disableLighting = true;
+            labelPlane.material = labelMat;
+        });
         
         // === STATUS INDICATORS ===
         const indicators = [
@@ -1117,7 +1207,7 @@ class VRClub {
                 diameter: 0.07,
                 segments: 16
             }, this.scene);
-            led.position = new BABYLON.Vector3(5.3, 1.18, -25.0 + i * 0.18);
+            led.position = new BABYLON.Vector3(5.3, 1.18, -21.0 + i * 0.18);
             
             const ledMat = new BABYLON.StandardMaterial("statusLEDMat" + i, this.scene);
             ledMat.emissiveColor = ind.color;
@@ -1130,8 +1220,8 @@ class VRClub {
             width: 3.2,
             height: 0.38
         }, this.scene);
-        mainLabel.position = new BABYLON.Vector3(3.7, 2.55, -23.3);
-        mainLabel.rotation.x = -0.28;
+        mainLabel.position = new BABYLON.Vector3(3.7, 2.55, -17.5);
+        mainLabel.rotation.x = 0.28; // Facing forward
         
         const labelMat = new BABYLON.StandardMaterial("labelMat", this.scene);
         labelMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0); // Orange - "LIGHTING CONTROL"
@@ -2094,10 +2184,15 @@ class VRClub {
         // Pattern: Lights on for 30s (longer with varied patterns), then Lasers on for 15s
         this.lightsActive = true;
         this.lasersActive = false;
+        this.ledWallActive = true; // LED wall control
+        this.strobesActive = true; // Strobes control
         this.lightModeSwitchTime = 0;
         this.lightingPhase = 'lights'; // 'lights' or 'lasers'
         this.lightsPhaseDuration = 30; // Lights show for 30 seconds (LONGER with pattern changes)
         this.lasersPhaseDuration = 15; // Lasers show for 15 seconds (shorter, more impactful)
+        
+        // VJ control buttons (will be populated in createVJStation)
+        this.vjControlButtons = [];
         
     }
     
@@ -2553,9 +2648,14 @@ class VRClub {
             this.lightModeSwitchTime = time;
         }
         
-        // Update LED wall (with audio reactivity)
-        if (this.ledPanels) {
+        // Update LED wall (with audio reactivity) - respects ledWallActive control
+        if (this.ledPanels && this.ledWallActive) {
             this.updateLEDWall(time, audioData);
+        } else if (this.ledPanels && !this.ledWallActive) {
+            // Turn off LED wall when disabled
+            this.ledPanels.forEach(panel => {
+                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            });
         }
         
         // ALWAYS SYNCHRONIZED MODE - no random mode
@@ -3159,13 +3259,14 @@ class VRClub {
             this.ledTime += 0.016;
         }
         
-        // Update strobes - ALWAYS ACTIVE with variable intensity
+        // Update strobes - respects strobesActive control
         // Strobe lights animation
         if (this.strobes && this.strobes.length > 0) {
-            this.strobes.forEach((strobe, i) => {
-                // Handle ongoing flash
-                if (strobe.flashDuration > 0) {
-                    strobe.flashDuration -= 0.016;
+            if (this.strobesActive) {
+                this.strobes.forEach((strobe, i) => {
+                    // Handle ongoing flash
+                    if (strobe.flashDuration > 0) {
+                        strobe.flashDuration -= 0.016;
                     
                     // Variable intensity - sometimes super bright, sometimes moderate
                     const intensityVariation = strobe.currentIntensity || 50; // Store current intensity
@@ -3192,7 +3293,15 @@ class VRClub {
                         strobe.flashDuration = 0.15 + Math.random() * 0.2; // Duration 0.15-0.35s
                     }
                 }
-            });
+                });
+            } else {
+                // Turn off strobes when disabled
+                this.strobes.forEach((strobe) => {
+                    strobe.material.emissiveColor = this.cachedColors.black;
+                    strobe.light.intensity = 0;
+                    strobe.flashDuration = 0;
+                });
+            }
         }
         
         // Animate bartender cleaning glass
@@ -3777,6 +3886,46 @@ class VRClub {
                 this.debugMode = !this.debugMode;
             }
         });
+    }
+
+    setupVJControlInteraction() {
+        // Setup click handling for VJ control buttons in 3D scene
+        this.scene.onPointerDown = (evt, pickResult) => {
+            if (pickResult.hit && pickResult.pickedMesh) {
+                // Check if a VJ control button was clicked
+                const clickedButton = this.vjControlButtons.find(btn => btn.mesh === pickResult.pickedMesh);
+                
+                if (clickedButton) {
+                    console.log(`🎛️ VJ Control: ${clickedButton.label} clicked`);
+                    
+                    if (clickedButton.control === "changeColor") {
+                        // Change color button - cycle to next color
+                        this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
+                        this.currentSpotColor = this.spotColorList[this.spotColorIndex];
+                        this.lastColorChange = performance.now() / 1000;
+                        
+                        // Flash button feedback
+                        clickedButton.material.emissiveColor = clickedButton.onColor;
+                        setTimeout(() => {
+                            clickedButton.material.emissiveColor = clickedButton.offColor;
+                        }, 200);
+                        
+                        console.log(`🎨 Color changed to index ${this.spotColorIndex}`);
+                    } else {
+                        // Toggle on/off control
+                        this[clickedButton.control] = !this[clickedButton.control];
+                        
+                        // Update button appearance
+                        clickedButton.material.emissiveColor = this[clickedButton.control] ? 
+                            clickedButton.onColor : clickedButton.offColor;
+                        
+                        console.log(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
+                    }
+                }
+            }
+        };
+        
+        console.log("✅ VJ Control interaction enabled - click buttons to control lights!");
     }
 
     moveCameraToPreset(preset) {
