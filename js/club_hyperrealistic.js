@@ -1079,148 +1079,71 @@ class VRClub {
         const panelWidth = 1.2;
         const panelHeight = 1.2;
         const cols = 10;  // Increased from 6 to 10
-        platform.receiveShadows = true;
+        const rows = 6;   // Increased from 4 to 6
+        const wallWidth = cols * panelWidth;
+        const wallHeight = rows * panelHeight;
         
-        // Anti-slip platform surface (textured top)
-        const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
-            width: 8,
-            height: 0.02,
-            depth: 3
-        }, this.scene);
-        platformTop.position = new BABYLON.Vector3(0, 0.51, -24);
+        this.ledPanels = [];
         
-        const topMat = new BABYLON.PBRMetallicRoughnessMaterial("platformTopMat", this.scene);
-        topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        topMat.metallic = 0.1;
-        topMat.roughness = 0.95; // Very rough, anti-slip
-        topMat.maxSimultaneousLights = this.maxLights;
-        platformTop.material = topMat;
-        platformTop.receiveShadows = true;
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const panel = BABYLON.MeshBuilder.CreatePlane("ledPanel_" + row + "_" + col, {
+                    width: panelWidth - 0.05,
+                    height: panelHeight - 0.05
+                }, this.scene);
+                
+                const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
+                const y = (row * panelHeight) + (panelHeight / 2) + 1.5; // Lower starting position
+                const z = -26; // Behind DJ booth
+                
+                panel.position = new BABYLON.Vector3(x, y, z);
+                panel.rotation.y = Math.PI; // Rotate 180° to face dance floor
+                
+                // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
+                const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
+                panelMat.emissiveColor = new BABYLON.Color3(0.1, 0, 0); // MUCH dimmer for contrast
+                panelMat.disableLighting = true;
+                panel.material = panelMat;
+                
+                // Remove most backlights - only minimal ambient
+                if (row === 3 && col === 5) {
+                    const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
+                        new BABYLON.Vector3(x, y, z - 0.5), this.scene);
+                    backLight.diffuse = new BABYLON.Color3(0.5, 0, 0);
+                    backLight.intensity = 0.5; // Very subtle
+                    backLight.range = 3;
+                }
+                
+                this.ledPanels.push({
+                    mesh: panel,
+                    material: panelMat,
+                    row: row,
+                    col: col,
+                    centerX: col - (cols / 2) + 0.5,
+                    centerY: row - (rows / 2) + 0.5
+                });
+            }
+        }
         
-        // Safety rail at front of platform
-        const railMat = new BABYLON.PBRMetallicRoughnessMaterial("railMat", this.scene);
-        railMat.baseColor = new BABYLON.Color3(0.7, 0.7, 0.75);
-        railMat.metallic = 1.0;
-        railMat.roughness = 0.3;
+        this.ledTime = 0;
+        this.ledPattern = 0;
+        this.ledPatternSwitchTime = 0;
+        this.ledColorIndex = 0;
+        this.lastColorChange = -1;
+        this.lastPatternChange = -1;
         
-        const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
-            width: 7,
-            height: 0.08,
-            depth: 0.08
-        }, this.scene);
-        frontRail.position = new BABYLON.Vector3(0, 0.8, -22.5); // Front edge facing dance floor
-        frontRail.material = railMat;
+        // Beat detection and BPM tracking
+        this.bpm = 130; // Default 130 BPM
+        this.beatInterval = 60 / this.bpm; // ~0.46 seconds per beat
+        this.lastBeat = 0;
+        this.beatThreshold = 0.15; // Bass threshold for beat detection
+        this.lastBassLevel = 0;
         
-        // === DJ EQUIPMENT TABLE ===
-        // Table for CDJs and mixer - positioned in middle of platform
-        // DJ stands behind this table (at z=-25) facing forward (toward z=-23)
-        const djTable = BABYLON.MeshBuilder.CreateBox("djTable", {
-            width: 5,
-            height: 0.08,
-            depth: 1.5
-        }, this.scene);
-        djTable.position = new BABYLON.Vector3(0, 0.8, -23.5); // Center of platform
-        
-        const tableMat = new BABYLON.PBRMetallicRoughnessMaterial("tableMat", this.scene);
-        tableMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
-        tableMat.metallic = 0.9;
-        tableMat.roughness = 0.2;
-        djTable.material = tableMat;
-        
-        // === CDJ DECKS (left and right) ===
-        const cdjMat = new BABYLON.PBRMetallicRoughnessMaterial("cdjMat", this.scene);
-        cdjMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
-        cdjMat.metallic = 0.85;
-        cdjMat.roughness = 0.3;
-        
-        // Left CDJ
-        const leftCDJ = BABYLON.MeshBuilder.CreateBox("leftCDJ", {
-            width: 1.2,
-            height: 0.1,
-            depth: 1.0
-        }, this.scene);
-        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -23.5);
-        leftCDJ.material = cdjMat;
-        
-        // Left jog wheel (glowing green)
-        const leftJog = BABYLON.MeshBuilder.CreateCylinder("leftJog", {
-            diameter: 0.5,
-            height: 0.04
-        }, this.scene);
-        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -23.5);
-        const jogMat = new BABYLON.StandardMaterial("jogMat", this.scene);
-        jogMat.emissiveColor = new BABYLON.Color3(0, 0.6, 0.3);
-        jogMat.disableLighting = true;
-        leftJog.material = jogMat;
-        
-        // Right CDJ
-        const rightCDJ = BABYLON.MeshBuilder.CreateBox("rightCDJ", {
-            width: 1.2,
-            height: 0.1,
-            depth: 1.0
-        }, this.scene);
-        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -23.5);
-        rightCDJ.material = cdjMat;
-        
-        // Right jog wheel
-        const rightJog = BABYLON.MeshBuilder.CreateCylinder("rightJog", {
-            diameter: 0.5,
-            height: 0.04
-        }, this.scene);
-        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -23.5);
-        rightJog.material = jogMat.clone("rightJogMat");
-        
-        // === MIXER (center) ===
-        const mixer = BABYLON.MeshBuilder.CreateBox("mixer", {
-            width: 1.8,
-            height: 0.12,
-            depth: 0.9
-        }, this.scene);
-        mixer.position = new BABYLON.Vector3(0, 0.89, -23.5);
-        mixer.material = cdjMat;
-        
-        // Mixer display (faces DJ)
-        const mixerDisplay = BABYLON.MeshBuilder.CreatePlane("mixerDisplay", {
-            width: 1.2,
-            height: 0.2
-        }, this.scene);
-        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -24.0); // Behind mixer, faces forward
-        mixerDisplay.rotation.x = Math.PI / 6; // Tilted toward DJ
-        const displayMat = new BABYLON.StandardMaterial("mixerDisplayMat", this.scene);
-        displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
-        displayMat.disableLighting = true;
-        mixerDisplay.material = displayMat;
-        
-        // === MONITOR SPEAKERS (on table, facing DJ) ===
-        const monitorMat = new BABYLON.PBRMetallicRoughnessMaterial("monitorMat", this.scene);
-        monitorMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.03);
-        monitorMat.metallic = 0.2;
-        monitorMat.roughness = 0.8;
-        
-        // Left monitor
-        const leftMonitor = BABYLON.MeshBuilder.CreateBox("leftMonitor", {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.35
-        }, this.scene);
-        leftMonitor.position = new BABYLON.Vector3(-2.3, 0.85, -24.3); // Behind table
-        leftMonitor.material = monitorMat;
-        
-        // Right monitor
-        const rightMonitor = BABYLON.MeshBuilder.CreateBox("rightMonitor", {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.35
-        }, this.scene);
-        rightMonitor.position = new BABYLON.Vector3(2.3, 0.85, -24.3); // Behind table
-        rightMonitor.material = monitorMat;
-        
-        // Laptop removed - doesn't add useful functionality
-        
-        // === VJ LIGHTING CONTROL STATION (right side) ===
-        this.createVJLightingControls();
-        
-        console.log("✅ Created clean DJ booth at back of club");
+        // BPM detection from audio
+        this.beatHistory = []; // Track detected beat times
+        this.maxBeatHistory = 8; // Use last 8 beats for BPM calculation
+        this.detectedBPM = 130; // Detected BPM from music
+        this.lastBPMUpdate = 0;
     }
 
     createVJLightingControls() {
