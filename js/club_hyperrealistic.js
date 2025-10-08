@@ -215,34 +215,39 @@ class VRClub {
                             this.renderPipeline.grain.intensity = 5; // Reduced grain for clearer VR
                             this.renderPipeline.chromaticAberration.aberrationAmount = 1; // Reduced aberration
                             
-                            // Reduce exposure and increase contrast to fix washed-out look
+                            // Aggressively reduce exposure and tone mapping to fix washed-out VR look
                             if (this.renderPipeline.imageProcessing) {
-                                this.renderPipeline.imageProcessing.exposure = 0.8; // Reduced from 1.0
-                                this.renderPipeline.imageProcessing.contrast = 1.4; // Increased from 1.2
-                                console.log('📷 Adjusted exposure and contrast for VR');
+                                this.renderPipeline.imageProcessing.exposure = 0.65; // Further reduced from 0.8
+                                this.renderPipeline.imageProcessing.contrast = 1.6; // Further increased for punch
+                                
+                                // Disable ACES tone mapping in VR - it causes washed-out look
+                                this.renderPipeline.imageProcessing.toneMappingEnabled = false;
+                                
+                                console.log('📷 Disabled tone mapping and reduced exposure for VR');
                             }
                             
                             console.log('✨ Applied optimized post-processing to VR camera');
                         }
                         
-                        // Keep glow layer moderate in VR to avoid washed-out appearance
+                        // Minimize glow layer in VR to avoid washed-out appearance
                         if (this.glowLayer) {
-                            this.glowLayer.intensity = 0.5; // Reduced to 0.5 for darker VR
-                            console.log('💫 Set balanced glow intensity for VR');
+                            this.glowLayer.intensity = 0.4; // Further reduced to 0.4 for darker VR
+                            console.log('💫 Minimized glow intensity for VR');
                         }
                         
-                        // Reduce bloom in VR to prevent washed-out look
+                        // Aggressively reduce bloom in VR to prevent washed-out look
                         if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
-                            this.renderPipeline.bloomWeight = 0.25; // Further reduced from 0.3
-                            this.renderPipeline.bloomThreshold = 0.6; // Higher threshold = less bloom
-                            console.log('🌸 Reduced bloom for VR clarity');
+                            this.renderPipeline.bloomWeight = 0.15; // Minimal bloom
+                            this.renderPipeline.bloomThreshold = 0.8; // Very high threshold = only brightest lights
+                            this.renderPipeline.bloomScale = 0.3; // Reduced spread
+                            console.log('🌸 Minimized bloom for VR contrast');
                         }
                         
-                        // Reduce ambient light in VR to prevent washed-out look
+                        // Aggressively reduce ambient light in VR to prevent washed-out look
                         const ambient = this.scene.getLightByName('ambient');
                         if (ambient) {
-                            ambient.intensity = 0.10; // Reduced from 0.15 for darker, more contrasty VR
-                            console.log('💡 Reduced ambient light for VR contrast');
+                            ambient.intensity = 0.08; // Further reduced from 0.10 for darker VR
+                            console.log('💡 Minimized ambient light for VR contrast');
                         }
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
@@ -254,11 +259,13 @@ class VRClub {
                     if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
                         this.renderPipeline.bloomWeight = 0.6; // Restore desktop bloom
                         this.renderPipeline.bloomThreshold = 0.3; // Restore desktop threshold
+                        this.renderPipeline.bloomScale = 0.6; // Restore desktop scale
                     }
                     
                     if (this.renderPipeline && this.renderPipeline.imageProcessing) {
                         this.renderPipeline.imageProcessing.exposure = 1.0; // Restore desktop exposure
                         this.renderPipeline.imageProcessing.contrast = 1.2; // Restore desktop contrast
+                        this.renderPipeline.imageProcessing.toneMappingEnabled = true; // Re-enable ACES tone mapping
                     }
                     
                     const ambient = this.scene.getLightByName('ambient');
