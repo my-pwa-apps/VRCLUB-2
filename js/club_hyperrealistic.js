@@ -24,7 +24,8 @@ class VRClub {
                 clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
                 grainEnabled: true,
                 chromaticAberrationEnabled: true,
-                toneMappingEnabled: true
+                toneMappingEnabled: true,
+                fxaaEnabled: true
             },
             vr: {
                 exposure: 0.65,
@@ -40,7 +41,8 @@ class VRClub {
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: false,
                 edgeSharpness: 0.6,
-                colorSharpness: 0.8
+                colorSharpness: 0.8,
+                fxaaEnabled: true  // Enable FXAA for smooth edges in VR
             }
         };
         
@@ -114,6 +116,7 @@ class VRClub {
             this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
             this.renderPipeline.grainEnabled = vr.grainEnabled;
             this.renderPipeline.chromaticAberrationEnabled = vr.chromaticAberrationEnabled;
+            this.renderPipeline.fxaaEnabled = vr.fxaaEnabled;  // Enable FXAA anti-aliasing
             
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = vr.exposure;
@@ -145,6 +148,7 @@ class VRClub {
         if (this.renderPipeline) {
             this.renderPipeline.grainEnabled = desktop.grainEnabled;
             this.renderPipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
+            this.renderPipeline.fxaaEnabled = desktop.fxaaEnabled;  // Restore FXAA anti-aliasing
             
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = desktop.exposure;
@@ -368,6 +372,9 @@ class VRClub {
             this.scene,
             [this.camera]
         );
+        
+        // FXAA anti-aliasing for smooth edges
+        pipeline.fxaaEnabled = true;
         
         // Bloom for glowing lights - enhanced for better visibility
         pipeline.bloomEnabled = true;
@@ -1156,6 +1163,9 @@ class VRClub {
         speakerMat.metallic = 0.2;
         speakerMat.roughness = 0.7;
         speakerMat.maxSimultaneousLights = this.maxLights;
+        speakerMat.alpha = 1.0; // Fully opaque
+        speakerMat.transparencyMode = null; // No transparency
+        speakerMat.backFaceCulling = true; // Proper culling
         
         // Left PA stack - NEXT TO DJ BOOTH (beside LED wall)
         this.createPAStack(-7, -25, speakerMat);
@@ -1188,6 +1198,8 @@ class VRClub {
         grillMat.metallic = 0.6;
         grillMat.roughness = 0.4;
         grillMat.maxSimultaneousLights = this.maxLights;
+        grillMat.alpha = 1.0; // Fully opaque
+        grillMat.transparencyMode = null; // No transparency
         
         const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
             width: 2.6,
@@ -1232,6 +1244,8 @@ class VRClub {
         hornMat.metallic = 0.9;
         hornMat.roughness = 0.2;
         hornMat.maxSimultaneousLights = this.maxLights;
+        hornMat.alpha = 1.0; // Fully opaque
+        hornMat.transparencyMode = null; // No transparency
         horn.material = hornMat;
         
         // Add LARGE LED indicator light for visibility

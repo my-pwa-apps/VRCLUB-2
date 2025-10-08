@@ -297,9 +297,42 @@ class ModelLoader {
                         speakerMesh.material.needAlphaBlending = () => false; // Force opaque
                         speakerMesh.material.needAlphaTesting = () => false; // No alpha testing
                         speakerMesh.material.disableDepthWrite = false; // Enable depth write
+                        
+                        // Ensure 100% opacity
+                        if (speakerMesh.material.alpha !== undefined) {
+                            speakerMesh.material.alpha = 1.0;
+                        }
+                        if (speakerMesh.material.albedoColor !== undefined && speakerMesh.material.albedoColor.a !== undefined) {
+                            speakerMesh.material.albedoColor.a = 1.0; // Force opaque albedo
+                        }
+                        if (speakerMesh.material.baseColor !== undefined && speakerMesh.material.baseColor.a !== undefined) {
+                            speakerMesh.material.baseColor.a = 1.0; // Force opaque base color
+                        }
                     }
                 });
                 console.log(`   🔒 Enforced opaque rendering for PA speakers`);
+                
+                // Hide procedural PA speakers when real 3D models load (they conflict)
+                const xPos = config.position.x;
+                const prefix = xPos < 0 ? 'sub-7' : 'sub7';
+                
+                // Find and hide all procedural speaker parts for this stack
+                ['sub', 'subGrill', 'mid', 'midGrill', 'horn', 'speakerLED'].forEach(meshType => {
+                    const meshName = meshType + (xPos < 0 ? '-7' : '7');
+                    const mesh = this.scene.getMeshByName(meshName);
+                    if (mesh) {
+                        mesh.setEnabled(false);
+                        console.log(`   🚫 Hidden procedural ${meshName}`);
+                    }
+                });
+                
+                // Also hide the LED light for procedural speakers
+                const ledLightName = 'ledLight' + (xPos < 0 ? '-7' : '7');
+                const ledLight = this.scene.getLightByName(ledLightName);
+                if (ledLight) {
+                    ledLight.setEnabled(false);
+                    console.log(`   🚫 Hidden procedural ${ledLightName}`);
+                }
             }
             
             this.loadedModels[modelKey] = {
