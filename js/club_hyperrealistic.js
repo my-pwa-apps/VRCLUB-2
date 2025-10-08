@@ -78,15 +78,16 @@ class VRClub {
         
         // PBR materials use many uniform buffers, so we need to limit lights
         // to avoid exceeding GL_MAX_VERTEX_UNIFORM_BUFFERS
+        // With loaded 3D models (which have their own PBR materials), we need even lower limits
         if (isQuest) {
             console.log('🥽 Quest VR headset detected - using optimized light count');
-            return 8; // Quest 3S - balanced for PBR materials
+            return 6; // Quest 3S - balanced for PBR materials with 3D models
         } else if (isMobile) {
             console.log('📱 Mobile device detected - using reduced light count');
-            return 6; // Mobile devices - conservative for PBR
+            return 4; // Mobile devices - very conservative for PBR + 3D models
         } else {
             console.log('💻 Desktop/laptop detected - using safe light count for PBR materials');
-            return 6; // Safe limit for PBR materials with many uniforms (was 12, caused shader errors)
+            return 4; // Ultra-safe limit for PBR materials + loaded 3D models (was 6, still caused errors)
         }
     }
 
