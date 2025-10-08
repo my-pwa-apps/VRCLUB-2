@@ -160,7 +160,7 @@ class VRClub {
             mainTextureFixedSize: 1024, // Increased for VR
             blurKernelSize: 16  // Very sharp for crisp LED shapes
         });
-        this.glowLayer.intensity = 0.5; // Minimal glow for sharp definition
+        this.glowLayer.intensity = 0.7; // Increased from 0.5 for better visibility
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -188,6 +188,23 @@ class VRClub {
                     if (xrCamera) {
                         xrCamera.position = new BABYLON.Vector3(0, 0, -20); // Standing in front of DJ booth
                         console.log('🥽 VR mode: Positioned at DJ booth');
+                        
+                        // Apply post-processing to VR camera for consistent visuals
+                        if (this.renderPipeline) {
+                            this.renderPipeline.addCamera(xrCamera);
+                            console.log('✨ Applied post-processing to VR camera');
+                        }
+                        
+                        // Boost glow layer intensity in VR for better visibility
+                        if (this.glowLayer) {
+                            this.glowLayer.intensity = 0.8; // Increased from 0.5 for VR
+                            console.log('💫 Increased glow intensity for VR');
+                        }
+                    }
+                } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                    // Restore desktop settings when exiting VR
+                    if (this.glowLayer) {
+                        this.glowLayer.intensity = 0.5; // Back to desktop value
                     }
                 }
             });
@@ -250,12 +267,12 @@ class VRClub {
             [this.camera]
         );
         
-        // Bloom for glowing lights
+        // Bloom for glowing lights - enhanced for better visibility
         pipeline.bloomEnabled = true;
-        pipeline.bloomThreshold = 0.4;
-        pipeline.bloomWeight = 0.4;
+        pipeline.bloomThreshold = 0.3; // Lower threshold to catch more lights
+        pipeline.bloomWeight = 0.6; // Increased from 0.4 for stronger bloom
         pipeline.bloomKernel = 64;
-        pipeline.bloomScale = 0.5;
+        pipeline.bloomScale = 0.6; // Increased from 0.5
         
         // Chromatic aberration for lens realism
         pipeline.chromaticAberrationEnabled = true;
@@ -1873,12 +1890,12 @@ class VRClub {
             
             // Apply gradient texture to emissive channel for realistic brightness variation
             beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.4); // Multiply gradient by color
-            beamMat.emissiveIntensity = 2.5; // Boost intensity for visibility
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.6); // Increased from 0.4 for more visibility
+            beamMat.emissiveIntensity = 3.5; // Increased from 2.5 for better visibility
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.06; // Base transparency - modulated by gradient
+            beamMat.alpha = 0.12; // Increased from 0.06 for more visible beams
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
@@ -1933,11 +1950,11 @@ class VRClub {
             
             // Apply gradient to glow
             beamGlowMat.emissiveTexture = glowTexture;
-            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.2); // Softer than main beam
-            beamGlowMat.emissiveIntensity = 1.8;
+            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.3); // Increased from 0.2
+            beamGlowMat.emissiveIntensity = 2.5; // Increased from 1.8 for more glow
             
             beamGlowMat.opacityTexture = glowTexture;
-            beamGlowMat.alpha = 0.03; // Very transparent for soft atmospheric effect
+            beamGlowMat.alpha = 0.06; // Increased from 0.03 for more visible glow
             beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             beamGlowMat.backFaceCulling = false;
             beamGlowMat.disableLighting = true;

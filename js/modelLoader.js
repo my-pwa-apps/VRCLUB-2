@@ -88,28 +88,28 @@ class ModelLoader {
             dj_console: {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
-                position: new BABYLON.Vector3(-1.0, 0.9, -23.4), // Left side, forward on table, away from VJ controls
+                position: new BABYLON.Vector3(-1.0, 0.95, -23.4), // Left side, slightly higher, away from VJ controls
                 rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotate 180° to face away from LED wall
-                scale: new BABYLON.Vector3(0.05, 0.05, 0.05), // Smaller - 5% scale
+                scale: new BABYLON.Vector3(0.06, 0.06, 0.06), // Slightly larger - 6% scale for better VR visibility
                 useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(-7, 1.0, -25),
+                position: new BABYLON.Vector3(-7, 0.5, -25),
                 rotation: new BABYLON.Vector3(0, Math.PI / 6, 0), // Angled toward center
-                scale: new BABYLON.Vector3(0.1, 0.1, 0.1), // 10% scale - reasonable size
-                useProcedural: true, // Use procedural model instead of 3D file
+                scale: new BABYLON.Vector3(0.08, 0.08, 0.08), // Reduced from 0.1 for better proportion
+                useProcedural: false, // Use real 3D model for consistency
                 attribution: 'PA Speakers (CC BY 4.0)'
             },
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(7, 1.0, -25),
+                position: new BABYLON.Vector3(7, 0.5, -25),
                 rotation: new BABYLON.Vector3(0, -Math.PI / 6, 0), // Angled toward center
-                scale: new BABYLON.Vector3(0.1, 0.1, 0.1), // 10% scale - reasonable size
-                useProcedural: true, // Use procedural model instead of 3D file
+                scale: new BABYLON.Vector3(0.08, 0.08, 0.08), // Reduced from 0.1 for better proportion
+                useProcedural: false, // Use real 3D model for consistency
                 attribution: 'PA Speakers (CC BY 4.0)'
             }
         };
@@ -202,8 +202,13 @@ class ModelLoader {
                 rootMesh.scaling = config.scale.clone();
             }
             
-            // CRITICAL: Limit lights on all materials to prevent shader errors
+            // CRITICAL: Configure all meshes for optimal VR and desktop visibility
             result.meshes.forEach(mesh => {
+                // Ensure mesh is visible and pickable
+                mesh.isVisible = true;
+                mesh.visibility = 1.0;
+                mesh.renderingGroupId = 0; // Default rendering group
+                
                 if (mesh.material) {
                     // Limit to 4 lights (safe for PBR materials)
                     mesh.material.maxSimultaneousLights = 4;
@@ -211,16 +216,23 @@ class ModelLoader {
                     
                     // Add ambient brightness to make model more visible in dark club (especially VR)
                     if (mesh.material.emissiveColor !== undefined) {
-                        mesh.material.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Brighter glow for VR visibility
+                        mesh.material.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Increased for better VR visibility
                     }
                     // Also boost ambient if available
                     if (mesh.material.ambientColor !== undefined) {
-                        mesh.material.ambientColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                        mesh.material.ambientColor = new BABYLON.Color3(0.4, 0.4, 0.4); // Increased
                     }
+                    
+                    // Ensure materials render properly in VR
+                    mesh.material.backFaceCulling = true;
+                    mesh.material.transparencyMode = null; // Ensure opaque rendering
+                    
+                    // Force material to be ready
+                    mesh.material.forceCompilation(mesh);
                 }
             });
             
-            // Add a dedicated point light above the DJ console for visibility
+            // Add a dedicated point light above the DJ console for visibility (VR and desktop)
             if (modelKey === 'dj_console' && rootMesh) {
                 const djLight = new BABYLON.PointLight(
                     'djConsoleLight',
@@ -231,10 +243,44 @@ class ModelLoader {
                     ),
                     this.scene
                 );
-                djLight.intensity = 1.5; // Increased from 0.8 for better VR visibility
-                djLight.range = 6; // Increased range from 4
+                djLight.intensity = 2.0; // Increased for better VR visibility
+                djLight.range = 8; // Wider range
                 djLight.diffuse = new BABYLON.Color3(1, 1, 1);
-                console.log(`   💡 Added dedicated light above DJ console (intensity: 1.5)`);
+                console.log(`   💡 Added dedicated light above DJ console (intensity: 2.0)`);
+                
+                // Hide procedural CDJs when real model loads (they conflict)
+                const leftCDJ = this.scene.getMeshByName('leftCDJ');
+                const rightCDJ = this.scene.getMeshByName('rightCDJ');
+                const leftJog = this.scene.getMeshByName('leftJog');
+                const rightJog = this.scene.getMeshByName('rightJog');
+                const mixer = this.scene.getMeshByName('mixer');
+                const mixerDisplay = this.scene.getMeshByName('mixerDisplay');
+                
+                if (leftCDJ) leftCDJ.setEnabled(false);
+                if (rightCDJ) rightCDJ.setEnabled(false);
+                if (leftJog) leftJog.setEnabled(false);
+                if (rightJog) rightJog.setEnabled(false);
+                if (mixer) mixer.setEnabled(false);
+                if (mixerDisplay) mixerDisplay.setEnabled(false);
+                
+                console.log(`   🚫 Hidden procedural CDJ/mixer objects to avoid conflicts`);
+            }
+            
+            // Add lights for PA speakers for better visibility
+            if ((modelKey === 'pa_speaker_left' || modelKey === 'pa_speaker_right') && rootMesh) {
+                const speakerLight = new BABYLON.PointLight(
+                    'speakerLight_' + modelKey,
+                    new BABYLON.Vector3(
+                        config.position.x,
+                        config.position.y + 2,
+                        config.position.z
+                    ),
+                    this.scene
+                );
+                speakerLight.intensity = 1.2;
+                speakerLight.range = 6;
+                speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
+                console.log(`   💡 Added light for ${config.name}`);
             }
             
             this.loadedModels[modelKey] = {
