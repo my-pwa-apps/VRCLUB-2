@@ -7,8 +7,42 @@ class VRClub {
         this.engine = new BABYLON.Engine(this.canvas, true, {
             preserveDrawingBuffer: true,
             stencil: true,
-            antialias: true // Enable antialiasing for smoothness
+            antialias: true
         });
+        
+        // VR optimization settings configuration
+        this.vrSettings = {
+            desktop: {
+                exposure: 1.0,
+                contrast: 1.2,
+                bloomWeight: 0.6,
+                bloomThreshold: 0.3,
+                bloomScale: 0.6,
+                glowIntensity: 0.7,
+                ambientIntensity: 0.15,
+                environmentIntensity: 0.3,
+                clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
+                grainEnabled: true,
+                chromaticAberrationEnabled: true,
+                toneMappingEnabled: true
+            },
+            vr: {
+                exposure: 0.65,
+                contrast: 1.6,
+                bloomWeight: 0.15,
+                bloomThreshold: 0.8,
+                bloomScale: 0.3,
+                glowIntensity: 0.4,
+                ambientIntensity: 0.08,
+                environmentIntensity: 0.1,
+                clearColor: new BABYLON.Color3(0, 0, 0),
+                grainEnabled: false,
+                chromaticAberrationEnabled: false,
+                toneMappingEnabled: false,
+                edgeSharpness: 0.6,
+                colorSharpness: 0.8
+            }
+        };
         
         // Detect device capabilities for optimal light count
         this.maxLights = this.detectMaxLights();
@@ -70,6 +104,71 @@ class VRClub {
         this.init();
     }
 
+    applyVRSettings(xrCamera) {
+        const vr = this.vrSettings.vr;
+        
+        // Apply post-processing to VR camera
+        if (this.renderPipeline) {
+            this.renderPipeline.addCamera(xrCamera);
+            this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
+            this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
+            this.renderPipeline.grainEnabled = vr.grainEnabled;
+            this.renderPipeline.chromaticAberrationEnabled = vr.chromaticAberrationEnabled;
+            
+            if (this.renderPipeline.imageProcessing) {
+                this.renderPipeline.imageProcessing.exposure = vr.exposure;
+                this.renderPipeline.imageProcessing.contrast = vr.contrast;
+                this.renderPipeline.imageProcessing.toneMappingEnabled = vr.toneMappingEnabled;
+            }
+            
+            if (this.renderPipeline.bloomEnabled) {
+                this.renderPipeline.bloomWeight = vr.bloomWeight;
+                this.renderPipeline.bloomThreshold = vr.bloomThreshold;
+                this.renderPipeline.bloomScale = vr.bloomScale;
+            }
+        }
+        
+        // Apply scene settings
+        if (this.glowLayer) this.glowLayer.intensity = vr.glowIntensity;
+        
+        const ambient = this.scene.getLightByName('ambient');
+        if (ambient) ambient.intensity = vr.ambientIntensity;
+        
+        this.scene.environmentIntensity = vr.environmentIntensity;
+        this.scene.clearColor = vr.clearColor;
+    }
+    
+    applyDesktopSettings() {
+        const desktop = this.vrSettings.desktop;
+        
+        // Restore post-processing
+        if (this.renderPipeline) {
+            this.renderPipeline.grainEnabled = desktop.grainEnabled;
+            this.renderPipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
+            
+            if (this.renderPipeline.imageProcessing) {
+                this.renderPipeline.imageProcessing.exposure = desktop.exposure;
+                this.renderPipeline.imageProcessing.contrast = desktop.contrast;
+                this.renderPipeline.imageProcessing.toneMappingEnabled = desktop.toneMappingEnabled;
+            }
+            
+            if (this.renderPipeline.bloomEnabled) {
+                this.renderPipeline.bloomWeight = desktop.bloomWeight;
+                this.renderPipeline.bloomThreshold = desktop.bloomThreshold;
+                this.renderPipeline.bloomScale = desktop.bloomScale;
+            }
+        }
+        
+        // Restore scene settings
+        if (this.glowLayer) this.glowLayer.intensity = desktop.glowIntensity;
+        
+        const ambient = this.scene.getLightByName('ambient');
+        if (ambient) ambient.intensity = desktop.ambientIntensity;
+        
+        this.scene.environmentIntensity = desktop.environmentIntensity;
+        this.scene.clearColor = desktop.clearColor;
+    }
+
     detectMaxLights() {
         // Detect device type and GPU capabilities
         const ua = navigator.userAgent.toLowerCase();
@@ -129,10 +228,7 @@ class VRClub {
             console.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
         });
         
-        // No fog/smoke for now - removed for clarity
-        
-        // Setup camera FIRST (needed for post-processing)
-        // Default to OVERVIEW position for desktop mode (full club view)
+        // Setup camera for post-processing pipeline
         this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
         this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
         this.camera.attachControl(this.canvas, true);
@@ -202,106 +298,16 @@ class VRClub {
                     // Position user at DJ booth in VR mode
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
-                        xrCamera.position = new BABYLON.Vector3(0, 0, -20); // Standing in front of DJ booth
-                        console.log('🥽 VR mode: Positioned at DJ booth');
+                        xrCamera.position = new BABYLON.Vector3(0, 0, -20);
                         
-                        // Apply post-processing to VR camera but reduce intensity for clarity
-                        if (this.renderPipeline) {
-                            this.renderPipeline.addCamera(xrCamera);
-                            
-                            // Optimize post-processing for crystal-clear VR
-                            this.renderPipeline.sharpen.edgeAmount = 0.6; // Maximum sharpness for VR
-                            this.renderPipeline.sharpen.colorAmount = 0.8; // Maximum color sharpness
-                            
-                            // Disable grain completely - causes haze in VR
-                            if (this.renderPipeline.grainEnabled) {
-                                this.renderPipeline.grainEnabled = false;
-                                console.log('🚫 Disabled grain for clear VR');
-                            }
-                            
-                            // Disable chromatic aberration - contributes to haze
-                            if (this.renderPipeline.chromaticAberrationEnabled) {
-                                this.renderPipeline.chromaticAberrationEnabled = false;
-                                console.log('🚫 Disabled chromatic aberration for clear VR');
-                            }
-                            
-                            // Aggressively reduce exposure and tone mapping to fix washed-out VR look
-                            if (this.renderPipeline.imageProcessing) {
-                                this.renderPipeline.imageProcessing.exposure = 0.65; // Further reduced from 0.8
-                                this.renderPipeline.imageProcessing.contrast = 1.6; // Further increased for punch
-                                
-                                // Disable ACES tone mapping in VR - it causes washed-out look
-                                this.renderPipeline.imageProcessing.toneMappingEnabled = false;
-                                
-                                console.log('📷 Disabled tone mapping and reduced exposure for VR');
-                            }
-                            
-                            console.log('✨ Applied optimized post-processing to VR camera');
-                        }
-                        
-                        // Minimize glow layer in VR to avoid washed-out appearance
-                        if (this.glowLayer) {
-                            this.glowLayer.intensity = 0.4; // Further reduced to 0.4 for darker VR
-                            console.log('💫 Minimized glow intensity for VR');
-                        }
-                        
-                        // Aggressively reduce bloom in VR to prevent washed-out look
-                        if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
-                            this.renderPipeline.bloomWeight = 0.15; // Minimal bloom
-                            this.renderPipeline.bloomThreshold = 0.8; // Very high threshold = only brightest lights
-                            this.renderPipeline.bloomScale = 0.3; // Reduced spread
-                            console.log('🌸 Minimized bloom for VR contrast');
-                        }
-                        
-                        // Aggressively reduce ambient light in VR to prevent washed-out look
-                        const ambient = this.scene.getLightByName('ambient');
-                        if (ambient) {
-                            ambient.intensity = 0.08; // Further reduced from 0.10 for darker VR
-                            console.log('💡 Minimized ambient light for VR contrast');
-                        }
-                        
-                        // Reduce environment reflections to eliminate haze
-                        this.scene.environmentIntensity = 0.1; // Reduced from 0.3 to eliminate reflective haze
-                        console.log('🌫️ Reduced environment intensity to eliminate VR haze');
-                        
-                        // Ensure scene clear color is pure black for deepest blacks
-                        this.scene.clearColor = new BABYLON.Color3(0, 0, 0);
-                        console.log('⬛ Set pure black clear color for VR');
+                        // Apply VR-optimized settings
+                        this.applyVRSettings(xrCamera);
+                        console.log('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
-                    // Restore desktop settings when exiting VR
-                    if (this.glowLayer) {
-                        this.glowLayer.intensity = 0.7; // Back to desktop value
-                    }
-                    
-                    if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
-                        this.renderPipeline.bloomWeight = 0.6; // Restore desktop bloom
-                        this.renderPipeline.bloomThreshold = 0.3; // Restore desktop threshold
-                        this.renderPipeline.bloomScale = 0.6; // Restore desktop scale
-                    }
-                    
-                    if (this.renderPipeline && this.renderPipeline.imageProcessing) {
-                        this.renderPipeline.imageProcessing.exposure = 1.0; // Restore desktop exposure
-                        this.renderPipeline.imageProcessing.contrast = 1.2; // Restore desktop contrast
-                        this.renderPipeline.imageProcessing.toneMappingEnabled = true; // Re-enable ACES tone mapping
-                    }
-                    
-                    // Re-enable grain and chromatic aberration for desktop
-                    if (this.renderPipeline) {
-                        this.renderPipeline.grainEnabled = true;
-                        this.renderPipeline.chromaticAberrationEnabled = true;
-                    }
-                    
-                    const ambient = this.scene.getLightByName('ambient');
-                    if (ambient) {
-                        ambient.intensity = 0.15; // Restore desktop ambient
-                    }
-                    
-                    // Restore environment intensity and clear color
-                    this.scene.environmentIntensity = 0.3;
-                    this.scene.clearColor = new BABYLON.Color3(0.01, 0.01, 0.02);
-                    
-                    console.log('🖥️ Restored desktop rendering settings');
+                    // Restore desktop settings
+                    this.applyDesktopSettings();
+                    console.log('🖥️ Desktop mode restored');
                 }
             });
         }
@@ -309,8 +315,8 @@ class VRClub {
         // Continue building club
         this.createWalls();
         this.createCeiling();
-        this.createDJBooth(); // Placeholder - needs rebuild
-        this.createPASpeakers(); // Placeholder - needs rebuild
+        this.createDJBooth();
+        this.createPASpeakers();
         this.createLEDWall();
         this.createLasers();
         this.createLights();
