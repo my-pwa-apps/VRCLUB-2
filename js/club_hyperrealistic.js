@@ -209,11 +209,21 @@ class VRClub {
                         if (this.renderPipeline) {
                             this.renderPipeline.addCamera(xrCamera);
                             
-                            // Optimize post-processing for VR clarity and contrast
-                            this.renderPipeline.sharpen.edgeAmount = 0.5; // Increased sharpness for VR
-                            this.renderPipeline.sharpen.colorAmount = 0.7; // More color sharpness
-                            this.renderPipeline.grain.intensity = 5; // Reduced grain for clearer VR
-                            this.renderPipeline.chromaticAberration.aberrationAmount = 1; // Reduced aberration
+                            // Optimize post-processing for crystal-clear VR
+                            this.renderPipeline.sharpen.edgeAmount = 0.6; // Maximum sharpness for VR
+                            this.renderPipeline.sharpen.colorAmount = 0.8; // Maximum color sharpness
+                            
+                            // Disable grain completely - causes haze in VR
+                            if (this.renderPipeline.grainEnabled) {
+                                this.renderPipeline.grainEnabled = false;
+                                console.log('🚫 Disabled grain for clear VR');
+                            }
+                            
+                            // Disable chromatic aberration - contributes to haze
+                            if (this.renderPipeline.chromaticAberrationEnabled) {
+                                this.renderPipeline.chromaticAberrationEnabled = false;
+                                console.log('🚫 Disabled chromatic aberration for clear VR');
+                            }
                             
                             // Aggressively reduce exposure and tone mapping to fix washed-out VR look
                             if (this.renderPipeline.imageProcessing) {
@@ -249,6 +259,14 @@ class VRClub {
                             ambient.intensity = 0.08; // Further reduced from 0.10 for darker VR
                             console.log('💡 Minimized ambient light for VR contrast');
                         }
+                        
+                        // Reduce environment reflections to eliminate haze
+                        this.scene.environmentIntensity = 0.1; // Reduced from 0.3 to eliminate reflective haze
+                        console.log('🌫️ Reduced environment intensity to eliminate VR haze');
+                        
+                        // Ensure scene clear color is pure black for deepest blacks
+                        this.scene.clearColor = new BABYLON.Color3(0, 0, 0);
+                        console.log('⬛ Set pure black clear color for VR');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     // Restore desktop settings when exiting VR
@@ -268,10 +286,20 @@ class VRClub {
                         this.renderPipeline.imageProcessing.toneMappingEnabled = true; // Re-enable ACES tone mapping
                     }
                     
+                    // Re-enable grain and chromatic aberration for desktop
+                    if (this.renderPipeline) {
+                        this.renderPipeline.grainEnabled = true;
+                        this.renderPipeline.chromaticAberrationEnabled = true;
+                    }
+                    
                     const ambient = this.scene.getLightByName('ambient');
                     if (ambient) {
                         ambient.intensity = 0.15; // Restore desktop ambient
                     }
+                    
+                    // Restore environment intensity and clear color
+                    this.scene.environmentIntensity = 0.3;
+                    this.scene.clearColor = new BABYLON.Color3(0.01, 0.01, 0.02);
                     
                     console.log('🖥️ Restored desktop rendering settings');
                 }
