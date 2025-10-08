@@ -88,9 +88,9 @@ class ModelLoader {
             dj_console: {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
-                position: new BABYLON.Vector3(0, 1.2, -23), // On top of DJ booth platform
-                rotation: new BABYLON.Vector3(0, 0, 0),
-                scale: new BABYLON.Vector3(0.1, 0.1, 0.1), // 10% scale - reasonable size
+                position: new BABYLON.Vector3(0, 1.2, -21.5), // Moved forward to avoid VJ controls
+                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotate 180° to face away from LED wall
+                scale: new BABYLON.Vector3(0.05, 0.05, 0.05), // Smaller - 5% scale
                 useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
@@ -208,8 +208,30 @@ class ModelLoader {
                     // Limit to 4 lights (safe for PBR materials)
                     mesh.material.maxSimultaneousLights = 4;
                     console.log(`   🔧 Limited lights on ${mesh.name} to 4`);
+                    
+                    // Add ambient brightness to make model more visible in dark club
+                    if (mesh.material.emissiveColor) {
+                        mesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Subtle glow
+                    }
                 }
             });
+            
+            // Add a dedicated point light above the DJ console for visibility
+            if (modelKey === 'dj_console' && rootMesh) {
+                const djLight = new BABYLON.PointLight(
+                    'djConsoleLight',
+                    new BABYLON.Vector3(
+                        config.position.x,
+                        config.position.y + 1.5,
+                        config.position.z
+                    ),
+                    this.scene
+                );
+                djLight.intensity = 0.8;
+                djLight.range = 4;
+                djLight.diffuse = new BABYLON.Color3(1, 1, 1);
+                console.log(`   💡 Added dedicated light above DJ console`);
+            }
             
             this.loadedModels[modelKey] = {
                 container: result,
