@@ -209,26 +209,64 @@ class VRClub {
                         if (this.renderPipeline) {
                             this.renderPipeline.addCamera(xrCamera);
                             
-                            // Reduce post-processing intensity for sharper VR image
+                            // Optimize post-processing for VR clarity and contrast
                             this.renderPipeline.sharpen.edgeAmount = 0.5; // Increased sharpness for VR
                             this.renderPipeline.sharpen.colorAmount = 0.7; // More color sharpness
                             this.renderPipeline.grain.intensity = 5; // Reduced grain for clearer VR
                             this.renderPipeline.chromaticAberration.aberrationAmount = 1; // Reduced aberration
                             
+                            // Reduce exposure and increase contrast to fix washed-out look
+                            if (this.renderPipeline.imageProcessing) {
+                                this.renderPipeline.imageProcessing.exposure = 0.8; // Reduced from 1.0
+                                this.renderPipeline.imageProcessing.contrast = 1.4; // Increased from 1.2
+                                console.log('📷 Adjusted exposure and contrast for VR');
+                            }
+                            
                             console.log('✨ Applied optimized post-processing to VR camera');
                         }
                         
-                        // Boost glow layer intensity in VR for better visibility
+                        // Keep glow layer moderate in VR to avoid washed-out appearance
                         if (this.glowLayer) {
-                            this.glowLayer.intensity = 0.8; // Increased from 0.5 for VR
-                            console.log('💫 Increased glow intensity for VR');
+                            this.glowLayer.intensity = 0.5; // Reduced to 0.5 for darker VR
+                            console.log('💫 Set balanced glow intensity for VR');
+                        }
+                        
+                        // Reduce bloom in VR to prevent washed-out look
+                        if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
+                            this.renderPipeline.bloomWeight = 0.25; // Further reduced from 0.3
+                            this.renderPipeline.bloomThreshold = 0.6; // Higher threshold = less bloom
+                            console.log('🌸 Reduced bloom for VR clarity');
+                        }
+                        
+                        // Reduce ambient light in VR to prevent washed-out look
+                        const ambient = this.scene.getLightByName('ambient');
+                        if (ambient) {
+                            ambient.intensity = 0.10; // Reduced from 0.15 for darker, more contrasty VR
+                            console.log('💡 Reduced ambient light for VR contrast');
                         }
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     // Restore desktop settings when exiting VR
                     if (this.glowLayer) {
-                        this.glowLayer.intensity = 0.5; // Back to desktop value
+                        this.glowLayer.intensity = 0.7; // Back to desktop value
                     }
+                    
+                    if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
+                        this.renderPipeline.bloomWeight = 0.6; // Restore desktop bloom
+                        this.renderPipeline.bloomThreshold = 0.3; // Restore desktop threshold
+                    }
+                    
+                    if (this.renderPipeline && this.renderPipeline.imageProcessing) {
+                        this.renderPipeline.imageProcessing.exposure = 1.0; // Restore desktop exposure
+                        this.renderPipeline.imageProcessing.contrast = 1.2; // Restore desktop contrast
+                    }
+                    
+                    const ambient = this.scene.getLightByName('ambient');
+                    if (ambient) {
+                        ambient.intensity = 0.15; // Restore desktop ambient
+                    }
+                    
+                    console.log('🖥️ Restored desktop rendering settings');
                 }
             });
         }

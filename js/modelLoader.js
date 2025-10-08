@@ -214,13 +214,13 @@ class ModelLoader {
                     mesh.material.maxSimultaneousLights = 4;
                     console.log(`   🔧 Limited lights on ${mesh.name} to 4`);
                     
-                    // Add ambient brightness to make model more visible in dark club (especially VR)
+                    // Add subtle ambient brightness - reduced to avoid washed-out VR appearance
                     if (mesh.material.emissiveColor !== undefined) {
-                        mesh.material.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Subtle glow
+                        mesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Minimal glow
                     }
-                    // Also boost ambient if available
+                    // Moderate ambient for visibility without washing out
                     if (mesh.material.ambientColor !== undefined) {
-                        mesh.material.ambientColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                        mesh.material.ambientColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Reduced
                     }
                     
                     // CRITICAL: Ensure materials are fully opaque in VR
