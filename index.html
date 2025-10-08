@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -33,6 +33,7 @@
             background: rgba(0, 0, 0, 0.75);
             padding: 10px 15px;
             border-radius: 8px;
+            -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
             z-index: 100;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -73,6 +74,7 @@
             cursor: pointer;
             font-size: 16px;
             z-index: 101;
+            -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
             transition: all 0.3s;
         }
@@ -89,6 +91,7 @@
             background: rgba(0, 0, 0, 0.9);
             padding: 15px;
             border-radius: 8px;
+            -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
             z-index: 100;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -141,6 +144,32 @@
             margin: 10px 0 3px 0;
         }
         
+        /* 3D Model Credits */
+        #modelCredits {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+            max-width: 300px;
+            line-height: 1.4;
+        }
+        
+        #modelCredits .credits-title {
+            margin-bottom: 3px;
+        }
+        
+        #modelCredits .credit-link {
+            color: #00aaff;
+            text-decoration: none;
+        }
+        
+        #modelCredits .credit-link:hover {
+            text-decoration: underline;
+        }
+        
         @keyframes fadeOut {
             0% { opacity: 1; }
             70% { opacity: 1; }
@@ -175,6 +204,21 @@
         </div>
     </div>
     
+    <!-- 3D Model Credits (CC BY License Attribution) -->
+    <div id="modelCredits">
+        <div class="credits-title">
+            <strong>3D Models:</strong>
+        </div>
+        <div>
+            • Pioneer DJ Console by 
+            <a href="https://sketchfab.com/twopixels.studio" target="_blank" rel="noopener" class="credit-link">TwoPixels.studio</a>
+            (CC BY 4.0)
+        </div>
+        <div>
+            • PA Speakers (CC BY 4.0)
+        </div>
+    </div>
+    
     <script>
     // Settings panel toggle
     document.getElementById('settingsToggle').addEventListener('click', function() {
@@ -194,6 +238,12 @@
     <!-- Babylon.js -->
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+    
+    <!-- Texture Loader (loads before club script) -->
+    <script src="js/textureLoader.js"></script>
+    
+    <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
+    <script src="js/modelLoader.js"></script>
     
     <!-- VR Club Script -->
     <script src="js/club_hyperrealistic.js"></script>

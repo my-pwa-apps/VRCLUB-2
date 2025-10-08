@@ -76,17 +76,17 @@ class VRClub {
         const isQuest = ua.includes('quest') || ua.includes('oculus');
         const isMobile = /android|iphone|ipad|mobile/i.test(ua);
         
-        // Quest 3/3S has a powerful Snapdragon XR2 Gen 2 GPU
-        // Can handle significantly more lights than a laptop
+        // PBR materials use many uniform buffers, so we need to limit lights
+        // to avoid exceeding GL_MAX_VERTEX_UNIFORM_BUFFERS
         if (isQuest) {
-            console.log('🥽 Quest VR headset detected - using high light count');
-            return 24; // Quest 3S can handle more lights
+            console.log('🥽 Quest VR headset detected - using optimized light count');
+            return 8; // Quest 3S - balanced for PBR materials
         } else if (isMobile) {
-            console.log('📱 Mobile device detected - using moderate light count');
-            return 16; // Mobile devices moderate
+            console.log('📱 Mobile device detected - using reduced light count');
+            return 6; // Mobile devices - conservative for PBR
         } else {
-            console.log('💻 Desktop/laptop detected - using conservative light count');
-            return 12; // Conservative for laptops/desktops
+            console.log('💻 Desktop/laptop detected - using safe light count for PBR materials');
+            return 6; // Safe limit for PBR materials with many uniforms (was 12, caused shader errors)
         }
     }
 
@@ -101,6 +101,32 @@ class VRClub {
             this.scene
         );
         this.scene.environmentIntensity = 0.3; // Subtle reflections
+        
+        // Initialize texture loader and load concrete textures from CDN (cached for subsequent loads)
+        console.log('🎨 Loading industrial concrete textures from Polyhaven CDN...');
+        this.textureLoader = new TextureLoader(this.scene);
+        await this.textureLoader.init();
+        
+        try {
+            this.concreteTextures = await this.textureLoader.loadAllTextures();
+            console.log('✅ All concrete textures loaded and cached');
+        } catch (error) {
+            console.warn('⚠️ Failed to load some textures, using fallback materials:', error);
+            this.concreteTextures = null; // Will use procedural materials as fallback
+        }
+        
+        // Initialize model loader for DJ equipment and PA speakers
+        console.log('🎸 Initializing 3D model loader...');
+        this.modelLoader = new ModelLoader(this.scene);
+        await this.modelLoader.init();
+        
+        // Load all models in the background (they'll load asynchronously)
+        console.log('📦 Loading DJ equipment and PA speaker models...');
+        this.modelLoader.loadAllModels().then(() => {
+            console.log('✅ All 3D models loaded successfully');
+        }).catch(error => {
+            console.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
+        });
         
         // No fog/smoke for now - removed for clarity
         
@@ -399,13 +425,20 @@ class VRClub {
         floorMat.roughness = 0.9; // Very rough, matte concrete
         floorMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
         
-        // Create procedural noise texture for concrete variation
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene);
-        noiseTexture.octaves = 4;
-        noiseTexture.persistence = 0.8;
-        noiseTexture.animationSpeedFactor = 0; // Static texture
-        floorMat.bumpTexture = noiseTexture;
-        floorMat.bumpTexture.level = 0.3; // Subtle bump
+        // Apply downloaded concrete textures if available
+        if (this.concreteTextures && this.concreteTextures.floor) {
+            console.log('🎨 Applying floor textures (Polyhaven - Polished Concrete)');
+            this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
+        } else {
+            // Fallback to procedural noise texture
+            console.log('🎨 Using procedural floor texture (fallback)');
+            const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene);
+            noiseTexture.octaves = 4;
+            noiseTexture.persistence = 0.8;
+            noiseTexture.animationSpeedFactor = 0; // Static texture
+            floorMat.bumpTexture = noiseTexture;
+            floorMat.bumpTexture.level = 0.3; // Subtle bump
+        }
         
         // Slightly dirty, aged concrete
         floorMat.environmentIntensity = 0.1; // Minimal reflections
@@ -421,6 +454,12 @@ class VRClub {
         wallMat.metallic = 0.1;
         wallMat.roughness = 0.9; // Rough industrial surface
         wallMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
+        
+        // Apply downloaded concrete wall textures if available
+        if (this.concreteTextures && this.concreteTextures.walls) {
+            console.log('🎨 Applying wall textures (Polyhaven - Industrial Concrete)');
+            this.textureLoader.applyTexturesToMaterial(wallMat, this.concreteTextures.walls);
+        }
         
         // Back wall
         const backWall = BABYLON.MeshBuilder.CreateBox("backWall", {
@@ -561,6 +600,13 @@ class VRClub {
         ceilingMat.metallic = 0.2;
         ceilingMat.roughness = 0.8;
         ceilingMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
+        
+        // Apply downloaded concrete ceiling textures if available
+        if (this.concreteTextures && this.concreteTextures.ceiling) {
+            console.log('🎨 Applying ceiling textures (Polyhaven - Raw Concrete)');
+            this.textureLoader.applyTexturesToMaterial(ceilingMat, this.concreteTextures.ceiling);
+        }
+        
         ceiling.material = ceilingMat;
         
         // Add lighting truss above dance floor
@@ -1274,286 +1320,7 @@ class VRClub {
         }
     }
 
-    createBarArea() {
-        // Bar counter - solid wood
-        const bar = BABYLON.MeshBuilder.CreateBox("bar", {
-            width: 10,
-            height: 1.2,
-            depth: 1.5
-        }, this.scene);
-        bar.position = new BABYLON.Vector3(-10, 0.6, 5);
-        
-        const barMat = new BABYLON.PBRMetallicRoughnessMaterial("barMat", this.scene);
-        barMat.baseColor = new BABYLON.Color3(0.2, 0.12, 0.08); // Dark wood
-        barMat.metallic = 0.1;
-        barMat.roughness = 0.6;
-        barMat.maxSimultaneousLights = this.maxLights;
-        bar.material = barMat;
-        bar.receiveShadows = true;
-        
-        // Bar top - polished glossy surface
-        const barTop = BABYLON.MeshBuilder.CreateBox("barTop", {
-            width: 10.2,
-            height: 0.08,
-            depth: 1.7
-        }, this.scene);
-        barTop.position = new BABYLON.Vector3(-10, 1.24, 5);
-        
-        const topMat = new BABYLON.PBRMetallicRoughnessMaterial("barTopMat", this.scene);
-        topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.08);
-        topMat.metallic = 0.95;
-        topMat.roughness = 0.05; // Very glossy polished surface
-        topMat.maxSimultaneousLights = this.maxLights;
-        barTop.material = topMat;
-        
-        // Back bar wall and shelves with bottles
-        this.createBackBar();
-        
-        // Create bartender character
-        this.createBartender();
-    }
-
-    createBackBar() {
-        // Back bar wall/mirror
-        const backWall = BABYLON.MeshBuilder.CreateBox("backBarWall", {
-            width: 10,
-            height: 3,
-            depth: 0.2
-        }, this.scene);
-        backWall.position = new BABYLON.Vector3(-10, 2.5, 3.8);
-        
-        const backWallMat = new BABYLON.PBRMetallicRoughnessMaterial("backWallMat", this.scene);
-        backWallMat.baseColor = new BABYLON.Color3(0.15, 0.12, 0.1);
-        backWallMat.metallic = 0.3;
-        backWallMat.roughness = 0.7;
-        backWallMat.maxSimultaneousLights = this.maxLights;
-        backWall.material = backWallMat;
-        
-        // Wood shelf material
-        const shelfMat = new BABYLON.PBRMetallicRoughnessMaterial("shelfMat", this.scene);
-        shelfMat.baseColor = new BABYLON.Color3(0.25, 0.18, 0.12);
-        shelfMat.metallic = 0;
-        shelfMat.roughness = 0.8;
-        shelfMat.maxSimultaneousLights = this.maxLights;
-        
-        // Create 3 shelves
-        for (let i = 0; i < 3; i++) {
-            const shelf = BABYLON.MeshBuilder.CreateBox("backShelf" + i, {
-                width: 9.5,
-                height: 0.08,
-                depth: 0.4
-            }, this.scene);
-            shelf.position = new BABYLON.Vector3(-10, 1.8 + (i * 0.8), 3.9);
-            shelf.material = shelfMat;
-        }
-        
-        // Glass material for bottles
-        const glassMat = new BABYLON.PBRMetallicRoughnessMaterial("glassMat", this.scene);
-        glassMat.baseColor = new BABYLON.Color3(0.9, 0.9, 0.9);
-        glassMat.metallic = 0;
-        glassMat.roughness = 0.1;
-        glassMat.alpha = 0.3;
-        glassMat.indexOfRefraction = 1.5;
-        glassMat.maxSimultaneousLights = this.maxLights;
-        
-        // Bottle liquid colors (various spirits)
-        const liquidColors = [
-            { color: new BABYLON.Color3(0.6, 0.3, 0.1), name: "whiskey" },    // Amber whiskey
-            { color: new BABYLON.Color3(0.9, 0.9, 0.85), name: "vodka" },     // Clear vodka
-            { color: new BABYLON.Color3(0.2, 0.6, 0.2), name: "absinthe" },   // Green absinthe
-            { color: new BABYLON.Color3(0.8, 0.5, 0.2), name: "rum" },        // Golden rum
-            { color: new BABYLON.Color3(0.9, 0.2, 0.2), name: "campari" },    // Red campari
-            { color: new BABYLON.Color3(0.3, 0.5, 0.8), name: "gin" },        // Blue gin
-            { color: new BABYLON.Color3(0.7, 0.4, 0.2), name: "cognac" },     // Cognac
-            { color: new BABYLON.Color3(0.95, 0.95, 0.9), name: "tequila" }   // Clear tequila
-        ];
-        
-        // Create multiple bottles on shelves
-        let bottleIndex = 0;
-        for (let shelf = 0; shelf < 3; shelf++) {
-            for (let i = 0; i < 8; i++) {
-                const liquidColor = liquidColors[bottleIndex % liquidColors.length];
-                
-                // Bottle body
-                const bottle = BABYLON.MeshBuilder.CreateCylinder("bottle" + bottleIndex, {
-                    diameterTop: 0.08,
-                    diameterBottom: 0.1,
-                    height: 0.45,
-                    tessellation: 16
-                }, this.scene);
-                bottle.position = new BABYLON.Vector3(-14 + (i * 1.15), 1.85 + (shelf * 0.8), 3.9);
-                bottle.material = glassMat.clone("glassMat" + bottleIndex);
-                
-                // Liquid inside bottle
-                const liquid = BABYLON.MeshBuilder.CreateCylinder("liquid" + bottleIndex, {
-                    diameterTop: 0.07,
-                    diameterBottom: 0.09,
-                    height: 0.35,
-                    tessellation: 16
-                }, this.scene);
-                liquid.position = new BABYLON.Vector3(-14 + (i * 1.15), 1.8 + (shelf * 0.8), 3.9);
-                
-                const liquidMat = new BABYLON.StandardMaterial("liquidMat" + bottleIndex, this.scene);
-                liquidMat.diffuseColor = liquidColor.color;
-                liquidMat.emissiveColor = liquidColor.color.scale(0.2);
-                liquidMat.alpha = 0.7;
-                liquid.material = liquidMat;
-                
-                // Bottle cap
-                const cap = BABYLON.MeshBuilder.CreateCylinder("cap" + bottleIndex, {
-                    diameter: 0.06,
-                    height: 0.05,
-                    tessellation: 16
-                }, this.scene);
-                cap.position = new BABYLON.Vector3(-14 + (i * 1.15), 2.1 + (shelf * 0.8), 3.9);
-                
-                const capMat = new BABYLON.PBRMetallicRoughnessMaterial("capMat" + bottleIndex, this.scene);
-                capMat.baseColor = new BABYLON.Color3(0.7, 0.6, 0.4); // Gold cap
-                capMat.metallic = 1;
-                capMat.roughness = 0.3;
-                capMat.maxSimultaneousLights = this.maxLights;
-                cap.material = capMat;
-                
-                bottleIndex++;
-            }
-        }
-        
-        console.log(`✅ Created bar with ${bottleIndex} bottles`);
-    }
-    
-    createBartender() {
-        // Bartender body (simplified humanoid)
-        const bodyMat = new BABYLON.PBRMetallicRoughnessMaterial("bodyMat", this.scene);
-        bodyMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.25); // Dark clothing
-        bodyMat.metallic = 0;
-        bodyMat.roughness = 0.9;
-        bodyMat.maxSimultaneousLights = this.maxLights;
-        
-        const skinMat = new BABYLON.PBRMetallicRoughnessMaterial("skinMat", this.scene);
-        skinMat.baseColor = new BABYLON.Color3(0.7, 0.5, 0.4); // Skin tone
-        skinMat.metallic = 0;
-        skinMat.roughness = 0.7;
-        skinMat.maxSimultaneousLights = this.maxLights;
-        
-        // Torso
-        const torso = BABYLON.MeshBuilder.CreateCylinder("bartenderTorso", {
-            diameterTop: 0.4,
-            diameterBottom: 0.45,
-            height: 0.8,
-            tessellation: 16
-        }, this.scene);
-        torso.position = new BABYLON.Vector3(-10, 1.7, 4.5);
-        torso.material = bodyMat;
-        
-        // Head
-        const head = BABYLON.MeshBuilder.CreateSphere("bartenderHead", {
-            diameter: 0.3,
-            segments: 16
-        }, this.scene);
-        head.position = new BABYLON.Vector3(-10, 2.25, 4.5);
-        head.material = skinMat;
-        
-        // Arms (will animate for glass cleaning)
-        const armMat = bodyMat.clone("armMat");
-        
-        // Left arm (upper)
-        const leftArmUpper = BABYLON.MeshBuilder.CreateCylinder("leftArmUpper", {
-            diameter: 0.1,
-            height: 0.35,
-            tessellation: 12
-        }, this.scene);
-        leftArmUpper.position = new BABYLON.Vector3(-10.25, 1.85, 4.5);
-        leftArmUpper.rotation.z = Math.PI / 6;
-        leftArmUpper.material = armMat;
-        
-        // Left forearm
-        const leftForearm = BABYLON.MeshBuilder.CreateCylinder("leftForearm", {
-            diameter: 0.08,
-            height: 0.3,
-            tessellation: 12
-        }, this.scene);
-        leftForearm.position = new BABYLON.Vector3(-10.4, 1.6, 4.5);
-        leftForearm.rotation.z = Math.PI / 4;
-        leftForearm.material = armMat;
-        
-        // Left hand holding glass
-        const leftHand = BABYLON.MeshBuilder.CreateSphere("leftHand", {
-            diameter: 0.08,
-            segments: 12
-        }, this.scene);
-        leftHand.position = new BABYLON.Vector3(-10.5, 1.4, 4.5);
-        leftHand.material = skinMat;
-        
-        // Right arm (upper)
-        const rightArmUpper = BABYLON.MeshBuilder.CreateCylinder("rightArmUpper", {
-            diameter: 0.1,
-            height: 0.35,
-            tessellation: 12
-        }, this.scene);
-        rightArmUpper.position = new BABYLON.Vector3(-9.75, 1.85, 4.5);
-        rightArmUpper.rotation.z = -Math.PI / 6;
-        rightArmUpper.material = armMat;
-        
-        // Right forearm with cloth
-        const rightForearm = BABYLON.MeshBuilder.CreateCylinder("rightForearm", {
-            diameter: 0.08,
-            height: 0.3,
-            tessellation: 12
-        }, this.scene);
-        rightForearm.position = new BABYLON.Vector3(-9.6, 1.6, 4.5);
-        rightForearm.rotation.z = -Math.PI / 4;
-        rightForearm.material = armMat;
-        
-        // Right hand with cloth
-        const rightHand = BABYLON.MeshBuilder.CreateSphere("rightHand", {
-            diameter: 0.08,
-            segments: 12
-        }, this.scene);
-        rightHand.position = new BABYLON.Vector3(-9.5, 1.4, 4.5);
-        rightHand.material = skinMat;
-        
-        // Glass being cleaned
-        const glassBeingCleaned = BABYLON.MeshBuilder.CreateCylinder("cleaningGlass", {
-            diameterTop: 0.08,
-            diameterBottom: 0.06,
-            height: 0.15,
-            tessellation: 16
-        }, this.scene);
-        glassBeingCleaned.position = new BABYLON.Vector3(-10.5, 1.35, 4.5);
-        
-        const cleanGlassMat = new BABYLON.PBRMetallicRoughnessMaterial("cleanGlassMat", this.scene);
-        cleanGlassMat.baseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
-        cleanGlassMat.metallic = 0;
-        cleanGlassMat.roughness = 0.05;
-        cleanGlassMat.alpha = 0.4;
-        cleanGlassMat.maxSimultaneousLights = this.maxLights;
-        glassBeingCleaned.material = cleanGlassMat;
-        
-        // Cleaning cloth in right hand
-        const cloth = BABYLON.MeshBuilder.CreateBox("cleaningCloth", {
-            width: 0.12,
-            height: 0.02,
-            depth: 0.12
-        }, this.scene);
-        cloth.position = new BABYLON.Vector3(-9.5, 1.38, 4.5);
-        
-        const clothMat = new BABYLON.StandardMaterial("clothMat", this.scene);
-        clothMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.85); // White cloth
-        cloth.material = clothMat;
-        
-        // Store references for animation
-        this.bartender = {
-            leftHand: leftHand,
-            rightHand: rightHand,
-            leftForearm: leftForearm,
-            rightForearm: rightForearm,
-            glass: glassBeingCleaned,
-            cloth: cloth,
-            animationPhase: 0
-        };
-        
-        console.log("✅ Created bartender with glass cleaning animation");
-    }
+    // Bar area removed - will be replaced with 3D models later
 
     createTrussMountedLights() {
         // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
@@ -3012,33 +2779,7 @@ class VRClub {
             }
         }
         
-        // Animate bartender cleaning glass
-        if (this.bartender) {
-            this.bartender.animationPhase += 0.03;
-            
-            // Circular wiping motion with right hand (cloth)
-            const wipeRadius = 0.05;
-            const wipeX = Math.cos(this.bartender.animationPhase * 3) * wipeRadius;
-            const wipeZ = Math.sin(this.bartender.animationPhase * 3) * wipeRadius;
-            
-            this.bartender.rightHand.position.x = -9.5 + wipeX;
-            this.bartender.rightHand.position.z = 4.5 + wipeZ;
-            this.bartender.cloth.position.x = -9.5 + wipeX;
-            this.bartender.cloth.position.z = 4.5 + wipeZ;
-            
-            // Slight arm rotation for wiping
-            this.bartender.rightForearm.rotation.z = -Math.PI / 4 + Math.sin(this.bartender.animationPhase * 3) * 0.2;
-            
-            // Left hand holds glass steady with slight rotation
-            const glassRotation = Math.sin(this.bartender.animationPhase * 2) * 0.3;
-            this.bartender.glass.rotation.z = glassRotation;
-            this.bartender.leftForearm.rotation.z = Math.PI / 4 + Math.sin(this.bartender.animationPhase) * 0.1;
-            
-            // Occasionally look around (head movement simulation through glass position)
-            if (Math.floor(this.bartender.animationPhase) % 10 === 0) {
-                // Could add head turning animation here if we stored head reference
-            }
-        }
+        // Bartender removed - will be replaced with 3D model later
     }
 
     updateLEDWall(time, audioData) {
