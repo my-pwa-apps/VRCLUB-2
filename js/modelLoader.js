@@ -88,7 +88,7 @@ class ModelLoader {
             dj_console: {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
-                position: new BABYLON.Vector3(0, 0.9, -23), // Centered on DJ table (Y=0.9 sits on table at 0.84)
+                position: new BABYLON.Vector3(-1.0, 0.9, -23.4), // Left side, forward on table, away from VJ controls
                 rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotate 180° to face away from LED wall
                 scale: new BABYLON.Vector3(0.05, 0.05, 0.05), // Smaller - 5% scale
                 useProcedural: false, // Use real 3D model
