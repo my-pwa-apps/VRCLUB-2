@@ -202,6 +202,15 @@ class ModelLoader {
                 rootMesh.scaling = config.scale.clone();
             }
             
+            // CRITICAL: Limit lights on all materials to prevent shader errors
+            result.meshes.forEach(mesh => {
+                if (mesh.material) {
+                    // Limit to 4 lights (safe for PBR materials)
+                    mesh.material.maxSimultaneousLights = 4;
+                    console.log(`   🔧 Limited lights on ${mesh.name} to 4`);
+                }
+            });
+            
             this.loadedModels[modelKey] = {
                 container: result,
                 rootMesh: rootMesh,
