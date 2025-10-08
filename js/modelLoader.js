@@ -121,18 +121,8 @@ class ModelLoader {
     }
 
     async downloadModel(url) {
-        console.log(`⬇️ Loading model: ${url}`);
+        console.log(`⬇️ Downloading model: ${url}`);
         try {
-            // Check if we're in file:// protocol (local file access)
-            const isFileProtocol = window.location.protocol === 'file:';
-            
-            if (isFileProtocol) {
-                // For file:// protocol, we can't use fetch - must load directly with SceneLoader
-                console.log(`📁 File protocol detected - will load directly with SceneLoader`);
-                return null; // Signal to use direct SceneLoader instead
-            }
-            
-            // For http:// or https:// - use fetch as normal
             const response = await fetch(url, {
                 mode: 'cors',
                 cache: 'default'
