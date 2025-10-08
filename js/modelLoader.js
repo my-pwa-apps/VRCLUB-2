@@ -209,9 +209,13 @@ class ModelLoader {
                     mesh.material.maxSimultaneousLights = 4;
                     console.log(`   🔧 Limited lights on ${mesh.name} to 4`);
                     
-                    // Add ambient brightness to make model more visible in dark club
-                    if (mesh.material.emissiveColor) {
-                        mesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Subtle glow
+                    // Add ambient brightness to make model more visible in dark club (especially VR)
+                    if (mesh.material.emissiveColor !== undefined) {
+                        mesh.material.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Brighter glow for VR visibility
+                    }
+                    // Also boost ambient if available
+                    if (mesh.material.ambientColor !== undefined) {
+                        mesh.material.ambientColor = new BABYLON.Color3(0.3, 0.3, 0.3);
                     }
                 }
             });
@@ -227,10 +231,10 @@ class ModelLoader {
                     ),
                     this.scene
                 );
-                djLight.intensity = 0.8;
-                djLight.range = 4;
+                djLight.intensity = 1.5; // Increased from 0.8 for better VR visibility
+                djLight.range = 6; // Increased range from 4
                 djLight.diffuse = new BABYLON.Color3(1, 1, 1);
-                console.log(`   💡 Added dedicated light above DJ console`);
+                console.log(`   💡 Added dedicated light above DJ console (intensity: 1.5)`);
             }
             
             this.loadedModels[modelKey] = {

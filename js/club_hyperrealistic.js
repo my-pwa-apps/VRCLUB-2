@@ -179,6 +179,20 @@ class VRClub {
         // Store VR helper for later use
         this.vrHelper = vrHelper;
         
+        // Set VR starting position at DJ booth when entering VR
+        if (vrHelper) {
+            vrHelper.baseExperience.onStateChangedObservable.add((state) => {
+                if (state === BABYLON.WebXRState.IN_XR) {
+                    // Position user at DJ booth in VR mode
+                    const xrCamera = vrHelper.baseExperience.camera;
+                    if (xrCamera) {
+                        xrCamera.position = new BABYLON.Vector3(0, 0, -20); // Standing in front of DJ booth
+                        console.log('🥽 VR mode: Positioned at DJ booth');
+                    }
+                }
+            });
+        }
+        
         // Continue building club
         this.createWalls();
         this.createCeiling();
@@ -1715,10 +1729,10 @@ class VRClub {
 
     createLights() {
         
-        // Very dim ambient for industrial atmosphere
+        // Ambient light - brighter for better visibility in VR and desktop
         const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), this.scene);
-        ambient.intensity = 0.08;
-        ambient.diffuse = new BABYLON.Color3(0.1, 0.1, 0.12);
+        ambient.intensity = 0.15; // Increased from 0.08 for better visibility
+        ambient.diffuse = new BABYLON.Color3(0.15, 0.15, 0.18); // Brighter blue tint
         
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
