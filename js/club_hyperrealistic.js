@@ -1357,46 +1357,98 @@ class VRClub {
         this.trussLights = [];
         
         lightPositions.forEach((pos, i) => {
-            // Light fixture body - make larger and more visible
-            const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
-                diameter: 0.4,    // Increased from 0.3 to 0.4
-                height: 0.6       // Increased from 0.4 to 0.6
+            // === REALISTIC MOVING HEAD FIXTURE ===
+            
+            // Base/Yoke (connects to truss) - Professional moving head design
+            const base = BABYLON.MeshBuilder.CreateBox("fixtureBase" + i, {
+                width: 0.5,
+                height: 0.2,
+                depth: 0.4
             }, this.scene);
-            fixture.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);  // Lower to 7.6 from 7.7
-            // Start horizontal - will rotate via lookAt() in animation
+            base.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            base.material = lightFixtureMat;
+            
+            // Main fixture body (head) - Larger, more realistic
+            const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
+                diameter: 0.5,    // Professional moving head size
+                height: 0.7,      // Longer body
+                tessellation: 24  // Smoother
+            }, this.scene);
+            fixture.position = new BABYLON.Vector3(pos.x, 7.5, pos.z);
             fixture.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
             fixture.material = lightFixtureMat;
             
-            // Light lens (glowing) - The actual visible light source - make larger
-            const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
-                diameter: 0.35,   // Increased from 0.25 to 0.35
-                height: 0.08      // Increased from 0.05 to 0.08
+            // Front bezel/rim around lens (realistic detail)
+            const bezel = BABYLON.MeshBuilder.CreateTorus("bezel" + i, {
+                diameter: 0.45,
+                thickness: 0.05,
+                tessellation: 32
             }, this.scene);
-            lens.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);  // Adjusted position
-            // Start horizontal - will rotate via lookAt() in animation
+            bezel.position = new BABYLON.Vector3(pos.x, 7.2, pos.z);
+            bezel.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
+            
+            const bezelMat = new BABYLON.PBRMetallicRoughnessMaterial("bezelMat" + i, this.scene);
+            bezelMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            bezelMat.metallic = 0.95;
+            bezelMat.roughness = 0.15;
+            bezel.material = bezelMat;
+            
+            // Light lens (glowing) - The actual visible light output
+            const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
+                diameter: 0.4,    // Fits inside bezel
+                height: 0.1,
+                tessellation: 32
+            }, this.scene);
+            lens.position = new BABYLON.Vector3(pos.x, 7.15, pos.z);
             lens.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
             
             const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
-            lensMat.emissiveColor = this.currentSpotColor.scale(5.0); // Start with CURRENT COLOR (not white!)
+            lensMat.emissiveColor = this.currentSpotColor.scale(6.0);
             lensMat.disableLighting = true;
-            lensMat.backFaceCulling = false; // Visible from all angles
+            lensMat.backFaceCulling = false;
             lens.material = lensMat;
-            lens.renderingGroupId = 2; // Render on top for maximum visibility
+            lens.renderingGroupId = 2;
             
-            // Add bright glow sphere inside lens for extra visibility - make larger
+            // Bright light source (visible from all angles)
             const lightSource = BABYLON.MeshBuilder.CreateSphere("lightSource" + i, {
-                diameter: 0.3     // Increased from 0.2 to 0.3
+                diameter: 0.35
             }, this.scene);
-            lightSource.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);  // Match lens position
+            lightSource.position = new BABYLON.Vector3(pos.x, 7.15, pos.z);
             
             const sourceMat = new BABYLON.StandardMaterial("sourceMat" + i, this.scene);
-            sourceMat.emissiveColor = this.currentSpotColor.scale(8.0); // Start with CURRENT COLOR (not white!)
+            sourceMat.emissiveColor = this.currentSpotColor.scale(10.0); // Very bright
             sourceMat.disableLighting = true;
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
             
-            this.trussLights.push({ fixture, lens, lensMat, lightSource, sourceMat });
+            // Lens flare effect (subtle glass reflection)
+            const flare = BABYLON.MeshBuilder.CreateDisc("flare" + i, {
+                radius: 0.25,
+                tessellation: 32
+            }, this.scene);
+            flare.position = new BABYLON.Vector3(pos.x, 7.1, pos.z);
+            flare.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
+            
+            const flareMat = new BABYLON.StandardMaterial("flareMat" + i, this.scene);
+            flareMat.emissiveColor = this.currentSpotColor.scale(3.0);
+            flareMat.alpha = 0.4;
+            flareMat.disableLighting = true;
+            flareMat.backFaceCulling = false;
+            flare.material = flareMat;
+            flare.renderingGroupId = 2;
+            
+            this.trussLights.push({ 
+                fixture, 
+                lens, 
+                lensMat, 
+                lightSource, 
+                sourceMat,
+                base,
+                bezel,
+                flare,
+                flareMat
+            });
         });
         
         // Strobe lights on truss corners
@@ -1794,8 +1846,24 @@ class VRClub {
             beam.isPickable = false;
             beam.rotationQuaternion = BABYLON.Quaternion.Identity();
             
-            // HYPERREALISTIC VOLUMETRIC BEAM - Simulates light scattering through haze/fog
-            // Use PBR material for more realistic light interaction
+            // ULTRA-REALISTIC VOLUMETRIC BEAM - Simulates light scattering with varying intensity
+            // Create gradient texture for realistic brightness falloff
+            const beamTexture = new BABYLON.DynamicTexture("beamGradient" + i, { width: 512, height: 512 }, this.scene);
+            const ctx = beamTexture.getContext();
+            
+            // Create radial gradient from center (bright) to edge (dim)
+            const gradient = ctx.createRadialGradient(256, 256, 50, 256, 256, 256);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');    // Bright center hotspot
+            gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');  // Still bright
+            gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');  // Dimmer middle
+            gradient.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)'); // Faint edge
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent edge
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+            beamTexture.update();
+            
+            // Use PBR material with gradient texture for realistic light falloff
             const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
             
             // No base color - pure emission and transparency
@@ -1803,17 +1871,19 @@ class VRClub {
             beamMat.metallic = 0;
             beamMat.roughness = 1;
             
-            // Soft emissive glow - the "light particles" in the air
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.3);
-            beamMat.emissiveIntensity = 2.0; // Boost intensity for visibility
+            // Apply gradient texture to emissive channel for realistic brightness variation
+            beamMat.emissiveTexture = beamTexture;
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.4); // Multiply gradient by color
+            beamMat.emissiveIntensity = 2.5; // Boost intensity for visibility
             
-            // Critical: Very low alpha with additive-like blending
-            beamMat.alpha = 0.04; // Extremely transparent - builds up with overlapping views
+            // Use gradient as alpha mask for realistic edge softness
+            beamMat.opacityTexture = beamTexture;
+            beamMat.alpha = 0.06; // Base transparency - modulated by gradient
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
             beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.1, 0.1, 0.1); // More opaque from side
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.15, 0.15, 0.15); // More opaque from side
             beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0); // Transparent when looking along beam
             beamMat.opacityFresnel.bias = 0.2;
             beamMat.opacityFresnel.power = 2;
@@ -1827,10 +1897,10 @@ class VRClub {
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
             
-            // VOLUMETRIC GLOW - Outer soft glow around the beam for realism
+            // VOLUMETRIC GLOW - Outer soft glow around the beam for realistic atmospheric scatter
             const beamGlow = BABYLON.MeshBuilder.CreateCylinder("spotBeamGlow" + i, {
-                diameterTop: 2.6,      // Slightly larger than beam (2.0 + 0.6)
-                diameterBottom: 0.4,   // Slightly larger than beam (0.25 + 0.15)
+                diameterTop: 2.8,      // Larger outer glow
+                diameterBottom: 0.5,   // Larger at source
                 height: 1,
                 tessellation: 16,
                 cap: BABYLON.Mesh.NO_CAP
@@ -1840,14 +1910,34 @@ class VRClub {
             beamGlow.isPickable = false;
             beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
             
-            // Ultra-soft glow material
+            // Create glow gradient texture (softer than main beam)
+            const glowTexture = new BABYLON.DynamicTexture("glowGradient" + i, { width: 512, height: 512 }, this.scene);
+            const glowCtx = glowTexture.getContext();
+            
+            // Softer radial gradient for outer glow
+            const glowGradient = glowCtx.createRadialGradient(256, 256, 100, 256, 256, 256);
+            glowGradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');   // Soft center
+            glowGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.15)'); // Fading middle
+            glowGradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.05)'); // Very faint
+            glowGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent
+            
+            glowCtx.fillStyle = glowGradient;
+            glowCtx.fillRect(0, 0, 512, 512);
+            glowTexture.update();
+            
+            // Ultra-soft glow material with gradient
             const beamGlowMat = new BABYLON.PBRMaterial("spotBeamGlowMat" + i, this.scene);
             beamGlowMat.albedoColor = new BABYLON.Color3(0, 0, 0);
             beamGlowMat.metallic = 0;
             beamGlowMat.roughness = 1;
-            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15); // Softer than main beam
-            beamGlowMat.emissiveIntensity = 1.5;
-            beamGlowMat.alpha = 0.02; // Even more transparent for soft glow effect
+            
+            // Apply gradient to glow
+            beamGlowMat.emissiveTexture = glowTexture;
+            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.2); // Softer than main beam
+            beamGlowMat.emissiveIntensity = 1.8;
+            
+            beamGlowMat.opacityTexture = glowTexture;
+            beamGlowMat.alpha = 0.03; // Very transparent for soft atmospheric effect
             beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             beamGlowMat.backFaceCulling = false;
             beamGlowMat.disableLighting = true;
