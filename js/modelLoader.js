@@ -216,16 +216,24 @@ class ModelLoader {
                     
                     // Add ambient brightness to make model more visible in dark club (especially VR)
                     if (mesh.material.emissiveColor !== undefined) {
-                        mesh.material.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Increased for better VR visibility
+                        mesh.material.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Subtle glow
                     }
                     // Also boost ambient if available
                     if (mesh.material.ambientColor !== undefined) {
-                        mesh.material.ambientColor = new BABYLON.Color3(0.4, 0.4, 0.4); // Increased
+                        mesh.material.ambientColor = new BABYLON.Color3(0.3, 0.3, 0.3);
                     }
                     
-                    // Ensure materials render properly in VR
+                    // CRITICAL: Ensure materials are fully opaque in VR
+                    if (mesh.material.alpha !== undefined) {
+                        mesh.material.alpha = 1.0; // Fully opaque
+                    }
+                    if (mesh.material.transparencyMode !== undefined) {
+                        mesh.material.transparencyMode = null; // Disable transparency
+                    }
+                    
+                    // Ensure proper rendering in VR
                     mesh.material.backFaceCulling = true;
-                    mesh.material.transparencyMode = null; // Ensure opaque rendering
+                    mesh.material.needDepthPrePass = false; // Disable depth pre-pass that can cause transparency issues
                     
                     // Force material to be ready
                     mesh.material.forceCompilation(mesh);
@@ -281,6 +289,17 @@ class ModelLoader {
                 speakerLight.range = 6;
                 speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
                 console.log(`   💡 Added light for ${config.name}`);
+                
+                // Ensure PA speakers are fully opaque and render properly
+                result.meshes.forEach(speakerMesh => {
+                    speakerMesh.alphaIndex = 0; // Render first (opaque objects)
+                    if (speakerMesh.material) {
+                        speakerMesh.material.needAlphaBlending = () => false; // Force opaque
+                        speakerMesh.material.needAlphaTesting = () => false; // No alpha testing
+                        speakerMesh.material.disableDepthWrite = false; // Enable depth write
+                    }
+                });
+                console.log(`   🔒 Enforced opaque rendering for PA speakers`);
             }
             
             this.loadedModels[modelKey] = {

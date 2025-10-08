@@ -168,13 +168,29 @@ class VRClub {
         // Build hyperrealistic club (need floor first for VR setup)
         this.createFloor();
         
-        // Enable VR with teleportation on floor
+        // Enable VR with teleportation on floor - optimized for Quest 3S
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
-            floorMeshes: [this.floorMesh]
+            floorMeshes: [this.floorMesh],
+            optionalFeatures: true
         }).catch(err => {
             // VR not available - continue with desktop mode
             return null;
         });
+        
+        // Configure VR rendering for better quality
+        if (vrHelper && vrHelper.baseExperience) {
+            // Set higher resolution for better clarity in VR
+            if (vrHelper.baseExperience.sessionManager) {
+                vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
+                    depthNear: 0.1,
+                    depthFar: 150
+                });
+            }
+            
+            // Optimize rendering for VR
+            this.scene.autoClear = false; // Better performance
+            this.scene.autoClearDepthAndStencil = true; // Proper depth handling
+        }
         
         // Store VR helper for later use
         this.vrHelper = vrHelper;
@@ -189,10 +205,17 @@ class VRClub {
                         xrCamera.position = new BABYLON.Vector3(0, 0, -20); // Standing in front of DJ booth
                         console.log('🥽 VR mode: Positioned at DJ booth');
                         
-                        // Apply post-processing to VR camera for consistent visuals
+                        // Apply post-processing to VR camera but reduce intensity for clarity
                         if (this.renderPipeline) {
                             this.renderPipeline.addCamera(xrCamera);
-                            console.log('✨ Applied post-processing to VR camera');
+                            
+                            // Reduce post-processing intensity for sharper VR image
+                            this.renderPipeline.sharpen.edgeAmount = 0.5; // Increased sharpness for VR
+                            this.renderPipeline.sharpen.colorAmount = 0.7; // More color sharpness
+                            this.renderPipeline.grain.intensity = 5; // Reduced grain for clearer VR
+                            this.renderPipeline.chromaticAberration.aberrationAmount = 1; // Reduced aberration
+                            
+                            console.log('✨ Applied optimized post-processing to VR camera');
                         }
                         
                         // Boost glow layer intensity in VR for better visibility
