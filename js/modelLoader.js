@@ -91,7 +91,7 @@ class ModelLoader {
                 position: new BABYLON.Vector3(0, 1.2, -23), // On top of DJ booth platform
                 rotation: new BABYLON.Vector3(0, 0, 0),
                 scale: new BABYLON.Vector3(0.1, 0.1, 0.1), // 10% scale - reasonable size
-                useProcedural: true, // Use procedural model instead of 3D file
+                useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
             pa_speaker_left: {
