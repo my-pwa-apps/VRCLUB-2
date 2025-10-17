@@ -1,6 +1,25 @@
 // VR Club - HYPERREALISTIC Babylon.js Implementation
 // Ultra-realistic club environment for Quest 3S VR
 
+// Room dimensions and boundaries
+const ROOM_BOUNDS = {
+    x: { min: -15, max: 15, width: 30 },
+    y: { min: 0, max: 8, height: 8 },
+    z: { min: -26, max: 2, depth: 28 }
+};
+
+// Key positions in the club
+const CLUB_POSITIONS = {
+    djBooth: { x: 0, y: 0.95, z: -23 },
+    danceFloor: { x: 0, y: 0, z: -12 },
+    entrance: { x: 0, y: 0, z: 0 },
+    mirrorBall: { x: 0, y: 6.5, z: -12 },
+    paSpeakers: {
+        left: { x: -7, y: 0, z: -25 },
+        right: { x: 7, y: 0, z: -25 }
+    }
+};
+
 class VRClub {
     constructor() {
         this.canvas = document.getElementById('canvas');
@@ -101,6 +120,10 @@ class VRClub {
         this.ledWallActive = true;
         this.strobesActive = true;
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
+        
+        // Spotlight pattern and speed controls
+        this.spotlightPattern = 0; // 0=random (default), 1=static down, 2=synchronized sweep
+        this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
         // Mirror ball spotlight color (configurable)
         this.mirrorBallSpotlightColor = new BABYLON.Color3(1, 1, 1); // Default: pure white
@@ -266,8 +289,9 @@ class VRClub {
         this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
         this.camera.attachControl(this.canvas, true);
         this.camera.speed = 0.3; // Realistic walking speed
-        this.camera.applyGravity = false;
-        this.camera.checkCollisions = false;
+        this.camera.applyGravity = false; // No gravity for easier navigation
+        this.camera.checkCollisions = true; // Enable collision detection with invisible walls
+        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Collision bounding box (human-sized)
         this.camera.fov = 1.1; // Wider FOV for immersion
         this.camera.minZ = 0.1;
         this.camera.maxZ = 150;
@@ -352,6 +376,7 @@ class VRClub {
         
         // Continue building club
         this.createWalls();
+        this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
         this.createPASpeakers();
@@ -740,6 +765,62 @@ class VRClub {
         });
         
         console.log("✅ Created industrial wall details");
+    }
+
+    createCollisionBoundaries() {
+        // Create invisible collision walls to prevent walking through geometry
+        // These use Babylon.js collision system for camera
+        
+        const collisionMat = new BABYLON.StandardMaterial("collisionMat", this.scene);
+        collisionMat.alpha = 0; // Completely invisible
+        
+        // Room perimeter walls (using ROOM_BOUNDS constants)
+        const boundaries = [
+            // Left wall
+            { width: 0.5, height: 4, depth: ROOM_BOUNDS.z.depth, 
+              pos: new BABYLON.Vector3(ROOM_BOUNDS.x.min, 2, (ROOM_BOUNDS.z.min + ROOM_BOUNDS.z.max) / 2) },
+            // Right wall
+            { width: 0.5, height: 4, depth: ROOM_BOUNDS.z.depth, 
+              pos: new BABYLON.Vector3(ROOM_BOUNDS.x.max, 2, (ROOM_BOUNDS.z.min + ROOM_BOUNDS.z.max) / 2) },
+            // Back wall
+            { width: ROOM_BOUNDS.x.width, height: 4, depth: 0.5, 
+              pos: new BABYLON.Vector3(0, 2, ROOM_BOUNDS.z.min) },
+            // Front wall (partial - leave entrance open)
+            { width: 10, height: 4, depth: 0.5, 
+              pos: new BABYLON.Vector3(-12, 2, ROOM_BOUNDS.z.max) },
+            { width: 10, height: 4, depth: 0.5, 
+              pos: new BABYLON.Vector3(12, 2, ROOM_BOUNDS.z.max) },
+            
+            // DJ Booth protection area (prevent walking through equipment)
+            { width: 8, height: 2, depth: 0.5, 
+              pos: new BABYLON.Vector3(0, 1, -23.8) }, // Front of DJ booth
+            { width: 0.5, height: 2, depth: 2, 
+              pos: new BABYLON.Vector3(-4.5, 1, -23) }, // Left side
+            { width: 0.5, height: 2, depth: 2, 
+              pos: new BABYLON.Vector3(4.5, 1, -23) }, // Right side
+            
+            // PA Speaker protection (left stack)
+            { width: 3, height: 6, depth: 2, 
+              pos: new BABYLON.Vector3(-7, 3, -25) },
+            // PA Speaker protection (right stack)
+            { width: 3, height: 6, depth: 2, 
+              pos: new BABYLON.Vector3(7, 3, -25) }
+        ];
+        
+        boundaries.forEach((b, i) => {
+            const wall = BABYLON.MeshBuilder.CreateBox(`collisionWall${i}`, {
+                width: b.width,
+                height: b.height,
+                depth: b.depth
+            }, this.scene);
+            wall.position = b.pos;
+            wall.material = collisionMat;
+            wall.checkCollisions = true;
+            wall.isPickable = false; // Don't interfere with raycasting
+            wall.isVisible = false; // Extra insurance for invisibility
+        });
+        
+        console.log("✅ Created invisible collision boundaries around room and DJ booth");
     }
 
     createCeiling() {
@@ -1356,60 +1437,105 @@ class VRClub {
         // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
         const toggleButtons = [
             { 
-                label: "SPOTS", 
+                label: "SPOTLIGHTS", 
                 control: "lightsActive",
                 onColor: new BABYLON.Color3(1, 0.5, 0),
                 offColor: new BABYLON.Color3(0.2, 0.1, 0),
-                x: 2.0
+                row: 0, col: 0
             },
             { 
                 label: "LASERS", 
                 control: "lasersActive",
                 onColor: new BABYLON.Color3(1, 0, 0),
                 offColor: new BABYLON.Color3(0.2, 0, 0),
-                x: 2.5
-            },
-            { 
-                label: "LED WALL", 
-                control: "ledWallActive",
-                onColor: new BABYLON.Color3(0, 0.5, 1),
-                offColor: new BABYLON.Color3(0, 0.1, 0.2),
-                x: 3.0
+                row: 0, col: 1
             },
             { 
                 label: "STROBES", 
                 control: "strobesActive",
                 onColor: new BABYLON.Color3(1, 1, 1),
                 offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
-                x: 3.5
+                row: 0, col: 2
+            },
+            { 
+                label: "LED WALL", 
+                control: "ledWallActive",
+                onColor: new BABYLON.Color3(0, 0.5, 1),
+                offColor: new BABYLON.Color3(0, 0.1, 0.2),
+                row: 1, col: 0
             },
             { 
                 label: "MIRROR BALL", 
                 control: "mirrorBallActive",
                 onColor: new BABYLON.Color3(1, 1, 0),
                 offColor: new BABYLON.Color3(0.2, 0.2, 0),
-                x: 4.0
+                row: 1, col: 1
             },
             { 
-                label: "NEXT COLOR", 
+                label: "CHANGE COLOR", 
                 control: "changeColor",
                 onColor: new BABYLON.Color3(0.5, 1, 0.5),
                 offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
-                x: 4.5
+                row: 1, col: 2
+            },
+            { 
+                label: "RANDOM", 
+                control: "patternRandom",
+                onColor: new BABYLON.Color3(1, 0, 1),
+                offColor: new BABYLON.Color3(0.2, 0, 0.2),
+                row: 2, col: 0
+            },
+            { 
+                label: "STATIC DOWN", 
+                control: "patternStatic",
+                onColor: new BABYLON.Color3(0, 1, 1),
+                offColor: new BABYLON.Color3(0, 0.2, 0.2),
+                row: 2, col: 1
+            },
+            { 
+                label: "SWEEP SYNC", 
+                control: "patternSweep",
+                onColor: new BABYLON.Color3(1, 0.5, 1),
+                offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
+                row: 2, col: 2
             }
         ];
         
+        const buttonWidth = 0.6;
+        const buttonHeight = 0.15;
+        const buttonDepth = 0.4;
+        const spacing = 0.7;
+        const startX = 2.2;
+        const startZ = -23.5;
+        const rowSpacing = 0.5;
+        
         toggleButtons.forEach((btnDef) => {
+            const xPos = startX + (btnDef.col * spacing);
+            const yPos = 0.95 - (btnDef.row * rowSpacing);
+            
+            // Create larger, more visible button
             const toggleBtn = BABYLON.MeshBuilder.CreateBox("toggleBtn_" + btnDef.control, {
-                width: 0.4,
-                height: 0.1,
-                depth: 0.3
+                width: buttonWidth,
+                height: buttonHeight,
+                depth: buttonDepth
             }, this.scene);
-            toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, -23.5); // Front of console, facing DJ
+            toggleBtn.position = new BABYLON.Vector3(xPos, yPos, startZ);
             toggleBtn.isPickable = true;
             
             const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
-            const isActive = btnDef.control === "changeColor" ? false : this[btnDef.control];
+            // Special handling for different button types
+            let isActive = false;
+            if (btnDef.control === "changeColor") {
+                isActive = false; // Action button, not a toggle
+            } else if (btnDef.control.startsWith("pattern")) {
+                // Pattern buttons - check if this pattern is active
+                if (btnDef.control === "patternRandom") isActive = (this.spotlightPattern === 0);
+                else if (btnDef.control === "patternStatic") isActive = (this.spotlightPattern === 1);
+                else if (btnDef.control === "patternSweep") isActive = (this.spotlightPattern === 2);
+            } else {
+                // Regular toggle buttons
+                isActive = this[btnDef.control];
+            }
             toggleMat.emissiveColor = isActive ? btnDef.onColor : btnDef.offColor;
             toggleMat.disableLighting = true;
             toggleBtn.material = toggleMat;
@@ -1423,21 +1549,30 @@ class VRClub {
                 label: btnDef.label
             });
             
-            // Label above button
+            // Create text label using dynamic texture
             const labelPlane = BABYLON.MeshBuilder.CreatePlane("label_" + btnDef.control, {
-                width: 0.4,
-                height: 0.15
+                width: buttonWidth,
+                height: 0.2
             }, this.scene);
-            labelPlane.position = new BABYLON.Vector3(btnDef.x, 1.15, -23.5);
-            labelPlane.rotation.x = Math.PI / 6;
+            labelPlane.position = new BABYLON.Vector3(xPos, yPos + 0.15, startZ);
+            labelPlane.rotation.x = Math.PI / 4; // Tilt for better visibility
+            
+            // Create dynamic texture for text
+            const labelTexture = new BABYLON.DynamicTexture("labelTex_" + btnDef.control, 
+                {width: 512, height: 128}, this.scene, false);
+            labelTexture.hasAlpha = true;
+            labelTexture.drawText(btnDef.label, null, null, 
+                "bold 72px Arial", "white", "transparent", true, true);
             
             const labelMat = new BABYLON.StandardMaterial("labelMat_" + btnDef.control, this.scene);
-            labelMat.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+            labelMat.diffuseTexture = labelTexture;
+            labelMat.emissiveColor = new BABYLON.Color3(0.9, 0.9, 0.9);
             labelMat.disableLighting = true;
+            labelMat.opacityTexture = labelTexture;
             labelPlane.material = labelMat;
         });
         
-        console.log("✅ Created VJ lighting control console with 6 toggle buttons");
+        console.log("✅ Created VJ lighting control console with 9 intuitive buttons in 3x3 grid");
     }
 
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
@@ -1961,7 +2096,7 @@ class VRClub {
                 5,                                        // Sharper falloff
                 this.scene
             );
-            spot.diffuse = this.currentSpotColor; // All start with same color
+            spot.diffuse = new BABYLON.Color3(0, 0, 0); // No ambient diffuse - light only through beam
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
             spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
@@ -1990,11 +2125,13 @@ class VRClub {
             const ctx = beamTexture.getContext();
             
             // Create radial gradient from center (bright) to edge (dim)
-            const gradient = ctx.createRadialGradient(256, 256, 50, 256, 256, 256);
-            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');    // Bright center hotspot
-            gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');  // Still bright
-            gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');  // Dimmer middle
-            gradient.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)'); // Faint edge
+            // Enhanced gradient with sharper center and smoother falloff for professional look
+            const gradient = ctx.createRadialGradient(256, 256, 30, 256, 256, 256);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Pure white center hotspot (increased from 0.8)
+            gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.7)');  // Sharp bright core
+            gradient.addColorStop(0.45, 'rgba(255, 255, 255, 0.4)'); // Smooth middle transition
+            gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.15)'); // Soft outer glow
+            gradient.addColorStop(0.9, 'rgba(255, 255, 255, 0.05)'); // Very faint edge
             gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent edge
             
             ctx.fillStyle = gradient;
@@ -2011,12 +2148,12 @@ class VRClub {
             
             // Apply gradient texture to emissive channel for realistic brightness variation
             beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.6); // Increased from 0.4 for more visibility
-            beamMat.emissiveIntensity = 3.5; // Increased from 2.5 for better visibility
+            beamMat.emissiveColor = this.currentSpotColor.scale(0.7); // Increased from 0.6 for more visibility
+            beamMat.emissiveIntensity = 4.0; // Increased from 3.5 for better visibility
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.12; // Increased from 0.06 for more visible beams
+            beamMat.alpha = 0.15; // Increased from 0.12 for more visible beams
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
@@ -2052,11 +2189,12 @@ class VRClub {
             const glowTexture = new BABYLON.DynamicTexture("glowGradient" + i, { width: 512, height: 512 }, this.scene);
             const glowCtx = glowTexture.getContext();
             
-            // Softer radial gradient for outer glow
-            const glowGradient = glowCtx.createRadialGradient(256, 256, 100, 256, 256, 256);
-            glowGradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');   // Soft center
-            glowGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.15)'); // Fading middle
-            glowGradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.05)'); // Very faint
+            // Softer radial gradient for outer glow - Enhanced for better atmospheric scatter
+            const glowGradient = glowCtx.createRadialGradient(256, 256, 80, 256, 256, 256);
+            glowGradient.addColorStop(0, 'rgba(255, 255, 255, 0.5)');   // Brighter soft center (increased from 0.4)
+            glowGradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)'); // More visible middle
+            glowGradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.08)'); // Smooth transition
+            glowGradient.addColorStop(0.9, 'rgba(255, 255, 255, 0.02)'); // Very faint edge
             glowGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent
             
             glowCtx.fillStyle = glowGradient;
@@ -2071,11 +2209,11 @@ class VRClub {
             
             // Apply gradient to glow
             beamGlowMat.emissiveTexture = glowTexture;
-            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.3); // Increased from 0.2
-            beamGlowMat.emissiveIntensity = 2.5; // Increased from 1.8 for more glow
+            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.35); // Increased from 0.3
+            beamGlowMat.emissiveIntensity = 3.0; // Increased from 2.5 for more glow
             
             beamGlowMat.opacityTexture = glowTexture;
-            beamGlowMat.alpha = 0.06; // Increased from 0.03 for more visible glow
+            beamGlowMat.alpha = 0.08; // Increased from 0.06 for more visible glow
             beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             beamGlowMat.backFaceCulling = false;
             beamGlowMat.disableLighting = true;
@@ -2167,8 +2305,11 @@ class VRClub {
                 fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
                 lens: this.trussLights ? this.trussLights[i]?.lens : null,
                 lightSource: this.trussLights ? this.trussLights[i]?.lightSource : null,
+                bezel: this.trussLights ? this.trussLights[i]?.bezel : null,
+                flare: this.trussLights ? this.trussLights[i]?.flare : null,
                 lensMat: this.trussLights ? this.trussLights[i]?.lensMat : null,
                 sourceMat: this.trussLights ? this.trussLights[i]?.sourceMat : null,
+                flareMat: this.trussLights ? this.trussLights[i]?.flareMat : null,
                 basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
                 phase: i * (Math.PI * 2 / spotPositions.length),
                 speed: 0.8,
@@ -2412,7 +2553,7 @@ class VRClub {
                 lensMaterial: lensMat
             });
             
-            // Visible volumetric beam from all positions (dramatic effect)
+            // Visible volumetric beam from all positions (dramatic effect with HIGH-QUALITY rendering)
             const beamLength = BABYLON.Vector3.Distance(config.pos, ballPosition);
             const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotBeam${index}`, {
                 diameterTop: 1.4,     // Wide at ball
@@ -2430,15 +2571,60 @@ class VRClub {
             const beamRotationAngle = Math.acos(BABYLON.Vector3.Dot(BABYLON.Vector3.Up(), direction));
             beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
             
-            const beamMat = new BABYLON.StandardMaterial(`mirrorSpotBeamMat${index}`, this.scene);
-            beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-            beamMat.alpha = 0.3; // More visible for dramatic effect
+            // === ULTRA-REALISTIC VOLUMETRIC BEAM (same quality as truss spotlights) ===
+            // Create radial gradient texture for realistic brightness falloff
+            const beamTexture = new BABYLON.DynamicTexture("mirrorBeamGradient" + index, { width: 512, height: 512 }, this.scene);
+            const ctx = beamTexture.getContext();
+            
+            // Create radial gradient from center (bright) to edge (dim)
+            const gradient = ctx.createRadialGradient(256, 256, 50, 256, 256, 256);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');    // Bright center hotspot
+            gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');  // Still bright
+            gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');  // Dimmer middle
+            gradient.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)'); // Faint edge
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent edge
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+            beamTexture.update();
+            
+            // Use PBR material with gradient texture for professional quality
+            const beamMat = new BABYLON.PBRMaterial("mirrorSpotBeamMat" + index, this.scene);
+            
+            // No base color - pure emission and transparency
+            beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.metallic = 0;
+            beamMat.roughness = 1;
+            
+            // Apply gradient texture to emissive channel
+            beamMat.emissiveTexture = beamTexture;
+            beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
+            beamMat.emissiveIntensity = 3.5;
+            
+            // Use gradient as alpha mask for realistic edge softness
+            beamMat.opacityTexture = beamTexture;
+            beamMat.alpha = 0.15; // Slightly more visible than truss spots for drama
+            beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+            
+            // Fresnel effect - more visible from the side
+            beamMat.opacityFresnel = new BABYLON.FresnelParameters();
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.opacityFresnel.bias = 0.2;
+            beamMat.opacityFresnel.power = 2;
+            
+            // Important settings for realism
+            beamMat.backFaceCulling = false;
             beamMat.disableLighting = true;
+            beamMat.unlit = true;
+            
             beam.material = beamMat;
             beam.isPickable = false;
+            beam.visibility = 1.0;
+            beam.renderingGroupId = 1;
             beam.setEnabled(false);
             
-            this.mirrorBallBeams.push({ mesh: beam, material: beamMat });
+            this.mirrorBallBeams.push({ mesh: beam, material: beamMat, texture: beamTexture });
         });
         
         // === REFLECTION SPOTS (Simulated light spots from mirror facets) ===
@@ -2577,30 +2763,24 @@ class VRClub {
         
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
-            // Debug once per 2 seconds
-            if (!this._lastMirrorBallDebugTime || time - this._lastMirrorBallDebugTime > 2) {
-                console.log('🪩 Mirror ball ACTIVE - should see spots');
-                console.log('   Mirror ball exists:', !!this.mirrorBall);
-                console.log('   Reflection spots array:', !!this.mirrorReflectionSpots);
-                console.log('   Number of spots:', this.mirrorReflectionSpots ? this.mirrorReflectionSpots.length : 0);
-                this._lastMirrorBallDebugTime = time;
+            // In AUTOMATED mode: Turn OFF all other lights when mirror ball is active
+            // In MANUAL mode: Allow VJ to control lights independently
+            if (!this.vjManualMode) {
+                this.lightsActive = false;
+                this.lasersActive = false;
+                this.ledWallActive = false;
             }
             
-            // Turn OFF all other lights and LED wall when mirror ball is active
-            this.lightsActive = false;
-            this.lasersActive = false;
-            this.ledWallActive = false;
-            
-            // Disable spotlight beams
-            if (this.spotlights) {
+            // Disable spotlight beams (unless manually enabled by VJ)
+            if (this.spotlights && !this.lightsActive) {
                 this.spotlights.forEach(spot => {
                     if (spot.spot) spot.spot.setEnabled(false);
                     if (spot.beam) spot.beam.setEnabled(false);
                 });
             }
             
-            // Disable lasers (each laser has multiple lights in 'lights' array)
-            if (this.lasers) {
+            // Disable lasers (each laser has multiple lights in 'lights' array) - unless manually enabled
+            if (this.lasers && !this.lasersActive) {
                 this.lasers.forEach(laser => {
                     laser.lights.forEach(light => light.setEnabled(false)); // Disable all lights in array
                     laser.beams.forEach(beam => {
@@ -2619,8 +2799,8 @@ class VRClub {
                 });
             }
             
-            // Turn off LED wall
-            if (this.ledPanels) {
+            // Turn off LED wall (unless manually enabled by VJ)
+            if (this.ledPanels && !this.ledWallActive) {
                 this.ledPanels.forEach(panel => {
                     panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
                 });
@@ -2645,7 +2825,7 @@ class VRClub {
             
             // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
             if (this.mirrorBall) {
-                this.mirrorBallRotation += 0.003; // Very slow rotation - spots sweep gently through room
+                this.mirrorBallRotation -= 0.003; // Negative rotation - spots now move in same visual direction
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
@@ -2654,12 +2834,6 @@ class VRClub {
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // Debug: Log once per second
-                if (!this._lastSpotDebugTime || time - this._lastSpotDebugTime > 1) {
-                    console.log(`🪩 Updating ${this.mirrorReflectionSpots.length} spots, first spot enabled:`, this.mirrorReflectionSpots[0].visual.isEnabled());
-                    this._lastSpotDebugTime = time;
-                }
-                
                 this.mirrorReflectionSpots.forEach((spot, i) => {
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
@@ -2667,7 +2841,8 @@ class VRClub {
                     // PROPER RAY CASTING: Calculate direction from mirror ball based on rotation
                     // Each spot represents a mirror facet at a specific angle (theta, phi)
                     // As ball rotates, the facet direction rotates with it
-                    const rotatedTheta = spot.theta + this.mirrorBall.rotation.y; // Rotate with ball
+                    // SUBTRACT rotation for proper reflection (facets stay fixed relative to ball)
+                    const rotatedTheta = spot.theta - this.mirrorBall.rotation.y; // Subtract for correct reflection
                     const phi = spot.phi; // Vertical angle stays constant
                     
                     // Calculate ray direction from ball in spherical coordinates
@@ -3084,7 +3259,7 @@ class VRClub {
             // Update ALL lights to new color
             if (this.spotlights) {
                 this.spotlights.forEach((spot, i) => {
-                    spot.light.diffuse = this.currentSpotColor;
+                    // spot.light.diffuse stays black - no ambient colored glow
                     spot.color = this.currentSpotColor;
                     
                     // Update fixture lens and light source colors immediately
@@ -3130,48 +3305,66 @@ class VRClub {
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
                 
-                // SPOTLIGHT MODE CONTROL
-                // Mode 0: strobe+sweep, Mode 1: sweep only, Mode 2: strobe static, Mode 3: static
-                const isSweepMode = (this.spotlightMode === 0 || this.spotlightMode === 1);
-                const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
+                // VJ PATTERN CONTROL - spotlightPattern: 0=random, 1=static down, 2=synchronized sweep
+                // Apply speed multiplier to all animated patterns
+                const speedMultiplier = this.spotlightSpeed || 1.0;
                 
-                // SYNCHRONIZED SWEEPING: All lights sweep together continuously
-                // SMOOTH pattern transitions - patterns blend into each other naturally
-                const sweepPhase = globalPhase * audioSpeedMultiplier;
-                
-                // Slow pattern selector that cycles through patterns smoothly
-                // Each pattern lasts ~10 seconds with smooth transitions
-                const patternCycle = (sweepPhase / 10) % 7; // 0-7, smoothly increasing
-                const currentPattern = Math.floor(patternCycle);
-                const nextPattern = (currentPattern + 1) % 7;
-                const blendFactor = patternCycle - currentPattern; // 0-1 smooth blend
-                
-                // MAX 45 DEGREES = tan(45°) ≈ 1.0, so dirX and dirZ should be ≤ 0.6 for smooth angles
-                // Calculate current and next pattern positions, then blend
-                
-                let dirX1 = 0, dirZ1 = 0; // Current pattern
-                let dirX2 = 0, dirZ2 = 0; // Next pattern
-                
-                // Static positions for non-sweep modes (centered on dance floor)
-                const staticPositions = [
-                    { x: -0.3, z: -0.3 },  // Spotlight 0: front-left
-                    { x: 0.3, z: -0.3 },   // Spotlight 1: front-right
-                    { x: -0.3, z: 0.3 },   // Spotlight 2: back-left
-                    { x: 0.3, z: 0.3 }     // Spotlight 3: back-right
-                ];
-                
-                if (!isSweepMode) {
-                    // Static mode: use fixed positions based on spotlight index
-                    const staticPos = staticPositions[i % staticPositions.length];
-                    dirX = staticPos.x;
-                    dirZ = staticPos.z;
+                if (this.spotlightPattern === 1) {
+                    // PATTERN 1: STATIC DOWN - All lights point straight down
+                    dirX = 0;
+                    dirZ = 0;
+                    
+                } else if (this.spotlightPattern === 2) {
+                    // PATTERN 2: SYNCHRONIZED SWEEP - All lights sweep left to right together
+                    const sweepPhase = globalPhase * speedMultiplier;
+                    dirX = Math.sin(sweepPhase * 0.8) * 0.6; // Smooth left-right sweep
+                    dirZ = -0.3; // Slight forward angle toward dance floor
+                    
                 } else {
-                    // Sweep mode: calculate animated pattern positions
-                    // Calculate CURRENT pattern position - FASTER for more energy
-                    if (currentPattern === 0) {
-                    // Linear sweep left to right - FAST
-                    dirX1 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster (0.8 → 1.6)
-                    dirZ1 = -0.3;
+                    // PATTERN 0: RANDOM/AUTOMATED (default) - Complex pattern cycling
+                    
+                    // SPOTLIGHT MODE CONTROL
+                    // Mode 0: strobe+sweep, Mode 1: sweep only, Mode 2: strobe static, Mode 3: static
+                    const isSweepMode = (this.spotlightMode === 0 || this.spotlightMode === 1);
+                    const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
+                    
+                    // SYNCHRONIZED SWEEPING: All lights sweep together continuously
+                    // SMOOTH pattern transitions - patterns blend into each other naturally
+                    const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier;
+                    
+                    // Slow pattern selector that cycles through patterns smoothly
+                    // Each pattern lasts ~10 seconds with smooth transitions
+                    const patternCycle = (sweepPhase / 10) % 7; // 0-7, smoothly increasing
+                    const currentPattern = Math.floor(patternCycle);
+                    const nextPattern = (currentPattern + 1) % 7;
+                    const blendFactor = patternCycle - currentPattern; // 0-1 smooth blend
+                    
+                    // MAX 45 DEGREES = tan(45°) ≈ 1.0, so dirX and dirZ should be ≤ 0.6 for smooth angles
+                    // Calculate current and next pattern positions, then blend
+                    
+                    let dirX1 = 0, dirZ1 = 0; // Current pattern
+                    let dirX2 = 0, dirZ2 = 0; // Next pattern
+                    
+                    // Static positions for non-sweep modes (centered on dance floor)
+                    const staticPositions = [
+                        { x: -0.3, z: -0.3 },  // Spotlight 0: front-left
+                        { x: 0.3, z: -0.3 },   // Spotlight 1: front-right
+                        { x: -0.3, z: 0.3 },   // Spotlight 2: back-left
+                        { x: 0.3, z: 0.3 }     // Spotlight 3: back-right
+                    ];
+                    
+                    if (!isSweepMode) {
+                        // Static mode: use fixed positions based on spotlight index
+                        const staticPos = staticPositions[i % staticPositions.length];
+                        dirX = staticPos.x;
+                        dirZ = staticPos.z;
+                    } else {
+                        // Sweep mode: calculate animated pattern positions
+                        // Calculate CURRENT pattern position - FASTER for more energy
+                        if (currentPattern === 0) {
+                        // Linear sweep left to right - FAST
+                        dirX1 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster (0.8 → 1.6)
+                        dirZ1 = -0.3;
                 } else if (currentPattern === 1) {
                     // Circular sweep - ENERGETIC
                     dirX1 = Math.sin(sweepPhase * 1.2) * 0.5; // 2x faster (0.6 → 1.2)
@@ -3228,10 +3421,11 @@ class VRClub {
                     dirZ2 = 0;
                 }
                 
-                    // SMOOTH BLEND between patterns - no jumps!
-                    dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
-                    dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
-                }
+                        // SMOOTH BLEND between patterns - no jumps!
+                        dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
+                        dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
+                    } // End sweep mode else block
+                } // End pattern 0 (random/automated) else block
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
@@ -3245,18 +3439,45 @@ class VRClub {
                 const angleVariation = Math.sin(time * 0.3 + i * 0.5) * 0.1; // ±6 degrees
                 spot.light.angle = baseAngle + angleVariation;
                 
-                // Rotate FIXTURE, LENS, and LIGHT SOURCE for realistic movement
+                // === HYPERREALISTIC MOVING HEAD ROTATION ===
+                // Rotate ALL fixture components together to match beam direction
+                // Professional moving heads have pan (Y-axis) and tilt (X/Z-axis) motors
                 if (spot.fixture) {
-                    // Calculate target point where beam aims
+                    // Calculate target point where beam aims (8m down the beam)
                     const targetPoint = spot.basePos.add(direction.scale(8));
+                    
+                    // Method 1: Use lookAt for fixture body (most accurate)
                     spot.fixture.lookAt(targetPoint);
                     
-                    // Rotate lens and light source to match
+                    // Rotate ALL fixture components to match the fixture body orientation
+                    // This creates the illusion that the entire moving head is tracking the target
+                    const fixtureRotation = spot.fixture.rotationQuaternion || BABYLON.Quaternion.FromEulerAngles(
+                        spot.fixture.rotation.x,
+                        spot.fixture.rotation.y,
+                        spot.fixture.rotation.z
+                    );
+                    
+                    // Apply same rotation to all visible components
                     if (spot.lens) {
-                        spot.lens.lookAt(targetPoint);
+                        spot.lens.rotationQuaternion = fixtureRotation.clone();
                     }
                     if (spot.lightSource) {
-                        spot.lightSource.lookAt(targetPoint);
+                        spot.lightSource.rotationQuaternion = fixtureRotation.clone();
+                    }
+                    if (spot.bezel) {
+                        spot.bezel.rotationQuaternion = fixtureRotation.clone();
+                    }
+                    if (spot.flare) {
+                        spot.flare.rotationQuaternion = fixtureRotation.clone();
+                    }
+                    
+                    // Update light flare intensity based on viewing angle (brighter when looking at lens)
+                    if (spot.flareMat && this.camera) {
+                        const cameraDir = this.camera.position.subtract(spot.basePos).normalize();
+                        const lightDir = direction.scale(-1); // Light points opposite of beam direction
+                        const dot = BABYLON.Vector3.Dot(cameraDir, lightDir);
+                        const brightness = Math.max(0, dot); // 0 to 1
+                        spot.flareMat.alpha = 0.2 + (brightness * 0.3); // 0.2 to 0.5 based on angle
                     }
                 }
                 
@@ -4148,11 +4369,11 @@ class VRClub {
                         this.currentSpotColor = this.spotColorList[this.spotColorIndex];
                         this.lastColorChange = performance.now() / 1000;
                         
-                        // Update ALL light colors immediately (diffuse AND specular for reflections)
+                        // Update ALL light colors immediately (specular for reflections, NO diffuse ambient)
                         if (this.spotlights) {
                             this.spotlights.forEach((spot, i) => {
-                                spot.light.diffuse = this.currentSpotColor;
-                                spot.light.specular = this.currentSpotColor; // ADD SPECULAR for reflections
+                                // spot.light.diffuse stays black - no ambient colored glow
+                                spot.light.specular = this.currentSpotColor; // Specular for reflections
                                 spot.color = this.currentSpotColor;
                                 
                                 // Update fixture lens and light source colors
@@ -4236,6 +4457,21 @@ class VRClub {
                         
                         const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
                         console.log(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
+                    } else if (clickedButton.control === "patternRandom") {
+                        // Set spotlight pattern to Random Moving (0)
+                        this.spotlightPattern = 0;
+                        this.updatePatternButtonColors();
+                        console.log(`🎯 Spotlight pattern: RANDOM MOVING`);
+                    } else if (clickedButton.control === "patternStatic") {
+                        // Set spotlight pattern to Static Down (1)
+                        this.spotlightPattern = 1;
+                        this.updatePatternButtonColors();
+                        console.log(`🎯 Spotlight pattern: STATIC DOWN`);
+                    } else if (clickedButton.control === "patternSweep") {
+                        // Set spotlight pattern to Synchronized Sweep (2)
+                        this.spotlightPattern = 2;
+                        this.updatePatternButtonColors();
+                        console.log(`🎯 Spotlight pattern: SYNCHRONIZED SWEEP`);
                     } else {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
@@ -4251,6 +4487,19 @@ class VRClub {
         };
         
         console.log("✅ VJ Control interaction enabled - click buttons to control lights!");
+    }
+
+    updatePatternButtonColors() {
+        // Update pattern button colors to show which is active
+        this.vjControlButtons.forEach(btn => {
+            if (btn.control === "patternRandom") {
+                btn.material.emissiveColor = (this.spotlightPattern === 0) ? btn.onColor : btn.offColor;
+            } else if (btn.control === "patternStatic") {
+                btn.material.emissiveColor = (this.spotlightPattern === 1) ? btn.onColor : btn.offColor;
+            } else if (btn.control === "patternSweep") {
+                btn.material.emissiveColor = (this.spotlightPattern === 2) ? btn.onColor : btn.offColor;
+            }
+        });
     }
 
     toggleAudioStream() {

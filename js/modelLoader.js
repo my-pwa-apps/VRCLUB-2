@@ -92,7 +92,7 @@ class ModelLoader {
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
                 position: new BABYLON.Vector3(-1.0, 0.95, -23.4), // Left side, slightly higher, away from VJ controls
                 rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotate 180° to face away from LED wall
-                scale: new BABYLON.Vector3(0.06, 0.06, 0.06), // Slightly larger - 6% scale for better VR visibility
+                scale: new BABYLON.Vector3(0.035, 0.035, 0.035), // Realistic Pioneer CDJ-3000 scale (~12"x16" dimensions)
                 useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
