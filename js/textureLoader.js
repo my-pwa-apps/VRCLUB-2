@@ -72,6 +72,11 @@ class TextureLoader {
         this.scene = scene;
         this.cache = new TextureCache();
         this.textureConfigs = this.getTextureConfigs();
+        
+        // Texture pooling - reuse loaded textures across materials
+        this.texturePool = new Map(); // url -> BABYLON.Texture
+        this.blobUrlPool = new Map(); // url -> blob URL
+        this.textureUsageCount = new Map(); // url -> usage count
     }
 
     getTextureConfigs() {
@@ -146,18 +151,31 @@ class TextureLoader {
     }
 
     async loadOrDownloadTexture(url) {
-        // Check cache first
+        // Check texture pool first (in-memory cache)
+        if (this.blobUrlPool.has(url)) {
+            console.log(`♻️ Reusing pooled texture: ${url.split('/').pop()}`);
+            this.textureUsageCount.set(url, (this.textureUsageCount.get(url) || 0) + 1);
+            return this.blobUrlPool.get(url);
+        }
+        
+        // Check IndexedDB cache
         const cached = await this.cache.getTexture(url);
         
         if (cached) {
             console.log(`💾 Using cached: ${url.split('/').pop()}`);
-            return URL.createObjectURL(cached.blob);
+            const blobUrl = URL.createObjectURL(cached.blob);
+            this.blobUrlPool.set(url, blobUrl);
+            this.textureUsageCount.set(url, 1);
+            return blobUrl;
         }
         
         // Download and cache
         const blob = await this.downloadTexture(url);
         await this.cache.saveTexture(url, blob);
-        return URL.createObjectURL(blob);
+        const blobUrl = URL.createObjectURL(blob);
+        this.blobUrlPool.set(url, blobUrl);
+        this.textureUsageCount.set(url, 1);
+        return blobUrl;
     }
 
     async loadTextureSet(type) {
@@ -174,11 +192,27 @@ class TextureLoader {
         // Load all texture maps in parallel
         for (const [mapType, filename] of Object.entries(config.maps)) {
             const url = `${config.baseUrl}/${filename}`;
+            const poolKey = `${url}_${config.scale.u}_${config.scale.v}`;
+            
+            // Check if texture already exists in pool with same scale
+            if (this.texturePool.has(poolKey)) {
+                console.log(`  ♻️ Reusing pooled ${mapType}: ${filename}`);
+                textures[mapType] = this.texturePool.get(poolKey);
+                this.textureUsageCount.set(poolKey, (this.textureUsageCount.get(poolKey) || 0) + 1);
+                continue;
+            }
+            
             loadPromises.push(
                 this.loadOrDownloadTexture(url).then(blobUrl => {
-                    textures[mapType] = new BABYLON.Texture(blobUrl, this.scene);
-                    textures[mapType].uScale = config.scale.u;
-                    textures[mapType].vScale = config.scale.v;
+                    const texture = new BABYLON.Texture(blobUrl, this.scene);
+                    texture.uScale = config.scale.u;
+                    texture.vScale = config.scale.v;
+                    
+                    // Add to pool for reuse
+                    this.texturePool.set(poolKey, texture);
+                    this.textureUsageCount.set(poolKey, 1);
+                    
+                    textures[mapType] = texture;
                     console.log(`  ✅ ${mapType}: ${filename}`);
                 })
             );
@@ -248,7 +282,71 @@ class TextureLoader {
         }
     }
 
+    /**
+     * Get texture pool statistics for debugging and monitoring
+     */
+    getPoolStats() {
+        return {
+            pooledTextures: this.texturePool.size,
+            blobUrls: this.blobUrlPool.size,
+            totalUsages: Array.from(this.textureUsageCount.values()).reduce((a, b) => a + b, 0),
+            avgUsagePerTexture: this.texturePool.size > 0 
+                ? (Array.from(this.textureUsageCount.values()).reduce((a, b) => a + b, 0) / this.texturePool.size).toFixed(2)
+                : 0
+        };
+    }
+
+    /**
+     * Dispose of textures that are no longer needed
+     * Call this when textures are removed from materials
+     */
+    releaseTexture(url, scale = { u: 1, v: 1 }) {
+        const poolKey = `${url}_${scale.u}_${scale.v}`;
+        
+        if (this.textureUsageCount.has(poolKey)) {
+            const currentCount = this.textureUsageCount.get(poolKey);
+            if (currentCount <= 1) {
+                // Last reference - dispose texture
+                const texture = this.texturePool.get(poolKey);
+                if (texture) {
+                    texture.dispose();
+                    console.log(`🗑️ Disposed texture: ${url.split('/').pop()}`);
+                }
+                this.texturePool.delete(poolKey);
+                this.textureUsageCount.delete(poolKey);
+            } else {
+                // Decrement usage count
+                this.textureUsageCount.set(poolKey, currentCount - 1);
+            }
+        }
+    }
+
+    /**
+     * Clear all pooled textures and blob URLs
+     * Useful for memory cleanup or scene resets
+     */
+    clearTexturePool() {
+        console.log('🗑️ Clearing texture pool...');
+        
+        // Dispose all textures
+        this.texturePool.forEach((texture, key) => {
+            texture.dispose();
+        });
+        
+        // Revoke all blob URLs to free memory
+        this.blobUrlPool.forEach((blobUrl, url) => {
+            URL.revokeObjectURL(blobUrl);
+        });
+        
+        this.texturePool.clear();
+        this.blobUrlPool.clear();
+        this.textureUsageCount.clear();
+        
+        console.log('✅ Texture pool cleared');
+    }
+
     async clearAllCaches() {
+        this.clearTexturePool();
         await this.cache.clearCache();
     }
 }

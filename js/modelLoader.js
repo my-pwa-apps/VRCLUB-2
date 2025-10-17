@@ -77,6 +77,8 @@ class ModelLoader {
         this.cache = new ModelCache();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
+        this.instancePool = new Map(); // Pool of master meshes for instancing
+        this.instanceCounts = new Map(); // Track instance counts
     }
 
     getModelConfigs() {

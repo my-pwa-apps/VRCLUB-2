@@ -15,15 +15,15 @@ class VRClub {
             desktop: {
                 exposure: 1.0,
                 contrast: 1.2,
-                bloomWeight: 0.6,
-                bloomThreshold: 0.3,
-                bloomScale: 0.6,
+                bloomWeight: 0.2, // Reduced from 0.6 to minimize haze
+                bloomThreshold: 0.6, // Increased from 0.3 to reduce bloom spread
+                bloomScale: 0.3, // Reduced from 0.6 to minimize haze
                 glowIntensity: 0.7,
                 ambientIntensity: 0.15,
                 environmentIntensity: 0.3,
                 clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
-                grainEnabled: true,
-                chromaticAberrationEnabled: true,
+                grainEnabled: false, // Disabled - causes hazy appearance
+                chromaticAberrationEnabled: false, // Disabled - causes hazy color fringing
                 toneMappingEnabled: true,
                 fxaaEnabled: true
             },
@@ -49,6 +49,12 @@ class VRClub {
         // Detect device capabilities for optimal light count
         this.maxLights = this.detectMaxLights();
         console.log(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
+        
+        // Initialize material factory for centralized material creation
+        this.materialFactory = new MaterialFactory(null, this.maxLights); // Scene set later in init()
+        
+        // Initialize light factory for centralized light creation
+        this.lightFactory = null; // Initialized after scene creation
         
         this.audioContext = null;
         this.audioAnalyser = null;
@@ -94,6 +100,22 @@ class VRClub {
         this.lasersActive = false;
         this.ledWallActive = true;
         this.strobesActive = true;
+        this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
+        
+        // Mirror ball spotlight color (configurable)
+        this.mirrorBallSpotlightColor = new BABYLON.Color3(1, 1, 1); // Default: pure white
+        this.mirrorBallColorIndex = 0;
+        this.mirrorBallColors = [
+            new BABYLON.Color3(1, 1, 1),      // White (classic)
+            new BABYLON.Color3(1, 0.3, 0.3),  // Red
+            new BABYLON.Color3(0.3, 0.3, 1),  // Blue
+            new BABYLON.Color3(0.3, 1, 0.3),  // Green
+            new BABYLON.Color3(1, 0.3, 1),    // Magenta
+            new BABYLON.Color3(1, 1, 0.3),    // Yellow
+            new BABYLON.Color3(0.3, 1, 1),    // Cyan
+            new BABYLON.Color3(1, 0.6, 0.3),  // Orange
+            new BABYLON.Color3(0.7, 0.3, 1)   // Purple
+        ];
         
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
         this.spotlightMode = 0;
@@ -182,15 +204,16 @@ class VRClub {
         // PBR materials use many uniform buffers, so we need to limit lights
         // to avoid exceeding GL_MAX_VERTEX_UNIFORM_BUFFERS
         // With loaded 3D models (which have their own PBR materials), we need even lower limits
+        // CRITICAL: With mirror ball system, we need ultra-conservative limits
         if (isQuest) {
             console.log('🥽 Quest VR headset detected - using optimized light count');
-            return 6; // Quest 3S - balanced for PBR materials with 3D models
+            return 4; // Quest 3S - reduced from 6 for mirror ball compatibility
         } else if (isMobile) {
             console.log('📱 Mobile device detected - using reduced light count');
-            return 4; // Mobile devices - very conservative for PBR + 3D models
+            return 3; // Mobile devices - ultra-conservative for PBR + 3D models
         } else {
             console.log('💻 Desktop/laptop detected - using safe light count for PBR materials');
-            return 4; // Ultra-safe limit for PBR materials + loaded 3D models (was 6, still caused errors)
+            return 3; // Ultra-safe limit for PBR materials + loaded 3D models + mirror ball (reduced from 4)
         }
     }
 
@@ -198,6 +221,12 @@ class VRClub {
         // Create scene with hyperrealistic atmosphere
         this.scene = new BABYLON.Scene(this.engine);
         this.scene.clearColor = new BABYLON.Color3(0.01, 0.01, 0.02); // Very dark club atmosphere
+        
+        // Set scene reference in material factory
+        this.materialFactory.scene = this.scene;
+        
+        // Initialize light factory
+        this.lightFactory = new LightFactory(this.scene);
         
         // Load environment for PBR reflections
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
@@ -325,6 +354,7 @@ class VRClub {
         this.createLasers();
         this.createLights();
         this.createTrussMountedLights();
+        this.createMirrorBall(); // Add disco/mirror ball with spotlight
         
         // VOLUMETRIC FOG SYSTEM - DISABLED for performance (can re-enable later)
         // this.createVolumetricFog();
@@ -560,11 +590,7 @@ class VRClub {
         this.floorMesh = floor;
         
         // Industrial concrete floor with PBR - worn and realistic
-        const floorMat = new BABYLON.PBRMetallicRoughnessMaterial("floorMat", this.scene);
-        floorMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.27); // Concrete gray
-        floorMat.metallic = 0.0; // Not metallic at all
-        floorMat.roughness = 0.9; // Very rough, matte concrete
-        floorMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
+        const floorMat = this.materialFactory.getPreset('floor');
         
         // Apply downloaded concrete textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
@@ -590,11 +616,7 @@ class VRClub {
 
     createWalls() {
         // PBR material for walls
-        const wallMat = new BABYLON.PBRMetallicRoughnessMaterial("wallMat", this.scene);
-        wallMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.08);
-        wallMat.metallic = 0.1;
-        wallMat.roughness = 0.9; // Rough industrial surface
-        wallMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
+        const wallMat = this.materialFactory.getPreset('wall');
         
         // Apply downloaded concrete wall textures if available
         if (this.concreteTextures && this.concreteTextures.walls) {
@@ -640,25 +662,13 @@ class VRClub {
         // Create exposed brick sections, pipes, conduits, and graffiti for authentic warehouse feel
         
         // Exposed brick material - old red brick
-        const brickMat = new BABYLON.PBRMetallicRoughnessMaterial("brickMat", this.scene);
-        brickMat.baseColor = new BABYLON.Color3(0.4, 0.15, 0.1); // Rusty red brick
-        brickMat.metallic = 0;
-        brickMat.roughness = 1;
-        brickMat.maxSimultaneousLights = this.maxLights;
+        const brickMat = this.materialFactory.getPreset('brick');
         
         // Concrete pillar material
-        const pillarMat = new BABYLON.PBRMetallicRoughnessMaterial("pillarMat", this.scene);
-        pillarMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.32);
-        pillarMat.metallic = 0;
-        pillarMat.roughness = 0.95;
-        pillarMat.maxSimultaneousLights = this.maxLights;
+        const pillarMat = this.materialFactory.getPreset('pillar');
         
         // Metal pipe material
-        const pipeMat = new BABYLON.PBRMetallicRoughnessMaterial("pipeMat", this.scene);
-        pipeMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.22);
-        pipeMat.metallic = 0.8;
-        pipeMat.roughness = 0.6;
-        pipeMat.maxSimultaneousLights = this.maxLights;
+        const pipeMat = this.materialFactory.getPreset('pipe');
         
         // Add concrete support pillars along walls
         const pillarPositions = [
@@ -736,11 +746,7 @@ class VRClub {
         ceiling.position = new BABYLON.Vector3(0, 10, -10);
         
         // Industrial concrete/metal ceiling
-        const ceilingMat = new BABYLON.PBRMetallicRoughnessMaterial("ceilingMat", this.scene);
-        ceilingMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.17); // Dark industrial gray
-        ceilingMat.metallic = 0.2;
-        ceilingMat.roughness = 0.8;
-        ceilingMat.maxSimultaneousLights = this.maxLights; // Device-specific: Quest=24, Mobile=16, Desktop=12
+        const ceilingMat = this.materialFactory.getPreset('ceiling');
         
         // Apply downloaded concrete ceiling textures if available
         if (this.concreteTextures && this.concreteTextures.ceiling) {
@@ -756,16 +762,10 @@ class VRClub {
 
     createLightingTruss() {
         // Professional stage truss material - metallic aluminum
-        const trussMat = new BABYLON.PBRMetallicRoughnessMaterial("trussMat", this.scene);
-        trussMat.baseColor = new BABYLON.Color3(0.6, 0.6, 0.65); // Aluminum color
-        trussMat.metallic = 1.0; // Fully metallic
-        trussMat.roughness = 0.3; // Somewhat shiny
+        const trussMat = this.materialFactory.getPreset('truss');
         
         // Darker material for diagonal bracing
-        const braceMat = new BABYLON.PBRMetallicRoughnessMaterial("braceMat", this.scene);
-        braceMat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.55);
-        braceMat.metallic = 1.0;
-        braceMat.roughness = 0.4;
+        const braceMat = this.materialFactory.getPreset('brace');
         
         // Main horizontal truss beams (square tube) - make them triangular truss
         const tubeSize = 0.05; // Individual tube diameter
@@ -897,11 +897,7 @@ class VRClub {
         }, this.scene);
         platform.position = new BABYLON.Vector3(0, 0.25, -24);
         
-        const platformMat = new BABYLON.PBRMetallicRoughnessMaterial("platformMat", this.scene);
-        platformMat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.03);
-        platformMat.metallic = 0.95;
-        platformMat.roughness = 0.15;
-        platformMat.maxSimultaneousLights = this.maxLights;
+        const platformMat = this.materialFactory.getPreset('platform');
         platform.material = platformMat;
         platform.receiveShadows = true;
         
@@ -913,19 +909,12 @@ class VRClub {
         }, this.scene);
         platformTop.position = new BABYLON.Vector3(0, 0.51, -24);
         
-        const topMat = new BABYLON.PBRMetallicRoughnessMaterial("platformTopMat", this.scene);
-        topMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        topMat.metallic = 0.1;
-        topMat.roughness = 0.95;
-        topMat.maxSimultaneousLights = this.maxLights;
+        const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
         platformTop.receiveShadows = true;
         
         // Front safety rail
-        const railMat = new BABYLON.PBRMetallicRoughnessMaterial("railMat", this.scene);
-        railMat.baseColor = new BABYLON.Color3(0.7, 0.7, 0.75);
-        railMat.metallic = 1.0;
-        railMat.roughness = 0.3;
+        const railMat = this.materialFactory.getPreset('rail');
         
         const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
             width: 9,
@@ -943,17 +932,11 @@ class VRClub {
         }, this.scene);
         djTable.position = new BABYLON.Vector3(0, 0.8, -23);
         
-        const tableMat = new BABYLON.PBRMetallicRoughnessMaterial("tableMat", this.scene);
-        tableMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
-        tableMat.metallic = 0.9;
-        tableMat.roughness = 0.2;
+        const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
         
         // === CDJ DECKS ===
-        const cdjMat = new BABYLON.PBRMetallicRoughnessMaterial("cdjMat", this.scene);
-        cdjMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
-        cdjMat.metallic = 0.85;
-        cdjMat.roughness = 0.3;
+        const cdjMat = this.materialFactory.getPreset('cdjBody');
         
         // Left CDJ
         const leftCDJ = BABYLON.MeshBuilder.CreateBox("leftCDJ", {
@@ -970,9 +953,7 @@ class VRClub {
             height: 0.04
         }, this.scene);
         leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -23);
-        const jogMat = new BABYLON.StandardMaterial("jogMat", this.scene);
-        jogMat.emissiveColor = new BABYLON.Color3(0, 0.6, 0.3);
-        jogMat.disableLighting = true;
+        const jogMat = this.materialFactory.getPreset('jogWheel');
         leftJog.material = jogMat;
         
         // Right CDJ
@@ -999,7 +980,7 @@ class VRClub {
             depth: 0.9
         }, this.scene);
         mixer.position = new BABYLON.Vector3(0, 0.89, -23);
-        mixer.material = cdjMat;
+        mixer.material = cdjMat; // Reuse CDJ material for mixer body
         
         // Mixer display (facing DJ)
         const mixerDisplay = BABYLON.MeshBuilder.CreatePlane("mixerDisplay", {
@@ -1100,11 +1081,27 @@ class VRClub {
                 x: 4.3
             },
             { 
+                label: "DISCO BALL", 
+                control: "mirrorBallActive",
+                onColor: new BABYLON.Color3(1, 1, 0),
+                offColor: new BABYLON.Color3(0.2, 0.2, 0),
+                x: 2.8,
+                row2: true
+            },
+            { 
+                label: "BALL COLOR", 
+                control: "changeMirrorBallColor",
+                onColor: new BABYLON.Color3(1, 1, 1), // White - changes to current color
+                offColor: new BABYLON.Color3(0.3, 0.3, 0.3),
+                x: 3.3,
+                row2: true
+            },
+            { 
                 label: "NEXT COLOR", 
                 control: "changeColor",
                 onColor: new BABYLON.Color3(0.5, 1, 0.5),
                 offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
-                x: 2.8,
+                x: 3.8,
                 row2: true
             },
             { 
@@ -1112,7 +1109,7 @@ class VRClub {
                 control: "cycleSpotMode",
                 onColor: new BABYLON.Color3(0, 1, 1), // Cyan
                 offColor: new BABYLON.Color3(0, 0.3, 0.3), // Dark cyan
-                x: 3.3,
+                x: 4.3,
                 row2: true
             }
         ];
@@ -1192,12 +1189,7 @@ class VRClub {
         sub.checkCollisions = true;
         
         // Sub grille - visible speaker cone area with emissive glow
-        const grillMat = new BABYLON.PBRMetallicRoughnessMaterial("grillMat" + xPos, this.scene);
-        grillMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Brighter gray (was 0.2)
-        grillMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); // Glow for visibility
-        grillMat.metallic = 0.6;
-        grillMat.roughness = 0.4;
-        grillMat.maxSimultaneousLights = this.maxLights;
+        const grillMat = this.materialFactory.getPreset('speakerGrill');
         grillMat.alpha = 1.0; // Fully opaque
         grillMat.transparencyMode = null; // No transparency
         
@@ -1238,12 +1230,7 @@ class VRClub {
         }, this.scene);
         horn.position = new BABYLON.Vector3(xPos, 5.4, zPos + 1.15);
         horn.rotation.x = Math.PI / 2;
-        const hornMat = new BABYLON.PBRMetallicRoughnessMaterial("hornMat" + xPos, this.scene);
-        hornMat.baseColor = new BABYLON.Color3(0.7, 0.7, 0.7); // Brighter metal (was 0.6)
-        hornMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); // Glow for visibility
-        hornMat.metallic = 0.9;
-        hornMat.roughness = 0.2;
-        hornMat.maxSimultaneousLights = this.maxLights;
+        const hornMat = this.materialFactory.getPreset('speakerHorn');
         hornMat.alpha = 1.0; // Fully opaque
         hornMat.transparencyMode = null; // No transparency
         horn.material = hornMat;
@@ -1264,6 +1251,7 @@ class VRClub {
         ledLight.diffuse = new BABYLON.Color3(0, 1, 0);
         ledLight.intensity = 2;
         ledLight.range = 5;
+        ledLight.setEnabled(false); // Start disabled - PA speaker lights not needed initially
         
         console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m`);
     }
@@ -1306,6 +1294,7 @@ class VRClub {
                     backLight.diffuse = new BABYLON.Color3(0.5, 0, 0);
                     backLight.intensity = 0.5; // Very subtle
                     backLight.range = 3;
+                    backLight.setEnabled(false); // Start disabled
                 }
                 
                 this.ledPanels.push({
@@ -1359,42 +1348,49 @@ class VRClub {
         consoleBase.position = new BABYLON.Vector3(3, 0.8, -24);
         consoleBase.material = consoleMat;
         
-        // === 5 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
+        // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
         const toggleButtons = [
             { 
                 label: "SPOTS", 
                 control: "lightsActive",
                 onColor: new BABYLON.Color3(1, 0.5, 0),
                 offColor: new BABYLON.Color3(0.2, 0.1, 0),
-                x: 2.2
+                x: 2.0
             },
             { 
                 label: "LASERS", 
                 control: "lasersActive",
                 onColor: new BABYLON.Color3(1, 0, 0),
                 offColor: new BABYLON.Color3(0.2, 0, 0),
-                x: 2.7
+                x: 2.5
             },
             { 
                 label: "LED WALL", 
                 control: "ledWallActive",
                 onColor: new BABYLON.Color3(0, 0.5, 1),
                 offColor: new BABYLON.Color3(0, 0.1, 0.2),
-                x: 3.2
+                x: 3.0
             },
             { 
                 label: "STROBES", 
                 control: "strobesActive",
                 onColor: new BABYLON.Color3(1, 1, 1),
                 offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
-                x: 3.7
+                x: 3.5
+            },
+            { 
+                label: "MIRROR BALL", 
+                control: "mirrorBallActive",
+                onColor: new BABYLON.Color3(1, 1, 0),
+                offColor: new BABYLON.Color3(0.2, 0.2, 0),
+                x: 4.0
             },
             { 
                 label: "NEXT COLOR", 
                 control: "changeColor",
                 onColor: new BABYLON.Color3(0.5, 1, 0.5),
                 offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
-                x: 4.2
+                x: 4.5
             }
         ];
         
@@ -1465,6 +1461,7 @@ class VRClub {
             stripLight.diffuse = new BABYLON.Color3(0, 0.5, 1);
             stripLight.intensity = 2;
             stripLight.range = 3;
+            stripLight.setEnabled(false); // Start disabled - floor strips not needed initially
         }
     }
 
@@ -1472,10 +1469,7 @@ class VRClub {
 
     createTrussMountedLights() {
         // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
-        const lightFixtureMat = new BABYLON.PBRMetallicRoughnessMaterial("lightFixtureMat", this.scene);
-        lightFixtureMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        lightFixtureMat.metallic = 0.9;
-        lightFixtureMat.roughness = 0.2;
+        const lightFixtureMat = this.materialFactory.getPreset('lightFixture');
         
         // Array of light positions on truss - MATCH spotlight positions exactly
         const lightPositions = [
@@ -1619,6 +1613,7 @@ class VRClub {
             strobeLight.diffuse = new BABYLON.Color3(1, 1, 1);
             strobeLight.intensity = 0; // Off by default
             strobeLight.range = 50; // Increased from 30
+            strobeLight.setEnabled(false); // Start disabled - will be enabled when strobesActive = true
             
             this.strobes.push({ 
                 mesh: strobe, 
@@ -1700,11 +1695,12 @@ class VRClub {
             }
             housing.isPickable = false;
             
-            const housingMat = new BABYLON.PBRMetallicRoughnessMaterial("laserHousingMat" + i, this.scene);
-            housingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-            housingMat.metallic = 0.8;
-            housingMat.roughness = 0.3;
-            housingMat.emissiveColor = new BABYLON.Color3(0.05, 0, 0); // Dimmer red glow (was 0.2)
+            const housingMat = this.materialFactory.createPBRMaterial("laserHousingMat" + i, {
+                baseColor: [0.05, 0.05, 0.05],
+                metallic: 0.8,
+                roughness: 0.3,
+                emissiveColor: [0.05, 0, 0]
+            });
             housing.material = housingMat;
             housing.isPickable = false;
             
@@ -1724,9 +1720,10 @@ class VRClub {
             emitter.rotation.x = Math.PI / 2;
             emitter.isPickable = false;
             
-            const emitterMat = new BABYLON.StandardMaterial("laserEmitterMat" + i, this.scene);
-            emitterMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red
-            emitterMat.disableLighting = true;
+            const emitterMat = this.materialFactory.createStandardMaterial("laserEmitterMat" + i, {
+                emissiveColor: [1, 0, 0],
+                disableLighting: true
+            });
             emitterMat.backFaceCulling = false;
             emitter.material = emitterMat;
             emitter.renderingGroupId = 2; // Render on top for visibility
@@ -1748,6 +1745,7 @@ class VRClub {
                 light.diffuse = new BABYLON.Color3(1, 0, 0);
                 light.intensity = 5;
                 light.range = 20;
+                light.setEnabled(false); // Start disabled
                 lights.push(light);
                 
             } else if (pos.type === 'spread') {
@@ -1764,6 +1762,7 @@ class VRClub {
                     light.diffuse = new BABYLON.Color3(1, 0, 0);
                     light.intensity = 3;
                     light.range = 20;
+                    light.setEnabled(false); // Start disabled
                     lights.push(light);
                 }
                 
@@ -1782,6 +1781,7 @@ class VRClub {
                     light.diffuse = new BABYLON.Color3(1, 0, 0);
                     light.intensity = 2;
                     light.range = 20;
+                    light.setEnabled(false); // Start disabled
                     lights.push(light);
                 }
             }
@@ -1823,11 +1823,12 @@ class VRClub {
         this.colorSwitchTime = 0;
         
         // Lights and lasers control - ALTERNATING PATTERN
-        // Pattern: Lights on for 30s (longer with varied patterns), then Lasers on for 15s
+        // Pattern: Lights → Lasers → Mirror Ball (cycling showcase)
         this.lightModeSwitchTime = 0;
-        this.lightingPhase = 'lights'; // 'lights' or 'lasers'
-        this.lightsPhaseDuration = 30; // Lights show for 30 seconds (LONGER with pattern changes)
-        this.lasersPhaseDuration = 15; // Lasers show for 15 seconds (shorter, more impactful)
+        this.lightingPhase = 'lights'; // 'lights', 'lasers', or 'mirrorball'
+        this.lightsPhaseDuration = 25; // Lights show for 25 seconds
+        this.lasersPhaseDuration = 20; // Lasers show for 20 seconds
+        this.mirrorBallPhaseDuration = 15; // Mirror ball show for 15 seconds (dramatic moment)
         
     }
     
@@ -1915,9 +1916,7 @@ class VRClub {
     createLights() {
         
         // Ambient light - brighter for better visibility in VR and desktop
-        const ambient = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), this.scene);
-        ambient.intensity = 0.15; // Increased from 0.08 for better visibility
-        ambient.diffuse = new BABYLON.Color3(0.15, 0.15, 0.18); // Brighter blue tint
+        this.lightFactory.getPreset('ambient', 'ambient');
         
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
@@ -1960,6 +1959,7 @@ class VRClub {
             spot.diffuse = this.currentSpotColor; // All start with same color
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
+            spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
             
             // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor
             // When cylinder points DOWN, its +Y local axis points toward floor
@@ -2179,6 +2179,7 @@ class VRClub {
         ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
         ledLight.intensity = 10;
         ledLight.range = 25;
+        ledLight.setEnabled(false); // Start disabled - LED wall light controlled by ledWallActive
         
     }
 
@@ -2278,6 +2279,214 @@ class VRClub {
         }
     }
     
+    createMirrorBall() {
+        // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
+        // Professional mirror ball suspended from center truss with dedicated spotlight
+        
+        // Position: Center of middle truss (x:0, y:8, z:-12)
+        const ballPosition = new BABYLON.Vector3(0, 6.5, -12); // Hanging 1.5m below truss
+        const trussPosition = new BABYLON.Vector3(0, 8, -12);
+        
+        // === MIRROR BALL SPHERE ===
+        const mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
+            diameter: 1.2, // Professional club-size mirror ball
+            segments: 32   // High detail for reflections
+        }, this.scene);
+        mirrorBall.position = ballPosition;
+        
+        // Highly reflective material with FACETED appearance (like real disco balls)
+        const mirrorBallMat = new BABYLON.PBRMetallicRoughnessMaterial("mirrorBallMat", this.scene);
+        mirrorBallMat.baseColor = new BABYLON.Color3(0.95, 0.95, 0.95); // Bright silver
+        mirrorBallMat.metallic = 1.0;  // Fully metallic
+        mirrorBallMat.roughness = 0.15; // Increased roughness for faceted mirror appearance (was 0.05)
+        mirrorBallMat.reflectivityColor = new BABYLON.Color3(1, 1, 1);
+        mirrorBallMat.maxSimultaneousLights = this.maxLights;
+        
+        // Use environment reflection for realistic mirror effect
+        if (this.scene.environmentTexture) {
+            mirrorBallMat.environmentIntensity = 1.8; // Stronger reflections for more sparkle
+        }
+        
+        // Add bump map for faceted appearance (using vertex normals)
+        // This makes it look like many small square mirrors instead of one smooth sphere
+        mirrorBall.convertToFlatShadedMesh(); // Creates hard edges between faces = disco ball facets!
+        
+        mirrorBall.material = mirrorBallMat;
+        mirrorBall.isPickable = false;
+        
+        // === HANGING CABLE/CHAIN ===
+        const cable = BABYLON.MeshBuilder.CreateCylinder("mirrorBallCable", {
+            diameter: 0.02,
+            height: 1.5, // Distance from truss to ball
+            tessellation: 8
+        }, this.scene);
+        cable.position = new BABYLON.Vector3(0, 7.25, -12); // Midpoint between truss and ball
+        
+        const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
+            baseColor: [0.1, 0.1, 0.1],
+            metallic: 0.7,
+            roughness: 0.4
+        });
+        cable.material = cableMat;
+        cable.isPickable = false;
+        
+        // === MULTIPLE SPOTLIGHTS FOR MIRROR BALL (Professional disco ball setup) ===
+        // Strategy: Use 1 main spotlight + visual beams from multiple angles
+        // Why: GPU uniform buffer limits prevent multiple real SpotLights with PBR materials
+        this.mirrorBallSpotlights = [];
+        this.mirrorBallBeams = [];
+        this.mirrorBallHousings = [];
+        
+        const spotlightConfigs = [
+            { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right", isRealLight: true },  // Only this one is a real light
+            { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "Front-Left", isRealLight: false }, // Visual only
+            { pos: new BABYLON.Vector3(0, 7.5, -16), name: "Back-Center", isRealLight: false } // Visual only
+        ];
+        
+        spotlightConfigs.forEach((config, index) => {
+            const direction = ballPosition.subtract(config.pos).normalize();
+            
+            // Create real spotlight only for the main one
+            if (config.isRealLight) {
+                const spotlight = new BABYLON.SpotLight(
+                    `mirrorBallSpotlight${index}`,
+                    config.pos,
+                    direction,
+                    Math.PI / 6,  // Wider beam to cover ball from one angle
+                    8,            // Softer falloff
+                    this.scene
+                );
+                spotlight.diffuse = this.mirrorBallSpotlightColor.clone();
+                spotlight.intensity = 150; // Very bright since it's the only real light
+                spotlight.range = 35;
+                spotlight.setEnabled(false);
+                this.mirrorBallSpotlights.push(spotlight);
+            } else {
+                // Fake spotlight (visual only, no actual light)
+                this.mirrorBallSpotlights.push(null);
+            }
+            
+            // Physical housing with emissive glow (all positions)
+            const housing = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotHousing${index}`, {
+                diameter: 0.5,
+                height: 0.7,
+                tessellation: 16
+            }, this.scene);
+            housing.position = config.pos.clone();
+            
+            // Calculate rotation to point at ball
+            const housingDirection = ballPosition.subtract(config.pos).normalize();
+            const targetQuat = BABYLON.Quaternion.FromLookDirectionLH(housingDirection, BABYLON.Vector3.Up());
+            housing.rotationQuaternion = targetQuat;
+            
+            const housingMat = new BABYLON.StandardMaterial(`mirrorHousingMat${index}`, this.scene);
+            housingMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
+            housingMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            housing.material = housingMat;
+            housing.isPickable = false;
+            
+            // Add lens/bulb at front of housing for realism
+            const lens = BABYLON.MeshBuilder.CreateSphere(`mirrorSpotLens${index}`, {
+                diameter: 0.3,
+                segments: 16
+            }, this.scene);
+            lens.position = config.pos.add(housingDirection.scale(0.35)); // Slightly forward
+            
+            const lensMat = new BABYLON.StandardMaterial(`mirrorLensMat${index}`, this.scene);
+            lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow with color when active
+            lensMat.disableLighting = true;
+            lens.material = lensMat;
+            lens.isPickable = false;
+            
+            this.mirrorBallHousings.push({ 
+                mesh: housing, 
+                material: housingMat,
+                lens: lens,
+                lensMaterial: lensMat
+            });
+            
+            // Visible volumetric beam from all positions (dramatic effect)
+            const beamLength = BABYLON.Vector3.Distance(config.pos, ballPosition);
+            const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotBeam${index}`, {
+                diameterTop: 1.4,     // Wide at ball
+                diameterBottom: 0.3,  // Narrow at source
+                height: beamLength,
+                tessellation: 16,
+                cap: BABYLON.Mesh.NO_CAP
+            }, this.scene);
+            
+            // Position and rotate beam
+            const beamMidpoint = BABYLON.Vector3.Center(config.pos, ballPosition);
+            beam.position = beamMidpoint;
+            
+            const beamRotationAxis = BABYLON.Vector3.Cross(BABYLON.Vector3.Up(), direction);
+            const beamRotationAngle = Math.acos(BABYLON.Vector3.Dot(BABYLON.Vector3.Up(), direction));
+            beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
+            
+            const beamMat = new BABYLON.StandardMaterial(`mirrorSpotBeamMat${index}`, this.scene);
+            beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
+            beamMat.alpha = 0.3; // More visible for dramatic effect
+            beamMat.disableLighting = true;
+            beam.material = beamMat;
+            beam.isPickable = false;
+            beam.setEnabled(false);
+            
+            this.mirrorBallBeams.push({ mesh: beam, material: beamMat });
+        });
+        
+        // === REFLECTION SPOTS (Simulated light spots from mirror facets) ===
+        // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
+        // These are purely emissive meshes that create the illusion of reflections
+        // REALISTIC DISCO BALL: Spots should cover ENTIRE room in all directions
+        this.mirrorReflectionSpots = [];
+        const numSpots = 200; // Massive increase for full room coverage (was 120)
+        
+        for (let i = 0; i < numSpots; i++) {
+            // Visual spot on walls/floor/ceiling (emissive disc - looks like light reflection)
+            // Use discs instead of spheres for more authentic "projected light spot" appearance
+            const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${i}`, {
+                radius: 0.15 + Math.random() * 0.1, // Varying sizes (0.15-0.25m) like real reflections
+                tessellation: 8
+            }, this.scene);
+            spot.position = new BABYLON.Vector3(0, 0, 0); // Will be updated
+            
+            const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${i}`, this.scene);
+            spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone(); // Match spotlight color
+            spotMat.alpha = 0.8 + Math.random() * 0.2; // Varying transparency (0.8-1.0)
+            spotMat.disableLighting = true;
+            spot.material = spotMat;
+            spot.isPickable = false;
+            spot.setEnabled(false); // Start disabled
+            
+            // Calculate initial 3D position in SPHERICAL COORDINATES (full 360° coverage)
+            // This ensures spots are distributed all around the ball, not just in front
+            const theta = Math.random() * Math.PI * 2;        // Azimuth angle (0-360°)
+            const phi = Math.random() * Math.PI;              // Polar angle (0-180°)
+            const radius = 8 + Math.random() * 6;             // Distance from ball (8-14m)
+            
+            this.mirrorReflectionSpots.push({
+                visual: spot,
+                material: spotMat,
+                // Spherical coordinates for full 3D rotation around ball
+                theta: theta,           // Horizontal angle
+                phi: phi,               // Vertical angle  
+                radius: radius,         // Distance from ball
+                thetaSpeed: (Math.random() - 0.5) * 0.6,  // Horizontal rotation speed (-0.3 to +0.3)
+                phiSpeed: (Math.random() - 0.5) * 0.4,    // Vertical rotation speed (-0.2 to +0.2)
+                baseIntensity: 0.6 + Math.random() * 0.6, // Brightness (0.6-1.2)
+                twinkleSpeed: 2 + Math.random() * 3,      // How fast it twinkles (2-5)
+                twinklePhase: Math.random() * Math.PI * 2 // Random starting phase
+            });
+        }
+        
+        // Store references for animation and color updates
+        this.mirrorBall = mirrorBall;
+        this.mirrorBallRotation = 0; // Track rotation for animation
+        
+        console.log('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
+    }
+    
     resetFogToNeutral() {
         // Return fog to neutral white/gray when no lights are active (SUBTLE HAZE)
         if (this.fogSystems[0]) {
@@ -2303,22 +2512,181 @@ class VRClub {
         // Get audio data for reactive lighting
         const audioData = this.getAudioData();
         
-        // ALTERNATING PATTERN: Lights and Lasers don't mix
-        // Lights: 15 seconds, Lasers: 25 seconds (longer but less frequent)
-        if (time - this.lightModeSwitchTime > (this.lightingPhase === 'lights' ? this.lightsPhaseDuration : this.lasersPhaseDuration)) {
-            // Switch phases
+        // === MIRROR BALL EFFECT ===
+        if (this.mirrorBallActive) {
+            // Turn OFF all other lights and LED wall when mirror ball is active
+            this.lightsActive = false;
+            this.lasersActive = false;
+            this.ledWallActive = false;
+            
+            // Disable spotlight beams
+            if (this.spotlights) {
+                this.spotlights.forEach(spot => {
+                    if (spot.spot) spot.spot.setEnabled(false);
+                    if (spot.beam) spot.beam.setEnabled(false);
+                });
+            }
+            
+            // Disable lasers (each laser has multiple lights in 'lights' array)
+            if (this.lasers) {
+                this.lasers.forEach(laser => {
+                    laser.lights.forEach(light => light.setEnabled(false)); // Disable all lights in array
+                    laser.beams.forEach(beam => {
+                        beam.mesh.setEnabled(false);      // Main beam cylinder
+                        beam.beamGlow.setEnabled(false);  // Glow halo
+                        beam.hitSpot.setEnabled(false);   // Floor hit spot
+                    });
+                });
+            }
+            
+            // Disable strobes
+            if (this.strobes) {
+                this.strobes.forEach(strobe => {
+                    if (strobe.light) strobe.light.setEnabled(false);
+                    if (strobe.material) strobe.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                });
+            }
+            
+            // Turn off LED wall
+            if (this.ledPanels) {
+                this.ledPanels.forEach(panel => {
+                    panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                });
+            }
+            
+            // Enable all mirror ball spotlights and beams
+            if (this.mirrorBallSpotlights) {
+                this.mirrorBallSpotlights.forEach(light => {
+                    if (light) light.setEnabled(true); // Only enable real lights (not nulls)
+                });
+            }
+            if (this.mirrorBallBeams) {
+                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
+            }
+            if (this.mirrorBallHousings) {
+                this.mirrorBallHousings.forEach(housing => {
+                    // Make housings and lenses glow with current color
+                    housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.3);
+                    housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                });
+            };
+            
+            // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
+            if (this.mirrorBall) {
+                this.mirrorBallRotation += 0.015; // Faster rotation (was 0.005) - 3x faster for visible spin
+                this.mirrorBall.rotation.y = this.mirrorBallRotation;
+            }
+            
+            // Animate reflection spots around the room (200 spots in full 3D space)
+            if (this.mirrorReflectionSpots) {
+                const ballPos = this.mirrorBall.position;
+                
+                this.mirrorReflectionSpots.forEach((spot, i) => {
+                    // Enable visual spot (no actual light - just emissive mesh)
+                    spot.visual.setEnabled(true);
+                    
+                    // Update spherical coordinates (rotate around ball in 3D)
+                    spot.theta += spot.thetaSpeed * 0.016; // Horizontal rotation
+                    spot.phi += spot.phiSpeed * 0.016;     // Vertical rotation
+                    
+                    // Keep phi in valid range (0 to PI)
+                    if (spot.phi < 0) spot.phi = 0;
+                    if (spot.phi > Math.PI) spot.phi = Math.PI;
+                    
+                    // Convert spherical coordinates to Cartesian (x, y, z)
+                    // This creates spots ALL AROUND the ball (360° coverage)
+                    const x = ballPos.x + spot.radius * Math.sin(spot.phi) * Math.cos(spot.theta);
+                    const y = ballPos.y + spot.radius * Math.cos(spot.phi);
+                    const z = ballPos.z + spot.radius * Math.sin(spot.phi) * Math.sin(spot.theta);
+                    
+                    // Clamp to room bounds
+                    const clampedX = Math.max(-14, Math.min(14, x));
+                    const clampedY = Math.max(0.05, Math.min(7.9, y)); // Floor to ceiling
+                    const clampedZ = Math.max(-26, Math.min(2, z));
+                    
+                    spot.visual.position.set(clampedX, clampedY, clampedZ);
+                    
+                    // Orient disc to face the ball (like a projected light spot on a surface)
+                    const directionToBall = ballPos.subtract(spot.visual.position).normalize();
+                    spot.visual.lookAt(ballPos);
+                    
+                    // Twinkling effect - each spot independently sparkles
+                    const twinkle = Math.sin(time * spot.twinkleSpeed + spot.twinklePhase);
+                    const brightness = spot.baseIntensity + twinkle * 0.3;
+                    spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.2, brightness));
+                    
+                    // Fade out spots near room boundaries for realistic falloff
+                    const distFromCenter = Math.abs(clampedX) / 14 + Math.abs(clampedZ + 12) / 14;
+                    spot.material.alpha = Math.max(0.3, 1 - distFromCenter * 0.3);
+                });
+            }
+        } else {
+            // Mirror ball inactive - disable all mirror ball elements
+            if (this.mirrorBallSpotlights) {
+                this.mirrorBallSpotlights.forEach(light => {
+                    if (light) light.setEnabled(false); // Check for null (fake lights)
+                });
+            }
+            if (this.mirrorBallBeams) {
+                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(false));
+            }
+            if (this.mirrorBallHousings) {
+                this.mirrorBallHousings.forEach(housing => {
+                    housing.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    housing.lensMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                });
+            }
+            if (this.mirrorReflectionSpots) {
+                this.mirrorReflectionSpots.forEach(spot => {
+                    spot.visual.setEnabled(false);
+                });
+            }
+        }
+        
+        // AUTOMATIC CYCLING PATTERN: Lights → Lasers → Mirror Ball
+        // Determine phase duration based on current phase
+        let currentPhaseDuration;
+        if (this.lightingPhase === 'lights') {
+            currentPhaseDuration = this.lightsPhaseDuration;
+        } else if (this.lightingPhase === 'lasers') {
+            currentPhaseDuration = this.lasersPhaseDuration;
+        } else if (this.lightingPhase === 'mirrorball') {
+            currentPhaseDuration = this.mirrorBallPhaseDuration;
+        }
+        
+        if (time - this.lightModeSwitchTime > currentPhaseDuration) {
+            // Cycle through phases: lights → lasers → mirrorball → lights
             if (this.lightingPhase === 'lights') {
                 this.lightingPhase = 'lasers';
                 this.lightsActive = false;
                 this.lasersActive = true;
-
+                this.mirrorBallActive = false;
+                console.log('🎪 Phase: LASERS');
+                
+            } else if (this.lightingPhase === 'lasers') {
+                this.lightingPhase = 'mirrorball';
+                this.lightsActive = false;
+                this.lasersActive = false;
+                this.mirrorBallActive = true;
+                console.log('🪩 Phase: MIRROR BALL');
+                
             } else {
                 this.lightingPhase = 'lights';
                 this.lightsActive = true;
                 this.lasersActive = false;
-
+                this.mirrorBallActive = false;
+                console.log('💡 Phase: SPOTLIGHTS');
             }
             this.lightModeSwitchTime = time;
+            
+            // Update VJ control button visuals to reflect state
+            if (this.vjControlButtons) {
+                this.vjControlButtons.forEach(btn => {
+                    if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || btn.control === 'mirrorBallActive') {
+                        btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
+                    }
+                });
+            }
         }
         
         // Update LED wall (with audio reactivity) - respects ledWallActive control
@@ -3141,13 +3509,27 @@ class VRClub {
         patterns[this.ledPattern].call(this, colors[this.ledColorIndex], time, audioData);
     }
 
+    /**
+     * Helper method to update LED panel emissive colors
+     * Reduces code duplication across pattern methods
+     */
+    updateLEDPanel(panel, color, brightness) {
+        if (brightness === 0) {
+            panel.material.emissiveColor = this.cachedColors.black;
+        } else if (brightness === 1) {
+            panel.material.emissiveColor = color;
+        } else {
+            panel.material.emissiveColor = color.scale(brightness);
+        }
+    }
+
     patternWaveHorizontal(color, time, audioData) {
         // AUDIO REACTIVE: Speed increases with bass
         const speed = 3 + (audioData ? audioData.bass * 3 : 0);
         this.ledPanels.forEach(panel => {
             // Reduced range for better contrast: 0.1 to 0.5
             const brightness = 0.1 + 0.4 * Math.sin(panel.col * 0.8 + this.ledTime * speed);
-            panel.material.emissiveColor = color.scale(brightness);
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
 
@@ -3157,7 +3539,7 @@ class VRClub {
         this.ledPanels.forEach(panel => {
             // Reduced range for better contrast: 0.1 to 0.5
             const brightness = 0.1 + 0.4 * Math.sin(panel.row * 0.8 + this.ledTime * speed);
-            panel.material.emissiveColor = color.scale(brightness);
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
 
@@ -3270,11 +3652,7 @@ class VRClub {
             const isBottomLeft = panel.row >= 4 && panel.col <= 1;
             const isBottomRight = panel.row >= 4 && panel.col >= 8;
             const brightness = (isTopLeft || isTopRight || isBottomLeft || isBottomRight) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
 
@@ -3284,11 +3662,7 @@ class VRClub {
         this.ledPanels.forEach(panel => {
             const diagonalPos = panel.col + panel.row * 1.5;
             const brightness = (diagonalPos < wipePos) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
     
@@ -3629,6 +4003,49 @@ class VRClub {
                         }, 200);
                         
                         console.log(`🎨 Color changed to index ${this.spotColorIndex}`);
+                    } else if (clickedButton.control === "changeMirrorBallColor") {
+                        // Change mirror ball spotlight color - cycle through colors
+                        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
+                        this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
+                        
+                        // Update all spotlight colors (only real lights, skip nulls)
+                        if (this.mirrorBallSpotlights) {
+                            this.mirrorBallSpotlights.forEach(light => {
+                                if (light) light.diffuse = this.mirrorBallSpotlightColor.clone();
+                            });
+                        }
+                        
+                        // Update all beam colors
+                        if (this.mirrorBallBeams) {
+                            this.mirrorBallBeams.forEach(beam => {
+                                beam.material.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                            });
+                        }
+                        
+                        // Update housing and lens glow colors
+                        if (this.mirrorBallHousings) {
+                            this.mirrorBallHousings.forEach(housing => {
+                                housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.3);
+                                housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                            });
+                        }
+                        
+                        // Update reflection spot colors (visual only, no lights)
+                        if (this.mirrorReflectionSpots) {
+                            this.mirrorReflectionSpots.forEach(spot => {
+                                // Color will be applied in animation loop with shimmer effect
+                                // Just store the base material reference
+                            });
+                        }
+                        
+                        // Flash button with current color
+                        clickedButton.material.emissiveColor = this.mirrorBallSpotlightColor;
+                        setTimeout(() => {
+                            clickedButton.material.emissiveColor = clickedButton.offColor;
+                        }, 300);
+                        
+                        const colorNames = ["White", "Red", "Blue", "Green", "Magenta", "Yellow", "Cyan", "Orange", "Purple"];
+                        console.log(`🪩 Mirror ball color: ${colorNames[this.mirrorBallColorIndex]}`);
                     } else if (clickedButton.control === "cycleSpotMode") {
                         // Cycle through spotlight modes: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
                         this.spotlightMode = (this.spotlightMode + 1) % 4;
