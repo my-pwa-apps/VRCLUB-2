@@ -80,22 +80,22 @@ class TextureLoader {
     }
 
     getTextureConfigs() {
-        // High-quality industrial concrete textures from Polyhaven CDN
+        // High-quality textures from Polyhaven CDN
         // Using 2K resolution for good quality without excessive loading times
         const baseUrl = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k';
         
         return {
             floor: {
-                name: 'Polished Concrete Floor',
-                // Polished concrete with subtle wear marks - perfect for dance floor
-                baseUrl: `${baseUrl}/concrete_floor_worn_001`,
+                name: 'Industrial Concrete Floor',
+                // Raw industrial concrete - perfect for nightclub floor (reuse wall texture with different scale)
+                baseUrl: `${baseUrl}/concrete_wall_001`,
                 maps: {
-                    diffuse: 'concrete_floor_worn_001_diff_2k.jpg',
-                    normal: 'concrete_floor_worn_001_nor_gl_2k.jpg',
-                    roughness: 'concrete_floor_worn_001_rough_2k.jpg',
-                    ao: 'concrete_floor_worn_001_ao_2k.jpg'
+                    diffuse: 'concrete_wall_001_diff_2k.jpg',
+                    normal: 'concrete_wall_001_nor_gl_2k.jpg',
+                    roughness: 'concrete_wall_001_rough_2k.jpg',
+                    ao: 'concrete_wall_001_ao_2k.jpg'
                 },
-                scale: { u: 4, v: 4 } // Repeat 4x for large floor
+                scale: { u: 8, v: 8 } // Repeat 8x for large floor with finer detail
             },
             walls: {
                 name: 'Industrial Concrete Walls',
