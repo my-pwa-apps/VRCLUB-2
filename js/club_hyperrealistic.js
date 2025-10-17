@@ -3421,9 +3421,16 @@ class VRClub {
                     dirZ = 0;
                     
                 } else if (this.spotlightPattern === 2) {
-                    // PATTERN 2: SYNCHRONIZED SWEEP - All lights sweep left to right together
+                    // PATTERN 2: MIRROR SWEEP - Left and right sides sweep toward/away from each other
                     const sweepPhase = globalPhase * speedMultiplier;
-                    dirX = Math.sin(sweepPhase * 0.8) * 0.6; // Smooth left-right sweep
+                    const sweepValue = Math.sin(sweepPhase * 0.8) * 0.6; // -0.6 to +0.6
+                    
+                    // Mirror the sweep based on which side the spotlight is on
+                    // Left side (i=0,1,2): sweep normally (left to right)
+                    // Right side (i=3,4,5): sweep inverted (right to left)
+                    // This creates converging/diverging effect
+                    const isLeftSide = (i < 3); // First 3 are left side
+                    dirX = isLeftSide ? sweepValue : -sweepValue; // Mirror for right side
                     dirZ = -0.3; // Slight forward angle toward dance floor
                     
                 } else {
@@ -3731,28 +3738,31 @@ class VRClub {
                             // Atmospheric shimmer (audio disabled)
                             const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1;
                             
-                            // Reuse floor intersection point
-                            const poolPosition = floorIntersection;
+                            // Use floor intersection point where beam actually hits
+                            // Each pool layer needs its own y-offset for proper layering
                             
                             // CORE (bright center hotspot)
-                            poolPosition.y = 0.04;
-                            spot.lightPoolCore.position.copyFrom(poolPosition);
+                            spot.lightPoolCore.position.x = floorIntersection.x;
+                            spot.lightPoolCore.position.y = 0.04;
+                            spot.lightPoolCore.position.z = floorIntersection.z;
                             const coreSize = baseSize * 0.3;
                             spot.lightPoolCore.scaling.set(coreSize, coreSize, 1);
                             spot.lightPoolCore.visibility = 1.0;
                             spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5);
                             
                             // MID GLOW (medium gradient)
-                            poolPosition.y = 0.03;
-                            spot.lightPool.position.copyFrom(poolPosition);
+                            spot.lightPool.position.x = floorIntersection.x;
+                            spot.lightPool.position.y = 0.03;
+                            spot.lightPool.position.z = floorIntersection.z;
                             const midSize = baseSize * 0.7 * atmosphericShimmer;
                             spot.lightPool.scaling.set(midSize, midSize, 1);
                             spot.lightPool.visibility = 0.9;
                             spot.poolMat.emissiveColor = this.currentSpotColor.scale(atmosphericShimmer);
                             
                             // OUTER GLOW (soft falloff)
-                            poolPosition.y = 0.02;
-                            spot.lightPoolGlow.position.copyFrom(poolPosition);
+                            spot.lightPoolGlow.position.x = floorIntersection.x;
+                            spot.lightPoolGlow.position.y = 0.02;
+                            spot.lightPoolGlow.position.z = floorIntersection.z;
                             const glowSize = baseSize * 1.5 * atmosphericShimmer;
                             spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
                             spot.lightPoolGlow.visibility = 0.7;
