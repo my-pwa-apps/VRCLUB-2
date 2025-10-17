@@ -147,7 +147,7 @@ class VRClub {
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
         this.vjManualMode = false;
-        this.VJ_TIMEOUT = 300; // Seconds before resuming automated patterns (5 minutes)
+        this.VJ_TIMEOUT = 3600; // Seconds before resuming automated patterns (60 minutes - longer for live VJ sessions)
         
         // Animation phase tracking for smooth spotlight animations
         this.lastActivePhase = 0; // Initialize phase counter
@@ -3468,10 +3468,10 @@ class VRClub {
             }
         }
         
-        // Check if VJ manual mode should expire (5 minutes of no interaction)
+        // Check if VJ manual mode should expire (60 minutes of no interaction)
         if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
             this.vjManualMode = false;
-            console.log("🤖 Automated patterns resumed - no VJ interaction for 5 minutes");
+            console.log("🤖 Automated patterns resumed - no VJ interaction for 60 minutes");
         }
         
         // Calculate global phase for spotlight patterns (used in multiple places)
@@ -4573,7 +4573,7 @@ class VRClub {
                     if (!isPatternControl) {
                         this.lastVJInteraction = performance.now() / 1000;
                         this.vjManualMode = true;
-                        console.log("🎛️ VJ manual mode: Automated patterns paused for 5 minutes");
+                        console.log("🎛️ VJ manual mode: Automated patterns paused for 60 minutes");
                     }
                     
                     if (clickedButton.control === "changeColor") {
