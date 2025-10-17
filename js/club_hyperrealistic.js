@@ -2440,45 +2440,101 @@ class VRClub {
         // These are purely emissive meshes that create the illusion of reflections
         // REALISTIC DISCO BALL: Spots should cover ENTIRE room in all directions
         this.mirrorReflectionSpots = [];
-        const numSpots = 200; // Massive increase for full room coverage (was 120)
+        const numSpots = 300; // Increased to 300 for better coverage
         
-        for (let i = 0; i < numSpots; i++) {
-            // Visual spot on walls/floor/ceiling (emissive disc - looks like light reflection)
-            // Use discs instead of spheres for more authentic "projected light spot" appearance
-            const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${i}`, {
-                radius: 0.15 + Math.random() * 0.1, // Varying sizes (0.15-0.25m) like real reflections
-                tessellation: 8
-            }, this.scene);
-            spot.position = new BABYLON.Vector3(0, 0, 0); // Will be updated
-            
-            const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${i}`, this.scene);
-            spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone(); // Match spotlight color
-            spotMat.alpha = 0.8 + Math.random() * 0.2; // Varying transparency (0.8-1.0)
-            spotMat.disableLighting = true;
-            spot.material = spotMat;
-            spot.isPickable = false;
-            spot.setEnabled(false); // Start disabled
-            
-            // Calculate initial 3D position in SPHERICAL COORDINATES (full 360° coverage)
-            // This ensures spots are distributed all around the ball, not just in front
-            const theta = Math.random() * Math.PI * 2;        // Azimuth angle (0-360°)
-            const phi = Math.random() * Math.PI;              // Polar angle (0-180°)
-            const radius = 8 + Math.random() * 6;             // Distance from ball (8-14m)
-            
-            this.mirrorReflectionSpots.push({
-                visual: spot,
-                material: spotMat,
-                // Spherical coordinates for full 3D rotation around ball
-                theta: theta,           // Horizontal angle
-                phi: phi,               // Vertical angle  
-                radius: radius,         // Distance from ball
-                thetaSpeed: (Math.random() - 0.5) * 0.6,  // Horizontal rotation speed (-0.3 to +0.3)
-                phiSpeed: (Math.random() - 0.5) * 0.4,    // Vertical rotation speed (-0.2 to +0.2)
-                baseIntensity: 0.6 + Math.random() * 0.6, // Brightness (0.6-1.2)
-                twinkleSpeed: 2 + Math.random() * 3,      // How fast it twinkles (2-5)
-                twinklePhase: Math.random() * Math.PI * 2 // Random starting phase
-            });
-        }
+        // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
+        const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces
+        let spotIndex = 0;
+        
+        const surfaces = [
+            { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02 },
+            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 7.98 },
+            { name: 'leftWall', axis: 'yz', fixed: 'x', value: -14.98 },
+            { name: 'rightWall', axis: 'yz', fixed: 'x', value: 14.98 },
+            { name: 'backWall', axis: 'xy', fixed: 'z', value: -25.98 },
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.98 }
+        ];
+        
+        surfaces.forEach(surface => {
+            for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
+                // Visual spot (emissive disc - looks like light reflection)
+                const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
+                    radius: 0.12 + Math.random() * 0.15, // Varying sizes (0.12-0.27m)
+                    tessellation: 8
+                }, this.scene);
+                
+                const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
+                spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                spotMat.alpha = 0.75 + Math.random() * 0.25; // Varying transparency
+                spotMat.disableLighting = true;
+                spot.material = spotMat;
+                spot.isPickable = false;
+                spot.setEnabled(false);
+                
+                // Generate random position on this surface
+                let targetPos, normal;
+                
+                if (surface.axis === 'xz') { // Floor or ceiling
+                    targetPos = new BABYLON.Vector3(
+                        -14 + Math.random() * 28,  // x: -14 to +14
+                        surface.value,
+                        -25 + Math.random() * 27   // z: -25 to +2
+                    );
+                    normal = surface.name === 'floor' ? 
+                        new BABYLON.Vector3(0, 1, 0) : 
+                        new BABYLON.Vector3(0, -1, 0);
+                        
+                } else if (surface.axis === 'yz') { // Left or right wall
+                    targetPos = new BABYLON.Vector3(
+                        surface.value,
+                        0.2 + Math.random() * 7.6,  // y: 0.2 to 7.8
+                        -25 + Math.random() * 27    // z: -25 to +2
+                    );
+                    normal = surface.name === 'leftWall' ? 
+                        new BABYLON.Vector3(1, 0, 0) : 
+                        new BABYLON.Vector3(-1, 0, 0);
+                        
+                } else { // Back or front wall (xy)
+                    targetPos = new BABYLON.Vector3(
+                        -14 + Math.random() * 28,  // x: -14 to +14
+                        0.2 + Math.random() * 7.6,  // y: 0.2 to 7.8
+                        surface.value
+                    );
+                    normal = surface.name === 'backWall' ? 
+                        new BABYLON.Vector3(0, 0, 1) : 
+                        new BABYLON.Vector3(0, 0, -1);
+                }
+                
+                spot.position = targetPos;
+                
+                // Calculate direction from ball to spot (for animation)
+                const ballPos = new BABYLON.Vector3(0, 6.5, -12);
+                const directionFromBall = targetPos.subtract(ballPos).normalize();
+                
+                // Convert to spherical coordinates for rotation
+                const distance = BABYLON.Vector3.Distance(targetPos, ballPos);
+                let theta = Math.atan2(directionFromBall.z, directionFromBall.x);
+                let phi = Math.acos(directionFromBall.y);
+                
+                this.mirrorReflectionSpots.push({
+                    visual: spot,
+                    material: spotMat,
+                    surface: surface.name,
+                    surfaceNormal: normal,
+                    targetPosition: targetPos.clone(),
+                    theta: theta,
+                    phi: phi,
+                    distance: distance,
+                    thetaSpeed: (Math.random() - 0.5) * 0.8,  // Rotation speed
+                    phiSpeed: (Math.random() - 0.5) * 0.5,
+                    baseIntensity: 0.5 + Math.random() * 0.7,
+                    twinkleSpeed: 2 + Math.random() * 4,
+                    twinklePhase: Math.random() * Math.PI * 2
+                });
+            }
+        });
+        
+        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces`);
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
@@ -2577,47 +2633,120 @@ class VRClub {
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
-            // Animate reflection spots around the room (200 spots in full 3D space)
+            // Animate reflection spots around the room (300 spots covering all surfaces)
+            // PROJECT spots onto actual room surfaces (walls, floor, ceiling)
             if (this.mirrorReflectionSpots) {
-                const ballPos = this.mirrorBall.position;
+                const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
                 this.mirrorReflectionSpots.forEach((spot, i) => {
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
                     
-                    // Update spherical coordinates (rotate around ball in 3D)
+                    // Rotate spot around ball while maintaining surface assignment
                     spot.theta += spot.thetaSpeed * 0.016; // Horizontal rotation
                     spot.phi += spot.phiSpeed * 0.016;     // Vertical rotation
                     
-                    // Keep phi in valid range (0 to PI)
-                    if (spot.phi < 0) spot.phi = 0;
-                    if (spot.phi > Math.PI) spot.phi = Math.PI;
+                    // Keep phi within valid range
+                    if (spot.phi < 0.1) spot.phi = 0.1;
+                    if (spot.phi > Math.PI - 0.1) spot.phi = Math.PI - 0.1;
                     
-                    // Convert spherical coordinates to Cartesian (x, y, z)
-                    // This creates spots ALL AROUND the ball (360° coverage)
-                    const x = ballPos.x + spot.radius * Math.sin(spot.phi) * Math.cos(spot.theta);
-                    const y = ballPos.y + spot.radius * Math.cos(spot.phi);
-                    const z = ballPos.z + spot.radius * Math.sin(spot.phi) * Math.sin(spot.theta);
+                    // Calculate direction vector from ball
+                    const dirX = Math.sin(spot.phi) * Math.cos(spot.theta);
+                    const dirY = Math.cos(spot.phi);
+                    const dirZ = Math.sin(spot.phi) * Math.sin(spot.theta);
                     
-                    // Clamp to room bounds
-                    const clampedX = Math.max(-14, Math.min(14, x));
-                    const clampedY = Math.max(0.05, Math.min(7.9, y)); // Floor to ceiling
-                    const clampedZ = Math.max(-26, Math.min(2, z));
+                    // Smoothly move spot around assigned surface based on rotating direction
+                    // Use parametric coordinates on the surface instead of ray casting
+                    const t = time * 0.5 + spot.twinklePhase; // Time-based animation
+                    let newPos = null;
+                    let hitDistance = 0;
                     
-                    spot.visual.position.set(clampedX, clampedY, clampedZ);
+                    switch (spot.surface) {
+                        case 'floor':
+                            // Move across floor in circular/wave pattern
+                            newPos = new BABYLON.Vector3(
+                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
+                                0.02,
+                                spot.targetPosition.z + Math.cos(spot.theta) * 3
+                            );
+                            // Clamp to floor bounds
+                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
+                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
+                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
+                            break;
+                            
+                        case 'ceiling':
+                            // Move across ceiling
+                            newPos = new BABYLON.Vector3(
+                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
+                                7.98,
+                                spot.targetPosition.z + Math.cos(spot.theta) * 3
+                            );
+                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
+                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
+                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
+                            break;
+                            
+                        case 'leftWall':
+                            // Move across left wall
+                            newPos = new BABYLON.Vector3(
+                                -14.98,
+                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
+                                spot.targetPosition.z + Math.cos(spot.theta) * 3
+                            );
+                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
+                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
+                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
+                            break;
+                            
+                        case 'rightWall':
+                            // Move across right wall
+                            newPos = new BABYLON.Vector3(
+                                14.98,
+                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
+                                spot.targetPosition.z + Math.cos(spot.theta) * 3
+                            );
+                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
+                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
+                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
+                            break;
+                            
+                        case 'backWall':
+                            // Move across back wall
+                            newPos = new BABYLON.Vector3(
+                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
+                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
+                                -25.98
+                            );
+                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
+                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
+                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
+                            break;
+                            
+                        case 'frontWall':
+                            // Move across front wall
+                            newPos = new BABYLON.Vector3(
+                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
+                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
+                                1.98
+                            );
+                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
+                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
+                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
+                            break;
+                    }
                     
-                    // Orient disc to face the ball (like a projected light spot on a surface)
-                    const directionToBall = ballPos.subtract(spot.visual.position).normalize();
-                    spot.visual.lookAt(ballPos);
+                    // Update position - spots now always visible on their assigned surface
+                    spot.visual.position.copyFrom(newPos);
+                    spot.visual.lookAt(newPos.add(spot.surfaceNormal));
                     
-                    // Twinkling effect - each spot independently sparkles
+                    // Distance fade and twinkling
+                    const distanceFade = Math.max(0.4, 1 - (hitDistance / 20));
                     const twinkle = Math.sin(time * spot.twinkleSpeed + spot.twinklePhase);
-                    const brightness = spot.baseIntensity + twinkle * 0.3;
-                    spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.2, brightness));
+                    const brightness = (spot.baseIntensity + twinkle * 0.25) * distanceFade;
                     
-                    // Fade out spots near room boundaries for realistic falloff
-                    const distFromCenter = Math.abs(clampedX) / 14 + Math.abs(clampedZ + 12) / 14;
-                    spot.material.alpha = Math.max(0.3, 1 - distFromCenter * 0.3);
+                    spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.3, brightness));
+                    spot.material.alpha = Math.max(0.6, distanceFade * 0.95);
                 });
             }
         } else {
