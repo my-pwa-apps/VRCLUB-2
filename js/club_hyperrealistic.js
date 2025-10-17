@@ -1134,9 +1134,9 @@ class VRClub {
         const vjConsole = BABYLON.MeshBuilder.CreateBox("vjConsole", {
             width: 2.5,
             height: 0.15,
-            depth: 1.2
+            depth: 2.0 // Extended from 1.2 to 2.0 to fit 3 rows
         }, this.scene);
-        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24);
+        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24.4); // Moved back 0.4 to center
         vjConsole.material = tableMat;
         
         // VJ Console label removed - buttons are self-explanatory by color
@@ -1202,6 +1202,30 @@ class VRClub {
                 offColor: new BABYLON.Color3(0, 0.3, 0.3), // Dark cyan
                 x: 4.3,
                 row2: true
+            },
+            { 
+                label: "RANDOM", 
+                control: "patternRandom",
+                onColor: new BABYLON.Color3(1, 0, 1), // Magenta
+                offColor: new BABYLON.Color3(0.2, 0, 0.2),
+                x: 2.8,
+                row3: true
+            },
+            { 
+                label: "STATIC DOWN", 
+                control: "patternStatic",
+                onColor: new BABYLON.Color3(0, 1, 1), // Cyan
+                offColor: new BABYLON.Color3(0, 0.2, 0.2),
+                x: 3.3,
+                row3: true
+            },
+            { 
+                label: "SYNC SWEEP", 
+                control: "patternSweep",
+                onColor: new BABYLON.Color3(1, 0.5, 1), // Pink
+                offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
+                x: 3.8,
+                row3: true
             }
         ];
         
@@ -1211,12 +1235,26 @@ class VRClub {
                 height: 0.1,
                 depth: 0.3
             }, this.scene);
-            const zPos = btnDef.row2 ? -24.5 : -23.7;
+            // Row 1: z=-23.7, Row 2: z=-24.5, Row 3: z=-25.3
+            let zPos = -23.7; // Row 1 (default)
+            if (btnDef.row2) zPos = -24.5; // Row 2
+            if (btnDef.row3) zPos = -25.3; // Row 3
+            
             toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, zPos);
             toggleBtn.isPickable = true;
             
             const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
-            const isActive = btnDef.control === "changeColor" ? false : this[btnDef.control];
+            // Check active state - pattern buttons need special handling
+            let isActive = false;
+            if (btnDef.control === "patternRandom") isActive = (this.spotlightPattern === 0);
+            else if (btnDef.control === "patternStatic") isActive = (this.spotlightPattern === 1);
+            else if (btnDef.control === "patternSweep") isActive = (this.spotlightPattern === 2);
+            else if (btnDef.control === "changeColor" || btnDef.control === "changeMirrorBallColor" || btnDef.control === "cycleSpotMode") {
+                isActive = false; // Action buttons, not toggles
+            } else {
+                isActive = this[btnDef.control]; // Normal toggle buttons
+            }
+            
             toggleMat.emissiveColor = isActive ? btnDef.onColor : btnDef.offColor;
             toggleMat.disableLighting = true;
             toggleBtn.material = toggleMat;
