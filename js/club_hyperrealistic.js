@@ -1262,6 +1262,86 @@ class VRClub {
             // Labels removed - they were blocking button access
         });
         
+        // === SPEED SLIDER for controlling spotlight sweep speed ===
+        // Position: Row 3, right side (x=3.8 to 4.3)
+        const sliderX = 3.8;
+        const sliderZ = -25.3; // Row 3
+        const sliderY = 0.95;
+        
+        // Slider track (background rail)
+        const sliderTrack = BABYLON.MeshBuilder.CreateBox("speedSliderTrack", {
+            width: 0.5,  // 0.5m wide
+            height: 0.05, // Thin
+            depth: 0.1
+        }, this.scene);
+        sliderTrack.position = new BABYLON.Vector3(sliderX + 0.25, sliderY, sliderZ);
+        const trackMat = new BABYLON.StandardMaterial("sliderTrackMat", this.scene);
+        trackMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Dark gray
+        trackMat.disableLighting = true;
+        sliderTrack.material = trackMat;
+        sliderTrack.isPickable = false;
+        
+        // Slider handle (draggable)
+        const sliderHandle = BABYLON.MeshBuilder.CreateBox("speedSliderHandle", {
+            width: 0.08,
+            height: 0.12,
+            depth: 0.15
+        }, this.scene);
+        
+        // Initialize slider to current speed (default 1.0 = middle position)
+        this.spotlightSpeed = this.spotlightSpeed || 1.0; // 0.1 to 2.0
+        const speedToPosition = (speed) => {
+            // Speed range: 0.1 to 2.0
+            // Position range: sliderX (0.1) to sliderX+0.5 (2.0)
+            return sliderX + ((speed - 0.1) / 1.9) * 0.5;
+        };
+        
+        sliderHandle.position = new BABYLON.Vector3(speedToPosition(this.spotlightSpeed), sliderY, sliderZ);
+        const handleMat = new BABYLON.StandardMaterial("sliderHandleMat", this.scene);
+        handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Cyan
+        handleMat.disableLighting = true;
+        sliderHandle.material = handleMat;
+        sliderHandle.isPickable = true;
+        
+        // Store slider references
+        this.speedSlider = {
+            track: sliderTrack,
+            handle: sliderHandle,
+            handleMat: handleMat,
+            minX: sliderX,
+            maxX: sliderX + 0.5,
+            z: sliderZ,
+            y: sliderY,
+            isDragging: false
+        };
+        
+        // Add label above slider
+        const sliderLabel = BABYLON.MeshBuilder.CreatePlane("speedSliderLabel", {
+            width: 0.5,
+            height: 0.08
+        }, this.scene);
+        sliderLabel.position = new BABYLON.Vector3(sliderX + 0.25, sliderY + 0.15, sliderZ);
+        sliderLabel.rotation.x = Math.PI / 2; // Face up
+        sliderLabel.isPickable = false;
+        
+        const labelTexture = new BABYLON.DynamicTexture("speedLabelTexture", { width: 512, height: 128 }, this.scene);
+        const labelContext = labelTexture.getContext();
+        labelContext.fillStyle = "black";
+        labelContext.fillRect(0, 0, 512, 128);
+        labelContext.font = "bold 60px Arial";
+        labelContext.fillStyle = "cyan";
+        labelContext.textAlign = "center";
+        labelContext.fillText("SPEED", 256, 80);
+        labelTexture.update();
+        
+        const labelMat = new BABYLON.StandardMaterial("speedLabelMat", this.scene);
+        labelMat.emissiveTexture = labelTexture;
+        labelMat.disableLighting = true;
+        labelMat.opacityTexture = labelTexture;
+        sliderLabel.material = labelMat;
+        
+        console.log("✅ Speed slider created at x=3.8-4.3, z=-25.3 (Row 3)");
+        
         // Laptop removed - doesn't add useful functionality
         
         console.log("✅ Created hyperrealistic integrated DJ/VJ booth");
@@ -4459,9 +4539,16 @@ class VRClub {
     }
 
     setupVJControlInteraction() {
-        // Setup click handling for VJ control buttons and audio stream in 3D scene
+        // Setup click handling for VJ control buttons, speed slider, and audio stream in 3D scene
         this.scene.onPointerDown = (evt, pickResult) => {
             if (pickResult.hit && pickResult.pickedMesh) {
+                // Check if speed slider handle was clicked
+                if (this.speedSlider && pickResult.pickedMesh === this.speedSlider.handle) {
+                    this.speedSlider.isDragging = true;
+                    this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 1, 1); // Brighter cyan when dragging
+                    return;
+                }
+                
                 // Check if audio stream button was clicked
                 if (this.audioStreamButton && pickResult.pickedMesh === this.audioStreamButton.mesh) {
                     this.toggleAudioStream();
@@ -4610,6 +4697,33 @@ class VRClub {
                         console.log(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
                     }
                 }
+            }
+        };
+        
+        // Handle pointer up (release slider)
+        this.scene.onPointerUp = () => {
+            if (this.speedSlider && this.speedSlider.isDragging) {
+                this.speedSlider.isDragging = false;
+                this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Normal cyan
+                console.log(`🎛️ Speed set to: ${this.spotlightSpeed.toFixed(2)}x`);
+            }
+        };
+        
+        // Handle pointer move (drag slider)
+        this.scene.onPointerMove = (evt, pickResult) => {
+            if (this.speedSlider && this.speedSlider.isDragging && pickResult.hit) {
+                // Get world position of pointer
+                const pointerX = pickResult.pickedPoint.x;
+                
+                // Clamp to slider range
+                const clampedX = Math.max(this.speedSlider.minX, Math.min(this.speedSlider.maxX, pointerX));
+                
+                // Update handle position
+                this.speedSlider.handle.position.x = clampedX;
+                
+                // Calculate speed from position (0.1 to 2.0)
+                const normalizedPos = (clampedX - this.speedSlider.minX) / (this.speedSlider.maxX - this.speedSlider.minX);
+                this.spotlightSpeed = 0.1 + (normalizedPos * 1.9); // 0.1 to 2.0
             }
         };
         
