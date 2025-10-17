@@ -258,14 +258,14 @@ class VRClub {
         );
         this.scene.environmentIntensity = 0.3; // Subtle reflections
         
-        // Initialize texture loader and load concrete textures from CDN (cached for subsequent loads)
-        console.log('🎨 Loading industrial concrete textures from Polyhaven CDN...');
+        // Initialize texture loader and load textures from CDN (cached for subsequent loads)
+        console.log('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
         this.textureLoader = new TextureLoader(this.scene);
         await this.textureLoader.init();
         
         try {
             this.concreteTextures = await this.textureLoader.loadAllTextures();
-            console.log('✅ All concrete textures loaded and cached');
+            console.log('✅ All textures loaded and cached');
         } catch (error) {
             console.warn('⚠️ Failed to load some textures, using fallback materials:', error);
             this.concreteTextures = null; // Will use procedural materials as fallback
@@ -619,13 +619,15 @@ class VRClub {
         // Store floor mesh for VR teleportation
         this.floorMesh = floor;
         
-        // Industrial concrete floor with PBR - worn and realistic
+        // Wooden floor panels with PBR - dark nightclub aesthetic
         const floorMat = this.materialFactory.getPreset('floor');
         
-        // Apply downloaded concrete textures if available
+        // Apply downloaded wood textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
-            console.log('🎨 Applying floor textures (Polyhaven - Polished Concrete)');
+            console.log('🎨 Applying floor textures (Polyhaven - Worn Wood Floor)');
             this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
+            // Darken wooden floor for nightclub atmosphere
+            floorMat.baseColor = new BABYLON.Color3(0.3, 0.25, 0.2); // Dark brown tint
         } else {
             // Fallback to procedural noise texture
             console.log('🎨 Using procedural floor texture (fallback)');
@@ -635,10 +637,13 @@ class VRClub {
             noiseTexture.animationSpeedFactor = 0; // Static texture
             floorMat.bumpTexture = noiseTexture;
             floorMat.bumpTexture.level = 0.3; // Subtle bump
+            floorMat.baseColor = new BABYLON.Color3(0.25, 0.2, 0.15); // Dark wood
         }
         
-        // Slightly dirty, aged concrete
-        floorMat.environmentIntensity = 0.1; // Minimal reflections
+        // Wood floor properties
+        floorMat.metallic = 0.0; // Wood is non-metallic
+        floorMat.roughness = 0.7; // Slightly worn wood
+        floorMat.environmentIntensity = 0.15; // Subtle reflections from polish
         
         floor.material = floorMat;
         floor.receiveShadows = true;
@@ -2513,44 +2518,118 @@ class VRClub {
                 this.mirrorBallSpotlights.push(null);
             }
             
-            // Physical housing with emissive glow (all positions)
+            // === HYPERREALISTIC MOVING HEAD FIXTURE (Professional Stage Light) ===
+            const housingDirection = ballPosition.subtract(config.pos).normalize();
+            const targetQuat = BABYLON.Quaternion.FromLookDirectionLH(housingDirection, BABYLON.Vector3.Up());
+            
+            // Base/Yoke mount (connects to truss) - Professional design
+            const base = BABYLON.MeshBuilder.CreateBox(`mirrorFixtureBase${index}`, {
+                width: 0.5,
+                height: 0.2,
+                depth: 0.4
+            }, this.scene);
+            base.position = config.pos.clone();
+            base.rotationQuaternion = targetQuat;
+            
+            const baseMat = this.materialFactory.getPreset('lightFixture');
+            base.material = baseMat;
+            base.isPickable = false;
+            
+            // Main fixture body (cylindrical housing) - Professional moving head
             const housing = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotHousing${index}`, {
                 diameter: 0.5,
                 height: 0.7,
-                tessellation: 16
+                tessellation: 24
             }, this.scene);
-            housing.position = config.pos.clone();
-            
-            // Calculate rotation to point at ball
-            const housingDirection = ballPosition.subtract(config.pos).normalize();
-            const targetQuat = BABYLON.Quaternion.FromLookDirectionLH(housingDirection, BABYLON.Vector3.Up());
+            housing.position = config.pos.add(housingDirection.scale(0.1)); // Slight offset forward
             housing.rotationQuaternion = targetQuat;
             
-            const housingMat = new BABYLON.StandardMaterial(`mirrorHousingMat${index}`, this.scene);
-            housingMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            const housingMat = new BABYLON.PBRMetallicRoughnessMaterial(`mirrorHousingMat${index}`, this.scene);
+            housingMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gunmetal
+            housingMat.metallic = 0.85;
+            housingMat.roughness = 0.3;
             housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
-            housingMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            housingMat.maxSimultaneousLights = this.maxLights;
             housing.material = housingMat;
             housing.isPickable = false;
             
-            // Add lens/bulb at front of housing for realism
-            const lens = BABYLON.MeshBuilder.CreateSphere(`mirrorSpotLens${index}`, {
-                diameter: 0.3,
-                segments: 16
+            // Front bezel/rim (chrome ring around lens)
+            const bezel = BABYLON.MeshBuilder.CreateTorus(`mirrorBezel${index}`, {
+                diameter: 0.45,
+                thickness: 0.05,
+                tessellation: 32
             }, this.scene);
-            lens.position = config.pos.add(housingDirection.scale(0.35)); // Slightly forward
+            bezel.position = config.pos.add(housingDirection.scale(0.4)); // At front of housing
+            bezel.rotationQuaternion = targetQuat;
+            
+            const bezelMat = new BABYLON.PBRMetallicRoughnessMaterial(`mirrorBezelMat${index}`, this.scene);
+            bezelMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+            bezelMat.metallic = 0.95;
+            bezelMat.roughness = 0.15; // Shiny chrome
+            bezelMat.maxSimultaneousLights = this.maxLights;
+            bezel.material = bezelMat;
+            bezel.isPickable = false;
+            
+            // Lens (glass front element) - Cylindrical lens shape
+            const lens = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotLens${index}`, {
+                diameter: 0.4,
+                height: 0.1,
+                tessellation: 32
+            }, this.scene);
+            lens.position = config.pos.add(housingDirection.scale(0.38)); // Inside bezel
+            lens.rotationQuaternion = targetQuat;
             
             const lensMat = new BABYLON.StandardMaterial(`mirrorLensMat${index}`, this.scene);
             lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow with color when active
             lensMat.disableLighting = true;
+            lensMat.backFaceCulling = false;
             lens.material = lensMat;
+            lens.renderingGroupId = 2;
             lens.isPickable = false;
+            
+            // Bright light source (visible bulb/LED)
+            const lightSource = BABYLON.MeshBuilder.CreateSphere(`mirrorLightSource${index}`, {
+                diameter: 0.35,
+                segments: 16
+            }, this.scene);
+            lightSource.position = config.pos.add(housingDirection.scale(0.38));
+            
+            const sourceMat = new BABYLON.StandardMaterial(`mirrorSourceMat${index}`, this.scene);
+            sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow bright when active
+            sourceMat.disableLighting = true;
+            sourceMat.backFaceCulling = false;
+            lightSource.material = sourceMat;
+            lightSource.renderingGroupId = 2;
+            lightSource.isPickable = false;
+            
+            // Lens flare (glass reflection effect)
+            const flare = BABYLON.MeshBuilder.CreateDisc(`mirrorFlare${index}`, {
+                radius: 0.25,
+                tessellation: 32
+            }, this.scene);
+            flare.position = config.pos.add(housingDirection.scale(0.42)); // Slightly in front
+            flare.rotationQuaternion = targetQuat;
+            
+            const flareMat = new BABYLON.StandardMaterial(`mirrorFlareMat${index}`, this.scene);
+            flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
+            flareMat.alpha = 0.4;
+            flareMat.disableLighting = true;
+            flareMat.backFaceCulling = false;
+            flare.material = flareMat;
+            flare.renderingGroupId = 2;
+            flare.isPickable = false;
             
             this.mirrorBallHousings.push({ 
                 mesh: housing, 
                 material: housingMat,
+                base: base,
+                bezel: bezel,
                 lens: lens,
-                lensMaterial: lensMat
+                lensMaterial: lensMat,
+                lightSource: lightSource,
+                sourceMaterial: sourceMat,
+                flare: flare,
+                flareMaterial: flareMat
             });
             
             // Visible volumetric beam from all positions (dramatic effect with HIGH-QUALITY rendering)
@@ -2817,9 +2896,11 @@ class VRClub {
             }
             if (this.mirrorBallHousings) {
                 this.mirrorBallHousings.forEach(housing => {
-                    // Make housings and lenses glow with current color
-                    housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.3);
-                    housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                    // Make all fixture components glow with current color (professional moving head)
+                    housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.2); // Housing subtle glow
+                    housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(5.0); // Lens bright
+                    housing.sourceMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(8.0); // Light source very bright
+                    housing.flareMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(3.0); // Flare medium bright
                 });
             };
             
@@ -3584,14 +3665,15 @@ class VRClub {
                     }
                     
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
-                    // Check if we're in flashing pattern (pattern 6) OR strobe mode is enabled
+                    // Flashing is controlled by spotlightMode (separate from pattern control)
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
-                    const sweepPattern = Math.floor(sweepPhase / 5) % 7;
-                    // Check if we're in STROBE pattern (pattern 6) OR spotlight mode is set to strobe
-                    const isFlashing = isStrobeMode && ((currentPattern === 6 || nextPattern === 6) || !isSweepMode);
+                    
+                    // Determine if strobe/flashing is active based on spotlightMode
+                    // Mode 0: strobe+sweep, Mode 1: sweep only, Mode 2: strobe static, Mode 3: static
+                    const isStrobeEnabled = (this.spotlightMode === 0 || this.spotlightMode === 2);
                     
                     let beamVisible = this.lightsActive;
-                    if (isFlashing) {
+                    if (isStrobeEnabled) {
                         // STROBE: Rapid on/off flashing at 8Hz (8 flashes per second)
                         const flashPhase = sweepPhase * 2.5;
                         const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
@@ -4415,11 +4497,13 @@ class VRClub {
                             });
                         }
                         
-                        // Update housing and lens glow colors
+                        // Update housing and lens glow colors (hyperrealistic fixtures)
                         if (this.mirrorBallHousings) {
                             this.mirrorBallHousings.forEach(housing => {
-                                housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.3);
-                                housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                                housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.2); // Housing subtle glow
+                                housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(5.0); // Lens bright
+                                housing.sourceMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(8.0); // Light source very bright
+                                housing.flareMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(3.0); // Flare medium bright
                             });
                         }
                         
