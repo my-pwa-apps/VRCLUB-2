@@ -3776,7 +3776,9 @@ class VRClub {
                         }
                         
                         spot.beamGlow.visibility = this.lightsActive ? 1.0 : 0;
-                        spot.beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15);
+                        // Use per-spotlight color to match beam
+                        const spotColor = spot.color || this.currentSpotColor;
+                        spot.beamGlowMat.emissiveColor = spotColor.scale(0.15);
                     }
                     
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
@@ -3801,8 +3803,10 @@ class VRClub {
                     const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
                     
                     // Update emissive color with variation (audio disabled)
+                    // CRITICAL: Use spot.color (per-spotlight) not currentSpotColor (global) to prevent mismatches
+                    const spotColor = spot.color || this.currentSpotColor; // Fallback to global if not set
                     const baseIntensity = 0.3 + atmosphericNoise;
-                    spot.beamMat.emissiveColor = this.currentSpotColor.scale(baseIntensity);
+                    spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
                     spot.beamMat.emissiveIntensity = 1.8; // Constant intensity
                     
                     // Very subtle alpha variation - creates "depth" in the beam
@@ -3824,6 +3828,9 @@ class VRClub {
                             // Use floor intersection point where beam actually hits
                             // Each pool layer needs its own y-offset for proper layering
                             
+                            // CRITICAL: Use per-spotlight color to match beam and prevent color mismatches
+                            const spotColor = spot.color || this.currentSpotColor;
+                            
                             // CORE (bright center hotspot)
                             spot.lightPoolCore.position.x = floorIntersection.x;
                             spot.lightPoolCore.position.y = 0.04;
@@ -3831,7 +3838,7 @@ class VRClub {
                             const coreSize = baseSize * 0.3;
                             spot.lightPoolCore.scaling.set(coreSize, coreSize, 1);
                             spot.lightPoolCore.visibility = 1.0;
-                            spot.poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5);
+                            spot.poolCoreMat.emissiveColor = spotColor.scale(2.5);
                             
                             // MID GLOW (medium gradient)
                             spot.lightPool.position.x = floorIntersection.x;
@@ -3840,7 +3847,7 @@ class VRClub {
                             const midSize = baseSize * 0.7 * atmosphericShimmer;
                             spot.lightPool.scaling.set(midSize, midSize, 1);
                             spot.lightPool.visibility = 0.9;
-                            spot.poolMat.emissiveColor = this.currentSpotColor.scale(atmosphericShimmer);
+                            spot.poolMat.emissiveColor = spotColor.scale(atmosphericShimmer);
                             
                             // OUTER GLOW (soft falloff)
                             spot.lightPoolGlow.position.x = floorIntersection.x;
@@ -3849,7 +3856,7 @@ class VRClub {
                             const glowSize = baseSize * 1.5 * atmosphericShimmer;
                             spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
                             spot.lightPoolGlow.visibility = 0.7;
-                            spot.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3);
+                            spot.poolGlowMat.emissiveColor = spotColor.scale(0.3);
                         } else {
                             // CRITICAL: Hide floor pools immediately when lights turn off or flashing off
                             spot.lightPoolCore.visibility = 0;
