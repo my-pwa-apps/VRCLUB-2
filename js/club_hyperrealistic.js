@@ -142,6 +142,7 @@ class VRClub {
         
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
         this.spotlightMode = 0;
+        this.spotStrobeActive = true; // Simple strobe toggle (true = strobe on)
         
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
@@ -1209,6 +1210,14 @@ class VRClub {
                 onColor: new BABYLON.Color3(1, 0.5, 1), // Pink - changes per pattern
                 offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
                 x: 2.8,
+                row3: true
+            },
+            { 
+                label: "STROBE", 
+                control: "spotStrobeActive",
+                onColor: new BABYLON.Color3(1, 1, 0), // Yellow - strobe on
+                offColor: new BABYLON.Color3(0.2, 0.2, 0),
+                x: 3.3,
                 row3: true
             }
         ];
@@ -3681,12 +3690,11 @@ class VRClub {
                     }
                     
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
-                    // Flashing is controlled by spotlightMode (separate from pattern control)
+                    // Strobe is controlled by dedicated toggle button (simple on/off)
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
                     
-                    // Determine if strobe/flashing is active based on spotlightMode
-                    // Mode 0: strobe+sweep, Mode 1: sweep only, Mode 2: strobe static, Mode 3: static
-                    const isStrobeEnabled = (this.spotlightMode === 0 || this.spotlightMode === 2);
+                    // Strobe is simply controlled by the STROBE toggle button
+                    const isStrobeEnabled = this.spotStrobeActive;
                     
                     let beamVisible = this.lightsActive;
                     if (isStrobeEnabled) {
