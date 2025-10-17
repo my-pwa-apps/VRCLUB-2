@@ -91,8 +91,8 @@ class ModelLoader {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
                 position: new BABYLON.Vector3(-1.0, 0.95, -23.4), // Left side, slightly higher, away from VJ controls
-                rotation: new BABYLON.Vector3(0, 0, 0), // Face forward (text readable from DJ position)
-                scale: new BABYLON.Vector3(0.025, 0.025, 0.025), // Reduced from 0.035 - more realistic CDJ size
+                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotated 180° to face DJ (was mirrored in original model)
+                scale: new BABYLON.Vector3(-0.025, 0.025, 0.025), // NEGATIVE X to unmirror, reduced size
                 useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
