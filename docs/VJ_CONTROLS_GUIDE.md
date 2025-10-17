@@ -37,11 +37,13 @@ Controls **how** the spotlights behave:
 
 ### Spotlight Patterns (PATTERN button)
 Controls **where** the spotlights aim - cycles with each click:
-- **Pattern 0 (RANDOM)** - Auto-cycles through 7 different movement patterns every ~10 seconds (Magenta)
-- **Pattern 1 (STATIC DOWN)** - All lights point straight down at dance floor (Cyan)
+- **Pattern 1 (STATIC DOWN)** - All lights point straight down at dance floor (Cyan) **← DEFAULT**
 - **Pattern 2 (SYNC SWEEP)** - All lights sweep side-to-side together in sync (Pink)
+- **Pattern 0 (RANDOM)** - Auto-cycles through 7 different movement patterns every ~10 seconds (Magenta)
 
 The button flashes with a different color for each pattern to show which is active.
+
+**Cycle Order**: STATIC DOWN (start) → SYNC SWEEP → RANDOM → STATIC DOWN (repeat)
 
 ## Color Cycles
 
@@ -80,9 +82,9 @@ The button flashes with a different color for each pattern to show which is acti
 - **Inactive toggle buttons** dim to their OFF color (dark)
 - **Action buttons** (NEXT COLOR, BALL COLOR, SPOT MODE, PATTERN) flash briefly when clicked
 - **PATTERN button** flashes with a different color for each pattern:
-  - Magenta = Random pattern
-  - Cyan = Static Down pattern
-  - Pink = Sync Sweep pattern
+  - Cyan = Static Down pattern (DEFAULT - straight down)
+  - Pink = Sync Sweep pattern (left-to-right sweeping)
+  - Magenta = Random pattern (auto-cycling complex movements)
 
 ## Mirror Ball Special Behavior
 When **DISCO BALL** is active:
@@ -111,12 +113,13 @@ When **DISCO BALL** is active:
 
 ## Usage Tips
 
-1. **Start Simple**: Click PATTERN until you get Static Down (cyan flash), then use SPOT MODE for Sweep Only
-2. **Add Movement**: Click PATTERN to get Sync Sweep (pink flash) for synchronized side-to-side motion
-3. **Go Wild**: Click PATTERN to get Random (magenta flash), then SPOT MODE to Strobe+Sweep for full club energy
-4. **Change Colors**: Click NEXT COLOR every 15-20 seconds for variety
-5. **Disco Moment**: Activate DISCO BALL for a classic retro moment
-6. **Control Everything**: Independently toggle each lighting system (spots, lasers, LED, strobes)
+1. **Start Simple**: App starts with STATIC DOWN (beams pointing straight down)
+2. **Add Sweep**: Click PATTERN once to get SYNC SWEEP (pink flash) for synchronized side-to-side motion
+3. **Explore Patterns**: Click PATTERN again to get RANDOM (magenta flash) for auto-cycling movements
+4. **Back to Static**: Click PATTERN again to return to STATIC DOWN
+5. **Change Colors**: Click NEXT COLOR every 15-20 seconds for variety
+6. **Disco Moment**: Activate DISCO BALL for a classic retro moment
+7. **Control Everything**: Independently toggle each lighting system (spots, lasers, LED, strobes)
 
 ## Console Logs
 The system provides detailed feedback:
@@ -136,13 +139,15 @@ The system provides detailed feedback:
 
 **Patterns not changing?**
 - Click the PATTERN button - it cycles through 3 modes
-- Watch for the color flash: Magenta → Cyan → Pink
+- Watch for the color flash: Cyan (Static) → Pink (Sweep) → Magenta (Random)
 - Check console logs for confirmation
+- Default is STATIC DOWN (cyan flash on first click)
 
 **Lights seem static?**
-- SPOT MODE might be set to "Static" (mode 3) - click to cycle
-- Pattern might be "STATIC DOWN" - click PATTERN button
-- Try cycling PATTERN to Sync Sweep (pink flash) + SPOT MODE to Sweep Only (cyan flash)
+- App starts with STATIC DOWN pattern (beams point straight down)
+- Click PATTERN button once to get synchronized sweeping (pink flash)
+- SPOT MODE might also be set to "Static" (mode 3) - click to cycle
+- Try: PATTERN (pink flash for sweep) + SPOT MODE (cyan flash for sweep only)
 
 ## Future Enhancements
 - Speed control slider for pattern/sweep speed
