@@ -1134,9 +1134,9 @@ class VRClub {
         const vjConsole = BABYLON.MeshBuilder.CreateBox("vjConsole", {
             width: 2.5,
             height: 0.15,
-            depth: 2.0 // Extended from 1.2 to 2.0 to fit 3 rows
+            depth: 2.0 // Extended to fit 3 rows
         }, this.scene);
-        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24.4); // Moved back 0.4 to center
+        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24.4); // Moved back to center
         vjConsole.material = tableMat;
         
         // VJ Console label removed - buttons are self-explanatory by color
@@ -1204,27 +1204,11 @@ class VRClub {
                 row2: true
             },
             { 
-                label: "RANDOM", 
-                control: "patternRandom",
-                onColor: new BABYLON.Color3(1, 0, 1), // Magenta
-                offColor: new BABYLON.Color3(0.2, 0, 0.2),
-                x: 2.8,
-                row3: true
-            },
-            { 
-                label: "STATIC DOWN", 
-                control: "patternStatic",
-                onColor: new BABYLON.Color3(0, 1, 1), // Cyan
-                offColor: new BABYLON.Color3(0, 0.2, 0.2),
-                x: 3.3,
-                row3: true
-            },
-            { 
-                label: "SYNC SWEEP", 
-                control: "patternSweep",
-                onColor: new BABYLON.Color3(1, 0.5, 1), // Pink
+                label: "PATTERN", 
+                control: "cyclePattern",
+                onColor: new BABYLON.Color3(1, 0.5, 1), // Pink - changes per pattern
                 offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
-                x: 3.8,
+                x: 2.8,
                 row3: true
             }
         ];
@@ -1244,12 +1228,10 @@ class VRClub {
             toggleBtn.isPickable = true;
             
             const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
-            // Check active state - pattern buttons need special handling
+            // Check active state - action buttons start inactive
             let isActive = false;
-            if (btnDef.control === "patternRandom") isActive = (this.spotlightPattern === 0);
-            else if (btnDef.control === "patternStatic") isActive = (this.spotlightPattern === 1);
-            else if (btnDef.control === "patternSweep") isActive = (this.spotlightPattern === 2);
-            else if (btnDef.control === "changeColor" || btnDef.control === "changeMirrorBallColor" || btnDef.control === "cycleSpotMode") {
+            if (btnDef.control === "changeColor" || btnDef.control === "changeMirrorBallColor" || 
+                btnDef.control === "cycleSpotMode" || btnDef.control === "cyclePattern") {
                 isActive = false; // Action buttons, not toggles
             } else {
                 isActive = this[btnDef.control]; // Normal toggle buttons
@@ -4579,21 +4561,23 @@ class VRClub {
                         
                         const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
                         console.log(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
-                    } else if (clickedButton.control === "patternRandom") {
-                        // Set spotlight pattern to Random Moving (0)
-                        this.spotlightPattern = 0;
-                        this.updatePatternButtonColors();
-                        console.log(`🎯 Spotlight pattern: RANDOM MOVING`);
-                    } else if (clickedButton.control === "patternStatic") {
-                        // Set spotlight pattern to Static Down (1)
-                        this.spotlightPattern = 1;
-                        this.updatePatternButtonColors();
-                        console.log(`🎯 Spotlight pattern: STATIC DOWN`);
-                    } else if (clickedButton.control === "patternSweep") {
-                        // Set spotlight pattern to Synchronized Sweep (2)
-                        this.spotlightPattern = 2;
-                        this.updatePatternButtonColors();
-                        console.log(`🎯 Spotlight pattern: SYNCHRONIZED SWEEP`);
+                    } else if (clickedButton.control === "cyclePattern") {
+                        // Cycle through spotlight patterns: 0=random, 1=static down, 2=sync sweep
+                        this.spotlightPattern = (this.spotlightPattern + 1) % 3;
+                        
+                        // Flash button feedback with different colors for each pattern
+                        const patternColors = [
+                            new BABYLON.Color3(1, 0, 1),    // Pattern 0: Magenta (random)
+                            new BABYLON.Color3(0, 1, 1),    // Pattern 1: Cyan (static down)
+                            new BABYLON.Color3(1, 0.5, 1)   // Pattern 2: Pink (sync sweep)
+                        ];
+                        clickedButton.material.emissiveColor = patternColors[this.spotlightPattern];
+                        setTimeout(() => {
+                            clickedButton.material.emissiveColor = clickedButton.offColor;
+                        }, 300);
+                        
+                        const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
+                        console.log(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
                     } else {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
@@ -4609,19 +4593,6 @@ class VRClub {
         };
         
         console.log("✅ VJ Control interaction enabled - click buttons to control lights!");
-    }
-
-    updatePatternButtonColors() {
-        // Update pattern button colors to show which is active
-        this.vjControlButtons.forEach(btn => {
-            if (btn.control === "patternRandom") {
-                btn.material.emissiveColor = (this.spotlightPattern === 0) ? btn.onColor : btn.offColor;
-            } else if (btn.control === "patternStatic") {
-                btn.material.emissiveColor = (this.spotlightPattern === 1) ? btn.onColor : btn.offColor;
-            } else if (btn.control === "patternSweep") {
-                btn.material.emissiveColor = (this.spotlightPattern === 2) ? btn.onColor : btn.offColor;
-            }
-        });
     }
 
     toggleAudioStream() {

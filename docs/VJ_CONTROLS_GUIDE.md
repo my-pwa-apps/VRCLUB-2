@@ -1,9 +1,9 @@
 # VJ Control System Guide
 
 ## Overview
-The VJ control console is located on the **right side of the DJ platform** (x=3.5, z=-24.4). It features **11 interactive 3D buttons** arranged in 3 rows.
+The VJ control console is located on the **right side of the DJ platform** (x=3.5, z=-24.4). It features **9 interactive 3D buttons** arranged in 3 rows.
 
-## Button Layout (3 Rows x 4 Columns)
+## Button Layout (3 Rows)
 
 ### Row 1 - Main Lighting Controls (z=-23.7)
 | Button | Control | Effect |
@@ -21,12 +21,10 @@ The VJ control console is located on the **right side of the DJ platform** (x=3.
 | **NEXT COLOR** | Cycle spotlight color | Changes all spotlight colors (9 color cycle) |
 | **SPOT MODE** | Cycle spotlight mode | Changes mode: Strobe+Sweep → Sweep Only → Strobe Static → Static |
 
-### Row 3 - Spotlight Movement Patterns (z=-25.3) **NEW**
+### Row 3 - Spotlight Movement Patterns (z=-25.3)
 | Button | Control | Effect |
 |--------|---------|--------|
-| **RANDOM** | Random/automated patterns | 7 cycling patterns (linear, circular, fan, cross, figure-8, pulse, strobe) |
-| **STATIC DOWN** | All lights point down | All spotlights aim straight down at dance floor |
-| **SYNC SWEEP** | Synchronized sweep | All spotlights sweep left-to-right together |
+| **PATTERN** | Cycle movement pattern | Cycles through: Random → Static Down → Sync Sweep |
 
 ## Spotlight Modes vs. Patterns
 
@@ -37,11 +35,13 @@ Controls **how** the spotlights behave:
 - **Mode 2: Strobe Static** - Lights flash at fixed positions
 - **Mode 3: Static** - Lights stay fixed, no movement or flashing
 
-### Spotlight Patterns (Row 3 buttons)
-Controls **where** the spotlights aim:
-- **Pattern 0 (RANDOM)** - Auto-cycles through 7 different movement patterns every ~10 seconds
-- **Pattern 1 (STATIC DOWN)** - All lights point straight down (simple ceiling wash)
-- **Pattern 2 (SYNC SWEEP)** - All lights sweep side-to-side together in sync
+### Spotlight Patterns (PATTERN button)
+Controls **where** the spotlights aim - cycles with each click:
+- **Pattern 0 (RANDOM)** - Auto-cycles through 7 different movement patterns every ~10 seconds (Magenta)
+- **Pattern 1 (STATIC DOWN)** - All lights point straight down at dance floor (Cyan)
+- **Pattern 2 (SYNC SWEEP)** - All lights sweep side-to-side together in sync (Pink)
+
+The button flashes with a different color for each pattern to show which is active.
 
 ## Color Cycles
 
@@ -76,10 +76,13 @@ Controls **where** the spotlights aim:
 - Console log shows: `🎛️ VJ manual mode: Automated patterns paused for 5 minutes`
 
 ## Button Visual Feedback
-- **Active buttons** glow with their ON color (bright)
-- **Inactive buttons** dim to their OFF color (dark)
-- **Action buttons** (NEXT COLOR, BALL COLOR, SPOT MODE) flash briefly when clicked
-- **Pattern buttons** show which pattern is currently active
+- **Active toggle buttons** glow with their ON color (bright)
+- **Inactive toggle buttons** dim to their OFF color (dark)
+- **Action buttons** (NEXT COLOR, BALL COLOR, SPOT MODE, PATTERN) flash briefly when clicked
+- **PATTERN button** flashes with a different color for each pattern:
+  - Magenta = Random pattern
+  - Cyan = Static Down pattern
+  - Pink = Sync Sweep pattern
 
 ## Mirror Ball Special Behavior
 When **DISCO BALL** is active:
@@ -104,12 +107,13 @@ When **DISCO BALL** is active:
 - **Position**: x=3.5 (right side), y=0.8, z=-24.4 (DJ platform back)
 - **Size**: 2.5m wide, 0.15m tall, 2.0m deep (extended for 3 rows)
 - **Button Size**: 0.4m wide, 0.1m tall, 0.3m deep
+- **Total Buttons**: 9 (4 in row 1, 4 in row 2, 1 in row 3)
 
 ## Usage Tips
 
-1. **Start Simple**: Begin with STATIC DOWN pattern and SWEEP ONLY mode
-2. **Add Energy**: Switch to SYNC SWEEP pattern for synchronized movement
-3. **Go Wild**: Use RANDOM pattern with STROBE+SWEEP mode for full club energy
+1. **Start Simple**: Click PATTERN until you get Static Down (cyan flash), then use SPOT MODE for Sweep Only
+2. **Add Movement**: Click PATTERN to get Sync Sweep (pink flash) for synchronized side-to-side motion
+3. **Go Wild**: Click PATTERN to get Random (magenta flash), then SPOT MODE to Strobe+Sweep for full club energy
 4. **Change Colors**: Click NEXT COLOR every 15-20 seconds for variety
 5. **Disco Moment**: Activate DISCO BALL for a classic retro moment
 6. **Control Everything**: Independently toggle each lighting system (spots, lasers, LED, strobes)
@@ -131,14 +135,14 @@ The system provides detailed feedback:
 - VR users: Use controller pointer to click
 
 **Patterns not changing?**
-- Verify automated mode hasn't resumed (check 5-minute timer)
-- Pattern buttons should glow when active
+- Click the PATTERN button - it cycles through 3 modes
+- Watch for the color flash: Magenta → Cyan → Pink
 - Check console logs for confirmation
 
 **Lights seem static?**
-- SPOT MODE might be set to "Static" (mode 3)
-- Pattern might be "STATIC DOWN" 
-- Try clicking RANDOM + SWEEP ONLY for movement
+- SPOT MODE might be set to "Static" (mode 3) - click to cycle
+- Pattern might be "STATIC DOWN" - click PATTERN button
+- Try cycling PATTERN to Sync Sweep (pink flash) + SPOT MODE to Sweep Only (cyan flash)
 
 ## Future Enhancements
 - Speed control slider for pattern/sweep speed
