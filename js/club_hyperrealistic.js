@@ -2122,6 +2122,7 @@ class VRClub {
                 this.scene
             );
             spot.diffuse = new BABYLON.Color3(0, 0, 0); // No ambient diffuse - light only through beam
+            spot.specular = this.currentSpotColor; // Specular for floor reflections
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
             spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
@@ -3382,21 +3383,16 @@ class VRClub {
         }
         
         // Calculate global phase for spotlight patterns (used in multiple places)
-        // ONLY advance patterns when:
-        // 1. Spotlights are active (lightsActive = true)
-        // 2. VJ is NOT in manual mode (automated patterns allowed)
-        const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
-        
-        if (allowAutomatedPatterns && !this.pausedPhase) {
-            this.lastActivePhase = time * 0.8; // Update phase while active
-        } else if (!this.pausedPhase && !allowAutomatedPatterns) {
-            this.pausedPhase = this.lastActivePhase || 0; // Store phase when disabled or manual mode
+        // Phase ALWAYS advances when lights are active (for sweep animations)
+        // VJ manual mode only affects Pattern 0's auto-cycling between sub-patterns
+        if (this.lightsActive) {
+            this.lastActivePhase = time * 0.8; // Always update when lights on
         }
-        if (allowAutomatedPatterns && this.pausedPhase) {
-            this.pausedPhase = null; // Resume from pause
-        }
-        const globalPhase = allowAutomatedPatterns ? this.lastActivePhase : (this.pausedPhase || 0);
+        const globalPhase = this.lastActivePhase || 0;
         const audioSpeedMultiplier = 1.0; // Audio control disabled - focus on basics
+        
+        // Auto-cycling control for Pattern 0 (random mode)
+        const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
         
         if (this.spotlights && this.lightsActive) {
             
@@ -4460,10 +4456,17 @@ class VRClub {
                 if (clickedButton) {
                     console.log(`🎛️ VJ Control: ${clickedButton.label} clicked`);
                     
-                    // Track VJ interaction - pause automated patterns for 5 minutes
-                    this.lastVJInteraction = performance.now() / 1000;
-                    this.vjManualMode = true;
-                    console.log("🎛️ VJ manual mode: Automated patterns paused for 5 minutes");
+                    // Track VJ interaction - but DON'T pause patterns for pattern/mode cycling
+                    // Only pause for manual light toggles (ON/OFF controls)
+                    const isPatternControl = (clickedButton.control === "cyclePattern" || 
+                                             clickedButton.control === "cycleSpotMode" ||
+                                             clickedButton.control === "changeColor");
+                    
+                    if (!isPatternControl) {
+                        this.lastVJInteraction = performance.now() / 1000;
+                        this.vjManualMode = true;
+                        console.log("🎛️ VJ manual mode: Automated patterns paused for 5 minutes");
+                    }
                     
                     if (clickedButton.control === "changeColor") {
                         // Change color button - cycle to next color
