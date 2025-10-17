@@ -123,7 +123,7 @@ class VRClub {
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
         this.vjManualMode = false;
-        this.VJ_TIMEOUT = 30; // Seconds before resuming automated patterns
+        this.VJ_TIMEOUT = 300; // Seconds before resuming automated patterns (5 minutes)
         
         this.init();
     }
@@ -308,17 +308,12 @@ class VRClub {
         
         // Configure VR rendering for better quality
         if (vrHelper && vrHelper.baseExperience) {
-            // Set higher resolution for better clarity in VR
-            if (vrHelper.baseExperience.sessionManager) {
-                vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
-                    depthNear: 0.1,
-                    depthFar: 150
-                });
-            }
-            
-            // Optimize rendering for VR
+            // Optimize rendering for VR (applies immediately)
             this.scene.autoClear = false; // Better performance
             this.scene.autoClearDepthAndStencil = true; // Proper depth handling
+            
+            // Set render state ONLY when XR session is active (not during initialization)
+            // This will be configured when user enters VR via onStateChangedObservable
         }
         
         // Store VR helper for later use
@@ -332,6 +327,16 @@ class VRClub {
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
                         xrCamera.position = new BABYLON.Vector3(0, 0, -20);
+                        
+                        // Configure depth range for better VR rendering (now that session is active)
+                        if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
+                            vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
+                                depthNear: 0.1,
+                                depthFar: 150
+                            }).catch(err => {
+                                console.warn('Could not update render state:', err);
+                            });
+                        }
                         
                         // Apply VR-optimized settings
                         this.applyVRSettings(xrCamera);
@@ -2340,7 +2345,8 @@ class VRClub {
         const spotlightConfigs = [
             { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right", isRealLight: true },  // Only this one is a real light
             { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "Front-Left", isRealLight: false }, // Visual only
-            { pos: new BABYLON.Vector3(0, 7.5, -16), name: "Back-Center", isRealLight: false } // Visual only
+            { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right", isRealLight: false }, // Visual only - cross pattern
+            { pos: new BABYLON.Vector3(-4, 7.5, -16), name: "Back-Left", isRealLight: false }  // Visual only - cross pattern
         ];
         
         spotlightConfigs.forEach((config, index) => {
@@ -2459,14 +2465,15 @@ class VRClub {
             for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.12 + Math.random() * 0.15, // Varying sizes (0.12-0.27m)
+                    radius: 0.15 + Math.random() * 0.15, // SMALLER: 0.15-0.3m (was 0.25-0.5m)
                     tessellation: 8
                 }, this.scene);
                 
                 const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
                 spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                spotMat.alpha = 0.75 + Math.random() * 0.25; // Varying transparency
+                spotMat.alpha = 1.0; // FULLY OPAQUE
                 spotMat.disableLighting = true;
+                spotMat.backFaceCulling = false; // Visible from both sides
                 spot.material = spotMat;
                 spot.isPickable = false;
                 spot.setEnabled(false);
@@ -2570,6 +2577,15 @@ class VRClub {
         
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
+            // Debug once per 2 seconds
+            if (!this._lastMirrorBallDebugTime || time - this._lastMirrorBallDebugTime > 2) {
+                console.log('🪩 Mirror ball ACTIVE - should see spots');
+                console.log('   Mirror ball exists:', !!this.mirrorBall);
+                console.log('   Reflection spots array:', !!this.mirrorReflectionSpots);
+                console.log('   Number of spots:', this.mirrorReflectionSpots ? this.mirrorReflectionSpots.length : 0);
+                this._lastMirrorBallDebugTime = time;
+            }
+            
             // Turn OFF all other lights and LED wall when mirror ball is active
             this.lightsActive = false;
             this.lasersActive = false;
@@ -2629,124 +2645,145 @@ class VRClub {
             
             // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
             if (this.mirrorBall) {
-                this.mirrorBallRotation += 0.015; // Faster rotation (was 0.005) - 3x faster for visible spin
+                this.mirrorBallRotation += 0.005; // Slower rotation (was 0.015) - spots sweep gently through room
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
             // Animate reflection spots around the room (300 spots covering all surfaces)
             // PROJECT spots onto actual room surfaces (walls, floor, ceiling)
-            if (this.mirrorReflectionSpots) {
+            if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
+                
+                // Debug: Log once per second
+                if (!this._lastSpotDebugTime || time - this._lastSpotDebugTime > 1) {
+                    console.log(`🪩 Updating ${this.mirrorReflectionSpots.length} spots, first spot enabled:`, this.mirrorReflectionSpots[0].visual.isEnabled());
+                    this._lastSpotDebugTime = time;
+                }
                 
                 this.mirrorReflectionSpots.forEach((spot, i) => {
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
                     
-                    // Rotate spot around ball while maintaining surface assignment
-                    spot.theta += spot.thetaSpeed * 0.016; // Horizontal rotation
-                    spot.phi += spot.phiSpeed * 0.016;     // Vertical rotation
+                    // PROPER RAY CASTING: Calculate direction from mirror ball based on rotation
+                    // Each spot represents a mirror facet at a specific angle (theta, phi)
+                    // As ball rotates, the facet direction rotates with it
+                    const rotatedTheta = spot.theta + this.mirrorBall.rotation.y; // Rotate with ball
+                    const phi = spot.phi; // Vertical angle stays constant
                     
-                    // Keep phi within valid range
-                    if (spot.phi < 0.1) spot.phi = 0.1;
-                    if (spot.phi > Math.PI - 0.1) spot.phi = Math.PI - 0.1;
+                    // Calculate ray direction from ball in spherical coordinates
+                    const dirX = Math.sin(phi) * Math.cos(rotatedTheta);
+                    const dirY = Math.cos(phi);
+                    const dirZ = Math.sin(phi) * Math.sin(rotatedTheta);
                     
-                    // Calculate direction vector from ball
-                    const dirX = Math.sin(spot.phi) * Math.cos(spot.theta);
-                    const dirY = Math.cos(spot.phi);
-                    const dirZ = Math.sin(spot.phi) * Math.sin(spot.theta);
+                    // Ray cast from ball position to find which surface it hits
+                    let closestT = Infinity;
+                    let hitPos = null;
+                    let hitNormal = null;
                     
-                    // Smoothly move spot around assigned surface based on rotating direction
-                    // Use parametric coordinates on the surface instead of ray casting
-                    const t = time * 0.5 + spot.twinklePhase; // Time-based animation
-                    let newPos = null;
-                    let hitDistance = 0;
-                    
-                    switch (spot.surface) {
-                        case 'floor':
-                            // Move across floor in circular/wave pattern
-                            newPos = new BABYLON.Vector3(
-                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
-                                0.02,
-                                spot.targetPosition.z + Math.cos(spot.theta) * 3
-                            );
-                            // Clamp to floor bounds
-                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
-                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
-                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
-                            break;
-                            
-                        case 'ceiling':
-                            // Move across ceiling
-                            newPos = new BABYLON.Vector3(
-                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
-                                7.98,
-                                spot.targetPosition.z + Math.cos(spot.theta) * 3
-                            );
-                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
-                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
-                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
-                            break;
-                            
-                        case 'leftWall':
-                            // Move across left wall
-                            newPos = new BABYLON.Vector3(
-                                -14.98,
-                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
-                                spot.targetPosition.z + Math.cos(spot.theta) * 3
-                            );
-                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
-                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
-                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
-                            break;
-                            
-                        case 'rightWall':
-                            // Move across right wall
-                            newPos = new BABYLON.Vector3(
-                                14.98,
-                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
-                                spot.targetPosition.z + Math.cos(spot.theta) * 3
-                            );
-                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
-                            newPos.z = Math.max(-25, Math.min(1, newPos.z));
-                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
-                            break;
-                            
-                        case 'backWall':
-                            // Move across back wall
-                            newPos = new BABYLON.Vector3(
-                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
-                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
-                                -25.98
-                            );
-                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
-                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
-                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
-                            break;
-                            
-                        case 'frontWall':
-                            // Move across front wall
-                            newPos = new BABYLON.Vector3(
-                                spot.targetPosition.x + Math.sin(spot.theta) * 3,
-                                spot.targetPosition.y + Math.sin(spot.phi) * 2,
-                                1.98
-                            );
-                            newPos.x = Math.max(-14, Math.min(14, newPos.x));
-                            newPos.y = Math.max(0.2, Math.min(7.8, newPos.y));
-                            hitDistance = BABYLON.Vector3.Distance(ballPos, newPos);
-                            break;
+                    // Test intersection with all 6 room surfaces
+                    // FLOOR (y = 0)
+                    if (dirY < -0.001) {
+                        const t = (0 - ballPos.y) / dirY;
+                        if (t > 0) {
+                            const x = ballPos.x + dirX * t;
+                            const z = ballPos.z + dirZ * t;
+                            if (x >= -15 && x <= 15 && z >= -26 && z <= 2 && t < closestT) {
+                                closestT = t;
+                                hitPos = new BABYLON.Vector3(x, 0.02, z);
+                                hitNormal = new BABYLON.Vector3(0, 1, 0);
+                            }
+                        }
                     }
                     
-                    // Update position - spots now always visible on their assigned surface
-                    spot.visual.position.copyFrom(newPos);
-                    spot.visual.lookAt(newPos.add(spot.surfaceNormal));
+                    // CEILING (y = 8)
+                    if (dirY > 0.001) {
+                        const t = (8 - ballPos.y) / dirY;
+                        if (t > 0) {
+                            const x = ballPos.x + dirX * t;
+                            const z = ballPos.z + dirZ * t;
+                            if (x >= -15 && x <= 15 && z >= -26 && z <= 2 && t < closestT) {
+                                closestT = t;
+                                hitPos = new BABYLON.Vector3(x, 7.98, z);
+                                hitNormal = new BABYLON.Vector3(0, -1, 0);
+                            }
+                        }
+                    }
                     
-                    // Distance fade and twinkling
-                    const distanceFade = Math.max(0.4, 1 - (hitDistance / 20));
-                    const twinkle = Math.sin(time * spot.twinkleSpeed + spot.twinklePhase);
-                    const brightness = (spot.baseIntensity + twinkle * 0.25) * distanceFade;
+                    // LEFT WALL (x = -15)
+                    if (dirX < -0.001) {
+                        const t = (-15 - ballPos.x) / dirX;
+                        if (t > 0) {
+                            const y = ballPos.y + dirY * t;
+                            const z = ballPos.z + dirZ * t;
+                            if (y >= 0 && y <= 8 && z >= -26 && z <= 2 && t < closestT) {
+                                closestT = t;
+                                hitPos = new BABYLON.Vector3(-14.98, y, z);
+                                hitNormal = new BABYLON.Vector3(1, 0, 0);
+                            }
+                        }
+                    }
                     
-                    spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.3, brightness));
-                    spot.material.alpha = Math.max(0.6, distanceFade * 0.95);
+                    // RIGHT WALL (x = 15)
+                    if (dirX > 0.001) {
+                        const t = (15 - ballPos.x) / dirX;
+                        if (t > 0) {
+                            const y = ballPos.y + dirY * t;
+                            const z = ballPos.z + dirZ * t;
+                            if (y >= 0 && y <= 8 && z >= -26 && z <= 2 && t < closestT) {
+                                closestT = t;
+                                hitPos = new BABYLON.Vector3(14.98, y, z);
+                                hitNormal = new BABYLON.Vector3(-1, 0, 0);
+                            }
+                        }
+                    }
+                    
+                    // BACK WALL (z = -26)
+                    if (dirZ < -0.001) {
+                        const t = (-26 - ballPos.z) / dirZ;
+                        if (t > 0) {
+                            const x = ballPos.x + dirX * t;
+                            const y = ballPos.y + dirY * t;
+                            if (x >= -15 && x <= 15 && y >= 0 && y <= 8 && t < closestT) {
+                                closestT = t;
+                                hitPos = new BABYLON.Vector3(x, y, -25.98);
+                                hitNormal = new BABYLON.Vector3(0, 0, 1);
+                            }
+                        }
+                    }
+                    
+                    // FRONT WALL (z = 2)
+                    if (dirZ > 0.001) {
+                        const t = (2 - ballPos.z) / dirZ;
+                        if (t > 0) {
+                            const x = ballPos.x + dirX * t;
+                            const y = ballPos.y + dirY * t;
+                            if (x >= -15 && x <= 15 && y >= 0 && y <= 8 && t < closestT) {
+                                closestT = t;
+                                hitPos = new BABYLON.Vector3(x, y, 1.98);
+                                hitNormal = new BABYLON.Vector3(0, 0, -1);
+                            }
+                        }
+                    }
+                    
+                    const hitDistance = closestT;
+                    
+                    // Position spot at ray intersection point
+                    if (hitPos) {
+                        spot.visual.position.copyFrom(hitPos);
+                        spot.visual.lookAt(hitPos.add(hitNormal)); // Orient perpendicular to surface
+                        
+                        // Distance fade and twinkling - REDUCED BRIGHTNESS
+                        const distanceFade = Math.max(0.3, 1 - (hitDistance / 30)); // Dimmer with distance
+                        const twinkle = 0.7 + 0.3 * Math.sin(time * spot.twinkleSpeed + spot.twinklePhase); // Gentle twinkling
+                        const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6; // 40% dimmer overall
+                        
+                        // DIMMER emissive color
+                        spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
+                        spot.material.alpha = 0.85; // Slightly transparent for softer look
+                    } else {
+                        // Ray didn't hit any surface - fade out
+                        spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
+                    }
                 });
             }
         } else {
@@ -3056,10 +3093,10 @@ class VRClub {
             }
         }
         
-        // Check if VJ manual mode should expire (30 seconds of no interaction)
+        // Check if VJ manual mode should expire (5 minutes of no interaction)
         if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
             this.vjManualMode = false;
-            console.log("🤖 Automated patterns resumed - no VJ interaction for 30s");
+            console.log("🤖 Automated patterns resumed - no VJ interaction for 5 minutes");
         }
         
         // Calculate global phase for spotlight patterns (used in multiple places)
@@ -4094,10 +4131,10 @@ class VRClub {
                 if (clickedButton) {
                     console.log(`🎛️ VJ Control: ${clickedButton.label} clicked`);
                     
-                    // Track VJ interaction - pause automated patterns for 30 seconds
+                    // Track VJ interaction - pause automated patterns for 5 minutes
                     this.lastVJInteraction = performance.now() / 1000;
                     this.vjManualMode = true;
-                    console.log("🎛️ VJ manual mode: Automated patterns paused for 30s");
+                    console.log("🎛️ VJ manual mode: Automated patterns paused for 5 minutes");
                     
                     if (clickedButton.control === "changeColor") {
                         // Change color button - cycle to next color

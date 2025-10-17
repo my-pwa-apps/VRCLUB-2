@@ -101,8 +101,8 @@ class ModelLoader {
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
                 position: new BABYLON.Vector3(-7, 0.5, -25),
                 rotation: new BABYLON.Vector3(0, Math.PI / 6, 0), // Angled toward center
-                scale: new BABYLON.Vector3(0.08, 0.08, 0.08), // Reduced from 0.1 for better proportion
-                useProcedural: false, // Use real 3D model for consistency
+                scale: new BABYLON.Vector3(0.12, 0.12, 0.12), // Increased from 0.08 for better visibility
+                useProcedural: true, // Use procedural as primary (3D model as enhancement)
                 attribution: 'PA Speakers (CC BY 4.0)'
             },
             pa_speaker_right: {
@@ -110,8 +110,8 @@ class ModelLoader {
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
                 position: new BABYLON.Vector3(7, 0.5, -25),
                 rotation: new BABYLON.Vector3(0, -Math.PI / 6, 0), // Angled toward center
-                scale: new BABYLON.Vector3(0.08, 0.08, 0.08), // Reduced from 0.1 for better proportion
-                useProcedural: false, // Use real 3D model for consistency
+                scale: new BABYLON.Vector3(0.12, 0.12, 0.12), // Increased from 0.08 for better visibility
+                useProcedural: true, // Use procedural as primary (3D model as enhancement)
                 attribution: 'PA Speakers (CC BY 4.0)'
             }
         };
