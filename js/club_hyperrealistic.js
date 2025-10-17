@@ -149,6 +149,9 @@ class VRClub {
         this.vjManualMode = false;
         this.VJ_TIMEOUT = 300; // Seconds before resuming automated patterns (5 minutes)
         
+        // Animation phase tracking for smooth spotlight animations
+        this.lastActivePhase = 0; // Initialize phase counter
+        
         this.init();
     }
 
