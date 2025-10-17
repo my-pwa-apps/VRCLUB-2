@@ -91,8 +91,8 @@ class ModelLoader {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
                 position: new BABYLON.Vector3(-1.0, 0.95, -23.4), // Left side, slightly higher, away from VJ controls
-                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotate 180° to face away from LED wall
-                scale: new BABYLON.Vector3(0.035, 0.035, 0.035), // Realistic Pioneer CDJ-3000 scale (~12"x16" dimensions)
+                rotation: new BABYLON.Vector3(0, 0, 0), // Face forward (text readable from DJ position)
+                scale: new BABYLON.Vector3(0.025, 0.025, 0.025), // Reduced from 0.035 - more realistic CDJ size
                 useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
@@ -233,9 +233,13 @@ class ModelLoader {
                         mesh.material.transparencyMode = null; // Disable transparency
                     }
                     
-                    // Ensure proper rendering in VR
+                    // Ensure proper rendering in VR and prevent see-through
                     mesh.material.backFaceCulling = true;
                     mesh.material.needDepthPrePass = false; // Disable depth pre-pass that can cause transparency issues
+                    mesh.material.disableDepthWrite = false; // CRITICAL: Enable depth write to prevent see-through
+                    
+                    // Set rendering group to ensure DJ gear renders BEFORE beams (renderingGroupId 0 vs 1)
+                    mesh.renderingGroupId = 0; // Default group, renders first
                     
                     // Force material to be ready
                     mesh.material.forceCompilation(mesh);
