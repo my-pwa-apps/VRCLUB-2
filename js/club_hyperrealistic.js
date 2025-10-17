@@ -2173,12 +2173,12 @@ class VRClub {
             
             // Apply gradient texture to emissive channel for realistic brightness variation
             beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.currentSpotColor.scale(0.7); // Increased from 0.6 for more visibility
-            beamMat.emissiveIntensity = 4.0; // Increased from 3.5 for better visibility
+            beamMat.emissiveColor = this.currentSpotColor.scale(1.2); // Increased visibility
+            beamMat.emissiveIntensity = 6.0; // Increased for better visibility
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.15; // Increased from 0.12 for more visible beams
+            beamMat.alpha = 0.30; // Increased from 0.15 for much more visible beams
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
@@ -2234,11 +2234,11 @@ class VRClub {
             
             // Apply gradient to glow
             beamGlowMat.emissiveTexture = glowTexture;
-            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.35); // Increased from 0.3
-            beamGlowMat.emissiveIntensity = 3.0; // Increased from 2.5 for more glow
+            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.6); // Increased visibility
+            beamGlowMat.emissiveIntensity = 5.0; // Increased for more glow
             
             beamGlowMat.opacityTexture = glowTexture;
-            beamGlowMat.alpha = 0.08; // Increased from 0.06 for more visible glow
+            beamGlowMat.alpha = 0.15; // Increased from 0.08 for more visible glow
             beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             beamGlowMat.backFaceCulling = false;
             beamGlowMat.disableLighting = true;
