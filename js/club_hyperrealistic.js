@@ -2645,7 +2645,7 @@ class VRClub {
             
             // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
             if (this.mirrorBall) {
-                this.mirrorBallRotation += 0.005; // Slower rotation (was 0.015) - spots sweep gently through room
+                this.mirrorBallRotation += 0.003; // Very slow rotation - spots sweep gently through room
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
@@ -2810,49 +2810,55 @@ class VRClub {
         }
         
         // AUTOMATIC CYCLING PATTERN: Lights → Lasers → Mirror Ball
-        // Determine phase duration based on current phase
-        let currentPhaseDuration;
-        if (this.lightingPhase === 'lights') {
-            currentPhaseDuration = this.lightsPhaseDuration;
-        } else if (this.lightingPhase === 'lasers') {
-            currentPhaseDuration = this.lasersPhaseDuration;
-        } else if (this.lightingPhase === 'mirrorball') {
-            currentPhaseDuration = this.mirrorBallPhaseDuration;
-        }
-        
-        if (time - this.lightModeSwitchTime > currentPhaseDuration) {
-            // Cycle through phases: lights → lasers → mirrorball → lights
+        // Only cycle automatically when NOT in VJ manual mode
+        if (!this.vjManualMode) {
+            // Determine phase duration based on current phase
+            let currentPhaseDuration;
             if (this.lightingPhase === 'lights') {
-                this.lightingPhase = 'lasers';
-                this.lightsActive = false;
-                this.lasersActive = true;
-                this.mirrorBallActive = false;
-                console.log('🎪 Phase: LASERS');
-                
+                currentPhaseDuration = this.lightsPhaseDuration;
             } else if (this.lightingPhase === 'lasers') {
-                this.lightingPhase = 'mirrorball';
-                this.lightsActive = false;
-                this.lasersActive = false;
-                this.mirrorBallActive = true;
-                console.log('🪩 Phase: MIRROR BALL');
-                
-            } else {
-                this.lightingPhase = 'lights';
-                this.lightsActive = true;
-                this.lasersActive = false;
-                this.mirrorBallActive = false;
-                console.log('💡 Phase: SPOTLIGHTS');
+                currentPhaseDuration = this.lasersPhaseDuration;
+            } else if (this.lightingPhase === 'mirrorball') {
+                currentPhaseDuration = this.mirrorBallPhaseDuration;
             }
-            this.lightModeSwitchTime = time;
             
-            // Update VJ control button visuals to reflect state
-            if (this.vjControlButtons) {
-                this.vjControlButtons.forEach(btn => {
-                    if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || btn.control === 'mirrorBallActive') {
-                        btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
-                    }
-                });
+            if (time - this.lightModeSwitchTime > currentPhaseDuration) {
+                // Cycle through phases: lights → lasers → mirrorball → lights
+                if (this.lightingPhase === 'lights') {
+                    this.lightingPhase = 'lasers';
+                    this.lightsActive = false;
+                    this.lasersActive = true;
+                    this.mirrorBallActive = false;
+                    console.log('🎪 Phase: LASERS');
+                    
+                } else if (this.lightingPhase === 'lasers') {
+                    this.lightingPhase = 'mirrorball';
+                    this.lightsActive = false;
+                    this.lasersActive = false;
+                    this.mirrorBallActive = true;
+                    console.log('🪩 Phase: MIRROR BALL');
+                    
+                } else {
+                    this.lightingPhase = 'lights';
+                    this.lightsActive = true;
+                    this.lasersActive = false;
+                    this.mirrorBallActive = false;
+                    console.log('💡 Phase: SPOTLIGHTS');
+                }
+                this.lightModeSwitchTime = time;
+                
+                // Update VJ control button visuals to reflect state
+                if (this.vjControlButtons) {
+                    this.vjControlButtons.forEach(btn => {
+                        if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || btn.control === 'mirrorBallActive') {
+                            btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
+                        }
+                    });
+                }
             }
+        } else {
+            // In manual mode: update lightModeSwitchTime to prevent immediate cycling when mode expires
+            this.lightModeSwitchTime = time;
         }
         
         // Update LED wall (with audio reactivity) - respects ledWallActive control
