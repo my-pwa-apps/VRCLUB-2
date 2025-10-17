@@ -122,7 +122,7 @@ class VRClub {
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
         
         // Spotlight pattern and speed controls
-        this.spotlightPattern = 0; // 0=random (default), 1=static down, 2=synchronized sweep
+        this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
         this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
         // Mirror ball spotlight color (configurable)
