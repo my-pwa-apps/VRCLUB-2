@@ -2832,11 +2832,11 @@ class VRClub {
         
         const surfaces = [
             { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02 },
-            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 7.98 },
-            { name: 'leftWall', axis: 'yz', fixed: 'x', value: -14.98 },
-            { name: 'rightWall', axis: 'yz', fixed: 'x', value: 14.98 },
-            { name: 'backWall', axis: 'xy', fixed: 'z', value: -25.98 },
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.98 }
+            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 }, // Ceiling box bottom at 9.85
+            { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
+            { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
+            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.98 } // No actual wall, keep for edge spots
         ];
         
         surfaces.forEach(surface => {
@@ -2861,9 +2861,9 @@ class VRClub {
                 
                 if (surface.axis === 'xz') { // Floor or ceiling
                     targetPos = new BABYLON.Vector3(
-                        -14 + Math.random() * 28,  // x: -14 to +14
+                        -17 + Math.random() * 34,  // x: -17 to +17 (full room width)
                         surface.value,
-                        -25 + Math.random() * 27   // z: -25 to +2
+                        -27 + Math.random() * 29   // z: -27 to +2 (full room depth)
                     );
                     normal = surface.name === 'floor' ? 
                         new BABYLON.Vector3(0, 1, 0) : 
@@ -2872,8 +2872,8 @@ class VRClub {
                 } else if (surface.axis === 'yz') { // Left or right wall
                     targetPos = new BABYLON.Vector3(
                         surface.value,
-                        0.2 + Math.random() * 7.6,  // y: 0.2 to 7.8
-                        -25 + Math.random() * 27    // z: -25 to +2
+                        0.2 + Math.random() * 9.6,  // y: 0.2 to 9.8 (full wall height)
+                        -27 + Math.random() * 29    // z: -27 to +2 (full wall depth)
                     );
                     normal = surface.name === 'leftWall' ? 
                         new BABYLON.Vector3(1, 0, 0) : 
@@ -2881,8 +2881,8 @@ class VRClub {
                         
                 } else { // Back or front wall (xy)
                     targetPos = new BABYLON.Vector3(
-                        -14 + Math.random() * 28,  // x: -14 to +14
-                        0.2 + Math.random() * 7.6,  // y: 0.2 to 7.8
+                        -17 + Math.random() * 34,  // x: -17 to +17 (full wall width)
+                        0.2 + Math.random() * 9.6,  // y: 0.2 to 9.8 (full wall height)
                         surface.value
                     );
                     normal = surface.name === 'backWall' ? 
@@ -3056,7 +3056,7 @@ class VRClub {
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const z = ballPos.z + dirZ * t;
-                            if (x >= -15 && x <= 15 && z >= -26 && z <= 2 && t < closestT) {
+                            if (x >= -17.5 && x <= 17.5 && z >= -27.5 && z <= 2.5 && t < closestT) {
                                 closestT = t;
                                 hitPos = new BABYLON.Vector3(x, 0.02, z);
                                 hitNormal = new BABYLON.Vector3(0, 1, 0);
@@ -3064,69 +3064,69 @@ class VRClub {
                         }
                     }
                     
-                    // CEILING (y = 8)
+                    // CEILING (y = 9.85) - Bottom face of ceiling box
                     if (dirY > 0.001) {
-                        const t = (8 - ballPos.y) / dirY;
+                        const t = (9.85 - ballPos.y) / dirY;
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const z = ballPos.z + dirZ * t;
-                            if (x >= -15 && x <= 15 && z >= -26 && z <= 2 && t < closestT) {
+                            if (x >= -17.5 && x <= 17.5 && z >= -32.5 && z <= 12.5 && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(x, 7.98, z);
+                                hitPos = new BABYLON.Vector3(x, 9.83, z);
                                 hitNormal = new BABYLON.Vector3(0, -1, 0);
                             }
                         }
                     }
                     
-                    // LEFT WALL (x = -15)
+                    // LEFT WALL (x = -16.75) - Inner face
                     if (dirX < -0.001) {
-                        const t = (-15 - ballPos.x) / dirX;
+                        const t = (-16.75 - ballPos.x) / dirX;
                         if (t > 0) {
                             const y = ballPos.y + dirY * t;
                             const z = ballPos.z + dirZ * t;
-                            if (y >= 0 && y <= 8 && z >= -26 && z <= 2 && t < closestT) {
+                            if (y >= 0 && y <= 10 && z >= -32.5 && z <= 12.5 && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(-14.98, y, z);
+                                hitPos = new BABYLON.Vector3(-16.73, y, z);
                                 hitNormal = new BABYLON.Vector3(1, 0, 0);
                             }
                         }
                     }
                     
-                    // RIGHT WALL (x = 15)
+                    // RIGHT WALL (x = 16.75) - Inner face
                     if (dirX > 0.001) {
-                        const t = (15 - ballPos.x) / dirX;
+                        const t = (16.75 - ballPos.x) / dirX;
                         if (t > 0) {
                             const y = ballPos.y + dirY * t;
                             const z = ballPos.z + dirZ * t;
-                            if (y >= 0 && y <= 8 && z >= -26 && z <= 2 && t < closestT) {
+                            if (y >= 0 && y <= 10 && z >= -32.5 && z <= 12.5 && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(14.98, y, z);
+                                hitPos = new BABYLON.Vector3(16.73, y, z);
                                 hitNormal = new BABYLON.Vector3(-1, 0, 0);
                             }
                         }
                     }
                     
-                    // BACK WALL (z = -26)
+                    // BACK WALL (z = -26.75) - Front face
                     if (dirZ < -0.001) {
-                        const t = (-26 - ballPos.z) / dirZ;
+                        const t = (-26.75 - ballPos.z) / dirZ;
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const y = ballPos.y + dirY * t;
-                            if (x >= -15 && x <= 15 && y >= 0 && y <= 8 && t < closestT) {
+                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, -25.98);
+                                hitPos = new BABYLON.Vector3(x, y, -26.73);
                                 hitNormal = new BABYLON.Vector3(0, 0, 1);
                             }
                         }
                     }
                     
-                    // FRONT WALL (z = 2)
+                    // FRONT WALL (z = 2) - No physical wall, but keep for edge spots
                     if (dirZ > 0.001) {
                         const t = (2 - ballPos.z) / dirZ;
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const y = ballPos.y + dirY * t;
-                            if (x >= -15 && x <= 15 && y >= 0 && y <= 8 && t < closestT) {
+                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
                                 closestT = t;
                                 hitPos = new BABYLON.Vector3(x, y, 1.98);
                                 hitNormal = new BABYLON.Vector3(0, 0, -1);
@@ -3442,8 +3442,9 @@ class VRClub {
         }
         
         // Update spotlights with synchronized movement patterns (AUDIO REACTIVE)
-        // ALWAYS change color every 10 seconds for ALL lights (outside the lightsActive check)
-        if (time - this.lastColorChange > 10) {
+        // ONLY auto-change color when NOT in VJ manual mode
+        // Manual mode allows VJ to lock in their chosen color
+        if (!this.vjManualMode && time - this.lastColorChange > 10) {
             this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
             this.currentSpotColor = this.spotColorList[this.spotColorIndex];
             this.lastColorChange = time;
