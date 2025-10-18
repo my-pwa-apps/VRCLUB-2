@@ -254,6 +254,13 @@ class VRClub {
         this.scene = new BABYLON.Scene(this.engine);
         this.scene.clearColor = new BABYLON.Color3(0.01, 0.01, 0.02); // Very dark club atmosphere
         
+        // Enable physics for avatar collisions (prevents floor sinking)
+        this.scene.enablePhysics(
+            new BABYLON.Vector3(0, -9.81, 0), // Gravity
+            new BABYLON.CannonJSPlugin()       // Physics engine
+        );
+        console.log('⚽ Physics engine enabled (avatars won\'t sink through floor)');
+        
         // Set scene reference in material factory
         this.materialFactory.scene = this.scene;
         

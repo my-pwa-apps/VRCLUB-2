@@ -30,10 +30,10 @@ class ReadyPlayerMeLoader {
             'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb',
             'https://models.readyplayer.me/68f3d52ac8049dcd18a35de8.glb',
             'https://models.readyplayer.me/68f3d687992c9fb50cad6e59.glb',
-            'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb'
+            'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb',
             
-            // Mixamo characters (local files):
-            // './js/models/avatars/mixamo_character_01.glb',
+            // Mixamo characters (local files with animations):
+            './js/models/avatars/mixamo_malcolm_dancing.glb', // Add your Mixamo GLB here
             
             // Instructions:
             // 1. Create avatars using VRoid Studio (see docs/VROID_INTEGRATION_GUIDE_2025-10-18.md)
@@ -113,8 +113,41 @@ class ReadyPlayerMeLoader {
                         mesh.material.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
                         mesh.renderingGroupId = 1; // Render hair after opaque meshes
                     }
+                    
+                    // Ready Player Me / General: Enforce opacity (prevent light bleed-through in VR)
+                    if (avatarType === 'Ready Player Me' || avatarType === 'Custom') {
+                        // Aggressively enforce opacity - VR stereoscopic rendering is sensitive
+                        mesh.material.alpha = 1.0;
+                        mesh.material.transparencyMode = null;
+                        
+                        // Override alpha blending methods
+                        if (mesh.material.needAlphaBlending) {
+                            mesh.material.needAlphaBlending = () => false;
+                        }
+                        if (mesh.material.needAlphaTesting) {
+                            mesh.material.needAlphaTesting = () => false;
+                        }
+                        
+                        // Ensure depth writes are enabled
+                        mesh.material.disableDepthWrite = false;
+                        mesh.material.forceDepthWrite = true;
+                        
+                        // Disable back-face culling issues
+                        mesh.material.backFaceCulling = true;
+                    }
                 }
             });
+            
+            // Add physics collider to prevent sinking through floor
+            this.addPhysicsCollider(root);
+            
+            // Setup animations if available
+            if (result.animationGroups && result.animationGroups.length > 0) {
+                this.setupAnimations(root, result.animationGroups);
+                console.log(`🎬 Loaded ${result.animationGroups.length} animations for ${avatarType} avatar`);
+            } else {
+                console.log(`⚠️ No animations found in ${avatarType} avatar - you can add Mixamo animations!`);
+            }
             
             return result.meshes;
             
@@ -323,5 +356,122 @@ class ReadyPlayerMeLoader {
         console.log(`  - Enabled: ${stats.enabled}`);
         console.log(`  - Fallback Mode: ${stats.fallbackMode}`);
         console.log(`  - Avatar Types:`, stats.types);
+    }
+    
+    /**
+     * Add physics collider to avatar root to prevent sinking through floor
+     */
+    addPhysicsCollider(root) {
+        // Create invisible capsule collider for physics
+        const collider = BABYLON.MeshBuilder.CreateCapsule(`${root.name}_collider`, {
+            height: 1.7,    // Average human height
+            radius: 0.3,    // Avatar width
+            tessellation: 8 // Low poly for performance
+        }, this.scene);
+        
+        // Make collider invisible
+        collider.isVisible = false;
+        collider.parent = root;
+        collider.position.y = 0.85; // Center at waist height
+        
+        // Enable physics impostor
+        if (this.scene.getPhysicsEngine()) {
+            collider.physicsImpostor = new BABYLON.PhysicsImpostor(
+                collider,
+                BABYLON.PhysicsImpostor.CapsuleImpostor,
+                { 
+                    mass: 70,           // Average human mass (kg)
+                    restitution: 0.1,   // Low bounce
+                    friction: 0.8       // High friction for stability
+                },
+                this.scene
+            );
+            console.log(`⚽ Added physics collider to avatar ${root.name}`);
+        } else {
+            console.warn('⚠️ Physics engine not enabled - avatar may sink through floor');
+            console.log('💡 Tip: Enable physics in club_hyperrealistic.js');
+        }
+        
+        return collider;
+    }
+    
+    /**
+     * Setup animations for avatar (dancing, idle, etc.)
+     */
+    setupAnimations(root, animationGroups) {
+        // Store animations on root for later access
+        root.animationGroups = animationGroups;
+        
+        // Find and setup dance animations
+        const danceAnimations = animationGroups.filter(group => 
+            group.name.toLowerCase().includes('dance') ||
+            group.name.toLowerCase().includes('dancing') ||
+            group.name.toLowerCase().includes('hiphop') ||
+            group.name.toLowerCase().includes('samba')
+        );
+        
+        if (danceAnimations.length > 0) {
+            console.log(`💃 Found ${danceAnimations.length} dance animation(s)`);
+            
+            // Play random dance animation on loop
+            const randomDance = danceAnimations[Math.floor(Math.random() * danceAnimations.length)];
+            randomDance.start(true, 1.0, randomDance.from, randomDance.to, false);
+            root.currentAnimation = randomDance;
+            
+            console.log(`🎵 Playing dance animation: ${randomDance.name}`);
+        } else {
+            // Find idle animation as fallback
+            const idleAnimation = animationGroups.find(group => 
+                group.name.toLowerCase().includes('idle') ||
+                group.name.toLowerCase().includes('standing')
+            );
+            
+            if (idleAnimation) {
+                idleAnimation.start(true, 1.0, idleAnimation.from, idleAnimation.to, false);
+                root.currentAnimation = idleAnimation;
+                console.log(`🧍 Playing idle animation: ${idleAnimation.name}`);
+            } else if (animationGroups.length > 0) {
+                // Play first available animation
+                const firstAnim = animationGroups[0];
+                firstAnim.start(true, 1.0, firstAnim.from, firstAnim.to, false);
+                root.currentAnimation = firstAnim;
+                console.log(`▶️ Playing animation: ${firstAnim.name}`);
+            }
+        }
+        
+        return root.currentAnimation;
+    }
+    
+    /**
+     * Change avatar animation
+     * @param {BABYLON.TransformNode} root - Avatar root node
+     * @param {string} animationName - Animation to play (e.g., 'dance', 'idle', 'wave')
+     */
+    playAnimation(root, animationName) {
+        if (!root.animationGroups || root.animationGroups.length === 0) {
+            console.warn(`⚠️ No animations available for ${root.name}`);
+            return null;
+        }
+        
+        // Stop current animation
+        if (root.currentAnimation) {
+            root.currentAnimation.stop();
+        }
+        
+        // Find matching animation
+        const animation = root.animationGroups.find(group => 
+            group.name.toLowerCase().includes(animationName.toLowerCase())
+        );
+        
+        if (animation) {
+            animation.start(true, 1.0, animation.from, animation.to, false);
+            root.currentAnimation = animation;
+            console.log(`🎬 Playing animation: ${animation.name}`);
+            return animation;
+        } else {
+            console.warn(`⚠️ Animation '${animationName}' not found for ${root.name}`);
+            console.log(`Available animations: ${root.animationGroups.map(g => g.name).join(', ')}`);
+            return null;
+        }
     }
 }
