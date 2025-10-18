@@ -260,10 +260,18 @@ class VRClub {
         // Initialize light factory
         this.lightFactory = new LightFactory(this.scene);
         
+        // Initialize Ready Player Me loader (optional, with fallback)
+        this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
+        await this.readyPlayerMeLoader.testConnection(); // Check if RPM is available
+        
         // Initialize multiplayer managers
         this.networkManager = new NetworkManager(this.scene);
-        this.avatarManager = new AvatarManager(this.scene, this.materialFactory);
+        this.avatarManager = new AvatarManager(this.scene, this.materialFactory, this.readyPlayerMeLoader);
         this.setupNetworkingCallbacks();
+        
+        // NPC avatars for atmosphere
+        this.npcAvatars = [];
+        this.npcDancePositions = [];
         
         // Load environment for PBR reflections
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
@@ -407,6 +415,9 @@ class VRClub {
         this.setupUI(vrHelper);
         this.setupPerformanceMonitor();
         this.setupVJControlInteraction(); // Add VJ control button clicks
+        
+        // Create dancing NPC avatars on the dancefloor
+        this.createDancingNPCs();
         
         // Start render loop
         this.engine.runRenderLoop(() => {
@@ -2090,12 +2101,24 @@ class VRClub {
         this.colorSwitchTime = 0;
         
         // Lights and lasers control - ALTERNATING PATTERN
-        // Pattern: Lights → Lasers → Mirror Ball (cycling showcase)
+        // PROFESSIONAL VJ PATTERN SYSTEM - Based on real club/concert lighting
+        // Pattern progression: Build → Peak → Break → Ambient → Build (repeating cycle)
         this.lightModeSwitchTime = 0;
-        this.lightingPhase = 'lights'; // 'lights', 'lasers', or 'mirrorball'
-        this.lightsPhaseDuration = 25; // Lights show for 25 seconds
-        this.lasersPhaseDuration = 20; // Lasers show for 20 seconds
-        this.mirrorBallPhaseDuration = 15; // Mirror ball show for 15 seconds (dramatic moment)
+        this.lightingPhase = 'build'; // 'build', 'peak', 'breakdown', 'ambient', 'drop'
+        this.currentShowMode = 'spotlights'; // What's currently active: 'spotlights', 'lasers', 'mirror', 'combo'
+        
+        // Dynamic phase durations - vary for natural feel (like real DJ sets)
+        this.phaseDurations = {
+            build: 30 + Math.random() * 10,      // 30-40s: Building energy with spotlights
+            peak: 20 + Math.random() * 10,       // 20-30s: High energy with lasers
+            breakdown: 15 + Math.random() * 5,   // 15-20s: Dramatic breakdown with mirror ball
+            ambient: 20 + Math.random() * 10,    // 20-30s: Chill moment with slow patterns
+            drop: 25 + Math.random() * 10        // 25-35s: Big drop with everything combined
+        };
+        
+        // Track energy level for smooth transitions (0.0 = ambient, 1.0 = peak)
+        this.energyLevel = 0.5;
+        this.targetEnergy = 0.8;
         
     }
     
@@ -2960,6 +2983,11 @@ class VRClub {
         const time = performance.now() / 1000;
         this.ledTime += 0.016;
         
+        // Update dancing NPC avatars
+        if (this.npcAvatars && this.npcAvatars.length > 0) {
+            this.updateDancingNPCs(time);
+        }
+        
         // Get audio data for reactive lighting
         const audioData = this.getAudioData();
         
@@ -2971,26 +2999,46 @@ class VRClub {
                 this.lightsActive = false;
                 this.lasersActive = false;
                 this.ledWallActive = false;
-            }
-            
-            // Disable spotlight beams (unless manually enabled by VJ)
-            if (this.spotlights && !this.lightsActive) {
-                this.spotlights.forEach(spot => {
-                    if (spot.spot) spot.spot.setEnabled(false);
-                    if (spot.beam) spot.beam.setEnabled(false);
-                });
-            }
-            
-            // Disable lasers (each laser has multiple lights in 'lights' array) - unless manually enabled
-            if (this.lasers && !this.lasersActive) {
-                this.lasers.forEach(laser => {
-                    laser.lights.forEach(light => light.setEnabled(false)); // Disable all lights in array
-                    laser.beams.forEach(beam => {
-                        beam.mesh.setEnabled(false);      // Main beam cylinder
-                        beam.beamGlow.setEnabled(false);  // Glow halo
-                        beam.hitSpot.setEnabled(false);   // Floor hit spot
+                
+                // Disable spotlight beams in automated mode
+                if (this.spotlights) {
+                    this.spotlights.forEach(spot => {
+                        if (spot.spot) spot.spot.setEnabled(false);
+                        if (spot.beam) spot.beam.setEnabled(false);
                     });
-                });
+                }
+                
+                // Disable lasers in automated mode
+                if (this.lasers) {
+                    this.lasers.forEach(laser => {
+                        laser.lights.forEach(light => light.setEnabled(false));
+                        laser.beams.forEach(beam => {
+                            beam.mesh.setEnabled(false);
+                            beam.beamGlow.setEnabled(false);
+                            beam.hitSpot.setEnabled(false);
+                        });
+                    });
+                }
+            } else {
+                // MANUAL MODE: Respect VJ's individual light settings
+                // Only disable lights if VJ explicitly turned them off
+                if (this.spotlights && !this.lightsActive) {
+                    this.spotlights.forEach(spot => {
+                        if (spot.spot) spot.spot.setEnabled(false);
+                        if (spot.beam) spot.beam.setEnabled(false);
+                    });
+                }
+                
+                if (this.lasers && !this.lasersActive) {
+                    this.lasers.forEach(laser => {
+                        laser.lights.forEach(light => light.setEnabled(false));
+                        laser.beams.forEach(beam => {
+                            beam.mesh.setEnabled(false);
+                            beam.beamGlow.setEnabled(false);
+                            beam.hitSpot.setEnabled(false);
+                        });
+                    });
+                }
             }
             
             // Disable strobes
@@ -3028,8 +3076,10 @@ class VRClub {
             };
             
             // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
+            // Apply speed multiplier for VJ control
             if (this.mirrorBall) {
-                this.mirrorBallRotation -= 0.003; // Negative rotation - spots now move in same visual direction
+                const speedMultiplier = this.spotlightSpeed || 1.0;
+                this.mirrorBallRotation -= 0.003 * speedMultiplier; // Negative rotation - spots now move in same visual direction
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
@@ -3188,53 +3238,130 @@ class VRClub {
             }
         }
         
-        // AUTOMATIC CYCLING PATTERN: Lights → Lasers → Mirror Ball
-        // Only cycle automatically when NOT in VJ manual mode
+        // PROFESSIONAL VJ AUTOMATIC PATTERN SYSTEM
+        // Inspired by real club lighting: builds, peaks, breakdowns, and drops
+        // Only runs when NOT in VJ manual mode
         if (!this.vjManualMode) {
-            // Determine phase duration based on current phase
-            let currentPhaseDuration;
-            if (this.lightingPhase === 'lights') {
-                currentPhaseDuration = this.lightsPhaseDuration;
-            } else if (this.lightingPhase === 'lasers') {
-                currentPhaseDuration = this.lasersPhaseDuration;
-            } else if (this.lightingPhase === 'mirrorball') {
-                currentPhaseDuration = this.mirrorBallPhaseDuration;
-            }
+            const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
+            
+            // Smoothly interpolate energy level toward target
+            const energySpeed = 0.002; // Smooth transitions
+            this.energyLevel += (this.targetEnergy - this.energyLevel) * energySpeed;
             
             if (time - this.lightModeSwitchTime > currentPhaseDuration) {
-                // Cycle through phases: lights → lasers → mirrorball → lights
-                if (this.lightingPhase === 'lights') {
-                    this.lightingPhase = 'lasers';
-                    this.lightsActive = false;
-                    this.lasersActive = true;
-                    this.mirrorBallActive = false;
-                    console.log('🎪 Phase: LASERS');
-                    
-                } else if (this.lightingPhase === 'lasers') {
-                    this.lightingPhase = 'mirrorball';
-                    this.lightsActive = false;
-                    this.lasersActive = false;
-                    this.mirrorBallActive = true;
-                    console.log('🪩 Phase: MIRROR BALL');
-                    
-                } else {
-                    this.lightingPhase = 'lights';
-                    this.lightsActive = true;
-                    this.lasersActive = false;
-                    this.mirrorBallActive = false;
-                    console.log('💡 Phase: SPOTLIGHTS');
+                // PROFESSIONAL PHASE PROGRESSION (like real DJ sets)
+                switch(this.lightingPhase) {
+                    case 'build':
+                        // BUILD → PEAK: Transition from spotlights to lasers (high energy)
+                        this.lightingPhase = 'peak';
+                        this.targetEnergy = 1.0;
+                        this.lightsActive = false;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = false;
+                        this.ledWallActive = true; // LED wall active for peak energy
+                        this.currentShowMode = 'lasers';
+                        console.log('🔥 PEAK: High energy with lasers!');
+                        break;
+                        
+                    case 'peak':
+                        // PEAK → BREAKDOWN: Drop to mirror ball (dramatic moment)
+                        this.lightingPhase = 'breakdown';
+                        this.targetEnergy = 0.3;
+                        this.lightsActive = false;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = true;
+                        this.ledWallActive = false;
+                        this.currentShowMode = 'mirror';
+                        console.log('🪩 BREAKDOWN: Mirror ball moment...');
+                        break;
+                        
+                    case 'breakdown':
+                        // BREAKDOWN → AMBIENT: Slow atmospheric spotlights
+                        this.lightingPhase = 'ambient';
+                        this.targetEnergy = 0.4;
+                        this.lightsActive = true;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.ledWallActive = true; // Ambient LED patterns
+                        this.spotlightSpeed = 0.5; // Slow movement
+                        this.currentShowMode = 'spotlights';
+                        console.log('� AMBIENT: Slow atmospheric vibe...');
+                        break;
+                        
+                    case 'ambient':
+                        // AMBIENT → DROP: Big drop with everything!
+                        this.lightingPhase = 'drop';
+                        this.targetEnergy = 1.0;
+                        this.lightsActive = true;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = false; // Everything except mirror ball
+                        this.ledWallActive = true;
+                        this.spotlightSpeed = 2.0; // Fast movement for drop
+                        this.strobesActive = true; // Strobes for the drop!
+                        this.currentShowMode = 'combo';
+                        console.log('💥 DROP: Everything at once! Maximum energy!');
+                        break;
+                        
+                    case 'drop':
+                        // DROP → BUILD: Return to building energy
+                        this.lightingPhase = 'build';
+                        this.targetEnergy = 0.7;
+                        this.lightsActive = true;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.ledWallActive = true;
+                        this.spotlightSpeed = 1.0; // Normal speed
+                        this.strobesActive = false;
+                        this.currentShowMode = 'spotlights';
+                        console.log('⬆️ BUILD: Building energy with spotlights...');
+                        break;
                 }
+                
                 this.lightModeSwitchTime = time;
+                
+                // Randomize next phase duration for natural variation
+                const phaseName = this.lightingPhase;
+                if (phaseName === 'build') {
+                    this.phaseDurations.build = 30 + Math.random() * 10;
+                } else if (phaseName === 'peak') {
+                    this.phaseDurations.peak = 20 + Math.random() * 10;
+                } else if (phaseName === 'breakdown') {
+                    this.phaseDurations.breakdown = 15 + Math.random() * 5;
+                } else if (phaseName === 'ambient') {
+                    this.phaseDurations.ambient = 20 + Math.random() * 10;
+                } else if (phaseName === 'drop') {
+                    this.phaseDurations.drop = 25 + Math.random() * 10;
+                }
                 
                 // Update VJ control button visuals to reflect state
                 if (this.vjControlButtons) {
                     this.vjControlButtons.forEach(btn => {
-                        if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || btn.control === 'mirrorBallActive') {
+                        if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
+                            btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
+                            btn.control === 'ledWallActive') {
                             btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                         }
                     });
                 }
             }
+            
+            // ENERGY-BASED DYNAMIC ADJUSTMENTS (within each phase)
+            // Spotlights intensity varies with energy
+            if (this.spotlights && this.lightsActive) {
+                this.spotlights.forEach(spot => {
+                    if (spot.light) {
+                        spot.light.intensity = 12 * (0.6 + this.energyLevel * 0.4); // 7.2 to 12
+                    }
+                });
+            }
+            
+            // Laser rotation speed varies with energy
+            if (this.lasers && this.lasersActive) {
+                this.lasers.forEach(laser => {
+                    laser.rotationSpeed = 0.01 + (this.energyLevel * 0.02); // 0.01 to 0.03
+                });
+            }
+            
         } else {
             // In manual mode: update lightModeSwitchTime to prevent immediate cycling when mode expires
             this.lightModeSwitchTime = time;
@@ -3254,8 +3381,9 @@ class VRClub {
         // Spotlights always move together in coordinated patterns
         this.lightingMode = 'synchronized';
         
-        // Color switching (every 8-12 seconds)
-        if (time - this.colorSwitchTime > (8 + Math.random() * 4)) {
+        // LASER COLOR SWITCHING: Only change automatically in AUTOMATED mode
+        // In MANUAL mode: colors only change via VJ control button
+        if (!this.vjManualMode && time - this.colorSwitchTime > (8 + Math.random() * 4)) {
             this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
             this.colorSwitchTime = time;
         }
@@ -3282,13 +3410,14 @@ class VRClub {
                     laser.originPos = laser.housing.getAbsolutePosition().clone();
                 }
                 
-                // Movement depends on mode
+                // Movement depends on mode (apply speed multiplier)
+                const speedMultiplier = this.spotlightSpeed || 1.0;
                 if (this.lightingMode === 'synchronized') {
-                    laser.rotation += 0.015;
-                    laser.tiltPhase += 0.02;
+                    laser.rotation += 0.015 * speedMultiplier;
+                    laser.tiltPhase += 0.02 * speedMultiplier;
                 } else {
-                    laser.rotation += laser.rotationSpeed;
-                    laser.tiltPhase += 0.015 + Math.sin(time + i) * 0.01;
+                    laser.rotation += laser.rotationSpeed * speedMultiplier;
+                    laser.tiltPhase += (0.015 + Math.sin(time + i) * 0.01) * speedMultiplier;
                 }
                 // Mark laser as spinning
                 laser.isSpinning = true;
@@ -3492,7 +3621,12 @@ class VRClub {
             this.lastActivePhase = time * 0.8; // Always update when lights on
         }
         const globalPhase = this.lastActivePhase || 0;
-        const audioSpeedMultiplier = 1.0; // Audio control disabled - focus on basics
+        
+        // Audio speed multiplier: only apply when actual audio is playing
+        // When no audio: use default 1.0x speed for consistent automated patterns
+        const audioSpeedMultiplier = audioData.hasAudio 
+            ? 1.0 + (audioData.average * 0.5) // 1.0x to 1.5x based on audio energy
+            : 1.0; // No audio = consistent timing
         
         // Auto-cycling control for Pattern 0 (random mode)
         const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
@@ -3793,11 +3927,12 @@ class VRClub {
                     }
                     
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
-                    // Strobe is controlled by dedicated toggle button (simple on/off)
+                    // Strobe is controlled by both toggle button AND spotlight mode
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
                     
-                    // Strobe is simply controlled by the STROBE toggle button
-                    const isStrobeEnabled = this.spotStrobeActive;
+                    // Strobe is active when: button is on AND mode includes strobe (0 or 2)
+                    const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
+                    const isStrobeEnabled = this.spotStrobeActive && isStrobeMode;
                     
                     let beamVisible = this.lightsActive;
                     if (isStrobeEnabled) {
@@ -3946,8 +4081,10 @@ class VRClub {
         
         // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
         // with the new 26-pattern system including creative blackout shapes
+        // Apply speed multiplier for VJ control
         if (this.ledPanels && this.ledPanels.length > 0) {
-            this.ledTime += 0.016;
+            const speedMultiplier = this.spotlightSpeed || 1.0;
+            this.ledTime += 0.016 * speedMultiplier;
         }
         
         // Update strobes - respects strobesActive control
@@ -5324,6 +5461,312 @@ class VRClub {
         return { bass, mid, treble, average, hasAudio };
     }
 
+    createDancingNPCs() {
+        // Create 5-8 random HUMANLIKE NPC avatars dancing on the dancefloor
+        const npcCount = 5 + Math.floor(Math.random() * 4); // 5-8 NPCs
+        const npcNames = [
+            'Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey',
+            'Riley', 'Skyler', 'Cameron', 'Avery', 'Quinn',
+            'Sam', 'Jesse', 'Dakota', 'River', 'Phoenix'
+        ];
+        
+        // Shuffle names for variety
+        const shuffledNames = [...npcNames].sort(() => Math.random() - 0.5);
+        
+        console.log(`🕺 Creating ${npcCount} diverse dancing NPC avatars...`);
+        
+        // Dancefloor boundaries
+        const dancefloorCenter = { x: 0, z: -12 };
+        const dancefloorRadius = 5; // 5m radius around center
+        
+        for (let i = 0; i < npcCount; i++) {
+            // Random position on dancefloor (avoid exact center where user spawns)
+            const angle = (Math.PI * 2 * i) / npcCount + Math.random() * 0.5;
+            const distance = 2 + Math.random() * 3; // 2-5m from center
+            
+            const x = dancefloorCenter.x + Math.cos(angle) * distance;
+            const z = dancefloorCenter.z + Math.sin(angle) * distance;
+            
+            // Random VR vs Desktop (50/50 mix for variety)
+            const isVR = Math.random() < 0.5;
+            
+            // HUMANLIKE RANDOMIZATION - Make each NPC unique
+            const npcId = `npc_${i}`;
+            const npcData = {
+                username: shuffledNames[i],
+                isVR: isVR,
+                position: { x, y: 0, z },
+                rotation: { x: 0, y: Math.random() * Math.PI * 2, z: 0 },
+                // Unique appearance traits
+                customization: {
+                    // Random height variation (±15% from base)
+                    heightMultiplier: 0.85 + Math.random() * 0.3,
+                    
+                    // Random body size (slim to broad)
+                    bodyScale: 0.8 + Math.random() * 0.4,
+                    
+                    // Random skin tone (variety of human skin colors)
+                    skinTone: this.getRandomSkinTone(),
+                    
+                    // Random outfit/body color
+                    outfitColor: this.getRandomOutfitColor(),
+                    
+                    // Random head size (slight variation)
+                    headScale: 0.9 + Math.random() * 0.2
+                }
+            };
+            
+            // Create avatar using existing AvatarManager
+            this.avatarManager.createAvatar(npcId, npcData);
+            
+            // Apply customization after creation
+            this.customizeNPCAvatar(npcId, npcData.customization);
+            
+            // Store NPC data for animation
+            this.npcAvatars.push({
+                id: npcId,
+                isVR: isVR,
+                basePosition: { x, y: 0, z },
+                angle: Math.random() * Math.PI * 2,
+                danceSpeed: 0.4 + Math.random() * 0.8, // Varied dance speed
+                bobPhase: Math.random() * Math.PI * 2,
+                spinPhase: Math.random() * Math.PI * 2,
+                handWavePhase: Math.random() * Math.PI * 2,
+                // Unique dance style
+                danceStyle: Math.floor(Math.random() * 4), // 0-3: different dance patterns
+                heightMultiplier: npcData.customization.heightMultiplier
+            });
+        }
+        
+        console.log(`✅ Created ${npcCount} diverse NPC avatars on dancefloor`);
+    }
+    
+    getRandomSkinTone() {
+        // Variety of human skin tones
+        const skinTones = [
+            new BABYLON.Color3(0.95, 0.76, 0.65), // Light skin
+            new BABYLON.Color3(0.88, 0.70, 0.58), // Fair skin
+            new BABYLON.Color3(0.80, 0.62, 0.50), // Medium skin
+            new BABYLON.Color3(0.72, 0.55, 0.42), // Olive skin
+            new BABYLON.Color3(0.60, 0.45, 0.35), // Tan skin
+            new BABYLON.Color3(0.50, 0.37, 0.28), // Brown skin
+            new BABYLON.Color3(0.40, 0.28, 0.20), // Dark brown skin
+            new BABYLON.Color3(0.30, 0.20, 0.15)  // Deep brown skin
+        ];
+        return skinTones[Math.floor(Math.random() * skinTones.length)];
+    }
+    
+    getRandomOutfitColor() {
+        // Varied clothing/outfit colors (club-appropriate)
+        const outfitColors = [
+            // Vibrant club colors
+            new BABYLON.Color3(0.2, 0.4, 0.8),  // Blue
+            new BABYLON.Color3(0.8, 0.2, 0.4),  // Pink/Red
+            new BABYLON.Color3(0.4, 0.2, 0.7),  // Purple
+            new BABYLON.Color3(0.2, 0.7, 0.5),  // Teal
+            new BABYLON.Color3(0.9, 0.6, 0.2),  // Orange
+            new BABYLON.Color3(0.3, 0.8, 0.3),  // Green
+            // Neutral colors
+            new BABYLON.Color3(0.2, 0.2, 0.2),  // Black
+            new BABYLON.Color3(0.9, 0.9, 0.9),  // White
+            new BABYLON.Color3(0.4, 0.4, 0.5),  // Gray
+            // Metallic/shimmer effects
+            new BABYLON.Color3(0.8, 0.8, 0.9),  // Silver
+            new BABYLON.Color3(0.9, 0.8, 0.5)   // Gold
+        ];
+        return outfitColors[Math.floor(Math.random() * outfitColors.length)];
+    }
+    
+    customizeNPCAvatar(npcId, customization) {
+        const avatar = this.avatarManager.avatars.get(npcId);
+        if (!avatar) return;
+        
+        // Apply height variation
+        if (avatar.root) {
+            avatar.root.scaling.y = customization.heightMultiplier;
+        }
+        
+        // Apply body customization (desktop avatars)
+        if (avatar.body) {
+            // Scale body width
+            avatar.body.scaling.x = customization.bodyScale;
+            avatar.body.scaling.z = customization.bodyScale;
+            
+            // Apply outfit color to body
+            const bodyMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcBody_${npcId}`, this.scene);
+            bodyMat.baseColor = customization.outfitColor;
+            bodyMat.metallic = 0.1 + Math.random() * 0.3; // Some shimmer variation
+            bodyMat.roughness = 0.6 + Math.random() * 0.3;
+            bodyMat.emissiveColor = customization.outfitColor.scale(0.1); // Slight glow
+            avatar.body.material = bodyMat;
+        }
+        
+        // Apply head customization
+        if (avatar.head) {
+            // Scale head
+            avatar.head.scaling.set(
+                customization.headScale,
+                customization.headScale,
+                customization.headScale
+            );
+            
+            // Apply skin tone to all head/neck parts
+            const headMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcHead_${npcId}`, this.scene);
+            headMat.baseColor = customization.skinTone;
+            headMat.metallic = 0.0;
+            headMat.roughness = 0.7;
+            
+            // Apply to head, neck, ears, nose
+            avatar.head.getChildMeshes().forEach(mesh => {
+                if (mesh.name.includes('head') || mesh.name.includes('neck') || 
+                    mesh.name.includes('Ear') || mesh.name.includes('nose')) {
+                    mesh.material = headMat;
+                }
+            });
+        }
+        
+        // Apply hand customization (VR avatars) - skin tone to hands and fingers
+        if (avatar.leftHand && avatar.rightHand) {
+            const handMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcHands_${npcId}`, this.scene);
+            handMat.baseColor = customization.skinTone;
+            handMat.metallic = 0.0;
+            handMat.roughness = 0.7;
+            
+            // Apply to palm and fingers
+            avatar.leftHand.getChildMeshes().forEach(mesh => {
+                if (mesh.name.includes('palm') || mesh.name.includes('finger') || 
+                    mesh.name.includes('thumb') || mesh.name.includes('pinky') || 
+                    mesh.name.includes('ring') || mesh.name.includes('middle') || 
+                    mesh.name.includes('index')) {
+                    mesh.material = handMat;
+                }
+            });
+            
+            avatar.rightHand.getChildMeshes().forEach(mesh => {
+                if (mesh.name.includes('palm') || mesh.name.includes('finger') || 
+                    mesh.name.includes('thumb') || mesh.name.includes('pinky') || 
+                    mesh.name.includes('ring') || mesh.name.includes('middle') || 
+                    mesh.name.includes('index')) {
+                    mesh.material = handMat;
+                }
+            });
+        }
+        
+        // Apply outfit customization to body parts (Desktop avatars)
+        if (avatar.body) {
+            const bodyMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcBody_${npcId}`, this.scene);
+            bodyMat.baseColor = customization.outfitColor;
+            bodyMat.metallic = 0.1 + Math.random() * 0.3;
+            bodyMat.roughness = 0.6 + Math.random() * 0.3;
+            bodyMat.emissiveColor = customization.outfitColor.scale(0.1);
+            
+            // Apply to torso, hips, arms, legs (not skin parts)
+            avatar.body.getChildMeshes().forEach(mesh => {
+                if (mesh.name.includes('torso') || mesh.name.includes('hips') || 
+                    mesh.name.includes('Thigh') || mesh.name.includes('Calf') || 
+                    mesh.name.includes('Foot') || mesh.name.includes('Arm')) {
+                    mesh.material = bodyMat;
+                }
+            });
+            
+            // Apply skin tone to exposed hands
+            const skinMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcSkin_${npcId}`, this.scene);
+            skinMat.baseColor = customization.skinTone;
+            skinMat.metallic = 0.0;
+            skinMat.roughness = 0.7;
+            
+            avatar.body.getChildMeshes().forEach(mesh => {
+                if (mesh.name.includes('Hand')) {
+                    mesh.material = skinMat;
+                }
+            });
+        }
+    }
+    
+    updateDancingNPCs(time) {
+        // Animate each NPC with unique, humanlike dancing movements
+        this.npcAvatars.forEach(npc => {
+            const avatar = this.avatarManager.avatars.get(npc.id);
+            if (!avatar || !avatar.root) return;
+            
+            // DANCE STYLE VARIATIONS - Each NPC has their own style
+            let sideMotion, forwardMotion, bobAmount, rotationAmount;
+            
+            switch(npc.danceStyle) {
+                case 0: // ENERGETIC - Big movements, lots of jumping
+                    sideMotion = Math.sin(time * npc.danceSpeed * 1.5 + npc.angle) * 0.4;
+                    forwardMotion = Math.cos(time * npc.danceSpeed * 1.8 + npc.angle) * 0.3;
+                    bobAmount = Math.abs(Math.sin(time * npc.danceSpeed * 3 + npc.bobPhase)) * 0.25;
+                    rotationAmount = Math.sin(time * npc.danceSpeed * 0.8 + npc.spinPhase) * 0.8;
+                    break;
+                    
+                case 1: // CHILL - Smooth, flowing movements
+                    sideMotion = Math.sin(time * npc.danceSpeed * 0.6 + npc.angle) * 0.2;
+                    forwardMotion = Math.cos(time * npc.danceSpeed * 0.7 + npc.angle) * 0.15;
+                    bobAmount = Math.abs(Math.sin(time * npc.danceSpeed * 1.5 + npc.bobPhase)) * 0.1;
+                    rotationAmount = Math.sin(time * npc.danceSpeed * 0.3 + npc.spinPhase) * 0.3;
+                    break;
+                    
+                case 2: // RHYTHMIC - Sharp, beat-focused movements
+                    sideMotion = Math.floor(Math.sin(time * npc.danceSpeed * 2 + npc.angle) * 4) * 0.1;
+                    forwardMotion = Math.floor(Math.cos(time * npc.danceSpeed * 2.2 + npc.angle) * 4) * 0.08;
+                    bobAmount = Math.floor(Math.sin(time * npc.danceSpeed * 4 + npc.bobPhase) * 2) * 0.15;
+                    rotationAmount = Math.floor(Math.sin(time * npc.danceSpeed * 0.6 + npc.spinPhase) * 3) * 0.2;
+                    break;
+                    
+                case 3: // SHUFFLE - Side-to-side with occasional spins
+                    const shufflePhase = Math.floor(time * npc.danceSpeed * 0.5) % 4;
+                    sideMotion = (shufflePhase < 2 ? 0.3 : -0.3) * Math.sin(time * npc.danceSpeed * 2);
+                    forwardMotion = Math.sin(time * npc.danceSpeed * 0.5 + npc.angle) * 0.1;
+                    bobAmount = Math.abs(Math.sin(time * npc.danceSpeed * 2 + npc.bobPhase)) * 0.12;
+                    rotationAmount = Math.sin(time * npc.danceSpeed * 0.4 + npc.spinPhase) * 1.2;
+                    break;
+            }
+            
+            // Apply movement (accounting for height variation)
+            avatar.root.position.x = npc.basePosition.x + sideMotion;
+            avatar.root.position.z = npc.basePosition.z + forwardMotion;
+            avatar.root.position.y = bobAmount * npc.heightMultiplier; // Shorter NPCs bob less
+            
+            // Apply rotation
+            avatar.root.rotation.y = rotationAmount;
+            
+            // VR avatars: animate hands with style-specific movements
+            if (npc.isVR && avatar.leftHand && avatar.rightHand) {
+                switch(npc.danceStyle) {
+                    case 0: // ENERGETIC - Hands way up, waving wildly
+                        avatar.leftHand.position.y = 1.5 + Math.sin(time * npc.danceSpeed * 4 + npc.handWavePhase) * 0.4;
+                        avatar.rightHand.position.y = 1.5 + Math.cos(time * npc.danceSpeed * 4 + npc.handWavePhase) * 0.4;
+                        avatar.leftHand.position.x = -0.4 + Math.sin(time * npc.danceSpeed * 3) * 0.2;
+                        avatar.rightHand.position.x = 0.4 + Math.cos(time * npc.danceSpeed * 3) * 0.2;
+                        break;
+                        
+                    case 1: // CHILL - Hands at chest level, gentle sway
+                        avatar.leftHand.position.y = 1.0 + Math.sin(time * npc.danceSpeed * 1.5 + npc.handWavePhase) * 0.15;
+                        avatar.rightHand.position.y = 1.0 + Math.cos(time * npc.danceSpeed * 1.5 + npc.handWavePhase) * 0.15;
+                        avatar.leftHand.position.x = -0.25 + Math.sin(time * npc.danceSpeed) * 0.05;
+                        avatar.rightHand.position.x = 0.25 + Math.cos(time * npc.danceSpeed) * 0.05;
+                        break;
+                        
+                    case 2: // RHYTHMIC - Hands pumping to the beat
+                        avatar.leftHand.position.y = 1.2 + Math.floor(Math.sin(time * npc.danceSpeed * 4 + npc.handWavePhase) * 2) * 0.15;
+                        avatar.rightHand.position.y = 1.2 + Math.floor(Math.cos(time * npc.danceSpeed * 4 + npc.handWavePhase) * 2) * 0.15;
+                        avatar.leftHand.position.x = -0.3;
+                        avatar.rightHand.position.x = 0.3;
+                        break;
+                        
+                    case 3: // SHUFFLE - One hand up, one down alternating
+                        const handSwitch = Math.floor(time * npc.danceSpeed * 0.5) % 2;
+                        avatar.leftHand.position.y = handSwitch ? 1.5 : 0.8;
+                        avatar.rightHand.position.y = handSwitch ? 0.8 : 1.5;
+                        avatar.leftHand.position.x = -0.3 + Math.sin(time * npc.danceSpeed) * 0.1;
+                        avatar.rightHand.position.x = 0.3 + Math.cos(time * npc.danceSpeed) * 0.1;
+                        break;
+                }
+            }
+        });
+    }
+
     setupPerformanceMonitor() {
         this.fpsElement = document.getElementById('fpsCounter');
         this.lastTime = performance.now();
@@ -5378,7 +5821,8 @@ VR:
     }
 }
 
-// Initialize when page loads
-window.addEventListener('DOMContentLoaded', () => {
-    window.vrClub = new VRClub();
-});
+// Initialize when page loads - DISABLED for splash screen
+// Now initialized from splash screen in index.html after user clicks "ENTER CLUB"
+// window.addEventListener('DOMContentLoaded', () => {
+//     window.vrClub = new VRClub();
+// });

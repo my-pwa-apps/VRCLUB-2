@@ -3,17 +3,18 @@
  * Creates and updates visual representations of other players
  */
 class AvatarManager {
-    constructor(scene, materialFactory) {
+    constructor(scene, materialFactory, readyPlayerMeLoader = null) {
         this.scene = scene;
         this.materialFactory = materialFactory;
         this.avatars = new Map(); // playerId -> avatar object
+        this.rpmLoader = readyPlayerMeLoader; // Optional RPM integration
         
         // Shared materials for efficiency
         this.bodyMaterial = this.createBodyMaterial();
         this.headMaterial = this.createHeadMaterial();
         this.handMaterial = this.createHandMaterial();
         
-        console.log('👥 AvatarManager initialized');
+        console.log('👥 AvatarManager initialized' + (this.rpmLoader ? ' with Ready Player Me' : ' (procedural mode)'));
     }
     
     createBodyMaterial() {
@@ -41,7 +42,7 @@ class AvatarManager {
         return mat;
     }
     
-    createAvatar(playerId, playerData) {
+    async createAvatar(playerId, playerData) {
         if (this.avatars.has(playerId)) {
             console.warn(`Avatar for player ${playerId} already exists`);
             return;
@@ -57,8 +58,44 @@ class AvatarManager {
             head: null,
             leftHand: null,
             rightHand: null,
-            nameLabel: null
+            nameLabel: null,
+            isRPM: false, // Track if using Ready Player Me
+            rpmMeshes: [] // Store RPM meshes for cleanup
         };
+        
+        // Try to load Ready Player Me avatar first (if available)
+        if (this.rpmLoader && !isVR) {
+            const rpmMeshes = await this.rpmLoader.loadRandomAvatar(playerId);
+            
+            if (rpmMeshes && rpmMeshes.length > 0) {
+                console.log(`✅ Using Ready Player Me avatar for ${playerData.username}`);
+                avatar.isRPM = true;
+                avatar.rpmMeshes = rpmMeshes;
+                avatar.root = rpmMeshes[0]; // Root is first mesh
+                
+                // Position avatar
+                if (playerData.position) {
+                    avatar.root.position = new BABYLON.Vector3(
+                        playerData.position.x,
+                        playerData.position.y,
+                        playerData.position.z
+                    );
+                }
+                
+                // Create name label
+                avatar.nameLabel = this.createNameLabel(playerId, avatar.username);
+                avatar.nameLabel.parent = avatar.root;
+                avatar.nameLabel.position.y = 2.2;
+                
+                this.avatars.set(playerId, avatar);
+                console.log(`✅ Created RPM avatar for ${avatar.username}`);
+                
+                return avatar;
+            }
+        }
+        
+        // Fallback to procedural avatar
+        console.log(`🔧 Creating procedural avatar for ${playerData.username}`);
         
         // Create root node for avatar
         avatar.root = new BABYLON.TransformNode(`avatar_${playerId}`, this.scene);
@@ -74,13 +111,13 @@ class AvatarManager {
             avatar.rightHand = this.createHand(playerId, 'right');
             avatar.rightHand.parent = avatar.root;
         } else {
-            // Desktop avatar - simple capsule representation
+            // Desktop avatar - full humanlike body with limbs
             avatar.body = this.createBody(playerId);
             avatar.body.parent = avatar.root;
             
             avatar.head = this.createHead(playerId);
             avatar.head.parent = avatar.body;
-            avatar.head.position.y = 0.4;
+            avatar.head.position.y = 0.9; // Position on top of torso
         }
         
         // Create name label
@@ -103,65 +140,348 @@ class AvatarManager {
     }
     
     createBody(playerId) {
-        const body = BABYLON.MeshBuilder.CreateCapsule(`body_${playerId}`, {
-            height: 1.6,
-            radius: 0.3
+        // Create humanlike body with proper proportions
+        const bodyRoot = new BABYLON.TransformNode(`bodyRoot_${playerId}`, this.scene);
+        bodyRoot.isPickable = false;
+        
+        // Torso (chest + abdomen)
+        const torso = BABYLON.MeshBuilder.CreateCylinder(`torso_${playerId}`, {
+            height: 0.6,
+            diameterTop: 0.4,
+            diameterBottom: 0.35,
+            tessellation: 12
         }, this.scene);
-        body.material = this.bodyMaterial;
-        body.isPickable = false;
-        return body;
+        torso.position.y = 0.6;
+        torso.material = this.bodyMaterial;
+        torso.parent = bodyRoot;
+        
+        // Hips/pelvis
+        const hips = BABYLON.MeshBuilder.CreateCylinder(`hips_${playerId}`, {
+            height: 0.25,
+            diameter: 0.38,
+            tessellation: 12
+        }, this.scene);
+        hips.position.y = 0.25;
+        hips.material = this.bodyMaterial;
+        hips.parent = bodyRoot;
+        
+        // Left leg (thigh + calf)
+        const leftThigh = BABYLON.MeshBuilder.CreateCylinder(`leftThigh_${playerId}`, {
+            height: 0.45,
+            diameterTop: 0.16,
+            diameterBottom: 0.14,
+            tessellation: 10
+        }, this.scene);
+        leftThigh.position = new BABYLON.Vector3(-0.12, -0.1, 0);
+        leftThigh.material = this.bodyMaterial;
+        leftThigh.parent = bodyRoot;
+        
+        const leftCalf = BABYLON.MeshBuilder.CreateCylinder(`leftCalf_${playerId}`, {
+            height: 0.45,
+            diameterTop: 0.13,
+            diameterBottom: 0.11,
+            tessellation: 10
+        }, this.scene);
+        leftCalf.position = new BABYLON.Vector3(-0.12, -0.55, 0);
+        leftCalf.material = this.bodyMaterial;
+        leftCalf.parent = bodyRoot;
+        
+        // Left foot
+        const leftFoot = BABYLON.MeshBuilder.CreateBox(`leftFoot_${playerId}`, {
+            width: 0.12,
+            height: 0.08,
+            depth: 0.25
+        }, this.scene);
+        leftFoot.position = new BABYLON.Vector3(-0.12, -0.82, 0.05);
+        leftFoot.material = this.bodyMaterial;
+        leftFoot.parent = bodyRoot;
+        
+        // Right leg (thigh + calf)
+        const rightThigh = BABYLON.MeshBuilder.CreateCylinder(`rightThigh_${playerId}`, {
+            height: 0.45,
+            diameterTop: 0.16,
+            diameterBottom: 0.14,
+            tessellation: 10
+        }, this.scene);
+        rightThigh.position = new BABYLON.Vector3(0.12, -0.1, 0);
+        rightThigh.material = this.bodyMaterial;
+        rightThigh.parent = bodyRoot;
+        
+        const rightCalf = BABYLON.MeshBuilder.CreateCylinder(`rightCalf_${playerId}`, {
+            height: 0.45,
+            diameterTop: 0.13,
+            diameterBottom: 0.11,
+            tessellation: 10
+        }, this.scene);
+        rightCalf.position = new BABYLON.Vector3(0.12, -0.55, 0);
+        rightCalf.material = this.bodyMaterial;
+        rightCalf.parent = bodyRoot;
+        
+        // Right foot
+        const rightFoot = BABYLON.MeshBuilder.CreateBox(`rightFoot_${playerId}`, {
+            width: 0.12,
+            height: 0.08,
+            depth: 0.25
+        }, this.scene);
+        rightFoot.position = new BABYLON.Vector3(0.12, -0.82, 0.05);
+        rightFoot.material = this.bodyMaterial;
+        rightFoot.parent = bodyRoot;
+        
+        // Left arm (upper + lower)
+        const leftUpperArm = BABYLON.MeshBuilder.CreateCylinder(`leftUpperArm_${playerId}`, {
+            height: 0.35,
+            diameter: 0.10,
+            tessellation: 8
+        }, this.scene);
+        leftUpperArm.position = new BABYLON.Vector3(-0.28, 0.55, 0);
+        leftUpperArm.rotation.z = Math.PI / 12; // Slight angle
+        leftUpperArm.material = this.bodyMaterial;
+        leftUpperArm.parent = bodyRoot;
+        
+        const leftLowerArm = BABYLON.MeshBuilder.CreateCylinder(`leftLowerArm_${playerId}`, {
+            height: 0.32,
+            diameterTop: 0.09,
+            diameterBottom: 0.08,
+            tessellation: 8
+        }, this.scene);
+        leftLowerArm.position = new BABYLON.Vector3(-0.32, 0.22, 0);
+        leftLowerArm.rotation.z = Math.PI / 8;
+        leftLowerArm.material = this.bodyMaterial;
+        leftLowerArm.parent = bodyRoot;
+        
+        // Right arm (upper + lower)
+        const rightUpperArm = BABYLON.MeshBuilder.CreateCylinder(`rightUpperArm_${playerId}`, {
+            height: 0.35,
+            diameter: 0.10,
+            tessellation: 8
+        }, this.scene);
+        rightUpperArm.position = new BABYLON.Vector3(0.28, 0.55, 0);
+        rightUpperArm.rotation.z = -Math.PI / 12;
+        rightUpperArm.material = this.bodyMaterial;
+        rightUpperArm.parent = bodyRoot;
+        
+        const rightLowerArm = BABYLON.MeshBuilder.CreateCylinder(`rightLowerArm_${playerId}`, {
+            height: 0.32,
+            diameterTop: 0.09,
+            diameterBottom: 0.08,
+            tessellation: 8
+        }, this.scene);
+        rightLowerArm.position = new BABYLON.Vector3(0.32, 0.22, 0);
+        rightLowerArm.rotation.z = -Math.PI / 8;
+        rightLowerArm.material = this.bodyMaterial;
+        rightLowerArm.parent = bodyRoot;
+        
+        // Hands
+        const leftHand = BABYLON.MeshBuilder.CreateSphere(`leftHandMesh_${playerId}`, {
+            diameter: 0.10,
+            segments: 8
+        }, this.scene);
+        leftHand.position = new BABYLON.Vector3(-0.36, 0.05, 0);
+        leftHand.material = this.headMaterial; // Skin tone
+        leftHand.parent = bodyRoot;
+        
+        const rightHand = BABYLON.MeshBuilder.CreateSphere(`rightHandMesh_${playerId}`, {
+            diameter: 0.10,
+            segments: 8
+        }, this.scene);
+        rightHand.position = new BABYLON.Vector3(0.36, 0.05, 0);
+        rightHand.material = this.headMaterial; // Skin tone
+        rightHand.parent = bodyRoot;
+        
+        return bodyRoot;
     }
     
     createHead(playerId) {
-        const head = BABYLON.MeshBuilder.CreateSphere(`head_${playerId}`, {
-            diameter: 0.3,
-            segments: 8
+        // Create more realistic head with neck
+        const headRoot = new BABYLON.TransformNode(`headRoot_${playerId}`, this.scene);
+        headRoot.isPickable = false;
+        
+        // Neck
+        const neck = BABYLON.MeshBuilder.CreateCylinder(`neck_${playerId}`, {
+            height: 0.15,
+            diameter: 0.12,
+            tessellation: 10
         }, this.scene);
+        neck.position.y = -0.075;
+        neck.material = this.headMaterial;
+        neck.parent = headRoot;
+        
+        // Head (more oval shaped)
+        const head = BABYLON.MeshBuilder.CreateSphere(`head_${playerId}`, {
+            diameter: 0.24,
+            segments: 16
+        }, this.scene);
+        head.scaling.y = 1.15; // Make it slightly taller (more human proportions)
+        head.scaling.z = 0.95; // Slightly narrower front-to-back
+        head.position.y = 0.05;
         head.material = this.headMaterial;
+        head.parent = headRoot;
         head.isPickable = false;
         
-        // Add simple "eyes" for direction indicator
+        // Eyes (larger, more detailed)
         const leftEye = BABYLON.MeshBuilder.CreateSphere(`leftEye_${playerId}`, {
-            diameter: 0.05,
-            segments: 4
+            diameter: 0.045,
+            segments: 8
         }, this.scene);
-        leftEye.position = new BABYLON.Vector3(-0.07, 0.05, 0.12);
-        leftEye.parent = head;
+        leftEye.position = new BABYLON.Vector3(-0.055, 0.08, 0.10);
+        leftEye.parent = headRoot;
         
         const rightEye = BABYLON.MeshBuilder.CreateSphere(`rightEye_${playerId}`, {
-            diameter: 0.05,
-            segments: 4
+            diameter: 0.045,
+            segments: 8
         }, this.scene);
-        rightEye.position = new BABYLON.Vector3(0.07, 0.05, 0.12);
-        rightEye.parent = head;
+        rightEye.position = new BABYLON.Vector3(0.055, 0.08, 0.10);
+        rightEye.parent = headRoot;
         
-        const eyeMat = new BABYLON.StandardMaterial(`eyeMat_${playerId}`, this.scene);
-        eyeMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-        leftEye.material = eyeMat;
-        rightEye.material = eyeMat;
+        // Eye whites
+        const eyeWhiteMat = new BABYLON.StandardMaterial(`eyeWhite_${playerId}`, this.scene);
+        eyeWhiteMat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+        eyeWhiteMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        leftEye.material = eyeWhiteMat;
+        rightEye.material = eyeWhiteMat;
         
-        return head;
+        // Pupils
+        const leftPupil = BABYLON.MeshBuilder.CreateSphere(`leftPupil_${playerId}`, {
+            diameter: 0.025,
+            segments: 6
+        }, this.scene);
+        leftPupil.position = new BABYLON.Vector3(0, 0, 0.018);
+        leftPupil.parent = leftEye;
+        
+        const rightPupil = BABYLON.MeshBuilder.CreateSphere(`rightPupil_${playerId}`, {
+            diameter: 0.025,
+            segments: 6
+        }, this.scene);
+        rightPupil.position = new BABYLON.Vector3(0, 0, 0.018);
+        rightPupil.parent = rightEye;
+        
+        const pupilMat = new BABYLON.StandardMaterial(`pupil_${playerId}`, this.scene);
+        pupilMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        pupilMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+        leftPupil.material = pupilMat;
+        rightPupil.material = pupilMat;
+        
+        // Nose (simple but visible)
+        const nose = BABYLON.MeshBuilder.CreateCylinder(`nose_${playerId}`, {
+            height: 0.06,
+            diameterTop: 0.015,
+            diameterBottom: 0.025,
+            tessellation: 8
+        }, this.scene);
+        nose.position = new BABYLON.Vector3(0, 0.02, 0.115);
+        nose.rotation.x = Math.PI / 2;
+        nose.material = this.headMaterial;
+        nose.parent = headRoot;
+        
+        // Mouth (simple line)
+        const mouth = BABYLON.MeshBuilder.CreateBox(`mouth_${playerId}`, {
+            width: 0.08,
+            height: 0.015,
+            depth: 0.02
+        }, this.scene);
+        mouth.position = new BABYLON.Vector3(0, -0.02, 0.105);
+        const mouthMat = new BABYLON.StandardMaterial(`mouth_${playerId}`, this.scene);
+        mouthMat.diffuseColor = new BABYLON.Color3(0.3, 0.1, 0.1);
+        mouthMat.emissiveColor = new BABYLON.Color3(0.1, 0, 0);
+        mouth.material = mouthMat;
+        mouth.parent = headRoot;
+        
+        // Ears
+        const leftEar = BABYLON.MeshBuilder.CreateSphere(`leftEar_${playerId}`, {
+            diameter: 0.06,
+            segments: 6
+        }, this.scene);
+        leftEar.scaling.z = 0.5; // Flatten
+        leftEar.position = new BABYLON.Vector3(-0.12, 0.05, 0);
+        leftEar.material = this.headMaterial;
+        leftEar.parent = headRoot;
+        
+        const rightEar = BABYLON.MeshBuilder.CreateSphere(`rightEar_${playerId}`, {
+            diameter: 0.06,
+            segments: 6
+        }, this.scene);
+        rightEar.scaling.z = 0.5;
+        rightEar.position = new BABYLON.Vector3(0.12, 0.05, 0);
+        rightEar.material = this.headMaterial;
+        rightEar.parent = headRoot;
+        
+        return headRoot;
     }
     
     createHand(playerId, side) {
-        const hand = BABYLON.MeshBuilder.CreateSphere(`hand_${side}_${playerId}`, {
-            diameter: 0.15,
-            segments: 6
-        }, this.scene);
-        hand.material = this.handMaterial;
-        hand.isPickable = false;
+        const handRoot = new BABYLON.TransformNode(`handRoot_${side}_${playerId}`, this.scene);
+        handRoot.isPickable = false;
         
-        // Add controller shape
-        const controller = BABYLON.MeshBuilder.CreateBox(`controller_${side}_${playerId}`, {
-            width: 0.1,
+        // Palm
+        const palm = BABYLON.MeshBuilder.CreateBox(`palm_${side}_${playerId}`, {
+            width: 0.09,
+            height: 0.11,
+            depth: 0.03
+        }, this.scene);
+        palm.material = this.handMaterial;
+        palm.parent = handRoot;
+        
+        // Fingers (simplified as 3 segments)
+        const fingerPositions = [
+            { x: -0.035, name: 'pinky' },
+            { x: -0.012, name: 'ring' },
+            { x: 0.012, name: 'middle' },
+            { x: 0.035, name: 'index' }
+        ];
+        
+        fingerPositions.forEach(finger => {
+            const fingerMesh = BABYLON.MeshBuilder.CreateCylinder(`${finger.name}_${side}_${playerId}`, {
+                height: 0.06,
+                diameter: 0.012,
+                tessellation: 6
+            }, this.scene);
+            fingerMesh.position = new BABYLON.Vector3(finger.x, 0.08, 0);
+            fingerMesh.rotation.z = Math.random() * 0.2 - 0.1; // Slight random bend
+            fingerMesh.material = this.handMaterial;
+            fingerMesh.parent = handRoot;
+        });
+        
+        // Thumb
+        const thumb = BABYLON.MeshBuilder.CreateCylinder(`thumb_${side}_${playerId}`, {
+            height: 0.05,
+            diameter: 0.015,
+            tessellation: 6
+        }, this.scene);
+        const thumbX = side === 'left' ? -0.05 : 0.05;
+        thumb.position = new BABYLON.Vector3(thumbX, 0.02, 0.02);
+        thumb.rotation.z = side === 'left' ? Math.PI / 4 : -Math.PI / 4;
+        thumb.material = this.handMaterial;
+        thumb.parent = handRoot;
+        
+        // VR Controller (Quest-style)
+        const controller = BABYLON.MeshBuilder.CreateCylinder(`controller_${side}_${playerId}`, {
             height: 0.15,
-            depth: 0.05
+            diameterTop: 0.04,
+            diameterBottom: 0.045,
+            tessellation: 12
         }, this.scene);
-        controller.position.z = 0.05;
-        controller.parent = hand;
-        controller.material = this.bodyMaterial;
+        controller.position = new BABYLON.Vector3(0, -0.08, 0.01);
+        controller.rotation.x = Math.PI / 8; // Slight angle
+        controller.parent = handRoot;
         
-        return hand;
+        const controllerMat = new BABYLON.PBRMetallicRoughnessMaterial(`controllerMat_${side}_${playerId}`, this.scene);
+        controllerMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        controllerMat.metallic = 0.4;
+        controllerMat.roughness = 0.6;
+        controller.material = controllerMat;
+        
+        // Controller ring
+        const ring = BABYLON.MeshBuilder.CreateTorus(`controllerRing_${side}_${playerId}`, {
+            diameter: 0.12,
+            thickness: 0.015,
+            tessellation: 20
+        }, this.scene);
+        ring.position.y = -0.12;
+        ring.rotation.x = Math.PI / 2;
+        ring.material = controllerMat;
+        ring.parent = handRoot;
+        
+        return handRoot;
     }
     
     createNameLabel(playerId, username) {
@@ -292,13 +612,22 @@ class AvatarManager {
         
         console.log(`🗑️ Removing avatar for player ${playerId}`);
         
-        // Dispose all meshes
+        // Dispose RPM meshes if applicable
+        if (avatar.isRPM && avatar.rpmMeshes) {
+            avatar.rpmMeshes.forEach(mesh => {
+                if (mesh && mesh.dispose) {
+                    mesh.dispose();
+                }
+            });
+        }
+        
+        // Dispose procedural meshes
         if (avatar.body) avatar.body.dispose();
         if (avatar.head) avatar.head.dispose();
         if (avatar.leftHand) avatar.leftHand.dispose();
         if (avatar.rightHand) avatar.rightHand.dispose();
         if (avatar.nameLabel) avatar.nameLabel.dispose();
-        if (avatar.root) avatar.root.dispose();
+        if (avatar.root && !avatar.isRPM) avatar.root.dispose(); // Don't dispose RPM root twice
         
         this.avatars.delete(playerId);
     }

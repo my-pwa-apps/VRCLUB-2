@@ -650,10 +650,202 @@
             background: #667eea;
             transform: translateX(-50%) scale(1.1);
         }
+        /* Splash Screen */
+        #splashScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        #splashScreen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .splash-logo {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .splash-title {
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .splash-subtitle {
+            font-size: 18px;
+            opacity: 0.9;
+            margin-bottom: 40px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .splash-content {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            max-width: 500px;
+            text-align: center;
+        }
+        
+        .splash-button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 18px 60px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+            margin-top: 20px;
+        }
+        
+        .splash-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+            background: #f0f0f0;
+        }
+        
+        .splash-button:active {
+            transform: translateY(-1px);
+        }
+        
+        .splash-options {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .splash-input-group {
+            margin: 15px 0;
+        }
+        
+        .splash-label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 8px;
+            opacity: 0.9;
+            text-align: left;
+        }
+        
+        .splash-input {
+            width: 100%;
+            padding: 12px 15px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 14px;
+            box-sizing: border-box;
+            transition: all 0.3s;
+        }
+        
+        .splash-input:focus {
+            outline: none;
+            border-color: white;
+            background: white;
+        }
+        
+        .splash-checkbox {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .splash-checkbox input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .splash-loading {
+            display: none;
+            margin-top: 20px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .splash-loading.visible {
+            display: block;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .splash-spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
+    <!-- Splash Screen -->
+    <div id="splashScreen">
+        <div class="splash-content">
+            <div class="splash-logo">🎧</div>
+            <div class="splash-title">VR CLUB</div>
+            <div class="splash-subtitle">Immersive Virtual Nightclub Experience</div>
+            
+            <button class="splash-button" id="enterClubBtn">
+                🚪 ENTER CLUB
+            </button>
+            
+            <div class="splash-options">
+                <div class="splash-input-group">
+                    <label class="splash-label">Your Name (Optional)</label>
+                    <input type="text" class="splash-input" id="splashUsername" placeholder="DJ Guest" maxlength="20">
+                </div>
+                
+                <div class="splash-checkbox">
+                    <input type="checkbox" id="enableMultiplayer">
+                    <label>👥 Enable Multiplayer (Experimental)</label>
+                </div>
+                
+                <div class="splash-input-group" id="roomCodeGroup" style="display: none;">
+                    <label class="splash-label">Room Code (Share with friends)</label>
+                    <input type="text" class="splash-input" id="roomCode" placeholder="Leave empty for new room">
+                </div>
+            </div>
+            
+            <div class="splash-loading" id="splashLoading">
+                <div class="splash-spinner"></div>
+                Loading club experience...
+            </div>
+        </div>
+    </div>
+    
+    <canvas id="canvas" style="display: none;"></canvas>
     
     <!-- Multiplayer Toggle Button -->
     <button id="multiplayerToggle" title="Multiplayer">👥</button>
@@ -874,12 +1066,74 @@
     <!-- Light Factory (centralized light creation) -->
     <script src="js/lightFactory.js"></script>
     
+    <!-- PeerJS for P2P Networking (GitHub Pages compatible) -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    
     <!-- Multiplayer Networking -->
     <script src="js/networkManager.js"></script>
+    <script src="js/readyPlayerMeLoader.js"></script>
     <script src="js/avatarManager.js"></script>
     
     <!-- VR Club Script -->
     <script src="js/club_hyperrealistic.js"></script>
+    
+    <!-- Splash Screen Handler -->
+    <script>
+        let splashConfig = {
+            username: 'Guest',
+            enableMultiplayer: false,
+            roomCode: null
+        };
+        
+        const splashScreen = document.getElementById('splashScreen');
+        const enterClubBtn = document.getElementById('enterClubBtn');
+        const enableMultiplayer = document.getElementById('enableMultiplayer');
+        const roomCodeGroup = document.getElementById('roomCodeGroup');
+        const splashLoading = document.getElementById('splashLoading');
+        const canvas = document.getElementById('canvas');
+        
+        // Show/hide room code input
+        enableMultiplayer.addEventListener('change', function() {
+            if (this.checked) {
+                roomCodeGroup.style.display = 'block';
+            } else {
+                roomCodeGroup.style.display = 'none';
+            }
+        });
+        
+        // Enter Club Button
+        enterClubBtn.addEventListener('click', function() {
+            // Get user configuration
+            const usernameInput = document.getElementById('splashUsername');
+            const roomCodeInput = document.getElementById('roomCode');
+            
+            splashConfig.username = usernameInput.value.trim() || 'Guest';
+            splashConfig.enableMultiplayer = enableMultiplayer.checked;
+            splashConfig.roomCode = roomCodeInput.value.trim() || null;
+            
+            // Show loading state
+            enterClubBtn.style.display = 'none';
+            splashLoading.classList.add('visible');
+            
+            // Show canvas and initialize VR club
+            setTimeout(() => {
+                canvas.style.display = 'block';
+                
+                // Initialize VRClub instance (club_hyperrealistic.js creates window.vrClub)
+                if (!window.vrClub) {
+                    window.vrClub = new VRClub();
+                }
+                
+                // Hide splash after initialization
+                setTimeout(() => {
+                    splashScreen.classList.add('hidden');
+                    setTimeout(() => {
+                        splashScreen.style.display = 'none';
+                    }, 500);
+                }, 1000);
+            }, 500);
+        });
+    </script>
     
     <!-- VJ Menu Controls -->
     <script>
@@ -1009,6 +1263,28 @@
                         // Toggle on/off control
                         vrClubInstance[control] = !vrClubInstance[control];
                         button.classList.toggle('active');
+                        
+                        // Handle mutual exclusivity: mirror ball turns off other lights
+                        if (control === 'mirrorBallActive' && vrClubInstance.mirrorBallActive) {
+                            vrClubInstance.lightsActive = false;
+                            vrClubInstance.lasersActive = false;
+                            // Update button states
+                            vjButtons.forEach(btn => {
+                                const btnControl = btn.getAttribute('data-control');
+                                if (btnControl === 'lightsActive' || btnControl === 'lasersActive') {
+                                    btn.classList.remove('active');
+                                }
+                            });
+                        } else if ((control === 'lightsActive' || control === 'lasersActive') && vrClubInstance[control]) {
+                            // When turning on lights or lasers, turn off mirror ball
+                            vrClubInstance.mirrorBallActive = false;
+                            vjButtons.forEach(btn => {
+                                const btnControl = btn.getAttribute('data-control');
+                                if (btnControl === 'mirrorBallActive') {
+                                    btn.classList.remove('active');
+                                }
+                            });
+                        }
                         
                         // Activate VJ manual mode for toggle controls
                         vrClubInstance.lastVJInteraction = performance.now() / 1000;
