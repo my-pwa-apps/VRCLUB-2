@@ -33,7 +33,7 @@ class ReadyPlayerMeLoader {
             'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb',
             
             // Mixamo characters (local files with animations):
-            './js/models/avatars/mixamo_malcolm_dancing.glb', // Add your Mixamo GLB here
+            './js/models/avatars/Hip Hop Dancing.glb', // Malcolm with Hip Hop Dancing animation
             
             // Instructions:
             // 1. Create avatars using VRoid Studio (see docs/VROID_INTEGRATION_GUIDE_2025-10-18.md)
@@ -165,7 +165,7 @@ class ReadyPlayerMeLoader {
     detectAvatarType(url) {
         if (url.includes('vroid')) return 'VRoid';
         if (url.includes('readyplayer') || url.includes('rpm')) return 'Ready Player Me';
-        if (url.includes('mixamo')) return 'Mixamo';
+        if (url.includes('mixamo') || url.includes('Hip Hop Dancing')) return 'Mixamo'; // Includes Malcolm animation file
         if (url.includes('sketchfab')) return 'Sketchfab';
         return 'Custom';
     }

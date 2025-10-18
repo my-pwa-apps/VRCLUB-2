@@ -63,68 +63,25 @@ class AvatarManager {
             rpmMeshes: [] // Store RPM meshes for cleanup
         };
         
-        // Try to load Ready Player Me avatar first (if available)
-        if (this.rpmLoader && !isVR) {
-            const rpmMeshes = await this.rpmLoader.loadRandomAvatar(playerId);
-            
-            if (rpmMeshes && rpmMeshes.length > 0) {
-                console.log(`✅ Using Ready Player Me avatar for ${playerData.username}`);
-                avatar.isRPM = true;
-                avatar.rpmMeshes = rpmMeshes;
-                avatar.root = rpmMeshes[0]; // Root is first mesh
-                
-                // Position avatar
-                if (playerData.position) {
-                    avatar.root.position = new BABYLON.Vector3(
-                        playerData.position.x,
-                        playerData.position.y,
-                        playerData.position.z
-                    );
-                }
-                
-                // Create name label
-                avatar.nameLabel = this.createNameLabel(playerId, avatar.username);
-                avatar.nameLabel.parent = avatar.root;
-                avatar.nameLabel.position.y = 2.2;
-                
-                this.avatars.set(playerId, avatar);
-                console.log(`✅ Created RPM avatar for ${avatar.username}`);
-                
-                return avatar;
-            }
+        // Load Ready Player Me / Mixamo avatar (required - no fallback)
+        if (!this.rpmLoader) {
+            console.error('❌ No avatar loader available! Cannot create avatar.');
+            return null;
         }
         
-        // Fallback to procedural avatar
-        console.log(`🔧 Creating procedural avatar for ${playerData.username}`);
+        const rpmMeshes = await this.rpmLoader.loadRandomAvatar(playerId);
         
-        // Create root node for avatar
-        avatar.root = new BABYLON.TransformNode(`avatar_${playerId}`, this.scene);
-        
-        if (isVR) {
-            // VR avatar with head + hands tracking
-            avatar.head = this.createHead(playerId);
-            avatar.head.parent = avatar.root;
-            
-            avatar.leftHand = this.createHand(playerId, 'left');
-            avatar.leftHand.parent = avatar.root;
-            
-            avatar.rightHand = this.createHand(playerId, 'right');
-            avatar.rightHand.parent = avatar.root;
-        } else {
-            // Desktop avatar - full humanlike body with limbs
-            avatar.body = this.createBody(playerId);
-            avatar.body.parent = avatar.root;
-            
-            avatar.head = this.createHead(playerId);
-            avatar.head.parent = avatar.body;
-            avatar.head.position.y = 0.9; // Position on top of torso
+        if (!rpmMeshes || rpmMeshes.length === 0) {
+            console.error(`❌ Failed to load avatar for ${playerData.username}`);
+            return null;
         }
         
-        // Create name label
-        avatar.nameLabel = this.createNameLabel(playerId, avatar.username);
-        avatar.nameLabel.parent = avatar.root;
+        console.log(`✅ Using ${avatar.isVR ? 'VR' : 'Desktop'} avatar for ${playerData.username}`);
+        avatar.isRPM = true;
+        avatar.rpmMeshes = rpmMeshes;
+        avatar.root = rpmMeshes[0]; // Root is first mesh
         
-        // Set initial position
+        // Position avatar
         if (playerData.position) {
             avatar.root.position = new BABYLON.Vector3(
                 playerData.position.x,
@@ -132,6 +89,12 @@ class AvatarManager {
                 playerData.position.z
             );
         }
+        
+        // Create name label
+        avatar.nameLabel = this.createNameLabel(playerId, avatar.username);
+        avatar.nameLabel.parent = avatar.root;
+        avatar.nameLabel.position.y = 2.2;
+        
         
         this.avatars.set(playerId, avatar);
         console.log(`✅ Created avatar for ${avatar.username} (${isVR ? 'VR' : 'Desktop'})`);
