@@ -146,6 +146,11 @@ class VRClub {
         
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
+        
+        // Multiplayer networking
+        this.networkManager = null;
+        this.avatarManager = null;
+        this.isMultiplayer = false;
         this.vjManualMode = false;
         this.VJ_TIMEOUT = 3600; // Seconds before resuming automated patterns (60 minutes - longer for live VJ sessions)
         
@@ -254,6 +259,11 @@ class VRClub {
         
         // Initialize light factory
         this.lightFactory = new LightFactory(this.scene);
+        
+        // Initialize multiplayer managers
+        this.networkManager = new NetworkManager(this.scene);
+        this.avatarManager = new AvatarManager(this.scene, this.materialFactory);
+        this.setupNetworkingCallbacks();
         
         // Load environment for PBR reflections
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
@@ -4504,6 +4514,125 @@ class VRClub {
                 panel.material.emissiveColor = color.scale(brightness);
             }
         });
+        
+        // === MULTIPLAYER NETWORKING ===
+        // Send position updates if connected to multiplayer server
+        if (this.networkManager && this.networkManager.isConnected()) {
+            const isVR = this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.state === BABYLON.WebXRState.IN_XR;
+            const xrCamera = isVR ? this.vrHelper.baseExperience.camera : null;
+            
+            this.networkManager.sendPositionUpdate(
+                this.camera.position,
+                this.camera.rotation,
+                isVR,
+                xrCamera
+            );
+        }
+    }
+    
+    setupNetworkingCallbacks() {
+        // Handle connection
+        this.networkManager.onConnect = (playerId, clubState, players) => {
+            console.log(`🌐 Connected as Player ${playerId}`);
+            this.isMultiplayer = true;
+            
+            // Apply server's club state
+            this.lightsActive = clubState.lightsActive;
+            this.lasersActive = clubState.lasersActive;
+            this.ledWallActive = clubState.ledWallActive;
+            this.strobesActive = clubState.strobesActive;
+            this.mirrorBallActive = clubState.mirrorBallActive;
+            this.spotlightSpeed = clubState.spotlightSpeed;
+            this.spotlightMode = clubState.spotlightMode;
+            this.spotlightPattern = clubState.spotlightPattern;
+            this.spotColorIndex = clubState.spotColorIndex;
+            this.currentSpotColor = this.spotColorList[this.spotColorIndex];
+            this.mirrorBallColorIndex = clubState.mirrorBallColorIndex;
+            this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
+            
+            // Create avatars for existing players
+            players.forEach(player => {
+                if (player.id !== playerId) {
+                    this.avatarManager.createAvatar(player.id, player);
+                }
+            });
+            
+            // Apply audio sync if available
+            if (clubState.audioUrl && clubState.audioPlaying) {
+                this.syncAudio(clubState.audioUrl, clubState.audioTime);
+            }
+        };
+        
+        // Handle player joined
+        this.networkManager.onPlayerJoined = (player) => {
+            console.log(`👤 ${player.username} joined the club`);
+            this.avatarManager.createAvatar(player.id, player);
+        };
+        
+        // Handle player left
+        this.networkManager.onPlayerLeft = (playerId) => {
+            console.log(`👋 Player ${playerId} left the club`);
+            this.avatarManager.removeAvatar(playerId);
+        };
+        
+        // Handle player updates
+        this.networkManager.onPlayerUpdate = (updateData) => {
+            this.avatarManager.updateAvatar(updateData.playerId, updateData);
+        };
+        
+        // Handle VJ control changes from other players
+        this.networkManager.onVJControl = (control, value, fromPlayerId) => {
+            console.log(`🎛️ ${control} changed to ${value} by Player ${fromPlayerId}`);
+            this[control] = value;
+            
+            // Update specific controls
+            if (control === 'spotColorIndex') {
+                this.currentSpotColor = this.spotColorList[value];
+            } else if (control === 'mirrorBallColorIndex') {
+                this.mirrorBallSpotlightColor = this.mirrorBallColors[value];
+            }
+        };
+        
+        // Handle audio sync
+        this.networkManager.onAudioSync = (syncData) => {
+            if (syncData.audioUrl) {
+                this.syncAudio(syncData.audioUrl, syncData.audioTime, syncData.audioPlaying);
+            }
+        };
+    }
+    
+    syncAudio(audioUrl, audioTime, isPlaying = true) {
+        // Create or update audio element
+        if (!this.audioElement) {
+            this.audioElement = new Audio();
+            this.audioElement.crossOrigin = "anonymous";
+            
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.audioAnalyser = this.audioContext.createAnalyser();
+                this.audioAnalyser.fftSize = 256;
+                this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
+            }
+            
+            const source = this.audioContext.createMediaElementSource(this.audioElement);
+            source.connect(this.audioAnalyser);
+            this.audioAnalyser.connect(this.audioContext.destination);
+        }
+        
+        // Load and sync audio
+        if (this.audioElement.src !== audioUrl) {
+            this.audioElement.src = audioUrl;
+        }
+        
+        this.audioElement.currentTime = audioTime;
+        
+        if (isPlaying) {
+            this.audioElement.play().catch(err => {
+                console.warn('Audio playback requires user interaction:', err);
+            });
+        } else {
+            this.audioElement.pause();
+        }
     }
 
     setupUI(vrHelper) {

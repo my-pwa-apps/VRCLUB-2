@@ -372,6 +372,61 @@
             transform: scale(1.1);
         }
         
+        /* Multiplayer Toggle */
+        #multiplayerToggle {
+            position: absolute;
+            top: 70px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.75);
+            border: none;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 101;
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+        }
+        
+        #multiplayerToggle:hover {
+            background: #667eea;
+            transform: scale(1.1);
+        }
+        
+        /* Multiplayer Menu */
+        #multiplayerMenu {
+            position: absolute;
+            top: 120px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            min-width: 280px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        #multiplayerMenu.minimized {
+            padding: 8px 12px;
+            min-width: auto;
+        }
+        
+        #multiplayerMenu.minimized .vj-content {
+            display: none;
+        }
+        
+        #multiplayerMenu.hidden {
+            display: none;
+        }
+        
         /* Audio Upload Menu */
         #audioMenu {
             position: absolute;
@@ -600,6 +655,49 @@
 <body>
     <canvas id="canvas"></canvas>
     
+    <!-- Multiplayer Toggle Button -->
+    <button id="multiplayerToggle" title="Multiplayer">👥</button>
+    
+    <!-- Multiplayer Connection Menu -->
+    <div id="multiplayerMenu" class="hidden">
+        <div class="vj-header">
+            <div class="vj-title">
+                <span>👥</span>
+                <span>Multiplayer</span>
+            </div>
+            <div class="vj-controls">
+                <button class="vj-btn-icon" id="mpMinimize" title="Minimize">−</button>
+                <button class="vj-btn-icon" id="mpClose" title="Close">×</button>
+            </div>
+        </div>
+        
+        <div class="vj-content">
+            <div class="vj-section">
+                <div class="audio-input-group">
+                    <input type="text" class="audio-input" id="serverUrl" placeholder="Server URL (ws://localhost:8080)" value="ws://localhost:8080">
+                </div>
+                <div class="audio-input-group">
+                    <input type="text" class="audio-input" id="username" placeholder="Your username" value="Guest">
+                </div>
+                <button class="audio-button" id="connectBtn" style="width: 100%;">
+                    <span>🔌</span>
+                    <span>Connect</span>
+                </button>
+                <button class="audio-button" id="disconnectBtn" style="width: 100%; display: none; background: #dc3545;">
+                    <span>🔌</span>
+                    <span>Disconnect</span>
+                </button>
+            </div>
+            
+            <div class="vj-section" id="playerList" style="display: none;">
+                <div class="vj-section-title">Players Online</div>
+                <div id="playerListContent" style="font-size: 12px; max-height: 150px; overflow-y: auto;"></div>
+            </div>
+            
+            <div id="mpStatus" class="audio-status" style="display: none;"></div>
+        </div>
+    </div>
+    
     <!-- VJ Toggle Button -->
     <button id="vjToggle" title="VJ Controls">🎛️</button>
     
@@ -776,6 +874,10 @@
     <!-- Light Factory (centralized light creation) -->
     <script src="js/lightFactory.js"></script>
     
+    <!-- Multiplayer Networking -->
+    <script src="js/networkManager.js"></script>
+    <script src="js/avatarManager.js"></script>
+    
     <!-- VR Club Script -->
     <script src="js/club_hyperrealistic.js"></script>
     
@@ -911,6 +1013,11 @@
                         // Activate VJ manual mode for toggle controls
                         vrClubInstance.lastVJInteraction = performance.now() / 1000;
                         vrClubInstance.vjManualMode = true;
+                    }
+                    
+                    // Sync VJ control change to multiplayer server
+                    if (vrClubInstance.networkManager && vrClubInstance.networkManager.isConnected()) {
+                        vrClubInstance.networkManager.sendVJControl(control, vrClubInstance[control]);
                     }
                 });
             });
@@ -1116,6 +1223,136 @@
             if (window.vrClub) {
                 clearInterval(waitForAudioInit);
                 initAudioMenu();
+            }
+        }, 100);
+        
+        // Multiplayer menu initialization
+        function initMultiplayerMenu() {
+            const mpToggle = document.getElementById('multiplayerToggle');
+            const mpMenu = document.getElementById('multiplayerMenu');
+            const mpMinimize = document.getElementById('mpMinimize');
+            const mpClose = document.getElementById('mpClose');
+            const serverUrlInput = document.getElementById('serverUrl');
+            const usernameInput = document.getElementById('username');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const playerList = document.getElementById('playerList');
+            const playerListContent = document.getElementById('playerListContent');
+            const mpStatus = document.getElementById('mpStatus');
+            
+            // Toggle menu
+            mpToggle.addEventListener('click', () => {
+                mpMenu.classList.toggle('hidden');
+                if (!mpMenu.classList.contains('hidden')) {
+                    mpMenu.classList.remove('minimized');
+                }
+            });
+            
+            // Minimize/maximize
+            mpMinimize.addEventListener('click', () => {
+                mpMenu.classList.toggle('minimized');
+                mpMinimize.textContent = mpMenu.classList.contains('minimized') ? '+' : '−';
+            });
+            
+            // Close
+            mpClose.addEventListener('click', () => {
+                mpMenu.classList.add('hidden');
+            });
+            
+            // Show status
+            function showMPStatus(message, type = 'success') {
+                mpStatus.textContent = message;
+                mpStatus.className = `audio-status ${type}`;
+                mpStatus.style.display = 'block';
+                setTimeout(() => {
+                    mpStatus.style.display = 'none';
+                }, 3000);
+            }
+            
+            // Update player list
+            function updatePlayerList() {
+                if (!vrClubInstance.networkManager || !vrClubInstance.networkManager.isConnected()) {
+                    playerList.style.display = 'none';
+                    return;
+                }
+                
+                playerList.style.display = 'block';
+                const avatars = vrClubInstance.avatarManager.getAllAvatars();
+                const playerCount = avatars.length + 1; // +1 for local player
+                
+                let html = `<div style="margin-bottom: 8px; opacity: 0.7;">Total: ${playerCount} player${playerCount !== 1 ? 's' : ''}</div>`;
+                html += `<div style="color: #00ff64; margin-bottom: 4px;">✓ You (${vrClubInstance.networkManager.username})</div>`;
+                
+                avatars.forEach(avatar => {
+                    html += `<div style="margin-bottom: 4px;">• ${avatar.username} ${avatar.isVR ? '🥽' : '🖥️'}</div>`;
+                });
+                
+                playerListContent.innerHTML = html;
+            }
+            
+            // Connect button
+            connectBtn.addEventListener('click', () => {
+                const serverUrl = serverUrlInput.value.trim();
+                const username = usernameInput.value.trim() || 'Guest';
+                
+                if (!serverUrl) {
+                    showMPStatus('Please enter a server URL', 'error');
+                    return;
+                }
+                
+                showMPStatus('Connecting...', 'success');
+                vrClubInstance.networkManager.connect(serverUrl, username);
+                
+                // Wait for connection
+                setTimeout(() => {
+                    if (vrClubInstance.networkManager.isConnected()) {
+                        connectBtn.style.display = 'none';
+                        disconnectBtn.style.display = 'block';
+                        serverUrlInput.disabled = true;
+                        usernameInput.disabled = true;
+                        showMPStatus('✅ Connected!', 'success');
+                        updatePlayerList();
+                        
+                        // Update player list periodically
+                        setInterval(updatePlayerList, 2000);
+                    }
+                }, 500);
+            });
+            
+            // Disconnect button
+            disconnectBtn.addEventListener('click', () => {
+                vrClubInstance.networkManager.disconnect();
+                vrClubInstance.avatarManager.removeAllAvatars();
+                
+                connectBtn.style.display = 'block';
+                disconnectBtn.style.display = 'none';
+                serverUrlInput.disabled = false;
+                usernameInput.disabled = false;
+                playerList.style.display = 'none';
+                
+                showMPStatus('Disconnected', 'success');
+            });
+            
+            // Hide in VR mode
+            if (vrClubInstance && vrClubInstance.scene) {
+                vrClubInstance.scene.onXRSessionInit.add(() => {
+                    mpMenu.classList.add('hidden');
+                    mpToggle.style.display = 'none';
+                });
+                
+                vrClubInstance.scene.onXRSessionEnded.add(() => {
+                    mpToggle.style.display = 'block';
+                });
+            }
+            
+            console.log('✅ Multiplayer menu initialized');
+        }
+        
+        // Initialize multiplayer menu when VRClub is ready
+        const waitForMPInit = setInterval(() => {
+            if (window.vrClub) {
+                clearInterval(waitForMPInit);
+                initMultiplayerMenu();
             }
         }, 100);
     </script>
