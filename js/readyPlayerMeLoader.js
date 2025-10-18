@@ -182,7 +182,7 @@ class ReadyPlayerMeLoader {
         const scales = {
             'VRoid': 1.0,           // VRoid exports at correct scale
             'Ready Player Me': 1.0, // RPM also correct scale
-            'Mixamo': 0.01,         // Mixamo exports at 100x scale (needs 0.01)
+            'Mixamo': 1.0,          // Mixamo GLB exports are already scaled correctly
             'Sketchfab': 1.0,       // Usually correct, varies
             'Custom': 1.0           // Assume correct scale
         };
