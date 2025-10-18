@@ -1,56 +1,85 @@
 /**
- * ReadyPlayerMeLoader - Loads random Ready Player Me avatars
- * Provides fallback to procedural avatars if RPM unavailable
+ * ReadyPlayerMeLoader - Loads 3D avatars from multiple sources
+ * Supports: VRoid Studio, Ready Player Me, Mixamo, custom GLB files
+ * Provides fallback to procedural avatars if loading fails
  */
 class ReadyPlayerMeLoader {
     constructor(scene) {
         this.scene = scene;
         this.cache = new Map(); // Cache loaded avatars by URL
         
-        // Curated list of diverse Ready Player Me avatar URLs
-        // Using publicly available demo/test avatars
-        // To create your own: visit https://readyplayer.me/avatar
+        // Avatar library - supports multiple sources:
+        // 1. VRoid Studio avatars (local GLB files)
+        // 2. Ready Player Me avatars (URLs or local files)
+        // 3. Mixamo characters (local GLB files)
+        // 4. Any other GLB format avatars
+        
         this.avatarLibrary = [
-            // Example format - replace with your own created avatars:
-            // 'https://models.readyplayer.me/YOUR_AVATAR_ID_HERE.glb',
+            // VRoid Studio avatars (recommended - free, unlimited):
+            // './js/models/avatars/vroid_01.glb',
+            // './js/models/avatars/vroid_02.glb',
+            // './js/models/avatars/vroid_03.glb',
+            // './js/models/avatars/vroid_04.glb',
+            // './js/models/avatars/vroid_05.glb',
+            // './js/models/avatars/vroid_06.glb',
+            // './js/models/avatars/vroid_07.glb',
+            // './js/models/avatars/vroid_08.glb',
             
-            // For now, using procedural fallback until real avatars are added
-            // Uncomment and add real RPM URLs here once created
+            // Ready Player Me avatars (URLs):
+            'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',
+            'https://readyplayer.me/avatar?id=68f3d4ee79c290cd02f32f9b',
+            'https://readyplayer.me/avatar?id=68f3d52ac8049dcd18a35de8',
+            'https://readyplayer.me/avatar?id=68f3d5510e54a41a6497e950',
+            'https://readyplayer.me/avatar?id=68f3d5b9c8049dcd18a36de2'
+            
+            // Mixamo characters (local files):
+            // './js/models/avatars/mixamo_character_01.glb',
+            
+            // Instructions:
+            // 1. Create avatars using VRoid Studio (see docs/VROID_INTEGRATION_GUIDE_2025-10-18.md)
+            // 2. Export as VRM, convert to GLB
+            // 3. Copy GLB files to js/models/avatars/
+            // 4. Uncomment paths above or add your own
+            // 5. Set useAvatarLibrary = true below
         ];
         
-        // Temporary: Force procedural mode until real RPM avatars are configured
-        this.useReadyPlayerMe = false; // Set to true once you add real avatar URLs above
+        // Enable/disable 3D avatar loading
+        // Set to true once you've added avatar files to the library above
+        this.useAvatarLibrary = true; // Change to true when avatars are ready
         
-        this.useReadyPlayerMe = true; // Toggle to disable RPM and use procedural
-        this.fallbackMode = false; // Set to true if RPM fails
+        this.fallbackMode = false; // Set to true if avatar loading fails
         
-        console.log('🎭 ReadyPlayerMeLoader initialized');
+        console.log('🎭 Avatar Loader initialized (supports VRoid, RPM, Mixamo, custom GLB)');
     }
     
     /**
-     * Load a random Ready Player Me avatar
-     * @returns {Promise<BABYLON.AbstractMesh[]>} - Array of meshes
+     * Load a random 3D avatar from the library
+     * Supports VRoid Studio, Ready Player Me, Mixamo, and custom GLB files
+     * @returns {Promise<BABYLON.AbstractMesh[]>} - Array of meshes, or null for procedural fallback
      */
     async loadRandomAvatar(playerId) {
-        if (!this.useReadyPlayerMe || this.fallbackMode) {
-            console.log(`⚠️ Using procedural avatar for ${playerId} (RPM disabled)`);
+        if (!this.useAvatarLibrary || this.fallbackMode || this.avatarLibrary.length === 0) {
+            console.log(`⚠️ Using procedural avatar for ${playerId} (3D avatars disabled or unavailable)`);
             return null; // Signal to use procedural fallback
         }
         
         // Select random avatar from library
         const avatarUrl = this.avatarLibrary[Math.floor(Math.random() * this.avatarLibrary.length)];
         
+        // Detect avatar type from URL/path
+        const avatarType = this.detectAvatarType(avatarUrl);
+        
         try {
-            console.log(`🔄 Loading RPM avatar for ${playerId} from ${avatarUrl}`);
+            console.log(`🔄 Loading ${avatarType} avatar for ${playerId} from ${avatarUrl}`);
             
             // Check cache first
             if (this.cache.has(avatarUrl)) {
-                console.log(`✅ Using cached RPM avatar`);
+                console.log(`✅ Using cached ${avatarType} avatar`);
                 const cachedMeshes = this.cache.get(avatarUrl);
                 return this.cloneAvatarMeshes(cachedMeshes, playerId);
             }
             
-            // Load from Ready Player Me
+            // Load GLB avatar
             const result = await BABYLON.SceneLoader.ImportMeshAsync(
                 '',
                 '',
@@ -59,33 +88,67 @@ class ReadyPlayerMeLoader {
             );
             
             if (!result.meshes || result.meshes.length === 0) {
-                throw new Error('No meshes loaded from RPM');
+                throw new Error(`No meshes loaded from ${avatarType} avatar`);
             }
             
-            console.log(`✅ Loaded RPM avatar with ${result.meshes.length} meshes`);
+            console.log(`✅ Loaded ${avatarType} avatar with ${result.meshes.length} meshes`);
             
             // Cache the loaded meshes
             this.cache.set(avatarUrl, result.meshes);
             
-            // Scale to appropriate size (RPM avatars are usually 1.8m tall)
+            // Scale to appropriate size
+            // VRoid/RPM avatars are usually 1.6-1.8m tall (realistic human height)
             const root = result.meshes[0];
-            root.scaling = new BABYLON.Vector3(1, 1, 1);
+            const scale = this.getAvatarScale(avatarType);
+            root.scaling = new BABYLON.Vector3(scale, scale, scale);
             
-            // Apply light limits to all materials
+            // Apply light limits to all materials (VR compatibility)
             result.meshes.forEach(mesh => {
                 if (mesh.material) {
-                    mesh.material.maxSimultaneousLights = 6;
+                    mesh.material.maxSimultaneousLights = 6; // Quest VR limit
+                    
+                    // VRoid-specific: Handle transparency properly
+                    if (avatarType === 'VRoid' && mesh.material.needAlphaBlending) {
+                        // VRoid hair uses alpha blending - ensure it renders correctly
+                        mesh.material.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+                        mesh.renderingGroupId = 1; // Render hair after opaque meshes
+                    }
                 }
             });
             
             return result.meshes;
             
         } catch (error) {
-            console.warn(`⚠️ Failed to load RPM avatar: ${error.message}`);
+            console.warn(`⚠️ Failed to load ${avatarType} avatar: ${error.message}`);
             console.log(`🔄 Switching to procedural fallback mode`);
             this.fallbackMode = true;
             return null; // Signal to use procedural fallback
         }
+    }
+    
+    /**
+     * Detect avatar type from URL/path
+     */
+    detectAvatarType(url) {
+        if (url.includes('vroid')) return 'VRoid';
+        if (url.includes('readyplayer') || url.includes('rpm')) return 'Ready Player Me';
+        if (url.includes('mixamo')) return 'Mixamo';
+        if (url.includes('sketchfab')) return 'Sketchfab';
+        return 'Custom';
+    }
+    
+    /**
+     * Get appropriate scale for avatar type
+     */
+    getAvatarScale(avatarType) {
+        const scales = {
+            'VRoid': 1.0,           // VRoid exports at correct scale
+            'Ready Player Me': 1.0, // RPM also correct scale
+            'Mixamo': 0.01,         // Mixamo exports at 100x scale
+            'Sketchfab': 1.0,       // Usually correct, varies
+            'Custom': 1.0           // Assume correct scale
+        };
+        return scales[avatarType] || 1.0;
     }
     
     /**
@@ -169,40 +232,96 @@ class ReadyPlayerMeLoader {
     }
     
     /**
-     * Enable/disable Ready Player Me
+     * Enable/disable 3D avatar library
      */
     setEnabled(enabled) {
-        this.useReadyPlayerMe = enabled;
+        this.useAvatarLibrary = enabled;
         this.fallbackMode = !enabled;
-        console.log(`🎭 Ready Player Me ${enabled ? 'enabled' : 'disabled'}`);
+        console.log(`🎭 3D Avatar Library ${enabled ? 'enabled' : 'disabled'}`);
     }
     
     /**
-     * Check if RPM is available and working
+     * Check if avatar library is available and working
+     * Tests first avatar in library
      */
     async testConnection() {
-        // Skip test if RPM is disabled or no avatars configured
-        if (!this.useReadyPlayerMe || this.avatarLibrary.length === 0) {
-            console.log('⚠️ Ready Player Me disabled or no avatars configured, using procedural avatars');
+        // Skip test if avatar library is disabled or empty
+        if (!this.useAvatarLibrary || this.avatarLibrary.length === 0) {
+            console.log('⚠️ 3D Avatar Library disabled or no avatars configured, using procedural avatars');
             this.fallbackMode = true;
             return false;
         }
         
         try {
             const testUrl = this.avatarLibrary[0];
-            const response = await fetch(testUrl, { method: 'HEAD' });
-            const available = response.ok;
+            const avatarType = this.detectAvatarType(testUrl);
             
-            if (!available) {
-                console.warn('⚠️ Ready Player Me not accessible, using fallback');
-                this.fallbackMode = true;
+            console.log(`🔍 Testing ${avatarType} avatar availability...`);
+            
+            // For local files, check if they exist (different from remote URLs)
+            if (testUrl.startsWith('./') || testUrl.startsWith('/')) {
+                // Local file - try to fetch it
+                const response = await fetch(testUrl, { method: 'HEAD' });
+                const available = response.ok;
+                
+                if (!available) {
+                    console.warn(`⚠️ Local avatar file not found: ${testUrl}`);
+                    console.log('💡 Tip: Copy avatar GLB files to js/models/avatars/ directory');
+                    this.fallbackMode = true;
+                }
+                
+                return available;
+            } else {
+                // Remote URL (Ready Player Me, etc.)
+                const response = await fetch(testUrl, { method: 'HEAD' });
+                const available = response.ok;
+                
+                if (!available) {
+                    console.warn(`⚠️ Remote avatar not accessible: ${testUrl}`);
+                    this.fallbackMode = true;
+                }
+                
+                return available;
             }
-            
-            return available;
         } catch (error) {
-            console.warn('⚠️ Ready Player Me connection test failed');
+            console.warn(`⚠️ Avatar library connection test failed: ${error.message}`);
+            console.log('🔄 Using procedural avatar fallback');
             this.fallbackMode = true;
             return false;
         }
+    }
+    
+    /**
+     * Get avatar library statistics
+     */
+    getStats() {
+        const stats = {
+            totalAvatars: this.avatarLibrary.length,
+            cachedAvatars: this.cache.size,
+            enabled: this.useAvatarLibrary,
+            fallbackMode: this.fallbackMode,
+            types: {}
+        };
+        
+        // Count avatar types
+        this.avatarLibrary.forEach(url => {
+            const type = this.detectAvatarType(url);
+            stats.types[type] = (stats.types[type] || 0) + 1;
+        });
+        
+        return stats;
+    }
+    
+    /**
+     * Log avatar library status
+     */
+    logStatus() {
+        const stats = this.getStats();
+        console.log('📊 Avatar Library Status:');
+        console.log(`  - Total Avatars: ${stats.totalAvatars}`);
+        console.log(`  - Cached: ${stats.cachedAvatars}`);
+        console.log(`  - Enabled: ${stats.enabled}`);
+        console.log(`  - Fallback Mode: ${stats.fallbackMode}`);
+        console.log(`  - Avatar Types:`, stats.types);
     }
 }
