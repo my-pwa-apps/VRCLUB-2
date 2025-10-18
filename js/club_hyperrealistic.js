@@ -347,14 +347,14 @@ class VRClub {
         // Store VR helper for later use
         this.vrHelper = vrHelper;
         
-        // Set VR starting position at DJ booth when entering VR
+        // Set VR starting position at dance floor center (below mirror ball)
         if (vrHelper) {
             vrHelper.baseExperience.onStateChangedObservable.add((state) => {
                 if (state === BABYLON.WebXRState.IN_XR) {
-                    // Position user at DJ booth in VR mode
+                    // Position user at dance floor center below mirror ball
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
-                        xrCamera.position = new BABYLON.Vector3(0, 0, -20);
+                        xrCamera.position = new BABYLON.Vector3(0, 0, -12);
                         
                         // Configure depth range for better VR rendering (now that session is active)
                         if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
