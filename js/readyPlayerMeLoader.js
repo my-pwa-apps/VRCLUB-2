@@ -402,12 +402,19 @@ class ReadyPlayerMeLoader {
         // Store animations on root for later access
         root.animationGroups = animationGroups;
         
+        // Log available animations for debugging
+        if (animationGroups && animationGroups.length > 0) {
+            console.log(`🎬 Available animations: ${animationGroups.map(g => g.name).join(', ')}`);
+        }
+        
         // Find and setup dance animations
         const danceAnimations = animationGroups.filter(group => 
             group.name.toLowerCase().includes('dance') ||
             group.name.toLowerCase().includes('dancing') ||
             group.name.toLowerCase().includes('hiphop') ||
-            group.name.toLowerCase().includes('samba')
+            group.name.toLowerCase().includes('hip hop') ||
+            group.name.toLowerCase().includes('samba') ||
+            group.name.toLowerCase().includes('mixamo.com') // Mixamo's default animation name
         );
         
         if (danceAnimations.length > 0) {
@@ -418,7 +425,7 @@ class ReadyPlayerMeLoader {
             randomDance.start(true, 1.0, randomDance.from, randomDance.to, false);
             root.currentAnimation = randomDance;
             
-            console.log(`🎵 Playing dance animation: ${randomDance.name}`);
+            console.log(`🎵 NOW DANCING: ${randomDance.name}`);
         } else {
             // Find idle animation as fallback
             const idleAnimation = animationGroups.find(group => 
