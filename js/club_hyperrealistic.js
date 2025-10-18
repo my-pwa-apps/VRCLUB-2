@@ -5469,8 +5469,8 @@ class VRClub {
     }
 
     createDancingNPCs() {
-        // Create 5-8 random HUMANLIKE NPC avatars dancing on the dancefloor
-        const npcCount = 5 + Math.floor(Math.random() * 4); // 5-8 NPCs
+        // Create 4 random HUMANLIKE NPC avatars dancing on the dancefloor (using 2 dance styles)
+        const npcCount = 4; // Fixed count - mix of hip hop and house dance styles
         const npcNames = [
             'Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey',
             'Riley', 'Skyler', 'Cameron', 'Avery', 'Quinn',
@@ -5480,7 +5480,7 @@ class VRClub {
         // Shuffle names for variety
         const shuffledNames = [...npcNames].sort(() => Math.random() - 0.5);
         
-        console.log(`🕺 Creating ${npcCount} diverse dancing NPC avatars...`);
+        console.log(`🕺 Creating ${npcCount} diverse dancing NPC avatars (Hip Hop + House styles)...`);
         
         // Dancefloor boundaries
         const dancefloorCenter = { x: 0, z: -12 };

@@ -28,6 +28,7 @@ class ReadyPlayerMeLoader {
             // Ready Player Me avatars (URLs):
             // Mixamo characters (local files with animations):
             './js/models/avatars/Hip Hop Dancing.glb',
+            './js/models/avatars/house.glb',
             
             // Ready Player Me (static, no animations) - TEMPORARILY DISABLED for testing:
             // 'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',
@@ -114,8 +115,8 @@ class ReadyPlayerMeLoader {
                         mesh.renderingGroupId = 1; // Render hair after opaque meshes
                     }
                     
-                    // Ready Player Me / General: Enforce opacity (prevent light bleed-through in VR)
-                    if (avatarType === 'Ready Player Me' || avatarType === 'Custom') {
+                    // ALL avatars: Enforce opacity (prevent light bleed-through in VR)
+                    if (avatarType !== 'VRoid') { // Apply to all except VRoid (which needs transparency for hair)
                         // Aggressively enforce opacity - VR stereoscopic rendering is sensitive
                         mesh.material.alpha = 1.0;
                         mesh.material.transparencyMode = null;
