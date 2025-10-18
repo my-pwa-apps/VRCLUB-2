@@ -430,6 +430,21 @@ class ReadyPlayerMeLoader {
             // Play random dance animation on loop
             const randomDance = danceAnimations[Math.floor(Math.random() * danceAnimations.length)];
             
+            // Fix frame range if invalid (Mixamo sometimes exports with incorrect range)
+            if (randomDance.to === Number.MIN_VALUE || randomDance.to < randomDance.from) {
+                // Calculate proper frame range from targeted animations
+                if (randomDance.targetedAnimations && randomDance.targetedAnimations.length > 0) {
+                    const firstAnim = randomDance.targetedAnimations[0];
+                    const animation = firstAnim.animation;
+                    if (animation && animation.getKeys) {
+                        const keys = animation.getKeys();
+                        randomDance.from = keys[0].frame;
+                        randomDance.to = keys[keys.length - 1].frame;
+                        console.log(`🔧 Fixed animation range: from ${randomDance.from} to ${randomDance.to}`);
+                    }
+                }
+            }
+            
             // Make sure animation is properly configured
             randomDance.loopAnimation = true;
             randomDance.speedRatio = 1.0;
