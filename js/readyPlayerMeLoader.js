@@ -143,6 +143,11 @@ class ReadyPlayerMeLoader {
             
             // Setup animations if available
             if (result.animationGroups && result.animationGroups.length > 0) {
+                // Normalize animation groups to ensure proper frame ranges
+                result.animationGroups.forEach(group => {
+                    group.normalize(0, 100);
+                });
+                
                 this.setupAnimations(root, result.animationGroups);
                 console.log(`🎬 Loaded ${result.animationGroups.length} animations for ${avatarType} avatar`);
             } else {
@@ -430,34 +435,25 @@ class ReadyPlayerMeLoader {
             // Play random dance animation on loop
             const randomDance = danceAnimations[Math.floor(Math.random() * danceAnimations.length)];
             
-            // Fix frame range if invalid (Mixamo sometimes exports with incorrect range)
-            if (randomDance.to === Number.MIN_VALUE || randomDance.to < randomDance.from) {
-                // Calculate proper frame range from targeted animations
-                if (randomDance.targetedAnimations && randomDance.targetedAnimations.length > 0) {
-                    const firstAnim = randomDance.targetedAnimations[0];
-                    const animation = firstAnim.animation;
-                    if (animation && animation.getKeys) {
-                        const keys = animation.getKeys();
-                        randomDance.from = keys[0].frame;
-                        randomDance.to = keys[keys.length - 1].frame;
-                        console.log(`🔧 Fixed animation range: from ${randomDance.from} to ${randomDance.to}`);
-                    }
-                }
-            }
+            console.log(`🎵 STARTING ANIMATION: ${randomDance.name} (normalized from ${randomDance.from} to ${randomDance.to})`);
             
-            // Make sure animation is properly configured
-            randomDance.loopAnimation = true;
-            randomDance.speedRatio = 1.0;
-            
-            // Start the animation
-            randomDance.start(true, 1.0, randomDance.from, randomDance.to, false);
+            // Play the animation using the scene (not just the animation group)
+            randomDance.play(true); // Use play instead of start - simpler and more reliable
             root.currentAnimation = randomDance;
             
-            console.log(`🎵 NOW DANCING: ${randomDance.name} (from: ${randomDance.from}, to: ${randomDance.to}, isPlaying: ${randomDance.isPlaying})`);
+            console.log(`✅ Animation started with play(): ${randomDance.name}`);
             
             // Verify animation is playing after a short delay
             setTimeout(() => {
-                console.log(`🔍 Animation check after 1s: ${randomDance.name} isPlaying=${randomDance.isPlaying}, frame=${randomDance.animatables[0]?.masterFrame || 'N/A'}`);
+                const isPlaying = randomDance.isPlaying;
+                const isStarted = randomDance.isStarted;
+                console.log(`🔍 Animation check: ${randomDance.name} isPlaying=${isPlaying}, isStarted=${isStarted}`);
+                
+                // If still not playing, try restarting
+                if (!isPlaying && !isStarted) {
+                    console.warn(`⚠️ Animation not playing, attempting restart...`);
+                    randomDance.play(true);
+                }
             }, 1000);
         } else {
             // Find idle animation as fallback
