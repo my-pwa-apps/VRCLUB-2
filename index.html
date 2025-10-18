@@ -179,10 +179,256 @@
             70% { opacity: 1; }
             100% { opacity: 0; }
         }
+        
+        /* VJ Control Menu */
+        #vjMenu {
+            position: absolute;
+            top: 70px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            min-width: 280px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        #vjMenu.minimized {
+            padding: 8px 12px;
+            min-width: auto;
+        }
+        
+        #vjMenu.minimized .vj-content {
+            display: none;
+        }
+        
+        #vjMenu.hidden {
+            display: none;
+        }
+        
+        .vj-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        #vjMenu.minimized .vj-header {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .vj-title {
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .vj-controls {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .vj-btn-icon {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .vj-btn-icon:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+        
+        .vj-section {
+            margin-bottom: 15px;
+        }
+        
+        .vj-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .vj-section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            opacity: 0.7;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+        
+        .vj-button-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        
+        .vj-button {
+            background: rgba(102, 126, 234, 0.3);
+            border: 1px solid rgba(102, 126, 234, 0.5);
+            color: white;
+            padding: 12px 8px;
+            font-size: 11px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            font-weight: 500;
+        }
+        
+        .vj-button:hover {
+            background: rgba(102, 126, 234, 0.5);
+            border-color: rgba(102, 126, 234, 0.8);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        .vj-button.active {
+            background: rgba(102, 126, 234, 0.8);
+            border-color: #667eea;
+            box-shadow: 0 0 12px rgba(102, 126, 234, 0.5);
+        }
+        
+        .vj-slider-container {
+            margin-top: 8px;
+        }
+        
+        .vj-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.2);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .vj-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .vj-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .vj-slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+        
+        #vjToggle {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.75);
+            border: none;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 101;
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+        }
+        
+        #vjToggle:hover {
+            background: #667eea;
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
+    
+    <!-- VJ Toggle Button -->
+    <button id="vjToggle" title="VJ Controls">🎛️</button>
+    
+    <!-- VJ Control Menu -->
+    <div id="vjMenu" class="hidden">
+        <div class="vj-header">
+            <div class="vj-title">
+                <span>🎛️</span>
+                <span>VJ Controls</span>
+            </div>
+            <div class="vj-controls">
+                <button class="vj-btn-icon" id="vjMinimize" title="Minimize">−</button>
+                <button class="vj-btn-icon" id="vjClose" title="Close">×</button>
+            </div>
+        </div>
+        
+        <div class="vj-content">
+            <!-- Main Toggles -->
+            <div class="vj-section">
+                <div class="vj-section-title">💡 Main Controls</div>
+                <div class="vj-button-grid">
+                    <button class="vj-button active" data-control="lightsActive">LIGHTS</button>
+                    <button class="vj-button" data-control="lasersActive">LASERS</button>
+                    <button class="vj-button active" data-control="ledWallActive">LED WALL</button>
+                    <button class="vj-button active" data-control="strobesActive">STROBES</button>
+                    <button class="vj-button" data-control="mirrorBallActive">MIRROR BALL</button>
+                </div>
+            </div>
+            
+            <!-- Spotlight Controls -->
+            <div class="vj-section">
+                <div class="vj-section-title">🔦 Spotlight Settings</div>
+                <div class="vj-button-grid">
+                    <button class="vj-button" data-control="changeColor">COLOR</button>
+                    <button class="vj-button" data-control="cycleSpotMode">MODE</button>
+                    <button class="vj-button" data-control="cyclePattern">PATTERN</button>
+                </div>
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="spotSpeed" min="0.1" max="2.0" step="0.1" value="1.0">
+                    <div class="vj-slider-label">
+                        <span>Speed</span>
+                        <span id="spotSpeedValue">1.0x</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Mirror Ball Controls -->
+            <div class="vj-section">
+                <div class="vj-section-title">🪩 Mirror Ball</div>
+                <button class="vj-button" data-control="changeMirrorBallColor" style="grid-column: 1 / -1;">CHANGE COLOR</button>
+            </div>
+        </div>
+    </div>
     
     <!-- Settings Toggle Button -->
     <button id="settingsToggle" title="Settings">⚙️</button>
@@ -260,5 +506,187 @@
     
     <!-- VR Club Script -->
     <script src="js/club_hyperrealistic.js"></script>
+    
+    <!-- VJ Menu Controls -->
+    <script>
+        // Initialize VJ menu after VRClub is loaded
+        let vrClubInstance = null;
+        
+        // Wait for VRClub instance to be created
+        const waitForVRClub = setInterval(() => {
+            if (window.vrClub) {
+                vrClubInstance = window.vrClub;
+                clearInterval(waitForVRClub);
+                initVJMenu();
+            }
+        }, 100);
+        
+        function initVJMenu() {
+            const vjToggle = document.getElementById('vjToggle');
+            const vjMenu = document.getElementById('vjMenu');
+            const vjMinimize = document.getElementById('vjMinimize');
+            const vjClose = document.getElementById('vjClose');
+            const spotSpeed = document.getElementById('spotSpeed');
+            const spotSpeedValue = document.getElementById('spotSpeedValue');
+            
+            // Toggle VJ menu visibility
+            vjToggle.addEventListener('click', () => {
+                vjMenu.classList.toggle('hidden');
+                if (!vjMenu.classList.contains('hidden')) {
+                    vjMenu.classList.remove('minimized');
+                    updateButtonStates();
+                }
+            });
+            
+            // Minimize/maximize VJ menu
+            vjMinimize.addEventListener('click', () => {
+                vjMenu.classList.toggle('minimized');
+                vjMinimize.textContent = vjMenu.classList.contains('minimized') ? '+' : '−';
+            });
+            
+            // Close VJ menu
+            vjClose.addEventListener('click', () => {
+                vjMenu.classList.add('hidden');
+            });
+            
+            // Handle VJ control buttons
+            const vjButtons = document.querySelectorAll('.vj-button[data-control]');
+            vjButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const control = button.getAttribute('data-control');
+                    
+                    if (control === 'changeColor') {
+                        // Change spotlight color
+                        vrClubInstance.spotColorIndex = (vrClubInstance.spotColorIndex + 1) % vrClubInstance.spotColorList.length;
+                        vrClubInstance.currentSpotColor = vrClubInstance.spotColorList[vrClubInstance.spotColorIndex];
+                        vrClubInstance.lastColorChange = performance.now() / 1000;
+                        
+                        // Update all spotlight colors
+                        if (vrClubInstance.spotlights) {
+                            vrClubInstance.spotlights.forEach((spot, i) => {
+                                spot.light.specular = vrClubInstance.currentSpotColor;
+                                spot.color = vrClubInstance.currentSpotColor;
+                                
+                                if (vrClubInstance.trussLights && vrClubInstance.trussLights[i]) {
+                                    const trussLight = vrClubInstance.trussLights[i];
+                                    if (trussLight.lensMat && vrClubInstance.lightsActive) {
+                                        trussLight.lensMat.emissiveColor = vrClubInstance.currentSpotColor.scale(5.0);
+                                    }
+                                    if (trussLight.sourceMat && vrClubInstance.lightsActive) {
+                                        trussLight.sourceMat.emissiveColor = vrClubInstance.currentSpotColor.scale(8.0);
+                                    }
+                                }
+                            });
+                        }
+                        
+                        button.style.background = `rgba(${vrClubInstance.currentSpotColor.r * 255}, ${vrClubInstance.currentSpotColor.g * 255}, ${vrClubInstance.currentSpotColor.b * 255}, 0.5)`;
+                        setTimeout(() => {
+                            button.style.background = '';
+                        }, 300);
+                        
+                    } else if (control === 'changeMirrorBallColor') {
+                        // Change mirror ball color
+                        vrClubInstance.mirrorBallColorIndex = (vrClubInstance.mirrorBallColorIndex + 1) % vrClubInstance.mirrorBallColors.length;
+                        vrClubInstance.mirrorBallSpotlightColor = vrClubInstance.mirrorBallColors[vrClubInstance.mirrorBallColorIndex];
+                        
+                        if (vrClubInstance.mirrorBallSpotlights) {
+                            vrClubInstance.mirrorBallSpotlights.forEach(light => {
+                                if (light) light.diffuse = vrClubInstance.mirrorBallSpotlightColor.clone();
+                            });
+                        }
+                        if (vrClubInstance.mirrorBallBeams) {
+                            vrClubInstance.mirrorBallBeams.forEach(beam => {
+                                beam.material.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.clone();
+                            });
+                        }
+                        if (vrClubInstance.mirrorBallHousings) {
+                            vrClubInstance.mirrorBallHousings.forEach(housing => {
+                                housing.material.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(0.2);
+                                housing.lensMaterial.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(5.0);
+                                housing.sourceMaterial.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(8.0);
+                                housing.flareMaterial.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(3.0);
+                            });
+                        }
+                        
+                        button.style.background = `rgba(${vrClubInstance.mirrorBallSpotlightColor.r * 255}, ${vrClubInstance.mirrorBallSpotlightColor.g * 255}, ${vrClubInstance.mirrorBallSpotlightColor.b * 255}, 0.5)`;
+                        setTimeout(() => {
+                            button.style.background = '';
+                        }, 300);
+                        
+                    } else if (control === 'cycleSpotMode') {
+                        // Cycle spotlight mode
+                        vrClubInstance.spotlightMode = (vrClubInstance.spotlightMode + 1) % 4;
+                        const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
+                        button.textContent = modeNames[vrClubInstance.spotlightMode];
+                        setTimeout(() => {
+                            button.textContent = 'MODE';
+                        }, 1500);
+                        
+                    } else if (control === 'cyclePattern') {
+                        // Cycle spotlight pattern
+                        vrClubInstance.spotlightPattern = (vrClubInstance.spotlightPattern + 1) % 3;
+                        const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
+                        button.textContent = patternNames[vrClubInstance.spotlightPattern];
+                        setTimeout(() => {
+                            button.textContent = 'PATTERN';
+                        }, 1500);
+                        
+                    } else {
+                        // Toggle on/off control
+                        vrClubInstance[control] = !vrClubInstance[control];
+                        button.classList.toggle('active');
+                        
+                        // Activate VJ manual mode for toggle controls
+                        vrClubInstance.lastVJInteraction = performance.now() / 1000;
+                        vrClubInstance.vjManualMode = true;
+                    }
+                });
+            });
+            
+            // Handle speed slider
+            spotSpeed.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                vrClubInstance.spotlightSpeed = value;
+                spotSpeedValue.textContent = `${value.toFixed(1)}x`;
+            });
+            
+            // Update button states periodically
+            function updateButtonStates() {
+                if (!vrClubInstance || vjMenu.classList.contains('hidden')) return;
+                
+                vjButtons.forEach(button => {
+                    const control = button.getAttribute('data-control');
+                    if (control && !control.includes('change') && !control.includes('cycle')) {
+                        if (vrClubInstance[control]) {
+                            button.classList.add('active');
+                        } else {
+                            button.classList.remove('active');
+                        }
+                    }
+                });
+                
+                // Update speed slider
+                spotSpeed.value = vrClubInstance.spotlightSpeed;
+                spotSpeedValue.textContent = `${vrClubInstance.spotlightSpeed.toFixed(1)}x`;
+            }
+            
+            // Update button states every second
+            setInterval(updateButtonStates, 1000);
+            
+            // Hide VJ menu in VR mode
+            if (vrClubInstance.scene) {
+                vrClubInstance.scene.onXRSessionInit.add(() => {
+                    vjMenu.classList.add('hidden');
+                    vjToggle.style.display = 'none';
+                });
+                
+                vrClubInstance.scene.onXRSessionEnded.add(() => {
+                    vjToggle.style.display = 'block';
+                });
+            }
+            
+            console.log('✅ VJ desktop menu initialized');
+        }
+    </script>
 </body>
 </html>

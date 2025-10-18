@@ -5247,5 +5247,5 @@ VR:
 
 // Initialize when page loads
 window.addEventListener('DOMContentLoaded', () => {
-    new VRClub();
+    window.vrClub = new VRClub();
 });
