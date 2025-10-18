@@ -103,7 +103,7 @@ class ReadyPlayerMeLoader {
             
             console.log(`📏 Avatar scale for ${avatarType}: ${scale} (position: ${root.position.x}, ${root.position.y}, ${root.position.z})`);
             
-            // Apply light limits to all materials (VR compatibility)
+            // Apply light limits and enforce solid rendering for all materials
             result.meshes.forEach(mesh => {
                 if (mesh.material) {
                     mesh.material.maxSimultaneousLights = 6; // Quest VR limit
@@ -135,6 +135,25 @@ class ReadyPlayerMeLoader {
                         
                         // Disable back-face culling issues
                         mesh.material.backFaceCulling = true;
+                        
+                        // PBR-specific properties (if using PBRMaterial)
+                        if (mesh.material.albedoTexture) {
+                            mesh.material.albedoTexture.hasAlpha = false;
+                            mesh.material.useAlphaFromAlbedoTexture = false;
+                        }
+                        if (mesh.material.opacityTexture) {
+                            mesh.material.opacityTexture = null; // Remove opacity texture
+                        }
+                        
+                        // Standard material properties
+                        if (mesh.material.diffuseTexture) {
+                            mesh.material.diffuseTexture.hasAlpha = false;
+                        }
+                        if (mesh.material.opacityTexture) {
+                            mesh.material.opacityTexture = null;
+                        }
+                        
+                        console.log(`🔒 Enforced solid material on ${mesh.name}`);
                     }
                 }
             });
@@ -171,7 +190,7 @@ class ReadyPlayerMeLoader {
     detectAvatarType(url) {
         if (url.includes('vroid')) return 'VRoid';
         if (url.includes('readyplayer') || url.includes('rpm')) return 'Ready Player Me';
-        if (url.includes('mixamo') || url.includes('Hip Hop Dancing')) return 'Mixamo'; // Includes Malcolm animation file
+        if (url.includes('mixamo') || url.includes('Hip Hop Dancing') || url.includes('house.glb')) return 'Mixamo'; // Mixamo dance animations
         if (url.includes('sketchfab')) return 'Sketchfab';
         return 'Custom';
     }
@@ -205,6 +224,23 @@ class ReadyPlayerMeLoader {
                 const clone = mesh.clone(`${mesh.name}_${playerId}`, clones[0]);
                 if (clone) {
                     clone.setEnabled(true);
+                    
+                    // Re-enforce opacity on cloned meshes (materials are shared, but need to ensure settings persist)
+                    if (clone.material) {
+                        clone.material.alpha = 1.0;
+                        clone.material.transparencyMode = null;
+                        clone.material.disableDepthWrite = false;
+                        clone.material.forceDepthWrite = true;
+                        
+                        // Override alpha methods
+                        if (clone.material.needAlphaBlending) {
+                            clone.material.needAlphaBlending = () => false;
+                        }
+                        if (clone.material.needAlphaTesting) {
+                            clone.material.needAlphaTesting = () => false;
+                        }
+                    }
+                    
                     clones.push(clone);
                 }
             }
