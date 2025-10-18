@@ -181,6 +181,13 @@ class ReadyPlayerMeLoader {
      * Check if RPM is available and working
      */
     async testConnection() {
+        // Skip test if RPM is disabled or no avatars configured
+        if (!this.useReadyPlayerMe || this.avatarLibrary.length === 0) {
+            console.log('⚠️ Ready Player Me disabled or no avatars configured, using procedural avatars');
+            this.fallbackMode = true;
+            return false;
+        }
+        
         try {
             const testUrl = this.avatarLibrary[0];
             const response = await fetch(testUrl, { method: 'HEAD' });

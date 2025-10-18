@@ -1328,8 +1328,8 @@
             // Update button states every second
             setInterval(updateButtonStates, 1000);
             
-            // Hide VJ menu in VR mode
-            if (vrClubInstance.scene) {
+            // Hide VJ menu in VR mode (wait for scene to be ready)
+            if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
                 vrClubInstance.scene.onXRSessionInit.add(() => {
                     vjMenu.classList.add('hidden');
                     vjToggle.style.display = 'none';
@@ -1479,8 +1479,8 @@
                 }
             });
             
-            // Hide in VR mode
-            if (vrClubInstance && vrClubInstance.scene) {
+            // Hide in VR mode (wait for scene to be ready)
+            if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
                 vrClubInstance.scene.onXRSessionInit.add(() => {
                     audioMenu.classList.add('hidden');
                     audioToggle.style.display = 'none';
@@ -1609,8 +1609,8 @@
                 showMPStatus('Disconnected', 'success');
             });
             
-            // Hide in VR mode
-            if (vrClubInstance && vrClubInstance.scene) {
+            // Hide in VR mode (wait for scene to be ready)
+            if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
                 vrClubInstance.scene.onXRSessionInit.add(() => {
                     mpMenu.classList.add('hidden');
                     mpToggle.style.display = 'none';
