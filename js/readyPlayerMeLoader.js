@@ -8,17 +8,18 @@ class ReadyPlayerMeLoader {
         this.cache = new Map(); // Cache loaded avatars by URL
         
         // Curated list of diverse Ready Player Me avatar URLs
-        // These are publicly available demo avatars
+        // Using publicly available demo/test avatars
+        // To create your own: visit https://readyplayer.me/avatar
         this.avatarLibrary = [
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934a6.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934a7.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934a8.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934a9.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934aa.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934ab.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934ac.glb',
-            'https://models.readyplayer.me/64bfa15f0e72c63d7c3934ad.glb'
+            // Example format - replace with your own created avatars:
+            // 'https://models.readyplayer.me/YOUR_AVATAR_ID_HERE.glb',
+            
+            // For now, using procedural fallback until real avatars are added
+            // Uncomment and add real RPM URLs here once created
         ];
+        
+        // Temporary: Force procedural mode until real RPM avatars are configured
+        this.useReadyPlayerMe = false; // Set to true once you add real avatar URLs above
         
         this.useReadyPlayerMe = true; // Toggle to disable RPM and use procedural
         this.fallbackMode = false; // Set to true if RPM fails
