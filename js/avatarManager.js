@@ -88,6 +88,7 @@ class AvatarManager {
                 playerData.position.y,
                 playerData.position.z
             );
+            console.log(`📍 Avatar ${playerData.username} positioned at (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`);
         }
         
         // Create name label

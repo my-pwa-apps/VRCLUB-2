@@ -102,6 +102,8 @@ class ReadyPlayerMeLoader {
             const scale = this.getAvatarScale(avatarType);
             root.scaling = new BABYLON.Vector3(scale, scale, scale);
             
+            console.log(`📏 Avatar scale for ${avatarType}: ${scale} (position: ${root.position.x}, ${root.position.y}, ${root.position.z})`);
+            
             // Apply light limits to all materials (VR compatibility)
             result.meshes.forEach(mesh => {
                 if (mesh.material) {
@@ -177,7 +179,7 @@ class ReadyPlayerMeLoader {
         const scales = {
             'VRoid': 1.0,           // VRoid exports at correct scale
             'Ready Player Me': 1.0, // RPM also correct scale
-            'Mixamo': 0.01,         // Mixamo exports at 100x scale
+            'Mixamo': 0.01,         // Mixamo exports at 100x scale (needs 0.01)
             'Sketchfab': 1.0,       // Usually correct, varies
             'Custom': 1.0           // Assume correct scale
         };
