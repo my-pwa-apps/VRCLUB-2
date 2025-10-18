@@ -26,14 +26,12 @@ class ReadyPlayerMeLoader {
             // './js/models/avatars/vroid_08.glb',
             
             // Ready Player Me avatars (URLs):
-            'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',
-            'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb',
-            'https://models.readyplayer.me/68f3d52ac8049dcd18a35de8.glb',
-            'https://models.readyplayer.me/68f3d687992c9fb50cad6e59.glb',
-            'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb',
-            
             // Mixamo characters (local files with animations):
-            './js/models/avatars/Hip Hop Dancing.glb', // Malcolm with Hip Hop Dancing animation
+            './js/models/avatars/Hip Hop Dancing.glb',
+            
+            // Ready Player Me (static, no animations) - TEMPORARILY DISABLED for testing:
+            // 'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',
+            // 'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb'
             
             // Instructions:
             // 1. Create avatars using VRoid Studio (see docs/VROID_INTEGRATION_GUIDE_2025-10-18.md)
