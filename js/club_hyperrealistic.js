@@ -2867,7 +2867,7 @@ class VRClub {
         const numSpots = 300; // Increased to 300 for better coverage
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
-        const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces
+        const spotsPerSurface = Math.floor(numSpots / 5); // Divide evenly among 5 surfaces (no front wall)
         let spotIndex = 0;
         
         const surfaces = [
@@ -2875,8 +2875,8 @@ class VRClub {
             { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 }, // Ceiling box bottom at 9.85
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
-            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.98 } // No actual wall, keep for edge spots
+            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 } // Back wall front face at -26.75
+            // Removed frontWall - no physical wall at entrance (z=0 to z=2)
         ];
         
         surfaces.forEach(surface => {
@@ -2959,7 +2959,7 @@ class VRClub {
             }
         });
         
-        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces`);
+        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 5 surfaces (floor, ceiling, 3 walls)`);
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
