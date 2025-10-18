@@ -5070,12 +5070,16 @@ class VRClub {
 
     moveCameraToPreset(preset) {
         const presets = {
-            entrance: { pos: new BABYLON.Vector3(0, 1.7, -10), target: new BABYLON.Vector3(0, 1.7, 0) },
+            entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
             danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -24) },
-            djBooth: { pos: new BABYLON.Vector3(0, 2.5, -18), target: new BABYLON.Vector3(0, 3, -24) },
-            ledWallClose: { pos: new BABYLON.Vector3(0, 3, -21), target: new BABYLON.Vector3(0, 3, -24) },
-            overview: { pos: new BABYLON.Vector3(-12, 6, -12), target: new BABYLON.Vector3(0, 2, -15) },
-            ceiling: { pos: new BABYLON.Vector3(0, 7, -12), target: new BABYLON.Vector3(0, 0, -15) }
+            djBooth: { pos: new BABYLON.Vector3(0, 2.0, -24.5), target: new BABYLON.Vector3(0, 1.7, -10) },
+            djSide: { pos: new BABYLON.Vector3(-5, 2.0, -23), target: new BABYLON.Vector3(0, 1.5, -23.5) },
+            ledWallClose: { pos: new BABYLON.Vector3(0, 3, -22), target: new BABYLON.Vector3(0, 3, -26) },
+            speakers: { pos: new BABYLON.Vector3(0, 2.5, -20), target: new BABYLON.Vector3(-7, 2.5, -25) },
+            truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
+            mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
+            overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },
+            ceiling: { pos: new BABYLON.Vector3(0, 8.5, -12), target: new BABYLON.Vector3(0, 0, -15) }
         };
         
         const p = presets[preset];
