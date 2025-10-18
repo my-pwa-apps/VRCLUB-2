@@ -5696,6 +5696,16 @@ class VRClub {
             const avatar = this.avatarManager.avatars.get(npc.id);
             if (!avatar || !avatar.root) return;
             
+            // Skip procedural animation if avatar has built-in animations (Mixamo, etc.)
+            if (avatar.root.currentAnimation) {
+                // Avatar has its own animation - just keep it at base position
+                avatar.root.position.x = npc.basePosition.x;
+                avatar.root.position.z = npc.basePosition.z;
+                avatar.root.position.y = npc.basePosition.y;
+                // Don't override rotation - let the animation handle it
+                return;
+            }
+            
             // DANCE STYLE VARIATIONS - Each NPC has their own style
             let sideMotion, forwardMotion, bobAmount, rotationAmount;
             
