@@ -27,10 +27,10 @@ class ReadyPlayerMeLoader {
             
             // Ready Player Me avatars (URLs):
             'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',
-            'https://readyplayer.me/avatar?id=68f3d4ee79c290cd02f32f9b',
-            'https://readyplayer.me/avatar?id=68f3d52ac8049dcd18a35de8',
-            'https://readyplayer.me/avatar?id=68f3d5510e54a41a6497e950',
-            'https://readyplayer.me/avatar?id=68f3d5b9c8049dcd18a36de2'
+            'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb',
+            'https://models.readyplayer.me/68f3d52ac8049dcd18a35de8.glb',
+            'https://models.readyplayer.me/68f3d687992c9fb50cad6e59.glb',
+            'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb'
             
             // Mixamo characters (local files):
             // './js/models/avatars/mixamo_character_01.glb',
