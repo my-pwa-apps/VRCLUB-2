@@ -5703,7 +5703,19 @@ class VRClub {
                 avatar.root.position.z = npc.basePosition.z;
                 avatar.root.position.y = npc.basePosition.y;
                 // Don't override rotation - let the animation handle it
+                
+                // Debug: Log once that we're using built-in animation
+                if (!npc.loggedAnimation) {
+                    console.log(`🎭 ${npc.id} using built-in animation (skipping procedural)`);
+                    npc.loggedAnimation = true;
+                }
                 return;
+            }
+            
+            // Debug: Log once that we're using procedural animation
+            if (!npc.loggedProcedural) {
+                console.log(`🤖 ${npc.id} using procedural animation (no built-in animation found)`);
+                npc.loggedProcedural = true;
             }
             
             // DANCE STYLE VARIATIONS - Each NPC has their own style

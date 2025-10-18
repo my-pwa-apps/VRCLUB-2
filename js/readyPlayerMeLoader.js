@@ -407,6 +407,13 @@ class ReadyPlayerMeLoader {
         // Log available animations for debugging
         if (animationGroups && animationGroups.length > 0) {
             console.log(`🎬 Available animations: ${animationGroups.map(g => g.name).join(', ')}`);
+            console.log(`🎬 Animation details:`, animationGroups.map(g => ({
+                name: g.name,
+                from: g.from,
+                to: g.to,
+                speedRatio: g.speedRatio,
+                isPlaying: g.isPlaying
+            })));
         }
         
         // Find and setup dance animations
@@ -424,10 +431,21 @@ class ReadyPlayerMeLoader {
             
             // Play random dance animation on loop
             const randomDance = danceAnimations[Math.floor(Math.random() * danceAnimations.length)];
+            
+            // Make sure animation is properly configured
+            randomDance.loopAnimation = true;
+            randomDance.speedRatio = 1.0;
+            
+            // Start the animation
             randomDance.start(true, 1.0, randomDance.from, randomDance.to, false);
             root.currentAnimation = randomDance;
             
-            console.log(`🎵 NOW DANCING: ${randomDance.name}`);
+            console.log(`🎵 NOW DANCING: ${randomDance.name} (from: ${randomDance.from}, to: ${randomDance.to}, isPlaying: ${randomDance.isPlaying})`);
+            
+            // Verify animation is playing after a short delay
+            setTimeout(() => {
+                console.log(`🔍 Animation check after 1s: ${randomDance.name} isPlaying=${randomDance.isPlaying}, frame=${randomDance.animatables[0]?.masterFrame || 'N/A'}`);
+            }, 1000);
         } else {
             // Find idle animation as fallback
             const idleAnimation = animationGroups.find(group => 
