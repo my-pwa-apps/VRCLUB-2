@@ -1,7 +1,26 @@
 const WebSocket = require('ws');
+const http = require('http');
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// Create HTTP server for health checks
+const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            status: 'ok',
+            connectedPlayers: clients.size,
+            uptime: process.uptime(),
+            timestamp: Date.now()
+        }));
+    } else {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('VR Club Multiplayer Server\nWebSocket: ws://' + req.headers.host);
+    }
+});
+
+const wss = new WebSocket.Server({ server });
 
 // Store connected clients and their state
 const clients = new Map();
@@ -199,4 +218,10 @@ setInterval(() => {
 }, 30000);
 
 console.log('🌐 Server ready for connections');
-console.log('📡 Use ws://localhost:8080 to connect');
+console.log(`📡 WebSocket URL: ws://${IS_PRODUCTION ? 'your-app.onrender.com' : 'localhost:' + PORT}`);
+
+// Start HTTP server
+server.listen(PORT, () => {
+    console.log(`🎧 VR Club Multiplayer Server started on port ${PORT}`);
+    console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+});
