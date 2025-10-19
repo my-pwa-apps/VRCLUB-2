@@ -892,6 +892,14 @@ class VRClub {
             this.textureLoader.applyTexturesToMaterial(frontWallMat, this.concreteTextures.walls);
         }
         
+        // Ensure material is fully opaque (no transparency from inside visible outside)
+        frontWallMat.alpha = 1.0;
+        frontWallMat.transparencyMode = null;
+        frontWallMat.needAlphaBlending = () => false;
+        frontWallMat.needAlphaTesting = () => false;
+        
+        // NO custom emissive - use material as-is, just like backWall, leftWall, rightWall
+        
         // Left section of front wall (SAME PATTERN as leftWall, rightWall, backWall)
         const frontWallLeft = BABYLON.MeshBuilder.CreateBox("frontWallLeft", {
             width: (wallWidth - doorwayWidth) / 2,
@@ -901,6 +909,7 @@ class VRClub {
         frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
         frontWallLeft.material = frontWallMat; // SHARED material like other walls
         frontWallLeft.receiveShadows = false; // Phase 3: Disabled for performance
+        frontWallLeft.renderingGroupId = 0; // Ensure wall renders before transparent objects
         
         // Right section of front wall
         const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
@@ -911,6 +920,7 @@ class VRClub {
         frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
         frontWallRight.material = frontWallMat; // SHARED material like other walls
         frontWallRight.receiveShadows = false; // Phase 3: Disabled for performance
+        frontWallRight.renderingGroupId = 0; // Ensure wall renders before transparent objects
         
         // Top section above doorway
         const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
@@ -921,6 +931,7 @@ class VRClub {
         frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
         frontWallTop.material = frontWallMat; // SHARED material like other walls
         frontWallTop.receiveShadows = false; // Phase 3: Disabled for performance
+        frontWallTop.renderingGroupId = 0; // Ensure wall renders before transparent objects
         
         if (DEBUG_MODE) {
             console.log('✅ Created front wall (3 sections) using materialFactory.getPreset("wall")', {
@@ -3302,14 +3313,14 @@ class VRClub {
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
             { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 2.25 } // Front wall BEHIND entrance wall sections (z=2+0.25)
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.75 } // Front wall INNER face (z=2-0.25, faces into club)
         ];
         
         surfaces.forEach(surface => {
             for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.15 + Math.random() * 0.15, // SMALLER: 0.15-0.3m (was 0.25-0.5m)
+                    radius: 0.15 + Math.random() * 0.15, // 0.15-0.3m radius
                     tessellation: 8
                 }, this.scene);
                 
@@ -3391,8 +3402,8 @@ class VRClub {
                     
                     targetPos = new BABYLON.Vector3(x, y, surface.value);
                     normal = surface.name === 'backWall' ? 
-                        new BABYLON.Vector3(0, 0, 1) : 
-                        new BABYLON.Vector3(0, 0, -1);
+                        new BABYLON.Vector3(0, 0, 1) :   // Back wall faces forward (into room)
+                        new BABYLON.Vector3(0, 0, -1);  // Front wall faces backward (into room)
                 }
                 
                 spot.position = targetPos;
@@ -3711,9 +3722,9 @@ class VRClub {
                         }
                     }
                     
-                    // FRONT WALL (z = 2.25) - With doorway exclusion
+                    // FRONT WALL (z = 1.75) - With doorway exclusion
                     if (dirZ > 0.001) {
-                        const t = (2.25 - ballPos.z) / dirZ; // Match surface definition
+                        const t = (1.75 - ballPos.z) / dirZ; // Match surface definition (inner face)
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const y = ballPos.y + dirY * t;
@@ -3721,13 +3732,20 @@ class VRClub {
                             // Check if ray hits front wall (not doorway opening)
                             // Doorway: x = -1.5 to +1.5, y = 0 to 2.5
                             const inDoorwayX = Math.abs(x) <= 1.5;
-                            const inDoorwayY = y <= 2.5;
+                            const inDoorwayY = y >= 0 && y <= 2.5; // MUST be above floor AND below door top
                             const hitsDoorway = inDoorwayX && inDoorwayY;
                             
                             if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && !hitsDoorway && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, 2.25); // Match surface definition
-                                hitNormal = new BABYLON.Vector3(0, 0, -1);
+                                hitPos = new BABYLON.Vector3(x, y, 1.75); // Match surface definition (inner face)
+                                hitNormal = new BABYLON.Vector3(0, 0, -1); // Points into club (away from entrance)
+                                
+                                // DEBUG: Log first few front wall hits
+                                if (DEBUG_MODE && i < 5) {
+                                    console.log(`🎯 Front wall ray hit: x=${x.toFixed(2)}, y=${y.toFixed(2)}, distance=${t.toFixed(2)}`);
+                                }
+                            } else if (DEBUG_MODE && i < 5 && hitsDoorway) {
+                                console.log(`⛔ Front wall ray rejected (doorway): x=${x.toFixed(2)}, y=${y.toFixed(2)}`);
                             }
                         }
                     }
@@ -3739,14 +3757,14 @@ class VRClub {
                         spot.visual.position.copyFrom(hitPos);
                         spot.visual.lookAt(hitPos.add(hitNormal)); // Orient perpendicular to surface
                         
-                        // Distance fade and twinkling - REDUCED BRIGHTNESS
-                        const distanceFade = Math.max(0.3, 1 - (hitDistance / 30)); // Dimmer with distance
-                        const twinkle = 0.7 + 0.3 * Math.sin(time * spot.twinkleSpeed + spot.twinklePhase); // Gentle twinkling
-                        const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6; // 40% dimmer overall
+                        // Distance fade and twinkling
+                        const distanceFade = Math.max(0.3, 1 - (hitDistance / 30));
+                        const twinkle = 0.7 + 0.3 * Math.sin(time * spot.twinkleSpeed + spot.twinklePhase);
+                        const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6;
                         
-                        // DIMMER emissive color
+                        // Emissive color
                         spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
-                        spot.material.alpha = 0.85; // Slightly transparent for softer look
+                        spot.material.alpha = 0.85;
                     } else {
                         // Ray didn't hit any surface - fade out
                         spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
