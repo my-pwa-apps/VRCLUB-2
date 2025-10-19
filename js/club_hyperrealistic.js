@@ -267,6 +267,104 @@ class VRClub {
         this.scene.environmentIntensity = desktop.environmentIntensity;
         this.scene.clearColor = desktop.clearColor;
     }
+    
+    setupVRLocomotion(vrHelper) {
+        // Custom VR locomotion: Left stick = smooth forward/backward movement, Right stick = snap turns
+        // This provides comfortable VR navigation without teleportation only
+        
+        const xrCamera = vrHelper.baseExperience.camera;
+        const movementSpeed = 0.1; // Units per frame (adjust for comfort)
+        const turnAngle = Math.PI / 6; // 30 degree snap turns
+        const deadzone = 0.3; // Ignore small thumbstick movements
+        
+        // Track turn cooldown to prevent rapid spinning
+        let lastTurnTime = 0;
+        const turnCooldown = 300; // milliseconds between snap turns
+        
+        // Input tracking
+        this.vrInputState = {
+            leftStickX: 0,
+            leftStickY: 0,
+            rightStickX: 0,
+            rightStickY: 0
+        };
+        
+        // Setup controller input observers
+        vrHelper.input.onControllerAddedObservable.add((controller) => {
+            controller.onMotionControllerInitObservable.add((motionController) => {
+                // Get thumbstick components
+                const thumbstickComponent = motionController.getComponent('xr-standard-thumbstick');
+                
+                if (thumbstickComponent) {
+                    // Track thumbstick axes changes
+                    thumbstickComponent.onAxisValueChangedObservable.add((values) => {
+                        const isLeftController = motionController.handedness === 'left';
+                        
+                        if (isLeftController) {
+                            // Left stick: movement (forward/backward/strafe)
+                            this.vrInputState.leftStickX = values.x;
+                            this.vrInputState.leftStickY = values.y;
+                        } else {
+                            // Right stick: snap turns
+                            this.vrInputState.rightStickX = values.x;
+                            this.vrInputState.rightStickY = values.y;
+                        }
+                    });
+                }
+                
+                console.log(`🎮 VR controller initialized: ${motionController.handedness} hand`);
+            });
+        });
+        
+        // Apply locomotion in render loop
+        this.scene.onBeforeRenderObservable.add(() => {
+            if (!xrCamera) return;
+            
+            // === LEFT STICK: SMOOTH MOVEMENT ===
+            const moveX = Math.abs(this.vrInputState.leftStickX) > deadzone ? this.vrInputState.leftStickX : 0;
+            const moveY = Math.abs(this.vrInputState.leftStickY) > deadzone ? this.vrInputState.leftStickY : 0;
+            
+            if (moveX !== 0 || moveY !== 0) {
+                // Get camera forward and right vectors (in XZ plane only)
+                const forward = xrCamera.getForwardRay().direction.clone();
+                forward.y = 0; // Keep movement horizontal
+                forward.normalize();
+                
+                const right = BABYLON.Vector3.Cross(forward, BABYLON.Vector3.Up());
+                
+                // Calculate movement vector in facing direction
+                const movement = forward.scale(moveY * movementSpeed)
+                    .add(right.scale(moveX * movementSpeed));
+                
+                // Apply movement with collision detection
+                xrCamera.position.addInPlace(movement);
+                
+                // Clamp to club boundaries (prevent walking through walls)
+                xrCamera.position.x = Math.max(-18, Math.min(18, xrCamera.position.x)); // ±18m width
+                xrCamera.position.z = Math.max(-28, Math.min(10, xrCamera.position.z)); // -28m to +10m depth
+            }
+            
+            // === RIGHT STICK: SNAP TURNS ===
+            const turnInput = Math.abs(this.vrInputState.rightStickX) > deadzone ? this.vrInputState.rightStickX : 0;
+            const now = Date.now();
+            
+            if (turnInput !== 0 && (now - lastTurnTime) > turnCooldown) {
+                // Snap turn left or right
+                const turnDirection = turnInput > 0 ? 1 : -1;
+                const rotationDelta = turnAngle * turnDirection;
+                
+                // Rotate camera around Y axis
+                xrCamera.rotationQuaternion = xrCamera.rotationQuaternion || BABYLON.Quaternion.Identity();
+                const rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Up(), rotationDelta);
+                xrCamera.rotationQuaternion = xrCamera.rotationQuaternion.multiply(rotationQuaternion);
+                
+                lastTurnTime = now;
+                console.log(`🔄 Snap turn: ${turnDirection > 0 ? 'right' : 'left'} (${Math.round(rotationDelta * 180 / Math.PI)}°)`);
+            }
+        });
+        
+        console.log('🕹️ VR locomotion enabled: Left stick = move, Right stick = snap turns');
+    }
 
     detectMaxLights() {
         // Detect device type and GPU capabilities
@@ -435,6 +533,10 @@ class VRClub {
                         
                         // Apply VR-optimized settings
                         this.applyVRSettings(xrCamera);
+                        
+                        // Setup custom VR locomotion (thumbstick movement + snap turns)
+                        this.setupVRLocomotion(vrHelper);
+                        
                         console.log('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
@@ -931,18 +1033,19 @@ class VRClub {
         const letterHeight = 0.7;
         const letterWidth = 0.5;
         
-        // CLUB (left group) - positions: C L U B
+        // Letters positioned for correct reading from OUTSIDE (after 180° rotation)
+        // When rotated, right becomes left, so we position in reverse order: R V B U L C
+        // This displays as "CLUB VR" when viewed from street
         const clubLetters = [
-            { char: 'C', x: -2.4 },
-            { char: 'L', x: -1.6 },
-            { char: 'U', x: -0.8 },
-            { char: 'B', x: 0 }
+            { char: 'C', x: 2.0 },   // Rightmost position (becomes leftmost after rotation)
+            { char: 'L', x: 1.2 },
+            { char: 'U', x: 0.4 },
+            { char: 'B', x: -0.4 }
         ];
         
-        // VR (right group) - positions: V R
         const vrLetters = [
-            { char: 'V', x: 1.2 },
-            { char: 'R', x: 2.0 }
+            { char: 'V', x: -1.2 },
+            { char: 'R', x: -2.0 }   // Leftmost position (becomes rightmost after rotation)
         ];
         
         this.neonSignLetters = [];
@@ -1734,6 +1837,9 @@ class VRClub {
         }, this.scene);
         subGrill.position = new BABYLON.Vector3(xPos, 1.5, zPos + 1.45);
         subGrill.material = grillMat;
+        subGrill.isPickable = true; // Ensure proper raycasting/collision
+        subGrill.checkCollisions = true; // Static collision object
+        subGrill.freezeWorldMatrix(); // Lock position in place - prevents any movement
         
         // Mid-range cabinet (top) - BIGGER
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
@@ -1754,6 +1860,9 @@ class VRClub {
         }, this.scene);
         midGrill.position = new BABYLON.Vector3(xPos, 4.2, zPos + 1.15);
         midGrill.material = grillMat;
+        midGrill.isPickable = true; // Ensure proper raycasting/collision
+        midGrill.checkCollisions = true; // Static collision object
+        midGrill.freezeWorldMatrix(); // Lock position in place - prevents any movement
         
         // Horn tweeter - MORE VISIBLE
         const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {

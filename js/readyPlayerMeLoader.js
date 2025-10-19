@@ -108,16 +108,22 @@ class ReadyPlayerMeLoader {
                 if (mesh.material) {
                     mesh.material.maxSimultaneousLights = 6; // Quest VR limit
                     
-                    // VRoid-specific: Handle transparency properly
-                    if (avatarType === 'VRoid' && mesh.material.needAlphaBlending) {
+                    // Detect if this is a hair mesh (VRoid-specific)
+                    const isHairMesh = mesh.name && (
+                        mesh.name.toLowerCase().includes('hair') ||
+                        mesh.name.toLowerCase().includes('bangs') ||
+                        mesh.name.toLowerCase().includes('fringe')
+                    );
+                    
+                    // VRoid hair: Handle transparency properly (hair needs alpha blending)
+                    if (avatarType === 'VRoid' && isHairMesh && mesh.material.needAlphaBlending) {
                         // VRoid hair uses alpha blending - ensure it renders correctly
                         mesh.material.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
                         mesh.renderingGroupId = 1; // Render hair after opaque meshes
-                    }
-                    
-                    // ALL avatars: Enforce opacity (prevent light bleed-through in VR)
-                    if (avatarType !== 'VRoid') { // Apply to all except VRoid (which needs transparency for hair)
-                        // Aggressively enforce opacity - VR stereoscopic rendering is sensitive
+                        console.log(`💇 Preserved hair transparency on ${mesh.name}`);
+                    } else {
+                        // ALL other meshes (including VRoid body/face): Enforce opacity
+                        // This prevents light bleed-through in VR stereoscopic rendering
                         mesh.material.alpha = 1.0;
                         mesh.material.transparencyMode = null;
                         
@@ -227,17 +233,27 @@ class ReadyPlayerMeLoader {
                     
                     // Re-enforce opacity on cloned meshes (materials are shared, but need to ensure settings persist)
                     if (clone.material) {
-                        clone.material.alpha = 1.0;
-                        clone.material.transparencyMode = null;
-                        clone.material.disableDepthWrite = false;
-                        clone.material.forceDepthWrite = true;
+                        // Detect if this is a hair mesh (VRoid-specific)
+                        const isHairMesh = clone.name && (
+                            clone.name.toLowerCase().includes('hair') ||
+                            clone.name.toLowerCase().includes('bangs') ||
+                            clone.name.toLowerCase().includes('fringe')
+                        );
                         
-                        // Override alpha methods
-                        if (clone.material.needAlphaBlending) {
-                            clone.material.needAlphaBlending = () => false;
-                        }
-                        if (clone.material.needAlphaTesting) {
-                            clone.material.needAlphaTesting = () => false;
+                        // Only enforce opacity on non-hair meshes
+                        if (!isHairMesh) {
+                            clone.material.alpha = 1.0;
+                            clone.material.transparencyMode = null;
+                            clone.material.disableDepthWrite = false;
+                            clone.material.forceDepthWrite = true;
+                            
+                            // Override alpha methods
+                            if (clone.material.needAlphaBlending) {
+                                clone.material.needAlphaBlending = () => false;
+                            }
+                            if (clone.material.needAlphaTesting) {
+                                clone.material.needAlphaTesting = () => false;
+                            }
                         }
                     }
                     
