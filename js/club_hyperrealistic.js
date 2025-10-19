@@ -3412,9 +3412,16 @@ class VRClub {
         // Update lasers with raycasting and dynamic positioning
         if (this.lasers && this.lasersActive) {
             this.lasers.forEach((laser, i) => {
-                // Update origin position for parented lasers (get world position)
+                // Update origin position for ALL lasers (parented and non-parented)
                 if (laser.parentTruss) {
+                    // Parented lasers: get world position from housing
                     laser.originPos = laser.housing.getAbsolutePosition().clone();
+                } else {
+                    // Non-parented lasers: ensure originPos is set (should be from initial setup)
+                    if (!laser.originPos) {
+                        // Fallback if originPos wasn't set during creation
+                        laser.originPos = laser.housing.getAbsolutePosition().clone();
+                    }
                 }
                 
                 // Movement depends on mode (apply speed multiplier)
