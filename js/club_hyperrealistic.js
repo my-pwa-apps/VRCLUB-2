@@ -1,10 +1,6 @@
 // VR Club - HYPERREALISTIC Babylon.js Implementation
 // Ultra-realistic club environment for Quest 3S VR
 
-// Debug mode - set to false for production (removes all console.log statements)
-const DEBUG_MODE = true; // Enable debug logging for troubleshooting
-const log = (...args) => DEBUG_MODE && console.log(...args);
-
 // Room dimensions and boundaries
 const ROOM_BOUNDS = {
     x: { min: -15, max: 15, width: 30 },
@@ -21,29 +17,6 @@ const CLUB_POSITIONS = {
     paSpeakers: {
         left: { x: -7, y: 0, z: -25 },
         right: { x: 7, y: 0, z: -25 }
-    }
-};
-
-// Phase 4: Performance and visual configuration constants
-const PERFORMANCE_CONFIG = {
-    particles: {
-        danceFloorFog: 800,
-        upperFog: 500,
-        djFog: 400
-    },
-    shadows: {
-        mapSize: 512,
-        enableOnPlatform: true,
-        enableOnSpeakers: true,
-        enableOnWalls: false
-    },
-    textures: {
-        resolution: '1k', // '1k' or '2k'
-        freeze: true
-    },
-    avatars: {
-        maxNPCs: 4,
-        showLabels: false
     }
 };
 
@@ -110,8 +83,7 @@ class VRClub {
         this.vuMeters = [];
         this.smokeMachines = [];
         
-        // Phase 4: Consolidated Color3 cache for performance (avoid creating new ones every frame)
-        // All color arrays now reference this centralized cache
+        // Cache Color3 objects for performance (avoid creating new ones every frame)
         this.cachedColors = {
             red: new BABYLON.Color3(1, 0, 0),
             green: new BABYLON.Color3(0, 1, 0),
@@ -119,33 +91,21 @@ class VRClub {
             magenta: new BABYLON.Color3(1, 0, 1),
             yellow: new BABYLON.Color3(1, 1, 0),
             cyan: new BABYLON.Color3(0, 1, 1),
-            orange: new BABYLON.Color3(1, 0.5, 0),
-            purple: new BABYLON.Color3(0.5, 0, 1),
             white: new BABYLON.Color3(10, 10, 10),
-            black: new BABYLON.Color3(0, 0, 0),
-            // Mirror ball specific colors (softer variants)
-            whiteSoft: new BABYLON.Color3(1, 1, 1),
-            redSoft: new BABYLON.Color3(1, 0.3, 0.3),
-            blueSoft: new BABYLON.Color3(0.3, 0.3, 1),
-            greenSoft: new BABYLON.Color3(0.3, 1, 0.3),
-            magentaSoft: new BABYLON.Color3(1, 0.3, 1),
-            yellowSoft: new BABYLON.Color3(1, 1, 0.3),
-            cyanSoft: new BABYLON.Color3(0.3, 1, 1),
-            orangeSoft: new BABYLON.Color3(1, 0.6, 0.3),
-            purpleSoft: new BABYLON.Color3(0.7, 0.3, 1)
+            black: new BABYLON.Color3(0, 0, 0)
         };
         
-        // Initialize spotlight color array (references cachedColors)
+        // Initialize spotlight color EARLY (needed for fixture creation)
         this.spotColorList = [
-            this.cachedColors.red,
-            this.cachedColors.blue,
-            this.cachedColors.green,
-            this.cachedColors.magenta,
-            this.cachedColors.yellow,
-            this.cachedColors.cyan,
-            this.cachedColors.orange,
-            this.cachedColors.purple,
-            this.cachedColors.white
+            new BABYLON.Color3(1, 0, 0),      // Red
+            new BABYLON.Color3(0, 0, 1),      // Blue
+            new BABYLON.Color3(0, 1, 0),      // Green
+            new BABYLON.Color3(1, 0, 1),      // Magenta
+            new BABYLON.Color3(1, 1, 0),      // Yellow
+            new BABYLON.Color3(0, 1, 1),      // Cyan
+            new BABYLON.Color3(1, 0.5, 0),    // Orange
+            new BABYLON.Color3(0.5, 0, 1),    // Purple
+            new BABYLON.Color3(1, 1, 1)       // White
         ];
         this.currentSpotColor = this.spotColorList[0]; // Start with RED
         this.spotColorIndex = 0;
@@ -160,25 +120,24 @@ class VRClub {
         this.ledWallActive = true;
         this.strobesActive = true;
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
-        this.mirrorSpotsInitialized = false; // Flag to enable all 300 spots immediately on first activation
         
         // Spotlight pattern and speed controls
         this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
         this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
-        // Mirror ball spotlight color and color array (references cachedColors)
-        this.mirrorBallSpotlightColor = this.cachedColors.whiteSoft; // Default: pure white
+        // Mirror ball spotlight color (configurable)
+        this.mirrorBallSpotlightColor = new BABYLON.Color3(1, 1, 1); // Default: pure white
         this.mirrorBallColorIndex = 0;
         this.mirrorBallColors = [
-            this.cachedColors.whiteSoft,
-            this.cachedColors.redSoft,
-            this.cachedColors.blueSoft,
-            this.cachedColors.greenSoft,
-            this.cachedColors.magentaSoft,
-            this.cachedColors.yellowSoft,
-            this.cachedColors.cyanSoft,
-            this.cachedColors.orangeSoft,
-            this.cachedColors.purpleSoft
+            new BABYLON.Color3(1, 1, 1),      // White (classic)
+            new BABYLON.Color3(1, 0.3, 0.3),  // Red
+            new BABYLON.Color3(0.3, 0.3, 1),  // Blue
+            new BABYLON.Color3(0.3, 1, 0.3),  // Green
+            new BABYLON.Color3(1, 0.3, 1),    // Magenta
+            new BABYLON.Color3(1, 1, 0.3),    // Yellow
+            new BABYLON.Color3(0.3, 1, 1),    // Cyan
+            new BABYLON.Color3(1, 0.6, 0.3),  // Orange
+            new BABYLON.Color3(0.7, 0.3, 1)   // Purple
         ];
         
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
@@ -267,104 +226,6 @@ class VRClub {
         this.scene.environmentIntensity = desktop.environmentIntensity;
         this.scene.clearColor = desktop.clearColor;
     }
-    
-    setupVRLocomotion(vrHelper) {
-        // Custom VR locomotion: Left stick = smooth forward/backward movement, Right stick = snap turns
-        // This provides comfortable VR navigation without teleportation only
-        
-        const xrCamera = vrHelper.baseExperience.camera;
-        const movementSpeed = 0.1; // Units per frame (adjust for comfort)
-        const turnAngle = Math.PI / 6; // 30 degree snap turns
-        const deadzone = 0.3; // Ignore small thumbstick movements
-        
-        // Track turn cooldown to prevent rapid spinning
-        let lastTurnTime = 0;
-        const turnCooldown = 300; // milliseconds between snap turns
-        
-        // Input tracking
-        this.vrInputState = {
-            leftStickX: 0,
-            leftStickY: 0,
-            rightStickX: 0,
-            rightStickY: 0
-        };
-        
-        // Setup controller input observers
-        vrHelper.input.onControllerAddedObservable.add((controller) => {
-            controller.onMotionControllerInitObservable.add((motionController) => {
-                // Get thumbstick components
-                const thumbstickComponent = motionController.getComponent('xr-standard-thumbstick');
-                
-                if (thumbstickComponent) {
-                    // Track thumbstick axes changes
-                    thumbstickComponent.onAxisValueChangedObservable.add((values) => {
-                        const isLeftController = motionController.handedness === 'left';
-                        
-                        if (isLeftController) {
-                            // Left stick: movement (forward/backward/strafe)
-                            this.vrInputState.leftStickX = values.x;
-                            this.vrInputState.leftStickY = values.y;
-                        } else {
-                            // Right stick: snap turns
-                            this.vrInputState.rightStickX = values.x;
-                            this.vrInputState.rightStickY = values.y;
-                        }
-                    });
-                }
-                
-                console.log(`🎮 VR controller initialized: ${motionController.handedness} hand`);
-            });
-        });
-        
-        // Apply locomotion in render loop
-        this.scene.onBeforeRenderObservable.add(() => {
-            if (!xrCamera) return;
-            
-            // === LEFT STICK: SMOOTH MOVEMENT ===
-            const moveX = Math.abs(this.vrInputState.leftStickX) > deadzone ? this.vrInputState.leftStickX : 0;
-            const moveY = Math.abs(this.vrInputState.leftStickY) > deadzone ? this.vrInputState.leftStickY : 0;
-            
-            if (moveX !== 0 || moveY !== 0) {
-                // Get camera forward and right vectors (in XZ plane only)
-                const forward = xrCamera.getForwardRay().direction.clone();
-                forward.y = 0; // Keep movement horizontal
-                forward.normalize();
-                
-                const right = BABYLON.Vector3.Cross(forward, BABYLON.Vector3.Up());
-                
-                // Calculate movement vector in facing direction
-                const movement = forward.scale(moveY * movementSpeed)
-                    .add(right.scale(moveX * movementSpeed));
-                
-                // Apply movement with collision detection
-                xrCamera.position.addInPlace(movement);
-                
-                // Clamp to club boundaries (prevent walking through walls)
-                xrCamera.position.x = Math.max(-18, Math.min(18, xrCamera.position.x)); // ±18m width
-                xrCamera.position.z = Math.max(-28, Math.min(10, xrCamera.position.z)); // -28m to +10m depth
-            }
-            
-            // === RIGHT STICK: SNAP TURNS ===
-            const turnInput = Math.abs(this.vrInputState.rightStickX) > deadzone ? this.vrInputState.rightStickX : 0;
-            const now = Date.now();
-            
-            if (turnInput !== 0 && (now - lastTurnTime) > turnCooldown) {
-                // Snap turn left or right
-                const turnDirection = turnInput > 0 ? 1 : -1;
-                const rotationDelta = turnAngle * turnDirection;
-                
-                // Rotate camera around Y axis
-                xrCamera.rotationQuaternion = xrCamera.rotationQuaternion || BABYLON.Quaternion.Identity();
-                const rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Up(), rotationDelta);
-                xrCamera.rotationQuaternion = xrCamera.rotationQuaternion.multiply(rotationQuaternion);
-                
-                lastTurnTime = now;
-                console.log(`🔄 Snap turn: ${turnDirection > 0 ? 'right' : 'left'} (${Math.round(rotationDelta * 180 / Math.PI)}°)`);
-            }
-        });
-        
-        console.log('🕹️ VR locomotion enabled: Left stick = move, Right stick = snap turns');
-    }
 
     detectMaxLights() {
         // Detect device type and GPU capabilities
@@ -419,12 +280,12 @@ class VRClub {
         this.npcAvatars = [];
         this.npcDancePositions = [];
         
-        // Load environment for PBR reflections (Phase 2 optimization)
+        // Load environment for PBR reflections
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
             "https://assets.babylonjs.com/environments/environmentSpecular.env",
             this.scene
         );
-        this.scene.environmentIntensity = 0.6; // Enhanced reflections for metallic surfaces
+        this.scene.environmentIntensity = 0.3; // Subtle reflections
         
         // Initialize texture loader and load textures from CDN (cached for subsequent loads)
         console.log('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
@@ -453,9 +314,8 @@ class VRClub {
         });
         
         // Setup camera for post-processing pipeline
-        // START OUTSIDE THE CLUB - exterior entrance view
-        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.7, 8), this.scene);
-        this.camera.setTarget(new BABYLON.Vector3(0, 2.5, 5)); // Looking at entrance and neon sign
+        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
+        this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
         this.camera.attachControl(this.canvas, true);
         this.camera.speed = 0.3; // Realistic walking speed
         this.camera.applyGravity = false; // No gravity for easier navigation
@@ -465,28 +325,17 @@ class VRClub {
         this.camera.minZ = 0.1;
         this.camera.maxZ = 150;
         
-        // Movement controls (WASD + Arrow Keys)
-        this.camera.keysUp = [87, 38]; // W + Up Arrow
-        this.camera.keysDown = [83, 40]; // S + Down Arrow
-        this.camera.keysLeft = [65, 37]; // A + Left Arrow
-        this.camera.keysRight = [68, 39]; // D + Right Arrow
+        // Movement controls
+        this.camera.keysUp = [87]; // W
+        this.camera.keysDown = [83]; // S
+        this.camera.keysLeft = [65]; // A
+        this.camera.keysRight = [68]; // D
         this.camera.keysUpward = [69]; // E
         this.camera.keysDownward = [81]; // Q
-        this.camera.angularSensibility = 1000; // Mouse sensitivity for looking around
+        this.camera.angularSensibility = 2000;
         this.camera.inertia = 0.7; // Smooth movement
         
-        // Enable mouse look (pointer lock for FPS-style controls)
-        this.canvas.addEventListener('click', () => {
-            if (!this.xrHelper || !this.xrHelper.baseExperience?.state) {
-                this.canvas.requestPointerLock();
-            }
-        });
-        
         this.scene.activeCamera = this.camera;
-        
-        // Create clip plane to prevent interior lighting effects from extending beyond front wall
-        // Clips at z=1.75 (front wall inner face) - normal points into club (0, 0, -1)
-        this.frontWallClipPlane = new BABYLON.Plane(0, 0, -1, 1.75);
         
         // Add glow layer for neon/LED effects (works in both desktop and VR)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
@@ -544,10 +393,6 @@ class VRClub {
                         
                         // Apply VR-optimized settings
                         this.applyVRSettings(xrCamera);
-                        
-                        // Setup custom VR locomotion (thumbstick movement + snap turns)
-                        this.setupVRLocomotion(vrHelper);
-                        
                         console.log('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
@@ -560,7 +405,6 @@ class VRClub {
         
         // Continue building club
         this.createWalls();
-        this.createClubEntrance(); // NEW: Exterior entrance with neon sign and doorway
         this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
@@ -660,11 +504,10 @@ class VRClub {
         // HYPERREALISTIC ATMOSPHERIC FOG - Makes light beams visible!
         
         // Create fog particle systems for volumetric atmosphere
-        // OPTIMIZED: Reduced particle counts for 15-20% FPS improvement
         this.fogSystems = [];
         
         // Main dance floor fog (low-lying, subtle)
-        const danceFloorFog = new BABYLON.ParticleSystem("danceFloorFog", 800, this.scene); // Reduced from 1200
+        const danceFloorFog = new BABYLON.ParticleSystem("danceFloorFog", 1200, this.scene);
         danceFloorFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
         danceFloorFog.emitter = new BABYLON.Vector3(0, 0.5, -12); // Low to ground
         danceFloorFog.minEmitBox = new BABYLON.Vector3(-10, 0, -10);
@@ -706,7 +549,7 @@ class VRClub {
         this.fogSystems.push(danceFloorFog);
         
         // Upper atmosphere fog (ultra-light, barely visible)
-        const upperFog = new BABYLON.ParticleSystem("upperFog", 500, this.scene); // Reduced from 800
+        const upperFog = new BABYLON.ParticleSystem("upperFog", 800, this.scene);
         upperFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
         upperFog.emitter = new BABYLON.Vector3(0, 5, -12); // Mid-height
         upperFog.minEmitBox = new BABYLON.Vector3(-14, -1.5, -14);
@@ -746,7 +589,7 @@ class VRClub {
         this.fogSystems.push(upperFog);
         
         // DJ Booth fog machine effect (realistic bursts)
-        const djFog = new BABYLON.ParticleSystem("djFog", 400, this.scene); // Reduced from 600
+        const djFog = new BABYLON.ParticleSystem("djFog", 600, this.scene);
         djFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
         djFog.emitter = new BABYLON.Vector3(0, 0.8, -24); // DJ booth area, lower
         djFog.minEmitBox = new BABYLON.Vector3(-3.5, 0, -0.5);
@@ -835,7 +678,7 @@ class VRClub {
         floorMat.environmentIntensity = 0.15; // Subtle reflections from polish
         
         floor.material = floorMat;
-        floor.receiveShadows = false; // Phase 3: Disabled for performance
+        floor.receiveShadows = true;
     }
 
     createWalls() {
@@ -856,7 +699,7 @@ class VRClub {
         }, this.scene);
         backWall.position = new BABYLON.Vector3(0, 5, -27);
         backWall.material = wallMat;
-        backWall.receiveShadows = false; // Phase 3: Disabled for performance
+        backWall.receiveShadows = true;
         
         // Left wall
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
@@ -866,7 +709,7 @@ class VRClub {
         }, this.scene);
         leftWall.position = new BABYLON.Vector3(-17, 5, -10);
         leftWall.material = wallMat;
-        leftWall.receiveShadows = false; // Phase 3: Disabled for performance
+        leftWall.receiveShadows = true;
         
         // Right wall
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
@@ -876,294 +719,10 @@ class VRClub {
         }, this.scene);
         rightWall.position = new BABYLON.Vector3(17, 5, -10);
         rightWall.material = wallMat;
-        rightWall.receiveShadows = false; // Phase 3: Disabled for performance
+        rightWall.receiveShadows = true;
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
-    }
-
-    createClubEntrance() {
-        // === CLUB EXTERIOR ENTRANCE ===
-        // Professional nightclub facade with neon signage, entrance doorway, and outdoor atmosphere
-        
-        const entranceZ = 5; // Position entrance 5m forward from room (exterior)
-        const doorwayZ = 2;  // Doorway at z=2 (room boundary)
-        
-        // === FRONT WALL WITH DOORWAY ===
-        // Use EXACT SAME PATTERN as other walls (leftWall, rightWall, backWall)
-        const doorwayWidth = 3; // 3m wide entrance
-        const doorwayHeight = 2.5; // 2.5m tall entrance
-        const wallWidth = 35; // Match room width
-        
-        // Use materialFactory preset - SAME AS OTHER WALLS
-        const frontWallMat = this.materialFactory.getPreset('wall');
-        
-        // Apply textures if available (same pattern as createWalls())
-        if (this.concreteTextures && this.concreteTextures.walls) {
-            this.textureLoader.applyTexturesToMaterial(frontWallMat, this.concreteTextures.walls);
-        }
-        
-        // Ensure material is fully opaque (no transparency from inside visible outside)
-        frontWallMat.alpha = 1.0;
-        frontWallMat.transparencyMode = null;
-        frontWallMat.needAlphaBlending = () => false;
-        frontWallMat.needAlphaTesting = () => false;
-        
-        // NO custom emissive - use material as-is, just like backWall, leftWall, rightWall
-        
-        // Left section of front wall (SAME PATTERN as leftWall, rightWall, backWall)
-        const frontWallLeft = BABYLON.MeshBuilder.CreateBox("frontWallLeft", {
-            width: (wallWidth - doorwayWidth) / 2,
-            height: 10,
-            depth: 0.5
-        }, this.scene);
-        frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallLeft.material = frontWallMat; // SHARED material like other walls
-        frontWallLeft.receiveShadows = false; // Phase 3: Disabled for performance
-        frontWallLeft.renderingGroupId = 0; // Ensure wall renders before transparent objects
-        
-        // Right section of front wall
-        const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
-            width: (wallWidth - doorwayWidth) / 2,
-            height: 10,
-            depth: 0.5
-        }, this.scene);
-        frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallRight.material = frontWallMat; // SHARED material like other walls
-        frontWallRight.receiveShadows = false; // Phase 3: Disabled for performance
-        frontWallRight.renderingGroupId = 0; // Ensure wall renders before transparent objects
-        
-        // Top section above doorway
-        const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
-            width: doorwayWidth,
-            height: 10 - doorwayHeight,
-            depth: 0.5
-        }, this.scene);
-        frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
-        frontWallTop.material = frontWallMat; // SHARED material like other walls
-        frontWallTop.receiveShadows = false; // Phase 3: Disabled for performance
-        frontWallTop.renderingGroupId = 0; // Ensure wall renders before transparent objects
-        
-        if (DEBUG_MODE) {
-            console.log('✅ Created front wall (3 sections) using materialFactory.getPreset("wall")', {
-                material: frontWallMat.name,
-                sections: ['frontWallLeft', 'frontWallRight', 'frontWallTop']
-            });
-        }
-        
-        // === ENTRANCE DOOR FRAME ===
-        const frameMat = new BABYLON.PBRMetallicRoughnessMaterial("doorFrameMat", this.scene);
-        frameMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gunmetal
-        frameMat.metallic = 0.9;
-        frameMat.roughness = 0.3;
-        frameMat.maxSimultaneousLights = this.maxLights;
-        
-        // Door frame sides
-        const frameThickness = 0.15;
-        const frameDepth = 0.6;
-        
-        const doorFrameLeft = BABYLON.MeshBuilder.CreateBox("doorFrameLeft", {
-            width: frameThickness,
-            height: doorwayHeight,
-            depth: frameDepth
-        }, this.scene);
-        doorFrameLeft.position = new BABYLON.Vector3(-doorwayWidth / 2, doorwayHeight / 2, doorwayZ);
-        doorFrameLeft.material = frameMat;
-        
-        const doorFrameRight = BABYLON.MeshBuilder.CreateBox("doorFrameRight", {
-            width: frameThickness,
-            height: doorwayHeight,
-            depth: frameDepth
-        }, this.scene);
-        doorFrameRight.position = new BABYLON.Vector3(doorwayWidth / 2, doorwayHeight / 2, doorwayZ);
-        doorFrameRight.material = frameMat;
-        
-        const doorFrameTop = BABYLON.MeshBuilder.CreateBox("doorFrameTop", {
-            width: doorwayWidth,
-            height: frameThickness,
-            depth: frameDepth
-        }, this.scene);
-        doorFrameTop.position = new BABYLON.Vector3(0, doorwayHeight, doorwayZ);
-        doorFrameTop.material = frameMat;
-        
-        // === EXTERIOR FACADE WALL ===
-        // Taller wall with industrial brick texture (street-facing exterior)
-        const facadeHeight = 12; // Taller exterior wall
-        const facadeDepth = 0.8;
-        
-        // Use materialFactory preset for facade (different from interior walls)
-        // Create a simple material similar to wall preset but darker for exterior
-        const facadeMat = new BABYLON.PBRMetallicRoughnessMaterial("facadeMat", this.scene);
-        facadeMat.baseColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick color
-        facadeMat.metallic = 0.0;
-        facadeMat.roughness = 0.95;
-        facadeMat.maxSimultaneousLights = this.maxLights;
-        facadeMat.freeze();
-        
-        // Left facade section (SAME PATTERN as wall sections)
-        const facadeLeft = BABYLON.MeshBuilder.CreateBox("facadeLeft", {
-            width: (wallWidth - doorwayWidth) / 2,
-            height: facadeHeight,
-            depth: facadeDepth
-        }, this.scene);
-        facadeLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeLeft.material = facadeMat; // SHARED material
-        facadeLeft.receiveShadows = false; // Phase 3: Disabled for performance
-        
-        // Right facade section
-        const facadeRight = BABYLON.MeshBuilder.CreateBox("facadeRight", {
-            width: (wallWidth - doorwayWidth) / 2,
-            height: facadeHeight,
-            depth: facadeDepth
-        }, this.scene);
-        facadeRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeRight.material = facadeMat; // SHARED material
-        facadeRight.receiveShadows = false; // Phase 3: Disabled for performance
-        
-        // Top facade section (above door)
-        const facadeTop = BABYLON.MeshBuilder.CreateBox("facadeTop", {
-            width: doorwayWidth + 4, // Wider overhang
-            height: facadeHeight - doorwayHeight - 2,
-            depth: facadeDepth
-        }, this.scene);
-        facadeTop.position = new BABYLON.Vector3(0, facadeHeight / 2 + doorwayHeight / 2 + 1, entranceZ);
-        facadeTop.material = facadeMat; // SHARED material
-        facadeTop.receiveShadows = false; // Phase 3: Disabled for performance
-        
-        if (DEBUG_MODE) {
-            console.log('✅ Created exterior facade (3 sections) using shared PBR material', {
-                material: facadeMat.name,
-                sections: ['facadeLeft', 'facadeRight', 'facadeTop']
-            });
-        }
-        
-        // === NEON "CLUB VR" SIGN ===
-        // Mounted above entrance door on exterior facade
-        const signY = doorwayHeight + 1.8; // 1.8m above doorway
-        const signZ = entranceZ - facadeDepth / 2 - 0.1; // Slightly in front of facade
-        
-        // Neon tube effect - individual letters with emissive materials
-        const neonMat = new BABYLON.StandardMaterial("neonSignMat", this.scene);
-        neonMat.emissiveColor = new BABYLON.Color3(0, 1, 1); // Cyan neon (classic club color)
-        neonMat.disableLighting = true;
-        
-        // Neon backing panel (black metal sign board)
-        const signBacking = BABYLON.MeshBuilder.CreateBox("signBacking", {
-            width: 6,
-            height: 1.2,
-            depth: 0.15
-        }, this.scene);
-        signBacking.position = new BABYLON.Vector3(0, signY, signZ);
-        
-        const backingMat = new BABYLON.PBRMetallicRoughnessMaterial("signBackingMat", this.scene);
-        backingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        backingMat.metallic = 0.7;
-        backingMat.roughness = 0.4;
-        backingMat.maxSimultaneousLights = this.maxLights;
-        signBacking.material = backingMat;
-        
-        // Create "CLUB VR" text using planes with glowing effect
-        // Use simple geometry for VR compatibility
-        const letterSpacing = 0.8;
-        const letterHeight = 0.7;
-        const letterWidth = 0.5;
-        
-        // Letters positioned for correct reading from OUTSIDE (after 180° rotation)
-        // When rotated, right becomes left, so we position in reverse order: R V B U L C
-        // This displays as "CLUB VR" when viewed from street
-        const clubLetters = [
-            { char: 'C', x: 2.0 },   // Rightmost position (becomes leftmost after rotation)
-            { char: 'L', x: 1.2 },
-            { char: 'U', x: 0.4 },
-            { char: 'B', x: -0.4 }
-        ];
-        
-        const vrLetters = [
-            { char: 'V', x: -1.2 },
-            { char: 'R', x: -2.0 }   // Leftmost position (becomes rightmost after rotation)
-        ];
-        
-        this.neonSignLetters = [];
-        [...clubLetters, ...vrLetters].forEach(letter => {
-            const letterPlane = BABYLON.MeshBuilder.CreatePlane(`neonLetter_${letter.char}`, {
-                width: letterWidth,
-                height: letterHeight
-            }, this.scene);
-            letterPlane.position = new BABYLON.Vector3(letter.x, signY, signZ - 0.1);
-            letterPlane.rotation.y = Math.PI; // Rotate 180° to face street (not into club)
-            
-            // Create dynamic texture for letter
-            const letterTexture = new BABYLON.DynamicTexture(`letterTex_${letter.char}`, 
-                { width: 128, height: 128 }, this.scene);
-            const ctx = letterTexture.getContext();
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, 128, 128);
-            ctx.fillStyle = '#00ffff'; // Cyan
-            ctx.font = 'bold 90px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(letter.char, 64, 64);
-            letterTexture.update();
-            
-            const letterMat = new BABYLON.StandardMaterial(`letterMat_${letter.char}`, this.scene);
-            letterMat.emissiveTexture = letterTexture;
-            letterMat.emissiveColor = new BABYLON.Color3(0, 1, 1);
-            letterMat.disableLighting = true;
-            letterMat.backFaceCulling = true; // Only visible from OUTSIDE (front faces street)
-            
-            letterPlane.material = letterMat;
-            letterPlane.renderingGroupId = 2; // Render on top
-            
-            this.neonSignLetters.push({ mesh: letterPlane, material: letterMat, texture: letterTexture });
-        });
-        
-        // Add neon glow effect (light halos around sign)
-        const signGlow = new BABYLON.PointLight("signGlow", 
-            new BABYLON.Vector3(0, signY, signZ - 0.5), this.scene);
-        signGlow.diffuse = new BABYLON.Color3(0, 1, 1);
-        signGlow.intensity = 15;
-        signGlow.range = 10;
-        
-        this.neonSignLight = signGlow;
-        
-        // === EXTERIOR GROUND (SIDEWALK/STREET) ===
-        const sidewalk = BABYLON.MeshBuilder.CreateGround("sidewalk", {
-            width: 40,
-            height: 8 // 8m deep (from z=2 to z=10)
-        }, this.scene);
-        sidewalk.position = new BABYLON.Vector3(0, 0, 6); // Center at z=6
-        
-        const sidewalkMat = new BABYLON.PBRMetallicRoughnessMaterial("sidewalkMat", this.scene);
-        sidewalkMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.35); // Dark gray concrete
-        sidewalkMat.metallic = 0.1;
-        sidewalkMat.roughness = 0.9; // Very rough (concrete texture)
-        sidewalkMat.maxSimultaneousLights = this.maxLights;
-        sidewalk.material = sidewalkMat;
-        
-        // === EXTERIOR LIGHTING (STREET ATMOSPHERE) ===
-        // Ambient street lighting
-        const streetLight = new BABYLON.HemisphericLight("streetLight", 
-            new BABYLON.Vector3(0, 1, 0), this.scene);
-        streetLight.diffuse = new BABYLON.Color3(0.4, 0.45, 0.5); // Cool blue street lighting
-        streetLight.intensity = 0.3; // Dim exterior lighting
-        streetLight.groundColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark ground bounce
-        
-        // Add door "enter here" hint with subtle glow
-        const doorIndicator = BABYLON.MeshBuilder.CreateBox("doorIndicator", {
-            width: 2,
-            height: 0.05,
-            depth: 1
-        }, this.scene);
-        doorIndicator.position = new BABYLON.Vector3(0, 0.01, doorwayZ + 1);
-        
-        const indicatorMat = new BABYLON.StandardMaterial("doorIndicatorMat", this.scene);
-        indicatorMat.emissiveColor = new BABYLON.Color3(0.2, 0.8, 1); // Subtle cyan glow
-        indicatorMat.alpha = 0.3;
-        indicatorMat.disableLighting = true;
-        doorIndicator.material = indicatorMat;
-        doorIndicator.renderingGroupId = 1;
-        
-        console.log('✅ Created club entrance with neon sign, doorway, and exterior facade');
     }
 
     createIndustrialWallDetails() {
@@ -1192,7 +751,7 @@ class VRClub {
             }, this.scene);
             pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
             pillar.material = pillarMat;
-            pillar.receiveShadows = false; // Phase 3: Disabled for performance
+            pillar.receiveShadows = true;
         });
         
         // Add exposed brick sections between pillars
@@ -1211,7 +770,7 @@ class VRClub {
             }, this.scene);
             brick.position = new BABYLON.Vector3(section.x, 2 + section.height/2, section.z);
             brick.material = brickMat;
-            brick.receiveShadows = false; // Phase 3: Disabled for performance
+            brick.receiveShadows = true;
         });
         
         // Add industrial pipes running along ceiling (near walls)
@@ -1463,7 +1022,7 @@ class VRClub {
         
         const platformMat = this.materialFactory.getPreset('platform');
         platform.material = platformMat;
-        platform.receiveShadows = true; // Keep shadows on DJ platform (main visual focus)
+        platform.receiveShadows = true;
         
         // Anti-slip surface
         const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
@@ -1475,7 +1034,7 @@ class VRClub {
         
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
-        platformTop.receiveShadows = true; // Keep shadows on DJ platform
+        platformTop.receiveShadows = true;
         
         // Front safety rail
         const railMat = this.materialFactory.getPreset('rail');
@@ -1857,7 +1416,7 @@ class VRClub {
         }, this.scene);
         sub.position = new BABYLON.Vector3(xPos, 1.5, zPos);
         sub.material = material;
-        sub.receiveShadows = true; // Keep shadows on PA speakers (important visual elements)
+        sub.receiveShadows = true;
         sub.checkCollisions = true;
         
         // Sub grille - visible speaker cone area with emissive glow
@@ -1872,9 +1431,6 @@ class VRClub {
         }, this.scene);
         subGrill.position = new BABYLON.Vector3(xPos, 1.5, zPos + 1.45);
         subGrill.material = grillMat;
-        subGrill.isPickable = true; // Ensure proper raycasting/collision
-        subGrill.checkCollisions = true; // Static collision object
-        subGrill.freezeWorldMatrix(); // Lock position in place - prevents any movement
         
         // Mid-range cabinet (top) - BIGGER
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
@@ -1884,7 +1440,7 @@ class VRClub {
         }, this.scene);
         mid.position = new BABYLON.Vector3(xPos, 4.2, zPos);
         mid.material = material;
-        mid.receiveShadows = true; // Keep shadows on PA speakers
+        mid.receiveShadows = true;
         mid.checkCollisions = true;
         
         // Mid grille
@@ -1895,9 +1451,6 @@ class VRClub {
         }, this.scene);
         midGrill.position = new BABYLON.Vector3(xPos, 4.2, zPos + 1.15);
         midGrill.material = grillMat;
-        midGrill.isPickable = true; // Ensure proper raycasting/collision
-        midGrill.checkCollisions = true; // Static collision object
-        midGrill.freezeWorldMatrix(); // Lock position in place - prevents any movement
         
         // Horn tweeter - MORE VISIBLE
         const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
@@ -2027,69 +1580,68 @@ class VRClub {
         consoleBase.material = consoleMat;
         
         // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
-        // Phase 2 Enhanced: Boosted emissive colors for better visibility
         const toggleButtons = [
             { 
                 label: "SPOTLIGHTS", 
                 control: "lightsActive",
-                onColor: new BABYLON.Color3(2.0, 1.0, 0), // Boosted from [1, 0.5, 0]
-                offColor: new BABYLON.Color3(0.3, 0.15, 0), // Boosted from [0.2, 0.1, 0]
+                onColor: new BABYLON.Color3(1, 0.5, 0),
+                offColor: new BABYLON.Color3(0.2, 0.1, 0),
                 row: 0, col: 0
             },
             { 
                 label: "LASERS", 
                 control: "lasersActive",
-                onColor: new BABYLON.Color3(2.0, 0, 0), // Boosted from [1, 0, 0]
-                offColor: new BABYLON.Color3(0.3, 0, 0), // Boosted from [0.2, 0, 0]
+                onColor: new BABYLON.Color3(1, 0, 0),
+                offColor: new BABYLON.Color3(0.2, 0, 0),
                 row: 0, col: 1
             },
             { 
                 label: "STROBES", 
                 control: "strobesActive",
-                onColor: new BABYLON.Color3(2.0, 2.0, 2.0), // Boosted from [1, 1, 1]
-                offColor: new BABYLON.Color3(0.3, 0.3, 0.3), // Boosted from [0.2, 0.2, 0.2]
+                onColor: new BABYLON.Color3(1, 1, 1),
+                offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
                 row: 0, col: 2
             },
             { 
                 label: "LED WALL", 
                 control: "ledWallActive",
-                onColor: new BABYLON.Color3(0, 1.0, 2.0), // Boosted from [0, 0.5, 1]
-                offColor: new BABYLON.Color3(0, 0.15, 0.3), // Boosted from [0, 0.1, 0.2]
+                onColor: new BABYLON.Color3(0, 0.5, 1),
+                offColor: new BABYLON.Color3(0, 0.1, 0.2),
                 row: 1, col: 0
             },
             { 
                 label: "MIRROR BALL", 
                 control: "mirrorBallActive",
-                onColor: new BABYLON.Color3(2.0, 2.0, 0), // Boosted from [1, 1, 0]
-                offColor: new BABYLON.Color3(0.3, 0.3, 0), // Boosted from [0.2, 0.2, 0]
+                onColor: new BABYLON.Color3(1, 1, 0),
+                offColor: new BABYLON.Color3(0.2, 0.2, 0),
                 row: 1, col: 1
             },
             { 
                 label: "CHANGE COLOR", 
                 control: "changeColor",
-                onColor: new BABYLON.Color3(1.0, 2.0, 1.0), // Boosted from [0.5, 1, 0.5]
-                offColor: new BABYLON.Color3(0.15, 0.45, 0.15), // Boosted from [0.1, 0.3, 0.1]
+                onColor: new BABYLON.Color3(0.5, 1, 0.5),
+                offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
                 row: 1, col: 2
             },
             { 
                 label: "RANDOM", 
                 control: "patternRandom",
-                onColor: new BABYLON.Color3(2.0, 0, 2.0), // Boosted from [1, 0, 1]
-                offColor: new BABYLON.Color3(0.3, 0, 0.3), // Boosted from [0.2, 0, 0.2]
+                onColor: new BABYLON.Color3(1, 0, 1),
+                offColor: new BABYLON.Color3(0.2, 0, 0.2),
                 row: 2, col: 0
             },
             { 
                 label: "STATIC DOWN", 
                 control: "patternStatic",
-                onColor: new BABYLON.Color3(0, 2.0, 2.0), // Boosted from [0, 1, 1]
-                offColor: new BABYLON.Color3(0, 0.3, 0.3), // Boosted from [0, 0.2, 0.2]
+                onColor: new BABYLON.Color3(0, 1, 1),
+                offColor: new BABYLON.Color3(0, 0.2, 0.2),
                 row: 2, col: 1
             },
             { 
                 label: "SWEEP SYNC", 
                 control: "patternSweep",
-                onColor: new BABYLON.Color3(2.0, 1.0, 2.0), // Boosted from [1, 0.5, 1]
-                offColor: new BABYLON.Color3(0.3, 0.15, 0.3), // Boosted from [0.2, 0.1, 0.2]
+                onColor: new BABYLON.Color3(1, 0.5, 1),
+                offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
                 row: 2, col: 2
             }
         ];
@@ -2602,7 +2154,6 @@ class VRClub {
         beamMat.backFaceCulling = false;
         beamMat.disableLighting = true;
         beamMat.unlit = true;
-        beamMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
         beam.material = beamMat;
         beam.renderingGroupId = 1;
         
@@ -2627,7 +2178,6 @@ class VRClub {
         beamGlowMat.backFaceCulling = false;
         beamGlowMat.disableLighting = true;
         beamGlowMat.unlit = true;
-        beamGlowMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
         beamGlow.material = beamGlowMat;
         beamGlow.renderingGroupId = 1;
         
@@ -2648,11 +2198,6 @@ class VRClub {
         hitSpotMat.disableLighting = true;
         hitSpot.material = hitSpotMat;
         hitSpot.renderingGroupId = 1;
-        
-        // Start beams disabled (will be enabled when lasersActive=true)
-        beam.setEnabled(false);
-        beamGlow.setEnabled(false);
-        hitSpot.setEnabled(false);
         
         return { 
             mesh: beam, 
@@ -2780,7 +2325,6 @@ class VRClub {
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
             beamMat.unlit = true; // Don't receive lighting
-            beamMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -3305,7 +2849,6 @@ class VRClub {
             beamMat.backFaceCulling = false;
             beamMat.disableLighting = true;
             beamMat.unlit = true;
-            beamMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
             
             beam.material = beamMat;
             beam.isPickable = false;
@@ -3324,7 +2867,7 @@ class VRClub {
         const numSpots = 300; // Increased to 300 for better coverage
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
-        const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (INCLUDING front wall)
+        const spotsPerSurface = Math.floor(numSpots / 5); // Divide evenly among 5 surfaces (no front wall)
         let spotIndex = 0;
         
         const surfaces = [
@@ -3332,15 +2875,15 @@ class VRClub {
             { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 }, // Ceiling box bottom at 9.85
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
-            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.75 } // Front wall INNER face (z=2-0.25, faces into club)
+            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 } // Back wall front face at -26.75
+            // Removed frontWall - no physical wall at entrance (z=0 to z=2)
         ];
         
         surfaces.forEach(surface => {
             for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.15 + Math.random() * 0.15, // 0.15-0.3m radius
+                    radius: 0.15 + Math.random() * 0.15, // SMALLER: 0.15-0.3m (was 0.25-0.5m)
                     tessellation: 8
                 }, this.scene);
                 
@@ -3377,65 +2920,17 @@ class VRClub {
                         new BABYLON.Vector3(-1, 0, 0);
                         
                 } else { // Back or front wall (xy)
-                    // Generate position on wall
-                    let x, y;
-                    let validPosition = false;
-                    let attempts = 0;
-                    
-                    // For front wall, avoid the doorway opening (3m wide × 2.5m tall, centered at x=0)
-                    if (surface.name === 'frontWall') {
-                        const doorwayWidth = 3;
-                        const doorwayHeight = 2.5;
-                        
-                        // Keep trying until we find a valid position outside doorway
-                        while (!validPosition && attempts < 50) {
-                            x = -17 + Math.random() * 34;  // x: -17 to +17 (full wall width)
-                            y = 0.2 + Math.random() * 9.6;  // y: 0.2 to 9.8 (full wall height)
-                            
-                            // Check if position is outside doorway bounds
-                            // Doorway: x = -1.5 to +1.5, y = 0 to 2.5
-                            const outsideHorizontal = Math.abs(x) > (doorwayWidth / 2);
-                            const aboveDoorway = y > doorwayHeight;
-                            
-                            if (outsideHorizontal || aboveDoorway) {
-                                validPosition = true;
-                            }
-                            attempts++;
-                        }
-                        
-                        // Fallback: if we couldn't find a spot, place it above doorway
-                        if (!validPosition) {
-                            x = -1.5 + Math.random() * 3; // Center area
-                            y = 5 + Math.random() * 4.8; // Upper wall only
-                            validPosition = true;
-                        }
-                        
-                        if (DEBUG_MODE) {
-                            console.log(`Front wall spot ${spotIndex}: x=${x.toFixed(2)}, y=${y.toFixed(2)}, attempts=${attempts}`);
-                        }
-                    } else {
-                        // Back wall - no restrictions
-                        x = -17 + Math.random() * 34;
-                        y = 0.2 + Math.random() * 9.6;
-                        validPosition = true;
-                    }
-                    
-                    targetPos = new BABYLON.Vector3(x, y, surface.value);
+                    targetPos = new BABYLON.Vector3(
+                        -17 + Math.random() * 34,  // x: -17 to +17 (full wall width)
+                        0.2 + Math.random() * 9.6,  // y: 0.2 to 9.8 (full wall height)
+                        surface.value
+                    );
                     normal = surface.name === 'backWall' ? 
-                        new BABYLON.Vector3(0, 0, 1) :   // Back wall faces forward (into room)
-                        new BABYLON.Vector3(0, 0, -1);  // Front wall faces backward (into room)
+                        new BABYLON.Vector3(0, 0, 1) : 
+                        new BABYLON.Vector3(0, 0, -1);
                 }
                 
                 spot.position = targetPos;
-                
-                // CRITICAL: Rotate disc to align with surface normal
-                // Discs are created flat in XY plane, need to orient perpendicular to surface
-                spot.lookAt(targetPos.add(normal));
-                
-                // DEBUG: Add name tag to spot for identification
-                if (DEBUG_MODE && surface.name === 'frontWall') {
-                    spot.name = `mirrorSpot_${surface.name}_${spotIndex}_x${targetPos.x.toFixed(1)}_y${targetPos.y.toFixed(1)}`;
-                }
                 
                 // Calculate direction from ball to spot (for animation)
                 const ballPos = new BABYLON.Vector3(0, 6.5, -12);
@@ -3464,25 +2959,7 @@ class VRClub {
             }
         });
         
-        // Count spots per surface for debugging
-        if (DEBUG_MODE) {
-            const spotCounts = {};
-            const frontWallSpots = [];
-            this.mirrorReflectionSpots.forEach(s => {
-                spotCounts[s.surface] = (spotCounts[s.surface] || 0) + 1;
-                if (s.surface === 'frontWall') {
-                    frontWallSpots.push({
-                        x: s.targetPosition.x.toFixed(2),
-                        y: s.targetPosition.y.toFixed(2),
-                        z: s.targetPosition.z.toFixed(2)
-                    });
-                }
-            });
-            console.log('✨ Mirror ball spot distribution:', spotCounts);
-            console.log(`📍 Front wall spots (${frontWallSpots.length}):`, frontWallSpots.slice(0, 10), '...');
-        }
-        
-        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls including entrance)`);
+        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 5 surfaces (floor, ceiling, 3 walls)`);
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
@@ -3512,87 +2989,6 @@ class VRClub {
     updateAnimations() {
         const time = performance.now() / 1000;
         this.ledTime += 0.016;
-        
-        // === GLOBAL LIGHT OCCLUSION ===
-        // Disable ALL interior lights when camera is outside the club
-        const cameraPos = this.scene.activeCamera.position;
-        const cameraOutside = cameraPos.z > 2; // Front wall threshold
-        
-        if (cameraOutside) {
-            // Disable ALL lights in the scene (except neon sign and hemispheric ambient)
-            this.scene.lights.forEach(light => {
-                if (light.name !== "signGlow" && light.name !== "hemispheric") {
-                    light.intensity = 0;
-                    light.setEnabled(false);
-                }
-            });
-            
-            // Disable all laser beams
-            if (this.lasers) {
-                this.lasers.forEach(laser => {
-                    laser.beams.forEach(beam => {
-                        beam.mesh.visibility = 0;
-                        beam.mesh.setEnabled(false);
-                        if (beam.beamGlow) {
-                            beam.beamGlow.visibility = 0;
-                            beam.beamGlow.setEnabled(false);
-                        }
-                        if (beam.hitSpot) {
-                            beam.hitSpot.visibility = 0;
-                            beam.hitSpot.setEnabled(false);
-                        }
-                    });
-                });
-            }
-            
-            // Disable all spotlight beams
-            if (this.spotlights) {
-                this.spotlights.forEach(spot => {
-                    if (spot.beam) spot.beam.visibility = 0;
-                    if (spot.beamGlow) spot.beamGlow.visibility = 0;
-                    if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
-                    if (spot.lightPool) spot.lightPool.visibility = 0;
-                    if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
-                });
-            }
-            
-            // Turn off LED wall panels
-            if (this.ledPanels) {
-                this.ledPanels.forEach(panel => {
-                    panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                });
-            }
-            
-            // IMPORTANT: Return early to skip all animation logic when outside
-            // This prevents lights from being re-enabled by animation code
-            return;
-        }
-        
-        // === NEON SIGN FLASHING ANIMATION ===
-        // Classic club entrance neon with intermittent flicker
-        if (this.neonSignLetters && this.neonSignLight) {
-            // Main flashing pattern: slow pulse + occasional rapid flicker
-            const flashSpeed = 2.0; // Hz
-            const pulse = 0.7 + 0.3 * Math.sin(time * flashSpeed * Math.PI * 2);
-            
-            // Occasional rapid flicker (every 5-8 seconds)
-            const flickerTime = time % 6.5;
-            let flicker = 1.0;
-            if (flickerTime > 6.0 && flickerTime < 6.3) {
-                // Rapid on/off during flicker window
-                flicker = Math.sin(time * 50) > 0 ? 1.0 : 0.3;
-            }
-            
-            const neonIntensity = pulse * flicker;
-            
-            // Update all letter materials
-            this.neonSignLetters.forEach(letter => {
-                letter.material.emissiveColor = new BABYLON.Color3(0, neonIntensity, neonIntensity);
-            });
-            
-            // Update neon glow light
-            this.neonSignLight.intensity = 15 * neonIntensity;
-        }
         
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
@@ -3699,15 +3095,9 @@ class VRClub {
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // Enable ALL spots immediately for full room coverage
-                // (Previously they were enabled one-by-one during animation, causing slow fill-in effect)
-                if (!this.mirrorSpotsInitialized) {
-                    this.mirrorReflectionSpots.forEach(spot => spot.visual.setEnabled(true));
-                    this.mirrorSpotsInitialized = true;
-                }
-                
                 this.mirrorReflectionSpots.forEach((spot, i) => {
-                    // Visual spot already enabled above - just animate position
+                    // Enable visual spot (no actual light - just emissive mesh)
+                    spot.visual.setEnabled(true);
                     
                     // PROPER RAY CASTING: Calculate direction from mirror ball based on rotation
                     // Each spot represents a mirror facet at a specific angle (theta, phi)
@@ -3797,30 +3187,16 @@ class VRClub {
                         }
                     }
                     
-                    // FRONT WALL (z = 1.75) - With doorway exclusion
+                    // FRONT WALL (z = 2) - No physical wall, but keep for edge spots
                     if (dirZ > 0.001) {
-                        const t = (1.75 - ballPos.z) / dirZ; // Match surface definition (inner face)
+                        const t = (2 - ballPos.z) / dirZ;
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const y = ballPos.y + dirY * t;
-                            
-                            // Check if ray hits front wall (not doorway opening)
-                            // Doorway: x = -1.5 to +1.5, y = 0 to 2.5
-                            const inDoorwayX = Math.abs(x) <= 1.5;
-                            const inDoorwayY = y >= 0 && y <= 2.5; // MUST be above floor AND below door top
-                            const hitsDoorway = inDoorwayX && inDoorwayY;
-                            
-                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && !hitsDoorway && t < closestT) {
+                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, 1.75); // Match surface definition (inner face)
-                                hitNormal = new BABYLON.Vector3(0, 0, -1); // Points into club (away from entrance)
-                                
-                                // DEBUG: Log first few front wall hits
-                                if (DEBUG_MODE && i < 5) {
-                                    console.log(`🎯 Front wall ray hit: x=${x.toFixed(2)}, y=${y.toFixed(2)}, distance=${t.toFixed(2)}`);
-                                }
-                            } else if (DEBUG_MODE && i < 5 && hitsDoorway) {
-                                console.log(`⛔ Front wall ray rejected (doorway): x=${x.toFixed(2)}, y=${y.toFixed(2)}`);
+                                hitPos = new BABYLON.Vector3(x, y, 1.98);
+                                hitNormal = new BABYLON.Vector3(0, 0, -1);
                             }
                         }
                     }
@@ -3832,14 +3208,14 @@ class VRClub {
                         spot.visual.position.copyFrom(hitPos);
                         spot.visual.lookAt(hitPos.add(hitNormal)); // Orient perpendicular to surface
                         
-                        // Distance fade and twinkling
-                        const distanceFade = Math.max(0.3, 1 - (hitDistance / 30));
-                        const twinkle = 0.7 + 0.3 * Math.sin(time * spot.twinkleSpeed + spot.twinklePhase);
-                        const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6;
+                        // Distance fade and twinkling - REDUCED BRIGHTNESS
+                        const distanceFade = Math.max(0.3, 1 - (hitDistance / 30)); // Dimmer with distance
+                        const twinkle = 0.7 + 0.3 * Math.sin(time * spot.twinkleSpeed + spot.twinklePhase); // Gentle twinkling
+                        const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6; // 40% dimmer overall
                         
-                        // Emissive color
+                        // DIMMER emissive color
                         spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
-                        spot.material.alpha = 0.85;
+                        spot.material.alpha = 0.85; // Slightly transparent for softer look
                     } else {
                         // Ray didn't hit any surface - fade out
                         spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
@@ -3866,8 +3242,6 @@ class VRClub {
                 this.mirrorReflectionSpots.forEach(spot => {
                     spot.visual.setEnabled(false);
                 });
-                // Reset flag so spots re-enable immediately next time
-                this.mirrorSpotsInitialized = false;
             }
         }
         
@@ -4094,24 +3468,8 @@ class VRClub {
                     });
                     
                     let beamLength = 15;
-                    let hitPoint = laser.originPos.add(direction.scale(beamLength));
-                    
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
-                        hitPoint = hit.pickedPoint;
-                    }
-                    
-                    // CLAMP BEAM TO FRONT WALL (z=1.75) - prevent beams from extending outside club
-                    // If beam would extend past front wall, calculate intersection with front wall plane
-                    if (direction.z > 0) { // Beam pointing forward (toward entrance)
-                        const frontWallZ = 1.75;
-                        const t = (frontWallZ - laser.originPos.z) / direction.z;
-                        if (t > 0 && t < beamLength) {
-                            // Beam intersects front wall before hitting target
-                            const clampedPoint = laser.originPos.add(direction.scale(t));
-                            beamLength = t;
-                            hitPoint = clampedPoint;
-                        }
                     }
                     
                     // Update beam geometry
@@ -4139,12 +3497,9 @@ class VRClub {
                     }
                     
                     // UPDATE HIT SPOT - Position where laser hits surface
-                    if (beam.hitSpot && hitPoint) {
-                        beam.hitSpot.position.copyFrom(hitPoint);
-                        // Only clamp to floor if hit point is on floor
-                        if (hitPoint.y < 0.1) {
-                            beam.hitSpot.position.y = 0.02; // Slightly above floor to avoid z-fighting
-                        }
+                    if (beam.hitSpot && hit && hit.hit && hit.pickedPoint) {
+                        beam.hitSpot.position.copyFrom(hit.pickedPoint);
+                        beam.hitSpot.position.y = 0.02; // Slightly above floor to avoid z-fighting
                         beam.hitSpot.visibility = 1.0;
                         
                         // Pulse effect on hit spot
@@ -4168,7 +3523,6 @@ class VRClub {
                     // Apply color to core beam
                     beam.material.emissiveColor = currentColor;
                     beam.mesh.visibility = 1.0;
-                    beam.mesh.setEnabled(true); // Enable beam mesh
                     
                     // Apply softer color to glow
                     if (beam.glowMat) {
@@ -4176,7 +3530,6 @@ class VRClub {
                     }
                     if (beam.beamGlow) {
                         beam.beamGlow.visibility = 1.0;
-                        beam.beamGlow.setEnabled(true); // Enable glow mesh
                     }
                     
                     // Apply color to hit spot (already handled above with visibility check)
@@ -4198,7 +3551,6 @@ class VRClub {
                         if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.blue.scale(3.0); // Bright blue emitter
                     }
                     light.intensity = this.lasersActive ? 5 : 0;
-                    light.setEnabled(true); // Enable laser point lights
                 });
             });
         } else if (this.lasers) {
@@ -4206,20 +3558,12 @@ class VRClub {
             this.lasers.forEach(laser => {
                 laser.lights.forEach(light => {
                     light.intensity = 0;
-                    light.setEnabled(false);
                 });
                 laser.beams.forEach(beam => {
                     beam.mesh.visibility = 0;
                     beam.material.alpha = 0;
-                    beam.mesh.setEnabled(false);
-                    if (beam.beamGlow) {
-                        beam.beamGlow.visibility = 0;
-                        beam.beamGlow.setEnabled(false);
-                    }
-                    if (beam.hitSpot) {
-                        beam.hitSpot.visibility = 0;
-                        beam.hitSpot.setEnabled(false);
-                    }
+                    if (beam.beamGlow) beam.beamGlow.visibility = 0;
+                    if (beam.hitSpot) beam.hitSpot.visibility = 0;
                 });
             });
         }
@@ -4509,21 +3853,8 @@ class VRClub {
                     const horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
                     const angleFromVertical = Math.atan2(horizontalDistance, Math.abs(direction.y));
                     const extraLength = coneRadiusAtFloor * Math.tan(angleFromVertical);
-                    let beamLength = centerDistanceToFloor + extraLength;
-                    let endPoint = floorIntersection.clone();
-                    
-                    // CLAMP BEAM TO FRONT WALL (z=1.75) - prevent beams from extending outside club
-                    if (direction.z > 0) { // Beam pointing forward (toward entrance)
-                        const frontWallZ = 1.75;
-                        const startPos = spot.basePos;
-                        const t = (frontWallZ - startPos.z) / direction.z;
-                        if (t > 0 && t < beamLength) {
-                            // Beam intersects front wall before hitting floor
-                            const clampedPoint = startPos.add(direction.scale(t));
-                            beamLength = t;
-                            endPoint = clampedPoint;
-                        }
-                    }
+                    const beamLength = centerDistanceToFloor + extraLength;
+                    const endPoint = floorIntersection.clone();
                     
                     // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
                     // Cylinder with height=1 extends from -0.5 to +0.5 in local Y
@@ -4934,17 +4265,15 @@ class VRClub {
 
     /**
      * Helper method to update LED panel emissive colors
-     * Phase 2 Enhanced: Boosted brightness multipliers for better visibility
+     * Reduces code duplication across pattern methods
      */
     updateLEDPanel(panel, color, brightness) {
         if (brightness === 0) {
             panel.material.emissiveColor = this.cachedColors.black;
         } else if (brightness === 1) {
-            // Boost emissive intensity 2.5x for Phase 2
-            panel.material.emissiveColor = color.scale(2.5);
+            panel.material.emissiveColor = color;
         } else {
-            // Boost all brightness values 2.5x
-            panel.material.emissiveColor = color.scale(brightness * 2.5);
+            panel.material.emissiveColor = color.scale(brightness);
         }
     }
 
@@ -6014,7 +5343,6 @@ class VRClub {
 
     moveCameraToPreset(preset) {
         const presets = {
-            exterior: { pos: new BABYLON.Vector3(0, 1.7, 8), target: new BABYLON.Vector3(0, 2.5, 5) }, // NEW: Outside club entrance
             entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
             danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -24) },
             djBooth: { pos: new BABYLON.Vector3(0, 2.0, -24.5), target: new BABYLON.Vector3(0, 1.7, -10) },
