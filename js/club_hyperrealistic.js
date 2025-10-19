@@ -896,6 +896,7 @@ class VRClub {
         frontWallLeft.material = wallMat;
         frontWallLeft.receiveShadows = false;
         frontWallLeft.isPickable = true;
+        frontWallLeft.checkCollisions = true;
         
         // Right section of front wall
         const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
@@ -907,6 +908,7 @@ class VRClub {
         frontWallRight.material = wallMat;
         frontWallRight.receiveShadows = false;
         frontWallRight.isPickable = true;
+        frontWallRight.checkCollisions = true;
         
         // Top section above doorway
         const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
@@ -918,17 +920,31 @@ class VRClub {
         frontWallTop.material = wallMat;
         frontWallTop.receiveShadows = false;
         frontWallTop.isPickable = true;
+        frontWallTop.checkCollisions = true;
         
-        // Enforce wall material opacity (prevent VR transparency issues)
-        if (wallMat.alpha === undefined || wallMat.alpha < 1.0) {
-            wallMat.alpha = 1.0;
-        }
+        // AGGRESSIVELY enforce wall material opacity (prevent VR transparency issues)
+        // VR stereoscopic rendering is hypersensitive to any alpha/transparency settings
+        wallMat.alpha = 1.0;
         wallMat.transparencyMode = null;
-        if (wallMat.needAlphaBlending) {
-            wallMat.needAlphaBlending = () => false;
-        }
+        wallMat.needAlphaBlending = () => false;
+        wallMat.needAlphaTesting = () => false;
         wallMat.disableDepthWrite = false;
+        wallMat.forceDepthWrite = true; // Force depth writing
         wallMat.backFaceCulling = true;
+        
+        // If PBR material, disable alpha textures
+        if (wallMat.albedoTexture) {
+            wallMat.albedoTexture.hasAlpha = false;
+            wallMat.useAlphaFromAlbedoTexture = false;
+        }
+        if (wallMat.opacityTexture) {
+            wallMat.opacityTexture = null; // Remove opacity texture completely
+        }
+        
+        // Freeze wall mesh transforms (static geometry)
+        frontWallLeft.freezeWorldMatrix();
+        frontWallRight.freezeWorldMatrix();
+        frontWallTop.freezeWorldMatrix();
         
         // === ENTRANCE DOOR FRAME ===
         const frameMat = new BABYLON.PBRMetallicRoughnessMaterial("doorFrameMat", this.scene);
@@ -1074,7 +1090,7 @@ class VRClub {
             letterMat.emissiveTexture = letterTexture;
             letterMat.emissiveColor = new BABYLON.Color3(0, 1, 1);
             letterMat.disableLighting = true;
-            letterMat.backFaceCulling = false; // Visible from both sides
+            letterMat.backFaceCulling = true; // Only visible from OUTSIDE (front faces street)
             
             letterPlane.material = letterMat;
             letterPlane.renderingGroupId = 2; // Render on top
@@ -3372,7 +3388,7 @@ class VRClub {
             }
         });
         
-        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 5 surfaces (floor, ceiling, 3 walls)`);
+        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls including entrance)`);
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
