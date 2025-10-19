@@ -367,11 +367,11 @@ class VRClub {
         this.camera.minZ = 0.1;
         this.camera.maxZ = 150;
         
-        // Movement controls
-        this.camera.keysUp = [87]; // W
-        this.camera.keysDown = [83]; // S
-        this.camera.keysLeft = [65]; // A
-        this.camera.keysRight = [68]; // D
+        // Movement controls (WASD + Arrow Keys)
+        this.camera.keysUp = [87, 38]; // W + Up Arrow
+        this.camera.keysDown = [83, 40]; // S + Down Arrow
+        this.camera.keysLeft = [65, 37]; // A + Left Arrow
+        this.camera.keysRight = [68, 39]; // D + Right Arrow
         this.camera.keysUpward = [69]; // E
         this.camera.keysDownward = [81]; // Q
         this.camera.angularSensibility = 2000;
@@ -793,6 +793,7 @@ class VRClub {
         frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
         frontWallLeft.material = wallMat;
         frontWallLeft.receiveShadows = false;
+        frontWallLeft.isPickable = true;
         
         // Right section of front wall
         const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
@@ -803,6 +804,7 @@ class VRClub {
         frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
         frontWallRight.material = wallMat;
         frontWallRight.receiveShadows = false;
+        frontWallRight.isPickable = true;
         
         // Top section above doorway
         const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
@@ -813,6 +815,18 @@ class VRClub {
         frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
         frontWallTop.material = wallMat;
         frontWallTop.receiveShadows = false;
+        frontWallTop.isPickable = true;
+        
+        // Enforce wall material opacity (prevent VR transparency issues)
+        if (wallMat.alpha === undefined || wallMat.alpha < 1.0) {
+            wallMat.alpha = 1.0;
+        }
+        wallMat.transparencyMode = null;
+        if (wallMat.needAlphaBlending) {
+            wallMat.needAlphaBlending = () => false;
+        }
+        wallMat.disableDepthWrite = false;
+        wallMat.backFaceCulling = true;
         
         // === ENTRANCE DOOR FRAME ===
         const frameMat = new BABYLON.PBRMetallicRoughnessMaterial("doorFrameMat", this.scene);
@@ -938,6 +952,7 @@ class VRClub {
                 height: letterHeight
             }, this.scene);
             letterPlane.position = new BABYLON.Vector3(letter.x, signY, signZ - 0.1);
+            letterPlane.rotation.y = Math.PI; // Rotate 180° to face street (not into club)
             
             // Create dynamic texture for letter
             const letterTexture = new BABYLON.DynamicTexture(`letterTex_${letter.char}`, 
@@ -956,7 +971,7 @@ class VRClub {
             letterMat.emissiveTexture = letterTexture;
             letterMat.emissiveColor = new BABYLON.Color3(0, 1, 1);
             letterMat.disableLighting = true;
-            letterMat.backFaceCulling = false;
+            letterMat.backFaceCulling = false; // Visible from both sides
             
             letterPlane.material = letterMat;
             letterPlane.renderingGroupId = 2; // Render on top
