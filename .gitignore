@@ -36,3 +36,8 @@ build/
 # Backup files
 *.bak
 *.backup
+
+# Temporary files
+temp_*.js
+temp_*.html
+temp_*.css
