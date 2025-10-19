@@ -73,6 +73,9 @@ class MaterialFactory {
             this.sharedMaterials[cacheKey] = mat;
         }
 
+        // Freeze material to prevent shader recompilation
+        mat.freeze();
+
         return mat;
     }
 
@@ -110,6 +113,9 @@ class MaterialFactory {
         if (disableLighting) {
             mat.disableLighting = true;
         }
+
+        // Freeze material to prevent shader recompilation
+        mat.freeze();
 
         return mat;
     }

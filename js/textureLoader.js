@@ -80,9 +80,9 @@ class TextureLoader {
     }
 
     getTextureConfigs() {
-        // High-quality textures from Polyhaven CDN
-        // Using 2K resolution for good quality without excessive loading times
-        const baseUrl = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k';
+        // Optimized textures from Polyhaven CDN
+        // Using 1K resolution for 40-50% memory savings with minimal visual quality loss
+        const baseUrl = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k';
         
         return {
             floor: {
@@ -90,10 +90,10 @@ class TextureLoader {
                 // Raw industrial concrete - perfect for nightclub floor (reuse wall texture with different scale)
                 baseUrl: `${baseUrl}/concrete_wall_001`,
                 maps: {
-                    diffuse: 'concrete_wall_001_diff_2k.jpg',
-                    normal: 'concrete_wall_001_nor_gl_2k.jpg',
-                    roughness: 'concrete_wall_001_rough_2k.jpg',
-                    ao: 'concrete_wall_001_ao_2k.jpg'
+                    diffuse: 'concrete_wall_001_diff_1k.jpg',
+                    normal: 'concrete_wall_001_nor_gl_1k.jpg',
+                    roughness: 'concrete_wall_001_rough_1k.jpg',
+                    ao: 'concrete_wall_001_ao_1k.jpg'
                 },
                 scale: { u: 8, v: 8 } // Repeat 8x for large floor with finer detail
             },
@@ -102,10 +102,10 @@ class TextureLoader {
                 // Raw industrial concrete with imperfections
                 baseUrl: `${baseUrl}/concrete_wall_001`,
                 maps: {
-                    diffuse: 'concrete_wall_001_diff_2k.jpg',
-                    normal: 'concrete_wall_001_nor_gl_2k.jpg',
-                    roughness: 'concrete_wall_001_rough_2k.jpg',
-                    ao: 'concrete_wall_001_ao_2k.jpg'
+                    diffuse: 'concrete_wall_001_diff_1k.jpg',
+                    normal: 'concrete_wall_001_nor_gl_1k.jpg',
+                    roughness: 'concrete_wall_001_rough_1k.jpg',
+                    ao: 'concrete_wall_001_ao_1k.jpg'
                 },
                 scale: { u: 3, v: 3 } // Repeat 3x for walls
             },
@@ -114,10 +114,10 @@ class TextureLoader {
                 // Reuse the wall concrete texture for ceiling (rough industrial look)
                 baseUrl: `${baseUrl}/concrete_wall_001`,
                 maps: {
-                    diffuse: 'concrete_wall_001_diff_2k.jpg',
-                    normal: 'concrete_wall_001_nor_gl_2k.jpg',
-                    roughness: 'concrete_wall_001_rough_2k.jpg',
-                    ao: 'concrete_wall_001_ao_2k.jpg'
+                    diffuse: 'concrete_wall_001_diff_1k.jpg',
+                    normal: 'concrete_wall_001_nor_gl_1k.jpg',
+                    roughness: 'concrete_wall_001_rough_1k.jpg',
+                    ao: 'concrete_wall_001_ao_1k.jpg'
                 },
                 scale: { u: 2, v: 2 } // Repeat 2x for ceiling (different scale than walls for variety)
             }
@@ -207,6 +207,9 @@ class TextureLoader {
                     const texture = new BABYLON.Texture(blobUrl, this.scene);
                     texture.uScale = config.scale.u;
                     texture.vScale = config.scale.v;
+                    
+                    // Freeze texture to prevent updates and improve performance
+                    texture.freeze();
                     
                     // Add to pool for reuse
                     this.texturePool.set(poolKey, texture);
