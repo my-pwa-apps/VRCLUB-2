@@ -472,8 +472,15 @@ class VRClub {
         this.camera.keysRight = [68, 39]; // D + Right Arrow
         this.camera.keysUpward = [69]; // E
         this.camera.keysDownward = [81]; // Q
-        this.camera.angularSensibility = 2000;
+        this.camera.angularSensibility = 1000; // Mouse sensitivity for looking around
         this.camera.inertia = 0.7; // Smooth movement
+        
+        // Enable mouse look (pointer lock for FPS-style controls)
+        this.canvas.addEventListener('click', () => {
+            if (!this.xrHelper || !this.xrHelper.baseExperience?.state) {
+                this.canvas.requestPointerLock();
+            }
+        });
         
         this.scene.activeCamera = this.camera;
         
@@ -3970,6 +3977,10 @@ class VRClub {
         
         // Update lasers with raycasting and dynamic positioning
         if (this.lasers && this.lasersActive) {
+            // Check if camera is outside the club (prevent beams showing through walls from outside)
+            const cameraPos = this.scene.activeCamera.position;
+            const cameraOutside = cameraPos.z > 2; // Front wall is at z=2, doorway entrance
+            
             this.lasers.forEach((laser, i) => {
                 // Update origin position for parented lasers (get world position)
                 if (laser.parentTruss) {
@@ -4100,14 +4111,29 @@ class VRClub {
                     
                     // Apply color to core beam
                     beam.material.emissiveColor = currentColor;
-                    beam.mesh.visibility = 1.0;
+                    
+                    // Hide beams when camera is outside looking into club
+                    // This prevents interior lights from being visible through doorway from street
+                    let beamVisible = true;
+                    if (cameraOutside) {
+                        // Camera is outside - check if beam or its hit point is near entrance/visible through doorway
+                        const beamPos = beam.mesh.position;
+                        const doorwayArea = (Math.abs(beamPos.x) < 2) && (beamPos.z > -5 && beamPos.z < 3); // Near entrance area
+                        if (doorwayArea || (hitPoint && hitPoint.z > 0)) {
+                            beamVisible = false; // Hide beams near entrance when viewing from outside
+                        }
+                    }
+                    
+                    beam.mesh.visibility = beamVisible ? 1.0 : 0;
+                    beam.mesh.setEnabled(beamVisible); // Enable beam mesh only if should be visible
                     
                     // Apply softer color to glow
                     if (beam.glowMat) {
                         beam.glowMat.emissiveColor = currentColor;
                     }
                     if (beam.beamGlow) {
-                        beam.beamGlow.visibility = 1.0;
+                        beam.beamGlow.visibility = beamVisible ? 1.0 : 0;
+                        beam.beamGlow.setEnabled(beamVisible); // Enable glow mesh only if should be visible
                     }
                     
                     // Apply color to hit spot (already handled above with visibility check)
@@ -4129,6 +4155,7 @@ class VRClub {
                         if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.blue.scale(3.0); // Bright blue emitter
                     }
                     light.intensity = this.lasersActive ? 5 : 0;
+                    light.setEnabled(true); // Enable laser point lights
                 });
             });
         } else if (this.lasers) {
@@ -4136,12 +4163,20 @@ class VRClub {
             this.lasers.forEach(laser => {
                 laser.lights.forEach(light => {
                     light.intensity = 0;
+                    light.setEnabled(false);
                 });
                 laser.beams.forEach(beam => {
                     beam.mesh.visibility = 0;
                     beam.material.alpha = 0;
-                    if (beam.beamGlow) beam.beamGlow.visibility = 0;
-                    if (beam.hitSpot) beam.hitSpot.visibility = 0;
+                    beam.mesh.setEnabled(false);
+                    if (beam.beamGlow) {
+                        beam.beamGlow.visibility = 0;
+                        beam.beamGlow.setEnabled(false);
+                    }
+                    if (beam.hitSpot) {
+                        beam.hitSpot.visibility = 0;
+                        beam.hitSpot.setEnabled(false);
+                    }
                 });
             });
         }
@@ -4217,6 +4252,10 @@ class VRClub {
         const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
         
         if (this.spotlights && this.lightsActive) {
+            
+            // Check if camera is outside the club (prevent beams showing through walls from outside)
+            const cameraPos = this.scene.activeCamera.position;
+            const cameraOutside = cameraPos.z > 2; // Front wall is at z=2, doorway entrance
             
             // SYNCHRONIZED SWEEPING - recreate iconic club vibe
             // All lights move together, sweeping their beams across the dance floor
@@ -4518,7 +4557,17 @@ class VRClub {
                             }
                         }
                         
-                        spot.beamGlow.visibility = this.lightsActive ? 1.0 : 0;
+                        // Hide beams when camera is outside looking into club (same as lasers)
+                        let beamVisible = this.lightsActive;
+                        if (cameraOutside && beamVisible) {
+                            // Check if beam is near entrance/visible through doorway
+                            const doorwayArea = (Math.abs(midPoint.x) < 2) && (midPoint.z > -5 && midPoint.z < 3);
+                            if (doorwayArea || endPoint.z > 0) {
+                                beamVisible = false; // Hide beams near entrance when viewing from outside
+                            }
+                        }
+                        
+                        spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
                         // Use per-spotlight color to match beam
                         const spotColor = spot.color || this.currentSpotColor;
                         spot.beamGlowMat.emissiveColor = spotColor.scale(0.15);
@@ -4538,6 +4587,15 @@ class VRClub {
                         const flashPhase = sweepPhase * 2.5;
                         const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
                         beamVisible = beamVisible && flashOn;
+                    }
+                    
+                    // Hide beams when camera is outside looking into club (prevent see-through walls)
+                    if (cameraOutside && beamVisible) {
+                        // Check if beam is near entrance/visible through doorway
+                        const doorwayArea = (Math.abs(midPoint.x) < 2) && (midPoint.z > -5 && midPoint.z < 3);
+                        if (doorwayArea || endPoint.z > 0) {
+                            beamVisible = false; // Hide beams near entrance when viewing from outside
+                        }
                     }
                     
                     spot.beam.visibility = beamVisible ? 1.0 : 0;
