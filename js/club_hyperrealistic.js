@@ -2,7 +2,7 @@
 // Ultra-realistic club environment for Quest 3S VR
 
 // Debug mode - set to false for production (removes all console.log statements)
-const DEBUG_MODE = false;
+const DEBUG_MODE = true; // Enable debug logging for troubleshooting
 const log = (...args) => DEBUG_MODE && console.log(...args);
 
 // Room dimensions and boundaries
@@ -881,24 +881,33 @@ class VRClub {
         // === FRONT WALL WITH DOORWAY ===
         // Create full front wall (z=2) with central doorway opening
         // Create DEDICATED material for entrance walls (don't reuse shared material)
-        const entranceWallMat = new BABYLON.PBRMetallicRoughnessMaterial("entranceWallMat", this.scene);
-        entranceWallMat.baseColor = new BABYLON.Color3(0.35, 0.35, 0.35);
-        entranceWallMat.metallic = 0.0;
-        entranceWallMat.roughness = 0.9;
-        entranceWallMat.maxSimultaneousLights = this.maxLights;
+        // Using StandardMaterial for GUARANTEED opacity (PBR can have transparency issues)
+        const entranceWallMat = new BABYLON.StandardMaterial("entranceWallMat", this.scene);
+        entranceWallMat.diffuseColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+        entranceWallMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         
-        // AGGRESSIVELY enforce complete opacity BEFORE applying to meshes
+        // AGGRESSIVELY enforce complete opacity
         entranceWallMat.alpha = 1.0;
         entranceWallMat.transparencyMode = null;
         entranceWallMat.needAlphaBlending = () => false;
         entranceWallMat.needAlphaTesting = () => false;
         entranceWallMat.disableDepthWrite = false;
-        entranceWallMat.forceDepthWrite = true;
         entranceWallMat.backFaceCulling = true;
-        entranceWallMat.useAlphaFromAlbedoTexture = false;
+        
+        // Ensure no alpha textures
+        entranceWallMat.opacityTexture = null;
+        entranceWallMat.diffuseTexture = null; // No textures at all
         
         // Freeze material to prevent any modifications
         entranceWallMat.freeze();
+        
+        console.log('🔒 Entrance wall material created (StandardMaterial):', {
+            name: entranceWallMat.name,
+            alpha: entranceWallMat.alpha,
+            transparencyMode: entranceWallMat.transparencyMode,
+            isFrozen: entranceWallMat.isFrozen,
+            diffuseColor: entranceWallMat.diffuseColor
+        });
         
         const doorwayWidth = 3; // 3m wide entrance
         const doorwayHeight = 2.5; // 2.5m tall entrance
@@ -986,11 +995,10 @@ class VRClub {
         const facadeDepth = 0.8;
         
         // Create DEDICATED facade material (not shared) with aggressive opacity
-        const facadeMat = new BABYLON.PBRMetallicRoughnessMaterial("facadeMat", this.scene);
-        facadeMat.baseColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick color
-        facadeMat.metallic = 0.0;
-        facadeMat.roughness = 0.95;
-        facadeMat.maxSimultaneousLights = this.maxLights;
+        // Using StandardMaterial for GUARANTEED opacity
+        const facadeMat = new BABYLON.StandardMaterial("facadeMat", this.scene);
+        facadeMat.diffuseColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick color
+        facadeMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
         
         // AGGRESSIVELY enforce complete opacity
         facadeMat.alpha = 1.0;
@@ -998,12 +1006,22 @@ class VRClub {
         facadeMat.needAlphaBlending = () => false;
         facadeMat.needAlphaTesting = () => false;
         facadeMat.disableDepthWrite = false;
-        facadeMat.forceDepthWrite = true;
         facadeMat.backFaceCulling = true;
-        facadeMat.useAlphaFromAlbedoTexture = false;
+        
+        // Ensure no alpha textures
+        facadeMat.opacityTexture = null;
+        facadeMat.diffuseTexture = null; // No textures at all
         
         // Freeze to lock settings
         facadeMat.freeze();
+        
+        console.log('🔒 Facade material created (StandardMaterial):', {
+            name: facadeMat.name,
+            alpha: facadeMat.alpha,
+            transparencyMode: facadeMat.transparencyMode,
+            isFrozen: facadeMat.isFrozen,
+            diffuseColor: facadeMat.diffuseColor
+        });
         
         // Left facade section
         const facadeLeft = BABYLON.MeshBuilder.CreateBox("facadeLeft", {
@@ -3425,6 +3443,11 @@ class VRClub {
                 
                 spot.position = targetPos;
                 
+                // DEBUG: Add name tag to spot for identification
+                if (DEBUG_MODE && surface.name === 'frontWall') {
+                    spot.name = `mirrorSpot_${surface.name}_${spotIndex}_x${x.toFixed(1)}_y${y.toFixed(1)}`;
+                }
+                
                 // Calculate direction from ball to spot (for animation)
                 const ballPos = new BABYLON.Vector3(0, 6.5, -12);
                 const directionFromBall = targetPos.subtract(ballPos).normalize();
@@ -3455,10 +3478,19 @@ class VRClub {
         // Count spots per surface for debugging
         if (DEBUG_MODE) {
             const spotCounts = {};
+            const frontWallSpots = [];
             this.mirrorReflectionSpots.forEach(s => {
                 spotCounts[s.surface] = (spotCounts[s.surface] || 0) + 1;
+                if (s.surface === 'frontWall') {
+                    frontWallSpots.push({
+                        x: s.targetPosition.x.toFixed(2),
+                        y: s.targetPosition.y.toFixed(2),
+                        z: s.targetPosition.z.toFixed(2)
+                    });
+                }
             });
-            console.log('Mirror ball spot distribution:', spotCounts);
+            console.log('✨ Mirror ball spot distribution:', spotCounts);
+            console.log(`📍 Front wall spots (${frontWallSpots.length}):`, frontWallSpots.slice(0, 10), '...');
         }
         
         console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls including entrance)`);
