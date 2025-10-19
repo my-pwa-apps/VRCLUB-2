@@ -314,7 +314,8 @@ class VRClub {
         });
         
         // Setup camera for post-processing pipeline
-        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
+        // Using FreeCamera (not UniversalCamera) for proper desktop mouse rotation
+        this.camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
         this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
         
         // Movement controls - WASD + Arrow Keys
