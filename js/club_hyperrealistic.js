@@ -3198,16 +3198,16 @@ class VRClub {
                         }
                     }
                     
-                    // FRONT WALL (z = 2) - No physical wall, but keep for edge spots
+                    // FRONT WALL (z = 1.75 inner face) - Physical wall at entrance
                     if (dirZ > 0.001) {
-                        const t = (2 - ballPos.z) / dirZ;
+                        const t = (1.75 - ballPos.z) / dirZ;
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const y = ballPos.y + dirY * t;
                             if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, 1.98);
-                                hitNormal = new BABYLON.Vector3(0, 0, -1);
+                                hitPos = new BABYLON.Vector3(x, y, 1.73); // Inner face position (matching surface definition)
+                                hitNormal = new BABYLON.Vector3(0, 0, -1); // Points inward (into club)
                             }
                         }
                     }
