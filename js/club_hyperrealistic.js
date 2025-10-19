@@ -3397,6 +3397,10 @@ class VRClub {
                 
                 spot.position = targetPos;
                 
+                // CRITICAL: Rotate disc to align with surface normal
+                // Discs are created flat in XY plane, need to orient perpendicular to surface
+                spot.lookAt(targetPos.add(normal));
+                
                 // DEBUG: Add name tag to spot for identification
                 if (DEBUG_MODE && surface.name === 'frontWall') {
                     spot.name = `mirrorSpot_${surface.name}_${spotIndex}_x${targetPos.x.toFixed(1)}_y${targetPos.y.toFixed(1)}`;
@@ -3707,15 +3711,22 @@ class VRClub {
                         }
                     }
                     
-                    // FRONT WALL (z = 2) - No physical wall, but keep for edge spots
+                    // FRONT WALL (z = 2.25) - With doorway exclusion
                     if (dirZ > 0.001) {
-                        const t = (2 - ballPos.z) / dirZ;
+                        const t = (2.25 - ballPos.z) / dirZ; // Match surface definition
                         if (t > 0) {
                             const x = ballPos.x + dirX * t;
                             const y = ballPos.y + dirY * t;
-                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
+                            
+                            // Check if ray hits front wall (not doorway opening)
+                            // Doorway: x = -1.5 to +1.5, y = 0 to 2.5
+                            const inDoorwayX = Math.abs(x) <= 1.5;
+                            const inDoorwayY = y <= 2.5;
+                            const hitsDoorway = inDoorwayX && inDoorwayY;
+                            
+                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && !hitsDoorway && t < closestT) {
                                 closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, 1.98);
+                                hitPos = new BABYLON.Vector3(x, y, 2.25); // Match surface definition
                                 hitNormal = new BABYLON.Vector3(0, 0, -1);
                             }
                         }
