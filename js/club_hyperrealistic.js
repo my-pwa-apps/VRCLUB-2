@@ -3445,7 +3445,7 @@ class VRClub {
                 
                 // DEBUG: Add name tag to spot for identification
                 if (DEBUG_MODE && surface.name === 'frontWall') {
-                    spot.name = `mirrorSpot_${surface.name}_${spotIndex}_x${x.toFixed(1)}_y${y.toFixed(1)}`;
+                    spot.name = `mirrorSpot_${surface.name}_${spotIndex}_x${targetPos.x.toFixed(1)}_y${targetPos.y.toFixed(1)}`;
                 }
                 
                 // Calculate direction from ball to spot (for animation)

@@ -208,8 +208,8 @@ class TextureLoader {
                     texture.uScale = config.scale.u;
                     texture.vScale = config.scale.v;
                     
-                    // Freeze texture to prevent updates and improve performance
-                    texture.freeze();
+                    // Note: Textures don't have a freeze() method in Babylon.js
+                    // They are automatically optimized after upload to GPU
                     
                     // Add to pool for reuse
                     this.texturePool.set(poolKey, texture);
