@@ -880,7 +880,25 @@ class VRClub {
         
         // === FRONT WALL WITH DOORWAY ===
         // Create full front wall (z=2) with central doorway opening
-        const wallMat = this.materialFactory.getPreset('wall');
+        // Create DEDICATED material for entrance walls (don't reuse shared material)
+        const entranceWallMat = new BABYLON.PBRMetallicRoughnessMaterial("entranceWallMat", this.scene);
+        entranceWallMat.baseColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+        entranceWallMat.metallic = 0.0;
+        entranceWallMat.roughness = 0.9;
+        entranceWallMat.maxSimultaneousLights = this.maxLights;
+        
+        // AGGRESSIVELY enforce complete opacity BEFORE applying to meshes
+        entranceWallMat.alpha = 1.0;
+        entranceWallMat.transparencyMode = null;
+        entranceWallMat.needAlphaBlending = () => false;
+        entranceWallMat.needAlphaTesting = () => false;
+        entranceWallMat.disableDepthWrite = false;
+        entranceWallMat.forceDepthWrite = true;
+        entranceWallMat.backFaceCulling = true;
+        entranceWallMat.useAlphaFromAlbedoTexture = false;
+        
+        // Freeze material to prevent any modifications
+        entranceWallMat.freeze();
         
         const doorwayWidth = 3; // 3m wide entrance
         const doorwayHeight = 2.5; // 2.5m tall entrance
@@ -893,10 +911,11 @@ class VRClub {
             depth: 0.5
         }, this.scene);
         frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallLeft.material = wallMat;
+        frontWallLeft.material = entranceWallMat;
         frontWallLeft.receiveShadows = false;
         frontWallLeft.isPickable = true;
         frontWallLeft.checkCollisions = true;
+        frontWallLeft.freezeWorldMatrix();
         
         // Right section of front wall
         const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
@@ -905,10 +924,11 @@ class VRClub {
             depth: 0.5
         }, this.scene);
         frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallRight.material = wallMat;
+        frontWallRight.material = entranceWallMat;
         frontWallRight.receiveShadows = false;
         frontWallRight.isPickable = true;
         frontWallRight.checkCollisions = true;
+        frontWallRight.freezeWorldMatrix();
         
         // Top section above doorway
         const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
@@ -917,34 +937,13 @@ class VRClub {
             depth: 0.5
         }, this.scene);
         frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
-        frontWallTop.material = wallMat;
+        frontWallTop.material = entranceWallMat;
         frontWallTop.receiveShadows = false;
         frontWallTop.isPickable = true;
         frontWallTop.checkCollisions = true;
-        
-        // AGGRESSIVELY enforce wall material opacity (prevent VR transparency issues)
-        // VR stereoscopic rendering is hypersensitive to any alpha/transparency settings
-        wallMat.alpha = 1.0;
-        wallMat.transparencyMode = null;
-        wallMat.needAlphaBlending = () => false;
-        wallMat.needAlphaTesting = () => false;
-        wallMat.disableDepthWrite = false;
-        wallMat.forceDepthWrite = true; // Force depth writing
-        wallMat.backFaceCulling = true;
-        
-        // If PBR material, disable alpha textures
-        if (wallMat.albedoTexture) {
-            wallMat.albedoTexture.hasAlpha = false;
-            wallMat.useAlphaFromAlbedoTexture = false;
-        }
-        if (wallMat.opacityTexture) {
-            wallMat.opacityTexture = null; // Remove opacity texture completely
-        }
-        
-        // Freeze wall mesh transforms (static geometry)
-        frontWallLeft.freezeWorldMatrix();
-        frontWallRight.freezeWorldMatrix();
         frontWallTop.freezeWorldMatrix();
+        
+        console.log('✅ Created entrance front wall with doorway (3 sections, fully opaque material)');
         
         // === ENTRANCE DOOR FRAME ===
         const frameMat = new BABYLON.PBRMetallicRoughnessMaterial("doorFrameMat", this.scene);
@@ -986,7 +985,25 @@ class VRClub {
         const facadeHeight = 12; // Taller exterior wall
         const facadeDepth = 0.8;
         
-        const brickMat = this.materialFactory.getPreset('brick');
+        // Create DEDICATED facade material (not shared) with aggressive opacity
+        const facadeMat = new BABYLON.PBRMetallicRoughnessMaterial("facadeMat", this.scene);
+        facadeMat.baseColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick color
+        facadeMat.metallic = 0.0;
+        facadeMat.roughness = 0.95;
+        facadeMat.maxSimultaneousLights = this.maxLights;
+        
+        // AGGRESSIVELY enforce complete opacity
+        facadeMat.alpha = 1.0;
+        facadeMat.transparencyMode = null;
+        facadeMat.needAlphaBlending = () => false;
+        facadeMat.needAlphaTesting = () => false;
+        facadeMat.disableDepthWrite = false;
+        facadeMat.forceDepthWrite = true;
+        facadeMat.backFaceCulling = true;
+        facadeMat.useAlphaFromAlbedoTexture = false;
+        
+        // Freeze to lock settings
+        facadeMat.freeze();
         
         // Left facade section
         const facadeLeft = BABYLON.MeshBuilder.CreateBox("facadeLeft", {
@@ -995,8 +1012,10 @@ class VRClub {
             depth: facadeDepth
         }, this.scene);
         facadeLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeLeft.material = brickMat;
+        facadeLeft.material = facadeMat;
         facadeLeft.receiveShadows = false;
+        facadeLeft.checkCollisions = true;
+        facadeLeft.freezeWorldMatrix();
         
         // Right facade section
         const facadeRight = BABYLON.MeshBuilder.CreateBox("facadeRight", {
@@ -1005,8 +1024,10 @@ class VRClub {
             depth: facadeDepth
         }, this.scene);
         facadeRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeRight.material = brickMat;
+        facadeRight.material = facadeMat;
         facadeRight.receiveShadows = false;
+        facadeRight.checkCollisions = true;
+        facadeRight.freezeWorldMatrix();
         
         // Top facade section (above door)
         const facadeTop = BABYLON.MeshBuilder.CreateBox("facadeTop", {
@@ -1015,8 +1036,12 @@ class VRClub {
             depth: facadeDepth
         }, this.scene);
         facadeTop.position = new BABYLON.Vector3(0, facadeHeight / 2 + doorwayHeight / 2 + 1, entranceZ);
-        facadeTop.material = brickMat;
+        facadeTop.material = facadeMat;
         facadeTop.receiveShadows = false;
+        facadeTop.checkCollisions = true;
+        facadeTop.freezeWorldMatrix();
+        
+        console.log('✅ Created exterior facade (3 sections, fully opaque material)');
         
         // === NEON "CLUB VR" SIGN ===
         // Mounted above entrance door on exterior facade
@@ -3349,11 +3374,50 @@ class VRClub {
                         new BABYLON.Vector3(-1, 0, 0);
                         
                 } else { // Back or front wall (xy)
-                    targetPos = new BABYLON.Vector3(
-                        -17 + Math.random() * 34,  // x: -17 to +17 (full wall width)
-                        0.2 + Math.random() * 9.6,  // y: 0.2 to 9.8 (full wall height)
-                        surface.value
-                    );
+                    // Generate position on wall
+                    let x, y;
+                    let validPosition = false;
+                    let attempts = 0;
+                    
+                    // For front wall, avoid the doorway opening (3m wide × 2.5m tall, centered at x=0)
+                    if (surface.name === 'frontWall') {
+                        const doorwayWidth = 3;
+                        const doorwayHeight = 2.5;
+                        
+                        // Keep trying until we find a valid position outside doorway
+                        while (!validPosition && attempts < 50) {
+                            x = -17 + Math.random() * 34;  // x: -17 to +17 (full wall width)
+                            y = 0.2 + Math.random() * 9.6;  // y: 0.2 to 9.8 (full wall height)
+                            
+                            // Check if position is outside doorway bounds
+                            // Doorway: x = -1.5 to +1.5, y = 0 to 2.5
+                            const outsideHorizontal = Math.abs(x) > (doorwayWidth / 2);
+                            const aboveDoorway = y > doorwayHeight;
+                            
+                            if (outsideHorizontal || aboveDoorway) {
+                                validPosition = true;
+                            }
+                            attempts++;
+                        }
+                        
+                        // Fallback: if we couldn't find a spot, place it above doorway
+                        if (!validPosition) {
+                            x = -1.5 + Math.random() * 3; // Center area
+                            y = 5 + Math.random() * 4.8; // Upper wall only
+                            validPosition = true;
+                        }
+                        
+                        if (DEBUG_MODE) {
+                            console.log(`Front wall spot ${spotIndex}: x=${x.toFixed(2)}, y=${y.toFixed(2)}, attempts=${attempts}`);
+                        }
+                    } else {
+                        // Back wall - no restrictions
+                        x = -17 + Math.random() * 34;
+                        y = 0.2 + Math.random() * 9.6;
+                        validPosition = true;
+                    }
+                    
+                    targetPos = new BABYLON.Vector3(x, y, surface.value);
                     normal = surface.name === 'backWall' ? 
                         new BABYLON.Vector3(0, 0, 1) : 
                         new BABYLON.Vector3(0, 0, -1);
@@ -3387,6 +3451,15 @@ class VRClub {
                 });
             }
         });
+        
+        // Count spots per surface for debugging
+        if (DEBUG_MODE) {
+            const spotCounts = {};
+            this.mirrorReflectionSpots.forEach(s => {
+                spotCounts[s.surface] = (spotCounts[s.surface] || 0) + 1;
+            });
+            console.log('Mirror ball spot distribution:', spotCounts);
+        }
         
         console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls including entrance)`);
         

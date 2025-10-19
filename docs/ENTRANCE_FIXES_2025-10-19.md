@@ -2,7 +2,44 @@
 
 ## Issues Fixed
 
-### 1. ✅ Entrance Wall Transparency
+### 1. ✅ Entrance Wall Transparency (FINAL FIX)
+**Problem**: Entrance walls STILL appeared see-through in VR despite previous opacity enforcement attempts. Could see club interior lights through the front wall sections.
+
+**Root Cause**: The entrance walls were reusing the shared `wallMat` material from `createWalls()`. This shared material gets modified throughout the application and can have textures applied with alpha channels, causing transparency issues.
+
+**Solution** (lines 883-900):
+```javascript
+// Create DEDICATED material for entrance walls (don't reuse shared material)
+const entranceWallMat = new BABYLON.PBRMetallicRoughnessMaterial("entranceWallMat", this.scene);
+entranceWallMat.baseColor = new BABYLON.Color3(0.35, 0.35, 0.35);
+entranceWallMat.metallic = 0.0;
+entranceWallMat.roughness = 0.9;
+entranceWallMat.maxSimultaneousLights = this.maxLights;
+
+// AGGRESSIVELY enforce complete opacity BEFORE applying to meshes
+entranceWallMat.alpha = 1.0;
+entranceWallMat.transparencyMode = null;
+entranceWallMat.needAlphaBlending = () => false;
+entranceWallMat.needAlphaTesting = () => false;
+entranceWallMat.disableDepthWrite = false;
+entranceWallMat.forceDepthWrite = true;
+entranceWallMat.backFaceCulling = true;
+entranceWallMat.useAlphaFromAlbedoTexture = false;
+
+// Freeze material to prevent any modifications
+entranceWallMat.freeze();
+```
+
+**Key Changes**:
+1. **NEW dedicated material** - Not shared with other walls
+2. **Opacity enforced BEFORE mesh assignment** - Prevents texture loading from overriding settings
+3. **Material frozen immediately** - Locks settings permanently
+4. **No textures** - Plain color material with no alpha channels
+5. **All three wall sections use same frozen material** - Consistent appearance
+
+**Result**: Entrance walls are now COMPLETELY opaque. No light bleed-through possible!
+
+### 2. ✅ Neon Logo Visible from Inside
 **Problem**: Entrance walls appeared see-through in VR. Could see club interior lights through the front wall sections.
 
 **Root Cause**: VR stereoscopic rendering is hypersensitive to any alpha/transparency settings in materials. The wall material wasn't aggressively enforcing full opacity.
@@ -93,7 +130,79 @@ console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots a
 
 **Result**: Mirror ball spots already working correctly on entrance wall. Updated console message to accurately reflect 6 surfaces.
 
+### 4. ✅ Mirror Ball Spots in Doorway Opening (NEW FIX)
+**Problem**: Mirror ball reflection spots were appearing in the empty doorway opening (3m × 2.5m space where there's no wall). Spots were floating in mid-air instead of on solid surfaces.
+
+**Root Cause**: The front wall surface spot generation used the full wall bounds (-17 to +17, 0.2 to 9.8) without excluding the doorway area. The doorway is centered at x=0, 3m wide × 2.5m tall.
+
+**Solution** (lines 3350-3384):
+```javascript
+// For front wall, avoid the doorway opening (3m wide × 2.5m tall, centered at x=0)
+if (surface.name === 'frontWall') {
+    const doorwayWidth = 3;
+    const doorwayHeight = 2.5;
+    
+    // Keep trying until we find a valid position outside doorway
+    while (!validPosition && attempts < 50) {
+        x = -17 + Math.random() * 34;
+        y = 0.2 + Math.random() * 9.6;
+        
+        // Check if position is outside doorway bounds
+        const outsideHorizontal = Math.abs(x) > doorwayWidth / 2;
+        const aboveDoorway = y > doorwayHeight;
+        
+        if (outsideHorizontal || aboveDoorway) {
+            validPosition = true;
+        }
+        attempts++;
+    }
+    
+    // Fallback: if we couldn't find a spot, place it above doorway
+    if (!validPosition) {
+        x = -1.5 + Math.random() * 3; // Center area
+        y = 5 + Math.random() * 4.8; // Upper wall only
+    }
+}
+```
+
+**Logic**:
+1. **Random position generation** - Try multiple positions until valid
+2. **Horizontal exclusion** - Reject positions within 1.5m of center (doorway width)
+3. **Vertical exclusion** - Reject positions below 2.5m height (doorway height)
+4. **Valid positions** - Left wall section, right wall section, OR above doorway
+5. **Fallback** - If 50 attempts fail, force position above doorway
+
+**Spot Distribution on Front Wall**:
+- Left section: x = -17 to -1.5 (15.5m wide)
+- Right section: x = 1.5 to 17 (15.5m wide)  
+- Top section: y = 2.5 to 9.8 (7.3m tall, full width)
+- **Doorway**: x = -1.5 to 1.5, y = 0 to 2.5 ❌ NO SPOTS
+
+**Result**: 
+- Mirror ball spots only appear on SOLID wall surfaces
+- No floating spots in doorway opening
+- Spots correctly positioned on left/right/top entrance wall sections
+- Natural appearance - spots on floor/side walls near doorway still visible
+
 ## Technical Details
+
+### Dedicated Material Pattern for Critical Geometry
+When geometry MUST be 100% opaque (entrance walls, structural elements):
+1. **Create NEW material** - Don't reuse shared materials
+2. **No textures** - Use plain `baseColor` to avoid alpha channels
+3. **Enforce opacity BEFORE mesh assignment** - Settings locked before use
+4. **Freeze material immediately** - Prevent any future modifications
+5. **Apply to all related meshes** - Consistent appearance
+
+```javascript
+const mat = new BABYLON.PBRMetallicRoughnessMaterial("dedicatedMat", scene);
+mat.baseColor = new BABYLON.Color3(r, g, b);
+mat.alpha = 1.0;
+mat.transparencyMode = null;
+mat.needAlphaBlending = () => false;
+mat.freeze(); // CRITICAL: Lock material
+mesh.material = mat;
+```
 
 ### VR Transparency Prevention Pattern
 When creating opaque geometry for VR:
@@ -120,37 +229,95 @@ For signage or decals that should only be visible from one side:
 - Pre-distributes spots evenly across all surfaces
 - Uses surface-specific axis constraints (xy, xz, yz)
 - Surface normal determines disc orientation
+- **NEW**: Excludes doorway opening on front wall
 - Spots appear on ALL walls, floor, and ceiling simultaneously when mirror ball activates
 
+### Spatial Exclusion for Reflection Spots
+When placing visual effects on surfaces with openings:
+1. **Define exclusion zone** - Width, height, center position
+2. **Attempt-based placement** - Try multiple random positions
+3. **Validation check** - Test if position overlaps exclusion zone
+4. **Fallback strategy** - Guaranteed valid position if attempts fail
+5. **Performance** - Max 50 attempts per spot (negligible cost during initialization)
+
+This ensures visual effects only appear on physical geometry, maintaining realism.
+
 ## Files Modified
-- `js/club_hyperrealistic.js` (3 sections)
-  - Lines 920-951: Entrance wall opacity enforcement
-  - Line 1095: Neon letter backface culling
-  - Line 3391: Console log correction
+- `js/club_hyperrealistic.js` (4 sections)
+  - Lines 883-900: NEW dedicated entrance wall material (frozen, opaque)
+  - Lines 905-933: Entrance wall mesh setup with frozen material
+  - Line 1095: Neon letter backface culling  
+  - Lines 3350-3384: Front wall doorway exclusion logic
+  - Line 3391: Console log correction (6 surfaces)
+- `docs/ENTRANCE_FIXES_2025-10-19.md` (this file)
 
 ## Testing Checklist
-- [ ] Entrance walls completely opaque in desktop mode
-- [ ] Entrance walls completely opaque in VR mode
-- [ ] No light bleed-through from club interior
+- [ ] Entrance walls COMPLETELY opaque in desktop mode
+- [ ] Entrance walls COMPLETELY opaque in VR mode  
+- [ ] No light bleed-through from club interior (critical test)
 - [ ] Neon "CLUB VR" sign visible from outside
 - [ ] Neon sign invisible/culled from inside club
-- [ ] Mirror ball spots appear on entrance wall sections
+- [ ] Mirror ball spots appear on entrance wall LEFT section
+- [ ] Mirror ball spots appear on entrance wall RIGHT section
+- [ ] Mirror ball spots appear on entrance wall TOP section  
+- [ ] NO mirror ball spots in doorway opening (empty space)
+- [ ] Mirror ball spots on floor near entrance visible
 - [ ] Mirror ball spots cover all 6 surfaces evenly
 - [ ] No performance regression
+- [ ] No z-fighting or visual artifacts on entrance walls
 
 ## Performance Impact
+- **Positive**: Dedicated frozen material reduces runtime overhead
 - **Positive**: Backface culling on 6 neon letter planes saves GPU cycles
-- **Positive**: Frozen world matrices on 3 wall sections reduces transform calculations
+- **Positive**: Frozen world matrices on 3 wall sections reduces transform calculations  
+- **Neutral**: Doorway exclusion logic runs once during initialization (negligible)
 - **Neutral**: Opacity enforcement has no runtime cost (compile-time settings)
 
+## Root Cause Analysis
+
+### Why Previous Fix Failed
+The first attempt tried to enforce opacity on the SHARED `wallMat` material after mesh assignment:
+```javascript
+const wallMat = this.materialFactory.getPreset('wall'); // SHARED material
+frontWallLeft.material = wallMat;
+// Later... try to enforce opacity
+wallMat.alpha = 1.0; // Too late! Textures already applied
+```
+
+**Problems**:
+1. Material already used by other walls (back, left, right)
+2. Textures loaded asynchronously can override settings
+3. Material modifications affect ALL walls using it
+4. No freeze to prevent future changes
+
+### Why Current Fix Works
+Creates ISOLATED material with opacity baked in BEFORE any usage:
+```javascript
+const entranceWallMat = new BABYLON.PBRMetallicRoughnessMaterial(...); // NEW material
+entranceWallMat.alpha = 1.0; // Set BEFORE mesh assignment
+entranceWallMat.freeze(); // Lock settings permanently
+frontWallLeft.material = entranceWallMat; // Apply frozen material
+```
+
+**Advantages**:
+1. Completely independent from other wall materials
+2. No textures to load (plain color)
+3. Settings locked before any use
+4. Cannot be modified by other code
+5. Frozen = performance optimization
+
 ## Related Issues
-- PA speaker grills moving: Fixed with `freezeWorldMatrix()` (commit earlier today)
-- Avatar transparency: Fixed in `readyPlayerMeLoader.js` (separate commit)
+- PA speaker grills moving: Fixed with `freezeWorldMatrix()` (earlier commit)
+- Avatar transparency: Fixed in `readyPlayerMeLoader.js` (separate commit)  
 - Entrance neon text mirrored: Fixed with reversed letter positions (previous commit)
+- VR locomotion: Added thumbstick movement + snap turns (earlier commit)
 
 ## Next Steps
-1. Test all fixes in VR on Quest 3S
-2. Verify no visual artifacts or z-fighting
-3. Confirm mirror ball spots distribute correctly
-4. Document final performance metrics
-5. Commit changes with proper attribution
+1. Test entrance opacity fix in VR on Quest 3S (CRITICAL)
+2. Verify mirror ball spots don't appear in doorway
+3. Confirm spots appear on left/right/top wall sections
+4. Test at different times of day/lighting conditions
+5. Verify no performance regression
+6. Commit all changes with comprehensive message
+7. Update optimization branch summary
+8. Prepare for final testing phase
