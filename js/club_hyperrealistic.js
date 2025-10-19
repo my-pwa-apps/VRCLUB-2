@@ -477,6 +477,10 @@ class VRClub {
         
         this.scene.activeCamera = this.camera;
         
+        // Create clip plane to prevent interior lighting effects from extending beyond front wall
+        // Clips at z=1.75 (front wall inner face) - normal points into club (0, 0, -1)
+        this.frontWallClipPlane = new BABYLON.Plane(0, 0, -1, 1.75);
+        
         // Add glow layer for neon/LED effects (works in both desktop and VR)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
             mainTextureFixedSize: 1024, // Increased for VR
@@ -2591,6 +2595,7 @@ class VRClub {
         beamMat.backFaceCulling = false;
         beamMat.disableLighting = true;
         beamMat.unlit = true;
+        beamMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
         beam.material = beamMat;
         beam.renderingGroupId = 1;
         
@@ -2615,6 +2620,7 @@ class VRClub {
         beamGlowMat.backFaceCulling = false;
         beamGlowMat.disableLighting = true;
         beamGlowMat.unlit = true;
+        beamGlowMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
         beamGlow.material = beamGlowMat;
         beamGlow.renderingGroupId = 1;
         
@@ -2762,6 +2768,7 @@ class VRClub {
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
             beamMat.unlit = true; // Don't receive lighting
+            beamMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -3286,6 +3293,7 @@ class VRClub {
             beamMat.backFaceCulling = false;
             beamMat.disableLighting = true;
             beamMat.unlit = true;
+            beamMat.clipPlane = this.frontWallClipPlane; // Clip at front wall
             
             beam.material = beamMat;
             beam.isPickable = false;
@@ -4019,8 +4027,24 @@ class VRClub {
                     });
                     
                     let beamLength = 15;
+                    let hitPoint = laser.originPos.add(direction.scale(beamLength));
+                    
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
+                        hitPoint = hit.pickedPoint;
+                    }
+                    
+                    // CLAMP BEAM TO FRONT WALL (z=1.75) - prevent beams from extending outside club
+                    // If beam would extend past front wall, calculate intersection with front wall plane
+                    if (direction.z > 0) { // Beam pointing forward (toward entrance)
+                        const frontWallZ = 1.75;
+                        const t = (frontWallZ - laser.originPos.z) / direction.z;
+                        if (t > 0 && t < beamLength) {
+                            // Beam intersects front wall before hitting target
+                            const clampedPoint = laser.originPos.add(direction.scale(t));
+                            beamLength = t;
+                            hitPoint = clampedPoint;
+                        }
                     }
                     
                     // Update beam geometry
@@ -4048,9 +4072,12 @@ class VRClub {
                     }
                     
                     // UPDATE HIT SPOT - Position where laser hits surface
-                    if (beam.hitSpot && hit && hit.hit && hit.pickedPoint) {
-                        beam.hitSpot.position.copyFrom(hit.pickedPoint);
-                        beam.hitSpot.position.y = 0.02; // Slightly above floor to avoid z-fighting
+                    if (beam.hitSpot && hitPoint) {
+                        beam.hitSpot.position.copyFrom(hitPoint);
+                        // Only clamp to floor if hit point is on floor
+                        if (hitPoint.y < 0.1) {
+                            beam.hitSpot.position.y = 0.02; // Slightly above floor to avoid z-fighting
+                        }
                         beam.hitSpot.visibility = 1.0;
                         
                         // Pulse effect on hit spot
@@ -4404,8 +4431,21 @@ class VRClub {
                     const horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
                     const angleFromVertical = Math.atan2(horizontalDistance, Math.abs(direction.y));
                     const extraLength = coneRadiusAtFloor * Math.tan(angleFromVertical);
-                    const beamLength = centerDistanceToFloor + extraLength;
-                    const endPoint = floorIntersection.clone();
+                    let beamLength = centerDistanceToFloor + extraLength;
+                    let endPoint = floorIntersection.clone();
+                    
+                    // CLAMP BEAM TO FRONT WALL (z=1.75) - prevent beams from extending outside club
+                    if (direction.z > 0) { // Beam pointing forward (toward entrance)
+                        const frontWallZ = 1.75;
+                        const startPos = spot.basePos;
+                        const t = (frontWallZ - startPos.z) / direction.z;
+                        if (t > 0 && t < beamLength) {
+                            // Beam intersects front wall before hitting floor
+                            const clampedPoint = startPos.add(direction.scale(t));
+                            beamLength = t;
+                            endPoint = clampedPoint;
+                        }
+                    }
                     
                     // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
                     // Cylinder with height=1 extends from -0.5 to +0.5 in local Y
