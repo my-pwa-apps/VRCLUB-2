@@ -3044,29 +3044,12 @@ class VRClub {
                         });
                     });
                 }
-            } else {
-                // MANUAL MODE: Respect VJ's individual light settings
-                // Only disable lights if VJ explicitly turned them off
-                if (this.spotlights && !this.lightsActive) {
-                    this.spotlights.forEach(spot => {
-                        if (spot.spot) spot.spot.setEnabled(false);
-                        if (spot.beam) spot.beam.setEnabled(false);
-                    });
-                }
-                
-                if (this.lasers && !this.lasersActive) {
-                    this.lasers.forEach(laser => {
-                        laser.lights.forEach(light => light.setEnabled(false));
-                        laser.beams.forEach(beam => {
-                            beam.mesh.setEnabled(false);
-                            beam.beamGlow.setEnabled(false);
-                            beam.hitSpot.setEnabled(false);
-                        });
-                    });
-                }
             }
+            // MANUAL MODE: VJ controls each light type independently
+            // Mirror ball doesn't force any other lights off in manual mode
+            // Lasers and other lights are controlled by their own toggle buttons
             
-            // Disable strobes
+            // Disable strobes (they don't work well with mirror ball)
             if (this.strobes) {
                 this.strobes.forEach(strobe => {
                     if (strobe.light) strobe.light.setEnabled(false);
