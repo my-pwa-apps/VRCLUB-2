@@ -2760,51 +2760,9 @@ class VRClub {
         
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
-            // In AUTOMATED mode: Turn OFF all other lights when mirror ball is active
-            // In MANUAL mode: Allow VJ to control lights independently
-            if (!this.vjManualMode) {
-                this.lightsActive = false;
-                this.lasersActive = false;
-                this.ledWallActive = false;
-                
-                // Disable spotlight beams in automated mode
-                if (this.spotlights) {
-                    this.spotlights.forEach(spot => {
-                        if (spot.spot) spot.spot.setEnabled(false);
-                        if (spot.beam) spot.beam.setEnabled(false);
-                    });
-                }
-                
-                // Disable lasers in automated mode
-                if (this.lasers) {
-                    this.lasers.forEach(laser => {
-                        laser.lights.forEach(light => light.setEnabled(false));
-                        laser.beams.forEach(beam => {
-                            beam.mesh.setEnabled(false);
-                            beam.beamGlow.setEnabled(false);
-                            beam.hitSpot.setEnabled(false);
-                        });
-                    });
-                }
-            }
-            // MANUAL MODE: VJ controls each light type independently
-            // Mirror ball doesn't force any other lights off in manual mode
-            // Lasers and other lights are controlled by their own toggle buttons
-            
-            // Disable strobes (they don't work well with mirror ball)
-            if (this.strobes) {
-                this.strobes.forEach(strobe => {
-                    if (strobe.light) strobe.light.setEnabled(false);
-                    if (strobe.material) strobe.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                });
-            }
-            
-            // Turn off LED wall (unless manually enabled by VJ)
-            if (this.ledPanels && !this.ledWallActive) {
-                this.ledPanels.forEach(panel => {
-                    panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                });
-            }
+            // Mirror ball is now INDEPENDENT - doesn't disable other lights
+            // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
+            // VJ has full control to enable any combination
             
             // Enable all mirror ball spotlights and beams
             if (this.mirrorBallSpotlights) {
