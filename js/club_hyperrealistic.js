@@ -880,85 +880,85 @@ class VRClub {
         
         // === FRONT WALL WITH DOORWAY ===
         // Create full front wall (z=2) with central doorway opening
-        // Create DEDICATED material for entrance walls (don't reuse shared material)
-        // Using StandardMaterial for GUARANTEED opacity (PBR can have transparency issues)
-        const entranceWallMat = new BABYLON.StandardMaterial("entranceWallMat", this.scene);
-        entranceWallMat.diffuseColor = new BABYLON.Color3(0.35, 0.35, 0.35);
-        entranceWallMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        
-        // AGGRESSIVELY enforce complete opacity
-        entranceWallMat.alpha = 1.0;
-        entranceWallMat.transparencyMode = null;
-        entranceWallMat.needAlphaBlending = () => false;
-        entranceWallMat.needAlphaTesting = () => false;
-        entranceWallMat.disableDepthWrite = false;
-        entranceWallMat.backFaceCulling = false; // DOUBLE-SIDED (render from both inside and outside)
-        
-        // Ensure no alpha textures
-        entranceWallMat.opacityTexture = null;
-        entranceWallMat.diffuseTexture = null; // No textures at all
-        
-        // Force early rendering (opaque objects first)
-        entranceWallMat.renderingGroupId = 0;
-        
-        // Freeze material to prevent any modifications
-        entranceWallMat.freeze();
-        
-        console.log('🔒 Entrance wall material created (StandardMaterial):', {
-            name: entranceWallMat.name,
-            alpha: entranceWallMat.alpha,
-            transparencyMode: entranceWallMat.transparencyMode,
-            isFrozen: entranceWallMat.isFrozen,
-            diffuseColor: entranceWallMat.diffuseColor
-        });
-        
+        // === NUCLEAR OPTION: Each wall gets its OWN unique unlit material ===
+        // NO SHARING - prevents any cross-contamination
         const doorwayWidth = 3; // 3m wide entrance
         const doorwayHeight = 2.5; // 2.5m tall entrance
         const wallWidth = 35; // Match room width
+        const wallColor = new BABYLON.Color3(0.35, 0.35, 0.35);
         
-        // Left section of front wall
+        // Helper function to create COMPLETELY OPAQUE unlit material
+        const createOpaqueWallMaterial = (name) => {
+            const mat = new BABYLON.StandardMaterial(name, this.scene);
+            mat.emissiveColor = wallColor.clone(); // Self-lit (no lighting calculations)
+            mat.diffuseColor = new BABYLON.Color3(0, 0, 0); // No diffuse response
+            mat.specularColor = new BABYLON.Color3(0, 0, 0); // No specular
+            mat.ambientColor = new BABYLON.Color3(0, 0, 0); // No ambient
+            mat.alpha = 1.0;
+            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE; // Explicit opaque mode
+            mat.disableDepthWrite = false;
+            mat.backFaceCulling = false; // Double-sided
+            mat.opacityTexture = null;
+            mat.alphaMode = BABYLON.Constants.ALPHA_DISABLE; // Disable alpha completely
+            mat.freeze();
+            return mat;
+        };
+        
+        // Left section of front wall - UNIQUE MATERIAL
         const frontWallLeft = BABYLON.MeshBuilder.CreateBox("frontWallLeft", {
             width: (wallWidth - doorwayWidth) / 2,
             height: 10,
             depth: 0.5
         }, this.scene);
         frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallLeft.material = entranceWallMat;
+        frontWallLeft.material = createOpaqueWallMaterial("frontWallLeftMat");
         frontWallLeft.receiveShadows = false;
         frontWallLeft.isPickable = true;
         frontWallLeft.checkCollisions = true;
-        frontWallLeft.renderingGroupId = 0; // Render early (opaque group)
+        frontWallLeft.renderingGroupId = 0;
+        frontWallLeft.alphaIndex = 0; // Force to front of render queue
+        frontWallLeft.visibility = 1.0; // Full visibility
         frontWallLeft.freezeWorldMatrix();
         
-        // Right section of front wall
+        // Right section of front wall - UNIQUE MATERIAL
         const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
             width: (wallWidth - doorwayWidth) / 2,
             height: 10,
             depth: 0.5
         }, this.scene);
         frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallRight.material = entranceWallMat;
+        frontWallRight.material = createOpaqueWallMaterial("frontWallRightMat");
         frontWallRight.receiveShadows = false;
         frontWallRight.isPickable = true;
         frontWallRight.checkCollisions = true;
-        frontWallRight.renderingGroupId = 0; // Render early (opaque group)
+        frontWallRight.renderingGroupId = 0;
+        frontWallRight.alphaIndex = 0;
+        frontWallRight.visibility = 1.0;
         frontWallRight.freezeWorldMatrix();
         
-        // Top section above doorway
+        // Top section above doorway - UNIQUE MATERIAL
         const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
             width: doorwayWidth,
             height: 10 - doorwayHeight,
             depth: 0.5
         }, this.scene);
         frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
-        frontWallTop.material = entranceWallMat;
+        frontWallTop.material = createOpaqueWallMaterial("frontWallTopMat");
         frontWallTop.receiveShadows = false;
         frontWallTop.isPickable = true;
         frontWallTop.checkCollisions = true;
-        frontWallTop.renderingGroupId = 0; // Render early (opaque group)
+        frontWallTop.renderingGroupId = 0;
+        frontWallTop.alphaIndex = 0;
+        frontWallTop.visibility = 1.0;
         frontWallTop.freezeWorldMatrix();
         
-        console.log('✅ Created entrance front wall with doorway (3 sections, fully opaque material)');
+        if (DEBUG_MODE) {
+            console.log('✅ Created entrance front wall (3 sections, unique unlit materials):', {
+                left: { pos: frontWallLeft.position, mat: frontWallLeft.material.name, visible: frontWallLeft.visibility },
+                right: { pos: frontWallRight.position, mat: frontWallRight.material.name, visible: frontWallRight.visibility },
+                top: { pos: frontWallTop.position, mat: frontWallTop.material.name, visible: frontWallTop.visibility }
+            });
+        }
         
         // === ENTRANCE DOOR FRAME ===
         const frameMat = new BABYLON.PBRMetallicRoughnessMaterial("doorFrameMat", this.scene);
@@ -999,79 +999,77 @@ class VRClub {
         // Taller wall with industrial brick texture (street-facing exterior)
         const facadeHeight = 12; // Taller exterior wall
         const facadeDepth = 0.8;
+        const facadeColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick
         
-        // Create DEDICATED facade material (not shared) with aggressive opacity
-        // Using StandardMaterial for GUARANTEED opacity
-        const facadeMat = new BABYLON.StandardMaterial("facadeMat", this.scene);
-        facadeMat.diffuseColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick color
-        facadeMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        // Helper function for facade materials (same pattern as front wall)
+        const createOpaqueFacadeMaterial = (name) => {
+            const mat = new BABYLON.StandardMaterial(name, this.scene);
+            mat.emissiveColor = facadeColor.clone(); // Self-lit
+            mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            mat.specularColor = new BABYLON.Color3(0, 0, 0);
+            mat.ambientColor = new BABYLON.Color3(0, 0, 0);
+            mat.alpha = 1.0;
+            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+            mat.disableDepthWrite = false;
+            mat.backFaceCulling = false; // Double-sided
+            mat.opacityTexture = null;
+            mat.alphaMode = BABYLON.Constants.ALPHA_DISABLE;
+            mat.freeze();
+            return mat;
+        };
         
-        // AGGRESSIVELY enforce complete opacity
-        facadeMat.alpha = 1.0;
-        facadeMat.transparencyMode = null;
-        facadeMat.needAlphaBlending = () => false;
-        facadeMat.needAlphaTesting = () => false;
-        facadeMat.disableDepthWrite = false;
-        facadeMat.backFaceCulling = false; // DOUBLE-SIDED (render from both inside and outside)
-        
-        // Ensure no alpha textures
-        facadeMat.opacityTexture = null;
-        facadeMat.diffuseTexture = null; // No textures at all
-        
-        // Force early rendering (opaque objects first)
-        facadeMat.renderingGroupId = 0;
-        
-        // Freeze to lock settings
-        facadeMat.freeze();
-        
-        console.log('🔒 Facade material created (StandardMaterial):', {
-            name: facadeMat.name,
-            alpha: facadeMat.alpha,
-            transparencyMode: facadeMat.transparencyMode,
-            isFrozen: facadeMat.isFrozen,
-            diffuseColor: facadeMat.diffuseColor
-        });
-        
-        // Left facade section
+        // Left facade section - UNIQUE MATERIAL
         const facadeLeft = BABYLON.MeshBuilder.CreateBox("facadeLeft", {
             width: (wallWidth - doorwayWidth) / 2,
             height: facadeHeight,
             depth: facadeDepth
         }, this.scene);
         facadeLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeLeft.material = facadeMat;
+        facadeLeft.material = createOpaqueFacadeMaterial("facadeLeftMat");
         facadeLeft.receiveShadows = false;
         facadeLeft.checkCollisions = true;
-        facadeLeft.renderingGroupId = 0; // Render early (opaque group)
+        facadeLeft.renderingGroupId = 0;
+        facadeLeft.alphaIndex = 0;
+        facadeLeft.visibility = 1.0;
         facadeLeft.freezeWorldMatrix();
         
-        // Right facade section
+        // Right facade section - UNIQUE MATERIAL
         const facadeRight = BABYLON.MeshBuilder.CreateBox("facadeRight", {
             width: (wallWidth - doorwayWidth) / 2,
             height: facadeHeight,
             depth: facadeDepth
         }, this.scene);
         facadeRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeRight.material = facadeMat;
+        facadeRight.material = createOpaqueFacadeMaterial("facadeRightMat");
         facadeRight.receiveShadows = false;
         facadeRight.checkCollisions = true;
-        facadeRight.renderingGroupId = 0; // Render early (opaque group)
+        facadeRight.renderingGroupId = 0;
+        facadeRight.alphaIndex = 0;
+        facadeRight.visibility = 1.0;
         facadeRight.freezeWorldMatrix();
         
-        // Top facade section (above door)
+        // Top facade section (above door) - UNIQUE MATERIAL
         const facadeTop = BABYLON.MeshBuilder.CreateBox("facadeTop", {
             width: doorwayWidth + 4, // Wider overhang
             height: facadeHeight - doorwayHeight - 2,
             depth: facadeDepth
         }, this.scene);
         facadeTop.position = new BABYLON.Vector3(0, facadeHeight / 2 + doorwayHeight / 2 + 1, entranceZ);
-        facadeTop.material = facadeMat;
+        facadeTop.material = createOpaqueFacadeMaterial("facadeTopMat");
         facadeTop.receiveShadows = false;
         facadeTop.checkCollisions = true;
-        facadeTop.renderingGroupId = 0; // Render early (opaque group)
+        facadeTop.renderingGroupId = 0;
+        facadeTop.alphaIndex = 0;
+        facadeTop.visibility = 1.0;
         facadeTop.freezeWorldMatrix();
         
-        console.log('✅ Created exterior facade (3 sections, fully opaque material)');
+        if (DEBUG_MODE) {
+            console.log('✅ Created exterior facade (3 sections, unique unlit materials):', {
+                left: { pos: facadeLeft.position, mat: facadeLeft.material.name, visible: facadeLeft.visibility },
+                right: { pos: facadeRight.position, mat: facadeRight.material.name, visible: facadeRight.visibility },
+                top: { pos: facadeTop.position, mat: facadeTop.material.name, visible: facadeTop.visibility }
+            });
+        }
         
         // === NEON "CLUB VR" SIGN ===
         // Mounted above entrance door on exterior facade
