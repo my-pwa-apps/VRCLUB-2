@@ -81,7 +81,6 @@ class VRClub {
         this.audioElement = null;
         
         this.vuMeters = [];
-        this.smokeMachines = [];
         
         // Cache Color3 objects for performance (avoid creating new ones every frame)
         this.cachedColors = {
@@ -422,9 +421,6 @@ class VRClub {
         this.createTrussMountedLights();
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         
-        // VOLUMETRIC FOG SYSTEM - DISABLED for performance (can re-enable later)
-        // this.createVolumetricFog();
-        
         // Setup UI
         this.setupUI(vrHelper);
         this.setupPerformanceMonitor();
@@ -503,148 +499,8 @@ class VRClub {
         pipeline.imageProcessing.toneMappingEnabled = true;
         pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
         
-        // Store pipeline for fog effects
+        // Store pipeline
         this.renderPipeline = pipeline;
-    }
-    
-    createVolumetricFog() {
-        // HYPERREALISTIC ATMOSPHERIC FOG - Makes light beams visible!
-        
-        // Create fog particle systems for volumetric atmosphere
-        this.fogSystems = [];
-        
-        // Main dance floor fog (low-lying, subtle)
-        const danceFloorFog = new BABYLON.ParticleSystem("danceFloorFog", 1200, this.scene);
-        danceFloorFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-        danceFloorFog.emitter = new BABYLON.Vector3(0, 0.5, -12); // Low to ground
-        danceFloorFog.minEmitBox = new BABYLON.Vector3(-10, 0, -10);
-        danceFloorFog.maxEmitBox = new BABYLON.Vector3(10, 0.8, 10);
-        
-        // Fog appearance - ultra-subtle atmospheric haze (not visible particles)
-        danceFloorFog.color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.03); // Very low alpha
-        danceFloorFog.color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.02); // Very low alpha
-        danceFloorFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
-        
-        // LARGE particles for haze effect (not visible as individual balls)
-        danceFloorFog.minSize = 8.0;  // Much larger - creates soft haze
-        danceFloorFog.maxSize = 15.0; // Very large - blends into atmosphere
-        danceFloorFog.minLifeTime = 20; // Long lifetime
-        danceFloorFog.maxLifeTime = 40; // Very long - particles hang in air
-        danceFloorFog.emitRate = 20; // Fewer particles
-        
-        // MINIMAL movement - haze hangs in air, barely drifts
-        danceFloorFog.direction1 = new BABYLON.Vector3(-0.05, 0.01, -0.02);
-        danceFloorFog.direction2 = new BABYLON.Vector3(0.05, 0.02, 0.02);
-        danceFloorFog.minEmitPower = 0.01; // Almost no power
-        danceFloorFog.maxEmitPower = 0.03; // Very gentle
-        danceFloorFog.updateSpeed = 0.002; // Extremely slow - nearly static
-        
-        // Minimal turbulence - haze should be stable, not swirling
-        danceFloorFog.noiseTexture = new BABYLON.NoiseProceduralTexture("fogNoise", 256, this.scene);
-        danceFloorFog.noiseStrength = new BABYLON.Vector3(0.1, 0.05, 0.1); // Very subtle
-        
-        // Blending for soft atmospheric haze
-        danceFloorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        
-        // LIGHT INTERACTION - Make fog particles receive light from scene
-        // Color gradients for soft fade (lower alpha values)
-        danceFloorFog.addColorGradient(0, new BABYLON.Color4(0.85, 0.85, 0.92, 0.03));
-        danceFloorFog.addColorGradient(0.5, new BABYLON.Color4(0.75, 0.75, 0.85, 0.02));
-        danceFloorFog.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0));
-        
-        danceFloorFog.start();
-        this.fogSystems.push(danceFloorFog);
-        
-        // Upper atmosphere fog (ultra-light, barely visible)
-        const upperFog = new BABYLON.ParticleSystem("upperFog", 800, this.scene);
-        upperFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-        upperFog.emitter = new BABYLON.Vector3(0, 5, -12); // Mid-height
-        upperFog.minEmitBox = new BABYLON.Vector3(-14, -1.5, -14);
-        upperFog.maxEmitBox = new BABYLON.Vector3(14, 1.5, 14);
-        
-        // Ultra-light atmospheric haze (barely visible)
-        upperFog.color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.02); // Extremely low alpha
-        upperFog.color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.01); // Nearly invisible
-        upperFog.colorDead = new BABYLON.Color4(0.4, 0.4, 0.5, 0);
-        
-        // HUGE particles for soft atmospheric haze
-        upperFog.minSize = 10.0;  // Very large
-        upperFog.maxSize = 20.0;  // Massive - creates soft haze layer
-        upperFog.minLifeTime = 30; // Very long lifetime
-        upperFog.maxLifeTime = 60; // Hangs in air
-        upperFog.emitRate = 12;    // Very few particles
-        
-        // BARELY any movement - static atmospheric layer
-        upperFog.direction1 = new BABYLON.Vector3(-0.02, -0.01, -0.01);
-        upperFog.direction2 = new BABYLON.Vector3(0.02, 0.01, 0.01);
-        upperFog.minEmitPower = 0.005; // Almost stationary
-        upperFog.maxEmitPower = 0.02;  // Very gentle
-        upperFog.updateSpeed = 0.001;  // Nearly frozen
-        
-        // Minimal turbulence - stable atmospheric layer
-        upperFog.noiseTexture = new BABYLON.NoiseProceduralTexture("upperFogNoise", 256, this.scene);
-        upperFog.noiseStrength = new BABYLON.Vector3(0.05, 0.02, 0.05); // Almost none
-        
-        upperFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        
-        // LIGHT INTERACTION - Upper fog catches colored light from spotlights
-        upperFog.addColorGradient(0, new BABYLON.Color4(0.72, 0.72, 0.8, 0.02));
-        upperFog.addColorGradient(0.5, new BABYLON.Color4(0.62, 0.62, 0.72, 0.01));
-        upperFog.addColorGradient(1.0, new BABYLON.Color4(0.4, 0.4, 0.5, 0));
-        
-        upperFog.start();
-        this.fogSystems.push(upperFog);
-        
-        // DJ Booth fog machine effect (realistic bursts)
-        const djFog = new BABYLON.ParticleSystem("djFog", 600, this.scene);
-        djFog.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-        djFog.emitter = new BABYLON.Vector3(0, 0.8, -24); // DJ booth area, lower
-        djFog.minEmitBox = new BABYLON.Vector3(-3.5, 0, -0.5);
-        djFog.maxEmitBox = new BABYLON.Vector3(3.5, 0.3, 0.5);
-        
-        // Subtle atmospheric haze from DJ area
-        djFog.color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.04); // Very low alpha
-        djFog.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.02);   // Very low alpha
-        djFog.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
-        
-        // LARGE particles for haze (not visible fog plume)
-        djFog.minSize = 6.0;  // Larger
-        djFog.maxSize = 12.0; // Much larger - creates haze
-        djFog.minLifeTime = 20; // Longer lifetime
-        djFog.maxLifeTime = 40; // Hangs around
-        djFog.emitRate = 15;    // Fewer particles
-        
-        // GENTLE spread - haze drifts slowly, not billowing
-        djFog.direction1 = new BABYLON.Vector3(-0.2, 0.05, 0.5);
-        djFog.direction2 = new BABYLON.Vector3(0.2, 0.1, 1.0);
-        djFog.minEmitPower = 0.05; // Very gentle
-        djFog.maxEmitPower = 0.15; // Slow drift
-        djFog.updateSpeed = 0.003; // Very slow
-        
-        // Minimal turbulence - stable haze
-        djFog.noiseTexture = new BABYLON.NoiseProceduralTexture("djFogNoise", 256, this.scene);
-        djFog.noiseStrength = new BABYLON.Vector3(0.1, 0.05, 0.1); // Very subtle
-        
-        // Slight gravity - haze settles gently
-        djFog.gravity = new BABYLON.Vector3(0, -0.05, 0);
-        
-        djFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        
-        // LIGHT INTERACTION - DJ fog catches colored light beams
-        djFog.addColorGradient(0, new BABYLON.Color4(0.88, 0.88, 0.98, 0.04));
-        djFog.addColorGradient(0.5, new BABYLON.Color4(0.78, 0.78, 0.88, 0.02));
-        djFog.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0));
-        
-        djFog.start();
-        this.fogSystems.push(djFog);
-        
-        // Scene fog DISABLED - was causing screendoor effect in VR
-        // Particle systems provide enough atmospheric haze
-        this.scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
-        this.scene.fogDensity = 0;
-        this.scene.fogColor = new BABYLON.Color3(0, 0, 0);
-        
-        console.log("✅ Created hyperrealistic volumetric fog system (3 particle systems + scene fog)");
     }
 
     createFloor() {
@@ -2505,102 +2361,6 @@ class VRClub {
         
     }
 
-    updateFogLighting(time) {
-        // Dynamically tint fog particles based on current spotlight color
-        // This creates realistic light scattering through the atmosphere
-        
-        // Get current spotlight color
-        let lightColor;
-        if (this.currentColorIndex === 0) {
-            lightColor = this.cachedColors.red; // Red
-        } else if (this.currentColorIndex === 1) {
-            lightColor = this.cachedColors.green; // Green
-        } else {
-            lightColor = this.cachedColors.blue; // Blue/Cyan
-        }
-        
-        // Mix base fog color with light color for realistic illumination
-        // Base fog is white/gray, tinted by colored lights passing through
-        const baseFogColor = new BABYLON.Color3(0.85, 0.85, 0.92); // Neutral white fog
-        const mixFactor = 0.4; // 40% light color, 60% base fog color
-        
-        // Calculate tinted fog color (light scattering effect)
-        const tintedR = baseFogColor.r * (1 - mixFactor) + lightColor.r * mixFactor;
-        const tintedG = baseFogColor.g * (1 - mixFactor) + lightColor.g * mixFactor;
-        const tintedB = baseFogColor.b * (1 - mixFactor) + lightColor.b * mixFactor;
-        
-        // Add subtle pulsing based on time (simulates light intensity variation)
-        const pulse = 0.85 + Math.sin(time * 1.5) * 0.15; // Subtle 15% variation
-        
-        // Update all fog systems with light-tinted colors (SUBTLE HAZE)
-        if (this.fogSystems[0]) { // Dance floor fog
-            const alpha1 = 0.03 * pulse; // Reduced for haze effect
-            const alpha2 = 0.02 * pulse;
-            this.fogSystems[0].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
-            this.fogSystems[0].color2 = new BABYLON.Color4(tintedR * 0.85, tintedG * 0.85, tintedB * 0.85, alpha2);
-        }
-        
-        if (this.fogSystems[1]) { // Upper atmosphere fog
-            const alpha1 = 0.02 * pulse; // Reduced for haze effect
-            const alpha2 = 0.01 * pulse;
-            this.fogSystems[1].color1 = new BABYLON.Color4(tintedR * 0.9, tintedG * 0.9, tintedB * 0.9, alpha1);
-            this.fogSystems[1].color2 = new BABYLON.Color4(tintedR * 0.75, tintedG * 0.75, tintedB * 0.75, alpha2);
-        }
-        
-        if (this.fogSystems[2]) { // DJ booth fog
-            const alpha1 = 0.04 * pulse; // Reduced for haze effect
-            const alpha2 = 0.02 * pulse;
-            this.fogSystems[2].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
-            this.fogSystems[2].color2 = new BABYLON.Color4(tintedR * 0.8, tintedG * 0.8, tintedB * 0.8, alpha2);
-        }
-    }
-    
-    updateFogLightingForLasers(time) {
-        // Tint fog based on laser colors (RGB cycling)
-        // Lasers are thinner and more focused, so fog tint is more subtle
-        
-        let laserColor;
-        if (this.currentColorIndex === 0) {
-            laserColor = this.cachedColors.red;
-        } else if (this.currentColorIndex === 1) {
-            laserColor = this.cachedColors.green;
-        } else {
-            laserColor = this.cachedColors.blue;
-        }
-        
-        // Less mixing for lasers (they're more focused than spotlights)
-        const baseFogColor = new BABYLON.Color3(0.85, 0.85, 0.92);
-        const mixFactor = 0.25; // 25% laser color, 75% base fog (subtle)
-        
-        const tintedR = baseFogColor.r * (1 - mixFactor) + laserColor.r * mixFactor;
-        const tintedG = baseFogColor.g * (1 - mixFactor) + laserColor.g * mixFactor;
-        const tintedB = baseFogColor.b * (1 - mixFactor) + laserColor.b * mixFactor;
-        
-        // Faster pulse for lasers (more energetic)
-        const pulse = 0.8 + Math.sin(time * 2.5) * 0.2;
-        
-        if (this.fogSystems[0]) {
-            const alpha1 = 0.03 * pulse; // Reduced for haze effect
-            const alpha2 = 0.02 * pulse;
-            this.fogSystems[0].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
-            this.fogSystems[0].color2 = new BABYLON.Color4(tintedR * 0.85, tintedG * 0.85, tintedB * 0.85, alpha2);
-        }
-        
-        if (this.fogSystems[1]) {
-            const alpha1 = 0.02 * pulse; // Reduced for haze effect
-            const alpha2 = 0.01 * pulse;
-            this.fogSystems[1].color1 = new BABYLON.Color4(tintedR * 0.9, tintedG * 0.9, tintedB * 0.9, alpha1);
-            this.fogSystems[1].color2 = new BABYLON.Color4(tintedR * 0.75, tintedG * 0.75, tintedB * 0.75, alpha2);
-        }
-        
-        if (this.fogSystems[2]) {
-            const alpha1 = 0.04 * pulse; // Reduced for haze effect
-            const alpha2 = 0.02 * pulse;
-            this.fogSystems[2].color1 = new BABYLON.Color4(tintedR, tintedG, tintedB, alpha1);
-            this.fogSystems[2].color2 = new BABYLON.Color4(tintedR * 0.8, tintedG * 0.8, tintedB * 0.8, alpha2);
-        }
-    }
-    
     createMirrorBall() {
         // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
         // Professional mirror ball suspended from center truss with dedicated spotlight
@@ -2986,24 +2746,6 @@ class VRClub {
         console.log('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
     }
     
-    resetFogToNeutral() {
-        // Return fog to neutral white/gray when no lights are active (SUBTLE HAZE)
-        if (this.fogSystems[0]) {
-            this.fogSystems[0].color1 = new BABYLON.Color4(0.85, 0.85, 0.92, 0.03);
-            this.fogSystems[0].color2 = new BABYLON.Color4(0.65, 0.65, 0.75, 0.02);
-        }
-        
-        if (this.fogSystems[1]) {
-            this.fogSystems[1].color1 = new BABYLON.Color4(0.72, 0.72, 0.8, 0.02);
-            this.fogSystems[1].color2 = new BABYLON.Color4(0.55, 0.55, 0.65, 0.01);
-        }
-        
-        if (this.fogSystems[2]) {
-            this.fogSystems[2].color1 = new BABYLON.Color4(0.88, 0.88, 0.98, 0.04);
-            this.fogSystems[2].color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.02);
-        }
-    }
-
     updateAnimations() {
         const time = performance.now() / 1000;
         this.ledTime += 0.016;
@@ -3394,28 +3136,6 @@ class VRClub {
         if (!this.vjManualMode && time - this.colorSwitchTime > (8 + Math.random() * 4)) {
             this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
             this.colorSwitchTime = time;
-        }
-        
-        // UPDATE FOG COLORS - Make fog realistically reflect current light colors
-        // Support multiple light types simultaneously for true VJ control
-        if (this.fogSystems) {
-            const hasLights = this.lightsActive;
-            const hasLasers = this.lasersActive;
-            
-            if (hasLights && hasLasers) {
-                // Both active: Blend fog colors from both systems
-                this.updateFogLighting(time);
-                this.updateFogLightingForLasers(time);
-            } else if (hasLights) {
-                // Only spotlights: Fog reflects spotlight colors
-                this.updateFogLighting(time);
-            } else if (hasLasers) {
-                // Only lasers: Fog reflects laser colors (RGB cycling)
-                this.updateFogLightingForLasers(time);
-            } else {
-                // No lights active: Reset to neutral fog
-                this.resetFogToNeutral();
-            }
         }
         
         // Update lasers with raycasting and dynamic positioning
