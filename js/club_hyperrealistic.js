@@ -892,11 +892,14 @@ class VRClub {
         entranceWallMat.needAlphaBlending = () => false;
         entranceWallMat.needAlphaTesting = () => false;
         entranceWallMat.disableDepthWrite = false;
-        entranceWallMat.backFaceCulling = true;
+        entranceWallMat.backFaceCulling = false; // DOUBLE-SIDED (render from both inside and outside)
         
         // Ensure no alpha textures
         entranceWallMat.opacityTexture = null;
         entranceWallMat.diffuseTexture = null; // No textures at all
+        
+        // Force early rendering (opaque objects first)
+        entranceWallMat.renderingGroupId = 0;
         
         // Freeze material to prevent any modifications
         entranceWallMat.freeze();
@@ -924,6 +927,7 @@ class VRClub {
         frontWallLeft.receiveShadows = false;
         frontWallLeft.isPickable = true;
         frontWallLeft.checkCollisions = true;
+        frontWallLeft.renderingGroupId = 0; // Render early (opaque group)
         frontWallLeft.freezeWorldMatrix();
         
         // Right section of front wall
@@ -937,6 +941,7 @@ class VRClub {
         frontWallRight.receiveShadows = false;
         frontWallRight.isPickable = true;
         frontWallRight.checkCollisions = true;
+        frontWallRight.renderingGroupId = 0; // Render early (opaque group)
         frontWallRight.freezeWorldMatrix();
         
         // Top section above doorway
@@ -950,6 +955,7 @@ class VRClub {
         frontWallTop.receiveShadows = false;
         frontWallTop.isPickable = true;
         frontWallTop.checkCollisions = true;
+        frontWallTop.renderingGroupId = 0; // Render early (opaque group)
         frontWallTop.freezeWorldMatrix();
         
         console.log('✅ Created entrance front wall with doorway (3 sections, fully opaque material)');
@@ -1006,11 +1012,14 @@ class VRClub {
         facadeMat.needAlphaBlending = () => false;
         facadeMat.needAlphaTesting = () => false;
         facadeMat.disableDepthWrite = false;
-        facadeMat.backFaceCulling = true;
+        facadeMat.backFaceCulling = false; // DOUBLE-SIDED (render from both inside and outside)
         
         // Ensure no alpha textures
         facadeMat.opacityTexture = null;
         facadeMat.diffuseTexture = null; // No textures at all
+        
+        // Force early rendering (opaque objects first)
+        facadeMat.renderingGroupId = 0;
         
         // Freeze to lock settings
         facadeMat.freeze();
@@ -1033,6 +1042,7 @@ class VRClub {
         facadeLeft.material = facadeMat;
         facadeLeft.receiveShadows = false;
         facadeLeft.checkCollisions = true;
+        facadeLeft.renderingGroupId = 0; // Render early (opaque group)
         facadeLeft.freezeWorldMatrix();
         
         // Right facade section
@@ -1045,6 +1055,7 @@ class VRClub {
         facadeRight.material = facadeMat;
         facadeRight.receiveShadows = false;
         facadeRight.checkCollisions = true;
+        facadeRight.renderingGroupId = 0; // Render early (opaque group)
         facadeRight.freezeWorldMatrix();
         
         // Top facade section (above door)
@@ -1057,6 +1068,7 @@ class VRClub {
         facadeTop.material = facadeMat;
         facadeTop.receiveShadows = false;
         facadeTop.checkCollisions = true;
+        facadeTop.renderingGroupId = 0; // Render early (opaque group)
         facadeTop.freezeWorldMatrix();
         
         console.log('✅ Created exterior facade (3 sections, fully opaque material)');
@@ -3348,7 +3360,7 @@ class VRClub {
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
             { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.98 } // Front wall with entrance at z=2
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 2.25 } // Front wall BEHIND entrance wall sections (z=2+0.25)
         ];
         
         surfaces.forEach(surface => {
