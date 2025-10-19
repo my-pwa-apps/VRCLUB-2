@@ -165,6 +165,13 @@ class VRClub {
         this.spotlightMode = 0;
         this.spotStrobeActive = true; // Simple strobe toggle (true = strobe on)
         
+        // Independent speed controls per light type (0.1 = 10% speed, 2.0 = 200% speed)
+        this.spotlightSpeed = 1.0;  // Spotlight sweep/rotation speed
+        this.laserSpeed = 1.0;      // Laser rotation speed
+        this.mirrorBallSpeed = 1.0; // Mirror ball rotation speed
+        this.ledWallSpeed = 1.0;    // LED wall animation speed
+        this.strobeSpeed = 1.0;     // Strobe flash rate
+        
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
         
@@ -2782,7 +2789,7 @@ class VRClub {
     
     updateAnimations() {
         const time = performance.now() / 1000;
-        this.ledTime += 0.016;
+        this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
         
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
@@ -2820,7 +2827,7 @@ class VRClub {
             // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
             // Apply speed multiplier for VJ control
             if (this.mirrorBall) {
-                const speedMultiplier = this.spotlightSpeed || 1.0;
+                const speedMultiplier = this.mirrorBallSpeed || 1.0;
                 this.mirrorBallRotation -= 0.003 * speedMultiplier; // Negative rotation - spots now move in same visual direction
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
@@ -2992,70 +2999,76 @@ class VRClub {
             
             if (time - this.lightModeSwitchTime > currentPhaseDuration) {
                 // PROFESSIONAL PHASE PROGRESSION (like real DJ sets)
+                // ONLY adjusts speed multipliers - VJ maintains full control over which lights are on/off
                 switch(this.lightingPhase) {
                     case 'build':
                         // BUILD → PEAK: Transition from spotlights to lasers (high energy)
                         this.lightingPhase = 'peak';
                         this.targetEnergy = 1.0;
-                        this.lightsActive = false;
-                        this.lasersActive = true;
-                        this.mirrorBallActive = false;
-                        this.ledWallActive = true; // LED wall active for peak energy
+                        // SPEED SUGGESTIONS ONLY - Don't force light on/off states
+                        this.spotlightSpeed = 1.5; // Speed up for peak energy
+                        this.laserSpeed = 1.5;
+                        this.mirrorBallSpeed = 1.5;
+                        this.ledWallSpeed = 1.5;
+                        this.strobeSpeed = 1.5;
                         this.currentShowMode = 'lasers';
-                        console.log('🔥 PEAK: High energy with lasers!');
+                        console.log('🔥 PEAK: High energy speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'peak':
                         // PEAK → BREAKDOWN: Drop to mirror ball (dramatic moment)
                         this.lightingPhase = 'breakdown';
                         this.targetEnergy = 0.3;
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = true;
-                        this.ledWallActive = false;
+                        // SPEED SUGGESTIONS ONLY
+                        this.spotlightSpeed = 0.5; // Slow down for breakdown
+                        this.laserSpeed = 0.5;
+                        this.mirrorBallSpeed = 0.5;
+                        this.ledWallSpeed = 0.5;
+                        this.strobeSpeed = 0.5;
                         this.currentShowMode = 'mirror';
-                        console.log('🪩 BREAKDOWN: Mirror ball moment...');
+                        console.log('🪩 BREAKDOWN: Slow vibe speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'breakdown':
                         // BREAKDOWN → AMBIENT: Slow atmospheric spotlights
                         this.lightingPhase = 'ambient';
                         this.targetEnergy = 0.4;
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.ledWallActive = true; // Ambient LED patterns
+                        // SPEED SUGGESTIONS ONLY
                         this.spotlightSpeed = 0.5; // Slow movement
+                        this.laserSpeed = 0.3; // Very slow lasers
+                        this.mirrorBallSpeed = 0.7;
+                        this.ledWallSpeed = 0.6;
+                        this.strobeSpeed = 0.5;
                         this.currentShowMode = 'spotlights';
-                        console.log('� AMBIENT: Slow atmospheric vibe...');
+                        console.log('🌙 AMBIENT: Atmospheric speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'ambient':
                         // AMBIENT → DROP: Big drop with everything!
                         this.lightingPhase = 'drop';
                         this.targetEnergy = 1.0;
-                        this.lightsActive = true;
-                        this.lasersActive = true;
-                        this.mirrorBallActive = false; // Everything except mirror ball
-                        this.ledWallActive = true;
+                        // SPEED SUGGESTIONS ONLY
                         this.spotlightSpeed = 2.0; // Fast movement for drop
-                        this.strobesActive = true; // Strobes for the drop!
+                        this.laserSpeed = 2.0;
+                        this.mirrorBallSpeed = 2.0;
+                        this.ledWallSpeed = 2.0;
+                        this.strobeSpeed = 1.8; // Faster strobe
                         this.currentShowMode = 'combo';
-                        console.log('💥 DROP: Everything at once! Maximum energy!');
+                        console.log('💥 DROP: Maximum energy speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'drop':
                         // DROP → BUILD: Return to building energy
                         this.lightingPhase = 'build';
                         this.targetEnergy = 0.7;
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.ledWallActive = true;
+                        // SPEED SUGGESTIONS ONLY
                         this.spotlightSpeed = 1.0; // Normal speed
-                        this.strobesActive = false;
+                        this.laserSpeed = 1.0;
+                        this.mirrorBallSpeed = 1.0;
+                        this.ledWallSpeed = 1.0;
+                        this.strobeSpeed = 1.0;
                         this.currentShowMode = 'spotlights';
-                        console.log('⬆️ BUILD: Building energy with spotlights...');
+                        console.log('⬆️ BUILD: Building energy speeds (VJ controls which lights are active)');
                         break;
                 }
                 
@@ -3145,8 +3158,8 @@ class VRClub {
                     }
                 }
                 
-                // Movement depends on mode (apply speed multiplier)
-                const speedMultiplier = this.spotlightSpeed || 1.0;
+                // Movement depends on mode (apply laser speed multiplier)
+                const speedMultiplier = this.laserSpeed || 1.0;
                 if (this.lightingMode === 'synchronized') {
                     laser.rotation += 0.015 * speedMultiplier;
                     laser.tiltPhase += 0.02 * speedMultiplier;
@@ -3823,17 +3836,18 @@ class VRClub {
         }
         
         // Update strobes - respects strobesActive control
-        // Strobe lights animation
+        // Strobe lights animation (with speed multiplier)
+        const strobeSpeedMultiplier = this.strobeSpeed || 1.0;
         if (this.strobes && this.strobes.length > 0) {
             if (this.strobesActive) {
                 this.strobes.forEach((strobe, i) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
-                        strobe.flashDuration -= 0.016;
+                        strobe.flashDuration -= 0.016 * strobeSpeedMultiplier; // Apply speed to decay
                     
                     // Variable intensity - SUPER BRIGHT strobes
                     const intensityVariation = strobe.currentIntensity || 80; // Store current intensity (increased from 50)
-                    const burstPhase = Math.floor(strobe.flashDuration * 40) % 2; // Fast bursts
+                    const burstPhase = Math.floor(strobe.flashDuration * 40 * strobeSpeedMultiplier) % 2; // Fast bursts with speed
                     const intensity = burstPhase === 0 ? intensityVariation : 0;
                     
                     strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5); // Brighter emissive (1.5x)
@@ -3843,7 +3857,8 @@ class VRClub {
                     if (strobe.flashDuration <= 0) {
                         strobe.material.emissiveColor = this.cachedColors.black;
                         strobe.light.intensity = 0;
-                        strobe.nextFlashTime = time + 0.1 + Math.random() * 0.9; // Frequent flashes (0.1-1.0s)
+                        const flashInterval = (0.1 + Math.random() * 0.9) / strobeSpeedMultiplier; // Adjust interval by speed
+                        strobe.nextFlashTime = time + flashInterval; // Frequent flashes (0.1-1.0s divided by speed)
                     }
                 } else {
                     // Check if it's time for next flash (ALWAYS fires, no condition)
@@ -3853,7 +3868,8 @@ class VRClub {
                             (60 + Math.random() * 20) : // Bright (was 30-40, now 60-80)
                             (80 + Math.random() * 20);  // Super bright (was 50-70, now 80-100)
                         
-                        strobe.flashDuration = 0.15 + Math.random() * 0.2; // Duration 0.15-0.35s
+                        const flashDuration = (0.15 + Math.random() * 0.2) / strobeSpeedMultiplier; // Duration 0.15-0.35s divided by speed
+                        strobe.flashDuration = flashDuration;
                     }
                 }
                 });
