@@ -122,49 +122,50 @@ class MaterialFactory {
 
     /**
      * Preset materials for common club objects
+     * Phase 2 Enhanced: Boosted metallic/roughness values for hyperrealism
      */
     presets = {
-        // DJ Equipment
+        // DJ Equipment - Enhanced metallic for realistic reflections
         cdjBody: () => this.createPBRMaterial('cdjBodyMat', {
             baseColor: [0.1, 0.1, 0.12],
-            metallic: 0.85,
-            roughness: 0.3
+            metallic: 0.95, // Increased from 0.85
+            roughness: 0.25 // Reduced from 0.3
         }, true),
 
         jogWheel: () => this.createStandardMaterial('jogWheelMat', {
-            emissiveColor: [0, 0.6, 0.3],
+            emissiveColor: [0, 0.8, 0.4], // Boosted from [0, 0.6, 0.3]
             disableLighting: true
         }),
 
         mixer: () => this.createPBRMaterial('mixerMat', {
             baseColor: [0.05, 0.05, 0.06],
-            metallic: 0.9,
-            roughness: 0.2
+            metallic: 0.95, // Increased from 0.9
+            roughness: 0.15 // Reduced from 0.2
         }, true),
 
-        // Structural
+        // Structural - Enhanced realism
         platform: () => this.createPBRMaterial('platformMat', {
             baseColor: [0.02, 0.02, 0.03],
-            metallic: 0.95,
-            roughness: 0.15
+            metallic: 0.98, // Increased from 0.95
+            roughness: 0.1 // Reduced from 0.15
         }, true),
 
         platformTop: () => this.createPBRMaterial('platformTopMat', {
             baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.1,
-            roughness: 0.95
+            metallic: 0.15, // Increased from 0.1
+            roughness: 0.9 // Reduced from 0.95
         }, true),
 
         rail: () => this.createPBRMaterial('railMat', {
             baseColor: [0.7, 0.7, 0.75],
             metallic: 1.0,
-            roughness: 0.3
+            roughness: 0.25 // Reduced from 0.3
         }, true),
 
         table: () => this.createPBRMaterial('tableMat', {
             baseColor: [0.05, 0.05, 0.06],
-            metallic: 0.9,
-            roughness: 0.2
+            metallic: 0.95, // Increased from 0.9
+            roughness: 0.15 // Reduced from 0.2
         }, true),
 
         // Walls and Floors
@@ -186,45 +187,45 @@ class MaterialFactory {
             roughness: 0.8
         }),
 
-        // Lighting/Truss
+        // Lighting/Truss - Enhanced metallic sheen
         truss: () => this.createPBRMaterial('trussMat', {
             baseColor: [0.6, 0.6, 0.65],
             metallic: 1.0,
-            roughness: 0.3
+            roughness: 0.25 // Reduced from 0.3
         }, true),
 
         brace: () => this.createPBRMaterial('braceMat', {
             baseColor: [0.5, 0.5, 0.55],
             metallic: 1.0,
-            roughness: 0.4
+            roughness: 0.35 // Reduced from 0.4
         }, true),
 
         lightFixture: () => this.createPBRMaterial('lightFixtureMat', {
             baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.9,
-            roughness: 0.2
+            metallic: 0.95, // Increased from 0.9
+            roughness: 0.15 // Reduced from 0.2
         }, true),
 
-        // Speakers
+        // Speakers - Enhanced realism
         speakerBody: () => this.createPBRMaterial('speakerBodyMat', {
             baseColor: [0.08, 0.08, 0.08],
-            metallic: 0.2,
-            roughness: 0.7,
-            emissiveColor: [0.01, 0.01, 0.01]
+            metallic: 0.3, // Increased from 0.2
+            roughness: 0.65, // Reduced from 0.7
+            emissiveColor: [0.02, 0.02, 0.02] // Boosted from [0.01, 0.01, 0.01]
         }, true),
 
         speakerGrill: () => this.createPBRMaterial('speakerGrillMat', {
             baseColor: [0.3, 0.3, 0.3],
-            metallic: 0.6,
-            roughness: 0.4,
-            emissiveColor: [0.05, 0.05, 0.05]
+            metallic: 0.7, // Increased from 0.6
+            roughness: 0.35, // Reduced from 0.4
+            emissiveColor: [0.08, 0.08, 0.08] // Boosted from [0.05, 0.05, 0.05]
         }, true),
 
         speakerHorn: () => this.createPBRMaterial('speakerHornMat', {
             baseColor: [0.7, 0.7, 0.7],
-            metallic: 0.9,
-            roughness: 0.2,
-            emissiveColor: [0.05, 0.05, 0.05]
+            metallic: 0.95, // Increased from 0.9
+            roughness: 0.15, // Reduced from 0.2
+            emissiveColor: [0.08, 0.08, 0.08] // Boosted from [0.05, 0.05, 0.05]
         }, true),
 
         // Industrial Details
@@ -246,16 +247,16 @@ class MaterialFactory {
             roughness: 0.6
         }, true),
 
-        // Laser/Effects
+        // Laser/Effects - Enhanced emissive
         laserHousing: () => this.createPBRMaterial('laserHousingMat', {
             baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.8,
-            roughness: 0.3,
-            emissiveColor: [0.05, 0, 0]
+            metallic: 0.9, // Increased from 0.8
+            roughness: 0.25, // Reduced from 0.3
+            emissiveColor: [0.08, 0, 0] // Boosted from [0.05, 0, 0]
         }),
 
         laserEmitter: () => this.createStandardMaterial('laserEmitterMat', {
-            emissiveColor: [2, 0, 0],
+            emissiveColor: [3, 0, 0], // Boosted from [2, 0, 0]
             disableLighting: true
         })
     };

@@ -284,12 +284,12 @@ class VRClub {
         this.npcAvatars = [];
         this.npcDancePositions = [];
         
-        // Load environment for PBR reflections
+        // Load environment for PBR reflections (Phase 2 optimization)
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
             "https://assets.babylonjs.com/environments/environmentSpecular.env",
             this.scene
         );
-        this.scene.environmentIntensity = 0.3; // Subtle reflections
+        this.scene.environmentIntensity = 0.6; // Enhanced reflections for metallic surfaces
         
         // Initialize texture loader and load textures from CDN (cached for subsequent loads)
         console.log('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
@@ -1585,68 +1585,69 @@ class VRClub {
         consoleBase.material = consoleMat;
         
         // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
+        // Phase 2 Enhanced: Boosted emissive colors for better visibility
         const toggleButtons = [
             { 
                 label: "SPOTLIGHTS", 
                 control: "lightsActive",
-                onColor: new BABYLON.Color3(1, 0.5, 0),
-                offColor: new BABYLON.Color3(0.2, 0.1, 0),
+                onColor: new BABYLON.Color3(2.0, 1.0, 0), // Boosted from [1, 0.5, 0]
+                offColor: new BABYLON.Color3(0.3, 0.15, 0), // Boosted from [0.2, 0.1, 0]
                 row: 0, col: 0
             },
             { 
                 label: "LASERS", 
                 control: "lasersActive",
-                onColor: new BABYLON.Color3(1, 0, 0),
-                offColor: new BABYLON.Color3(0.2, 0, 0),
+                onColor: new BABYLON.Color3(2.0, 0, 0), // Boosted from [1, 0, 0]
+                offColor: new BABYLON.Color3(0.3, 0, 0), // Boosted from [0.2, 0, 0]
                 row: 0, col: 1
             },
             { 
                 label: "STROBES", 
                 control: "strobesActive",
-                onColor: new BABYLON.Color3(1, 1, 1),
-                offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
+                onColor: new BABYLON.Color3(2.0, 2.0, 2.0), // Boosted from [1, 1, 1]
+                offColor: new BABYLON.Color3(0.3, 0.3, 0.3), // Boosted from [0.2, 0.2, 0.2]
                 row: 0, col: 2
             },
             { 
                 label: "LED WALL", 
                 control: "ledWallActive",
-                onColor: new BABYLON.Color3(0, 0.5, 1),
-                offColor: new BABYLON.Color3(0, 0.1, 0.2),
+                onColor: new BABYLON.Color3(0, 1.0, 2.0), // Boosted from [0, 0.5, 1]
+                offColor: new BABYLON.Color3(0, 0.15, 0.3), // Boosted from [0, 0.1, 0.2]
                 row: 1, col: 0
             },
             { 
                 label: "MIRROR BALL", 
                 control: "mirrorBallActive",
-                onColor: new BABYLON.Color3(1, 1, 0),
-                offColor: new BABYLON.Color3(0.2, 0.2, 0),
+                onColor: new BABYLON.Color3(2.0, 2.0, 0), // Boosted from [1, 1, 0]
+                offColor: new BABYLON.Color3(0.3, 0.3, 0), // Boosted from [0.2, 0.2, 0]
                 row: 1, col: 1
             },
             { 
                 label: "CHANGE COLOR", 
                 control: "changeColor",
-                onColor: new BABYLON.Color3(0.5, 1, 0.5),
-                offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
+                onColor: new BABYLON.Color3(1.0, 2.0, 1.0), // Boosted from [0.5, 1, 0.5]
+                offColor: new BABYLON.Color3(0.15, 0.45, 0.15), // Boosted from [0.1, 0.3, 0.1]
                 row: 1, col: 2
             },
             { 
                 label: "RANDOM", 
                 control: "patternRandom",
-                onColor: new BABYLON.Color3(1, 0, 1),
-                offColor: new BABYLON.Color3(0.2, 0, 0.2),
+                onColor: new BABYLON.Color3(2.0, 0, 2.0), // Boosted from [1, 0, 1]
+                offColor: new BABYLON.Color3(0.3, 0, 0.3), // Boosted from [0.2, 0, 0.2]
                 row: 2, col: 0
             },
             { 
                 label: "STATIC DOWN", 
                 control: "patternStatic",
-                onColor: new BABYLON.Color3(0, 1, 1),
-                offColor: new BABYLON.Color3(0, 0.2, 0.2),
+                onColor: new BABYLON.Color3(0, 2.0, 2.0), // Boosted from [0, 1, 1]
+                offColor: new BABYLON.Color3(0, 0.3, 0.3), // Boosted from [0, 0.2, 0.2]
                 row: 2, col: 1
             },
             { 
                 label: "SWEEP SYNC", 
                 control: "patternSweep",
-                onColor: new BABYLON.Color3(1, 0.5, 1),
-                offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
+                onColor: new BABYLON.Color3(2.0, 1.0, 2.0), // Boosted from [1, 0.5, 1]
+                offColor: new BABYLON.Color3(0.3, 0.15, 0.3), // Boosted from [0.2, 0.1, 0.2]
                 row: 2, col: 2
             }
         ];
@@ -4270,15 +4271,17 @@ class VRClub {
 
     /**
      * Helper method to update LED panel emissive colors
-     * Reduces code duplication across pattern methods
+     * Phase 2 Enhanced: Boosted brightness multipliers for better visibility
      */
     updateLEDPanel(panel, color, brightness) {
         if (brightness === 0) {
             panel.material.emissiveColor = this.cachedColors.black;
         } else if (brightness === 1) {
-            panel.material.emissiveColor = color;
+            // Boost emissive intensity 2.5x for Phase 2
+            panel.material.emissiveColor = color.scale(2.5);
         } else {
-            panel.material.emissiveColor = color.scale(brightness);
+            // Boost all brightness values 2.5x
+            panel.material.emissiveColor = color.scale(brightness * 2.5);
         }
     }
 
