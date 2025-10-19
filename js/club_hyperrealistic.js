@@ -4004,10 +4004,9 @@ class VRClub {
                         }
                     });
                 });
-                // Exit early - no need to animate lasers
-                return;
-            }
+            } else {
             
+            // Only animate lasers when inside (cameraOutside=false)
             this.lasers.forEach((laser, i) => {
                 // Update origin position for parented lasers (get world position)
                 if (laser.parentTruss) {
@@ -4172,6 +4171,7 @@ class VRClub {
                     light.setEnabled(true); // Enable laser point lights
                 });
             });
+            } // End of else block (inside camera check)
         } else if (this.lasers) {
             // Turn off lasers when not active
             this.lasers.forEach(laser => {
@@ -4283,25 +4283,11 @@ class VRClub {
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                 });
                 
-                // Disable all lasers
-                if (this.lasers) {
-                    this.lasers.forEach(laser => {
-                        laser.lights.forEach(light => light.setEnabled(false));
-                        laser.beams.forEach(beam => {
-                            beam.mesh.visibility = 0;
-                            if (beam.beamGlow) beam.beamGlow.visibility = 0;
-                            if (beam.hitSpot) beam.hitSpot.visibility = 0;
-                        });
-                    });
-                }
-                
                 // Disable LED wall backlight
                 const ledLight = this.scene.getLightByName("ledLight");
                 if (ledLight) ledLight.intensity = 0;
-                
-                // Exit early - no need to update animations
-                return;
-            }
+            } else {
+                // Only animate spotlights when inside (cameraOutside=false)
             
             // SYNCHRONIZED SWEEPING - recreate iconic club vibe
             // All lights move together, sweeping their beams across the dance floor
@@ -4707,6 +4693,7 @@ class VRClub {
                 
                 spot.light.intensity = this.lightsActive ? (baseIntensity + smoothPulse) : 0;
             });
+            } // End of else block (inside camera check for spotlights)
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
             this.spotlights.forEach(spot => {
