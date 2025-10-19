@@ -325,14 +325,14 @@ class VRClub {
         this.camera.minZ = 0.1;
         this.camera.maxZ = 150;
         
-        // Movement controls
-        this.camera.keysUp = [87]; // W
-        this.camera.keysDown = [83]; // S
-        this.camera.keysLeft = [65]; // A
-        this.camera.keysRight = [68]; // D
+        // Movement controls - WASD + Arrow Keys
+        this.camera.keysUp = [87, 38]; // W + Up Arrow
+        this.camera.keysDown = [83, 40]; // S + Down Arrow
+        this.camera.keysLeft = [65, 37]; // A + Left Arrow
+        this.camera.keysRight = [68, 39]; // D + Right Arrow
         this.camera.keysUpward = [69]; // E
         this.camera.keysDownward = [81]; // Q
-        this.camera.angularSensibility = 2000;
+        this.camera.angularSensibility = 2000; // Mouse rotation sensitivity
         this.camera.inertia = 0.7; // Smooth movement
         
         this.scene.activeCamera = this.camera;
@@ -678,7 +678,7 @@ class VRClub {
         floorMat.environmentIntensity = 0.15; // Subtle reflections from polish
         
         floor.material = floorMat;
-        floor.receiveShadows = true;
+        floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor
     }
 
     createWalls() {
@@ -699,7 +699,7 @@ class VRClub {
         }, this.scene);
         backWall.position = new BABYLON.Vector3(0, 5, -27);
         backWall.material = wallMat;
-        backWall.receiveShadows = true;
+        backWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         
         // Left wall
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
@@ -709,7 +709,7 @@ class VRClub {
         }, this.scene);
         leftWall.position = new BABYLON.Vector3(-17, 5, -10);
         leftWall.material = wallMat;
-        leftWall.receiveShadows = true;
+        leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         
         // Right wall
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
@@ -719,7 +719,7 @@ class VRClub {
         }, this.scene);
         rightWall.position = new BABYLON.Vector3(17, 5, -10);
         rightWall.material = wallMat;
-        rightWall.receiveShadows = true;
+        rightWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         
         // Front wall
         const frontWall = BABYLON.MeshBuilder.CreateBox("frontWall", {
@@ -727,9 +727,9 @@ class VRClub {
             height: 10,
             depth: 0.5
         }, this.scene);
-        frontWall.position = new BABYLON.Vector3(0, 5, 7);
+        frontWall.position = new BABYLON.Vector3(0, 5, 2);
         frontWall.material = wallMat;
-        frontWall.receiveShadows = true;
+        frontWall.receiveShadows = false; // Optimization: disable shadows on walls
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
@@ -761,7 +761,7 @@ class VRClub {
             }, this.scene);
             pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
             pillar.material = pillarMat;
-            pillar.receiveShadows = true;
+            pillar.receiveShadows = false; // Optimization Phase 3: Disable shadows on pillars
         });
         
         // Add exposed brick sections between pillars
@@ -780,7 +780,7 @@ class VRClub {
             }, this.scene);
             brick.position = new BABYLON.Vector3(section.x, 2 + section.height/2, section.z);
             brick.material = brickMat;
-            brick.receiveShadows = true;
+            brick.receiveShadows = false; // Optimization Phase 3: Disable shadows on bricks
         });
         
         // Add industrial pipes running along ceiling (near walls)
@@ -888,6 +888,7 @@ class VRClub {
         }
         
         ceiling.material = ceilingMat;
+        ceiling.receiveShadows = false; // Optimization Phase 3: Disable shadows on ceiling
         
         // Add lighting truss above dance floor
         this.createLightingTruss();
@@ -2886,7 +2887,7 @@ class VRClub {
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
             { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 6.73 } // Front wall inner face at 6.75
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.73 } // Front wall inner face at 1.75 (box center at 2, depth 0.5)
         ];
         
         surfaces.forEach(surface => {
