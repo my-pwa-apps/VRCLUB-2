@@ -3397,15 +3397,23 @@ class VRClub {
         }
         
         // UPDATE FOG COLORS - Make fog realistically reflect current light colors
+        // Support multiple light types simultaneously for true VJ control
         if (this.fogSystems) {
-            if (this.lightsActive) {
-                // Fog reflects spotlight colors
+            const hasLights = this.lightsActive;
+            const hasLasers = this.lasersActive;
+            
+            if (hasLights && hasLasers) {
+                // Both active: Blend fog colors from both systems
                 this.updateFogLighting(time);
-            } else if (this.lasersActive) {
-                // Fog reflects laser colors (RGB cycling)
+                this.updateFogLightingForLasers(time);
+            } else if (hasLights) {
+                // Only spotlights: Fog reflects spotlight colors
+                this.updateFogLighting(time);
+            } else if (hasLasers) {
+                // Only lasers: Fog reflects laser colors (RGB cycling)
                 this.updateFogLightingForLasers(time);
             } else {
-                // Reset to neutral fog when no lights
+                // No lights active: Reset to neutral fog
                 this.resetFogToNeutral();
             }
         }
