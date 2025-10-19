@@ -34,12 +34,12 @@ class VRClub {
             desktop: {
                 exposure: 1.0,
                 contrast: 1.2,
-                bloomWeight: 0.2, // Reduced from 0.6 to minimize haze
-                bloomThreshold: 0.6, // Increased from 0.3 to reduce bloom spread
-                bloomScale: 0.3, // Reduced from 0.6 to minimize haze
-                glowIntensity: 0.7,
-                ambientIntensity: 0.15,
-                environmentIntensity: 0.3,
+                bloomWeight: 0.15, // Reduced for performance (was 0.2)
+                bloomThreshold: 0.7, // Higher threshold (was 0.6)
+                bloomScale: 0.25, // Reduced for performance (was 0.3)
+                glowIntensity: 0.5, // Reduced for performance (was 0.7)
+                ambientIntensity: 0.12, // Slightly reduced (was 0.15)
+                environmentIntensity: 0.25, // Slightly reduced (was 0.3)
                 clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
                 grainEnabled: false, // Disabled - causes hazy appearance
                 chromaticAberrationEnabled: false, // Disabled - causes hazy color fringing
@@ -49,12 +49,12 @@ class VRClub {
             vr: {
                 exposure: 0.65,
                 contrast: 1.6,
-                bloomWeight: 0.15,
-                bloomThreshold: 0.8,
-                bloomScale: 0.3,
-                glowIntensity: 0.4,
-                ambientIntensity: 0.08,
-                environmentIntensity: 0.1,
+                bloomWeight: 0.1, // Reduced for VR performance (was 0.15)
+                bloomThreshold: 0.85, // Higher threshold for VR (was 0.8)
+                bloomScale: 0.2, // Reduced for VR (was 0.3)
+                glowIntensity: 0.3, // Reduced for VR (was 0.4)
+                ambientIntensity: 0.06, // Reduced for VR (was 0.08)
+                environmentIntensity: 0.08, // Reduced for VR (was 0.1)
                 clearColor: new BABYLON.Color3(0, 0, 0),
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
@@ -94,17 +94,28 @@ class VRClub {
             black: new BABYLON.Color3(0, 0, 0)
         };
         
-        // Initialize spotlight color EARLY (needed for fixture creation)
+        // Cache commonly used Vector3 positions for performance
+        this.cachedVectors = {
+            zero: BABYLON.Vector3.Zero(),
+            up: BABYLON.Vector3.Up(),
+            down: BABYLON.Vector3.Down(),
+            gravity: new BABYLON.Vector3(0, -9.81, 0),
+            danceFloor: new BABYLON.Vector3(0, 0, -12),
+            djBooth: new BABYLON.Vector3(0, 0.95, -23),
+            mirrorBall: new BABYLON.Vector3(0, 6.5, -12)
+        };
+        
+        // Initialize spotlight color list - reference cached colors to avoid duplicates
         this.spotColorList = [
-            new BABYLON.Color3(1, 0, 0),      // Red
-            new BABYLON.Color3(0, 0, 1),      // Blue
-            new BABYLON.Color3(0, 1, 0),      // Green
-            new BABYLON.Color3(1, 0, 1),      // Magenta
-            new BABYLON.Color3(1, 1, 0),      // Yellow
-            new BABYLON.Color3(0, 1, 1),      // Cyan
-            new BABYLON.Color3(1, 0.5, 0),    // Orange
-            new BABYLON.Color3(0.5, 0, 1),    // Purple
-            new BABYLON.Color3(1, 1, 1)       // White
+            this.cachedColors.red,      // Red
+            this.cachedColors.blue,     // Blue  
+            this.cachedColors.green,    // Green
+            this.cachedColors.magenta,  // Magenta
+            this.cachedColors.yellow,   // Yellow
+            this.cachedColors.cyan,     // Cyan
+            new BABYLON.Color3(1, 0.5, 0),    // Orange (not in cache)
+            new BABYLON.Color3(0.5, 0, 1),    // Purple (not in cache)
+            this.cachedColors.white     // White (dimmed to 1,1,1 for spotlights)
         ];
         this.currentSpotColor = this.spotColorList[0]; // Start with RED
         this.spotColorIndex = 0;
@@ -124,19 +135,30 @@ class VRClub {
         this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
         this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
-        // Mirror ball spotlight color (configurable)
-        this.mirrorBallSpotlightColor = new BABYLON.Color3(1, 1, 1); // Default: pure white
+        // Add color variations for mirror ball (soft pastels) - reference cached colors
+        this.cachedColors.whiteSpot = new BABYLON.Color3(1, 1, 1); // Full white for mirror ball
+        this.cachedColors.redSoft = new BABYLON.Color3(1, 0.3, 0.3);
+        this.cachedColors.blueSoft = new BABYLON.Color3(0.3, 0.3, 1);
+        this.cachedColors.greenSoft = new BABYLON.Color3(0.3, 1, 0.3);
+        this.cachedColors.magentaSoft = new BABYLON.Color3(1, 0.3, 1);
+        this.cachedColors.yellowSoft = new BABYLON.Color3(1, 1, 0.3);
+        this.cachedColors.cyanSoft = new BABYLON.Color3(0.3, 1, 1);
+        this.cachedColors.orangeSoft = new BABYLON.Color3(1, 0.6, 0.3);
+        this.cachedColors.purpleSoft = new BABYLON.Color3(0.7, 0.3, 1);
+        
+        // Mirror ball spotlight color (configurable) - reference cached colors
+        this.mirrorBallSpotlightColor = this.cachedColors.whiteSpot; // Default: pure white
         this.mirrorBallColorIndex = 0;
         this.mirrorBallColors = [
-            new BABYLON.Color3(1, 1, 1),      // White (classic)
-            new BABYLON.Color3(1, 0.3, 0.3),  // Red
-            new BABYLON.Color3(0.3, 0.3, 1),  // Blue
-            new BABYLON.Color3(0.3, 1, 0.3),  // Green
-            new BABYLON.Color3(1, 0.3, 1),    // Magenta
-            new BABYLON.Color3(1, 1, 0.3),    // Yellow
-            new BABYLON.Color3(0.3, 1, 1),    // Cyan
-            new BABYLON.Color3(1, 0.6, 0.3),  // Orange
-            new BABYLON.Color3(0.7, 0.3, 1)   // Purple
+            this.cachedColors.whiteSpot,    // White (classic)
+            this.cachedColors.redSoft,      // Red
+            this.cachedColors.blueSoft,     // Blue
+            this.cachedColors.greenSoft,    // Green
+            this.cachedColors.magentaSoft,  // Magenta
+            this.cachedColors.yellowSoft,   // Yellow
+            this.cachedColors.cyanSoft,     // Cyan
+            this.cachedColors.orangeSoft,   // Orange
+            this.cachedColors.purpleSoft    // Purple
         ];
         
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
@@ -542,6 +564,8 @@ class VRClub {
         
         floor.material = floorMat;
         floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor
+        floor.freezeWorldMatrix(); // OPTIMIZATION: Freeze static floor mesh
+        floor.doNotSyncBoundingInfo = true; // Skip bounding info updates
     }
 
     createWalls() {
@@ -563,6 +587,8 @@ class VRClub {
         backWall.position = new BABYLON.Vector3(0, 5, -27);
         backWall.material = wallMat;
         backWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
+        backWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
+        backWall.doNotSyncBoundingInfo = true;
         
         // Left wall
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
@@ -573,6 +599,8 @@ class VRClub {
         leftWall.position = new BABYLON.Vector3(-17, 5, -10);
         leftWall.material = wallMat;
         leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
+        leftWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
+        leftWall.doNotSyncBoundingInfo = true;
         
         // Right wall
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
@@ -583,6 +611,8 @@ class VRClub {
         rightWall.position = new BABYLON.Vector3(17, 5, -10);
         rightWall.material = wallMat;
         rightWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
+        rightWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
+        rightWall.doNotSyncBoundingInfo = true;
         
         // Front wall
         const frontWall = BABYLON.MeshBuilder.CreateBox("frontWall", {
@@ -593,6 +623,8 @@ class VRClub {
         frontWall.position = new BABYLON.Vector3(0, 5, 2);
         frontWall.material = wallMat;
         frontWall.receiveShadows = false; // Optimization: disable shadows on walls
+        frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
+        frontWall.doNotSyncBoundingInfo = true;
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
@@ -752,6 +784,8 @@ class VRClub {
         
         ceiling.material = ceilingMat;
         ceiling.receiveShadows = false; // Optimization Phase 3: Disable shadows on ceiling
+        ceiling.freezeWorldMatrix(); // OPTIMIZATION: Freeze static ceiling
+        ceiling.doNotSyncBoundingInfo = true;
         
         // Add lighting truss above dance floor
         this.createLightingTruss();
@@ -2642,7 +2676,7 @@ class VRClub {
         // These are purely emissive meshes that create the illusion of reflections
         // REALISTIC DISCO BALL: Spots should cover ENTIRE room in all directions
         this.mirrorReflectionSpots = [];
-        const numSpots = 300; // Increased to 300 for better coverage
+        const numSpots = 180; // Optimized from 300 for better performance (30 per surface)
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
