@@ -58,7 +58,7 @@ class AvatarManager {
             head: null,
             leftHand: null,
             rightHand: null,
-            nameLabel: null,
+            // nameLabel removed for Phase 3 optimization (reduces draw calls)
             isRPM: false, // Track if using Ready Player Me
             rpmMeshes: [] // Store RPM meshes for cleanup
         };
@@ -91,11 +91,7 @@ class AvatarManager {
             console.log(`📍 Avatar ${playerData.username} positioned at (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`);
         }
         
-        // Create name label
-        avatar.nameLabel = this.createNameLabel(playerId, avatar.username);
-        avatar.nameLabel.parent = avatar.root;
-        avatar.nameLabel.position.y = 2.2;
-        
+        // Name labels removed for Phase 3 optimization
         
         this.avatars.set(playerId, avatar);
         console.log(`✅ Created avatar for ${avatar.username} (${isVR ? 'VR' : 'Desktop'})`);
@@ -448,6 +444,9 @@ class AvatarManager {
         return handRoot;
     }
     
+    // createNameLabel method removed for Phase 3 optimization
+    // Name labels added unnecessary draw calls and dynamic textures
+    /*
     createNameLabel(playerId, username) {
         // Create a plane for the name label
         const plane = BABYLON.MeshBuilder.CreatePlane(`nameLabel_${playerId}`, {
@@ -492,6 +491,7 @@ class AvatarManager {
         
         return plane;
     }
+    */
     
     updateAvatar(playerId, updateData) {
         const avatar = this.avatars.get(playerId);
@@ -544,13 +544,15 @@ class AvatarManager {
             }
         }
         
-        // Update username if changed
+        // Update username if changed (name label removed in Phase 3)
         if (updateData.username && updateData.username !== avatar.username) {
             avatar.username = updateData.username;
-            this.updateNameLabel(playerId, updateData.username);
+            // this.updateNameLabel(playerId, updateData.username); // Removed
         }
     }
     
+    // updateNameLabel method removed for Phase 3 optimization
+    /*
     updateNameLabel(playerId, username) {
         const avatar = this.avatars.get(playerId);
         if (!avatar || !avatar.nameLabel) return;
@@ -569,6 +571,7 @@ class AvatarManager {
         
         texture.update();
     }
+    */
     
     removeAvatar(playerId) {
         const avatar = this.avatars.get(playerId);
@@ -590,7 +593,7 @@ class AvatarManager {
         if (avatar.head) avatar.head.dispose();
         if (avatar.leftHand) avatar.leftHand.dispose();
         if (avatar.rightHand) avatar.rightHand.dispose();
-        if (avatar.nameLabel) avatar.nameLabel.dispose();
+        // if (avatar.nameLabel) avatar.nameLabel.dispose(); // Removed in Phase 3
         if (avatar.root && !avatar.isRPM) avatar.root.dispose(); // Don't dispose RPM root twice
         
         this.avatars.delete(playerId);

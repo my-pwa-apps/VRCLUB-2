@@ -683,7 +683,7 @@ class VRClub {
         floorMat.environmentIntensity = 0.15; // Subtle reflections from polish
         
         floor.material = floorMat;
-        floor.receiveShadows = true;
+        floor.receiveShadows = false; // Phase 3: Disabled for performance
     }
 
     createWalls() {
@@ -704,7 +704,7 @@ class VRClub {
         }, this.scene);
         backWall.position = new BABYLON.Vector3(0, 5, -27);
         backWall.material = wallMat;
-        backWall.receiveShadows = true;
+        backWall.receiveShadows = false; // Phase 3: Disabled for performance
         
         // Left wall
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
@@ -714,7 +714,7 @@ class VRClub {
         }, this.scene);
         leftWall.position = new BABYLON.Vector3(-17, 5, -10);
         leftWall.material = wallMat;
-        leftWall.receiveShadows = true;
+        leftWall.receiveShadows = false; // Phase 3: Disabled for performance
         
         // Right wall
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
@@ -724,7 +724,7 @@ class VRClub {
         }, this.scene);
         rightWall.position = new BABYLON.Vector3(17, 5, -10);
         rightWall.material = wallMat;
-        rightWall.receiveShadows = true;
+        rightWall.receiveShadows = false; // Phase 3: Disabled for performance
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
@@ -756,7 +756,7 @@ class VRClub {
             }, this.scene);
             pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
             pillar.material = pillarMat;
-            pillar.receiveShadows = true;
+            pillar.receiveShadows = false; // Phase 3: Disabled for performance
         });
         
         // Add exposed brick sections between pillars
@@ -775,7 +775,7 @@ class VRClub {
             }, this.scene);
             brick.position = new BABYLON.Vector3(section.x, 2 + section.height/2, section.z);
             brick.material = brickMat;
-            brick.receiveShadows = true;
+            brick.receiveShadows = false; // Phase 3: Disabled for performance
         });
         
         // Add industrial pipes running along ceiling (near walls)
@@ -1027,7 +1027,7 @@ class VRClub {
         
         const platformMat = this.materialFactory.getPreset('platform');
         platform.material = platformMat;
-        platform.receiveShadows = true;
+        platform.receiveShadows = true; // Keep shadows on DJ platform (main visual focus)
         
         // Anti-slip surface
         const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
@@ -1039,7 +1039,7 @@ class VRClub {
         
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
-        platformTop.receiveShadows = true;
+        platformTop.receiveShadows = true; // Keep shadows on DJ platform
         
         // Front safety rail
         const railMat = this.materialFactory.getPreset('rail');
@@ -1421,7 +1421,7 @@ class VRClub {
         }, this.scene);
         sub.position = new BABYLON.Vector3(xPos, 1.5, zPos);
         sub.material = material;
-        sub.receiveShadows = true;
+        sub.receiveShadows = true; // Keep shadows on PA speakers (important visual elements)
         sub.checkCollisions = true;
         
         // Sub grille - visible speaker cone area with emissive glow
@@ -1445,7 +1445,7 @@ class VRClub {
         }, this.scene);
         mid.position = new BABYLON.Vector3(xPos, 4.2, zPos);
         mid.material = material;
-        mid.receiveShadows = true;
+        mid.receiveShadows = true; // Keep shadows on PA speakers
         mid.checkCollisions = true;
         
         // Mid grille
