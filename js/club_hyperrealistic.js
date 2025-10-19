@@ -879,84 +879,53 @@ class VRClub {
         const doorwayZ = 2;  // Doorway at z=2 (room boundary)
         
         // === FRONT WALL WITH DOORWAY ===
-        // Create full front wall (z=2) with central doorway opening
-        // === NUCLEAR OPTION: Each wall gets its OWN unique unlit material ===
-        // NO SHARING - prevents any cross-contamination
+        // Use EXACT SAME PATTERN as other walls (leftWall, rightWall, backWall)
         const doorwayWidth = 3; // 3m wide entrance
         const doorwayHeight = 2.5; // 2.5m tall entrance
         const wallWidth = 35; // Match room width
-        const wallColor = new BABYLON.Color3(0.35, 0.35, 0.35);
         
-        // Helper function to create COMPLETELY OPAQUE unlit material
-        const createOpaqueWallMaterial = (name) => {
-            const mat = new BABYLON.StandardMaterial(name, this.scene);
-            mat.emissiveColor = wallColor.clone(); // Self-lit (no lighting calculations)
-            mat.diffuseColor = new BABYLON.Color3(0, 0, 0); // No diffuse response
-            mat.specularColor = new BABYLON.Color3(0, 0, 0); // No specular
-            mat.ambientColor = new BABYLON.Color3(0, 0, 0); // No ambient
-            mat.alpha = 1.0;
-            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE; // Explicit opaque mode
-            mat.disableDepthWrite = false;
-            mat.backFaceCulling = false; // Double-sided
-            mat.opacityTexture = null;
-            mat.alphaMode = BABYLON.Constants.ALPHA_DISABLE; // Disable alpha completely
-            mat.freeze();
-            return mat;
-        };
+        // Use materialFactory preset - SAME AS OTHER WALLS
+        const frontWallMat = this.materialFactory.getPreset('wall');
         
-        // Left section of front wall - UNIQUE MATERIAL
+        // Apply textures if available (same pattern as createWalls())
+        if (this.concreteTextures && this.concreteTextures.walls) {
+            this.textureLoader.applyTexturesToMaterial(frontWallMat, this.concreteTextures.walls);
+        }
+        
+        // Left section of front wall (SAME PATTERN as leftWall, rightWall, backWall)
         const frontWallLeft = BABYLON.MeshBuilder.CreateBox("frontWallLeft", {
             width: (wallWidth - doorwayWidth) / 2,
             height: 10,
             depth: 0.5
         }, this.scene);
         frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallLeft.material = createOpaqueWallMaterial("frontWallLeftMat");
-        frontWallLeft.receiveShadows = false;
-        frontWallLeft.isPickable = true;
-        frontWallLeft.checkCollisions = true;
-        frontWallLeft.renderingGroupId = 0;
-        frontWallLeft.alphaIndex = 0; // Force to front of render queue
-        frontWallLeft.visibility = 1.0; // Full visibility
-        frontWallLeft.freezeWorldMatrix();
+        frontWallLeft.material = frontWallMat; // SHARED material like other walls
+        frontWallLeft.receiveShadows = false; // Phase 3: Disabled for performance
         
-        // Right section of front wall - UNIQUE MATERIAL
+        // Right section of front wall
         const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
             width: (wallWidth - doorwayWidth) / 2,
             height: 10,
             depth: 0.5
         }, this.scene);
         frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
-        frontWallRight.material = createOpaqueWallMaterial("frontWallRightMat");
-        frontWallRight.receiveShadows = false;
-        frontWallRight.isPickable = true;
-        frontWallRight.checkCollisions = true;
-        frontWallRight.renderingGroupId = 0;
-        frontWallRight.alphaIndex = 0;
-        frontWallRight.visibility = 1.0;
-        frontWallRight.freezeWorldMatrix();
+        frontWallRight.material = frontWallMat; // SHARED material like other walls
+        frontWallRight.receiveShadows = false; // Phase 3: Disabled for performance
         
-        // Top section above doorway - UNIQUE MATERIAL
+        // Top section above doorway
         const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
             width: doorwayWidth,
             height: 10 - doorwayHeight,
             depth: 0.5
         }, this.scene);
         frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
-        frontWallTop.material = createOpaqueWallMaterial("frontWallTopMat");
-        frontWallTop.receiveShadows = false;
-        frontWallTop.isPickable = true;
-        frontWallTop.checkCollisions = true;
-        frontWallTop.renderingGroupId = 0;
-        frontWallTop.alphaIndex = 0;
-        frontWallTop.visibility = 1.0;
-        frontWallTop.freezeWorldMatrix();
+        frontWallTop.material = frontWallMat; // SHARED material like other walls
+        frontWallTop.receiveShadows = false; // Phase 3: Disabled for performance
         
         if (DEBUG_MODE) {
-            console.log('✅ Created entrance front wall (3 sections, unique unlit materials):', {
-                left: { pos: frontWallLeft.position, mat: frontWallLeft.material.name, visible: frontWallLeft.visibility },
-                right: { pos: frontWallRight.position, mat: frontWallRight.material.name, visible: frontWallRight.visibility },
-                top: { pos: frontWallTop.position, mat: frontWallTop.material.name, visible: frontWallTop.visibility }
+            console.log('✅ Created front wall (3 sections) using materialFactory.getPreset("wall")', {
+                material: frontWallMat.name,
+                sections: ['frontWallLeft', 'frontWallRight', 'frontWallTop']
             });
         }
         
@@ -999,75 +968,50 @@ class VRClub {
         // Taller wall with industrial brick texture (street-facing exterior)
         const facadeHeight = 12; // Taller exterior wall
         const facadeDepth = 0.8;
-        const facadeColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick
         
-        // Helper function for facade materials (same pattern as front wall)
-        const createOpaqueFacadeMaterial = (name) => {
-            const mat = new BABYLON.StandardMaterial(name, this.scene);
-            mat.emissiveColor = facadeColor.clone(); // Self-lit
-            mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            mat.specularColor = new BABYLON.Color3(0, 0, 0);
-            mat.ambientColor = new BABYLON.Color3(0, 0, 0);
-            mat.alpha = 1.0;
-            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
-            mat.disableDepthWrite = false;
-            mat.backFaceCulling = false; // Double-sided
-            mat.opacityTexture = null;
-            mat.alphaMode = BABYLON.Constants.ALPHA_DISABLE;
-            mat.freeze();
-            return mat;
-        };
+        // Use materialFactory preset for facade (different from interior walls)
+        // Create a simple material similar to wall preset but darker for exterior
+        const facadeMat = new BABYLON.PBRMetallicRoughnessMaterial("facadeMat", this.scene);
+        facadeMat.baseColor = new BABYLON.Color3(0.4, 0.35, 0.3); // Dark brick color
+        facadeMat.metallic = 0.0;
+        facadeMat.roughness = 0.95;
+        facadeMat.maxSimultaneousLights = this.maxLights;
+        facadeMat.freeze();
         
-        // Left facade section - UNIQUE MATERIAL
+        // Left facade section (SAME PATTERN as wall sections)
         const facadeLeft = BABYLON.MeshBuilder.CreateBox("facadeLeft", {
             width: (wallWidth - doorwayWidth) / 2,
             height: facadeHeight,
             depth: facadeDepth
         }, this.scene);
         facadeLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeLeft.material = createOpaqueFacadeMaterial("facadeLeftMat");
-        facadeLeft.receiveShadows = false;
-        facadeLeft.checkCollisions = true;
-        facadeLeft.renderingGroupId = 0;
-        facadeLeft.alphaIndex = 0;
-        facadeLeft.visibility = 1.0;
-        facadeLeft.freezeWorldMatrix();
+        facadeLeft.material = facadeMat; // SHARED material
+        facadeLeft.receiveShadows = false; // Phase 3: Disabled for performance
         
-        // Right facade section - UNIQUE MATERIAL
+        // Right facade section
         const facadeRight = BABYLON.MeshBuilder.CreateBox("facadeRight", {
             width: (wallWidth - doorwayWidth) / 2,
             height: facadeHeight,
             depth: facadeDepth
         }, this.scene);
         facadeRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
-        facadeRight.material = createOpaqueFacadeMaterial("facadeRightMat");
-        facadeRight.receiveShadows = false;
-        facadeRight.checkCollisions = true;
-        facadeRight.renderingGroupId = 0;
-        facadeRight.alphaIndex = 0;
-        facadeRight.visibility = 1.0;
-        facadeRight.freezeWorldMatrix();
+        facadeRight.material = facadeMat; // SHARED material
+        facadeRight.receiveShadows = false; // Phase 3: Disabled for performance
         
-        // Top facade section (above door) - UNIQUE MATERIAL
+        // Top facade section (above door)
         const facadeTop = BABYLON.MeshBuilder.CreateBox("facadeTop", {
             width: doorwayWidth + 4, // Wider overhang
             height: facadeHeight - doorwayHeight - 2,
             depth: facadeDepth
         }, this.scene);
         facadeTop.position = new BABYLON.Vector3(0, facadeHeight / 2 + doorwayHeight / 2 + 1, entranceZ);
-        facadeTop.material = createOpaqueFacadeMaterial("facadeTopMat");
-        facadeTop.receiveShadows = false;
-        facadeTop.checkCollisions = true;
-        facadeTop.renderingGroupId = 0;
-        facadeTop.alphaIndex = 0;
-        facadeTop.visibility = 1.0;
-        facadeTop.freezeWorldMatrix();
+        facadeTop.material = facadeMat; // SHARED material
+        facadeTop.receiveShadows = false; // Phase 3: Disabled for performance
         
         if (DEBUG_MODE) {
-            console.log('✅ Created exterior facade (3 sections, unique unlit materials):', {
-                left: { pos: facadeLeft.position, mat: facadeLeft.material.name, visible: facadeLeft.visibility },
-                right: { pos: facadeRight.position, mat: facadeRight.material.name, visible: facadeRight.visibility },
-                top: { pos: facadeTop.position, mat: facadeTop.material.name, visible: facadeTop.visibility }
+            console.log('✅ Created exterior facade (3 sections) using shared PBR material', {
+                material: facadeMat.name,
+                sections: ['facadeLeft', 'facadeRight', 'facadeTop']
             });
         }
         
