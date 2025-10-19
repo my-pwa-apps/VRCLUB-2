@@ -160,6 +160,7 @@ class VRClub {
         this.ledWallActive = true;
         this.strobesActive = true;
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
+        this.mirrorSpotsInitialized = false; // Flag to enable all 300 spots immediately on first activation
         
         // Spotlight pattern and speed controls
         this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
@@ -354,8 +355,9 @@ class VRClub {
         });
         
         // Setup camera for post-processing pipeline
-        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
-        this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
+        // START OUTSIDE THE CLUB - exterior entrance view
+        this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 1.7, 8), this.scene);
+        this.camera.setTarget(new BABYLON.Vector3(0, 2.5, 5)); // Looking at entrance and neon sign
         this.camera.attachControl(this.canvas, true);
         this.camera.speed = 0.3; // Realistic walking speed
         this.camera.applyGravity = false; // No gravity for easier navigation
@@ -445,6 +447,7 @@ class VRClub {
         
         // Continue building club
         this.createWalls();
+        this.createClubEntrance(); // NEW: Exterior entrance with neon sign and doorway
         this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
@@ -764,6 +767,250 @@ class VRClub {
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
+    }
+
+    createClubEntrance() {
+        // === CLUB EXTERIOR ENTRANCE ===
+        // Professional nightclub facade with neon signage, entrance doorway, and outdoor atmosphere
+        
+        const entranceZ = 5; // Position entrance 5m forward from room (exterior)
+        const doorwayZ = 2;  // Doorway at z=2 (room boundary)
+        
+        // === FRONT WALL WITH DOORWAY ===
+        // Create full front wall (z=2) with central doorway opening
+        const wallMat = this.materialFactory.getPreset('wall');
+        
+        const doorwayWidth = 3; // 3m wide entrance
+        const doorwayHeight = 2.5; // 2.5m tall entrance
+        const wallWidth = 35; // Match room width
+        
+        // Left section of front wall
+        const frontWallLeft = BABYLON.MeshBuilder.CreateBox("frontWallLeft", {
+            width: (wallWidth - doorwayWidth) / 2,
+            height: 10,
+            depth: 0.5
+        }, this.scene);
+        frontWallLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, 5, doorwayZ);
+        frontWallLeft.material = wallMat;
+        frontWallLeft.receiveShadows = false;
+        
+        // Right section of front wall
+        const frontWallRight = BABYLON.MeshBuilder.CreateBox("frontWallRight", {
+            width: (wallWidth - doorwayWidth) / 2,
+            height: 10,
+            depth: 0.5
+        }, this.scene);
+        frontWallRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, 5, doorwayZ);
+        frontWallRight.material = wallMat;
+        frontWallRight.receiveShadows = false;
+        
+        // Top section above doorway
+        const frontWallTop = BABYLON.MeshBuilder.CreateBox("frontWallTop", {
+            width: doorwayWidth,
+            height: 10 - doorwayHeight,
+            depth: 0.5
+        }, this.scene);
+        frontWallTop.position = new BABYLON.Vector3(0, 5 + doorwayHeight / 2, doorwayZ);
+        frontWallTop.material = wallMat;
+        frontWallTop.receiveShadows = false;
+        
+        // === ENTRANCE DOOR FRAME ===
+        const frameMat = new BABYLON.PBRMetallicRoughnessMaterial("doorFrameMat", this.scene);
+        frameMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gunmetal
+        frameMat.metallic = 0.9;
+        frameMat.roughness = 0.3;
+        frameMat.maxSimultaneousLights = this.maxLights;
+        
+        // Door frame sides
+        const frameThickness = 0.15;
+        const frameDepth = 0.6;
+        
+        const doorFrameLeft = BABYLON.MeshBuilder.CreateBox("doorFrameLeft", {
+            width: frameThickness,
+            height: doorwayHeight,
+            depth: frameDepth
+        }, this.scene);
+        doorFrameLeft.position = new BABYLON.Vector3(-doorwayWidth / 2, doorwayHeight / 2, doorwayZ);
+        doorFrameLeft.material = frameMat;
+        
+        const doorFrameRight = BABYLON.MeshBuilder.CreateBox("doorFrameRight", {
+            width: frameThickness,
+            height: doorwayHeight,
+            depth: frameDepth
+        }, this.scene);
+        doorFrameRight.position = new BABYLON.Vector3(doorwayWidth / 2, doorwayHeight / 2, doorwayZ);
+        doorFrameRight.material = frameMat;
+        
+        const doorFrameTop = BABYLON.MeshBuilder.CreateBox("doorFrameTop", {
+            width: doorwayWidth,
+            height: frameThickness,
+            depth: frameDepth
+        }, this.scene);
+        doorFrameTop.position = new BABYLON.Vector3(0, doorwayHeight, doorwayZ);
+        doorFrameTop.material = frameMat;
+        
+        // === EXTERIOR FACADE WALL ===
+        // Taller wall with industrial brick texture (street-facing exterior)
+        const facadeHeight = 12; // Taller exterior wall
+        const facadeDepth = 0.8;
+        
+        const brickMat = this.materialFactory.getPreset('brick');
+        
+        // Left facade section
+        const facadeLeft = BABYLON.MeshBuilder.CreateBox("facadeLeft", {
+            width: (wallWidth - doorwayWidth) / 2,
+            height: facadeHeight,
+            depth: facadeDepth
+        }, this.scene);
+        facadeLeft.position = new BABYLON.Vector3(-(wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
+        facadeLeft.material = brickMat;
+        facadeLeft.receiveShadows = false;
+        
+        // Right facade section
+        const facadeRight = BABYLON.MeshBuilder.CreateBox("facadeRight", {
+            width: (wallWidth - doorwayWidth) / 2,
+            height: facadeHeight,
+            depth: facadeDepth
+        }, this.scene);
+        facadeRight.position = new BABYLON.Vector3((wallWidth + doorwayWidth) / 4, facadeHeight / 2, entranceZ);
+        facadeRight.material = brickMat;
+        facadeRight.receiveShadows = false;
+        
+        // Top facade section (above door)
+        const facadeTop = BABYLON.MeshBuilder.CreateBox("facadeTop", {
+            width: doorwayWidth + 4, // Wider overhang
+            height: facadeHeight - doorwayHeight - 2,
+            depth: facadeDepth
+        }, this.scene);
+        facadeTop.position = new BABYLON.Vector3(0, facadeHeight / 2 + doorwayHeight / 2 + 1, entranceZ);
+        facadeTop.material = brickMat;
+        facadeTop.receiveShadows = false;
+        
+        // === NEON "CLUB VR" SIGN ===
+        // Mounted above entrance door on exterior facade
+        const signY = doorwayHeight + 1.8; // 1.8m above doorway
+        const signZ = entranceZ - facadeDepth / 2 - 0.1; // Slightly in front of facade
+        
+        // Neon tube effect - individual letters with emissive materials
+        const neonMat = new BABYLON.StandardMaterial("neonSignMat", this.scene);
+        neonMat.emissiveColor = new BABYLON.Color3(0, 1, 1); // Cyan neon (classic club color)
+        neonMat.disableLighting = true;
+        
+        // Neon backing panel (black metal sign board)
+        const signBacking = BABYLON.MeshBuilder.CreateBox("signBacking", {
+            width: 6,
+            height: 1.2,
+            depth: 0.15
+        }, this.scene);
+        signBacking.position = new BABYLON.Vector3(0, signY, signZ);
+        
+        const backingMat = new BABYLON.PBRMetallicRoughnessMaterial("signBackingMat", this.scene);
+        backingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+        backingMat.metallic = 0.7;
+        backingMat.roughness = 0.4;
+        backingMat.maxSimultaneousLights = this.maxLights;
+        signBacking.material = backingMat;
+        
+        // Create "CLUB VR" text using planes with glowing effect
+        // Use simple geometry for VR compatibility
+        const letterSpacing = 0.8;
+        const letterHeight = 0.7;
+        const letterWidth = 0.5;
+        
+        // CLUB (left group) - positions: C L U B
+        const clubLetters = [
+            { char: 'C', x: -2.4 },
+            { char: 'L', x: -1.6 },
+            { char: 'U', x: -0.8 },
+            { char: 'B', x: 0 }
+        ];
+        
+        // VR (right group) - positions: V R
+        const vrLetters = [
+            { char: 'V', x: 1.2 },
+            { char: 'R', x: 2.0 }
+        ];
+        
+        this.neonSignLetters = [];
+        [...clubLetters, ...vrLetters].forEach(letter => {
+            const letterPlane = BABYLON.MeshBuilder.CreatePlane(`neonLetter_${letter.char}`, {
+                width: letterWidth,
+                height: letterHeight
+            }, this.scene);
+            letterPlane.position = new BABYLON.Vector3(letter.x, signY, signZ - 0.1);
+            
+            // Create dynamic texture for letter
+            const letterTexture = new BABYLON.DynamicTexture(`letterTex_${letter.char}`, 
+                { width: 128, height: 128 }, this.scene);
+            const ctx = letterTexture.getContext();
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, 128, 128);
+            ctx.fillStyle = '#00ffff'; // Cyan
+            ctx.font = 'bold 90px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(letter.char, 64, 64);
+            letterTexture.update();
+            
+            const letterMat = new BABYLON.StandardMaterial(`letterMat_${letter.char}`, this.scene);
+            letterMat.emissiveTexture = letterTexture;
+            letterMat.emissiveColor = new BABYLON.Color3(0, 1, 1);
+            letterMat.disableLighting = true;
+            letterMat.backFaceCulling = false;
+            
+            letterPlane.material = letterMat;
+            letterPlane.renderingGroupId = 2; // Render on top
+            
+            this.neonSignLetters.push({ mesh: letterPlane, material: letterMat, texture: letterTexture });
+        });
+        
+        // Add neon glow effect (light halos around sign)
+        const signGlow = new BABYLON.PointLight("signGlow", 
+            new BABYLON.Vector3(0, signY, signZ - 0.5), this.scene);
+        signGlow.diffuse = new BABYLON.Color3(0, 1, 1);
+        signGlow.intensity = 15;
+        signGlow.range = 10;
+        
+        this.neonSignLight = signGlow;
+        
+        // === EXTERIOR GROUND (SIDEWALK/STREET) ===
+        const sidewalk = BABYLON.MeshBuilder.CreateGround("sidewalk", {
+            width: 40,
+            height: 8 // 8m deep (from z=2 to z=10)
+        }, this.scene);
+        sidewalk.position = new BABYLON.Vector3(0, 0, 6); // Center at z=6
+        
+        const sidewalkMat = new BABYLON.PBRMetallicRoughnessMaterial("sidewalkMat", this.scene);
+        sidewalkMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.35); // Dark gray concrete
+        sidewalkMat.metallic = 0.1;
+        sidewalkMat.roughness = 0.9; // Very rough (concrete texture)
+        sidewalkMat.maxSimultaneousLights = this.maxLights;
+        sidewalk.material = sidewalkMat;
+        
+        // === EXTERIOR LIGHTING (STREET ATMOSPHERE) ===
+        // Ambient street lighting
+        const streetLight = new BABYLON.HemisphericLight("streetLight", 
+            new BABYLON.Vector3(0, 1, 0), this.scene);
+        streetLight.diffuse = new BABYLON.Color3(0.4, 0.45, 0.5); // Cool blue street lighting
+        streetLight.intensity = 0.3; // Dim exterior lighting
+        streetLight.groundColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark ground bounce
+        
+        // Add door "enter here" hint with subtle glow
+        const doorIndicator = BABYLON.MeshBuilder.CreateBox("doorIndicator", {
+            width: 2,
+            height: 0.05,
+            depth: 1
+        }, this.scene);
+        doorIndicator.position = new BABYLON.Vector3(0, 0.01, doorwayZ + 1);
+        
+        const indicatorMat = new BABYLON.StandardMaterial("doorIndicatorMat", this.scene);
+        indicatorMat.emissiveColor = new BABYLON.Color3(0.2, 0.8, 1); // Subtle cyan glow
+        indicatorMat.alpha = 0.3;
+        indicatorMat.disableLighting = true;
+        doorIndicator.material = indicatorMat;
+        doorIndicator.renderingGroupId = 1;
+        
+        console.log('✅ Created club entrance with neon sign, doorway, and exterior facade');
     }
 
     createIndustrialWallDetails() {
@@ -2909,7 +3156,7 @@ class VRClub {
         const numSpots = 300; // Increased to 300 for better coverage
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
-        const spotsPerSurface = Math.floor(numSpots / 5); // Divide evenly among 5 surfaces (no front wall)
+        const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (INCLUDING front wall)
         let spotIndex = 0;
         
         const surfaces = [
@@ -2917,8 +3164,8 @@ class VRClub {
             { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 }, // Ceiling box bottom at 9.85
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
-            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 } // Back wall front face at -26.75
-            // Removed frontWall - no physical wall at entrance (z=0 to z=2)
+            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.98 } // Front wall with entrance at z=2
         ];
         
         surfaces.forEach(surface => {
@@ -3032,6 +3279,32 @@ class VRClub {
         const time = performance.now() / 1000;
         this.ledTime += 0.016;
         
+        // === NEON SIGN FLASHING ANIMATION ===
+        // Classic club entrance neon with intermittent flicker
+        if (this.neonSignLetters && this.neonSignLight) {
+            // Main flashing pattern: slow pulse + occasional rapid flicker
+            const flashSpeed = 2.0; // Hz
+            const pulse = 0.7 + 0.3 * Math.sin(time * flashSpeed * Math.PI * 2);
+            
+            // Occasional rapid flicker (every 5-8 seconds)
+            const flickerTime = time % 6.5;
+            let flicker = 1.0;
+            if (flickerTime > 6.0 && flickerTime < 6.3) {
+                // Rapid on/off during flicker window
+                flicker = Math.sin(time * 50) > 0 ? 1.0 : 0.3;
+            }
+            
+            const neonIntensity = pulse * flicker;
+            
+            // Update all letter materials
+            this.neonSignLetters.forEach(letter => {
+                letter.material.emissiveColor = new BABYLON.Color3(0, neonIntensity, neonIntensity);
+            });
+            
+            // Update neon glow light
+            this.neonSignLight.intensity = 15 * neonIntensity;
+        }
+        
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
             this.updateDancingNPCs(time);
@@ -3137,9 +3410,15 @@ class VRClub {
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
+                // Enable ALL spots immediately for full room coverage
+                // (Previously they were enabled one-by-one during animation, causing slow fill-in effect)
+                if (!this.mirrorSpotsInitialized) {
+                    this.mirrorReflectionSpots.forEach(spot => spot.visual.setEnabled(true));
+                    this.mirrorSpotsInitialized = true;
+                }
+                
                 this.mirrorReflectionSpots.forEach((spot, i) => {
-                    // Enable visual spot (no actual light - just emissive mesh)
-                    spot.visual.setEnabled(true);
+                    // Visual spot already enabled above - just animate position
                     
                     // PROPER RAY CASTING: Calculate direction from mirror ball based on rotation
                     // Each spot represents a mirror facet at a specific angle (theta, phi)
@@ -3284,6 +3563,8 @@ class VRClub {
                 this.mirrorReflectionSpots.forEach(spot => {
                     spot.visual.setEnabled(false);
                 });
+                // Reset flag so spots re-enable immediately next time
+                this.mirrorSpotsInitialized = false;
             }
         }
         
@@ -5387,6 +5668,7 @@ class VRClub {
 
     moveCameraToPreset(preset) {
         const presets = {
+            exterior: { pos: new BABYLON.Vector3(0, 1.7, 8), target: new BABYLON.Vector3(0, 2.5, 5) }, // NEW: Outside club entrance
             entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
             danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -24) },
             djBooth: { pos: new BABYLON.Vector3(0, 2.0, -24.5), target: new BABYLON.Vector3(0, 1.7, -10) },

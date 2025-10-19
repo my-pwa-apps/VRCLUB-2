@@ -650,14 +650,14 @@
             background: #667eea;
             transform: translateX(-50%) scale(1.1);
         }
-        /* Splash Screen */
+        /* Splash Screen - Club Style */
         #splashScreen {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #000000;
             z-index: 10000;
             display: flex;
             flex-direction: column;
@@ -666,6 +666,45 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: white;
             transition: opacity 0.5s ease-out;
+            overflow: hidden;
+        }
+        
+        /* Animated background grid */
+        #splashScreen::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(0deg, transparent 24%, rgba(255, 0, 255, 0.05) 25%, rgba(255, 0, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(255, 0, 255, 0.05) 75%, rgba(255, 0, 255, 0.05) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(0, 255, 255, 0.05) 25%, rgba(0, 255, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, 0.05) 75%, rgba(0, 255, 255, 0.05) 76%, transparent 77%, transparent);
+            background-size: 50px 50px;
+            animation: gridMove 20s linear infinite;
+            opacity: 0.3;
+        }
+        
+        /* Animated gradient overlay */
+        #splashScreen::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,0,255,0.15) 0%, rgba(0,255,255,0.15) 25%, rgba(255,0,255,0.15) 50%, rgba(0,255,255,0.15) 75%, rgba(255,0,255,0.15) 100%);
+            animation: gradientRotate 15s linear infinite;
+        }
+        
+        @keyframes gridMove {
+            0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
+            100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
+        }
+        
+        @keyframes gradientRotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         
         #splashScreen.hidden {
@@ -674,62 +713,154 @@
         }
         
         .splash-logo {
-            font-size: 80px;
+            font-size: 100px;
             margin-bottom: 20px;
-            animation: pulse 2s ease-in-out infinite;
+            animation: neonPulse 2s ease-in-out infinite, float 3s ease-in-out infinite;
+            filter: drop-shadow(0 0 20px rgba(255, 0, 255, 0.8)) drop-shadow(0 0 40px rgba(0, 255, 255, 0.6));
+            position: relative;
+            z-index: 2;
+        }
+        
+        @keyframes neonPulse {
+            0%, 100% { 
+                filter: drop-shadow(0 0 20px rgba(255, 0, 255, 0.8)) drop-shadow(0 0 40px rgba(0, 255, 255, 0.6));
+                transform: scale(1);
+            }
+            50% { 
+                filter: drop-shadow(0 0 30px rgba(255, 0, 255, 1)) drop-shadow(0 0 60px rgba(0, 255, 255, 0.8));
+                transform: scale(1.05);
+            }
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
         }
         
         .splash-title {
-            font-size: 48px;
-            font-weight: bold;
+            font-size: 64px;
+            font-weight: 900;
             margin-bottom: 10px;
-            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            letter-spacing: 8px;
+            background: linear-gradient(90deg, #ff00ff, #00ffff, #ff00ff);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: neonShine 3s linear infinite;
+            text-shadow: 0 0 30px rgba(255, 0, 255, 0.5);
+            position: relative;
+            z-index: 2;
+            font-family: Impact, 'Arial Black', sans-serif;
+        }
+        
+        @keyframes neonShine {
+            0% { background-position: 0% center; }
+            100% { background-position: 200% center; }
         }
         
         .splash-subtitle {
             font-size: 18px;
             opacity: 0.9;
             margin-bottom: 40px;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            color: #00ffff;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            position: relative;
+            z-index: 2;
+            animation: textGlow 2s ease-in-out infinite;
+        }
+        
+        @keyframes textGlow {
+            0%, 100% { text-shadow: 0 0 10px rgba(0, 255, 255, 0.8); }
+            50% { text-shadow: 0 0 20px rgba(0, 255, 255, 1), 0 0 30px rgba(255, 0, 255, 0.5); }
         }
         
         .splash-content {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 40px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 50px;
             border-radius: 20px;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(20px);
             max-width: 500px;
             text-align: center;
+            border: 2px solid rgba(255, 0, 255, 0.3);
+            box-shadow: 
+                0 0 30px rgba(255, 0, 255, 0.3),
+                0 0 60px rgba(0, 255, 255, 0.2),
+                inset 0 0 30px rgba(255, 0, 255, 0.05);
+            position: relative;
+            z-index: 2;
+            animation: borderGlow 3s ease-in-out infinite;
+        }
+        
+        @keyframes borderGlow {
+            0%, 100% { 
+                border-color: rgba(255, 0, 255, 0.3);
+                box-shadow: 
+                    0 0 30px rgba(255, 0, 255, 0.3),
+                    0 0 60px rgba(0, 255, 255, 0.2),
+                    inset 0 0 30px rgba(255, 0, 255, 0.05);
+            }
+            50% { 
+                border-color: rgba(0, 255, 255, 0.5);
+                box-shadow: 
+                    0 0 40px rgba(0, 255, 255, 0.4),
+                    0 0 80px rgba(255, 0, 255, 0.3),
+                    inset 0 0 40px rgba(0, 255, 255, 0.1);
+            }
         }
         
         .splash-button {
-            background: white;
-            color: #667eea;
+            background: linear-gradient(135deg, #ff00ff, #00ffff);
+            color: #000000;
             border: none;
-            padding: 18px 60px;
-            font-size: 20px;
-            font-weight: bold;
+            padding: 20px 70px;
+            font-size: 24px;
+            font-weight: 900;
             border-radius: 50px;
             cursor: pointer;
             transition: all 0.3s;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+            box-shadow: 
+                0 8px 20px rgba(255, 0, 255, 0.4),
+                0 0 30px rgba(0, 255, 255, 0.3);
             margin-top: 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .splash-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.5s;
+        }
+        
+        .splash-button:hover::before {
+            left: 100%;
         }
         
         .splash-button:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-            background: #f0f0f0;
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 
+                0 12px 30px rgba(255, 0, 255, 0.6),
+                0 0 50px rgba(0, 255, 255, 0.5);
         }
         
         .splash-button:active {
-            transform: translateY(-1px);
+            transform: translateY(-1px) scale(1.02);
         }
         
         .splash-options {
             margin-top: 30px;
             padding-top: 20px;
-            border-top: 1px solid rgba(255, 255, 255, 0.3);
+            border-top: 1px solid rgba(0, 255, 255, 0.3);
         }
         
         .splash-input-group {
@@ -742,24 +873,32 @@
             margin-bottom: 8px;
             opacity: 0.9;
             text-align: left;
+            color: #00ffff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
         
         .splash-input {
             width: 100%;
             padding: 12px 15px;
             border-radius: 8px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            background: rgba(255, 255, 255, 0.9);
-            color: #333;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.5);
+            color: #ffffff;
             font-size: 14px;
             box-sizing: border-box;
             transition: all 0.3s;
         }
         
+        .splash-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+        
         .splash-input:focus {
             outline: none;
-            border-color: white;
-            background: white;
+            border-color: #00ffff;
+            background: rgba(0, 0, 0, 0.7);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
         }
         
         .splash-checkbox {
@@ -769,12 +908,14 @@
             gap: 10px;
             margin-top: 15px;
             font-size: 14px;
+            color: #ffffff;
         }
         
         .splash-checkbox input {
             width: 18px;
             height: 18px;
             cursor: pointer;
+            accent-color: #ff00ff;
         }
         
         .splash-loading {
@@ -782,6 +923,7 @@
             margin-top: 20px;
             font-size: 14px;
             opacity: 0.8;
+            color: #00ffff;
         }
         
         .splash-loading.visible {
@@ -794,46 +936,96 @@
         }
         
         .splash-spinner {
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-top: 3px solid white;
+            border: 3px solid rgba(0, 255, 255, 0.2);
+            border-top: 3px solid #ff00ff;
+            border-right: 3px solid #00ffff;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            height: 40px;
             animation: spin 1s linear infinite;
             margin: 10px auto;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
         }
         
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        /* Floating particles in background */
+        .splash-particle {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: #ff00ff;
+            border-radius: 50%;
+            opacity: 0.6;
+            box-shadow: 0 0 10px #ff00ff;
+            animation: particleFloat 10s infinite;
+            z-index: 1;
+        }
+        
+        @keyframes particleFloat {
+            0% {
+                transform: translateY(100vh) translateX(0) scale(0);
+                opacity: 0;
+            }
+            10% {
+                opacity: 0.6;
+            }
+            90% {
+                opacity: 0.6;
+            }
+            100% {
+                transform: translateY(-100px) translateX(100px) scale(1);
+                opacity: 0;
+            }
+        }
     </style>
 </head>
 <body>
     <!-- Splash Screen -->
     <div id="splashScreen">
+        <!-- Animated particles -->
+        <script>
+            // Create floating particles
+            const splashBg = document.getElementById('splashScreen');
+            for (let i = 0; i < 30; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'splash-particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 10 + 's';
+                particle.style.animationDuration = (8 + Math.random() * 4) + 's';
+                if (Math.random() > 0.5) {
+                    particle.style.background = '#00ffff';
+                    particle.style.boxShadow = '0 0 10px #00ffff';
+                }
+                splashBg.appendChild(particle);
+            }
+        </script>
+        
         <div class="splash-content">
             <div class="splash-logo">🎧</div>
             <div class="splash-title">VR CLUB</div>
-            <div class="splash-subtitle">Immersive Virtual Nightclub Experience</div>
+            <div class="splash-subtitle">◆ Immersive Virtual Nightclub Experience ◆</div>
             
             <button class="splash-button" id="enterClubBtn">
-                🚪 ENTER CLUB
+                ▶ ENTER CLUB
             </button>
             
             <div class="splash-options">
                 <div class="splash-input-group">
-                    <label class="splash-label">Your Name (Optional)</label>
+                    <label class="splash-label">◇ Your Name (Optional)</label>
                     <input type="text" class="splash-input" id="splashUsername" placeholder="DJ Guest" maxlength="20">
                 </div>
                 
                 <div class="splash-checkbox">
-                    <input type="checkbox" id="enableMultiplayer">
+                    <input type="checkbox" id="enableMultiplayer" title="Enable multiplayer mode">
                     <label>👥 Enable Multiplayer (Experimental)</label>
                 </div>
                 
                 <div class="splash-input-group" id="roomCodeGroup" style="display: none;">
-                    <label class="splash-label">Room Code (Share with friends)</label>
+                    <label class="splash-label">◇ Room Code (Share with friends)</label>
                     <input type="text" class="splash-input" id="roomCode" placeholder="Leave empty for new room">
                 </div>
             </div>
@@ -1003,10 +1195,11 @@
     <!-- Camera Controls -->
     <div id="cameraControls">
         <div class="preset-grid">
+            <button data-camera-preset="exterior" title="Outside the club - exterior entrance view with neon sign">🌃 Outside</button>
             <button data-camera-preset="entrance" title="Front entrance view looking into club">🚪 Entry</button>
             <button data-camera-preset="danceFloor" title="Dance floor center, facing DJ booth">💃 Floor</button>
             <button data-camera-preset="djBooth" title="Behind DJ console, facing crowd">🎧 DJ</button>
-            <button data-camera-preset="djSide" title="Side view of DJ booth and equipment">�️ DJ Side</button>
+            <button data-camera-preset="djSide" title="Side view of DJ booth and equipment">🎛️ DJ Side</button>
             <button data-camera-preset="ledWallClose" title="Close-up of LED wall video panels">🎨 LED</button>
             <button data-camera-preset="speakers" title="PA speaker stacks flanking LED wall">🔊 Speakers</button>
             <button data-camera-preset="truss" title="Lighting truss with moving heads">💡 Truss</button>
