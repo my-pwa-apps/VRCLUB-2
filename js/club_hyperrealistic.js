@@ -316,14 +316,6 @@ class VRClub {
         // Setup camera for post-processing pipeline
         this.camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
         this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
-        this.camera.attachControl(this.canvas, true);
-        this.camera.speed = 0.3; // Realistic walking speed
-        this.camera.applyGravity = false; // No gravity for easier navigation
-        this.camera.checkCollisions = true; // Enable collision detection with invisible walls
-        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Collision bounding box (human-sized)
-        this.camera.fov = 1.1; // Wider FOV for immersion
-        this.camera.minZ = 0.1;
-        this.camera.maxZ = 150;
         
         // Movement controls - WASD + Arrow Keys
         this.camera.keysUp = [87, 38]; // W + Up Arrow
@@ -332,8 +324,22 @@ class VRClub {
         this.camera.keysRight = [68, 39]; // D + Right Arrow
         this.camera.keysUpward = [69]; // E
         this.camera.keysDownward = [81]; // Q
-        this.camera.angularSensibility = 2000; // Mouse rotation sensitivity
+        
+        // Mouse rotation settings (must be set BEFORE attachControl)
+        this.camera.angularSensibility = 1000; // Lower = more sensitive (default 2000 was too slow)
         this.camera.inertia = 0.7; // Smooth movement
+        
+        // Attach controls AFTER setting up inputs
+        this.camera.attachControl(this.canvas, true);
+        
+        // Camera properties
+        this.camera.speed = 0.3; // Realistic walking speed
+        this.camera.applyGravity = false; // No gravity for easier navigation
+        this.camera.checkCollisions = true; // Enable collision detection with invisible walls
+        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Collision bounding box (human-sized)
+        this.camera.fov = 1.1; // Wider FOV for immersion
+        this.camera.minZ = 0.1;
+        this.camera.maxZ = 150;
         
         this.scene.activeCamera = this.camera;
         
