@@ -24,6 +24,29 @@ const CLUB_POSITIONS = {
     }
 };
 
+// Phase 4: Performance and visual configuration constants
+const PERFORMANCE_CONFIG = {
+    particles: {
+        danceFloorFog: 800,
+        upperFog: 500,
+        djFog: 400
+    },
+    shadows: {
+        mapSize: 512,
+        enableOnPlatform: true,
+        enableOnSpeakers: true,
+        enableOnWalls: false
+    },
+    textures: {
+        resolution: '1k', // '1k' or '2k'
+        freeze: true
+    },
+    avatars: {
+        maxNPCs: 4,
+        showLabels: false
+    }
+};
+
 class VRClub {
     constructor() {
         this.canvas = document.getElementById('canvas');
@@ -87,7 +110,8 @@ class VRClub {
         this.vuMeters = [];
         this.smokeMachines = [];
         
-        // Cache Color3 objects for performance (avoid creating new ones every frame)
+        // Phase 4: Consolidated Color3 cache for performance (avoid creating new ones every frame)
+        // All color arrays now reference this centralized cache
         this.cachedColors = {
             red: new BABYLON.Color3(1, 0, 0),
             green: new BABYLON.Color3(0, 1, 0),
@@ -95,21 +119,33 @@ class VRClub {
             magenta: new BABYLON.Color3(1, 0, 1),
             yellow: new BABYLON.Color3(1, 1, 0),
             cyan: new BABYLON.Color3(0, 1, 1),
+            orange: new BABYLON.Color3(1, 0.5, 0),
+            purple: new BABYLON.Color3(0.5, 0, 1),
             white: new BABYLON.Color3(10, 10, 10),
-            black: new BABYLON.Color3(0, 0, 0)
+            black: new BABYLON.Color3(0, 0, 0),
+            // Mirror ball specific colors (softer variants)
+            whiteSoft: new BABYLON.Color3(1, 1, 1),
+            redSoft: new BABYLON.Color3(1, 0.3, 0.3),
+            blueSoft: new BABYLON.Color3(0.3, 0.3, 1),
+            greenSoft: new BABYLON.Color3(0.3, 1, 0.3),
+            magentaSoft: new BABYLON.Color3(1, 0.3, 1),
+            yellowSoft: new BABYLON.Color3(1, 1, 0.3),
+            cyanSoft: new BABYLON.Color3(0.3, 1, 1),
+            orangeSoft: new BABYLON.Color3(1, 0.6, 0.3),
+            purpleSoft: new BABYLON.Color3(0.7, 0.3, 1)
         };
         
-        // Initialize spotlight color EARLY (needed for fixture creation)
+        // Initialize spotlight color array (references cachedColors)
         this.spotColorList = [
-            new BABYLON.Color3(1, 0, 0),      // Red
-            new BABYLON.Color3(0, 0, 1),      // Blue
-            new BABYLON.Color3(0, 1, 0),      // Green
-            new BABYLON.Color3(1, 0, 1),      // Magenta
-            new BABYLON.Color3(1, 1, 0),      // Yellow
-            new BABYLON.Color3(0, 1, 1),      // Cyan
-            new BABYLON.Color3(1, 0.5, 0),    // Orange
-            new BABYLON.Color3(0.5, 0, 1),    // Purple
-            new BABYLON.Color3(1, 1, 1)       // White
+            this.cachedColors.red,
+            this.cachedColors.blue,
+            this.cachedColors.green,
+            this.cachedColors.magenta,
+            this.cachedColors.yellow,
+            this.cachedColors.cyan,
+            this.cachedColors.orange,
+            this.cachedColors.purple,
+            this.cachedColors.white
         ];
         this.currentSpotColor = this.spotColorList[0]; // Start with RED
         this.spotColorIndex = 0;
@@ -129,19 +165,19 @@ class VRClub {
         this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
         this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
-        // Mirror ball spotlight color (configurable)
-        this.mirrorBallSpotlightColor = new BABYLON.Color3(1, 1, 1); // Default: pure white
+        // Mirror ball spotlight color and color array (references cachedColors)
+        this.mirrorBallSpotlightColor = this.cachedColors.whiteSoft; // Default: pure white
         this.mirrorBallColorIndex = 0;
         this.mirrorBallColors = [
-            new BABYLON.Color3(1, 1, 1),      // White (classic)
-            new BABYLON.Color3(1, 0.3, 0.3),  // Red
-            new BABYLON.Color3(0.3, 0.3, 1),  // Blue
-            new BABYLON.Color3(0.3, 1, 0.3),  // Green
-            new BABYLON.Color3(1, 0.3, 1),    // Magenta
-            new BABYLON.Color3(1, 1, 0.3),    // Yellow
-            new BABYLON.Color3(0.3, 1, 1),    // Cyan
-            new BABYLON.Color3(1, 0.6, 0.3),  // Orange
-            new BABYLON.Color3(0.7, 0.3, 1)   // Purple
+            this.cachedColors.whiteSoft,
+            this.cachedColors.redSoft,
+            this.cachedColors.blueSoft,
+            this.cachedColors.greenSoft,
+            this.cachedColors.magentaSoft,
+            this.cachedColors.yellowSoft,
+            this.cachedColors.cyanSoft,
+            this.cachedColors.orangeSoft,
+            this.cachedColors.purpleSoft
         ];
         
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
