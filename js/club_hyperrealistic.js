@@ -3513,6 +3513,61 @@ class VRClub {
         const time = performance.now() / 1000;
         this.ledTime += 0.016;
         
+        // === GLOBAL LIGHT OCCLUSION ===
+        // Disable ALL interior lights when camera is outside the club
+        const cameraPos = this.scene.activeCamera.position;
+        const cameraOutside = cameraPos.z > 2; // Front wall threshold
+        
+        if (cameraOutside) {
+            // Disable ALL lights in the scene (except neon sign and hemispheric ambient)
+            this.scene.lights.forEach(light => {
+                if (light.name !== "signGlow" && light.name !== "hemispheric") {
+                    light.intensity = 0;
+                    light.setEnabled(false);
+                }
+            });
+            
+            // Disable all laser beams
+            if (this.lasers) {
+                this.lasers.forEach(laser => {
+                    laser.beams.forEach(beam => {
+                        beam.mesh.visibility = 0;
+                        beam.mesh.setEnabled(false);
+                        if (beam.beamGlow) {
+                            beam.beamGlow.visibility = 0;
+                            beam.beamGlow.setEnabled(false);
+                        }
+                        if (beam.hitSpot) {
+                            beam.hitSpot.visibility = 0;
+                            beam.hitSpot.setEnabled(false);
+                        }
+                    });
+                });
+            }
+            
+            // Disable all spotlight beams
+            if (this.spotlights) {
+                this.spotlights.forEach(spot => {
+                    if (spot.beam) spot.beam.visibility = 0;
+                    if (spot.beamGlow) spot.beamGlow.visibility = 0;
+                    if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
+                    if (spot.lightPool) spot.lightPool.visibility = 0;
+                    if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
+                });
+            }
+            
+            // Turn off LED wall panels
+            if (this.ledPanels) {
+                this.ledPanels.forEach(panel => {
+                    panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                });
+            }
+            
+            // IMPORTANT: Return early to skip all animation logic when outside
+            // This prevents lights from being re-enabled by animation code
+            return;
+        }
+        
         // === NEON SIGN FLASHING ANIMATION ===
         // Classic club entrance neon with intermittent flicker
         if (this.neonSignLetters && this.neonSignLight) {
@@ -3982,31 +4037,6 @@ class VRClub {
         
         // Update lasers with raycasting and dynamic positioning
         if (this.lasers && this.lasersActive) {
-            // Check if camera is outside the club (prevent beams showing through walls from outside)
-            const cameraPos = this.scene.activeCamera.position;
-            const cameraOutside = cameraPos.z > 2; // Front wall is at z=2, doorway entrance
-            
-            // CRITICAL: Disable ALL lasers when viewing from outside
-            // Point lights don't respect geometry occlusion, so they illuminate through walls
-            if (cameraOutside) {
-                this.lasers.forEach(laser => {
-                    laser.lights.forEach(light => light.setEnabled(false));
-                    laser.beams.forEach(beam => {
-                        beam.mesh.visibility = 0;
-                        beam.mesh.setEnabled(false);
-                        if (beam.beamGlow) {
-                            beam.beamGlow.visibility = 0;
-                            beam.beamGlow.setEnabled(false);
-                        }
-                        if (beam.hitSpot) {
-                            beam.hitSpot.visibility = 0;
-                            beam.hitSpot.setEnabled(false);
-                        }
-                    });
-                });
-            } else {
-            
-            // Only animate lasers when inside (cameraOutside=false)
             this.lasers.forEach((laser, i) => {
                 // Update origin position for parented lasers (get world position)
                 if (laser.parentTruss) {
@@ -4171,7 +4201,6 @@ class VRClub {
                     light.setEnabled(true); // Enable laser point lights
                 });
             });
-            } // End of else block (inside camera check)
         } else if (this.lasers) {
             // Turn off lasers when not active
             this.lasers.forEach(laser => {
@@ -4266,28 +4295,6 @@ class VRClub {
         const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
         
         if (this.spotlights && this.lightsActive) {
-            
-            // Check if camera is outside the club (prevent beams showing through walls from outside)
-            const cameraPos = this.scene.activeCamera.position;
-            const cameraOutside = cameraPos.z > 2; // Front wall is at z=2, doorway entrance
-            
-            // CRITICAL: Disable ALL interior lights when viewing from outside
-            // Point/spot lights in Babylon.js don't respect geometry occlusion, so they illuminate through walls
-            // Solution: Turn off lights completely when camera is outside
-            if (cameraOutside) {
-                // Disable all spotlights
-                this.spotlights.forEach(spot => {
-                    if (spot.light) spot.light.intensity = 0;
-                    if (spot.spot) spot.spot.setEnabled(false);
-                    if (spot.beam) spot.beam.visibility = 0;
-                    if (spot.beamGlow) spot.beamGlow.visibility = 0;
-                });
-                
-                // Disable LED wall backlight
-                const ledLight = this.scene.getLightByName("ledLight");
-                if (ledLight) ledLight.intensity = 0;
-            } else {
-                // Only animate spotlights when inside (cameraOutside=false)
             
             // SYNCHRONIZED SWEEPING - recreate iconic club vibe
             // All lights move together, sweeping their beams across the dance floor
@@ -4693,7 +4700,6 @@ class VRClub {
                 
                 spot.light.intensity = this.lightsActive ? (baseIntensity + smoothPulse) : 0;
             });
-            } // End of else block (inside camera check for spotlights)
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
             this.spotlights.forEach(spot => {
