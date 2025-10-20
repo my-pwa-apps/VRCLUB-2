@@ -2753,7 +2753,7 @@ class VRClub {
         // These are purely emissive meshes that create the illusion of reflections
         // REALISTIC DISCO BALL: Spots should cover ENTIRE room in all directions
         this.mirrorReflectionSpots = [];
-        const numSpots = 180; // Balanced for hyperrealism (30 per surface) - was 300 originally
+        const numSpots = 300; // Dense hyperrealistic coverage (50 per surface) - smaller size compensates for GPU cost
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
@@ -2772,7 +2772,7 @@ class VRClub {
             for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.15 + Math.random() * 0.15, // SMALLER: 0.15-0.3m (was 0.25-0.5m)
+                    radius: 0.08 + Math.random() * 0.07, // SMALLER: 0.08-0.15m for denser coverage (was 0.15-0.3m)
                     tessellation: 8
                 }, this.scene);
                 
