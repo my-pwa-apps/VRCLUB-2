@@ -39,6 +39,9 @@ const clubState = {
     spotlightPattern: 0,
     spotColorIndex: 0,
     mirrorBallColorIndex: 0,
+    laserColorIndex: 0,
+    ledPattern: 0,
+    ledColorIndex: 0,
     audioUrl: null,
     audioTime: 0,
     audioPlaying: false

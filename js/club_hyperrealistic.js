@@ -3216,6 +3216,11 @@ class VRClub {
         if (!this.vjManualMode && time - this.colorSwitchTime > (8 + Math.random() * 4)) {
             this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
             this.colorSwitchTime = time;
+            
+            // Broadcast automatic laser color change to other players
+            if (this.networkManager && this.networkManager.isConnected()) {
+                this.networkManager.sendVJControl('laserColorIndex', this.currentColorIndex);
+            }
         }
         
         // Update lasers with raycasting and dynamic positioning
@@ -3411,7 +3416,10 @@ class VRClub {
             this.currentSpotColor = this.spotColorList[this.spotColorIndex];
             this.lastColorChange = time;
             
-
+            // Broadcast automatic color change to other players
+            if (this.networkManager && this.networkManager.isConnected()) {
+                this.networkManager.sendVJControl('spotColorIndex', this.spotColorIndex);
+            }
             
             // Update ALL lights to new color
             if (this.spotlights) {
@@ -4065,6 +4073,11 @@ class VRClub {
         if (time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
+            
+            // Broadcast automatic LED pattern change to other players
+            if (this.networkManager && this.networkManager.isConnected()) {
+                this.networkManager.sendVJControl('ledPattern', this.ledPattern);
+            }
         }
         
         // Change color more frequently too
@@ -4077,6 +4090,11 @@ class VRClub {
         if (time - this.lastColorChange > colorChangeTime || this.lastColorChange === -1) {
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
             this.lastColorChange = time;
+            
+            // Broadcast automatic LED color change to other players
+            if (this.networkManager && this.networkManager.isConnected()) {
+                this.networkManager.sendVJControl('ledColorIndex', this.ledColorIndex);
+            }
         }
         
         patterns[this.ledPattern].call(this, colors[this.ledColorIndex], time, audioData);
@@ -4513,6 +4531,9 @@ class VRClub {
             this.currentSpotColor = this.spotColorList[this.spotColorIndex];
             this.mirrorBallColorIndex = clubState.mirrorBallColorIndex;
             this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
+            this.currentColorIndex = clubState.laserColorIndex !== undefined ? clubState.laserColorIndex : 0;
+            this.ledPattern = clubState.ledPattern !== undefined ? clubState.ledPattern : 0;
+            this.ledColorIndex = clubState.ledColorIndex !== undefined ? clubState.ledColorIndex : 0;
             
             // Create avatars for existing players
             players.forEach(player => {
@@ -4554,6 +4575,12 @@ class VRClub {
                 this.currentSpotColor = this.spotColorList[value];
             } else if (control === 'mirrorBallColorIndex') {
                 this.mirrorBallSpotlightColor = this.mirrorBallColors[value];
+            } else if (control === 'laserColorIndex') {
+                this.currentColorIndex = value;
+            } else if (control === 'ledPattern') {
+                this.ledPattern = value;
+            } else if (control === 'ledColorIndex') {
+                this.ledColorIndex = value;
             }
         };
         
