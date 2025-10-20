@@ -2765,7 +2765,7 @@ class VRClub {
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
             { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.73 } // Front wall inner face at 1.75 (box center at 2, depth 0.5)
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.77 } // Front wall inner face at 1.75 + 0.02 offset (box center at 2, depth 0.5)
         ];
         
         surfaces.forEach(surface => {
