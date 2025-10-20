@@ -33,6 +33,7 @@ const clubState = {
     ledWallActive: true,
     strobesActive: true,
     mirrorBallActive: false,
+    spotStrobeActive: true,
     spotlightSpeed: 1.0,
     spotlightMode: 0,
     spotlightPattern: 0,

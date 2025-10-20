@@ -4505,6 +4505,7 @@ class VRClub {
             this.ledWallActive = clubState.ledWallActive;
             this.strobesActive = clubState.strobesActive;
             this.mirrorBallActive = clubState.mirrorBallActive;
+            this.spotStrobeActive = clubState.spotStrobeActive !== undefined ? clubState.spotStrobeActive : false;
             this.spotlightSpeed = clubState.spotlightSpeed;
             this.spotlightMode = clubState.spotlightMode;
             this.spotlightPattern = clubState.spotlightPattern;
