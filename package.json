@@ -2,7 +2,6 @@
   "name": "vrclub",
   "version": "1.0.0",
   "description": "Hyperrealistic WebXR VR Club with music streaming and multiplayer support for Quest 3S",
-  "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
     "dev": "npx http-server -p 8000 -o",
