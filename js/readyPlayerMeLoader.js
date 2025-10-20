@@ -74,8 +74,17 @@ class ReadyPlayerMeLoader {
             // Check cache first
             if (this.cache.has(avatarUrl)) {
                 console.log(`✅ Using cached ${avatarType} avatar`);
-                const cachedMeshes = this.cache.get(avatarUrl);
-                return this.cloneAvatarMeshes(cachedMeshes, playerId);
+                const cached = this.cache.get(avatarUrl);
+                const clonedMeshes = this.cloneAvatarMeshes(cached.meshes, playerId);
+                
+                // Clone and setup animations for the cloned avatar
+                if (cached.animationGroups && cached.animationGroups.length > 0) {
+                    const clonedGroups = this.cloneAnimationGroups(cached.animationGroups, clonedMeshes);
+                    this.setupAnimations(clonedMeshes[0], clonedGroups);
+                    console.log(`🎬 Cloned ${clonedGroups.length} animations for cached avatar`);
+                }
+                
+                return clonedMeshes;
             }
             
             // Load GLB avatar
@@ -92,8 +101,11 @@ class ReadyPlayerMeLoader {
             
             console.log(`✅ Loaded ${avatarType} avatar with ${result.meshes.length} meshes`);
             
-            // Cache the loaded meshes
-            this.cache.set(avatarUrl, result.meshes);
+            // Cache the loaded meshes AND animation groups
+            this.cache.set(avatarUrl, {
+                meshes: result.meshes,
+                animationGroups: result.animationGroups || []
+            });
             
             // Scale to appropriate size
             // VRoid/RPM avatars are usually 1.6-1.8m tall (realistic human height)
@@ -263,6 +275,43 @@ class ReadyPlayerMeLoader {
         });
         
         return clones;
+    }
+    
+    /**
+     * Clone animation groups for a cloned avatar
+     */
+    cloneAnimationGroups(animationGroups, targetMeshes) {
+        const clonedGroups = [];
+        
+        animationGroups.forEach(group => {
+            // Create a new animation group with unique name
+            const clonedGroup = new BABYLON.AnimationGroup(
+                `${group.name}_${targetMeshes[0].name}`,
+                this.scene
+            );
+            
+            // Clone each animation in the group
+            group.targetedAnimations.forEach(targetedAnim => {
+                const originalTarget = targetedAnim.target;
+                
+                // Find the corresponding mesh in the cloned set
+                let newTarget = null;
+                if (originalTarget.name) {
+                    newTarget = targetMeshes.find(m => m.name.includes(originalTarget.name.split('_')[0]));
+                }
+                
+                if (newTarget && targetedAnim.animation) {
+                    const clonedAnim = targetedAnim.animation.clone();
+                    clonedGroup.addTargetedAnimation(clonedAnim, newTarget);
+                }
+            });
+            
+            // Normalize to same range as original
+            clonedGroup.normalize(0, 100);
+            clonedGroups.push(clonedGroup);
+        });
+        
+        return clonedGroups;
     }
     
     /**

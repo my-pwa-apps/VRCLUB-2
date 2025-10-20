@@ -3,12 +3,11 @@ services:
     name: vrclub-multiplayer-server
     runtime: node
     repo: https://github.com/my-pwa-apps/VRCLUB-2
-    branch: network
-    buildCommand: cd server && npm install
-    startCommand: cd server && npm start
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-    healthCheckPath: /health
