@@ -4562,9 +4562,35 @@ class VRClub {
                 this.syncAudio(syncData.audioUrl, syncData.audioTime, syncData.audioPlaying);
             }
         };
+        
+        // Periodic audio sync to prevent drift (every 5 seconds)
+        this.audioSyncInterval = setInterval(() => {
+            if (this.audioElement && !this.audioElement.paused && this.networkManager && this.networkManager.isConnected()) {
+                this.networkManager.sendAudioSync(
+                    this.audioElement.src,
+                    this.audioElement.currentTime,
+                    true
+                );
+                console.log(`🔄 Audio sync: ${this.audioElement.currentTime.toFixed(1)}s`);
+            }
+        }, 5000);
     }
     
     syncAudio(audioUrl, audioTime, isPlaying = true) {
+        // Handle stop command (null URL or empty URL)
+        if (!audioUrl || audioUrl === '') {
+            if (this.audioElement) {
+                this.audioElement.pause();
+                this.audioElement.currentTime = 0;
+                if (this.audioStreamButton) {
+                    this.audioStreamButton.isPlaying = false;
+                    this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
+                }
+            }
+            console.log('🔇 Audio stopped by remote player');
+            return;
+        }
+        
         // Create or update audio element
         if (!this.audioElement) {
             this.audioElement = new Audio();
@@ -4585,9 +4611,18 @@ class VRClub {
         // Load and sync audio
         if (this.audioElement.src !== audioUrl) {
             this.audioElement.src = audioUrl;
+            console.log(`🎵 Remote player started audio: ${audioUrl}`);
         }
         
         this.audioElement.currentTime = audioTime;
+        
+        // Update audio button state
+        if (this.audioStreamButton) {
+            this.audioStreamButton.isPlaying = isPlaying;
+            this.audioStreamButton.material.emissiveColor = isPlaying ? 
+                new BABYLON.Color3(1, 0, 0) : // Red when playing
+                new BABYLON.Color3(0, 0.8, 0); // Green when paused
+        }
         
         if (isPlaying) {
             this.audioElement.play().catch(err => {
@@ -4709,6 +4744,11 @@ class VRClub {
                         }, 200);
                         
                         console.log(`🎨 Color changed to index ${this.spotColorIndex}`);
+                        
+                        // Broadcast spotlight color change to other players
+                        if (this.networkManager && this.networkManager.isConnected()) {
+                            this.networkManager.sendVJControl('spotColorIndex', this.spotColorIndex);
+                        }
                     } else if (clickedButton.control === "changeMirrorBallColor") {
                         // Change mirror ball spotlight color - cycle through colors
                         this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
@@ -4754,6 +4794,11 @@ class VRClub {
                         
                         const colorNames = ["White", "Red", "Blue", "Green", "Magenta", "Yellow", "Cyan", "Orange", "Purple"];
                         console.log(`🪩 Mirror ball color: ${colorNames[this.mirrorBallColorIndex]}`);
+                        
+                        // Broadcast mirror ball color change to other players
+                        if (this.networkManager && this.networkManager.isConnected()) {
+                            this.networkManager.sendVJControl('mirrorBallColorIndex', this.mirrorBallColorIndex);
+                        }
                     } else if (clickedButton.control === "cycleSpotMode") {
                         // Cycle through spotlight modes: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
                         this.spotlightMode = (this.spotlightMode + 1) % 4;
@@ -4772,6 +4817,11 @@ class VRClub {
                         
                         const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
                         console.log(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
+                        
+                        // Broadcast spotlight mode change to other players
+                        if (this.networkManager && this.networkManager.isConnected()) {
+                            this.networkManager.sendVJControl('spotlightMode', this.spotlightMode);
+                        }
                     } else if (clickedButton.control === "cyclePattern") {
                         // Cycle through spotlight patterns: 0=random, 1=static down, 2=sync sweep
                         this.spotlightPattern = (this.spotlightPattern + 1) % 3;
@@ -4789,6 +4839,11 @@ class VRClub {
                         
                         const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
                         console.log(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
+                        
+                        // Broadcast spotlight pattern change to other players
+                        if (this.networkManager && this.networkManager.isConnected()) {
+                            this.networkManager.sendVJControl('spotlightPattern', this.spotlightPattern);
+                        }
                     } else {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
@@ -4798,6 +4853,11 @@ class VRClub {
                             clickedButton.onColor : clickedButton.offColor;
                         
                         console.log(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
+                        
+                        // Broadcast VJ control change to other players
+                        if (this.networkManager && this.networkManager.isConnected()) {
+                            this.networkManager.sendVJControl(clickedButton.control, this[clickedButton.control]);
+                        }
                     }
                 }
             }
@@ -4809,6 +4869,11 @@ class VRClub {
                 this.speedSlider.isDragging = false;
                 this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Normal cyan
                 console.log(`🎛️ Speed set to: ${this.spotlightSpeed.toFixed(2)}x`);
+                
+                // Broadcast speed change to other players (after drag completes)
+                if (this.networkManager && this.networkManager.isConnected()) {
+                    this.networkManager.sendVJControl('spotlightSpeed', this.spotlightSpeed);
+                }
             }
         };
         
@@ -4852,6 +4917,11 @@ class VRClub {
             this.audioStreamButton.isPlaying = false;
             this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
             log.info("🔇 Audio stream stopped");
+            
+            // Broadcast audio stop to other players
+            if (this.networkManager && this.networkManager.isConnected()) {
+                this.networkManager.sendAudioSync(null, 0, false);
+            }
         } else {
             // Show in-VR UI for stream URL input
             this.showAudioStreamInputUI();
@@ -5082,6 +5152,12 @@ class VRClub {
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
                     log.info("🔊 Audio stream playing automatically!");
                     
+                    // Broadcast audio stream to other players
+                    if (this.networkManager && this.networkManager.isConnected()) {
+                        this.networkManager.sendAudioSync(this.audioElement.src, 0, true);
+                        log.info("📡 Broadcasting audio stream to other players");
+                    }
+                    
                     // Connect to audio analyzer
                     if (!this.audioContext && window.AudioContext) {
                         this.audioContext = new AudioContext();
@@ -5125,6 +5201,10 @@ class VRClub {
                     this.audioStreamButton.isPlaying = true;
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
                     console.log(`🔊 Playing audio file automatically: ${file.name}`);
+                    
+                    // Note: Local files use blob URLs which can't be shared across network
+                    // Only the local user will hear the file. Use streaming URLs for multiplayer.
+                    console.warn("⚠️ Local audio files are not shared in multiplayer (use stream URLs)");
                     
                     // Connect to audio analyzer
                     if (!this.audioContext && window.AudioContext) {
