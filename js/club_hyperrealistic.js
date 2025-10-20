@@ -2763,9 +2763,9 @@ class VRClub {
         // === REFLECTION SPOTS (Simulated light spots from mirror facets) ===
         // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
         // These are purely emissive meshes that create the illusion of reflections
-        // REALISTIC DISCO BALL: Spots should cover ENTIRE room in all directions
+        // Dense coverage for hyperrealistic mirror ball effect
         this.mirrorReflectionSpots = [];
-        const numSpots = 300; // Dense hyperrealistic coverage (50 per surface) - smaller size compensates for GPU cost
+        const numSpots = 300; // Dense hyperrealistic coverage (50 per surface)
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
@@ -2784,8 +2784,8 @@ class VRClub {
             for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.08 + Math.random() * 0.07, // SMALLER: 0.08-0.15m for denser coverage (was 0.15-0.3m)
-                    tessellation: 8
+                    radius: 0.08 + Math.random() * 0.07, // 0.08-0.15m for realistic spot sizes
+                    tessellation: 6 // Good balance of performance and visual quality
                 }, this.scene);
                 
                 const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
@@ -2924,12 +2924,23 @@ class VRClub {
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
-            // Animate reflection spots around the room (300 spots covering all surfaces)
-            // PROJECT spots onto actual room surfaces (walls, floor, ceiling)
+            // Animate reflection spots around the room (120 spots covering all surfaces)
+            // OPTIMIZED: Staggered ray casting - only update 20% of spots per frame for 5x performance boost
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                this.mirrorReflectionSpots.forEach((spot, i) => {
+                // OPTIMIZATION: Initialize frame counter if not exists
+                if (this.mirrorSpotFrameCounter === undefined) {
+                    this.mirrorSpotFrameCounter = 0;
+                }
+                
+                // Update 20% of spots per frame (staggered updates for performance)
+                const batchSize = Math.ceil(this.mirrorReflectionSpots.length * 0.2); // 20% per frame
+                const startIndex = this.mirrorSpotFrameCounter % this.mirrorReflectionSpots.length;
+                
+                for (let idx = 0; idx < batchSize; idx++) {
+                    const i = (startIndex + idx) % this.mirrorReflectionSpots.length;
+                    const spot = this.mirrorReflectionSpots[i];
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
                     
@@ -2983,12 +2994,24 @@ class VRClub {
                         }
                     }
                     
-                    // Position spot at ray intersection point with SMOOTH INTERPOLATION
+                    // Position spot at ray intersection point with OPTIMIZED SMOOTH INTERPOLATION
                     if (hitPos) {
-                        // Determine interpolation speed based on whether we're on the same mesh
-                        // Fast lerp on same surface (0.3), slower on surface transition (0.15) for smooth sliding
+                        // OPTIMIZED: Adaptive interpolation based on distance traveled
+                        const distanceMoved = BABYLON.Vector3.Distance(spot.visual.position, hitPos);
                         const isSameMesh = (spot.previousHitMesh === hitMesh);
-                        const lerpFactor = isSameMesh ? 0.3 : 0.15;
+                        
+                        // Smart lerp: faster for small movements, slower for large jumps to prevent popping
+                        let lerpFactor;
+                        if (distanceMoved < 0.5) {
+                            // Small movement on same surface - fast tracking
+                            lerpFactor = isSameMesh ? 0.4 : 0.25;
+                        } else if (distanceMoved < 2.0) {
+                            // Medium jump (crossing objects) - moderate smoothing
+                            lerpFactor = 0.15;
+                        } else {
+                            // Large jump (surface transition) - heavy smoothing to prevent pop
+                            lerpFactor = 0.08;
+                        }
                         
                         // Smoothly interpolate position (prevents jarring jumps when crossing avatars/truss)
                         spot.visual.position.x += (hitPos.x - spot.visual.position.x) * lerpFactor;
@@ -3015,7 +3038,10 @@ class VRClub {
                         spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
                         spot.previousHitMesh = null;
                     }
-                });
+                }
+                
+                // Increment frame counter for next batch
+                this.mirrorSpotFrameCounter++;
             }
         } else {
             // Mirror ball inactive - disable all mirror ball elements
