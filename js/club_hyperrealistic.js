@@ -2932,22 +2932,13 @@ class VRClub {
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
-            // Animate reflection spots around the room (120 spots covering all surfaces)
-            // OPTIMIZED: Staggered ray casting - only update 20% of spots per frame for 5x performance boost
+            // Animate reflection spots around the room (300 spots covering all surfaces)
+            // Update all spots every frame for perfectly smooth, synchronized movement
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // OPTIMIZATION: Initialize frame counter if not exists
-                if (this.mirrorSpotFrameCounter === undefined) {
-                    this.mirrorSpotFrameCounter = 0;
-                }
-                
-                // Update 20% of spots per frame (staggered updates for performance)
-                const batchSize = Math.ceil(this.mirrorReflectionSpots.length * 0.2); // 20% per frame
-                const startIndex = this.mirrorSpotFrameCounter % this.mirrorReflectionSpots.length;
-                
-                for (let idx = 0; idx < batchSize; idx++) {
-                    const i = (startIndex + idx) % this.mirrorReflectionSpots.length;
+                // Update ALL spots every frame for maximum smoothness and immersion
+                for (let i = 0; i < this.mirrorReflectionSpots.length; i++) {
                     const spot = this.mirrorReflectionSpots[i];
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
@@ -3047,9 +3038,6 @@ class VRClub {
                         spot.previousHitMesh = null;
                     }
                 }
-                
-                // Increment frame counter for next batch
-                this.mirrorSpotFrameCounter++;
             }
         } else {
             // Mirror ball inactive - disable all mirror ball elements

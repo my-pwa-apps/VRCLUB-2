@@ -232,47 +232,70 @@ class ReadyPlayerMeLoader {
      */
     cloneAvatarMeshes(meshes, playerId) {
         const clones = [];
+        let clonedSkeleton = null;
         
-        meshes.forEach((mesh, index) => {
-            if (index === 0) {
-                // Root transform node - don't clone, create new
-                const root = new BABYLON.TransformNode(`rpmAvatar_${playerId}`, this.scene);
-                clones.push(root);
-            } else {
-                const clone = mesh.clone(`${mesh.name}_${playerId}`, clones[0]);
-                if (clone) {
-                    clone.setEnabled(true);
+        // First pass: find and clone the skeleton if it exists
+        meshes.forEach(mesh => {
+            if (mesh.skeleton && !clonedSkeleton) {
+                clonedSkeleton = mesh.skeleton.clone(`skeleton_${playerId}`);
+                console.log(`🦴 Cloned skeleton with ${clonedSkeleton.bones.length} bones for ${playerId}`);
+            }
+        });
+        
+        // Clone the entire hierarchy starting from root
+        const root = meshes[0];
+        const rootClone = root.clone(`rpmAvatar_${playerId}`, null, true); // true = doNotCloneChildren is FALSE, so it DOES clone children
+        
+        if (rootClone) {
+            clones.push(rootClone);
+            
+            // Collect all cloned meshes from the hierarchy
+            const collectMeshes = (node) => {
+                if (node !== rootClone && (node.getClassName().includes('Mesh') || node.getClassName().includes('TransformNode'))) {
+                    clones.push(node);
                     
-                    // Re-enforce opacity on cloned meshes (materials are shared, but need to ensure settings persist)
-                    if (clone.material) {
-                        // Detect if this is a hair mesh (VRoid-specific)
-                        const isHairMesh = clone.name && (
-                            clone.name.toLowerCase().includes('hair') ||
-                            clone.name.toLowerCase().includes('bangs') ||
-                            clone.name.toLowerCase().includes('fringe')
+                    // Attach cloned skeleton if this is a mesh with skeleton
+                    if (node.skeleton && clonedSkeleton) {
+                        node.skeleton = clonedSkeleton;
+                    }
+                    
+                    // Re-enforce opacity on cloned meshes
+                    if (node.material) {
+                        const isHairMesh = node.name && (
+                            node.name.toLowerCase().includes('hair') ||
+                            node.name.toLowerCase().includes('bangs') ||
+                            node.name.toLowerCase().includes('fringe')
                         );
                         
-                        // Only enforce opacity on non-hair meshes
                         if (!isHairMesh) {
-                            clone.material.alpha = 1.0;
-                            clone.material.transparencyMode = null;
-                            clone.material.disableDepthWrite = false;
-                            clone.material.forceDepthWrite = true;
+                            node.material.alpha = 1.0;
+                            node.material.transparencyMode = null;
+                            node.material.disableDepthWrite = false;
+                            node.material.forceDepthWrite = true;
                             
-                            // Override alpha methods
-                            if (clone.material.needAlphaBlending) {
-                                clone.material.needAlphaBlending = () => false;
+                            if (node.material.needAlphaBlending) {
+                                node.material.needAlphaBlending = () => false;
                             }
-                            if (clone.material.needAlphaTesting) {
-                                clone.material.needAlphaTesting = () => false;
+                            if (node.material.needAlphaTesting) {
+                                node.material.needAlphaTesting = () => false;
                             }
                         }
                     }
-                    
-                    clones.push(clone);
                 }
-            }
-        });
+                
+                // Recursively process children
+                if (node.getChildren) {
+                    node.getChildren().forEach(collectMeshes);
+                }
+            };
+            
+            // Collect all nodes in the cloned hierarchy
+            rootClone.getChildren().forEach(collectMeshes);
+            
+            console.log(`   📦 Cloned ${clones.length} nodes in hierarchy for ${playerId}`);
+        } else {
+            console.warn(`⚠️ Failed to clone root node for ${playerId}`);
+        }
         
         return clones;
     }
@@ -283,6 +306,24 @@ class ReadyPlayerMeLoader {
     cloneAnimationGroups(animationGroups, targetMeshes) {
         const clonedGroups = [];
         
+        console.log(`🔄 Cloning ${animationGroups.length} animation group(s)...`);
+        
+        // Find the cloned skeleton from target meshes
+        let targetSkeleton = null;
+        for (const mesh of targetMeshes) {
+            if (mesh.skeleton) {
+                targetSkeleton = mesh.skeleton;
+                break;
+            }
+        }
+        
+        if (!targetSkeleton) {
+            console.warn(`⚠️ No skeleton found in target meshes - animations will not work!`);
+            return clonedGroups;
+        }
+        
+        console.log(`   🦴 Found target skeleton with ${targetSkeleton.bones.length} bones`);
+        
         animationGroups.forEach(group => {
             // Create a new animation group with unique name
             const clonedGroup = new BABYLON.AnimationGroup(
@@ -290,21 +331,111 @@ class ReadyPlayerMeLoader {
                 this.scene
             );
             
+            console.log(`   📋 Cloning group "${group.name}" with ${group.targetedAnimations.length} targeted animations`);
+            
+            let successCount = 0;
+            let boneCount = 0;
+            let meshCount = 0;
+            let transformNodeCount = 0;
+            
             // Clone each animation in the group
-            group.targetedAnimations.forEach(targetedAnim => {
+            group.targetedAnimations.forEach((targetedAnim, index) => {
                 const originalTarget = targetedAnim.target;
                 
-                // Find the corresponding mesh in the cloned set
+                // Debug first few targets to understand structure
+                if (index < 3) {
+                    console.log(`   🔍 Target ${index}: ${originalTarget.name}, type: ${originalTarget.constructor.name}`);
+                }
+                
+                // Find the corresponding target in the cloned skeleton
                 let newTarget = null;
-                if (originalTarget.name) {
-                    newTarget = targetMeshes.find(m => m.name.includes(originalTarget.name.split('_')[0]));
+                
+                // Check if original target is a bone (check constructor name or instanceof)
+                const isBone = originalTarget.constructor.name === 'Bone' || 
+                              (originalTarget.getClassName && originalTarget.getClassName() === 'Bone');
+                
+                const isTransformNode = originalTarget.constructor.name === 'TransformNode' || 
+                                       originalTarget.constructor.name === 't';
+                
+                if (isBone) {
+                    // Find matching bone in cloned skeleton by name
+                    const boneName = originalTarget.name;
+                    newTarget = targetSkeleton.bones.find(bone => bone.name === boneName);
+                    
+                    if (newTarget) {
+                        boneCount++;
+                    } else if (index < 5) {
+                        console.warn(`   ⚠️ Could not find bone: ${boneName} in cloned skeleton`);
+                    }
+                } else if (isTransformNode) {
+                    // TransformNode targets (common in Mixamo rigs)
+                    // Search in the cloned meshes' hierarchy
+                    const nodeName = originalTarget.name;
+                    
+                    // Search through all cloned meshes and their children
+                    for (const mesh of targetMeshes) {
+                        // Check if this mesh has the target name
+                        if (mesh.name === nodeName || mesh.name.endsWith('_' + nodeName)) {
+                            newTarget = mesh;
+                            break;
+                        }
+                        
+                        // Search through children
+                        const findInChildren = (node) => {
+                            if (node.name === nodeName || node.name.includes(nodeName)) {
+                                return node;
+                            }
+                            if (node.getChildren) {
+                                for (const child of node.getChildren()) {
+                                    const found = findInChildren(child);
+                                    if (found) return found;
+                                }
+                            }
+                            return null;
+                        };
+                        
+                        const found = findInChildren(mesh);
+                        if (found) {
+                            newTarget = found;
+                            break;
+                        }
+                    }
+                    
+                    // If still not found, search in scene nodes
+                    if (!newTarget) {
+                        newTarget = this.scene.getTransformNodeByName(nodeName) || 
+                                   this.scene.getTransformNodeByName(`${nodeName}_${targetMeshes[0].name.split('_').pop()}`);
+                    }
+                    
+                    if (newTarget) {
+                        transformNodeCount++;
+                    } else if (index < 5) {
+                        console.warn(`   ⚠️ Could not find TransformNode: ${nodeName}`);
+                    }
+                } else {
+                    // For other targets (meshes), find by name matching
+                    const baseName = originalTarget.name.split('_')[0];
+                    newTarget = targetMeshes.find(m => m.name.startsWith(baseName));
+                    
+                    if (!newTarget) {
+                        newTarget = targetMeshes.find(m => m.name === originalTarget.name);
+                    }
+                    
+                    if (newTarget) {
+                        meshCount++;
+                    } else if (index < 5) {
+                        console.warn(`   ⚠️ Could not find mesh: ${originalTarget.name}`);
+                    }
                 }
                 
                 if (newTarget && targetedAnim.animation) {
                     const clonedAnim = targetedAnim.animation.clone();
                     clonedGroup.addTargetedAnimation(clonedAnim, newTarget);
+                    successCount++;
                 }
             });
+            
+            console.log(`   ✅ Cloned ${successCount}/${group.targetedAnimations.length} animations (${boneCount} bones, ${transformNodeCount} nodes, ${meshCount} meshes)`);
             
             // Copy important properties from original group
             clonedGroup.from = group.from;
@@ -568,10 +699,17 @@ class ReadyPlayerMeLoader {
             setTimeout(() => {
                 const isPlaying = randomDance.isPlaying;
                 const isStarted = randomDance.isStarted;
-                console.log(`🔍 Animation check: ${randomDance.name} isPlaying=${isPlaying}, isStarted=${isStarted}`);
+                const hasAnimatables = randomDance._animatables && randomDance._animatables.length > 0;
+                const targetedCount = randomDance.targetedAnimations ? randomDance.targetedAnimations.length : 0;
                 
-                // If still not playing, force play as fallback
-                if (!isPlaying && !isStarted) {
+                console.log(`🔍 Animation check: ${randomDance.name}`);
+                console.log(`   isPlaying=${isPlaying}, isStarted=${isStarted}`);
+                console.log(`   hasAnimatables=${hasAnimatables}, targetedAnimations=${targetedCount}`);
+                
+                // If animatables exist, the animation is actually playing (even if properties say otherwise)
+                if (hasAnimatables) {
+                    console.log(`✅ Animation confirmed running via internal animatables`);
+                } else if (!isPlaying && !isStarted) {
                     console.warn(`⚠️ Animation not playing, forcing restart...`);
                     randomDance.loopAnimation = true;
                     randomDance.play(true);
