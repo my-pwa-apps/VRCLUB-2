@@ -2843,7 +2843,9 @@ class VRClub {
                     phiSpeed: (Math.random() - 0.5) * 0.5,
                     baseIntensity: 0.5 + Math.random() * 0.7,
                     twinkleSpeed: 2 + Math.random() * 4,
-                    twinklePhase: Math.random() * Math.PI * 2
+                    twinklePhase: Math.random() * Math.PI * 2,
+                    previousPosition: targetPos.clone(), // Track previous position for smooth interpolation
+                    previousHitMesh: null // Track which mesh was hit last frame
                 });
             }
         });
@@ -2952,11 +2954,13 @@ class VRClub {
                     let hitPos = null;
                     let hitNormal = null;
                     let hitDistance = Infinity;
+                    let hitMesh = null;
                     
                     if (pickResult.hit && pickResult.pickedPoint) {
                         hitPos = pickResult.pickedPoint;
                         hitNormal = pickResult.getNormal(true); // Get normalized surface normal
                         hitDistance = pickResult.distance;
+                        hitMesh = pickResult.pickedMesh;
                         
                         // Offset slightly from surface to prevent z-fighting
                         if (hitNormal) {
@@ -2967,10 +2971,24 @@ class VRClub {
                         }
                     }
                     
-                    // Position spot at ray intersection point
+                    // Position spot at ray intersection point with SMOOTH INTERPOLATION
                     if (hitPos) {
-                        spot.visual.position.copyFrom(hitPos);
-                        spot.visual.lookAt(hitPos.add(hitNormal)); // Orient perpendicular to surface
+                        // Determine interpolation speed based on whether we're on the same mesh
+                        // Fast lerp on same surface (0.3), slower on surface transition (0.15) for smooth sliding
+                        const isSameMesh = (spot.previousHitMesh === hitMesh);
+                        const lerpFactor = isSameMesh ? 0.3 : 0.15;
+                        
+                        // Smoothly interpolate position (prevents jarring jumps when crossing avatars/truss)
+                        spot.visual.position.x += (hitPos.x - spot.visual.position.x) * lerpFactor;
+                        spot.visual.position.y += (hitPos.y - spot.visual.position.y) * lerpFactor;
+                        spot.visual.position.z += (hitPos.z - spot.visual.position.z) * lerpFactor;
+                        
+                        // Orient perpendicular to surface
+                        spot.visual.lookAt(spot.visual.position.add(hitNormal));
+                        
+                        // Update tracking for next frame
+                        spot.previousPosition.copyFrom(spot.visual.position);
+                        spot.previousHitMesh = hitMesh;
                         
                         // Distance fade and twinkling - REDUCED BRIGHTNESS
                         const distanceFade = Math.max(0.3, 1 - (hitDistance / 30)); // Dimmer with distance
@@ -2983,6 +3001,7 @@ class VRClub {
                     } else {
                         // Ray didn't hit any surface - fade out
                         spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
+                        spot.previousHitMesh = null;
                     }
                 });
             }
