@@ -655,6 +655,8 @@ class VRClub {
             { x: 17, z: -5 }, { x: 17, z: -15 }, { x: 17, z: -25 }
         ];
         
+        // OPTIMIZATION: Create pillars array for merging
+        const pillarsToMerge = [];
         pillarPositions.forEach((pos, i) => {
             const pillar = BABYLON.MeshBuilder.CreateBox("pillar" + i, {
                 width: 0.6,
@@ -663,8 +665,25 @@ class VRClub {
             }, this.scene);
             pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
             pillar.material = pillarMat;
-            pillar.receiveShadows = false; // Optimization Phase 3: Disable shadows on pillars
+            pillar.receiveShadows = false;
+            pillarsToMerge.push(pillar);
         });
+        
+        // OPTIMIZATION: Merge all pillars into single mesh (6 draw calls → 1)
+        const mergedPillars = BABYLON.Mesh.MergeMeshes(
+            pillarsToMerge, 
+            true, // dispose source meshes
+            true, // allow multi-materials
+            undefined, 
+            false, 
+            true // use material indices
+        );
+        if (mergedPillars) {
+            mergedPillars.name = "mergedPillars";
+            mergedPillars.freezeWorldMatrix();
+            mergedPillars.doNotSyncBoundingInfo = true;
+            console.log("✅ Merged 6 pillars into single mesh");
+        }
         
         // Add exposed brick sections between pillars
         const brickSections = [
@@ -674,6 +693,8 @@ class VRClub {
             { x: 16.5, z: -20, width: 1, height: 3 }
         ];
         
+        // OPTIMIZATION: Create bricks array for merging
+        const bricksToMerge = [];
         brickSections.forEach((section, i) => {
             const brick = BABYLON.MeshBuilder.CreateBox("brick" + i, {
                 width: section.width,
@@ -682,8 +703,25 @@ class VRClub {
             }, this.scene);
             brick.position = new BABYLON.Vector3(section.x, 2 + section.height/2, section.z);
             brick.material = brickMat;
-            brick.receiveShadows = false; // Optimization Phase 3: Disable shadows on bricks
+            brick.receiveShadows = false;
+            bricksToMerge.push(brick);
         });
+        
+        // OPTIMIZATION: Merge all bricks into single mesh (4 draw calls → 1)
+        const mergedBricks = BABYLON.Mesh.MergeMeshes(
+            bricksToMerge,
+            true, // dispose source meshes
+            true, // allow multi-materials
+            undefined,
+            false,
+            true // use material indices
+        );
+        if (mergedBricks) {
+            mergedBricks.name = "mergedBricks";
+            mergedBricks.freezeWorldMatrix();
+            mergedBricks.doNotSyncBoundingInfo = true;
+            console.log("✅ Merged 4 brick sections into single mesh");
+        }
         
         // Add industrial pipes running along ceiling (near walls)
         const pipeRuns = [
@@ -691,6 +729,8 @@ class VRClub {
             { start: { x: 16, z: -25 }, end: { x: 16, z: 5 } }     // Right wall
         ];
         
+        // OPTIMIZATION: Create pipes/conduits array for merging
+        const pipesToMerge = [];
         pipeRuns.forEach((run, i) => {
             const pipeLength = Math.abs(run.end.z - run.start.z);
             const pipe = BABYLON.MeshBuilder.CreateCylinder("pipe" + i, {
@@ -701,6 +741,7 @@ class VRClub {
             pipe.position = new BABYLON.Vector3(run.start.x, 9.5, (run.start.z + run.end.z) / 2);
             pipe.rotation.x = Math.PI / 2;
             pipe.material = pipeMat;
+            pipesToMerge.push(pipe);
             
             // Add smaller conduit pipes next to main pipe
             const conduit = BABYLON.MeshBuilder.CreateCylinder("conduit" + i, {
@@ -711,7 +752,24 @@ class VRClub {
             conduit.position = new BABYLON.Vector3(run.start.x - 0.25, 9.3, (run.start.z + run.end.z) / 2);
             conduit.rotation.x = Math.PI / 2;
             conduit.material = pipeMat;
+            pipesToMerge.push(conduit);
         });
+        
+        // OPTIMIZATION: Merge all pipes/conduits into single mesh (4 draw calls → 1)
+        const mergedPipes = BABYLON.Mesh.MergeMeshes(
+            pipesToMerge,
+            true, // dispose source meshes
+            true, // allow multi-materials
+            undefined,
+            false,
+            true // use material indices
+        );
+        if (mergedPipes) {
+            mergedPipes.name = "mergedPipes";
+            mergedPipes.freezeWorldMatrix();
+            mergedPipes.doNotSyncBoundingInfo = true;
+            console.log("✅ Merged 4 pipes/conduits into single mesh");
+        }
         
         console.log("✅ Created industrial wall details");
     }
@@ -869,6 +927,12 @@ class VRClub {
                 }
             }
             
+            // OPTIMIZATION: Freeze all truss components (static geometry)
+            parent.getChildMeshes().forEach(mesh => {
+                mesh.freezeWorldMatrix();
+                mesh.doNotSyncBoundingInfo = true;
+            });
+            
             return parent;
         };
         
@@ -917,6 +981,8 @@ class VRClub {
             }, this.scene);
             cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
             cable.material = cableMat;
+            cable.freezeWorldMatrix(); // OPTIMIZATION: Freeze static cables
+            cable.doNotSyncBoundingInfo = true;
         });
     }
     
@@ -938,6 +1004,8 @@ class VRClub {
         const platformMat = this.materialFactory.getPreset('platform');
         platform.material = platformMat;
         platform.receiveShadows = true;
+        platform.freezeWorldMatrix(); // OPTIMIZATION: Freeze static platform
+        platform.doNotSyncBoundingInfo = true;
         
         // Anti-slip surface
         const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
@@ -950,6 +1018,8 @@ class VRClub {
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
         platformTop.receiveShadows = true;
+        platformTop.freezeWorldMatrix(); // OPTIMIZATION: Freeze static platform top
+        platformTop.doNotSyncBoundingInfo = true;
         
         // Front safety rail
         const railMat = this.materialFactory.getPreset('rail');
@@ -2790,6 +2860,14 @@ class VRClub {
     updateAnimations() {
         const time = performance.now() / 1000;
         this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
+        
+        // OPTIMIZATION: Pre-calculate frequently used trig values (reduces ~30-40 Math.sin/cos calls per frame)
+        const sinTime = Math.sin(time);
+        const cosTime = Math.cos(time);
+        const sinTime2 = Math.sin(time * 2);
+        const sinTime3 = Math.sin(time * 3);
+        const sinTime8 = Math.sin(time * 8);
+        const sinTimeThird = Math.sin(time * 0.3);
         
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
