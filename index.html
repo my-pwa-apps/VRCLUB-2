@@ -1494,10 +1494,15 @@
                 });
             });
             
-            // Handle speed slider
+            // Handle speed slider - controls ALL light types simultaneously
             spotSpeed.addEventListener('input', (e) => {
                 const value = parseFloat(e.target.value);
+                // Update ALL speed multipliers for unified control
                 vrClubInstance.spotlightSpeed = value;
+                vrClubInstance.laserSpeed = value;
+                vrClubInstance.mirrorBallSpeed = value;
+                vrClubInstance.ledWallSpeed = value;
+                vrClubInstance.strobeSpeed = value;
                 spotSpeedValue.textContent = `${value.toFixed(1)}x`;
             });
             

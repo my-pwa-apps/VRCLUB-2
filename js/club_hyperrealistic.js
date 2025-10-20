@@ -2932,96 +2932,40 @@ class VRClub {
                     const dirZ = Math.sin(phi) * Math.sin(rotatedTheta);
                     
                     // Ray cast from ball position to find which surface it hits
-                    let closestT = Infinity;
+                    // IMPROVED: Now detects avatars/NPCs and other scene meshes, not just walls
+                    const rayDirection = new BABYLON.Vector3(dirX, dirY, dirZ);
+                    const ray = new BABYLON.Ray(ballPos, rayDirection, 30); // Max 30m range
+                    
+                    // Pick meshes, excluding mirror ball itself and other light sources
+                    const pickResult = this.scene.pickWithRay(ray, (mesh) => {
+                        // Ignore mirror ball components, light housings, and invisible meshes
+                        if (!mesh.isPickable || !mesh.isEnabled()) return false;
+                        if (mesh.name.includes('mirrorBall')) return false;
+                        if (mesh.name.includes('spot') || mesh.name.includes('Spot')) return false;
+                        if (mesh.name.includes('housing') || mesh.name.includes('lens')) return false;
+                        if (mesh.name.includes('beam') || mesh.name.includes('Beam')) return false;
+                        
+                        // Accept room surfaces, avatars, NPCs, and other solid objects
+                        return true;
+                    });
+                    
                     let hitPos = null;
                     let hitNormal = null;
+                    let hitDistance = Infinity;
                     
-                    // Test intersection with all 6 room surfaces
-                    // FLOOR (y = 0)
-                    if (dirY < -0.001) {
-                        const t = (0 - ballPos.y) / dirY;
-                        if (t > 0) {
-                            const x = ballPos.x + dirX * t;
-                            const z = ballPos.z + dirZ * t;
-                            if (x >= -17.5 && x <= 17.5 && z >= -27.5 && z <= 2.5 && t < closestT) {
-                                closestT = t;
-                                hitPos = new BABYLON.Vector3(x, 0.02, z);
-                                hitNormal = new BABYLON.Vector3(0, 1, 0);
-                            }
+                    if (pickResult.hit && pickResult.pickedPoint) {
+                        hitPos = pickResult.pickedPoint;
+                        hitNormal = pickResult.getNormal(true); // Get normalized surface normal
+                        hitDistance = pickResult.distance;
+                        
+                        // Offset slightly from surface to prevent z-fighting
+                        if (hitNormal) {
+                            hitPos = hitPos.add(hitNormal.scale(0.02));
+                        } else {
+                            // Fallback if normal calculation fails - use reverse ray direction
+                            hitNormal = rayDirection.scale(-1);
                         }
                     }
-                    
-                    // CEILING (y = 9.85) - Bottom face of ceiling box
-                    if (dirY > 0.001) {
-                        const t = (9.85 - ballPos.y) / dirY;
-                        if (t > 0) {
-                            const x = ballPos.x + dirX * t;
-                            const z = ballPos.z + dirZ * t;
-                            if (x >= -17.5 && x <= 17.5 && z >= -32.5 && z <= 12.5 && t < closestT) {
-                                closestT = t;
-                                hitPos = new BABYLON.Vector3(x, 9.83, z);
-                                hitNormal = new BABYLON.Vector3(0, -1, 0);
-                            }
-                        }
-                    }
-                    
-                    // LEFT WALL (x = -16.75) - Inner face
-                    if (dirX < -0.001) {
-                        const t = (-16.75 - ballPos.x) / dirX;
-                        if (t > 0) {
-                            const y = ballPos.y + dirY * t;
-                            const z = ballPos.z + dirZ * t;
-                            if (y >= 0 && y <= 10 && z >= -32.5 && z <= 12.5 && t < closestT) {
-                                closestT = t;
-                                hitPos = new BABYLON.Vector3(-16.73, y, z);
-                                hitNormal = new BABYLON.Vector3(1, 0, 0);
-                            }
-                        }
-                    }
-                    
-                    // RIGHT WALL (x = 16.75) - Inner face
-                    if (dirX > 0.001) {
-                        const t = (16.75 - ballPos.x) / dirX;
-                        if (t > 0) {
-                            const y = ballPos.y + dirY * t;
-                            const z = ballPos.z + dirZ * t;
-                            if (y >= 0 && y <= 10 && z >= -32.5 && z <= 12.5 && t < closestT) {
-                                closestT = t;
-                                hitPos = new BABYLON.Vector3(16.73, y, z);
-                                hitNormal = new BABYLON.Vector3(-1, 0, 0);
-                            }
-                        }
-                    }
-                    
-                    // BACK WALL (z = -26.75) - Front face
-                    if (dirZ < -0.001) {
-                        const t = (-26.75 - ballPos.z) / dirZ;
-                        if (t > 0) {
-                            const x = ballPos.x + dirX * t;
-                            const y = ballPos.y + dirY * t;
-                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
-                                closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, -26.73);
-                                hitNormal = new BABYLON.Vector3(0, 0, 1);
-                            }
-                        }
-                    }
-                    
-                    // FRONT WALL (z = 1.75 inner face) - Physical wall at entrance
-                    if (dirZ > 0.001) {
-                        const t = (1.75 - ballPos.z) / dirZ;
-                        if (t > 0) {
-                            const x = ballPos.x + dirX * t;
-                            const y = ballPos.y + dirY * t;
-                            if (x >= -17.5 && x <= 17.5 && y >= 0 && y <= 10 && t < closestT) {
-                                closestT = t;
-                                hitPos = new BABYLON.Vector3(x, y, 1.73); // Inner face position (matching surface definition)
-                                hitNormal = new BABYLON.Vector3(0, 0, -1); // Points inward (into club)
-                            }
-                        }
-                    }
-                    
-                    const hitDistance = closestT;
                     
                     // Position spot at ray intersection point
                     if (hitPos) {
@@ -4829,7 +4773,14 @@ class VRClub {
                 
                 // Calculate speed from position (0.1 to 2.0)
                 const normalizedPos = (clampedX - this.speedSlider.minX) / (this.speedSlider.maxX - this.speedSlider.minX);
-                this.spotlightSpeed = 0.1 + (normalizedPos * 1.9); // 0.1 to 2.0
+                const newSpeed = 0.1 + (normalizedPos * 1.9); // 0.1 to 2.0
+                
+                // Update ALL speed multipliers for unified control
+                this.spotlightSpeed = newSpeed;
+                this.laserSpeed = newSpeed;
+                this.mirrorBallSpeed = newSpeed;
+                this.ledWallSpeed = newSpeed;
+                this.strobeSpeed = newSpeed;
             }
         };
         
