@@ -319,6 +319,7 @@
             background: rgba(255, 255, 255, 0.2);
             outline: none;
             -webkit-appearance: none;
+            appearance: none; /* Standard property for compatibility */
         }
         
         .vj-slider::-webkit-slider-thumb {
@@ -781,6 +782,7 @@
             background: rgba(0, 0, 0, 0.7);
             padding: 50px;
             border-radius: 20px;
+            -webkit-backdrop-filter: blur(20px); /* Safari support */
             backdrop-filter: blur(20px);
             max-width: 500px;
             text-align: center;
@@ -981,6 +983,25 @@
                 opacity: 0;
             }
         }
+        
+        /* Fix inline styles - move to CSS classes */
+        .hidden { display: none !important; }
+        #roomCodeGroup.hidden { display: none; }
+        #canvas.hidden { display: none; }
+        #connectBtn { width: 100%; }
+        #disconnectBtn { width: 100%; background: #dc3545; }
+        #disconnectBtn.hidden { display: none; }
+        #playerList.hidden { display: none; }
+        #playerListContent {
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        #mpStatus.hidden { display: none; }
+        #audioStatus.hidden { display: none; }
+        .vj-button[data-control="changeMirrorBallColor"] {
+            grid-column: 1 / -1;
+        }
     </style>
 </head>
 <body>
@@ -1024,7 +1045,7 @@
                     <label>👥 Enable Multiplayer (Experimental)</label>
                 </div>
                 
-                <div class="splash-input-group" id="roomCodeGroup" style="display: none;">
+                <div class="splash-input-group" id="roomCodeGroup" class="hidden">
                     <label class="splash-label">◇ Room Code (Share with friends)</label>
                     <input type="text" class="splash-input" id="roomCode" placeholder="Leave empty for new room">
                 </div>
@@ -1037,7 +1058,7 @@
         </div>
     </div>
     
-    <canvas id="canvas" style="display: none;"></canvas>
+    <canvas id="canvas" class="hidden"></canvas>
     
     <!-- Multiplayer Toggle Button -->
     <button id="multiplayerToggle" title="Multiplayer">👥</button>
@@ -1063,22 +1084,22 @@
                 <div class="audio-input-group">
                     <input type="text" class="audio-input" id="username" placeholder="Your username" value="Guest">
                 </div>
-                <button class="audio-button" id="connectBtn" style="width: 100%;">
+                <button class="audio-button" id="connectBtn">
                     <span>🔌</span>
                     <span>Connect</span>
                 </button>
-                <button class="audio-button" id="disconnectBtn" style="width: 100%; display: none; background: #dc3545;">
+                <button class="audio-button" id="disconnectBtn" class="hidden">
                     <span>🔌</span>
                     <span>Disconnect</span>
                 </button>
             </div>
             
-            <div class="vj-section" id="playerList" style="display: none;">
+            <div class="vj-section" id="playerList" class="hidden">
                 <div class="vj-section-title">Players Online</div>
-                <div id="playerListContent" style="font-size: 12px; max-height: 150px; overflow-y: auto;"></div>
+                <div id="playerListContent"></div>
             </div>
             
-            <div id="mpStatus" class="audio-status" style="display: none;"></div>
+            <div id="mpStatus" class="audio-status hidden"></div>
         </div>
     </div>
     
@@ -1131,7 +1152,7 @@
             <!-- Mirror Ball Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🪩 Mirror Ball</div>
-                <button class="vj-button" data-control="changeMirrorBallColor" style="grid-column: 1 / -1;">CHANGE COLOR</button>
+                <button class="vj-button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
             </div>
         </div>
     </div>
@@ -1188,7 +1209,7 @@
             </div>
             
             <!-- Status -->
-            <div id="audioStatus" class="audio-status" style="display: none;"></div>
+            <div id="audioStatus" class="audio-status hidden"></div>
         </div>
     </div>
     

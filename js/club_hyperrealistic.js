@@ -1,6 +1,16 @@
 // VR Club - HYPERREALISTIC Babylon.js Implementation
 // Ultra-realistic club environment for Quest 3S VR
 
+// Debug mode (set to false for production to disable verbose logging)
+const DEBUG_MODE = true; // Set to false to disable console.log statements
+
+// Conditional logging helper
+const log = {
+    info: (...args) => DEBUG_MODE && console.log(...args),
+    warn: (...args) => console.warn(...args), // Always show warnings
+    error: (...args) => console.error(...args) // Always show errors
+};
+
 // Room dimensions and boundaries
 const ROOM_BOUNDS = {
     x: { min: -15, max: 15, width: 30 },
@@ -67,7 +77,7 @@ class VRClub {
         
         // Detect device capabilities for optimal light count
         this.maxLights = this.detectMaxLights();
-        console.log(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
+        log.info(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
         
         // Initialize material factory for centralized material creation
         this.materialFactory = new MaterialFactory(null, this.maxLights); // Scene set later in init()
@@ -91,7 +101,9 @@ class VRClub {
             yellow: new BABYLON.Color3(1, 1, 0),
             cyan: new BABYLON.Color3(0, 1, 1),
             white: new BABYLON.Color3(10, 10, 10),
-            black: new BABYLON.Color3(0, 0, 0)
+            black: new BABYLON.Color3(0, 0, 0),
+            orange: new BABYLON.Color3(1, 0.5, 0),
+            purple: new BABYLON.Color3(0.5, 0, 1)
         };
         
         // Cache commonly used Vector3 positions for performance
@@ -113,8 +125,8 @@ class VRClub {
             this.cachedColors.magenta,  // Magenta
             this.cachedColors.yellow,   // Yellow
             this.cachedColors.cyan,     // Cyan
-            new BABYLON.Color3(1, 0.5, 0),    // Orange (not in cache)
-            new BABYLON.Color3(0.5, 0, 1),    // Purple (not in cache)
+            this.cachedColors.orange,   // Orange
+            this.cachedColors.purple,   // Purple
             this.cachedColors.white     // White (dimmed to 1,1,1 for spotlights)
         ];
         this.currentSpotColor = this.spotColorList[0]; // Start with RED
@@ -266,13 +278,13 @@ class VRClub {
         // With loaded 3D models (which have their own PBR materials), we need even lower limits
         // CRITICAL: With mirror ball system, we need ultra-conservative limits
         if (isQuest) {
-            console.log('🥽 Quest VR headset detected - using optimized light count');
+            log.info('🥽 Quest VR headset detected - using optimized light count');
             return 4; // Quest 3S - reduced from 6 for mirror ball compatibility
         } else if (isMobile) {
-            console.log('📱 Mobile device detected - using reduced light count');
+            log.info('📱 Mobile device detected - using reduced light count');
             return 3; // Mobile devices - ultra-conservative for PBR + 3D models
         } else {
-            console.log('💻 Desktop/laptop detected - using safe light count for PBR materials');
+            log.info('💻 Desktop/laptop detected - using safe light count for PBR materials');
             return 3; // Ultra-safe limit for PBR materials + loaded 3D models + mirror ball (reduced from 4)
         }
     }
@@ -287,7 +299,7 @@ class VRClub {
             new BABYLON.Vector3(0, -9.81, 0), // Gravity
             new BABYLON.CannonJSPlugin()       // Physics engine
         );
-        console.log('⚽ Physics engine enabled (avatars won\'t sink through floor)');
+        log.info('⚽ Physics engine enabled (avatars won\'t sink through floor)');
         
         // Set scene reference in material factory
         this.materialFactory.scene = this.scene;
@@ -316,27 +328,27 @@ class VRClub {
         this.scene.environmentIntensity = 0.3; // Subtle reflections
         
         // Initialize texture loader and load textures from CDN (cached for subsequent loads)
-        console.log('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
+        log.info('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
         this.textureLoader = new TextureLoader(this.scene);
         await this.textureLoader.init();
         
         try {
             this.concreteTextures = await this.textureLoader.loadAllTextures();
-            console.log('✅ All textures loaded and cached');
+            log.info('✅ All textures loaded and cached');
         } catch (error) {
             console.warn('⚠️ Failed to load some textures, using fallback materials:', error);
             this.concreteTextures = null; // Will use procedural materials as fallback
         }
         
         // Initialize model loader for DJ equipment and PA speakers
-        console.log('🎸 Initializing 3D model loader...');
+        log.info('🎸 Initializing 3D model loader...');
         this.modelLoader = new ModelLoader(this.scene);
         await this.modelLoader.init();
         
         // Load all models in the background (they'll load asynchronously)
-        console.log('📦 Loading DJ equipment and PA speaker models...');
+        log.info('📦 Loading DJ equipment and PA speaker models...');
         this.modelLoader.loadAllModels().then(() => {
-            console.log('✅ All 3D models loaded successfully');
+            log.info('✅ All 3D models loaded successfully');
         }).catch(error => {
             console.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
         });
@@ -428,12 +440,12 @@ class VRClub {
                         
                         // Apply VR-optimized settings
                         this.applyVRSettings(xrCamera);
-                        console.log('🥽 VR mode activated with optimized settings');
+                        log.info('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     // Restore desktop settings
                     this.applyDesktopSettings();
-                    console.log('🖥️ Desktop mode restored');
+                    log.info('🖥️ Desktop mode restored');
                 }
             });
         }
@@ -548,13 +560,13 @@ class VRClub {
         
         // Apply downloaded wood textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
-            console.log('🎨 Applying floor textures (Polyhaven - Worn Wood Floor)');
+            log.info('🎨 Applying floor textures (Polyhaven - Worn Wood Floor)');
             this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
             // Darken wooden floor for nightclub atmosphere
             floorMat.baseColor = new BABYLON.Color3(0.3, 0.25, 0.2); // Dark brown tint
         } else {
             // Fallback to procedural noise texture
-            console.log('🎨 Using procedural floor texture (fallback)');
+            log.info('🎨 Using procedural floor texture (fallback)');
             const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene);
             noiseTexture.octaves = 4;
             noiseTexture.persistence = 0.8;
@@ -581,7 +593,7 @@ class VRClub {
         
         // Apply downloaded concrete wall textures if available
         if (this.concreteTextures && this.concreteTextures.walls) {
-            console.log('🎨 Applying wall textures (Polyhaven - Industrial Concrete)');
+            log.info('🎨 Applying wall textures (Polyhaven - Industrial Concrete)');
             this.textureLoader.applyTexturesToMaterial(wallMat, this.concreteTextures.walls);
         }
         
@@ -682,7 +694,7 @@ class VRClub {
             mergedPillars.name = "mergedPillars";
             mergedPillars.freezeWorldMatrix();
             mergedPillars.doNotSyncBoundingInfo = true;
-            console.log("✅ Merged 6 pillars into single mesh");
+            log.info("✅ Merged 6 pillars into single mesh");
         }
         
         // Add exposed brick sections between pillars
@@ -720,7 +732,7 @@ class VRClub {
             mergedBricks.name = "mergedBricks";
             mergedBricks.freezeWorldMatrix();
             mergedBricks.doNotSyncBoundingInfo = true;
-            console.log("✅ Merged 4 brick sections into single mesh");
+            log.info("✅ Merged 4 brick sections into single mesh");
         }
         
         // Add industrial pipes running along ceiling (near walls)
@@ -768,10 +780,10 @@ class VRClub {
             mergedPipes.name = "mergedPipes";
             mergedPipes.freezeWorldMatrix();
             mergedPipes.doNotSyncBoundingInfo = true;
-            console.log("✅ Merged 4 pipes/conduits into single mesh");
+            log.info("✅ Merged 4 pipes/conduits into single mesh");
         }
         
-        console.log("✅ Created industrial wall details");
+        log.info("✅ Created industrial wall details");
     }
 
     createCollisionBoundaries() {
@@ -827,7 +839,7 @@ class VRClub {
             wall.isVisible = false; // Extra insurance for invisibility
         });
         
-        console.log("✅ Created invisible collision boundaries around room and DJ booth");
+        log.info("✅ Created invisible collision boundaries around room and DJ booth");
     }
 
     createCeiling() {
@@ -843,7 +855,7 @@ class VRClub {
         
         // Apply downloaded concrete ceiling textures if available
         if (this.concreteTextures && this.concreteTextures.ceiling) {
-            console.log('🎨 Applying ceiling textures (Polyhaven - Raw Concrete)');
+            log.info('🎨 Applying ceiling textures (Polyhaven - Raw Concrete)');
             this.textureLoader.applyTexturesToMaterial(ceilingMat, this.concreteTextures.ceiling);
         }
         
@@ -991,7 +1003,7 @@ class VRClub {
         // Positioned at BACK of club (z=-24)
         // DJ faces DANCE FLOOR (toward positive z direction)
         
-        console.log("🎛️ Creating integrated DJ/VJ booth...");
+        log.info("🎛️ Creating integrated DJ/VJ booth...");
         
         // === RAISED PLATFORM (STAGE) ===
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
@@ -1356,18 +1368,18 @@ class VRClub {
         labelMat.opacityTexture = labelTexture;
         sliderLabel.material = labelMat;
         
-        console.log("✅ Speed slider created at x=3.8-4.3, z=-25.3 (Row 3)");
+        log.info("✅ Speed slider created at x=3.8-4.3, z=-25.3 (Row 3)");
         
         // Laptop removed - doesn't add useful functionality
         
-        console.log("✅ Created hyperrealistic integrated DJ/VJ booth");
+        log.info("✅ Created hyperrealistic integrated DJ/VJ booth");
     }
 
     createPASpeakers() {
         // === HYPERREALISTIC PA SPEAKER SYSTEM ===
         // Positioned on sides of dance floor, facing center
         
-        console.log("🔊 Creating PA speaker system...");
+        log.info("🔊 Creating PA speaker system...");
         
         // MASSIVE professional PA speaker material - VERY VISIBLE with emissive glow
         const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
@@ -1386,7 +1398,7 @@ class VRClub {
         // Right PA stack - NEXT TO DJ BOOTH (beside LED wall)
         this.createPAStack(7, -25, speakerMat);
         
-        console.log("✅ PA speaker system created at x=±7, z=-25 (beside DJ booth)");
+        log.info("✅ PA speaker system created at x=±7, z=-25 (beside DJ booth)");
     }
 
     createPAStack(xPos, zPos, material) {
@@ -1702,7 +1714,7 @@ class VRClub {
             labelPlane.material = labelMat;
         });
         
-        console.log("✅ Created VJ lighting control console with 9 intuitive buttons in 3x3 grid");
+        log.info("✅ Created VJ lighting control console with 9 intuitive buttons in 3x3 grid");
     }
 
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
@@ -2856,7 +2868,7 @@ class VRClub {
         this.mirrorBall = mirrorBall;
         this.mirrorBallRotation = 0; // Track rotation for animation
         
-        console.log('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
+        log.info('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
     }
     
     updateAnimations() {
@@ -3053,7 +3065,7 @@ class VRClub {
                         this.ledWallSpeed = 1.5;
                         this.strobeSpeed = 1.5;
                         this.currentShowMode = 'lasers';
-                        console.log('🔥 PEAK: High energy speeds (VJ controls which lights are active)');
+                        log.info('🔥 PEAK: High energy speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'peak':
@@ -3067,7 +3079,7 @@ class VRClub {
                         this.ledWallSpeed = 0.5;
                         this.strobeSpeed = 0.5;
                         this.currentShowMode = 'mirror';
-                        console.log('🪩 BREAKDOWN: Slow vibe speeds (VJ controls which lights are active)');
+                        log.info('🪩 BREAKDOWN: Slow vibe speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'breakdown':
@@ -3081,7 +3093,7 @@ class VRClub {
                         this.ledWallSpeed = 0.6;
                         this.strobeSpeed = 0.5;
                         this.currentShowMode = 'spotlights';
-                        console.log('🌙 AMBIENT: Atmospheric speeds (VJ controls which lights are active)');
+                        log.info('🌙 AMBIENT: Atmospheric speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'ambient':
@@ -3095,7 +3107,7 @@ class VRClub {
                         this.ledWallSpeed = 2.0;
                         this.strobeSpeed = 1.8; // Faster strobe
                         this.currentShowMode = 'combo';
-                        console.log('💥 DROP: Maximum energy speeds (VJ controls which lights are active)');
+                        log.info('💥 DROP: Maximum energy speeds (VJ controls which lights are active)');
                         break;
                         
                     case 'drop':
@@ -3109,7 +3121,7 @@ class VRClub {
                         this.ledWallSpeed = 1.0;
                         this.strobeSpeed = 1.0;
                         this.currentShowMode = 'spotlights';
-                        console.log('⬆️ BUILD: Building energy speeds (VJ controls which lights are active)');
+                        log.info('⬆️ BUILD: Building energy speeds (VJ controls which lights are active)');
                         break;
                 }
                 
@@ -3400,7 +3412,7 @@ class VRClub {
         // Check if VJ manual mode should expire (60 minutes of no interaction)
         if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
             this.vjManualMode = false;
-            console.log("🤖 Automated patterns resumed - no VJ interaction for 60 minutes");
+            log.info("🤖 Automated patterns resumed - no VJ interaction for 60 minutes");
         }
         
         // Calculate global phase for spotlight patterns (used in multiple places)
@@ -4015,7 +4027,7 @@ class VRClub {
                 this.bpm = 130;
                 this.beatInterval = 60 / 130;
                 this.beatHistory = [];
-                console.log('🎵 No audio - using default 130 BPM');
+                log.info('🎵 No audio - using default 130 BPM');
             }
         }
         
@@ -4639,7 +4651,7 @@ class VRClub {
                     if (!isPatternControl) {
                         this.lastVJInteraction = performance.now() / 1000;
                         this.vjManualMode = true;
-                        console.log("🎛️ VJ manual mode: Automated patterns paused for 60 minutes");
+                        log.info("🎛️ VJ manual mode: Automated patterns paused for 60 minutes");
                     }
                     
                     if (clickedButton.control === "changeColor") {
@@ -4803,7 +4815,7 @@ class VRClub {
             }
         };
         
-        console.log("✅ VJ Control interaction enabled - click buttons to control lights!");
+        log.info("✅ VJ Control interaction enabled - click buttons to control lights!");
     }
 
     toggleAudioStream() {
@@ -4817,7 +4829,7 @@ class VRClub {
             }
             this.audioStreamButton.isPlaying = false;
             this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
-            console.log("🔇 Audio stream stopped");
+            log.info("🔇 Audio stream stopped");
         } else {
             // Show in-VR UI for stream URL input
             this.showAudioStreamInputUI();
@@ -4839,7 +4851,7 @@ class VRClub {
             this.audioElement.preload = "auto";
             this.audioElement.style.display = 'none';
             document.body.appendChild(this.audioElement);
-            console.log("🎵 Audio element created during user interaction");
+            log.info("🎵 Audio element created during user interaction");
         }
         
         // Create HTML input overlay (NO 3D panel - was blocking view)
@@ -5029,7 +5041,7 @@ class VRClub {
         // Set source
         if (url === "") {
             this.audioElement.src = "https://stream.example.com/radio"; // Replace with actual demo
-            console.log("🎵 Using demo audio stream");
+            log.info("🎵 Using demo audio stream");
         } else {
             this.audioElement.src = url;
             console.log(`🎵 Loading audio stream: ${url}`);
@@ -5046,7 +5058,7 @@ class VRClub {
                 playPromise.then(() => {
                     this.audioStreamButton.isPlaying = true;
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-                    console.log("🔊 Audio stream playing automatically!");
+                    log.info("🔊 Audio stream playing automatically!");
                     
                     // Connect to audio analyzer
                     if (!this.audioContext && window.AudioContext) {
@@ -5056,7 +5068,7 @@ class VRClub {
                         this.audioSource.connect(this.audioAnalyser);
                         this.audioAnalyser.connect(this.audioContext.destination);
                         this.audioAnalyser.fftSize = 256;
-                        console.log("🎚️ Audio analyzer connected");
+                        log.info("🎚️ Audio analyzer connected");
                     }
                 }).catch(err => {
                     console.error("❌ Failed to play audio:", err);
@@ -5100,7 +5112,7 @@ class VRClub {
                         this.audioSource.connect(this.audioAnalyser);
                         this.audioAnalyser.connect(this.audioContext.destination);
                         this.audioAnalyser.fftSize = 256;
-                        console.log("🎚️ Audio analyzer connected");
+                        log.info("🎚️ Audio analyzer connected");
                     }
                 }).catch(err => {
                     console.error("❌ Failed to play audio file:", err);
