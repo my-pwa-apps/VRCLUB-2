@@ -2753,7 +2753,7 @@ class VRClub {
         // These are purely emissive meshes that create the illusion of reflections
         // REALISTIC DISCO BALL: Spots should cover ENTIRE room in all directions
         this.mirrorReflectionSpots = [];
-        const numSpots = 120; // Optimized from 180 for better performance (20 per surface)
+        const numSpots = 180; // Balanced for hyperrealism (30 per surface) - was 300 originally
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
