@@ -306,8 +306,17 @@ class ReadyPlayerMeLoader {
                 }
             });
             
+            // Copy important properties from original group
+            clonedGroup.from = group.from;
+            clonedGroup.to = group.to;
+            clonedGroup.loopAnimation = group.loopAnimation;
+            clonedGroup.speedRatio = group.speedRatio || 1.0;
+            
             // Normalize to same range as original
             clonedGroup.normalize(0, 100);
+            
+            // Ensure the cloned group is enabled and ready to play
+            clonedGroup.reset();
             clonedGroups.push(clonedGroup);
         });
         
@@ -537,13 +546,23 @@ class ReadyPlayerMeLoader {
             // Play random dance animation on loop
             const randomDance = danceAnimations[Math.floor(Math.random() * danceAnimations.length)];
             
-            console.log(`🎵 STARTING ANIMATION: ${randomDance.name} (normalized from ${randomDance.from} to ${randomDance.to})`);
+            console.log(`🎵 STARTING ANIMATION: ${randomDance.name} (from ${randomDance.from} to ${randomDance.to})`);
             
-            // Play the animation using the scene (not just the animation group)
-            randomDance.play(true); // Use play instead of start - simpler and more reliable
+            // Stop any existing playback first
+            if (randomDance.isPlaying) {
+                randomDance.stop();
+            }
+            
+            // Reset and configure animation properties explicitly
+            randomDance.reset();
+            randomDance.loopAnimation = true;
+            randomDance.speedRatio = 1.0;
+            
+            // Start with explicit parameters (loop, speed, from, to, enableBlending)
+            randomDance.start(true, 1.0, randomDance.from, randomDance.to, false);
             root.currentAnimation = randomDance;
             
-            console.log(`✅ Animation started with play(): ${randomDance.name}`);
+            console.log(`✅ Animation started: ${randomDance.name}`);
             
             // Verify animation is playing after a short delay
             setTimeout(() => {
@@ -551,9 +570,10 @@ class ReadyPlayerMeLoader {
                 const isStarted = randomDance.isStarted;
                 console.log(`🔍 Animation check: ${randomDance.name} isPlaying=${isPlaying}, isStarted=${isStarted}`);
                 
-                // If still not playing, try restarting
+                // If still not playing, force play as fallback
                 if (!isPlaying && !isStarted) {
-                    console.warn(`⚠️ Animation not playing, attempting restart...`);
+                    console.warn(`⚠️ Animation not playing, forcing restart...`);
+                    randomDance.loopAnimation = true;
                     randomDance.play(true);
                 }
             }, 1000);
