@@ -470,6 +470,14 @@ class VRClub {
         // Create dancing NPC avatars on the dancefloor
         await this.createDancingNPCs();
         
+        // Verify scene is ready
+        console.log('🎬 Scene initialization complete:');
+        console.log(`  📷 Camera: ${this.camera.position.toString()}`);
+        console.log(`  🎯 Active camera: ${this.scene.activeCamera ? 'Set' : 'MISSING!'}`);
+        console.log(`  💡 Lights: ${this.scene.lights.length}`);
+        console.log(`  📦 Meshes: ${this.scene.meshes.length}`);
+        console.log(`  🎨 Materials: ${this.scene.materials.length}`);
+        
         // Start render loop
         this.engine.runRenderLoop(() => {
             this.scene.render();

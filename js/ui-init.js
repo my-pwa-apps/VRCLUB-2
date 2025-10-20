@@ -94,6 +94,7 @@ if (enterClubBtn) {
         
         // Show canvas and initialize VR club
         setTimeout(() => {
+            canvas.classList.remove('hidden'); // Remove hidden class to show canvas
             canvas.style.display = 'block';
             
             // Initialize VRClub instance (club_hyperrealistic.js creates window.vrClub)
