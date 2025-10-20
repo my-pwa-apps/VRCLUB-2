@@ -468,7 +468,7 @@ class VRClub {
         this.setupVJControlInteraction(); // Add VJ control button clicks
         
         // Create dancing NPC avatars on the dancefloor
-        this.createDancingNPCs();
+        await this.createDancingNPCs();
         
         // Start render loop
         this.engine.runRenderLoop(() => {
@@ -5298,7 +5298,7 @@ class VRClub {
         return { bass, mid, treble, average, hasAudio };
     }
 
-    createDancingNPCs() {
+    async createDancingNPCs() {
         // Create 4 random HUMANLIKE NPC avatars dancing on the dancefloor (using 2 dance styles)
         const npcCount = 4; // Fixed count - mix of hip hop and house dance styles
         const npcNames = [
@@ -5353,8 +5353,8 @@ class VRClub {
                 }
             };
             
-            // Create avatar using existing AvatarManager
-            this.avatarManager.createAvatar(npcId, npcData);
+            // Create avatar using existing AvatarManager (wait for loading)
+            await this.avatarManager.createAvatar(npcId, npcData);
             
             // Apply customization after creation
             this.customizeNPCAvatar(npcId, npcData.customization);
