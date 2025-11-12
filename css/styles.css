@@ -1,4 +1,5 @@
-/* VR Club - Main Stylesheet */
+/* VR Club - Optimized Main Stylesheet */
+/* Performance-focused with GPU acceleration and minimal reflows */
 
 * {
     margin: 0;
@@ -11,6 +12,9 @@ html, body {
     height: 100%;
     overflow: hidden;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 }
 
 #canvas {
@@ -18,13 +22,16 @@ html, body {
     height: 100%;
     display: block;
     touch-action: none;
+    /* GPU acceleration for WebGL canvas */
+    transform: translateZ(0);
+    will-change: transform;
 }
 
 #cameraControls {
     position: absolute;
     bottom: 20px;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(-50%) translateZ(0);
     background: rgba(0, 0, 0, 0.75);
     padding: 10px 15px;
     border-radius: 8px;
@@ -32,6 +39,9 @@ html, body {
     backdrop-filter: blur(10px);
     z-index: 100;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    /* GPU acceleration */
+    will-change: transform;
+    backface-visibility: hidden;
 }
 
 .preset-grid {
@@ -48,13 +58,20 @@ html, body {
     font-size: 12px;
     border-radius: 5px;
     cursor: pointer;
-    transition: all 0.3s;
+    transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    /* GPU acceleration for smooth hover effects */
+    transform: translateZ(0);
+    will-change: transform;
 }
 
 .preset-grid button:hover {
     background: #764ba2;
-    transform: translateY(-2px);
+    transform: translateY(-2px) translateZ(0);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.preset-grid button:active {
+    transform: translateY(0) translateZ(0);
 }
 
 #settingsToggle {
@@ -281,16 +298,24 @@ html, body {
     font-size: 11px;
     border-radius: 6px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     text-align: center;
     font-weight: 500;
+    /* GPU acceleration */
+    transform: translateZ(0);
+    will-change: transform;
+    backface-visibility: hidden;
 }
 
 .vj-button:hover {
     background: rgba(102, 126, 234, 0.5);
     border-color: rgba(102, 126, 234, 0.8);
-    transform: translateY(-2px);
+    transform: translateY(-2px) translateZ(0);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.vj-button:active {
+    transform: translateY(0) translateZ(0);
 }
 
 .vj-button.active {
@@ -691,13 +716,13 @@ html, body {
 }
 
 @keyframes gridMove {
-    0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
-    100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
+    0% { transform: perspective(500px) rotateX(60deg) translateY(0) translateZ(0); }
+    100% { transform: perspective(500px) rotateX(60deg) translateY(50px) translateZ(0); }
 }
 
 @keyframes gradientRotate {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% { transform: rotate(0deg) translateZ(0); }
+    100% { transform: rotate(360deg) translateZ(0); }
 }
 
 #splashScreen.hidden {
@@ -717,17 +742,17 @@ html, body {
 @keyframes neonPulse {
     0%, 100% { 
         filter: drop-shadow(0 0 20px rgba(255, 0, 255, 0.8)) drop-shadow(0 0 40px rgba(0, 255, 255, 0.6));
-        transform: scale(1);
+        transform: scale(1) translateZ(0);
     }
     50% { 
         filter: drop-shadow(0 0 30px rgba(255, 0, 255, 1)) drop-shadow(0 0 60px rgba(0, 255, 255, 0.8));
-        transform: scale(1.05);
+        transform: scale(1.05) translateZ(0);
     }
 }
 
 @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
+    0%, 100% { transform: translateY(0px) translateZ(0); }
+    50% { transform: translateY(-10px) translateZ(0); }
 }
 
 .splash-title {
@@ -814,7 +839,7 @@ html, body {
     font-weight: 900;
     border-radius: 50px;
     cursor: pointer;
-    transition: all 0.3s;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
     box-shadow: 
         0 8px 20px rgba(255, 0, 255, 0.4),
         0 0 30px rgba(0, 255, 255, 0.3);
@@ -823,6 +848,10 @@ html, body {
     letter-spacing: 2px;
     position: relative;
     overflow: hidden;
+    /* GPU acceleration for smooth interactions */
+    transform: translateZ(0);
+    will-change: transform, box-shadow;
+    backface-visibility: hidden;
 }
 
 .splash-button::before {
@@ -841,14 +870,15 @@ html, body {
 }
 
 .splash-button:hover {
-    transform: translateY(-3px) scale(1.05);
+    transform: translateY(-3px) scale(1.05) translateZ(0);
     box-shadow: 
         0 12px 30px rgba(255, 0, 255, 0.6),
         0 0 50px rgba(0, 255, 255, 0.5);
 }
 
 .splash-button:active {
-    transform: translateY(-1px) scale(1.02);
+    transform: translateY(-1px) scale(1.02) translateZ(0);
+    transition-duration: 0.05s;
 }
 
 .splash-options {
@@ -942,8 +972,8 @@ html, body {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% { transform: rotate(0deg) translateZ(0); }
+    100% { transform: rotate(360deg) translateZ(0); }
 }
 
 /* Floating particles in background */
@@ -957,11 +987,14 @@ html, body {
     box-shadow: 0 0 10px #ff00ff;
     animation: particleFloat 10s infinite;
     z-index: 1;
+    /* GPU acceleration for particle animations */
+    will-change: transform, opacity;
+    backface-visibility: hidden;
 }
 
 @keyframes particleFloat {
     0% {
-        transform: translateY(100vh) translateX(0) scale(0);
+        transform: translateY(100vh) translateX(0) scale(0) translateZ(0);
         opacity: 0;
     }
     10% {
@@ -971,7 +1004,7 @@ html, body {
         opacity: 0.6;
     }
     100% {
-        transform: translateY(-100px) translateX(100px) scale(1);
+        transform: translateY(-100px) translateX(100px) scale(1) translateZ(0);
         opacity: 0;
     }
 }

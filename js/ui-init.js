@@ -119,12 +119,19 @@ if (enterClubBtn) {
 
 let vrClubInstance = null;
 
-// Wait for VRClub instance to be created
+// Wait for VRClub instance to be created with timeout
+let waitAttempts = 0;
+const maxWaitAttempts = 100; // 10 seconds timeout
 const waitForVRClub = setInterval(() => {
+    waitAttempts++;
     if (window.vrClub) {
         vrClubInstance = window.vrClub;
         clearInterval(waitForVRClub);
         initVJMenu();
+        console.log('✅ VJ menu system initialized');
+    } else if (waitAttempts >= maxWaitAttempts) {
+        clearInterval(waitForVRClub);
+        console.error('❌ Timeout waiting for VRClub instance');
     }
 }, 100);
 
@@ -169,7 +176,7 @@ function initVJMenu() {
             const control = button.getAttribute('data-control');
             
             if (control === 'changeColor') {
-                // Change spotlight color
+                // Change spotlight color with ENHANCED visual feedback
                 vrClubInstance.spotColorIndex = (vrClubInstance.spotColorIndex + 1) % vrClubInstance.spotColorList.length;
                 vrClubInstance.currentSpotColor = vrClubInstance.spotColorList[vrClubInstance.spotColorIndex];
                 vrClubInstance.lastColorChange = performance.now() / 1000;
@@ -192,13 +199,19 @@ function initVJMenu() {
                     });
                 }
                 
-                button.style.background = `rgba(${vrClubInstance.currentSpotColor.r * 255}, ${vrClubInstance.currentSpotColor.g * 255}, ${vrClubInstance.currentSpotColor.b * 255}, 0.5)`;
+                // ENHANCED visual feedback with smooth color transition
+                const color = vrClubInstance.currentSpotColor;
+                button.style.background = `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`;
+                button.style.boxShadow = `0 0 20px rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.6)`;
+                button.style.transform = 'scale(1.05)';
                 setTimeout(() => {
                     button.style.background = '';
-                }, 300);
+                    button.style.boxShadow = '';
+                    button.style.transform = '';
+                }, 400);
                 
             } else if (control === 'changeMirrorBallColor') {
-                // Change mirror ball color
+                // Change mirror ball color with ENHANCED visual feedback
                 vrClubInstance.mirrorBallColorIndex = (vrClubInstance.mirrorBallColorIndex + 1) % vrClubInstance.mirrorBallColors.length;
                 vrClubInstance.mirrorBallSpotlightColor = vrClubInstance.mirrorBallColors[vrClubInstance.mirrorBallColorIndex];
                 
@@ -221,27 +234,41 @@ function initVJMenu() {
                     });
                 }
                 
-                button.style.background = `rgba(${vrClubInstance.mirrorBallSpotlightColor.r * 255}, ${vrClubInstance.mirrorBallSpotlightColor.g * 255}, ${vrClubInstance.mirrorBallSpotlightColor.b * 255}, 0.5)`;
+                // ENHANCED visual feedback with disco ball effect
+                const color = vrClubInstance.mirrorBallSpotlightColor;
+                button.style.background = `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`;
+                button.style.boxShadow = `0 0 20px rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.6)`;
+                button.style.transform = 'scale(1.05) rotate(5deg)';
                 setTimeout(() => {
                     button.style.background = '';
-                }, 300);
+                    button.style.boxShadow = '';
+                    button.style.transform = '';
+                }, 400);
                 
             } else if (control === 'cycleSpotMode') {
-                // Cycle spotlight mode
+                // Cycle spotlight mode with ENHANCED feedback
                 vrClubInstance.spotlightMode = (vrClubInstance.spotlightMode + 1) % 4;
                 const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
                 button.textContent = modeNames[vrClubInstance.spotlightMode];
+                button.style.transform = 'scale(1.1)';
+                button.style.background = 'rgba(102, 126, 234, 0.9)';
                 setTimeout(() => {
                     button.textContent = 'MODE';
+                    button.style.transform = '';
+                    button.style.background = '';
                 }, 1500);
                 
             } else if (control === 'cyclePattern') {
-                // Cycle spotlight pattern
+                // Cycle spotlight pattern with ENHANCED feedback
                 vrClubInstance.spotlightPattern = (vrClubInstance.spotlightPattern + 1) % 3;
                 const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
                 button.textContent = patternNames[vrClubInstance.spotlightPattern];
+                button.style.transform = 'scale(1.1)';
+                button.style.background = 'rgba(102, 126, 234, 0.9)';
                 setTimeout(() => {
                     button.textContent = 'PATTERN';
+                    button.style.transform = '';
+                    button.style.background = '';
                 }, 1500);
                 
             } else {

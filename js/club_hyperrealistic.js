@@ -39,38 +39,39 @@ class VRClub {
             antialias: true
         });
         
-        // VR optimization settings configuration
+        // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {
                 exposure: 1.0,
-                contrast: 1.2,
-                bloomWeight: 0.15, // Reduced for performance (was 0.2)
-                bloomThreshold: 0.7, // Higher threshold (was 0.6)
-                bloomScale: 0.25, // Reduced for performance (was 0.3)
-                glowIntensity: 0.5, // Reduced for performance (was 0.7)
-                ambientIntensity: 0.12, // Slightly reduced (was 0.15)
-                environmentIntensity: 0.25, // Slightly reduced (was 0.3)
+                contrast: 1.3, // Enhanced contrast for depth perception
+                bloomWeight: 0.18, // Enhanced bloom for immersive lighting
+                bloomThreshold: 0.65, // Lower threshold for more bloom coverage
+                bloomScale: 0.3, // Increased scale for dramatic lighting
+                glowIntensity: 0.6, // Enhanced glow for neon effects
+                ambientIntensity: 0.15, // Improved ambient visibility
+                environmentIntensity: 0.3, // Enhanced reflections
                 clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
                 grainEnabled: false, // Disabled - causes hazy appearance
                 chromaticAberrationEnabled: false, // Disabled - causes hazy color fringing
                 toneMappingEnabled: true,
-                fxaaEnabled: true
+                fxaaEnabled: true,
+                sharpenAmount: 0.3 // Mild sharpening for crisp details
             },
             vr: {
-                exposure: 0.65,
-                contrast: 1.6,
-                bloomWeight: 0.1, // Reduced for VR performance (was 0.15)
-                bloomThreshold: 0.85, // Higher threshold for VR (was 0.8)
-                bloomScale: 0.2, // Reduced for VR (was 0.3)
-                glowIntensity: 0.3, // Reduced for VR (was 0.4)
-                ambientIntensity: 0.06, // Reduced for VR (was 0.08)
-                environmentIntensity: 0.08, // Reduced for VR (was 0.1)
+                exposure: 0.7, // Slightly brighter for VR visibility
+                contrast: 1.7, // Enhanced contrast for VR depth
+                bloomWeight: 0.12, // Optimized VR bloom
+                bloomThreshold: 0.8, // Balanced threshold for VR
+                bloomScale: 0.25, // Enhanced VR bloom scale
+                glowIntensity: 0.4, // Enhanced VR glow
+                ambientIntensity: 0.08, // Improved VR ambient
+                environmentIntensity: 0.12, // Enhanced VR reflections
                 clearColor: new BABYLON.Color3(0, 0, 0),
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: false,
-                edgeSharpness: 0.6,
-                colorSharpness: 0.8,
+                edgeSharpness: 0.7, // Enhanced sharpness for VR clarity
+                colorSharpness: 0.9, // Enhanced color definition
                 fxaaEnabled: true  // Enable FXAA for smooth edges in VR
             }
         };
@@ -311,10 +312,13 @@ class VRClub {
         this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
         await this.readyPlayerMeLoader.testConnection(); // Check if RPM is available
         
-        // Initialize multiplayer managers
-        this.networkManager = new NetworkManager(this.scene);
-        this.avatarManager = new AvatarManager(this.scene, this.materialFactory, this.readyPlayerMeLoader);
-        this.setupNetworkingCallbacks();
+        // Initialize multiplayer managers (DISABLED - focusing on single-player quality)
+        // this.networkManager = new NetworkManager(this.scene);
+        // this.avatarManager = new AvatarManager(this.scene, this.materialFactory, this.readyPlayerMeLoader);
+        // this.setupNetworkingCallbacks();
+        this.networkManager = null; // Explicitly disable networking
+        this.avatarManager = null; // Disable avatar manager
+        this.isMultiplayer = false;
         
         // NPC avatars for atmosphere
         this.npcAvatars = [];
@@ -366,30 +370,30 @@ class VRClub {
         this.camera.keysUpward = [69]; // E
         this.camera.keysDownward = [81]; // Q
         
-        // Mouse rotation settings (must be set BEFORE attachControl)
-        this.camera.angularSensibility = 1000; // Lower = more sensitive (default 2000 was too slow)
-        this.camera.inertia = 0.7; // Smooth movement
+        // ENHANCED Mouse rotation settings (must be set BEFORE attachControl)
+        this.camera.angularSensibility = 900; // Enhanced sensitivity for responsive look controls
+        this.camera.inertia = 0.8; // Smooth, natural camera movement with slight momentum
         
         // Attach controls AFTER setting up inputs
         this.camera.attachControl(this.canvas, true);
         
-        // Camera properties
-        this.camera.speed = 0.3; // Realistic walking speed
+        // ENHANCED Camera properties for immersive experience
+        this.camera.speed = 0.35; // Slightly faster walking speed for better exploration
         this.camera.applyGravity = false; // No gravity for easier navigation
         this.camera.checkCollisions = true; // Enable collision detection with invisible walls
-        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Collision bounding box (human-sized)
-        this.camera.fov = 1.1; // Wider FOV for immersion
-        this.camera.minZ = 0.1;
-        this.camera.maxZ = 150;
+        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Human-sized collision bounding box
+        this.camera.fov = 1.2; // Enhanced FOV for more immersive peripheral vision
+        this.camera.minZ = 0.05; // Closer near plane for detailed close-ups
+        this.camera.maxZ = 150; // Far plane for full club visibility
         
         this.scene.activeCamera = this.camera;
         
-        // Add glow layer for neon/LED effects (works in both desktop and VR)
+        // Add ENHANCED glow layer for hyperrealistic neon/LED effects (desktop and VR)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
-            mainTextureFixedSize: 1024, // Increased for VR
-            blurKernelSize: 16  // Very sharp for crisp LED shapes
+            mainTextureFixedSize: 1024, // High resolution for sharp glow edges
+            blurKernelSize: 32  // Enhanced blur for smoother, more realistic glow spread
         });
-        this.glowLayer.intensity = 0.7; // Increased from 0.5 for better visibility
+        this.glowLayer.intensity = 0.8; // Enhanced intensity for dramatic neon effects
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -509,47 +513,49 @@ class VRClub {
     }
 
     addPostProcessing() {
-        // Create rendering pipeline for cinematic effects
+        // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
         const pipeline = new BABYLON.DefaultRenderingPipeline(
             "defaultPipeline",
-            true,
+            true, // HDR enabled for better color range
             this.scene,
             [this.camera]
         );
         
-        // FXAA anti-aliasing for smooth edges
+        // FXAA anti-aliasing for smooth edges (essential for immersion)
         pipeline.fxaaEnabled = true;
         
-        // Bloom for glowing lights - enhanced for better visibility
+        // ENHANCED Bloom for dramatic glowing lights - hyperrealistic nightclub atmosphere
         pipeline.bloomEnabled = true;
-        pipeline.bloomThreshold = 0.3; // Lower threshold to catch more lights
-        pipeline.bloomWeight = 0.6; // Increased from 0.4 for stronger bloom
-        pipeline.bloomKernel = 64;
-        pipeline.bloomScale = 0.6; // Increased from 0.5
+        pipeline.bloomThreshold = 0.65; // Optimized threshold from vrSettings
+        pipeline.bloomWeight = 0.18; // Enhanced weight for immersive lighting
+        pipeline.bloomKernel = 64; // Large kernel for smooth bloom spread
+        pipeline.bloomScale = 0.3; // Enhanced scale for dramatic effect
         
-        // Chromatic aberration for lens realism
-        pipeline.chromaticAberrationEnabled = true;
-        pipeline.chromaticAberration.aberrationAmount = 2;
+        // Chromatic aberration DISABLED - causes hazy color fringing
+        pipeline.chromaticAberrationEnabled = false;
         
-        // Film grain
-        pipeline.grainEnabled = true;
-        pipeline.grain.intensity = 8;
-        pipeline.grain.animated = true;
+        // Film grain DISABLED - causes overall hazy appearance
+        pipeline.grainEnabled = false;
         
-        // Sharpen for clarity
+        // ENHANCED Sharpen for crystal-clear details (hyperrealism focus)
         pipeline.sharpenEnabled = true;
-        pipeline.sharpen.edgeAmount = 0.3;
-        pipeline.sharpen.colorAmount = 0.5;
+        pipeline.sharpen.edgeAmount = 0.3; // Crisp edge definition
+        pipeline.sharpen.colorAmount = 0.5; // Enhanced color separation
         
-        // Image processing
+        // ENHANCED Image processing for cinematic depth
         pipeline.imageProcessingEnabled = true;
-        pipeline.imageProcessing.contrast = 1.2;
-        pipeline.imageProcessing.exposure = 1.0;
+        pipeline.imageProcessing.contrast = 1.3; // Enhanced contrast for depth
+        pipeline.imageProcessing.exposure = 1.0; // Balanced exposure
         pipeline.imageProcessing.toneMappingEnabled = true;
-        pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+        pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES; // Cinematic tone mapping
         
-        // Store pipeline
+        // Optional: Depth of Field for camera focus effect (disabled by default for VR compatibility)
+        pipeline.depthOfFieldEnabled = false;
+        
+        // Store pipeline for VR/desktop switching
         this.renderPipeline = pipeline;
+        
+        log.info('✨ Enhanced post-processing pipeline initialized (hyperrealistic mode)');
     }
 
     createFloor() {
@@ -563,31 +569,33 @@ class VRClub {
         // Store floor mesh for VR teleportation
         this.floorMesh = floor;
         
-        // Wooden floor panels with PBR - dark nightclub aesthetic
+        // ENHANCED Wooden floor panels with PBR - hyperrealistic nightclub aesthetic
         const floorMat = this.materialFactory.getPreset('floor');
         
         // Apply downloaded wood textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
-            log.info('🎨 Applying floor textures (Polyhaven - Worn Wood Floor)');
+            log.info('🎨 Applying ENHANCED floor textures (Polyhaven - Industrial Concrete)');
             this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
-            // Darken wooden floor for nightclub atmosphere
-            floorMat.baseColor = new BABYLON.Color3(0.3, 0.25, 0.2); // Dark brown tint
+            // Dark polished concrete for modern nightclub aesthetic
+            floorMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.22); // Dark grey with slight blue tint
         } else {
-            // Fallback to procedural noise texture
-            log.info('🎨 Using procedural floor texture (fallback)');
-            const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene);
-            noiseTexture.octaves = 4;
-            noiseTexture.persistence = 0.8;
+            // Enhanced fallback to procedural noise texture
+            log.info('🎨 Using ENHANCED procedural floor texture (fallback)');
+            const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 1024, this.scene);
+            noiseTexture.octaves = 6; // More detail layers
+            noiseTexture.persistence = 0.9; // Stronger detail retention
             noiseTexture.animationSpeedFactor = 0; // Static texture
             floorMat.bumpTexture = noiseTexture;
-            floorMat.bumpTexture.level = 0.3; // Subtle bump
-            floorMat.baseColor = new BABYLON.Color3(0.25, 0.2, 0.15); // Dark wood
+            floorMat.bumpTexture.level = 0.4; // Enhanced bump for realistic surface
+            floorMat.baseColor = new BABYLON.Color3(0.18, 0.18, 0.2); // Dark polished concrete
         }
         
-        // Wood floor properties
-        floorMat.metallic = 0.0; // Wood is non-metallic
-        floorMat.roughness = 0.7; // Slightly worn wood
-        floorMat.environmentIntensity = 0.15; // Subtle reflections from polish
+        // ENHANCED PBR properties for hyperrealistic polished concrete floor
+        floorMat.metallic = 0.05; // Slight metallic sheen from polish
+        floorMat.roughness = 0.4; // Polished concrete with some wear
+        floorMat.environmentIntensity = 0.35; // Enhanced reflections from polished surface
+        floorMat.directIntensity = 1.0; // Full direct light response
+        floorMat.specularIntensity = 0.6; // Enhanced specular highlights
         
         floor.material = floorMat;
         floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor

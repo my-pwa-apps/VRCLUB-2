@@ -2,13 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VR Club</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="Immersive hyperrealistic VR nightclub experience with professional lighting, DJ booth, and audio-reactive visuals for Meta Quest 3S">
+    <meta name="theme-color" content="#000000">
+    
+    <!-- Performance Optimization Hints -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link rel="preconnect" href="https://cdn.babylonjs.com" crossorigin>
+    <link rel="preconnect" href="https://dl.polyhaven.org" crossorigin>
+    <link rel="dns-prefetch" href="https://unpkg.com">
+    
+    <title>VR Club - Hyperrealistic Virtual Nightclub Experience</title>
     
     <!-- Inline SVG Favicon (prevents 404 error) -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'></text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
     
-    <!-- External Stylesheet -->
+    <!-- Preload Critical CSS -->
+    <link rel="preload" href="css/styles.css" as="style">
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -30,6 +40,8 @@
                     <input type="text" class="splash-input" id="splashUsername" placeholder="DJ Guest" maxlength="20">
                 </div>
                 
+                <!-- Multiplayer options DISABLED - focusing on single-player quality -->
+                <!--
                 <div class="splash-checkbox">
                     <input type="checkbox" id="enableMultiplayer" title="Enable multiplayer mode">
                     <label>👥 Enable Multiplayer (Experimental)</label>
@@ -39,6 +51,7 @@
                     <label class="splash-label">◇ Room Code (Share with friends)</label>
                     <input type="text" class="splash-input" id="roomCode" placeholder="Leave empty for new room">
                 </div>
+                -->
             </div>
             
             <div class="splash-loading" id="splashLoading">
@@ -50,10 +63,10 @@
     
     <canvas id="canvas" class="hidden"></canvas>
     
-    <!-- Multiplayer Toggle Button -->
-    <button id="multiplayerToggle" title="Multiplayer">👥</button>
+    <!-- Multiplayer Toggle Button (DISABLED - focusing on single-player quality) -->
+    <!-- <button id="multiplayerToggle" title="Multiplayer">👥</button> -->
     
-    <!-- Multiplayer Connection Menu -->
+    <!-- Multiplayer Connection Menu (DISABLED) -->
     <div id="multiplayerMenu" class="hidden">
         <div class="vj-header">
             <div class="vj-title">
@@ -235,15 +248,15 @@
         </div>
     </div>
     
-    <!-- Babylon.js -->
-    <script src="https://cdn.babylonjs.com/babylon.js"></script>
-    <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+    <!-- Babylon.js Core - Critical Path -->
+    <script src="https://cdn.babylonjs.com/babylon.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" crossorigin="anonymous"></script>
     
-    <!-- Cannon.js Physics Engine (for avatar collision) -->
-    <script src="https://cdn.babylonjs.com/cannon.js"></script>
+    <!-- Cannon.js Physics Engine (for avatar collision detection) -->
+    <script src="https://cdn.babylonjs.com/cannon.js" crossorigin="anonymous"></script>
     
-    <!-- glTF Loader Plugin (REQUIRED for loading .glb models) -->
-    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js" crossorigin="anonymous"></script>
     
     <!-- Texture Loader (loads before club script) -->
     <script src="js/textureLoader.js"></script>
@@ -258,14 +271,14 @@
     <script src="js/lightFactory.js"></script>
     
     <!-- PeerJS for P2P Networking (GitHub Pages compatible) -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js" crossorigin="anonymous"></script>
     
-    <!-- Multiplayer Networking -->
-    <script src="js/networkManager.js"></script>
-    <script src="js/readyPlayerMeLoader.js"></script>
-    <script src="js/avatarManager.js"></script>
+    <!-- Multiplayer Networking and Avatar System -->
+    <script src="js/networkManager.js" defer></script>
+    <script src="js/readyPlayerMeLoader.js" defer></script>
+    <script src="js/avatarManager.js" defer></script>
     
-    <!-- VR Club Script -->
+    <!-- VR Club Main Application -->
     <script src="js/club_hyperrealistic.js"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
