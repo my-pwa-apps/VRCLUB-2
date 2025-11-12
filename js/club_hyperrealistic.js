@@ -5411,6 +5411,12 @@ class VRClub {
     }
 
     async createDancingNPCs() {
+        // Check if avatar manager is available (disabled when multiplayer is off)
+        if (!this.avatarManager) {
+            log.info('🕺 NPC avatars disabled (multiplayer system not active)');
+            return; // Skip NPC creation when avatar manager is disabled
+        }
+        
         // Create 4 random HUMANLIKE NPC avatars dancing on the dancefloor (using 2 dance styles)
         const npcCount = 4; // Fixed count - mix of hip hop and house dance styles
         const npcNames = [
@@ -5527,6 +5533,9 @@ class VRClub {
     }
     
     customizeNPCAvatar(npcId, customization) {
+        // Skip if avatar manager is disabled
+        if (!this.avatarManager) return;
+        
         const avatar = this.avatarManager.avatars.get(npcId);
         if (!avatar) return;
         
@@ -5633,6 +5642,9 @@ class VRClub {
     }
     
     updateDancingNPCs(time) {
+        // Skip if avatar manager is disabled
+        if (!this.avatarManager) return;
+        
         // Animate each NPC with unique, humanlike dancing movements
         this.npcAvatars.forEach(npc => {
             const avatar = this.avatarManager.avatars.get(npc.id);
