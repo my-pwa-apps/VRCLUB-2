@@ -66,7 +66,7 @@ const roomCodeGroup = document.getElementById('roomCodeGroup');
 const splashLoading = document.getElementById('splashLoading');
 const canvas = document.getElementById('canvas');
 
-// Show/hide room code input
+// Show/hide room code input (DISABLED - multiplayer UI is commented out)
 if (enableMultiplayer && roomCodeGroup) {
     enableMultiplayer.addEventListener('change', function() {
         if (this.checked) {
@@ -85,8 +85,8 @@ if (enterClubBtn) {
         const roomCodeInput = document.getElementById('roomCode');
         
         splashConfig.username = usernameInput.value.trim() || 'Guest';
-        splashConfig.enableMultiplayer = enableMultiplayer.checked;
-        splashConfig.roomCode = roomCodeInput.value.trim() || null;
+        splashConfig.enableMultiplayer = enableMultiplayer ? enableMultiplayer.checked : false;
+        splashConfig.roomCode = roomCodeInput ? roomCodeInput.value.trim() : null;
         
         // Show loading state
         enterClubBtn.style.display = 'none';
@@ -101,6 +101,9 @@ if (enterClubBtn) {
             if (!window.vrClub) {
                 window.vrClub = new VRClub();
             }
+            
+            // Initialize UI menus once VRClub is ready
+            waitForVRClubInstance();
             
             // Hide splash after initialization
             setTimeout(() => {
@@ -119,21 +122,26 @@ if (enterClubBtn) {
 
 let vrClubInstance = null;
 
-// Wait for VRClub instance to be created with timeout
-let waitAttempts = 0;
-const maxWaitAttempts = 100; // 10 seconds timeout
-const waitForVRClub = setInterval(() => {
-    waitAttempts++;
-    if (window.vrClub) {
-        vrClubInstance = window.vrClub;
-        clearInterval(waitForVRClub);
-        initVJMenu();
-        console.log('✅ VJ menu system initialized');
-    } else if (waitAttempts >= maxWaitAttempts) {
-        clearInterval(waitForVRClub);
-        console.error('❌ Timeout waiting for VRClub instance');
-    }
-}, 100);
+// Initialize VJ menu once VRClub is created (called from Enter Club button)
+function waitForVRClubInstance() {
+    let waitAttempts = 0;
+    const maxWaitAttempts = 50; // 5 seconds timeout (shorter since it should exist immediately)
+    
+    const checkInterval = setInterval(() => {
+        waitAttempts++;
+        if (window.vrClub) {
+            vrClubInstance = window.vrClub;
+            clearInterval(checkInterval);
+            initVJMenu();
+            initAudioMenu();
+            initMultiplayerMenu();
+            console.log('✅ VJ/Audio/Multiplayer menus initialized');
+        } else if (waitAttempts >= maxWaitAttempts) {
+            clearInterval(checkInterval);
+            console.error('❌ Timeout waiting for VRClub instance');
+        }
+    }, 100);
+}
 
 function initVJMenu() {
     const vjToggle = document.getElementById('vjToggle');
@@ -529,13 +537,7 @@ function initAudioMenu() {
     console.log('✅ Audio menu initialized');
 }
 
-// Initialize audio menu when VRClub is ready
-const waitForAudioInit = setInterval(() => {
-    if (window.vrClub) {
-        clearInterval(waitForAudioInit);
-        initAudioMenu();
-    }
-}, 100);
+// Audio menu is now initialized by waitForVRClubInstance() after Enter Club is clicked
 
 // =============================================================================
 // MULTIPLAYER MENU
@@ -673,10 +675,4 @@ function initMultiplayerMenu() {
     console.log('✅ Multiplayer menu initialized');
 }
 
-// Initialize multiplayer menu when VRClub is ready
-const waitForMPInit = setInterval(() => {
-    if (window.vrClub) {
-        clearInterval(waitForMPInit);
-        initMultiplayerMenu();
-    }
-}, 100);
+// Multiplayer menu is now initialized by waitForVRClubInstance() after Enter Club is clicked
