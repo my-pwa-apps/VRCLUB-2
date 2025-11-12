@@ -2951,17 +2951,18 @@ class VRClub {
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
                     
-                    // PROPER RAY CASTING: Calculate direction from mirror ball based on rotation
+                    // REALISTIC RAY CASTING: Calculate direction from mirror ball based on rotation
                     // Each spot represents a mirror facet at a specific angle (theta, phi)
-                    // As ball rotates, the facet direction rotates with it
-                    // SUBTRACT rotation for proper reflection (facets stay fixed relative to ball)
-                    const rotatedTheta = spot.theta - this.mirrorBall.rotation.y; // Subtract for correct reflection
+                    // As ball rotates, the facet direction rotates with it in a realistic manner
+                    // The ball rotates on Y-axis, so horizontal angle (theta) changes, vertical (phi) stays fixed
+                    const rotatedTheta = spot.theta - this.mirrorBallRotation; // Use actual rotation value for precise tracking
                     const phi = spot.phi; // Vertical angle stays constant
                     
-                    // Calculate ray direction from ball in spherical coordinates
-                    const dirX = Math.sin(phi) * Math.cos(rotatedTheta);
+                    // Calculate ray direction from ball in spherical coordinates (standard physics)
+                    const sinPhi = Math.sin(phi);
+                    const dirX = sinPhi * Math.cos(rotatedTheta);
                     const dirY = Math.cos(phi);
-                    const dirZ = Math.sin(phi) * Math.sin(rotatedTheta);
+                    const dirZ = sinPhi * Math.sin(rotatedTheta);
                     
                     // Ray cast from ball position to find which surface it hits
                     // IMPROVED: Now detects avatars/NPCs and other scene meshes, not just walls
@@ -3001,26 +3002,35 @@ class VRClub {
                         }
                     }
                     
-                    // Position spot at ray intersection point with OPTIMIZED SMOOTH INTERPOLATION
+                    // Position spot at ray intersection point with REALISTIC SMOOTH INTERPOLATION
                     if (hitPos) {
-                        // OPTIMIZED: Adaptive interpolation based on distance traveled
+                        // IMPROVED: Calculate realistic movement based on ball rotation speed
                         const distanceMoved = BABYLON.Vector3.Distance(spot.visual.position, hitPos);
                         const isSameMesh = (spot.previousHitMesh === hitMesh);
                         
-                        // Smart lerp: faster for small movements, slower for large jumps to prevent popping
+                        // REALISTIC interpolation: mirror ball reflections move based on physics
+                        // Real disco balls create smooth, continuous movement patterns
                         let lerpFactor;
-                        if (distanceMoved < 0.5) {
-                            // Small movement on same surface - fast tracking
-                            lerpFactor = isSameMesh ? 0.4 : 0.25;
-                        } else if (distanceMoved < 2.0) {
-                            // Medium jump (crossing objects) - moderate smoothing
-                            lerpFactor = 0.15;
+                        
+                        if (!isSameMesh && distanceMoved > 5.0) {
+                            // Surface transition (e.g., wall to floor) - instant snap for realism
+                            // Real disco ball reflections jump between surfaces, not slide
+                            lerpFactor = 1.0;
+                        } else if (distanceMoved > 1.5) {
+                            // Significant movement - moderate tracking speed
+                            // Prevents unrealistic sliding while maintaining smooth motion
+                            lerpFactor = 0.7;
+                        } else if (distanceMoved < 0.1) {
+                            // Micro-movements - very smooth to eliminate jitter
+                            // Stabilizes spots that are nearly stationary
+                            lerpFactor = 0.9;
                         } else {
-                            // Large jump (surface transition) - heavy smoothing to prevent pop
-                            lerpFactor = 0.08;
+                            // Normal movement - balanced tracking
+                            // Natural speed that matches ball rotation
+                            lerpFactor = 0.75;
                         }
                         
-                        // Smoothly interpolate position (prevents jarring jumps when crossing avatars/truss)
+                        // Smoothly interpolate position (prevents jarring jumps)
                         spot.visual.position.x += (hitPos.x - spot.visual.position.x) * lerpFactor;
                         spot.visual.position.y += (hitPos.y - spot.visual.position.y) * lerpFactor;
                         spot.visual.position.z += (hitPos.z - spot.visual.position.z) * lerpFactor;
