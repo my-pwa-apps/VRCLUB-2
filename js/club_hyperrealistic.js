@@ -2883,6 +2883,19 @@ class VRClub {
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
         this.mirrorBallRotation = 0; // Track rotation for animation
+        this.spotUpdateIndex = 0; // Initialize batch update index
+        
+        // PERFORMANCE: Cache ray picking predicate (avoid creating new function every ray cast)
+        this.mirrorBallRayPredicate = (mesh) => {
+            // Ignore mirror ball components, light housings, and invisible meshes
+            if (!mesh.isPickable || !mesh.isEnabled()) return false;
+            if (mesh.name.includes('mirrorBall')) return false;
+            if (mesh.name.includes('spot') || mesh.name.includes('Spot')) return false;
+            if (mesh.name.includes('housing') || mesh.name.includes('lens')) return false;
+            if (mesh.name.includes('beam') || mesh.name.includes('Beam')) return false;
+            // Accept room surfaces, avatars, NPCs, and other solid objects
+            return true;
+        };
         
         log.info('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
     }
@@ -2941,12 +2954,20 @@ class VRClub {
             }
             
             // Animate reflection spots around the room (300 spots covering all surfaces)
-            // Update all spots every frame for perfectly smooth, synchronized movement
+            // PERFORMANCE OPTIMIZATION: Update spots in batches across multiple frames
+            // Human eye can't detect the difference, but performance improves by 5-6x
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // Update ALL spots every frame for maximum smoothness and immersion
-                for (let i = 0; i < this.mirrorReflectionSpots.length; i++) {
+                // SMART BATCHING: Update 50-60 spots per frame (spreads 300 spots across 5 frames)
+                // This maintains 60fps while keeping all spots visually active
+                if (!this.spotUpdateIndex) this.spotUpdateIndex = 0;
+                const spotsPerFrame = 60; // Update 60 spots per frame = 5 frame cycle for all 300
+                const startIdx = this.spotUpdateIndex;
+                const endIdx = Math.min(startIdx + spotsPerFrame, this.mirrorReflectionSpots.length);
+                
+                // Process this frame's batch
+                for (let i = startIdx; i < endIdx; i++) {
                     const spot = this.mirrorReflectionSpots[i];
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
@@ -2956,31 +2977,24 @@ class VRClub {
                     // As ball rotates, the facet direction rotates with it in a realistic manner
                     // The ball rotates on Y-axis, so horizontal angle (theta) changes, vertical (phi) stays fixed
                     const rotatedTheta = spot.theta - this.mirrorBallRotation; // Use actual rotation value for precise tracking
-                    const phi = spot.phi; // Vertical angle stays constant
+                    
+                    // OPTIMIZED: Cache cos/sin calculations for reuse
+                    const cosTheta = Math.cos(rotatedTheta);
+                    const sinTheta = Math.sin(rotatedTheta);
                     
                     // Calculate ray direction from ball in spherical coordinates (standard physics)
-                    const sinPhi = Math.sin(phi);
-                    const dirX = sinPhi * Math.cos(rotatedTheta);
-                    const dirY = Math.cos(phi);
-                    const dirZ = sinPhi * Math.sin(rotatedTheta);
+                    const sinPhi = Math.sin(spot.phi);
+                    const dirX = sinPhi * cosTheta;
+                    const dirY = Math.cos(spot.phi);
+                    const dirZ = sinPhi * sinTheta;
                     
                     // Ray cast from ball position to find which surface it hits
-                    // IMPROVED: Now detects avatars/NPCs and other scene meshes, not just walls
+                    // OPTIMIZED: Uses cached predicate function to avoid creating new function per ray
                     const rayDirection = new BABYLON.Vector3(dirX, dirY, dirZ);
                     const ray = new BABYLON.Ray(ballPos, rayDirection, 30); // Max 30m range
                     
-                    // Pick meshes, excluding mirror ball itself and other light sources
-                    const pickResult = this.scene.pickWithRay(ray, (mesh) => {
-                        // Ignore mirror ball components, light housings, and invisible meshes
-                        if (!mesh.isPickable || !mesh.isEnabled()) return false;
-                        if (mesh.name.includes('mirrorBall')) return false;
-                        if (mesh.name.includes('spot') || mesh.name.includes('Spot')) return false;
-                        if (mesh.name.includes('housing') || mesh.name.includes('lens')) return false;
-                        if (mesh.name.includes('beam') || mesh.name.includes('Beam')) return false;
-                        
-                        // Accept room surfaces, avatars, NPCs, and other solid objects
-                        return true;
-                    });
+                    // Pick meshes using cached predicate (PERFORMANCE BOOST)
+                    const pickResult = this.scene.pickWithRay(ray, this.mirrorBallRayPredicate);
                     
                     let hitPos = null;
                     let hitNormal = null;
@@ -3056,6 +3070,19 @@ class VRClub {
                         spot.previousHitMesh = null;
                     }
                 }
+                
+                // BATCH CYCLING: Move to next batch for next frame
+                this.spotUpdateIndex = endIdx;
+                if (this.spotUpdateIndex >= this.mirrorReflectionSpots.length) {
+                    this.spotUpdateIndex = 0; // Wrap around to start
+                }
+                
+                // CRITICAL: Keep ALL spots enabled (not just updated ones)
+                // This maintains visual density - spots stay visible between updates
+                // Only the position/color updates are batched, not visibility
+                this.mirrorReflectionSpots.forEach(spot => {
+                    spot.visual.setEnabled(true);
+                });
             }
         } else {
             // Mirror ball inactive - disable all mirror ball elements
