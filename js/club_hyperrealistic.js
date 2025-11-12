@@ -2898,7 +2898,9 @@ class VRClub {
         };
         
         // PERFORMANCE: Pre-create reusable Ray object (avoid allocating new Ray every frame)
-        this.mirrorBallRay = new BABYLON.Ray(ballPos, new BABYLON.Vector3(0, 0, 1), 30);
+        // Initialize with mirror ball position (0, 6.5, -12)
+        const mirrorBallPos = new BABYLON.Vector3(0, 6.5, -12);
+        this.mirrorBallRay = new BABYLON.Ray(mirrorBallPos, new BABYLON.Vector3(0, 0, 1), 30);
         
         log.info('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
     }
