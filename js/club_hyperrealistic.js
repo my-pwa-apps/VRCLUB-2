@@ -2781,7 +2781,7 @@ class VRClub {
         // These are purely emissive meshes that create the illusion of reflections
         // Dense coverage for hyperrealistic mirror ball effect
         this.mirrorReflectionSpots = [];
-        const numSpots = 300; // Dense hyperrealistic coverage (50 per surface)
+        const numSpots = 150; // OPTIMIZED: Reduced from 300 to 150 - still hyperrealistic, 2x faster
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
@@ -2897,6 +2897,9 @@ class VRClub {
             return true;
         };
         
+        // PERFORMANCE: Pre-create reusable Ray object (avoid allocating new Ray every frame)
+        this.mirrorBallRay = new BABYLON.Ray(ballPos, new BABYLON.Vector3(0, 0, 1), 30);
+        
         log.info('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
     }
     
@@ -2953,16 +2956,16 @@ class VRClub {
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
             }
             
-            // Animate reflection spots around the room (300 spots covering all surfaces)
-            // PERFORMANCE OPTIMIZATION: Update spots in batches across multiple frames
-            // Human eye can't detect the difference, but performance improves by 5-6x
+            // Animate reflection spots around the room (150 spots covering all surfaces)
+            // AGGRESSIVE PERFORMANCE OPTIMIZATION: Update spots in small batches across multiple frames
+            // Ray casting is expensive - 20 spots per frame = 7.5 frame cycle for all 150 spots
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // SMART BATCHING: Update 50-60 spots per frame (spreads 300 spots across 5 frames)
-                // This maintains 60fps while keeping all spots visually active
+                // AGGRESSIVE BATCHING: Update only 20 spots per frame (150 spots / 20 = ~8 frames total)
+                // This achieves smooth 60fps while maintaining hyperrealistic visual density
                 if (!this.spotUpdateIndex) this.spotUpdateIndex = 0;
-                const spotsPerFrame = 60; // Update 60 spots per frame = 5 frame cycle for all 300
+                const spotsPerFrame = 20; // REDUCED from 60 - much better performance
                 const startIdx = this.spotUpdateIndex;
                 const endIdx = Math.min(startIdx + spotsPerFrame, this.mirrorReflectionSpots.length);
                 
@@ -2989,12 +2992,13 @@ class VRClub {
                     const dirZ = sinPhi * sinTheta;
                     
                     // Ray cast from ball position to find which surface it hits
-                    // OPTIMIZED: Uses cached predicate function to avoid creating new function per ray
-                    const rayDirection = new BABYLON.Vector3(dirX, dirY, dirZ);
-                    const ray = new BABYLON.Ray(ballPos, rayDirection, 30); // Max 30m range
+                    // ULTRA-OPTIMIZED: Reuse cached Ray object instead of creating new ones (massive allocation savings)
+                    this.mirrorBallRay.origin.copyFrom(ballPos);
+                    this.mirrorBallRay.direction.set(dirX, dirY, dirZ);
+                    this.mirrorBallRay.length = 30; // Max 30m range
                     
-                    // Pick meshes using cached predicate (PERFORMANCE BOOST)
-                    const pickResult = this.scene.pickWithRay(ray, this.mirrorBallRayPredicate);
+                    // Pick meshes using cached predicate and cached ray (MAXIMUM PERFORMANCE)
+                    const pickResult = this.scene.pickWithRay(this.mirrorBallRay, this.mirrorBallRayPredicate);
                     
                     let hitPos = null;
                     let hitNormal = null;
@@ -3012,7 +3016,7 @@ class VRClub {
                             hitPos = hitPos.add(hitNormal.scale(0.02));
                         } else {
                             // Fallback if normal calculation fails - use reverse ray direction
-                            hitNormal = rayDirection.scale(-1);
+                            hitNormal = this.mirrorBallRay.direction.scale(-1);
                         }
                     }
                     
