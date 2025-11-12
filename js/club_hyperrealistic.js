@@ -2883,7 +2883,7 @@ class VRClub {
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
         this.mirrorBallRotation = 0; // Track rotation for animation
-        this.spotUpdateIndex = 0; // Initialize batch update index
+        this.spotUpdateFrameCounter = 0; // Frame counter for synchronized updates
         
         // PERFORMANCE: Cache ray picking predicate (avoid creating new function every ray cast)
         this.mirrorBallRayPredicate = (mesh) => {
@@ -2959,20 +2959,20 @@ class VRClub {
             }
             
             // Animate reflection spots around the room (150 spots covering all surfaces)
-            // AGGRESSIVE PERFORMANCE OPTIMIZATION: Update spots in small batches across multiple frames
-            // Ray casting is expensive - 20 spots per frame = 7.5 frame cycle for all 150 spots
+            // SYNCHRONIZED FRAME-SKIP OPTIMIZATION: Update ALL spots every 3 frames
+            // This eliminates "catch-up" effect while maintaining 60fps performance
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // AGGRESSIVE BATCHING: Update only 20 spots per frame (150 spots / 20 = ~8 frames total)
-                // This achieves smooth 60fps while maintaining hyperrealistic visual density
-                if (!this.spotUpdateIndex) this.spotUpdateIndex = 0;
-                const spotsPerFrame = 20; // REDUCED from 60 - much better performance
-                const startIdx = this.spotUpdateIndex;
-                const endIdx = Math.min(startIdx + spotsPerFrame, this.mirrorReflectionSpots.length);
+                // FRAME-SKIP STRATEGY: Update all 150 spots simultaneously every 3rd frame
+                // This maintains synchronized movement (no lag between spots) while reducing ray casts
+                // 150 spots ÷ 3 frames = 50 ray casts/frame average (better than 60, all spots sync)
+                this.spotUpdateFrameCounter = (this.spotUpdateFrameCounter || 0) + 1;
+                const shouldUpdate = (this.spotUpdateFrameCounter % 3 === 0);
                 
-                // Process this frame's batch
-                for (let i = startIdx; i < endIdx; i++) {
+                if (shouldUpdate) {
+                    // Update ALL spots synchronously
+                    for (let i = 0; i < this.mirrorReflectionSpots.length; i++) {
                     const spot = this.mirrorReflectionSpots[i];
                     // Enable visual spot (no actual light - just emissive mesh)
                     spot.visual.setEnabled(true);
@@ -3076,20 +3076,14 @@ class VRClub {
                         spot.previousHitMesh = null;
                     }
                 }
+                } // Close if (shouldUpdate)
                 
-                // BATCH CYCLING: Move to next batch for next frame
-                this.spotUpdateIndex = endIdx;
-                if (this.spotUpdateIndex >= this.mirrorReflectionSpots.length) {
-                    this.spotUpdateIndex = 0; // Wrap around to start
-                }
-                
-                // CRITICAL: Keep ALL spots enabled (not just updated ones)
-                // This maintains visual density - spots stay visible between updates
-                // Only the position/color updates are batched, not visibility
+                // ALWAYS keep all spots enabled (regardless of update frame)
+                // Spots remain visible between updates - only position/color updates are skipped
                 this.mirrorReflectionSpots.forEach(spot => {
                     spot.visual.setEnabled(true);
                 });
-            }
+            } // Close if (this.mirrorReflectionSpots...)
         } else {
             // Mirror ball inactive - disable all mirror ball elements
             if (this.mirrorBallSpotlights) {
