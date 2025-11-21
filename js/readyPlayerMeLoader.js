@@ -27,8 +27,8 @@ class ReadyPlayerMeLoader {
             
             // Ready Player Me avatars (URLs):
             // Mixamo characters (local files with animations):
-            './js/models/avatars/Hip Hop Dancing.glb',
-            './js/models/avatars/house.glb',
+            // './js/models/avatars/Hip Hop Dancing.glb', // File missing
+            // './js/models/avatars/house.glb', // File missing
             
             // Ready Player Me (static, no animations) - TEMPORARILY DISABLED for testing:
             // 'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',

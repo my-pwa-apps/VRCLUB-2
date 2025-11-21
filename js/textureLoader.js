@@ -102,7 +102,7 @@ class TextureLoader {
                 // Industrial brick walls
                 baseUrl: `${baseUrl}/brick_wall_001`,
                 maps: {
-                    diffuse: 'brick_wall_001_diff_1k.jpg',
+                    diffuse: 'brick_wall_001_diffuse_1k.jpg',
                     normal: 'brick_wall_001_nor_gl_1k.jpg',
                     roughness: 'brick_wall_001_rough_1k.jpg',
                     ao: 'brick_wall_001_ao_1k.jpg'
