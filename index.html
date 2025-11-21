@@ -22,6 +22,9 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+    <!-- Noise Overlay -->
+    <div class="noise-overlay"></div>
+
     <!-- Splash Screen -->
     <div id="splashScreen">
         
@@ -39,19 +42,6 @@
                     <label class="splash-label">◇ Your Name (Optional)</label>
                     <input type="text" class="splash-input" id="splashUsername" placeholder="DJ Guest" maxlength="20">
                 </div>
-                
-                <!-- Multiplayer options DISABLED - focusing on single-player quality -->
-                <!--
-                <div class="splash-checkbox">
-                    <input type="checkbox" id="enableMultiplayer" title="Enable multiplayer mode">
-                    <label>👥 Enable Multiplayer (Experimental)</label>
-                </div>
-                
-                <div class="splash-input-group" id="roomCodeGroup" class="hidden">
-                    <label class="splash-label">◇ Room Code (Share with friends)</label>
-                    <input type="text" class="splash-input" id="roomCode" placeholder="Leave empty for new room">
-                </div>
-                -->
             </div>
             
             <div class="splash-loading" id="splashLoading">
@@ -64,7 +54,6 @@
     <canvas id="canvas" class="hidden"></canvas>
     
     <!-- Multiplayer Toggle Button (DISABLED - focusing on single-player quality) -->
-    <!-- <button id="multiplayerToggle" title="Multiplayer">👥</button> -->
     
     <!-- Multiplayer Connection Menu (DISABLED) -->
     <div id="multiplayerMenu" class="hidden">

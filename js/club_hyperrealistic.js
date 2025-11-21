@@ -2,7 +2,7 @@
 // Ultra-realistic club environment for Quest 3S VR
 
 // Debug mode (set to false for production to disable verbose logging)
-const DEBUG_MODE = true; // Set to false to disable console.log statements
+const DEBUG_MODE = false; // Set to false to disable console.log statements
 
 // Conditional logging helper
 const log = {
@@ -42,20 +42,20 @@ class VRClub {
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {
-                exposure: 1.0,
-                contrast: 1.3, // Enhanced contrast for depth perception
-                bloomWeight: 0.18, // Enhanced bloom for immersive lighting
-                bloomThreshold: 0.65, // Lower threshold for more bloom coverage
-                bloomScale: 0.3, // Increased scale for dramatic lighting
-                glowIntensity: 0.6, // Enhanced glow for neon effects
+                exposure: 1.05,
+                contrast: 1.4, // Enhanced contrast for depth perception
+                bloomWeight: 0.22, // Enhanced bloom for immersive lighting
+                bloomThreshold: 0.6, // Lower threshold for more bloom coverage
+                bloomScale: 0.35, // Increased scale for dramatic lighting
+                glowIntensity: 0.7, // Enhanced glow for neon effects
                 ambientIntensity: 0.15, // Improved ambient visibility
-                environmentIntensity: 0.3, // Enhanced reflections
+                environmentIntensity: 0.35, // Enhanced reflections
                 clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
                 grainEnabled: false, // Disabled - causes hazy appearance
                 chromaticAberrationEnabled: false, // Disabled - causes hazy color fringing
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.3 // Mild sharpening for crisp details
+                sharpenAmount: 0.4 // Mild sharpening for crisp details
             },
             vr: {
                 exposure: 0.7, // Slightly brighter for VR visibility
@@ -526,10 +526,10 @@ class VRClub {
         
         // ENHANCED Bloom for dramatic glowing lights - hyperrealistic nightclub atmosphere
         pipeline.bloomEnabled = true;
-        pipeline.bloomThreshold = 0.65; // Optimized threshold from vrSettings
-        pipeline.bloomWeight = 0.18; // Enhanced weight for immersive lighting
+        pipeline.bloomThreshold = 0.6; // Optimized threshold from vrSettings
+        pipeline.bloomWeight = 0.22; // Enhanced weight for immersive lighting
         pipeline.bloomKernel = 64; // Large kernel for smooth bloom spread
-        pipeline.bloomScale = 0.3; // Enhanced scale for dramatic effect
+        pipeline.bloomScale = 0.35; // Enhanced scale for dramatic effect
         
         // Chromatic aberration DISABLED - causes hazy color fringing
         pipeline.chromaticAberrationEnabled = false;
@@ -539,13 +539,13 @@ class VRClub {
         
         // ENHANCED Sharpen for crystal-clear details (hyperrealism focus)
         pipeline.sharpenEnabled = true;
-        pipeline.sharpen.edgeAmount = 0.3; // Crisp edge definition
+        pipeline.sharpen.edgeAmount = 0.4; // Crisp edge definition
         pipeline.sharpen.colorAmount = 0.5; // Enhanced color separation
         
         // ENHANCED Image processing for cinematic depth
         pipeline.imageProcessingEnabled = true;
-        pipeline.imageProcessing.contrast = 1.3; // Enhanced contrast for depth
-        pipeline.imageProcessing.exposure = 1.0; // Balanced exposure
+        pipeline.imageProcessing.contrast = 1.4; // Enhanced contrast for depth
+        pipeline.imageProcessing.exposure = 1.05; // Balanced exposure
         pipeline.imageProcessing.toneMappingEnabled = true;
         pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES; // Cinematic tone mapping
         
