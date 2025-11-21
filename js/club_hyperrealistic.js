@@ -55,7 +55,8 @@ class VRClub {
                 chromaticAberrationEnabled: false, // Disabled - causes hazy color fringing
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.4 // Mild sharpening for crisp details
+                sharpenAmount: 0.4, // Mild sharpening for crisp details
+                fogDensity: 0.015 // Subtle atmospheric haze
             },
             vr: {
                 exposure: 0.7, // Slightly brighter for VR visibility
@@ -72,7 +73,8 @@ class VRClub {
                 toneMappingEnabled: false,
                 edgeSharpness: 0.7, // Enhanced sharpness for VR clarity
                 colorSharpness: 0.9, // Enhanced color definition
-                fxaaEnabled: true  // Enable FXAA for smooth edges in VR
+                fxaaEnabled: true,  // Enable FXAA for smooth edges in VR
+                fogDensity: 0.01 // Reduced fog for VR performance
             }
         };
         
@@ -234,6 +236,7 @@ class VRClub {
         
         this.scene.environmentIntensity = vr.environmentIntensity;
         this.scene.clearColor = vr.clearColor;
+        this.scene.fogDensity = vr.fogDensity;
     }
     
     applyDesktopSettings() {
@@ -266,6 +269,7 @@ class VRClub {
         
         this.scene.environmentIntensity = desktop.environmentIntensity;
         this.scene.clearColor = desktop.clearColor;
+        this.scene.fogDensity = desktop.fogDensity;
     }
 
     detectMaxLights() {
@@ -330,6 +334,11 @@ class VRClub {
             this.scene
         );
         this.scene.environmentIntensity = 0.3; // Subtle reflections
+        
+        // Add atmospheric fog for depth and light scattering simulation
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+        this.scene.fogDensity = this.vrSettings.desktop.fogDensity;
+        this.scene.fogColor = new BABYLON.Color3(0.02, 0.02, 0.05); // Dark blue-ish fog
         
         // Initialize texture loader and load textures from CDN (cached for subsequent loads)
         log.info('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
@@ -574,10 +583,19 @@ class VRClub {
         
         // Apply downloaded wood textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
-            log.info('🎨 Applying ENHANCED floor textures (Polyhaven - Industrial Concrete)');
+            log.info('🎨 Applying ENHANCED floor textures (Polyhaven - Large Floor Tiles)');
             this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
-            // Dark polished concrete for modern nightclub aesthetic
-            floorMat.baseColor = new BABYLON.Color3(0.2, 0.2, 0.22); // Dark grey with slight blue tint
+            // Dark polished tiles for modern nightclub aesthetic
+            floorMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.18); 
+            
+            // Override roughness for polished look (wet floor effect)
+            floorMat.roughness = 0.3; 
+            floorMat.metallic = 0.1;
+            
+            // If roughness map is loaded, reduce its influence to keep it shiny
+            if (floorMat.metallicTexture) {
+                floorMat.metallicTexture.level = 0.5; // Reduce roughness map strength
+            }
         } else {
             // Enhanced fallback to procedural noise texture
             log.info('🎨 Using ENHANCED procedural floor texture (fallback)');
@@ -591,11 +609,9 @@ class VRClub {
         }
         
         // ENHANCED PBR properties for hyperrealistic polished concrete floor
-        floorMat.metallic = 0.05; // Slight metallic sheen from polish
-        floorMat.roughness = 0.4; // Polished concrete with some wear
-        floorMat.environmentIntensity = 0.35; // Enhanced reflections from polished surface
+        floorMat.environmentIntensity = 0.5; // Enhanced reflections from polished surface
         floorMat.directIntensity = 1.0; // Full direct light response
-        floorMat.specularIntensity = 0.6; // Enhanced specular highlights
+        floorMat.specularIntensity = 0.8; // Enhanced specular highlights
         
         floor.material = floorMat;
         floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor
@@ -609,8 +625,10 @@ class VRClub {
         
         // Apply downloaded concrete wall textures if available
         if (this.concreteTextures && this.concreteTextures.walls) {
-            log.info('🎨 Applying wall textures (Polyhaven - Industrial Concrete)');
+            log.info('🎨 Applying wall textures (Polyhaven - Red Brick)');
             this.textureLoader.applyTexturesToMaterial(wallMat, this.concreteTextures.walls);
+            wallMat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Neutral tint to let brick color show
+            wallMat.roughness = 0.8; // Rough brick
         }
         
         // Back wall
@@ -671,8 +689,21 @@ class VRClub {
         // Exposed brick material - old red brick
         const brickMat = this.materialFactory.getPreset('brick');
         
+        // Apply texture to these details too if available
+        if (this.concreteTextures && this.concreteTextures.walls) {
+            this.textureLoader.applyTexturesToMaterial(brickMat, this.concreteTextures.walls);
+            // Make these sections slightly darker/dirtier
+            brickMat.baseColor = new BABYLON.Color3(0.4, 0.4, 0.4);
+        }
+        
         // Concrete pillar material
         const pillarMat = this.materialFactory.getPreset('pillar');
+        
+        // Apply concrete texture to pillars if available (using ceiling texture for concrete look)
+        if (this.concreteTextures && this.concreteTextures.ceiling) {
+            this.textureLoader.applyTexturesToMaterial(pillarMat, this.concreteTextures.ceiling);
+            pillarMat.roughness = 0.7;
+        }
         
         // Metal pipe material
         const pipeMat = this.materialFactory.getPreset('pipe');
@@ -873,12 +904,55 @@ class VRClub {
         if (this.concreteTextures && this.concreteTextures.ceiling) {
             log.info('🎨 Applying ceiling textures (Polyhaven - Raw Concrete)');
             this.textureLoader.applyTexturesToMaterial(ceilingMat, this.concreteTextures.ceiling);
+            
+            // Adjust for darker, more industrial look
+            ceilingMat.albedoColor = new BABYLON.Color3(0.3, 0.3, 0.3); 
+            ceilingMat.roughness = 0.9;
         }
         
         ceiling.material = ceilingMat;
         ceiling.receiveShadows = false; // Optimization Phase 3: Disable shadows on ceiling
         ceiling.freezeWorldMatrix(); // OPTIMIZATION: Freeze static ceiling
         ceiling.doNotSyncBoundingInfo = true;
+
+        // === INDUSTRIAL CEILING DETAILS (PIPES & VENTS) ===
+        // Add some pipes running along the ceiling for hyperrealism
+        const pipeMat = this.materialFactory.getPreset('pipe'); // Ensure 'pipe' preset exists or use 'truss'
+        
+        // Main ventilation duct
+        const ventDuct = BABYLON.MeshBuilder.CreateCylinder("ventDuct", {
+            diameter: 0.8,
+            height: 45,
+            tessellation: 16
+        }, this.scene);
+        ventDuct.rotation.x = Math.PI / 2;
+        ventDuct.position = new BABYLON.Vector3(-12, 9.2, -10);
+        ventDuct.material = pipeMat;
+        ventDuct.freezeWorldMatrix();
+        ventDuct.doNotSyncBoundingInfo = true;
+
+        // Smaller water pipes
+        const pipe1 = BABYLON.MeshBuilder.CreateCylinder("ceilingPipe1", {
+            diameter: 0.15,
+            height: 45,
+            tessellation: 8
+        }, this.scene);
+        pipe1.rotation.x = Math.PI / 2;
+        pipe1.position = new BABYLON.Vector3(14, 9.5, -10);
+        pipe1.material = pipeMat;
+        pipe1.freezeWorldMatrix();
+        pipe1.doNotSyncBoundingInfo = true;
+
+        const pipe2 = BABYLON.MeshBuilder.CreateCylinder("ceilingPipe2", {
+            diameter: 0.15,
+            height: 35,
+            tessellation: 8
+        }, this.scene);
+        pipe2.rotation.z = Math.PI / 2;
+        pipe2.position = new BABYLON.Vector3(0, 9.6, 5);
+        pipe2.material = pipeMat;
+        pipe2.freezeWorldMatrix();
+        pipe2.doNotSyncBoundingInfo = true;
         
         // Add lighting truss above dance floor
         this.createLightingTruss();
@@ -1154,10 +1228,12 @@ class VRClub {
         };
         
         // === MONITOR SPEAKERS (behind table, facing DJ) ===
-        const monitorMat = new BABYLON.PBRMetallicRoughnessMaterial("monitorMat", this.scene);
-        monitorMat.baseColor = new BABYLON.Color3(0.03, 0.03, 0.03);
-        monitorMat.metallic = 0.2;
-        monitorMat.roughness = 0.8;
+        // Use PBR material for realistic speaker cabinets
+        const monitorMat = this.materialFactory.createPBRMaterial("monitorMat", {
+            baseColor: [0.05, 0.05, 0.05],
+            metallic: 0.1,
+            roughness: 0.6
+        }, true);
         
         const leftMonitor = BABYLON.MeshBuilder.CreateBox("leftMonitor", {
             width: 0.4,
@@ -1165,6 +1241,7 @@ class VRClub {
             depth: 0.35
         }, this.scene);
         leftMonitor.position = new BABYLON.Vector3(-2.3, 0.85, -23.8);
+        leftMonitor.rotation.y = Math.PI / 8; // Angled towards DJ
         leftMonitor.material = monitorMat;
         
         const rightMonitor = BABYLON.MeshBuilder.CreateBox("rightMonitor", {
@@ -1173,7 +1250,31 @@ class VRClub {
             depth: 0.35
         }, this.scene);
         rightMonitor.position = new BABYLON.Vector3(2.3, 0.85, -23.8);
+        rightMonitor.rotation.y = -Math.PI / 8; // Angled towards DJ
         rightMonitor.material = monitorMat;
+
+        // Speaker cones (woofers)
+        const coneMat = this.materialFactory.createPBRMaterial("monitorConeMat", {
+            baseColor: [0.1, 0.1, 0.1],
+            metallic: 0.5,
+            roughness: 0.4
+        }, true);
+
+        const createWoofer = (parent, yPos, size) => {
+            const woofer = BABYLON.MeshBuilder.CreateCylinder("woofer", {
+                diameter: size,
+                height: 0.02
+            }, this.scene);
+            woofer.rotation.x = Math.PI / 2;
+            woofer.position = new BABYLON.Vector3(0, yPos, -0.18); // Slightly protruding
+            woofer.parent = parent;
+            woofer.material = coneMat;
+        };
+
+        createWoofer(leftMonitor, -0.15, 0.25); // Main woofer
+        createWoofer(leftMonitor, 0.15, 0.1);   // Tweeter
+        createWoofer(rightMonitor, -0.15, 0.25);
+        createWoofer(rightMonitor, 0.15, 0.1);
         
         // === VJ LIGHTING CONTROL CONSOLE (RIGHT SIDE) ===
         const vjConsole = BABYLON.MeshBuilder.CreateBox("vjConsole", {

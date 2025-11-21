@@ -86,28 +86,28 @@ class TextureLoader {
         
         return {
             floor: {
-                name: 'Industrial Concrete Floor',
-                // Raw industrial concrete - perfect for nightclub floor (reuse wall texture with different scale)
-                baseUrl: `${baseUrl}/concrete_wall_001`,
+                name: 'Large Floor Tiles',
+                // Polished floor tiles for main dancefloor
+                baseUrl: `${baseUrl}/large_floor_tiles_02`,
                 maps: {
-                    diffuse: 'concrete_wall_001_diff_1k.jpg',
-                    normal: 'concrete_wall_001_nor_gl_1k.jpg',
-                    roughness: 'concrete_wall_001_rough_1k.jpg',
-                    ao: 'concrete_wall_001_ao_1k.jpg'
+                    diffuse: 'large_floor_tiles_02_diff_1k.jpg',
+                    normal: 'large_floor_tiles_02_nor_gl_1k.jpg',
+                    roughness: 'large_floor_tiles_02_rough_1k.jpg',
+                    ao: 'large_floor_tiles_02_ao_1k.jpg'
                 },
-                scale: { u: 8, v: 8 } // Repeat 8x for large floor with finer detail
+                scale: { u: 6, v: 6 }
             },
             walls: {
-                name: 'Industrial Concrete Walls',
-                // Raw industrial concrete with imperfections
-                baseUrl: `${baseUrl}/concrete_wall_001`,
+                name: 'Red Brick Wall',
+                // Industrial brick walls
+                baseUrl: `${baseUrl}/brick_wall_001`,
                 maps: {
-                    diffuse: 'concrete_wall_001_diff_1k.jpg',
-                    normal: 'concrete_wall_001_nor_gl_1k.jpg',
-                    roughness: 'concrete_wall_001_rough_1k.jpg',
-                    ao: 'concrete_wall_001_ao_1k.jpg'
+                    diffuse: 'brick_wall_001_diff_1k.jpg',
+                    normal: 'brick_wall_001_nor_gl_1k.jpg',
+                    roughness: 'brick_wall_001_rough_1k.jpg',
+                    ao: 'brick_wall_001_ao_1k.jpg'
                 },
-                scale: { u: 3, v: 3 } // Repeat 3x for walls
+                scale: { u: 4, v: 2 }
             },
             ceiling: {
                 name: 'Raw Concrete Ceiling',
@@ -119,7 +119,7 @@ class TextureLoader {
                     roughness: 'concrete_wall_001_rough_1k.jpg',
                     ao: 'concrete_wall_001_ao_1k.jpg'
                 },
-                scale: { u: 2, v: 2 } // Repeat 2x for ceiling (different scale than walls for variety)
+                scale: { u: 3, v: 3 }
             }
         };
     }
