@@ -43,20 +43,20 @@ class VRClub {
         this.vrSettings = {
             desktop: {
                 exposure: 1.05,
-                contrast: 1.4, // Enhanced contrast for depth perception
-                bloomWeight: 0.22, // Enhanced bloom for immersive lighting
-                bloomThreshold: 0.6, // Lower threshold for more bloom coverage
-                bloomScale: 0.35, // Increased scale for dramatic lighting
-                glowIntensity: 0.7, // Enhanced glow for neon effects
-                ambientIntensity: 0.15, // Improved ambient visibility
-                environmentIntensity: 0.35, // Enhanced reflections
-                clearColor: new BABYLON.Color3(0.01, 0.01, 0.02),
-                grainEnabled: false, // Disabled - causes hazy appearance
-                chromaticAberrationEnabled: false, // Disabled - causes hazy color fringing
+                contrast: 1.5, // Increased contrast for deeper blacks
+                bloomWeight: 0.3, // Stronger bloom for neon lights
+                bloomThreshold: 0.5, // Lower threshold to catch more light sources
+                bloomScale: 0.4, // Larger bloom spread
+                glowIntensity: 0.8, // Stronger glow
+                ambientIntensity: 0.1, // Lower ambient for more dramatic lighting
+                environmentIntensity: 0.4, // Stronger PBR reflections
+                clearColor: new BABYLON.Color3(0.005, 0.005, 0.01), // Almost black background
+                grainEnabled: true, // Enable subtle grain for filmic look on desktop
+                chromaticAberrationEnabled: true, // Enable subtle CA for lens realism
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.4, // Mild sharpening for crisp details
-                fogDensity: 0.015 // Subtle atmospheric haze
+                sharpenAmount: 0.5, // Sharper details
+                fogDensity: 0.02 // Slightly denser fog for volumetric feel
             },
             vr: {
                 exposure: 0.7, // Slightly brighter for VR visibility
@@ -227,6 +227,11 @@ class VRClub {
                 this.renderPipeline.bloomScale = vr.bloomScale;
             }
         }
+
+        // Disable SSAO in VR (too expensive)
+        if (this.ssaoPipeline) {
+            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
+        }
         
         // Apply scene settings
         if (this.glowLayer) this.glowLayer.intensity = vr.glowIntensity;
@@ -259,6 +264,11 @@ class VRClub {
                 this.renderPipeline.bloomThreshold = desktop.bloomThreshold;
                 this.renderPipeline.bloomScale = desktop.bloomScale;
             }
+        }
+
+        // Enable SSAO in Desktop mode
+        if (this.ssaoPipeline) {
+            this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", this.camera);
         }
         
         // Restore scene settings
@@ -563,6 +573,19 @@ class VRClub {
         
         // Store pipeline for VR/desktop switching
         this.renderPipeline = pipeline;
+
+        // SSAO 2 Pipeline (Screen Space Ambient Occlusion) - Adds realistic contact shadows
+        // ONLY for desktop mode (too expensive for standalone VR)
+        // Adds depth to corners and contact points for hyperrealism
+        this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, [this.camera]);
+        this.ssaoPipeline.radius = 3.5;
+        this.ssaoPipeline.totalStrength = 1.2;
+        this.ssaoPipeline.expensiveBlur = true;
+        this.ssaoPipeline.samples = 16;
+        this.ssaoPipeline.maxZ = 250;
+        
+        // Attach to pipeline but disable by default (enabled in applyDesktopSettings)
+        this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", this.camera);
         
         log.info('✨ Enhanced post-processing pipeline initialized (hyperrealistic mode)');
     }
