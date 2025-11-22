@@ -1907,49 +1907,98 @@ class VRClub {
         
         lightPositions.forEach((pos, i) => {
             // === REALISTIC MOVING HEAD FIXTURE ===
+            // Hierarchy: Root -> Base (Static) -> Yoke (Pan) -> Head (Tilt)
             
-            // Base/Yoke (connects to truss) - Professional moving head design
+            // Root Transform Node (for positioning the whole unit)
+            const root = new BABYLON.TransformNode("lightRoot" + i, this.scene);
+            root.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+
+            // 1. BASE (Static mount)
             const base = BABYLON.MeshBuilder.CreateBox("fixtureBase" + i, {
-                width: 0.5,
-                height: 0.2,
+                width: 0.4,
+                height: 0.1,
                 depth: 0.4
             }, this.scene);
-            base.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            base.parent = root;
+            base.position.y = 0; // At root position
             base.material = lightFixtureMat;
             
-            // Main fixture body (head) - Larger, more realistic
-            const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
-                diameter: 0.5,    // Professional moving head size
-                height: 0.7,      // Longer body
-                tessellation: 24  // Smoother
+            // 2. YOKE (Pan mechanism - Rotates around Y)
+            const yoke = new BABYLON.TransformNode("yoke" + i, this.scene);
+            yoke.parent = root;
+            yoke.position.y = -0.1; // Below base
+            
+            // Yoke Geometry (U-bracket)
+            const yokeCrossbar = BABYLON.MeshBuilder.CreateBox("yokeCross" + i, {
+                width: 0.5,
+                height: 0.05,
+                depth: 0.15
             }, this.scene);
-            fixture.position = new BABYLON.Vector3(pos.x, 7.5, pos.z);
-            fixture.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
+            yokeCrossbar.parent = yoke;
+            yokeCrossbar.position.y = 0;
+            yokeCrossbar.material = lightFixtureMat;
+
+            const yokeArmL = BABYLON.MeshBuilder.CreateBox("yokeArmL" + i, {
+                width: 0.05,
+                height: 0.4,
+                depth: 0.15
+            }, this.scene);
+            yokeArmL.parent = yoke;
+            yokeArmL.position = new BABYLON.Vector3(-0.225, -0.2, 0);
+            yokeArmL.material = lightFixtureMat;
+
+            const yokeArmR = BABYLON.MeshBuilder.CreateBox("yokeArmR" + i, {
+                width: 0.05,
+                height: 0.4,
+                depth: 0.15
+            }, this.scene);
+            yokeArmR.parent = yoke;
+            yokeArmR.position = new BABYLON.Vector3(0.225, -0.2, 0);
+            yokeArmR.material = lightFixtureMat;
+
+            // 3. HEAD (Tilt mechanism - Rotates around X)
+            // Pivot point is between the yoke arms
+            const head = new BABYLON.TransformNode("head" + i, this.scene);
+            head.parent = yoke;
+            head.position.y = -0.2; // Center of rotation between arms
+            
+            // Main fixture body
+            const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
+                diameter: 0.4,    // Fits between arms
+                height: 0.6,      // Body length
+                tessellation: 24
+            }, this.scene);
+            fixture.parent = head;
+            // Rotate cylinder so its top points along local Z (forward) or Y (down)?
+            // Let's align it so -Y is the light direction (standard for spotlights)
+            // Cylinder default is vertical (Y). So default is pointing up/down.
+            // We want it to point "down" relative to the head node when tilt is 0.
+            fixture.rotation.x = 0; 
+            fixture.position.y = 0;
             fixture.material = lightFixtureMat;
             
-            // Front bezel/rim around lens (realistic detail)
+            // Front bezel/rim
             const bezel = BABYLON.MeshBuilder.CreateTorus("bezel" + i, {
-                diameter: 0.45,
-                thickness: 0.05,
+                diameter: 0.42,
+                thickness: 0.03,
                 tessellation: 32
             }, this.scene);
-            bezel.position = new BABYLON.Vector3(pos.x, 7.2, pos.z);
-            bezel.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
+            bezel.parent = head;
+            bezel.position.y = -0.3; // Bottom of cylinder
+            bezel.material = this.materialFactory.createPBRMaterial("bezelMat" + i, {
+                baseColor: [0.1, 0.1, 0.1],
+                metallic: 0.95,
+                roughness: 0.15
+            });
             
-            const bezelMat = new BABYLON.PBRMetallicRoughnessMaterial("bezelMat" + i, this.scene);
-            bezelMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-            bezelMat.metallic = 0.95;
-            bezelMat.roughness = 0.15;
-            bezel.material = bezelMat;
-            
-            // Light lens (glowing) - The actual visible light output
+            // Light lens
             const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
-                diameter: 0.4,    // Fits inside bezel
-                height: 0.1,
+                diameter: 0.35,
+                height: 0.05,
                 tessellation: 32
             }, this.scene);
-            lens.position = new BABYLON.Vector3(pos.x, 7.15, pos.z);
-            lens.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
+            lens.parent = head;
+            lens.position.y = -0.28; // Just inside bezel
             
             const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
             lensMat.emissiveColor = this.currentSpotColor.scale(6.0);
@@ -1958,26 +2007,28 @@ class VRClub {
             lens.material = lensMat;
             lens.renderingGroupId = 2;
             
-            // Bright light source (visible from all angles)
+            // Light source (bulb)
             const lightSource = BABYLON.MeshBuilder.CreateSphere("lightSource" + i, {
-                diameter: 0.35
+                diameter: 0.3
             }, this.scene);
-            lightSource.position = new BABYLON.Vector3(pos.x, 7.15, pos.z);
+            lightSource.parent = head;
+            lightSource.position.y = -0.25;
             
             const sourceMat = new BABYLON.StandardMaterial("sourceMat" + i, this.scene);
-            sourceMat.emissiveColor = this.currentSpotColor.scale(10.0); // Very bright
+            sourceMat.emissiveColor = this.currentSpotColor.scale(10.0);
             sourceMat.disableLighting = true;
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
             
-            // Lens flare effect (subtle glass reflection)
+            // Lens flare
             const flare = BABYLON.MeshBuilder.CreateDisc("flare" + i, {
                 radius: 0.25,
                 tessellation: 32
             }, this.scene);
-            flare.position = new BABYLON.Vector3(pos.x, 7.1, pos.z);
-            flare.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Right(), Math.PI / 2);
+            flare.parent = head;
+            flare.position.y = -0.31; // In front of bezel
+            flare.rotation.x = Math.PI / 2; // Disc needs to face down
             
             const flareMat = new BABYLON.StandardMaterial("flareMat" + i, this.scene);
             flareMat.emissiveColor = this.currentSpotColor.scale(3.0);
@@ -1988,6 +2039,9 @@ class VRClub {
             flare.renderingGroupId = 2;
             
             this.trussLights.push({ 
+                root,
+                yoke,
+                head,
                 fixture, 
                 lens, 
                 lensMat, 
@@ -2382,6 +2436,11 @@ class VRClub {
         this.lastColorChange = 0;
         
         spotPositions.forEach((pos, i) => {
+            // Get fixture data if available
+            const fixtureData = this.trussLights ? this.trussLights[i] : null;
+            const head = fixtureData ? fixtureData.head : null;
+            const yoke = fixtureData ? fixtureData.yoke : null;
+
             // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
             const spot = new BABYLON.SpotLight("spot" + i,
                 new BABYLON.Vector3(pos.x, 7.3, pos.z),  // Match fixture lens position
@@ -2409,10 +2468,20 @@ class VRClub {
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            // Start at fixture position (will be updated each frame) - MATCH FIXTURE POSITION
-            beam.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);
+            // PARENT BEAM TO HEAD for realistic movement
+            if (head) {
+                beam.parent = head;
+                // Cylinder is Y-up. We want it to point along local -Y (down relative to head)
+                // But diameterTop is the "top" (+Y). We want the wide end at the bottom.
+                // So we need to rotate it 180 degrees so "top" (wide) points down (-Y).
+                beam.rotation.x = Math.PI; 
+                beam.position = new BABYLON.Vector3(0, -0.5, 0); // Initial position
+            } else {
+                beam.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);
+            }
+            
             beam.isPickable = false;
-            beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+            // beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Removed to allow parenting rotation
             
             // ULTRA-REALISTIC VOLUMETRIC BEAM - Simulates light scattering with varying intensity
             // Create gradient texture for realistic brightness falloff
@@ -2476,9 +2545,16 @@ class VRClub {
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            beamGlow.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            if (head) {
+                beamGlow.parent = head;
+                beamGlow.rotation.x = Math.PI;
+                beamGlow.position = new BABYLON.Vector3(0, -0.5, 0);
+            } else {
+                beamGlow.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+                beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
+            }
+            
             beamGlow.isPickable = false;
-            beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
             
             // Create glow gradient texture (softer than main beam)
             const glowTexture = new BABYLON.DynamicTexture("glowGradient" + i, { width: 512, height: 512 }, this.scene);
@@ -2597,14 +2673,16 @@ class VRClub {
                 poolCoreMat: poolCoreMat,
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
-                fixture: this.trussLights ? this.trussLights[i]?.fixture : null,
-                lens: this.trussLights ? this.trussLights[i]?.lens : null,
-                lightSource: this.trussLights ? this.trussLights[i]?.lightSource : null,
-                bezel: this.trussLights ? this.trussLights[i]?.bezel : null,
-                flare: this.trussLights ? this.trussLights[i]?.flare : null,
-                lensMat: this.trussLights ? this.trussLights[i]?.lensMat : null,
-                sourceMat: this.trussLights ? this.trussLights[i]?.sourceMat : null,
-                flareMat: this.trussLights ? this.trussLights[i]?.flareMat : null,
+                fixture: fixtureData ? fixtureData.fixture : null,
+                head: head,
+                yoke: yoke,
+                lens: fixtureData ? fixtureData.lens : null,
+                lightSource: fixtureData ? fixtureData.lightSource : null,
+                bezel: fixtureData ? fixtureData.bezel : null,
+                flare: fixtureData ? fixtureData.flare : null,
+                lensMat: fixtureData ? fixtureData.lensMat : null,
+                sourceMat: fixtureData ? fixtureData.sourceMat : null,
+                flareMat: fixtureData ? fixtureData.flareMat : null,
                 basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
                 phase: i * (Math.PI * 2 / spotPositions.length),
                 speed: 0.8,
@@ -3780,39 +3858,27 @@ class VRClub {
                 const angleVariation = Math.sin(time * 0.3 + i * 0.5) * 0.1; // ±6 degrees
                 spot.light.angle = baseAngle + angleVariation;
                 
-                // === HYPERREALISTIC MOVING HEAD ROTATION ===
-                // Rotate ALL fixture components together to match beam direction
+                // === HYPERREALISTIC MOVING HEAD ANIMATION ===
                 // Professional moving heads have pan (Y-axis) and tilt (X/Z-axis) motors
-                if (spot.fixture) {
-                    // Calculate target point where beam aims (8m down the beam)
-                    const targetPoint = spot.basePos.add(direction.scale(8));
+                // We rotate the Yoke (Pan) and Head (Tilt) separately for mechanical realism
+                
+                if (spot.fixtureData && spot.fixtureData.yoke && spot.fixtureData.head) {
+                    // 1. PAN (Yoke Rotation around Y)
+                    // Calculate angle on XZ plane. atan2(x, z) gives angle from Z axis.
+                    const panAngle = Math.atan2(direction.x, direction.z);
+                    spot.fixtureData.yoke.rotation.y = panAngle;
+
+                    // 2. TILT (Head Rotation around X)
+                    // Calculate angle from vertical (down).
+                    // acos(-direction.y) gives 0 when pointing down (-1), PI/2 when horizontal (0).
+                    // We use negative angle because positive rotation moves -Y to -Z (Back),
+                    // but we want to move -Y to +Z (Forward) relative to the Yoke.
+                    const tiltAngle = -Math.acos(-direction.y);
+                    spot.fixtureData.head.rotation.x = tiltAngle;
                     
-                    // Method 1: Use lookAt for fixture body (most accurate)
-                    spot.fixture.lookAt(targetPoint);
+                    // Note: Lens/bezel/flare/beam are children of the head and move automatically!
                     
-                    // Rotate ALL fixture components to match the fixture body orientation
-                    // This creates the illusion that the entire moving head is tracking the target
-                    const fixtureRotation = spot.fixture.rotationQuaternion || BABYLON.Quaternion.FromEulerAngles(
-                        spot.fixture.rotation.x,
-                        spot.fixture.rotation.y,
-                        spot.fixture.rotation.z
-                    );
-                    
-                    // Apply same rotation to all visible components
-                    if (spot.lens) {
-                        spot.lens.rotationQuaternion = fixtureRotation.clone();
-                    }
-                    if (spot.lightSource) {
-                        spot.lightSource.rotationQuaternion = fixtureRotation.clone();
-                    }
-                    if (spot.bezel) {
-                        spot.bezel.rotationQuaternion = fixtureRotation.clone();
-                    }
-                    if (spot.flare) {
-                        spot.flare.rotationQuaternion = fixtureRotation.clone();
-                    }
-                    
-                    // Update light flare intensity based on viewing angle (brighter when looking at lens)
+                    // Update flare intensity based on viewing angle (brighter when looking at lens)
                     if (spot.flareMat && this.camera) {
                         const cameraDir = this.camera.position.subtract(spot.basePos).normalize();
                         const lightDir = direction.scale(-1); // Light points opposite of beam direction
@@ -3820,6 +3886,10 @@ class VRClub {
                         const brightness = Math.max(0, dot); // 0 to 1
                         spot.flareMat.alpha = 0.2 + (brightness * 0.3); // 0.2 to 0.5 based on angle
                     }
+                } else if (spot.fixture) {
+                    // Fallback for legacy fixtures (if any)
+                    const targetPoint = spot.basePos.add(direction.scale(8));
+                    spot.fixture.lookAt(targetPoint);
                 }
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
@@ -3840,85 +3910,32 @@ class VRClub {
                     // IMPORTANT: Calculate beam length to ensure FULL CONE reaches floor
                     // The cone widens from 0.25m to 2.0m, so at angles the edge hits floor first
                     // We need to extend the beam so the WIDE END fully reaches floor
-                    // Cone radius at floor = 1.0m (diameter 2.0m)
-                    // When beam is angled, we need extra length for the outer edge to reach floor
                     const coneRadiusAtFloor = 1.0; // Half of diameterTop (2.0)
                     const horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
                     const angleFromVertical = Math.atan2(horizontalDistance, Math.abs(direction.y));
                     const extraLength = coneRadiusAtFloor * Math.tan(angleFromVertical);
                     const beamLength = centerDistanceToFloor + extraLength;
-                    const endPoint = floorIntersection.clone();
                     
-                    // CRITICAL: Position beam so narrow end is at fixture, wide end at floor
-                    // Cylinder with height=1 extends from -0.5 to +0.5 in local Y
-                    // When we scale.y = beamLength, it extends from -beamLength/2 to +beamLength/2
-                    // So we position at the MIDDLE and rotate to point downward
-                    
-                    const startPoint = spot.basePos; // Fixture position (narrow end)
-                    const midPoint = new BABYLON.Vector3(
-                        (startPoint.x + endPoint.x) / 2,
-                        (startPoint.y + endPoint.y) / 2,
-                        (startPoint.z + endPoint.z) / 2
-                    );
-                    
-                    // Position beam at midpoint
-                    spot.beam.position.copyFrom(midPoint);
-                    
-                    // Scale to actual length - set full scaling vector
-                    spot.beam.scaling.x = 1.0;
+                    // UPDATE BEAM LENGTH (Position/Rotation handled by parenting to Head)
+                    // Scale to actual length
                     spot.beam.scaling.y = beamLength;
-                    spot.beam.scaling.z = 1.0;
                     
-                    // Rotate beam to point from start to end
-                    // The cylinder's Y-axis should align with (endPoint - startPoint) direction
-                    const beamDirection = endPoint.subtract(startPoint).normalize();
-                    
-                    // Create rotation from Y-axis (0,1,0) to beam direction
-                    const yAxis = new BABYLON.Vector3(0, 1, 0);
-                    const rotAxis = BABYLON.Vector3.Cross(yAxis, beamDirection);
-                    const rotAngle = Math.acos(BABYLON.Vector3.Dot(yAxis, beamDirection));
-                    
-                    if (rotAxis.length() > 0.0001) {
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
-                            rotAxis.normalize(),
-                            rotAngle
-                        );
-                    } else {
-                        // Pointing straight up or down
-                        if (beamDirection.y > 0) {
-                            spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
-                        } else {
-                            spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(0, Math.PI, 0);
-                        }
-                    }
-                    
-
+                    // Update position to keep start of beam at the lens
+                    // Lens is at y=-0.28. Beam is rotated 180, so start is at top (+y relative to beam center).
+                    // We need center to be lower so top aligns with lens.
+                    spot.beam.position.y = -0.28 - (beamLength * 0.5);
                     
                     // Consistent beam size (no zoom variation)
-                    const zoomFactor = 1.0; // Keep beams consistent size
+                    const zoomFactor = 1.0; 
                     spot.beam.scaling.x = zoomFactor;
                     spot.beam.scaling.z = zoomFactor;
                     
-                    // UPDATE GLOW BEAM - Same position/rotation/scale as main beam
+                    // UPDATE GLOW BEAM - Same scaling
                     if (spot.beamGlow) {
-                        spot.beamGlow.position.copyFrom(midPoint);
-                        spot.beamGlow.scaling.x = zoomFactor;
+                        // Position/Rotation handled by parenting
                         spot.beamGlow.scaling.y = beamLength;
+                        spot.beamGlow.scaling.x = zoomFactor;
                         spot.beamGlow.scaling.z = zoomFactor;
-                        
-                        // Copy rotation
-                        if (rotAxis.length() > 0.0001) {
-                            spot.beamGlow.rotationQuaternion = BABYLON.Quaternion.RotationAxis(
-                                rotAxis.normalize(),
-                                rotAngle
-                            );
-                        } else {
-                            if (beamDirection.y > 0) {
-                                spot.beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
-                            } else {
-                                spot.beamGlow.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(0, Math.PI, 0);
-                            }
-                        }
                         
                         spot.beamGlow.visibility = this.lightsActive ? 1.0 : 0;
                         // Use per-spotlight color to match beam
