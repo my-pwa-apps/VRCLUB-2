@@ -478,12 +478,17 @@ class VRClub {
         this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
+        this.createDJBoothAccessories(); // Add laptop, headphones, cables
         this.createPASpeakers();
         this.createLEDWall();
         this.createLasers();
         this.createLights();
         this.createTrussMountedLights();
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
+        this.createEntranceArea(); // Velvet ropes, stanchions, archway
+        this.createBarArea(); // Bar counter, stools, bottles
+        this.createDanceFloorLighting(); // Edge LEDs and tile pattern
+        this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -854,6 +859,613 @@ class VRClub {
         }
         
         log.info("✅ Created industrial wall details");
+    }
+
+    // === HYPERREALISTIC ENTRANCE AREA ===
+    createEntranceArea() {
+        log.info("🚪 Creating hyperrealistic entrance area...");
+        
+        // Materials
+        const stanchionPostMat = this.materialFactory.getPreset('stanchionPost');
+        const stanchionBaseMat = this.materialFactory.getPreset('stanchionBase');
+        const velvetRopeMat = this.materialFactory.getPreset('velvetRope');
+        
+        // === ENTRANCE ARCHWAY ===
+        const archMat = this.materialFactory.createPBRMaterial('entranceArchMat', {
+            baseColor: [0.02, 0.02, 0.02],
+            metallic: 0.95,
+            roughness: 0.2
+        }, true);
+        
+        // Left arch pillar
+        const leftArchPillar = BABYLON.MeshBuilder.CreateBox("leftArchPillar", {
+            width: 0.4, height: 3.5, depth: 0.4
+        }, this.scene);
+        leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, 1.5);
+        leftArchPillar.material = archMat;
+        leftArchPillar.freezeWorldMatrix();
+        
+        // Right arch pillar
+        const rightArchPillar = BABYLON.MeshBuilder.CreateBox("rightArchPillar", {
+            width: 0.4, height: 3.5, depth: 0.4
+        }, this.scene);
+        rightArchPillar.position = new BABYLON.Vector3(3, 1.75, 1.5);
+        rightArchPillar.material = archMat;
+        rightArchPillar.freezeWorldMatrix();
+        
+        // Arch top beam
+        const archTop = BABYLON.MeshBuilder.CreateBox("archTop", {
+            width: 6.4, height: 0.3, depth: 0.4
+        }, this.scene);
+        archTop.position = new BABYLON.Vector3(0, 3.65, 1.5);
+        archTop.material = archMat;
+        archTop.freezeWorldMatrix();
+        
+        // === VELVET ROPE QUEUE SYSTEM ===
+        const stanchionPositions = [
+            // Left queue line
+            { x: -5, z: -1 }, { x: -5, z: 1 }, { x: -5, z: 3 },
+            // Right queue line  
+            { x: -3.5, z: -1 }, { x: -3.5, z: 1 }, { x: -3.5, z: 3 },
+            // Entrance guide right side
+            { x: 5, z: -1 }, { x: 5, z: 1 }
+        ];
+        
+        const stanchions = [];
+        stanchionPositions.forEach((pos, i) => {
+            // Base (weighted round base)
+            const base = BABYLON.MeshBuilder.CreateCylinder(`stanchionBase${i}`, {
+                diameter: 0.4, height: 0.08, tessellation: 24
+            }, this.scene);
+            base.position = new BABYLON.Vector3(pos.x, 0.04, pos.z);
+            base.material = stanchionBaseMat;
+            
+            // Post (polished brass pole)
+            const post = BABYLON.MeshBuilder.CreateCylinder(`stanchionPost${i}`, {
+                diameter: 0.05, height: 1.0, tessellation: 16
+            }, this.scene);
+            post.position = new BABYLON.Vector3(pos.x, 0.58, pos.z);
+            post.material = stanchionPostMat;
+            
+            // Decorative top ball
+            const topBall = BABYLON.MeshBuilder.CreateSphere(`stanchionTop${i}`, {
+                diameter: 0.12, segments: 12
+            }, this.scene);
+            topBall.position = new BABYLON.Vector3(pos.x, 1.14, pos.z);
+            topBall.material = stanchionPostMat;
+            
+            // Rope hook ring
+            const hookRing = BABYLON.MeshBuilder.CreateTorus(`ropeHook${i}`, {
+                diameter: 0.08, thickness: 0.015, tessellation: 16
+            }, this.scene);
+            hookRing.position = new BABYLON.Vector3(pos.x, 0.95, pos.z);
+            hookRing.rotation.x = Math.PI / 2;
+            hookRing.material = stanchionPostMat;
+            
+            stanchions.push({ base, post, topBall, hookRing, pos });
+        });
+        
+        // Create velvet ropes between stanchions
+        const createVelvetRope = (start, end, name) => {
+            const dx = end.x - start.x;
+            const dz = end.z - start.z;
+            const length = Math.sqrt(dx * dx + dz * dz);
+            const angle = Math.atan2(dx, dz);
+            
+            // Main rope (thick velvet)
+            const rope = BABYLON.MeshBuilder.CreateCylinder(name, {
+                diameter: 0.045, height: length, tessellation: 12
+            }, this.scene);
+            rope.position = new BABYLON.Vector3(
+                (start.x + end.x) / 2,
+                0.95,
+                (start.z + end.z) / 2
+            );
+            rope.rotation.x = Math.PI / 2;
+            rope.rotation.y = angle;
+            rope.material = velvetRopeMat;
+            
+            // Add subtle catenary sag with middle point
+            const midRope = BABYLON.MeshBuilder.CreateCylinder(name + "_sag", {
+                diameter: 0.048, height: length * 0.3, tessellation: 10
+            }, this.scene);
+            midRope.position = new BABYLON.Vector3(
+                (start.x + end.x) / 2,
+                0.92, // Slight sag
+                (start.z + end.z) / 2
+            );
+            midRope.rotation.x = Math.PI / 2;
+            midRope.rotation.y = angle;
+            midRope.material = velvetRopeMat;
+        };
+        
+        // Connect ropes on left queue line
+        createVelvetRope(stanchionPositions[0], stanchionPositions[1], "velvetRope_L1");
+        createVelvetRope(stanchionPositions[1], stanchionPositions[2], "velvetRope_L2");
+        
+        // Connect ropes on right queue line
+        createVelvetRope(stanchionPositions[3], stanchionPositions[4], "velvetRope_R1");
+        createVelvetRope(stanchionPositions[4], stanchionPositions[5], "velvetRope_R2");
+        
+        // Cross rope at entrance
+        createVelvetRope(stanchionPositions[6], stanchionPositions[7], "velvetRope_entrance");
+        
+        // === STEP LIGHTING (LED strips) ===
+        const stepLightMat = this.materialFactory.getPreset('floorEdgeLED');
+        
+        const stepLights = [
+            { x: -2.5, z: 0, w: 5, c: [0, 0.5, 1] },    // Entrance step cyan
+            { x: -2.5, z: -2, w: 5, c: [1, 0, 0.5] },   // Second step magenta
+        ];
+        
+        stepLights.forEach((light, i) => {
+            const strip = BABYLON.MeshBuilder.CreateBox(`stepLight${i}`, {
+                width: light.w, height: 0.02, depth: 0.1
+            }, this.scene);
+            strip.position = new BABYLON.Vector3(light.x + light.w/2, 0.01, light.z);
+            const mat = stepLightMat.clone(`stepLightMat${i}`);
+            mat.emissiveColor = new BABYLON.Color3(...light.c);
+            strip.material = mat;
+        });
+        
+        log.info("✅ Created hyperrealistic entrance with velvet ropes and stanchions");
+    }
+
+    // === BAR AREA WITH BOTTLES AND STOOLS ===
+    createBarArea() {
+        log.info("🍸 Creating hyperrealistic bar area...");
+        
+        // Materials
+        const barCounterMat = this.materialFactory.getPreset('barCounter');
+        const barTopMat = this.materialFactory.getPreset('barTop');
+        const barStoolMat = this.materialFactory.getPreset('barStool');
+        const stoolCushionMat = this.materialFactory.getPreset('stoolCushion');
+        
+        // === BAR COUNTER (Right wall) ===
+        // Main bar body (dark wood)
+        const barBody = BABYLON.MeshBuilder.CreateBox("barBody", {
+            width: 0.8, height: 1.1, depth: 8
+        }, this.scene);
+        barBody.position = new BABYLON.Vector3(16, 0.55, -8);
+        barBody.material = barCounterMat;
+        barBody.freezeWorldMatrix();
+        
+        // Bar top (polished granite/marble)
+        const barTop = BABYLON.MeshBuilder.CreateBox("barTop", {
+            width: 1.0, height: 0.08, depth: 8.2
+        }, this.scene);
+        barTop.position = new BABYLON.Vector3(16, 1.14, -8);
+        barTop.material = barTopMat;
+        barTop.freezeWorldMatrix();
+        
+        // Foot rail (brass)
+        const footRailMat = this.materialFactory.getPreset('stanchionPost');
+        const footRail = BABYLON.MeshBuilder.CreateCylinder("barFootRail", {
+            diameter: 0.06, height: 7.5, tessellation: 16
+        }, this.scene);
+        footRail.position = new BABYLON.Vector3(15.3, 0.2, -8);
+        footRail.rotation.x = Math.PI / 2;
+        footRail.material = footRailMat;
+        
+        // Foot rail brackets
+        for (let i = 0; i < 4; i++) {
+            const bracket = BABYLON.MeshBuilder.CreateBox(`footRailBracket${i}`, {
+                width: 0.15, height: 0.08, depth: 0.04
+            }, this.scene);
+            bracket.position = new BABYLON.Vector3(15.4, 0.2, -11 + i * 2);
+            bracket.material = footRailMat;
+        }
+        
+        // === BAR STOOLS ===
+        const stoolPositions = [-11, -9, -7, -5];
+        stoolPositions.forEach((z, i) => {
+            // Stool base (chrome ring)
+            const stoolBase = BABYLON.MeshBuilder.CreateTorus(`stoolBase${i}`, {
+                diameter: 0.45, thickness: 0.03, tessellation: 24
+            }, this.scene);
+            stoolBase.position = new BABYLON.Vector3(15, 0.03, z);
+            stoolBase.material = barStoolMat;
+            
+            // Stool post (chrome)
+            const stoolPost = BABYLON.MeshBuilder.CreateCylinder(`stoolPost${i}`, {
+                diameter: 0.08, height: 0.65, tessellation: 12
+            }, this.scene);
+            stoolPost.position = new BABYLON.Vector3(15, 0.35, z);
+            stoolPost.material = barStoolMat;
+            
+            // Seat cushion (leather)
+            const seatCushion = BABYLON.MeshBuilder.CreateCylinder(`stoolSeat${i}`, {
+                diameter: 0.38, height: 0.1, tessellation: 24
+            }, this.scene);
+            seatCushion.position = new BABYLON.Vector3(15, 0.72, z);
+            seatCushion.material = stoolCushionMat;
+            
+            // Backrest frame
+            const backrest = BABYLON.MeshBuilder.CreateBox(`stoolBack${i}`, {
+                width: 0.3, height: 0.35, depth: 0.04
+            }, this.scene);
+            backrest.position = new BABYLON.Vector3(14.8, 0.95, z);
+            backrest.material = barStoolMat;
+        });
+        
+        // === BACK BAR SHELVING WITH BOTTLES ===
+        const shelfMat = this.materialFactory.createPBRMaterial('barShelfMat', {
+            baseColor: [0.1, 0.1, 0.1],
+            metallic: 0.7,
+            roughness: 0.3
+        }, true);
+        
+        // Glass shelves (3 tiers)
+        for (let tier = 0; tier < 3; tier++) {
+            const shelf = BABYLON.MeshBuilder.CreateBox(`barShelf${tier}`, {
+                width: 0.25, height: 0.02, depth: 6
+            }, this.scene);
+            shelf.position = new BABYLON.Vector3(16.6, 1.3 + tier * 0.5, -8);
+            shelf.material = shelfMat;
+            shelf.freezeWorldMatrix();
+        }
+        
+        // LED strip under each shelf
+        const shelfLEDMat = this.materialFactory.getPreset('floorEdgeLED');
+        for (let tier = 0; tier < 3; tier++) {
+            const led = BABYLON.MeshBuilder.CreateBox(`barShelfLED${tier}`, {
+                width: 0.22, height: 0.01, depth: 5.8
+            }, this.scene);
+            led.position = new BABYLON.Vector3(16.6, 1.28 + tier * 0.5, -8);
+            const ledMat = shelfLEDMat.clone(`barShelfLEDMat${tier}`);
+            ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.5, 1); // Blue backlight
+            led.material = ledMat;
+        }
+        
+        // === DECORATIVE BOTTLES (simplified) ===
+        const bottleColors = [
+            [0.1, 0.4, 0.15], // Green
+            [0.4, 0.2, 0.05], // Amber
+            [0.15, 0.15, 0.4], // Blue
+            [0.3, 0.05, 0.05]  // Red
+        ];
+        
+        for (let tier = 0; tier < 3; tier++) {
+            for (let b = 0; b < 8; b++) {
+                const bottleHeight = 0.2 + Math.random() * 0.1;
+                const bottle = BABYLON.MeshBuilder.CreateCylinder(`bottle_${tier}_${b}`, {
+                    diameterTop: 0.02,
+                    diameterBottom: 0.04,
+                    height: bottleHeight,
+                    tessellation: 8
+                }, this.scene);
+                bottle.position = new BABYLON.Vector3(
+                    16.6,
+                    1.32 + tier * 0.5 + bottleHeight / 2,
+                    -10.5 + b * 0.7
+                );
+                const bottleMat = this.materialFactory.createPBRMaterial(`bottleMat_${tier}_${b}`, {
+                    baseColor: bottleColors[b % bottleColors.length],
+                    metallic: 0.0,
+                    roughness: 0.1,
+                    alpha: 0.85
+                });
+                bottle.material = bottleMat;
+            }
+        }
+        
+        log.info("✅ Created hyperrealistic bar area with stools and bottles");
+    }
+
+    // === DANCE FLOOR EDGE LIGHTING ===
+    createDanceFloorLighting() {
+        log.info("💃 Creating dance floor edge lighting...");
+        
+        const edgeLEDMat = this.materialFactory.getPreset('floorEdgeLED');
+        const gapMat = this.materialFactory.getPreset('floorTileGap');
+        
+        // Dance floor boundary (centered at z=-12)
+        const danceFloorBounds = {
+            x: { min: -8, max: 8 },
+            z: { min: -18, max: -6 },
+            center: { x: 0, z: -12 }
+        };
+        
+        // === PERIMETER LED STRIPS ===
+        const edgeStrips = [
+            // Front edge
+            { x: danceFloorBounds.x.min, z: danceFloorBounds.z.max, w: 16, d: 0.08, rotY: 0 },
+            // Back edge
+            { x: danceFloorBounds.x.min, z: danceFloorBounds.z.min, w: 16, d: 0.08, rotY: 0 },
+            // Left edge
+            { x: danceFloorBounds.x.min, z: danceFloorBounds.z.min, w: 0.08, d: 12, rotY: 0 },
+            // Right edge
+            { x: danceFloorBounds.x.max, z: danceFloorBounds.z.min, w: 0.08, d: 12, rotY: 0 }
+        ];
+        
+        this.danceFloorLEDs = []; // Store for animation
+        
+        edgeStrips.forEach((strip, i) => {
+            const led = BABYLON.MeshBuilder.CreateBox(`danceFloorLED${i}`, {
+                width: strip.w, height: 0.02, depth: strip.d
+            }, this.scene);
+            led.position = new BABYLON.Vector3(
+                strip.x + strip.w / 2,
+                0.01,
+                strip.z + strip.d / 2
+            );
+            const mat = new BABYLON.StandardMaterial(`danceFloorLEDMat${i}`, this.scene);
+            mat.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
+            mat.disableLighting = true;
+            led.material = mat;
+            
+            this.danceFloorLEDs.push({ mesh: led, material: mat });
+        });
+        
+        // === FLOOR TILE GRID PATTERN ===
+        // Create subtle tile gaps for realism
+        const tileSize = 2; // 2m x 2m tiles
+        for (let x = danceFloorBounds.x.min; x <= danceFloorBounds.x.max; x += tileSize) {
+            const gapLine = BABYLON.MeshBuilder.CreateBox(`tileGapX_${x}`, {
+                width: 0.02, height: 0.005, depth: 12
+            }, this.scene);
+            gapLine.position = new BABYLON.Vector3(x, 0.002, -12);
+            gapLine.material = gapMat;
+            gapLine.freezeWorldMatrix();
+        }
+        
+        for (let z = danceFloorBounds.z.min; z <= danceFloorBounds.z.max; z += tileSize) {
+            const gapLine = BABYLON.MeshBuilder.CreateBox(`tileGapZ_${z}`, {
+                width: 16, height: 0.005, depth: 0.02
+            }, this.scene);
+            gapLine.position = new BABYLON.Vector3(0, 0.002, z);
+            gapLine.material = gapMat;
+            gapLine.freezeWorldMatrix();
+        }
+        
+        log.info("✅ Created dance floor edge lighting and tile pattern");
+    }
+
+    // === SAFETY & ATMOSPHERE DETAILS ===
+    createSafetyDetails() {
+        log.info("🚨 Creating safety and atmosphere details...");
+        
+        // === EXIT SIGNS ===
+        const exitSignMat = this.materialFactory.getPreset('exitSign');
+        
+        const exitPositions = [
+            { x: 0, y: 3.2, z: 1.8, rotY: Math.PI },      // Front entrance (facing in)
+            { x: -16.5, y: 3.2, z: -15, rotY: Math.PI/2 } // Side exit (facing in)
+        ];
+        
+        exitPositions.forEach((pos, i) => {
+            // Exit sign housing
+            const signHousing = BABYLON.MeshBuilder.CreateBox(`exitHousing${i}`, {
+                width: 0.6, height: 0.25, depth: 0.08
+            }, this.scene);
+            signHousing.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
+            signHousing.rotation.y = pos.rotY;
+            signHousing.material = this.materialFactory.createPBRMaterial(`exitHousingMat${i}`, {
+                baseColor: [0.1, 0.1, 0.1],
+                metallic: 0.5,
+                roughness: 0.5
+            });
+            
+            // Glowing EXIT text (simplified as plane)
+            const signFace = BABYLON.MeshBuilder.CreatePlane(`exitSign${i}`, {
+                width: 0.5, height: 0.18
+            }, this.scene);
+            signFace.position = new BABYLON.Vector3(pos.x, pos.y, pos.z + (pos.rotY === Math.PI ? -0.05 : 0));
+            signFace.position.x += pos.rotY === Math.PI/2 ? 0.05 : 0;
+            signFace.rotation.y = pos.rotY;
+            signFace.material = exitSignMat;
+        });
+        
+        // === FIRE EXTINGUISHERS ===
+        const fireExtMat = this.materialFactory.getPreset('fireExtinguisher');
+        
+        const fireExtPositions = [
+            { x: -16.5, z: -5 },
+            { x: 16.5, z: -20 }
+        ];
+        
+        fireExtPositions.forEach((pos, i) => {
+            // Extinguisher body
+            const extBody = BABYLON.MeshBuilder.CreateCylinder(`fireExt${i}`, {
+                diameter: 0.15, height: 0.45, tessellation: 16
+            }, this.scene);
+            extBody.position = new BABYLON.Vector3(pos.x, 0.8, pos.z);
+            extBody.material = fireExtMat;
+            
+            // Valve/handle
+            const extHandle = BABYLON.MeshBuilder.CreateBox(`fireExtHandle${i}`, {
+                width: 0.12, height: 0.08, depth: 0.05
+            }, this.scene);
+            extHandle.position = new BABYLON.Vector3(pos.x, 1.08, pos.z);
+            extHandle.material = this.materialFactory.getPreset('barStool');
+            
+            // Wall bracket
+            const bracket = BABYLON.MeshBuilder.CreateBox(`fireExtBracket${i}`, {
+                width: 0.2, height: 0.06, depth: 0.1
+            }, this.scene);
+            bracket.position = new BABYLON.Vector3(pos.x, 0.7, pos.z);
+            bracket.material = this.materialFactory.getPreset('barStool');
+        });
+        
+        // === SPRINKLER HEADS (ceiling) ===
+        const sprinklerMat = this.materialFactory.getPreset('sprinklerHead');
+        
+        // Grid of sprinklers every 5m
+        for (let x = -15; x <= 15; x += 5) {
+            for (let z = -25; z <= 0; z += 5) {
+                const sprinkler = BABYLON.MeshBuilder.CreateCylinder(`sprinkler_${x}_${z}`, {
+                    diameterTop: 0.06, diameterBottom: 0.02, height: 0.06, tessellation: 12
+                }, this.scene);
+                sprinkler.position = new BABYLON.Vector3(x, 9.7, z);
+                sprinkler.material = sprinklerMat;
+            }
+        }
+        
+        // === SMOKE DETECTORS ===
+        const smokeMat = this.materialFactory.getPreset('smokeDetector');
+        
+        const smokePositions = [
+            { x: -8, z: -8 }, { x: 8, z: -8 },
+            { x: -8, z: -18 }, { x: 8, z: -18 },
+            { x: 0, z: -24 }
+        ];
+        
+        smokePositions.forEach((pos, i) => {
+            const detector = BABYLON.MeshBuilder.CreateCylinder(`smokeDetector${i}`, {
+                diameter: 0.12, height: 0.04, tessellation: 16
+            }, this.scene);
+            detector.position = new BABYLON.Vector3(pos.x, 9.8, pos.z);
+            detector.material = smokeMat;
+            
+            // LED indicator
+            const led = BABYLON.MeshBuilder.CreateSphere(`smokeDetectorLED${i}`, {
+                diameter: 0.015, segments: 8
+            }, this.scene);
+            led.position = new BABYLON.Vector3(pos.x, 9.77, pos.z + 0.04);
+            const ledMat = new BABYLON.StandardMaterial(`smokeDetectorLEDMat${i}`, this.scene);
+            ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green = normal
+            ledMat.disableLighting = true;
+            led.material = ledMat;
+        });
+        
+        log.info("✅ Created safety details (exit signs, fire extinguishers, sprinklers, smoke detectors)");
+    }
+
+    // === ENHANCED DJ BOOTH ACCESSORIES ===
+    createDJBoothAccessories() {
+        log.info("🎧 Creating DJ booth accessories...");
+        
+        // === LAPTOP STAND WITH LAPTOP ===
+        const laptopMat = this.materialFactory.getPreset('laptopBody');
+        
+        // Stand (adjustable laptop stand)
+        const standBase = BABYLON.MeshBuilder.CreateBox("laptopStandBase", {
+            width: 0.3, height: 0.02, depth: 0.25
+        }, this.scene);
+        standBase.position = new BABYLON.Vector3(-0.8, 0.84, -23.6);
+        standBase.material = this.materialFactory.getPreset('barStool');
+        
+        const standArm = BABYLON.MeshBuilder.CreateBox("laptopStandArm", {
+            width: 0.04, height: 0.15, depth: 0.04
+        }, this.scene);
+        standArm.position = new BABYLON.Vector3(-0.8, 0.92, -23.65);
+        standArm.material = this.materialFactory.getPreset('barStool');
+        
+        // Laptop base
+        const laptopBase = BABYLON.MeshBuilder.CreateBox("laptopBase", {
+            width: 0.32, height: 0.015, depth: 0.22
+        }, this.scene);
+        laptopBase.position = new BABYLON.Vector3(-0.8, 1.02, -23.55);
+        laptopBase.rotation.x = -0.2; // Tilted toward DJ
+        laptopBase.material = laptopMat;
+        
+        // Laptop screen
+        const laptopScreen = BABYLON.MeshBuilder.CreateBox("laptopScreen", {
+            width: 0.3, height: 0.2, depth: 0.008
+        }, this.scene);
+        laptopScreen.position = new BABYLON.Vector3(-0.8, 1.18, -23.64);
+        laptopScreen.rotation.x = -0.5;
+        laptopScreen.material = laptopMat;
+        
+        // Screen display (glowing)
+        const screenDisplay = BABYLON.MeshBuilder.CreatePlane("laptopDisplay", {
+            width: 0.28, height: 0.18
+        }, this.scene);
+        screenDisplay.position = new BABYLON.Vector3(-0.8, 1.18, -23.635);
+        screenDisplay.rotation.x = -0.5;
+        const screenMat = new BABYLON.StandardMaterial("laptopScreenMat", this.scene);
+        screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.4, 0.8); // Blue waveform display
+        screenMat.disableLighting = true;
+        screenDisplay.material = screenMat;
+        
+        // === HEADPHONES (on mixer) ===
+        const headphoneBandMat = this.materialFactory.getPreset('headphoneBand');
+        const headphoneCupMat = this.materialFactory.getPreset('headphoneCup');
+        
+        // Headphone band
+        const headphoneBand = BABYLON.MeshBuilder.CreateTorus("headphoneBand", {
+            diameter: 0.2, thickness: 0.015, tessellation: 24, arc: 0.5
+        }, this.scene);
+        headphoneBand.position = new BABYLON.Vector3(0.6, 0.98, -22.7);
+        headphoneBand.rotation.z = Math.PI;
+        headphoneBand.rotation.y = 0.3;
+        headphoneBand.material = headphoneBandMat;
+        
+        // Left ear cup
+        const leftCup = BABYLON.MeshBuilder.CreateCylinder("headphoneLeftCup", {
+            diameter: 0.1, height: 0.05, tessellation: 16
+        }, this.scene);
+        leftCup.position = new BABYLON.Vector3(0.5, 0.94, -22.68);
+        leftCup.rotation.z = Math.PI / 2;
+        leftCup.material = headphoneCupMat;
+        
+        // Right ear cup
+        const rightCup = BABYLON.MeshBuilder.CreateCylinder("headphoneRightCup", {
+            diameter: 0.1, height: 0.05, tessellation: 16
+        }, this.scene);
+        rightCup.position = new BABYLON.Vector3(0.7, 0.94, -22.72);
+        rightCup.rotation.z = Math.PI / 2;
+        rightCup.material = headphoneCupMat;
+        
+        // Cushion pads
+        const cushionMat = this.materialFactory.getPreset('stoolCushion');
+        const leftPad = BABYLON.MeshBuilder.CreateCylinder("headphoneLeftPad", {
+            diameter: 0.09, height: 0.02, tessellation: 16
+        }, this.scene);
+        leftPad.position = new BABYLON.Vector3(0.47, 0.94, -22.68);
+        leftPad.rotation.z = Math.PI / 2;
+        leftPad.material = cushionMat;
+        
+        const rightPad = BABYLON.MeshBuilder.CreateCylinder("headphoneRightPad", {
+            diameter: 0.09, height: 0.02, tessellation: 16
+        }, this.scene);
+        rightPad.position = new BABYLON.Vector3(0.73, 0.94, -22.72);
+        rightPad.rotation.z = Math.PI / 2;
+        rightPad.material = cushionMat;
+        
+        // === CABLE MANAGEMENT (under table) ===
+        const cableMat = this.materialFactory.getPreset('cableRubber');
+        
+        // Main cable bundle running under DJ table
+        const cableBundle = BABYLON.MeshBuilder.CreateCylinder("cableBundle", {
+            diameter: 0.06, height: 4.5, tessellation: 8
+        }, this.scene);
+        cableBundle.position = new BABYLON.Vector3(0, 0.7, -23.5);
+        cableBundle.rotation.z = Math.PI / 2;
+        cableBundle.material = cableMat;
+        
+        // Vertical cable drops
+        const cableDrops = [-1.5, 0, 1.5]; // Under each CDJ and mixer
+        cableDrops.forEach((x, i) => {
+            const drop = BABYLON.MeshBuilder.CreateCylinder(`cableDrop${i}`, {
+                diameter: 0.025, height: 0.4, tessellation: 8
+            }, this.scene);
+            drop.position = new BABYLON.Vector3(x, 0.5, -23.5);
+            drop.material = cableMat;
+        });
+        
+        // === USB STICK IN CDJ (left deck) ===
+        const usbStick = BABYLON.MeshBuilder.CreateBox("usbStick", {
+            width: 0.02, height: 0.008, depth: 0.04
+        }, this.scene);
+        usbStick.position = new BABYLON.Vector3(-1.1, 0.9, -22.65);
+        usbStick.material = this.materialFactory.createPBRMaterial('usbMat', {
+            baseColor: [0.2, 0.2, 0.2],
+            metallic: 0.3,
+            roughness: 0.5
+        });
+        
+        // USB LED indicator
+        const usbLED = BABYLON.MeshBuilder.CreateSphere("usbLED", {
+            diameter: 0.008, segments: 6
+        }, this.scene);
+        usbLED.position = new BABYLON.Vector3(-1.1, 0.905, -22.63);
+        const usbLEDMat = new BABYLON.StandardMaterial("usbLEDMat", this.scene);
+        usbLEDMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0);
+        usbLEDMat.disableLighting = true;
+        usbLED.material = usbLEDMat;
+        
+        log.info("✅ Created DJ booth accessories (laptop, headphones, cables)");
     }
 
     createCollisionBoundaries() {
@@ -1886,6 +2498,51 @@ class VRClub {
         subGrill.position = new BABYLON.Vector3(xPos, 1.5, zPos + 1.45);
         subGrill.material = grillMat;
         
+        // === HYPERREALISTIC WOOFER CONES (visible through grille) ===
+        const coneMat = this.materialFactory.createPBRMaterial('speakerConeMat', {
+            baseColor: [0.05, 0.05, 0.05],
+            metallic: 0.1,
+            roughness: 0.9
+        }, true);
+        const dustCapMat = this.materialFactory.createPBRMaterial('dustCapMat', {
+            baseColor: [0.02, 0.02, 0.02],
+            metallic: 0.3,
+            roughness: 0.6
+        }, true);
+        
+        // Sub has 2x18" woofers (massive bass drivers)
+        const wooferPositions = [
+            { y: 0.7, size: 0.9 },  // Bottom 18" woofer
+            { y: 2.3, size: 0.9 }   // Top 18" woofer
+        ];
+        wooferPositions.forEach((wf, i) => {
+            // Cone surround (foam edge)
+            const surround = BABYLON.MeshBuilder.CreateTorus(`subSurround${xPos}_${i}`, {
+                diameter: wf.size, thickness: 0.08, tessellation: 24
+            }, this.scene);
+            surround.position = new BABYLON.Vector3(xPos, wf.y, zPos + 1.42);
+            surround.rotation.x = Math.PI / 2;
+            surround.material = this.materialFactory.createPBRMaterial('surroundMat', {
+                baseColor: [0.08, 0.08, 0.08], metallic: 0, roughness: 0.95
+            });
+            
+            // Paper cone
+            const cone = BABYLON.MeshBuilder.CreateCylinder(`subCone${xPos}_${i}`, {
+                diameterTop: 0.15, diameterBottom: wf.size - 0.1, height: 0.12, tessellation: 24
+            }, this.scene);
+            cone.position = new BABYLON.Vector3(xPos, wf.y, zPos + 1.36);
+            cone.rotation.x = Math.PI / 2;
+            cone.material = coneMat;
+            
+            // Dust cap (center dome)
+            const cap = BABYLON.MeshBuilder.CreateSphere(`subCap${xPos}_${i}`, {
+                diameter: 0.18, segments: 12, slice: 0.5
+            }, this.scene);
+            cap.position = new BABYLON.Vector3(xPos, wf.y, zPos + 1.44);
+            cap.rotation.x = -Math.PI / 2;
+            cap.material = dustCapMat;
+        });
+        
         // Mid-range cabinet (top) - BIGGER
         const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
             width: 2.4,
@@ -1906,6 +2563,22 @@ class VRClub {
         midGrill.position = new BABYLON.Vector3(xPos, 4.2, zPos + 1.15);
         midGrill.material = grillMat;
         
+        // Mid cabinet has 2x12" woofers + 2x horn compression drivers
+        const midWooferPositions = [
+            { x: -0.4, y: 3.7, size: 0.55 },  // Bottom-left 12"
+            { x: 0.4, y: 3.7, size: 0.55 },   // Bottom-right 12"
+            { x: -0.4, y: 4.7, size: 0.55 },  // Top-left 12"
+            { x: 0.4, y: 4.7, size: 0.55 }    // Top-right 12"
+        ];
+        midWooferPositions.forEach((mw, i) => {
+            const midCone = BABYLON.MeshBuilder.CreateCylinder(`midCone${xPos}_${i}`, {
+                diameterTop: 0.1, diameterBottom: mw.size - 0.08, height: 0.08, tessellation: 20
+            }, this.scene);
+            midCone.position = new BABYLON.Vector3(xPos + mw.x, mw.y, zPos + 1.12);
+            midCone.rotation.x = Math.PI / 2;
+            midCone.material = coneMat;
+        });
+        
         // Horn tweeter - MORE VISIBLE
         const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
             diameterTop: 0.5,
@@ -1919,6 +2592,65 @@ class VRClub {
         hornMat.alpha = 1.0; // Fully opaque
         hornMat.transparencyMode = null; // No transparency
         horn.material = hornMat;
+        
+        // === RIGGING HARDWARE (flybar system) ===
+        const riggingMat = this.materialFactory.getPreset('truss');
+        
+        // Flybar (horizontal rigging bar above speaker stack)
+        const flybar = BABYLON.MeshBuilder.CreateBox(`flybar${xPos}`, {
+            width: 3.5, height: 0.1, depth: 0.1
+        }, this.scene);
+        flybar.position = new BABYLON.Vector3(xPos, 6.2, zPos);
+        flybar.material = riggingMat;
+        
+        // Rigging shackles (D-ring connectors)
+        const shackleMat = this.materialFactory.getPreset('chainHoist');
+        for (let s = 0; s < 2; s++) {
+            const shackle = BABYLON.MeshBuilder.CreateTorus(`shackle${xPos}_${s}`, {
+                diameter: 0.12, thickness: 0.02, tessellation: 16
+            }, this.scene);
+            shackle.position = new BABYLON.Vector3(xPos + (s === 0 ? -1 : 1), 6.0, zPos);
+            shackle.material = shackleMat;
+        }
+        
+        // Steel cables from flybar to ceiling
+        for (let c = 0; c < 2; c++) {
+            const cable = BABYLON.MeshBuilder.CreateCylinder(`paCable${xPos}_${c}`, {
+                diameter: 0.025, height: 3.5, tessellation: 8
+            }, this.scene);
+            cable.position = new BABYLON.Vector3(xPos + (c === 0 ? -1.2 : 1.2), 8, zPos);
+            cable.material = shackleMat;
+        }
+        
+        // Amp rack (behind speaker stack)
+        const ampRackMat = this.materialFactory.createPBRMaterial('ampRackMat', {
+            baseColor: [0.08, 0.08, 0.08],
+            metallic: 0.6,
+            roughness: 0.4
+        }, true);
+        const ampRack = BABYLON.MeshBuilder.CreateBox(`ampRack${xPos}`, {
+            width: 0.6, height: 1.2, depth: 0.5
+        }, this.scene);
+        ampRack.position = new BABYLON.Vector3(xPos + (xPos < 0 ? 1.8 : -1.8), 0.6, zPos - 0.5);
+        ampRack.material = ampRackMat;
+        
+        // Amp rack ventilation grille
+        const ampGrille = BABYLON.MeshBuilder.CreateBox(`ampGrille${xPos}`, {
+            width: 0.5, height: 0.2, depth: 0.02
+        }, this.scene);
+        ampGrille.position = new BABYLON.Vector3(xPos + (xPos < 0 ? 1.8 : -1.8), 0.9, zPos - 0.24);
+        const ampGrilleMat = this.materialFactory.createPBRMaterial('ampGrilleMat', {
+            baseColor: [0.3, 0.3, 0.3], metallic: 0.8, roughness: 0.3
+        });
+        ampGrille.material = ampGrilleMat;
+        
+        // Power cable running from amp rack
+        const powerCable = BABYLON.MeshBuilder.CreateCylinder(`powerCable${xPos}`, {
+            diameter: 0.04, height: 2, tessellation: 8
+        }, this.scene);
+        powerCable.position = new BABYLON.Vector3(xPos + (xPos < 0 ? 2.2 : -2.2), 0.5, zPos - 0.5);
+        powerCable.rotation.z = Math.PI / 2;
+        powerCable.material = this.materialFactory.getPreset('cableRubber');
         
         // Add LARGE LED indicator light for visibility
         const led = BABYLON.MeshBuilder.CreateSphere("speakerLED" + xPos, {
@@ -1938,7 +2670,7 @@ class VRClub {
         ledLight.range = 5;
         ledLight.setEnabled(false); // Start disabled - PA speaker lights not needed initially
         
-        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m`);
+        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m (with rigging hardware)`);
     }
 
     createLEDWall() {
@@ -3768,6 +4500,25 @@ class VRClub {
             // Turn off LED wall when disabled
             this.ledPanels.forEach(panel => {
                 panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            });
+        }
+        
+        // === DANCE FLOOR EDGE LED ANIMATION ===
+        if (this.danceFloorLEDs && this.danceFloorLEDs.length > 0) {
+            // Animated color cycling synchronized with music if available
+            const bassLevel = audioData ? audioData.bass / 255 : 0.5;
+            const midLevel = audioData ? audioData.mid / 255 : 0.5;
+            
+            this.danceFloorLEDs.forEach((led, i) => {
+                // Color cycling with phase offset per strip
+                const phase = time * 0.8 + i * Math.PI / 2;
+                const r = Math.sin(phase) * 0.5 + 0.5;
+                const g = Math.sin(phase + Math.PI * 2 / 3) * 0.5 + 0.5;
+                const b = Math.sin(phase + Math.PI * 4 / 3) * 0.5 + 0.5;
+                
+                // Intensity pulses with bass
+                const intensity = 0.5 + bassLevel * 0.5;
+                led.material.emissiveColor.set(r * intensity, g * intensity, b * intensity);
             });
         }
         

@@ -279,7 +279,127 @@ class MaterialFactory {
         laserEmitter: () => this.createStandardMaterial('laserEmitterMat', {
             emissiveColor: [3, 0, 0], // Boosted from [2, 0, 0]
             disableLighting: true
-        })
+        }),
+
+        // === HYPERREALISTIC ENTRANCE & CROWD CONTROL ===
+        velvetRope: () => this.createPBRMaterial('velvetRopeMat', {
+            baseColor: [0.5, 0.02, 0.05], // Deep burgundy red
+            metallic: 0.05,
+            roughness: 0.85 // Soft velvet texture
+        }, true),
+
+        stanchionPost: () => this.createPBRMaterial('stanchionPostMat', {
+            baseColor: [0.83, 0.69, 0.22], // Brushed brass/gold
+            metallic: 0.95,
+            roughness: 0.15
+        }, true),
+
+        stanchionBase: () => this.createPBRMaterial('stanchionBaseMat', {
+            baseColor: [0.75, 0.62, 0.18],
+            metallic: 0.98,
+            roughness: 0.2
+        }, true),
+
+        // === BAR AREA MATERIALS ===
+        barCounter: () => this.createPBRMaterial('barCounterMat', {
+            baseColor: [0.15, 0.08, 0.04], // Dark polished wood
+            metallic: 0.1,
+            roughness: 0.25 // Polished lacquer finish
+        }, true),
+
+        barTop: () => this.createPBRMaterial('barTopMat', {
+            baseColor: [0.02, 0.02, 0.02], // Black granite/marble
+            metallic: 0.3,
+            roughness: 0.15 // Highly polished
+        }, true),
+
+        barStool: () => this.createPBRMaterial('barStoolMat', {
+            baseColor: [0.08, 0.08, 0.08],
+            metallic: 0.9,
+            roughness: 0.3
+        }, true),
+
+        stoolCushion: () => this.createPBRMaterial('stoolCushionMat', {
+            baseColor: [0.15, 0.02, 0.02], // Dark red leather
+            metallic: 0.05,
+            roughness: 0.6
+        }, true),
+
+        glassBottle: () => this.createPBRMaterial('glassBottleMat', {
+            baseColor: [0.1, 0.3, 0.15], // Green tinted glass
+            metallic: 0.0,
+            roughness: 0.05,
+            alpha: 0.7
+        }),
+
+        // === DANCE FLOOR EDGE LIGHTING ===
+        floorEdgeLED: () => this.createStandardMaterial('floorEdgeLEDMat', {
+            emissiveColor: [0, 0.5, 1], // Cyan LED strip
+            disableLighting: true
+        }),
+
+        floorTileGap: () => this.createPBRMaterial('floorTileGapMat', {
+            baseColor: [0.02, 0.02, 0.02],
+            metallic: 0.5,
+            roughness: 0.8
+        }, true),
+
+        // === SAFETY & ATMOSPHERE ===
+        exitSign: () => this.createStandardMaterial('exitSignMat', {
+            emissiveColor: [0, 1, 0.3], // Green exit glow
+            disableLighting: true
+        }),
+
+        fireExtinguisher: () => this.createPBRMaterial('fireExtinguisherMat', {
+            baseColor: [0.8, 0.05, 0.05], // Fire engine red
+            metallic: 0.7,
+            roughness: 0.3
+        }, true),
+
+        sprinklerHead: () => this.createPBRMaterial('sprinklerHeadMat', {
+            baseColor: [0.75, 0.72, 0.7], // Chrome/nickel
+            metallic: 0.95,
+            roughness: 0.2
+        }, true),
+
+        smokeDetector: () => this.createPBRMaterial('smokeDetectorMat', {
+            baseColor: [0.9, 0.9, 0.88], // Off-white plastic
+            metallic: 0.0,
+            roughness: 0.7
+        }, true),
+
+        // === NEON SIGNAGE ===
+        neonTubeGlass: () => this.createPBRMaterial('neonTubeGlassMat', {
+            baseColor: [0.9, 0.9, 0.9],
+            metallic: 0.0,
+            roughness: 0.1,
+            alpha: 0.5
+        }),
+
+        // === DJ BOOTH ACCESSORIES ===
+        laptopBody: () => this.createPBRMaterial('laptopBodyMat', {
+            baseColor: [0.7, 0.7, 0.72], // Silver aluminum
+            metallic: 0.95,
+            roughness: 0.2
+        }, true),
+
+        headphoneBand: () => this.createPBRMaterial('headphoneBandMat', {
+            baseColor: [0.08, 0.08, 0.08],
+            metallic: 0.85,
+            roughness: 0.25
+        }, true),
+
+        headphoneCup: () => this.createPBRMaterial('headphoneCupMat', {
+            baseColor: [0.05, 0.05, 0.05],
+            metallic: 0.7,
+            roughness: 0.4
+        }, true),
+
+        cableRubber: () => this.createPBRMaterial('cableRubberMat', {
+            baseColor: [0.02, 0.02, 0.02],
+            metallic: 0.0,
+            roughness: 0.8
+        }, true)
     };
 
     /**
