@@ -485,9 +485,7 @@ class VRClub {
         this.createLights();
         this.createTrussMountedLights();
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
-        this.createEntranceArea(); // Velvet ropes, stanchions, archway
-        this.createBarArea(); // Bar counter, stools, bottles
-        this.createDanceFloorLighting(); // Edge LEDs and tile pattern
+        // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
         
         // Setup UI
