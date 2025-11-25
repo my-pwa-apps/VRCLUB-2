@@ -4606,12 +4606,8 @@ class VRClub {
                     }
                 }
                 
-                // Rotate clamp slightly for mounting bracket visual realism (subtle bobbing)
-                if (laser.clamp) {
-                    // Subtle rocking motion as if the housing weight causes slight movement
-                    const clampRock = Math.sin(laser.tiltPhase * 0.5) * 0.02; // Very subtle
-                    laser.clamp.rotation.x = clampRock;
-                }
+                // Clamp is static - only the housing rotates to follow the beam
+                // (removed rocking motion that was causing visual artifacts)
                 
                 // Update each beam in the laser
                 laser.beams.forEach((beam, beamIdx) => {
@@ -6200,6 +6196,36 @@ class VRClub {
                         setTimeout(() => {
                             clickedButton.material.emissiveColor = clickedButton.offColor;
                         }, 300);
+                        
+                        const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
+                        console.log(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
+                        
+                        // Broadcast spotlight pattern change to other players
+                        if (this.networkManager && this.networkManager.isConnected()) {
+                            this.networkManager.sendVJControl('spotlightPattern', this.spotlightPattern);
+                        }
+                    } else if (clickedButton.control === "patternRandom" || 
+                               clickedButton.control === "patternStatic" || 
+                               clickedButton.control === "patternSweep") {
+                        // Direct pattern selection buttons
+                        if (clickedButton.control === "patternRandom") {
+                            this.spotlightPattern = 0;
+                        } else if (clickedButton.control === "patternStatic") {
+                            this.spotlightPattern = 1;
+                        } else if (clickedButton.control === "patternSweep") {
+                            this.spotlightPattern = 2;
+                        }
+                        
+                        // Update all pattern buttons to show current selection
+                        this.vjControlButtons.forEach(btn => {
+                            if (btn.control === "patternRandom") {
+                                btn.material.emissiveColor = (this.spotlightPattern === 0) ? btn.onColor : btn.offColor;
+                            } else if (btn.control === "patternStatic") {
+                                btn.material.emissiveColor = (this.spotlightPattern === 1) ? btn.onColor : btn.offColor;
+                            } else if (btn.control === "patternSweep") {
+                                btn.material.emissiveColor = (this.spotlightPattern === 2) ? btn.onColor : btn.offColor;
+                            }
+                        });
                         
                         const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
                         console.log(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);

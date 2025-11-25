@@ -82,42 +82,43 @@ class TextureLoader {
     getTextureConfigs() {
         // Optimized textures from Polyhaven CDN
         // Using 1K resolution for 40-50% memory savings with minimal visual quality loss
-        const baseUrl = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k';
+        // Correct CDN URL structure: https://dl.polyhaven.org/file/ph-assets/Textures/jpg/{resolution}/{texture_name}/{texture_name}_{map}_{resolution}.jpg
+        const resolution = '1k';
         
         return {
             floor: {
                 name: 'Large Floor Tiles',
                 // Polished floor tiles for main dancefloor
-                baseUrl: `${baseUrl}/large_floor_tiles_02`,
+                baseUrl: `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/${resolution}/large_floor_tiles_02`,
                 maps: {
-                    diffuse: 'large_floor_tiles_02_diff_1k.jpg',
-                    normal: 'large_floor_tiles_02_nor_gl_1k.jpg',
-                    roughness: 'large_floor_tiles_02_rough_1k.jpg',
-                    ao: 'large_floor_tiles_02_ao_1k.jpg'
+                    diffuse: `large_floor_tiles_02_diff_${resolution}.jpg`,
+                    normal: `large_floor_tiles_02_nor_gl_${resolution}.jpg`,
+                    roughness: `large_floor_tiles_02_rough_${resolution}.jpg`,
+                    ao: `large_floor_tiles_02_ao_${resolution}.jpg`
                 },
                 scale: { u: 6, v: 6 }
             },
             walls: {
                 name: 'Red Brick Wall',
                 // Industrial brick walls
-                baseUrl: `${baseUrl}/brick_wall_001`,
+                baseUrl: `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/${resolution}/brick_wall_001`,
                 maps: {
-                    diffuse: 'brick_wall_001_diffuse_1k.jpg',
-                    normal: 'brick_wall_001_nor_gl_1k.jpg',
-                    roughness: 'brick_wall_001_rough_1k.jpg',
-                    ao: 'brick_wall_001_ao_1k.jpg'
+                    diffuse: `brick_wall_001_diffuse_${resolution}.jpg`,
+                    normal: `brick_wall_001_nor_gl_${resolution}.jpg`,
+                    roughness: `brick_wall_001_rough_${resolution}.jpg`,
+                    ao: `brick_wall_001_ao_${resolution}.jpg`
                 },
                 scale: { u: 4, v: 2 }
             },
             ceiling: {
                 name: 'Raw Concrete Ceiling',
-                // Reuse the wall concrete texture for ceiling (rough industrial look)
-                baseUrl: `${baseUrl}/concrete_wall_001`,
+                // Rough concrete texture for industrial ceiling
+                baseUrl: `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/${resolution}/concrete_wall_001`,
                 maps: {
-                    diffuse: 'concrete_wall_001_diff_1k.jpg',
-                    normal: 'concrete_wall_001_nor_gl_1k.jpg',
-                    roughness: 'concrete_wall_001_rough_1k.jpg',
-                    ao: 'concrete_wall_001_ao_1k.jpg'
+                    diffuse: `concrete_wall_001_diff_${resolution}.jpg`,
+                    normal: `concrete_wall_001_nor_gl_${resolution}.jpg`,
+                    roughness: `concrete_wall_001_rough_${resolution}.jpg`,
+                    ao: `concrete_wall_001_ao_${resolution}.jpg`
                 },
                 scale: { u: 3, v: 3 }
             }
