@@ -982,114 +982,389 @@ class VRClub {
     }
 
     createLightingTruss() {
-        // Professional stage truss material - metallic aluminum
+        // Professional stage truss material - brushed aluminum
         const trussMat = this.materialFactory.getPreset('truss');
         
         // Darker material for diagonal bracing
         const braceMat = this.materialFactory.getPreset('brace');
         
-        // Main horizontal truss beams (square tube) - make them triangular truss
-        const tubeSize = 0.05; // Individual tube diameter
-        const trussSize = 0.3; // Overall truss width/height
+        // Connector plate material
+        const connectorMat = this.materialFactory.getPreset('trussConnector');
         
-        // Helper function to create triangular truss section
-        const createTriangularTruss = (name, length, position) => {
+        // Weld material for joints
+        const weldMat = this.materialFactory.getPreset('trussWeld');
+        
+        // Chain hoist material
+        const chainMat = this.materialFactory.getPreset('chainHoist');
+        
+        // === HYPERREALISTIC BOX TRUSS DIMENSIONS ===
+        // Based on industry standard 12" (30cm) box truss
+        const tubeSize = 0.048; // 48mm (2") tube diameter - standard truss tube
+        const trussSize = 0.3; // 300mm (12") overall width/height
+        const braceSpacing = 0.5; // 500mm diagonal brace spacing
+        
+        // Helper function to create hyperrealistic BOX truss section
+        const createBoxTruss = (name, length, position) => {
             const parent = new BABYLON.TransformNode(name + "_parent", this.scene);
             parent.position = position;
             
-            // Three main chords (corner tubes)
-            const chord1 = BABYLON.MeshBuilder.CreateCylinder(name + "_chord1", {
-                diameter: tubeSize,
-                height: length
-            }, this.scene);
-            chord1.rotation.z = Math.PI / 2;
-            chord1.position = new BABYLON.Vector3(0, trussSize * 0.289, 0); // Top
-            chord1.parent = parent;
-            chord1.material = trussMat;
+            const halfSize = trussSize / 2;
             
-            const chord2 = BABYLON.MeshBuilder.CreateCylinder(name + "_chord2", {
-                diameter: tubeSize,
-                height: length
-            }, this.scene);
-            chord2.rotation.z = Math.PI / 2;
-            chord2.position = new BABYLON.Vector3(0, -trussSize * 0.144, -trussSize * 0.25); // Bottom left
-            chord2.parent = parent;
-            chord2.material = trussMat;
+            // === FOUR MAIN CHORD TUBES (corners of box) ===
+            const chordPositions = [
+                { y: halfSize, z: halfSize },   // Top-front
+                { y: halfSize, z: -halfSize },  // Top-back
+                { y: -halfSize, z: halfSize },  // Bottom-front
+                { y: -halfSize, z: -halfSize }  // Bottom-back
+            ];
             
-            const chord3 = BABYLON.MeshBuilder.CreateCylinder(name + "_chord3", {
-                diameter: tubeSize,
-                height: length
-            }, this.scene);
-            chord3.rotation.z = Math.PI / 2;
-            chord3.position = new BABYLON.Vector3(0, -trussSize * 0.144, trussSize * 0.25); // Bottom right
-            chord3.parent = parent;
-            chord3.material = trussMat;
-            
-            // Diagonal bracing every 1m
-            const segments = Math.floor(length / 1);
-            for (let i = 0; i < segments; i++) {
-                const xPos = -length / 2 + (i * 1) + 0.5;
-                
-                // Create cross-braces in triangular pattern
-                const brace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_brace1_" + i, {
-                    diameter: tubeSize * 0.7,
-                    height: trussSize * 0.5
+            chordPositions.forEach((pos, idx) => {
+                const chord = BABYLON.MeshBuilder.CreateCylinder(name + "_chord" + idx, {
+                    diameter: tubeSize,
+                    height: length,
+                    tessellation: 12
                 }, this.scene);
-                brace1.rotation.x = Math.PI / 4;
-                brace1.rotation.z = Math.PI / 2;
-                brace1.position = new BABYLON.Vector3(xPos, 0, 0);
-                brace1.parent = parent;
-                brace1.material = braceMat;
+                chord.rotation.z = Math.PI / 2;
+                chord.position = new BABYLON.Vector3(0, pos.y, pos.z);
+                chord.parent = parent;
+                chord.material = trussMat;
+            });
+            
+            // === HORIZONTAL RUNGS (connecting chords at intervals) ===
+            const segments = Math.floor(length / braceSpacing);
+            for (let i = 0; i <= segments; i++) {
+                const xPos = -length / 2 + (i * braceSpacing);
                 
-                // Add bolt connectors at joints
+                // Top horizontal rung (connecting top chords)
+                const topRung = BABYLON.MeshBuilder.CreateCylinder(name + "_topRung" + i, {
+                    diameter: tubeSize * 0.8,
+                    height: trussSize,
+                    tessellation: 8
+                }, this.scene);
+                topRung.rotation.x = Math.PI / 2;
+                topRung.position = new BABYLON.Vector3(xPos, halfSize, 0);
+                topRung.parent = parent;
+                topRung.material = trussMat;
+                
+                // Bottom horizontal rung
+                const bottomRung = BABYLON.MeshBuilder.CreateCylinder(name + "_bottomRung" + i, {
+                    diameter: tubeSize * 0.8,
+                    height: trussSize,
+                    tessellation: 8
+                }, this.scene);
+                bottomRung.rotation.x = Math.PI / 2;
+                bottomRung.position = new BABYLON.Vector3(xPos, -halfSize, 0);
+                bottomRung.parent = parent;
+                bottomRung.material = trussMat;
+                
+                // Front vertical rung (connecting front chords)
+                const frontRung = BABYLON.MeshBuilder.CreateCylinder(name + "_frontRung" + i, {
+                    diameter: tubeSize * 0.8,
+                    height: trussSize,
+                    tessellation: 8
+                }, this.scene);
+                frontRung.position = new BABYLON.Vector3(xPos, 0, halfSize);
+                frontRung.parent = parent;
+                frontRung.material = trussMat;
+                
+                // Back vertical rung
+                const backRung = BABYLON.MeshBuilder.CreateCylinder(name + "_backRung" + i, {
+                    diameter: tubeSize * 0.8,
+                    height: trussSize,
+                    tessellation: 8
+                }, this.scene);
+                backRung.position = new BABYLON.Vector3(xPos, 0, -halfSize);
+                backRung.parent = parent;
+                backRung.material = trussMat;
+            }
+            
+            // === DIAGONAL X-BRACING (on all 4 faces) ===
+            for (let i = 0; i < segments; i++) {
+                const xStart = -length / 2 + (i * braceSpacing);
+                const xMid = xStart + braceSpacing / 2;
+                const braceLength = Math.sqrt(braceSpacing * braceSpacing + trussSize * trussSize);
+                const braceAngle = Math.atan2(trussSize, braceSpacing);
+                
+                // === TOP FACE X-BRACING ===
+                const topBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_topBrace1_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                topBrace1.rotation.z = Math.PI / 2 - braceAngle;
+                topBrace1.rotation.x = Math.PI / 2;
+                topBrace1.position = new BABYLON.Vector3(xMid, halfSize, 0);
+                topBrace1.parent = parent;
+                topBrace1.material = braceMat;
+                
+                const topBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_topBrace2_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                topBrace2.rotation.z = Math.PI / 2 + braceAngle;
+                topBrace2.rotation.x = Math.PI / 2;
+                topBrace2.position = new BABYLON.Vector3(xMid, halfSize, 0);
+                topBrace2.parent = parent;
+                topBrace2.material = braceMat;
+                
+                // === BOTTOM FACE X-BRACING ===
+                const bottomBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_bottomBrace1_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                bottomBrace1.rotation.z = Math.PI / 2 - braceAngle;
+                bottomBrace1.rotation.x = Math.PI / 2;
+                bottomBrace1.position = new BABYLON.Vector3(xMid, -halfSize, 0);
+                bottomBrace1.parent = parent;
+                bottomBrace1.material = braceMat;
+                
+                const bottomBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_bottomBrace2_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                bottomBrace2.rotation.z = Math.PI / 2 + braceAngle;
+                bottomBrace2.rotation.x = Math.PI / 2;
+                bottomBrace2.position = new BABYLON.Vector3(xMid, -halfSize, 0);
+                bottomBrace2.parent = parent;
+                bottomBrace2.material = braceMat;
+                
+                // === FRONT FACE X-BRACING ===
+                const frontBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_frontBrace1_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                frontBrace1.rotation.z = Math.PI / 2 - braceAngle;
+                frontBrace1.position = new BABYLON.Vector3(xMid, 0, halfSize);
+                frontBrace1.parent = parent;
+                frontBrace1.material = braceMat;
+                
+                const frontBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_frontBrace2_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                frontBrace2.rotation.z = Math.PI / 2 + braceAngle;
+                frontBrace2.position = new BABYLON.Vector3(xMid, 0, halfSize);
+                frontBrace2.parent = parent;
+                frontBrace2.material = braceMat;
+                
+                // === BACK FACE X-BRACING ===
+                const backBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_backBrace1_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                backBrace1.rotation.z = Math.PI / 2 - braceAngle;
+                backBrace1.position = new BABYLON.Vector3(xMid, 0, -halfSize);
+                backBrace1.parent = parent;
+                backBrace1.material = braceMat;
+                
+                const backBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_backBrace2_" + i, {
+                    diameter: tubeSize * 0.5,
+                    height: braceLength,
+                    tessellation: 6
+                }, this.scene);
+                backBrace2.rotation.z = Math.PI / 2 + braceAngle;
+                backBrace2.position = new BABYLON.Vector3(xMid, 0, -halfSize);
+                backBrace2.parent = parent;
+                backBrace2.material = braceMat;
+                
+                // === WELD JOINTS at rung connections (every 2nd segment for performance) ===
                 if (i % 2 === 0) {
-                    const bolt = BABYLON.MeshBuilder.CreateSphere(name + "_bolt_" + i, {
-                        diameter: tubeSize * 1.5
-                    }, this.scene);
-                    bolt.position = new BABYLON.Vector3(xPos, trussSize * 0.289, 0);
-                    bolt.parent = parent;
-                    bolt.material = trussMat;
+                    chordPositions.forEach((pos, idx) => {
+                        const weld = BABYLON.MeshBuilder.CreateTorus(name + "_weld" + i + "_" + idx, {
+                            diameter: tubeSize * 1.3,
+                            thickness: tubeSize * 0.15,
+                            tessellation: 8
+                        }, this.scene);
+                        weld.rotation.z = Math.PI / 2;
+                        weld.position = new BABYLON.Vector3(xStart, pos.y, pos.z);
+                        weld.parent = parent;
+                        weld.material = weldMat;
+                    });
                 }
             }
+            
+            // === END PLATES (connector flanges at truss ends) ===
+            const createEndPlate = (xPos, isStart) => {
+                const plate = BABYLON.MeshBuilder.CreateBox(name + "_endPlate" + (isStart ? "Start" : "End"), {
+                    width: 0.02,
+                    height: trussSize + 0.04,
+                    depth: trussSize + 0.04
+                }, this.scene);
+                plate.position = new BABYLON.Vector3(xPos, 0, 0);
+                plate.parent = parent;
+                plate.material = connectorMat;
+                
+                // Corner bolt holes (visual detail)
+                const boltPositions = [
+                    { y: halfSize, z: halfSize },
+                    { y: halfSize, z: -halfSize },
+                    { y: -halfSize, z: halfSize },
+                    { y: -halfSize, z: -halfSize }
+                ];
+                boltPositions.forEach((bPos, bIdx) => {
+                    const bolt = BABYLON.MeshBuilder.CreateCylinder(name + "_bolt" + (isStart ? "S" : "E") + bIdx, {
+                        diameter: tubeSize * 0.6,
+                        height: 0.025,
+                        tessellation: 8
+                    }, this.scene);
+                    bolt.rotation.z = Math.PI / 2;
+                    bolt.position = new BABYLON.Vector3(xPos + (isStart ? -0.01 : 0.01), bPos.y, bPos.z);
+                    bolt.parent = parent;
+                    bolt.material = weldMat;
+                });
+            };
+            
+            createEndPlate(-length / 2, true);
+            createEndPlate(length / 2, false);
             
             // OPTIMIZATION: Freeze all truss components (static geometry)
             parent.getChildMeshes().forEach(mesh => {
                 mesh.freezeWorldMatrix();
                 mesh.doNotSyncBoundingInfo = true;
+                mesh.isPickable = false;
             });
             
             return parent;
         };
         
         // Truss 1 - Front (above dance floor front)
-        const truss1 = createTriangularTruss("truss1", 24, new BABYLON.Vector3(0, 8, -8));
+        const truss1 = createBoxTruss("truss1", 24, new BABYLON.Vector3(0, 8, -8));
         
         // Truss 2 - Middle (center of dance floor)
-        const truss2 = createTriangularTruss("truss2", 24, new BABYLON.Vector3(0, 8, -12));
+        const truss2 = createBoxTruss("truss2", 24, new BABYLON.Vector3(0, 8, -12));
         
         // Truss 3 - Back (near LED wall)
-        const truss3 = createTriangularTruss("truss3", 24, new BABYLON.Vector3(0, 8, -16));
+        const truss3 = createBoxTruss("truss3", 24, new BABYLON.Vector3(0, 8, -16));
         
         // Truss 4 - Extended back (for back spotlights)
-        const truss4 = createTriangularTruss("truss4", 24, new BABYLON.Vector3(0, 8, -20));
+        const truss4 = createBoxTruss("truss4", 24, new BABYLON.Vector3(0, 8, -20));
         
-        // Cross beams connecting the trusses - also triangular (extended to cover all spotlights)
+        // Cross beams connecting the trusses - also box truss (extended to cover all spotlights)
         // Store side beams for laser mounting
         this.sideTrusses = {};
         for (let i = -12; i <= 12; i += 4) {
-            const crossBeam = createTriangularTruss("crossBeam" + i, 14, new BABYLON.Vector3(i, 8, -14));
+            const crossBeam = createBoxTruss("crossBeam" + i, 14, new BABYLON.Vector3(i, 8, -14));
             crossBeam.rotation.y = Math.PI / 2;
             if (i === -8 || i === 8) {
                 this.sideTrusses[i] = crossBeam; // Store left (-8) and right (8) side trusses
             }
         }
         
-        // Diagonal support cables/wires from ceiling to truss
-        const cableMat = new BABYLON.StandardMaterial("cableMat", this.scene);
-        cableMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        cableMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+        // === HYPERREALISTIC CHAIN MOTOR HOISTS ===
+        // Professional stage rigging with chain hoists at strategic points
+        const createChainHoist = (position, name) => {
+            const hoistParent = new BABYLON.TransformNode(name + "_hoist", this.scene);
+            hoistParent.position = position;
+            
+            // Motor housing (black box unit)
+            const motor = BABYLON.MeshBuilder.CreateBox(name + "_motor", {
+                width: 0.4,
+                height: 0.35,
+                depth: 0.3
+            }, this.scene);
+            motor.position.y = 1.2;
+            motor.parent = hoistParent;
+            motor.material = this.materialFactory.createPBRMaterial(name + "_motorMat", {
+                baseColor: [0.05, 0.05, 0.05],
+                metallic: 0.6,
+                roughness: 0.7
+            });
+            
+            // Chain drum (silver cylinder)
+            const drum = BABYLON.MeshBuilder.CreateCylinder(name + "_drum", {
+                diameter: 0.15,
+                height: 0.25,
+                tessellation: 16
+            }, this.scene);
+            drum.rotation.z = Math.PI / 2;
+            drum.position = new BABYLON.Vector3(0, 1.0, 0);
+            drum.parent = hoistParent;
+            drum.material = chainMat;
+            
+            // Chain links (multiple small tori for realistic chain)
+            const chainLength = 1.0; // Distance from drum to truss
+            const linkCount = 12;
+            for (let i = 0; i < linkCount; i++) {
+                const link = BABYLON.MeshBuilder.CreateTorus(name + "_link" + i, {
+                    diameter: 0.04,
+                    thickness: 0.008,
+                    tessellation: 8
+                }, this.scene);
+                link.rotation.x = (i % 2 === 0) ? 0 : Math.PI / 2;
+                link.position.y = 0.95 - (i * (chainLength / linkCount));
+                link.parent = hoistParent;
+                link.material = chainMat;
+            }
+            
+            // Hook at bottom
+            const hook = BABYLON.MeshBuilder.CreateTorus(name + "_hook", {
+                diameter: 0.08,
+                thickness: 0.015,
+                tessellation: 16,
+                arc: 0.75
+            }, this.scene);
+            hook.rotation.z = Math.PI;
+            hook.position.y = -0.1;
+            hook.parent = hoistParent;
+            hook.material = chainMat;
+            
+            // Safety latch
+            const latch = BABYLON.MeshBuilder.CreateBox(name + "_latch", {
+                width: 0.01,
+                height: 0.04,
+                depth: 0.06
+            }, this.scene);
+            latch.position = new BABYLON.Vector3(0.035, -0.08, 0);
+            latch.parent = hoistParent;
+            latch.material = chainMat;
+            
+            // Freeze all components
+            hoistParent.getChildMeshes().forEach(mesh => {
+                mesh.freezeWorldMatrix();
+                mesh.doNotSyncBoundingInfo = true;
+                mesh.isPickable = false;
+            });
+            
+            return hoistParent;
+        };
         
-        // Support cables
+        // Add chain hoists at key truss intersection points
+        const hoistPositions = [
+            { x: -10, z: -8 },
+            { x: -10, z: -16 },
+            { x: 10, z: -8 },
+            { x: 10, z: -16 },
+            { x: 0, z: -8 },
+            { x: 0, z: -16 },
+            { x: -6, z: -12 },
+            { x: 6, z: -12 }
+        ];
+        
+        hoistPositions.forEach((pos, i) => {
+            createChainHoist(new BABYLON.Vector3(pos.x, 9, pos.z), "hoist" + i);
+        });
+        
+        // Diagonal support cables/wires from ceiling to truss (safety redundancy) (safety redundancy)
+        const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
+            baseColor: [0.15, 0.15, 0.15],
+            metallic: 0.85,
+            roughness: 0.5
+        });
+        
+        // Turnbuckle material (brighter steel)
+        const turnbuckleMat = this.materialFactory.createPBRMaterial("turnbuckleMat", {
+            baseColor: [0.5, 0.5, 0.52],
+            metallic: 0.95,
+            roughness: 0.3
+        });
+        
+        // Support cables with turnbuckles
         const cablePositions = [
             { x: -10, z: -8 },
             { x: -10, z: -16 },
@@ -1100,14 +1375,56 @@ class VRClub {
         ];
         
         cablePositions.forEach((pos, i) => {
+            // Main steel cable
             const cable = BABYLON.MeshBuilder.CreateCylinder("cable" + i, {
-                diameter: 0.03,
-                height: 2
+                diameter: 0.02, // 20mm steel cable
+                height: 2,
+                tessellation: 8
             }, this.scene);
             cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
             cable.material = cableMat;
-            cable.freezeWorldMatrix(); // OPTIMIZATION: Freeze static cables
+            cable.isPickable = false;
+            
+            // Turnbuckle tensioner (middle of cable)
+            const turnbuckle = BABYLON.MeshBuilder.CreateCylinder("turnbuckle" + i, {
+                diameter: 0.04,
+                height: 0.12,
+                tessellation: 12
+            }, this.scene);
+            turnbuckle.position = new BABYLON.Vector3(pos.x, 9, pos.z);
+            turnbuckle.material = turnbuckleMat;
+            turnbuckle.isPickable = false;
+            
+            // End eye bolts
+            const eyeBolt1 = BABYLON.MeshBuilder.CreateTorus("eyeBolt1_" + i, {
+                diameter: 0.03,
+                thickness: 0.006,
+                tessellation: 12
+            }, this.scene);
+            eyeBolt1.rotation.z = Math.PI / 2;
+            eyeBolt1.position = new BABYLON.Vector3(pos.x, 9.95, pos.z);
+            eyeBolt1.material = turnbuckleMat;
+            eyeBolt1.isPickable = false;
+            
+            const eyeBolt2 = BABYLON.MeshBuilder.CreateTorus("eyeBolt2_" + i, {
+                diameter: 0.03,
+                thickness: 0.006,
+                tessellation: 12
+            }, this.scene);
+            eyeBolt2.rotation.z = Math.PI / 2;
+            eyeBolt2.position = new BABYLON.Vector3(pos.x, 8.05, pos.z);
+            eyeBolt2.material = turnbuckleMat;
+            eyeBolt2.isPickable = false;
+            
+            // Freeze static geometry
+            cable.freezeWorldMatrix();
             cable.doNotSyncBoundingInfo = true;
+            turnbuckle.freezeWorldMatrix();
+            turnbuckle.doNotSyncBoundingInfo = true;
+            eyeBolt1.freezeWorldMatrix();
+            eyeBolt1.doNotSyncBoundingInfo = true;
+            eyeBolt2.freezeWorldMatrix();
+            eyeBolt2.doNotSyncBoundingInfo = true;
         });
     }
     
@@ -3497,6 +3814,54 @@ class VRClub {
                 // Mark laser as spinning
                 laser.isSpinning = true;
                 
+                // === HYPERREALISTIC LASER HOUSING ROTATION ===
+                // Calculate primary beam direction to rotate the housing/emitter fixture
+                // This makes the physical fixture visually aim where the beams are pointing
+                const primaryTilt = laser.type === 'multi' ? Math.PI / 5 : (Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3);
+                const primaryDirX = Math.sin(laser.rotation) * Math.sin(primaryTilt);
+                const primaryDirY = -Math.cos(primaryTilt);
+                const primaryDirZ = Math.cos(laser.rotation) * Math.sin(primaryTilt);
+                const primaryDirection = new BABYLON.Vector3(primaryDirX, primaryDirY, primaryDirZ).normalize();
+                
+                // Rotate housing to match beam direction (smooth interpolation for realism)
+                // For parented lasers: rotate in LOCAL space relative to truss parent
+                // For non-parented lasers: rotate in WORLD space
+                if (laser.housing) {
+                    // Calculate rotation quaternion from direction
+                    const up = BABYLON.Vector3.Up();
+                    const rotAxis = BABYLON.Vector3.Cross(up, primaryDirection);
+                    if (rotAxis.length() > 0.001) {
+                        const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), primaryDirection.normalize()));
+                        const targetQuat = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+                        
+                        // Smooth interpolation for realistic servo movement
+                        if (!laser.housing.rotationQuaternion) {
+                            laser.housing.rotationQuaternion = targetQuat.clone();
+                        } else {
+                            BABYLON.Quaternion.SlerpToRef(laser.housing.rotationQuaternion, targetQuat, 0.1, laser.housing.rotationQuaternion);
+                        }
+                    }
+                }
+                
+                // Also rotate emitter to face the beam direction
+                if (laser.emitter) {
+                    // Emitter should rotate with housing for consistent visual
+                    if (laser.housing && laser.housing.rotationQuaternion) {
+                        if (!laser.emitter.rotationQuaternion) {
+                            laser.emitter.rotationQuaternion = laser.housing.rotationQuaternion.clone();
+                        } else {
+                            BABYLON.Quaternion.SlerpToRef(laser.emitter.rotationQuaternion, laser.housing.rotationQuaternion, 0.1, laser.emitter.rotationQuaternion);
+                        }
+                    }
+                }
+                
+                // Rotate clamp slightly for mounting bracket visual realism (subtle bobbing)
+                if (laser.clamp) {
+                    // Subtle rocking motion as if the housing weight causes slight movement
+                    const clampRock = Math.sin(laser.tiltPhase * 0.5) * 0.02; // Very subtle
+                    laser.clamp.rotation.x = clampRock;
+                }
+                
                 // Update each beam in the laser
                 laser.beams.forEach((beam, beamIdx) => {
                     let direction;
@@ -3861,30 +4226,62 @@ class VRClub {
                 // === HYPERREALISTIC MOVING HEAD ANIMATION ===
                 // Professional moving heads have pan (Y-axis) and tilt (X/Z-axis) motors
                 // We rotate the Yoke (Pan) and Head (Tilt) separately for mechanical realism
+                // Using smooth interpolation to simulate realistic servo motor movement
                 
-                if (spot.fixtureData && spot.fixtureData.yoke && spot.fixtureData.head) {
+                if (spot.yoke && spot.head) {
                     // 1. PAN (Yoke Rotation around Y)
-                    // Calculate angle on XZ plane. atan2(x, z) gives angle from Z axis.
-                    const panAngle = Math.atan2(direction.x, direction.z);
-                    spot.fixtureData.yoke.rotation.y = panAngle;
+                    // Calculate target angle on XZ plane. atan2(x, z) gives angle from Z axis.
+                    const targetPanAngle = Math.atan2(direction.x, direction.z);
+                    
+                    // SMOOTH INTERPOLATION: Simulate realistic servo motor speed (~60°/s)
+                    // This prevents jarring instant movements and adds mechanical realism
+                    const panLerpSpeed = 0.15; // Smooth but responsive (professional moving head speed)
+                    
+                    // Handle angle wrapping for smooth pan rotation
+                    let panDiff = targetPanAngle - spot.yoke.rotation.y;
+                    if (panDiff > Math.PI) panDiff -= Math.PI * 2;
+                    if (panDiff < -Math.PI) panDiff += Math.PI * 2;
+                    
+                    spot.yoke.rotation.y += panDiff * panLerpSpeed;
 
                     // 2. TILT (Head Rotation around X)
-                    // Calculate angle from vertical (down).
+                    // Calculate target angle from vertical (down).
                     // acos(-direction.y) gives 0 when pointing down (-1), PI/2 when horizontal (0).
                     // We use negative angle because positive rotation moves -Y to -Z (Back),
                     // but we want to move -Y to +Z (Forward) relative to the Yoke.
-                    const tiltAngle = -Math.acos(-direction.y);
-                    spot.fixtureData.head.rotation.x = tiltAngle;
+                    const targetTiltAngle = -Math.acos(-direction.y);
+                    
+                    // SMOOTH INTERPOLATION for tilt (same realistic servo simulation)
+                    const tiltLerpSpeed = 0.12; // Slightly slower tilt for mechanical weight feel
+                    spot.head.rotation.x += (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
                     
                     // Note: Lens/bezel/flare/beam are children of the head and move automatically!
                     
-                    // Update flare intensity based on viewing angle (brighter when looking at lens)
+                    // === HYPERREALISTIC FLARE RESPONSE ===
+                    // Update flare intensity based on viewing angle AND movement speed
+                    // Moving heads create more light scatter/flare when sweeping quickly
                     if (spot.flareMat && this.camera) {
                         const cameraDir = this.camera.position.subtract(spot.basePos).normalize();
                         const lightDir = direction.scale(-1); // Light points opposite of beam direction
                         const dot = BABYLON.Vector3.Dot(cameraDir, lightDir);
-                        const brightness = Math.max(0, dot); // 0 to 1
-                        spot.flareMat.alpha = 0.2 + (brightness * 0.3); // 0.2 to 0.5 based on angle
+                        const viewBrightness = Math.max(0, dot); // 0 to 1 based on viewing angle
+                        
+                        // Calculate movement speed for dynamic flare (brighter when moving)
+                        // Store previous direction for speed calculation
+                        if (!spot.prevDirection) spot.prevDirection = direction.clone();
+                        const movementSpeed = BABYLON.Vector3.Distance(direction, spot.prevDirection);
+                        spot.prevDirection.copyFrom(direction);
+                        
+                        // Dynamic flare: base visibility + viewing angle + movement boost
+                        const movementBoost = Math.min(0.15, movementSpeed * 2); // Cap at 0.15 extra
+                        spot.flareMat.alpha = 0.2 + (viewBrightness * 0.3) + movementBoost;
+                        
+                        // Also pulse the lens brightness slightly when moving fast (light scatter effect)
+                        if (spot.lensMat && this.lightsActive) {
+                            const spotColor = spot.color || this.currentSpotColor;
+                            const baseGlow = 5.0 + (movementSpeed * 10); // Brighter when sweeping
+                            spot.lensMat.emissiveColor = spotColor.scale(Math.min(7.0, baseGlow));
+                        }
                     }
                 } else if (spot.fixture) {
                     // Fallback for legacy fixtures (if any)
@@ -3930,12 +4327,14 @@ class VRClub {
                     spot.beam.scaling.x = zoomFactor;
                     spot.beam.scaling.z = zoomFactor;
                     
-                    // UPDATE GLOW BEAM - Same scaling
+                    // UPDATE GLOW BEAM - Same scaling and position
                     if (spot.beamGlow) {
                         // Position/Rotation handled by parenting
                         spot.beamGlow.scaling.y = beamLength;
                         spot.beamGlow.scaling.x = zoomFactor;
                         spot.beamGlow.scaling.z = zoomFactor;
+                        // Match position with main beam
+                        spot.beamGlow.position.y = -0.28 - (beamLength * 0.5);
                         
                         spot.beamGlow.visibility = this.lightsActive ? 1.0 : 0;
                         // Use per-spotlight color to match beam

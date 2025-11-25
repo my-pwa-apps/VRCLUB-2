@@ -187,11 +187,32 @@ class MaterialFactory {
             roughness: 0.8
         }),
 
-        // Lighting/Truss - Enhanced metallic sheen
+        // Lighting/Truss - Enhanced metallic sheen (brushed aluminum)
         truss: () => this.createPBRMaterial('trussMat', {
-            baseColor: [0.6, 0.6, 0.65],
+            baseColor: [0.72, 0.72, 0.75], // Brighter aluminum
             metallic: 1.0,
-            roughness: 0.25 // Reduced from 0.3
+            roughness: 0.18 // Brushed finish
+        }, true),
+
+        // Truss connector plates (galvanized steel)
+        trussConnector: () => this.createPBRMaterial('trussConnectorMat', {
+            baseColor: [0.5, 0.5, 0.52],
+            metallic: 0.95,
+            roughness: 0.3
+        }, true),
+
+        // Weld material (darker at joints)
+        trussWeld: () => this.createPBRMaterial('trussWeldMat', {
+            baseColor: [0.35, 0.35, 0.38],
+            metallic: 0.85,
+            roughness: 0.5
+        }, true),
+
+        // Chain hoist material (steel chain)
+        chainHoist: () => this.createPBRMaterial('chainHoistMat', {
+            baseColor: [0.25, 0.25, 0.28],
+            metallic: 0.9,
+            roughness: 0.4
         }, true),
 
         brace: () => this.createPBRMaterial('braceMat', {
