@@ -261,25 +261,54 @@ class TextureLoader {
 
     applyTexturesToMaterial(material, textures) {
         if (!textures) return;
+        
+        // Unfreeze material if frozen (materialFactory freezes materials for performance)
+        if (material.isFrozen) {
+            material.unfreeze();
+        }
 
-        // Apply PBR textures
+        // Apply PBR textures - support both PBRMaterial and PBRMetallicRoughnessMaterial
+        // PBRMetallicRoughnessMaterial is created by materialFactory.createPBRMaterial()
+        const isMetallicRoughness = material.getClassName() === 'PBRMetallicRoughnessMaterial';
+        
         if (textures.diffuse) {
-            material.albedoTexture = textures.diffuse;
+            if (isMetallicRoughness) {
+                material.baseTexture = textures.diffuse;
+            } else {
+                material.albedoTexture = textures.diffuse;
+            }
         }
         if (textures.normal) {
-            material.bumpTexture = textures.normal;
+            if (isMetallicRoughness) {
+                material.normalTexture = textures.normal;
+            } else {
+                material.bumpTexture = textures.normal;
+            }
             material.invertNormalMapX = false;
             material.invertNormalMapY = false;
         }
         if (textures.roughness) {
-            material.metallicTexture = textures.roughness;
-            material.useRoughnessFromMetallicTextureAlpha = false;
-            material.useRoughnessFromMetallicTextureGreen = true; // Roughness in green channel
+            if (isMetallicRoughness) {
+                material.metallicRoughnessTexture = textures.roughness;
+            } else {
+                material.metallicTexture = textures.roughness;
+                material.useRoughnessFromMetallicTextureAlpha = false;
+                material.useRoughnessFromMetallicTextureGreen = true;
+            }
         }
         if (textures.ao) {
-            material.ambientTexture = textures.ao;
-            material.useAmbientInGrayScale = true;
+            if (isMetallicRoughness) {
+                material.occlusionTexture = textures.ao;
+            } else {
+                material.ambientTexture = textures.ao;
+                material.useAmbientInGrayScale = true;
+            }
         }
+        
+        // Re-freeze material for performance
+        material.freeze();
+        
+        console.log(`✅ Applied textures to material: ${material.name} (${material.getClassName()})`);
     }
 
     /**

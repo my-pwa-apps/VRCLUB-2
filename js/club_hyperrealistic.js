@@ -482,8 +482,8 @@ class VRClub {
         this.createPASpeakers();
         this.createLEDWall();
         this.createLasers();
+        this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
         this.createLights();
-        this.createTrussMountedLights();
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
@@ -3024,7 +3024,7 @@ class VRClub {
             fixture.position.y = 0;
             fixture.material = lightFixtureMat;
             
-            // Front bezel/rim
+            // Front bezel/rim - VERY DARK to not be distracting
             const bezel = BABYLON.MeshBuilder.CreateTorus("bezel" + i, {
                 diameter: 0.42,
                 thickness: 0.03,
@@ -3033,9 +3033,9 @@ class VRClub {
             bezel.parent = head;
             bezel.position.y = -0.3; // Bottom of cylinder
             bezel.material = this.materialFactory.createPBRMaterial("bezelMat" + i, {
-                baseColor: [0.1, 0.1, 0.1],
-                metallic: 0.95,
-                roughness: 0.15
+                baseColor: [0.02, 0.02, 0.02], // Nearly black
+                metallic: 0.8,
+                roughness: 0.4
             });
             
             // Light lens
@@ -3068,22 +3068,7 @@ class VRClub {
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
             
-            // Lens flare
-            const flare = BABYLON.MeshBuilder.CreateDisc("flare" + i, {
-                radius: 0.25,
-                tessellation: 32
-            }, this.scene);
-            flare.parent = head;
-            flare.position.y = -0.31; // In front of bezel
-            flare.rotation.x = Math.PI / 2; // Disc needs to face down
-            
-            const flareMat = new BABYLON.StandardMaterial("flareMat" + i, this.scene);
-            flareMat.emissiveColor = this.currentSpotColor.scale(3.0);
-            flareMat.alpha = 0.4;
-            flareMat.disableLighting = true;
-            flareMat.backFaceCulling = false;
-            flare.material = flareMat;
-            flare.renderingGroupId = 2;
+            // Flare removed - was causing visible red ring artifact
             
             this.trussLights.push({ 
                 root,
@@ -3096,8 +3081,8 @@ class VRClub {
                 sourceMat,
                 base,
                 bezel,
-                flare,
-                flareMat
+                flare: null,
+                flareMat: null
             });
         });
         
