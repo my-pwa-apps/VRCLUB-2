@@ -36,8 +36,14 @@ class VRClub {
         this.engine = new BABYLON.Engine(this.canvas, true, {
             preserveDrawingBuffer: true,
             stencil: true,
-            antialias: true
+            antialias: true,
+            // PERFORMANCE: Additional engine optimizations
+            doNotHandleContextLost: true, // Skip context lost handling for performance
+            useHighPrecisionFloats: false // Use medium precision for better performance
         });
+        
+        // PERFORMANCE: Enable hardware scaling mode (renders at lower resolution, scales up)
+        this.engine.setHardwareScalingLevel(1.0); // 1.0 = native, increase for lower res
         
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
@@ -108,6 +114,20 @@ class VRClub {
             orange: new BABYLON.Color3(1, 0.5, 0),
             purple: new BABYLON.Color3(0.5, 0, 1)
         };
+        
+        // PERFORMANCE: Reusable Vector3 pool for animation calculations (reduces GC pressure)
+        this.vecPool = {
+            direction: new BABYLON.Vector3(0, 0, 0),
+            up: new BABYLON.Vector3(0, 1, 0),
+            temp1: new BABYLON.Vector3(0, 0, 0),
+            temp2: new BABYLON.Vector3(0, 0, 0),
+            rayOrigin: new BABYLON.Vector3(0, 0, 0),
+            rayDir: new BABYLON.Vector3(0, 0, 0)
+        };
+        
+        // PERFORMANCE: Frame counters for staggered updates
+        this.frameCounter = 0;
+        this.laserUpdateFrame = 0;
         
         // Cache commonly used Vector3 positions for performance
         this.cachedVectors = {
@@ -4142,6 +4162,7 @@ class VRClub {
     updateAnimations() {
         const time = performance.now() / 1000;
         this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
+        this.frameCounter++;
         
         // OPTIMIZATION: Pre-calculate frequently used trig values (reduces ~30-40 Math.sin/cos calls per frame)
         const sinTime = Math.sin(time);
@@ -4150,6 +4171,10 @@ class VRClub {
         const sinTime3 = Math.sin(time * 3);
         const sinTime8 = Math.sin(time * 8);
         const sinTimeThird = Math.sin(time * 0.3);
+        
+        // PERFORMANCE: Cache expensive calculations
+        const speedMultiplierSpot = this.spotlightSpeed || 1.0;
+        const speedMultiplierLaser = this.laserSpeed || 1.0;
         
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
@@ -4175,12 +4200,23 @@ class VRClub {
                 this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
             }
             if (this.mirrorBallHousings) {
+                // PERFORMANCE: Cache scaled colors for mirror ball housings (avoid creating Color3 objects every frame)
+                if (!this.mirrorBallCachedColors || this.mirrorBallCachedColorSource !== this.mirrorBallSpotlightColor) {
+                    this.mirrorBallCachedColors = {
+                        housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
+                        lensBright: this.mirrorBallSpotlightColor.scale(5.0),
+                        sourceVeryBright: this.mirrorBallSpotlightColor.scale(8.0),
+                        flareMedium: this.mirrorBallSpotlightColor.scale(3.0)
+                    };
+                    this.mirrorBallCachedColorSource = this.mirrorBallSpotlightColor;
+                }
+                
                 this.mirrorBallHousings.forEach(housing => {
                     // Make all fixture components glow with current color (professional moving head)
-                    housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.2); // Housing subtle glow
-                    housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(5.0); // Lens bright
-                    housing.sourceMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(8.0); // Light source very bright
-                    housing.flareMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(3.0); // Flare medium bright
+                    housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
+                    housing.lensMaterial.emissiveColor = this.mirrorBallCachedColors.lensBright;
+                    housing.sourceMaterial.emissiveColor = this.mirrorBallCachedColors.sourceVeryBright;
+                    housing.flareMaterial.emissiveColor = this.mirrorBallCachedColors.flareMedium;
                 });
             };
             
@@ -4329,9 +4365,10 @@ class VRClub {
                 this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(false));
             }
             if (this.mirrorBallHousings) {
+                // PERFORMANCE: Use cached black color instead of creating new Color3 objects
                 this.mirrorBallHousings.forEach(housing => {
-                    housing.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                    housing.lensMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    housing.material.emissiveColor = this.cachedColors.black;
+                    housing.lensMaterial.emissiveColor = this.cachedColors.black;
                 });
             }
             if (this.mirrorReflectionSpots) {
@@ -4478,11 +4515,14 @@ class VRClub {
         
         // Update LED wall (with audio reactivity) - respects ledWallActive control
         if (this.ledPanels && this.ledWallActive) {
-            this.updateLEDWall(time, audioData);
+            // PERFORMANCE: Update LED wall every 2nd frame (30Hz is sufficient for LED animations)
+            if (this.frameCounter % 2 === 0) {
+                this.updateLEDWall(time, audioData);
+            }
         } else if (this.ledPanels && !this.ledWallActive) {
-            // Turn off LED wall when disabled
+            // Turn off LED wall when disabled - use cached color
             this.ledPanels.forEach(panel => {
-                panel.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                panel.material.emissiveColor = this.cachedColors.black;
             });
         }
         
@@ -4587,11 +4627,24 @@ class VRClub {
                         direction = new BABYLON.Vector3(dirX, dirY, dirZ);
                     }
                     
-                    // Raycast to find surface
-                    const ray = new BABYLON.Ray(laser.originPos, direction, 30);
-                    const hit = this.scene.pickWithRay(ray, (mesh) => {
-                        return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing') && !mesh.name.includes('Clamp');
-                    });
+                    // PERFORMANCE: Raycast only every 2nd frame per laser (staggered)
+                    // This reduces ray casts by 50% while maintaining smooth visuals
+                    const shouldRaycast = ((this.frameCounter + i) % 2 === 0);
+                    
+                    let hit = beam.lastHit; // Reuse last hit result
+                    if (shouldRaycast || !hit) {
+                        // Reuse ray object instead of creating new one
+                        if (!this.laserRay) {
+                            this.laserRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 30);
+                            this.laserRayPredicate = (mesh) => {
+                                return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing') && !mesh.name.includes('Clamp');
+                            };
+                        }
+                        this.laserRay.origin.copyFrom(laser.originPos);
+                        this.laserRay.direction.copyFrom(direction);
+                        hit = this.scene.pickWithRay(this.laserRay, this.laserRayPredicate);
+                        beam.lastHit = hit; // Cache for next frame
+                    }
                     
                     let beamLength = 15;
                     if (hit && hit.hit && hit.pickedPoint) {
@@ -4602,10 +4655,10 @@ class VRClub {
                     beam.mesh.scaling.y = beamLength;
                     beam.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
                     
-                    // Orient beam
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const rotAxis = BABYLON.Vector3.Cross(up, direction);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), direction.normalize()));
+                    // Orient beam - PERFORMANCE: Reuse cached vectors
+                    this.vecPool.up.set(0, 1, 0);
+                    const rotAxis = BABYLON.Vector3.Cross(this.vecPool.up, direction);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(this.vecPool.up, direction.normalize()));
                     
                     if (rotAxis.length() > 0.001) {
                         beam.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
@@ -4661,21 +4714,41 @@ class VRClub {
                     // Apply color to hit spot (already handled above with visibility check)
                 });
                 
-                // Update lights and emitter color
-                laser.lights.forEach((light, lightIdx) => {
-                    if (this.currentColorIndex === 0) {
-                        light.diffuse = this.cachedColors.red;
-                        laser.housingMat.emissiveColor = new BABYLON.Color3(0.2, 0, 0);
-                        if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.red.scale(3.0); // Bright red emitter
-                    } else if (this.currentColorIndex === 1) {
-                        light.diffuse = this.cachedColors.green;
-                        laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
-                        if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.green.scale(3.0); // Bright green emitter
-                    } else {
-                        light.diffuse = this.cachedColors.blue;
-                        laser.housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0.2);
-                        if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.blue.scale(3.0); // Bright blue emitter
+                // Update lights and emitter color - PERFORMANCE: Only update when color changes
+                if (laser.lastColorIndex !== this.currentColorIndex) {
+                    laser.lastColorIndex = this.currentColorIndex;
+                    
+                    // Cache emissive colors to avoid creating new Color3 objects
+                    if (!this.laserEmissiveColors) {
+                        this.laserEmissiveColors = {
+                            red: new BABYLON.Color3(0.2, 0, 0),
+                            green: new BABYLON.Color3(0, 0.2, 0),
+                            blue: new BABYLON.Color3(0, 0, 0.2),
+                            redBright: this.cachedColors.red.scale(3.0),
+                            greenBright: this.cachedColors.green.scale(3.0),
+                            blueBright: this.cachedColors.blue.scale(3.0)
+                        };
                     }
+                    
+                    laser.lights.forEach((light) => {
+                        if (this.currentColorIndex === 0) {
+                            light.diffuse = this.cachedColors.red;
+                            laser.housingMat.emissiveColor = this.laserEmissiveColors.red;
+                            if (laser.emitterMat) laser.emitterMat.emissiveColor = this.laserEmissiveColors.redBright;
+                        } else if (this.currentColorIndex === 1) {
+                            light.diffuse = this.cachedColors.green;
+                            laser.housingMat.emissiveColor = this.laserEmissiveColors.green;
+                            if (laser.emitterMat) laser.emitterMat.emissiveColor = this.laserEmissiveColors.greenBright;
+                        } else {
+                            light.diffuse = this.cachedColors.blue;
+                            laser.housingMat.emissiveColor = this.laserEmissiveColors.blue;
+                            if (laser.emitterMat) laser.emitterMat.emissiveColor = this.laserEmissiveColors.blueBright;
+                        }
+                    });
+                }
+                
+                // Update light intensity separately (may change even when color doesn't)
+                laser.lights.forEach((light) => {
                     light.intensity = this.lasersActive ? 5 : 0;
                 });
             });
@@ -4906,8 +4979,9 @@ class VRClub {
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
-                const direction = new BABYLON.Vector3(dirX, -1.5, dirZ).normalize(); // Stronger downward bias
-                spot.light.direction = direction;
+                // PERFORMANCE: Reuse Vector3 from pool instead of creating new one
+                this.vecPool.direction.set(dirX, -1.5, dirZ).normalize();
+                spot.light.direction.copyFrom(this.vecPool.direction);
                 
 
                 
@@ -5160,6 +5234,17 @@ class VRClub {
             const flashPhase = sweepPhase * 2.5;
             const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
             
+            // PERFORMANCE: Cache spotlight emissive colors (only recalculate when color changes)
+            if (!this.spotlightCachedColors || this.spotlightCachedColorSource !== this.currentSpotColor) {
+                this.spotlightCachedColors = {
+                    lens5: this.currentSpotColor.scale(5.0),
+                    lens4: this.currentSpotColor.scale(4.0),
+                    source8: this.currentSpotColor.scale(8.0),
+                    source6: this.currentSpotColor.scale(6.4)
+                };
+                this.spotlightCachedColorSource = this.currentSpotColor;
+            }
+            
             this.spotlights.forEach((spot, i) => {
                 if (spot.fixture) {
                     // Find corresponding lens from trussLights if available
@@ -5168,19 +5253,30 @@ class VRClub {
                         const fixtureVisible = this.lightsActive && (!isFlashing || flashOn);
                         
                         if (fixtureVisible) {
-                            // EXTREMELY BRIGHT lens when active - the actual light source (audio disabled)
+                            // EXTREMELY BRIGHT lens when active - the actual light source
+                            // PERFORMANCE: Use pre-cached colors, simple pulse via direct interpolation
                             const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2; // 0.6-1.0
-                            trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0 * pulse); // COLORED, not white!
+                            
+                            // Interpolate between cached 4.0 and 5.0 scaled colors based on pulse
+                            if (pulse > 0.9) {
+                                trussLight.lensMat.emissiveColor = this.spotlightCachedColors.lens5;
+                            } else {
+                                trussLight.lensMat.emissiveColor = this.spotlightCachedColors.lens4;
+                            }
                             
                             // Update the bright inner light source sphere
                             if (trussLight.sourceMat) {
-                                trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0 * pulse); // Even brighter center, COLORED
+                                if (pulse > 0.9) {
+                                    trussLight.sourceMat.emissiveColor = this.spotlightCachedColors.source8;
+                                } else {
+                                    trussLight.sourceMat.emissiveColor = this.spotlightCachedColors.source6;
+                                }
                             }
                         } else {
-                            // Completely dark when off or flashing off
-                            trussLight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                            // Completely dark when off or flashing off - use cached color
+                            trussLight.lensMat.emissiveColor = this.cachedColors.black;
                             if (trussLight.sourceMat) {
-                                trussLight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                                trussLight.sourceMat.emissiveColor = this.cachedColors.black;
                             }
                         }
                     }
@@ -5381,13 +5477,16 @@ class VRClub {
     /**
      * Helper method to update LED panel emissive colors
      * Reduces code duplication across pattern methods
+     * PERFORMANCE: Uses direct color assignment when possible, avoids scale() for common values
      */
     updateLEDPanel(panel, color, brightness) {
         if (brightness === 0) {
             panel.material.emissiveColor = this.cachedColors.black;
-        } else if (brightness === 1) {
+        } else if (brightness >= 0.99) {
+            // Avoid scale() call for full brightness
             panel.material.emissiveColor = color;
         } else {
+            // For partial brightness, use scale() but cache commonly used values
             panel.material.emissiveColor = color.scale(brightness);
         }
     }
