@@ -4548,49 +4548,12 @@ class VRClub {
                 // Mark laser as spinning
                 laser.isSpinning = true;
                 
-                // === HYPERREALISTIC LASER HOUSING ROTATION ===
-                // Calculate primary beam direction to rotate the housing/emitter fixture
-                // This makes the physical fixture visually aim where the beams are pointing
-                const primaryTilt = laser.type === 'multi' ? Math.PI / 5 : (Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3);
-                const primaryDirX = Math.sin(laser.rotation) * Math.sin(primaryTilt);
-                const primaryDirY = -Math.cos(primaryTilt);
-                const primaryDirZ = Math.cos(laser.rotation) * Math.sin(primaryTilt);
-                const primaryDirection = new BABYLON.Vector3(primaryDirX, primaryDirY, primaryDirZ).normalize();
+                // === LASER HOUSING STAYS STATIC ===
+                // The housing/emitter fixture stays fixed - only the beam meshes animate
+                // This prevents the visible "spinning box" effect
+                // Real laser projectors have stationary housings with internal galvo mirrors
                 
-                // Rotate housing to match beam direction (smooth interpolation for realism)
-                // For parented lasers: rotate in LOCAL space relative to truss parent
-                // For non-parented lasers: rotate in WORLD space
-                if (laser.housing) {
-                    // Calculate rotation quaternion from direction
-                    const up = BABYLON.Vector3.Up();
-                    const rotAxis = BABYLON.Vector3.Cross(up, primaryDirection);
-                    if (rotAxis.length() > 0.001) {
-                        const angle = Math.acos(BABYLON.Vector3.Dot(up.normalize(), primaryDirection.normalize()));
-                        const targetQuat = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
-                        
-                        // Smooth interpolation for realistic servo movement
-                        if (!laser.housing.rotationQuaternion) {
-                            laser.housing.rotationQuaternion = targetQuat.clone();
-                        } else {
-                            BABYLON.Quaternion.SlerpToRef(laser.housing.rotationQuaternion, targetQuat, 0.1, laser.housing.rotationQuaternion);
-                        }
-                    }
-                }
-                
-                // Also rotate emitter to face the beam direction
-                if (laser.emitter) {
-                    // Emitter should rotate with housing for consistent visual
-                    if (laser.housing && laser.housing.rotationQuaternion) {
-                        if (!laser.emitter.rotationQuaternion) {
-                            laser.emitter.rotationQuaternion = laser.housing.rotationQuaternion.clone();
-                        } else {
-                            BABYLON.Quaternion.SlerpToRef(laser.emitter.rotationQuaternion, laser.housing.rotationQuaternion, 0.1, laser.emitter.rotationQuaternion);
-                        }
-                    }
-                }
-                
-                // Clamp is static - only the housing rotates to follow the beam
-                // (removed rocking motion that was causing visual artifacts)
+                // Clamp is static - housing stays fixed, beams animate independently
                 
                 // Update each beam in the laser
                 laser.beams.forEach((beam, beamIdx) => {
