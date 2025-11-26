@@ -4983,7 +4983,8 @@ class VRClub {
                 this.vecPool.direction.set(dirX, -1.5, dirZ).normalize();
                 spot.light.direction.copyFrom(this.vecPool.direction);
                 
-
+                // Local reference for moving head animation (avoid repeated property access)
+                const direction = this.vecPool.direction;
                 
                 // Dynamic beam angle (simulates zoom adjustment) - subtle variation
                 const baseAngle = Math.PI / 6; // 30 degrees base
