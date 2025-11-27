@@ -1787,6 +1787,9 @@ class VRClub {
         // Truss 3 - Back (near LED wall)
         const truss3 = createBoxTruss("truss3", 24, new BABYLON.Vector3(0, 8, -16));
         
+        // Store horizontal trusses for attachment
+        this.horizontalTrusses = [truss1, truss2, truss3];
+        
         // Cross beams connecting the trusses at the sides (X = -8 and +8)
         // These run perpendicular to main trusses, connecting them together
         // Length of 10m covers Z=-8 to Z=-18 (connecting trusses 1, 2, and 3)
@@ -2908,7 +2911,7 @@ class VRClub {
         // ALL LASERS ON SAME Z POSITION for consistency (z: -14)
         const laserPositions = [
             { x: -8, z: -14, trussY: 7.55, type: 'multi' },   // Multi-beam left (left truss) - CHANGED
-            { x: 0, z: -14, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss)
+            { x: 0, z: -12, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss) - FIXED: Moved to Z=-12 to sit ON truss
             { x: 8, z: -14, trussY: 7.55, type: 'multi' }     // Multi-beam right (right truss) - CHANGED
         ];
         
@@ -4891,12 +4894,12 @@ class VRClub {
                     
                     // ANIMATE SMOKE TEXTURE (Hyperrealism)
                     if (spot.beamMat && spot.beamMat.emissiveTexture) {
-                        spot.beamMat.emissiveTexture.vOffset -= 0.01 * speedMultiplier; // Smoke rises up
+                        spot.beamMat.emissiveTexture.vOffset -= 0.02 * speedMultiplier; // Faster smoke for more energy
                     }
 
                     // ANIMATE GOBO ROTATION (Hyperrealism)
                     if (spot.lightPool) {
-                        spot.lightPool.rotation.z += 0.005 * speedMultiplier;
+                        spot.lightPool.rotation.z += 0.01 * speedMultiplier; // Faster rotation
                     }
                     
                     // Update position to keep start of beam at the lens
@@ -4983,9 +4986,10 @@ class VRClub {
                             const poolSize = baseSize * 1.0; // Reduced from 1.4 to 1.0 (match beam exactly)
                             spot.lightPool.scaling.set(poolSize, poolSize, 1);
                             
-                            spot.lightPool.visibility = 0.5; // Reduced from 0.7 to 0.5
+                            spot.lightPool.visibility = 0.8; // Increased from 0.5 for better visibility
                             if (spot.poolMat) {
-                                spot.poolMat.emissiveColor = spotColor.scale(0.4 * atmosphericShimmer); // Reduced from 0.8 to 0.4
+                                // Increased intensity significantly (0.4 -> 1.5) to ensure color is visible
+                                spot.poolMat.emissiveColor = spotColor.scale(1.5 * atmosphericShimmer);
                             }
                             
                         } else {

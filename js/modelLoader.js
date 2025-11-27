@@ -237,12 +237,27 @@ class ModelLoader {
                 if (config.makeBlack && this.materialFactory) {
                     const meshName = mesh.name.toLowerCase();
                     // Intelligent material assignment based on mesh name
-                    if (meshName.includes('grill') || meshName.includes('front') || meshName.includes('mesh')) {
-                        mesh.material = this.materialFactory.getPreset('speakerGrill');
-                    } else if (meshName.includes('horn') || meshName.includes('tweeter')) {
-                        mesh.material = this.materialFactory.getPreset('speakerHorn');
+                    // PA Speaker specific mapping
+                    if (modelKey.startsWith('pa_speaker')) {
+                        if (meshName.includes('grill') || meshName.includes('front') || meshName.includes('mesh') || meshName.includes('bar')) {
+                            mesh.material = this.materialFactory.getPreset('speakerGrill');
+                        } else if (meshName.includes('horn') || meshName.includes('tweeter') || meshName.includes('mid')) {
+                            mesh.material = this.materialFactory.getPreset('speakerHorn');
+                        } else if (meshName.includes('woofer') || meshName.includes('cone')) {
+                            mesh.material = this.materialFactory.getPreset('speakerHorn'); // Glossy cone
+                        } else {
+                            // Default to matte black body for everything else (cabinet, back, sides)
+                            mesh.material = this.materialFactory.getPreset('speakerBody');
+                        }
                     } else {
-                        mesh.material = this.materialFactory.getPreset('speakerBody');
+                        // Generic fallback for other black models
+                        if (meshName.includes('grill') || meshName.includes('front') || meshName.includes('mesh')) {
+                            mesh.material = this.materialFactory.getPreset('speakerGrill');
+                        } else if (meshName.includes('horn') || meshName.includes('tweeter')) {
+                            mesh.material = this.materialFactory.getPreset('speakerHorn');
+                        } else {
+                            mesh.material = this.materialFactory.getPreset('speakerBody');
+                        }
                     }
                     console.log(`   🎨 Applied hyperrealistic material to ${mesh.name}`);
                 }
