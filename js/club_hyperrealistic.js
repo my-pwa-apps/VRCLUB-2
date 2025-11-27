@@ -3516,6 +3516,57 @@ class VRClub {
         });
     }
 
+    createLaserSheet() {
+        // === LASER SHEET EFFECT ===
+        // A horizontal scanning laser plane that moves up and down
+        // Uses a procedural noise texture for the "smoke" effect
+        
+        // Create the plane (large enough to cover dance floor)
+        // 25m x 25m plane, rotated to be horizontal
+        this.laserSheet = BABYLON.MeshBuilder.CreatePlane("laserSheet", {
+            width: 25,
+            height: 25,
+            sideOrientation: BABYLON.Mesh.DOUBLESIDE
+        }, this.scene);
+        
+        // Rotate to be horizontal (flat)
+        this.laserSheet.rotation.x = Math.PI / 2;
+        
+        // Initial position (will be animated)
+        this.laserSheet.position = new BABYLON.Vector3(0, 1.5, -12);
+        
+        // Create the laser material
+        const sheetMat = new BABYLON.StandardMaterial("laserSheetMat", this.scene);
+        sheetMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
+        sheetMat.disableLighting = true; // Self-illuminated
+        sheetMat.alpha = 0.4; // Semi-transparent
+        sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
+        sheetMat.backFaceCulling = false;
+        
+        // Create procedural noise texture for the "laser smoke" look
+        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserNoise", 256, this.scene);
+        noiseTexture.octaves = 3;
+        noiseTexture.persistence = 0.8;
+        noiseTexture.animationSpeedFactor = 2.0;
+        noiseTexture.brightness = 0.5;
+        
+        // Use noise as opacity map (alpha)
+        sheetMat.opacityTexture = noiseTexture;
+        
+        this.laserSheet.material = sheetMat;
+        this.laserSheet.isVisible = false; // Hidden by default
+        this.laserSheet.isPickable = false;
+        
+        // Add to glow layer for bloom effect
+        if (this.glowLayer) {
+            this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
+        }
+        
+        log.info('✨ Laser sheet effect created');
+    }
+
     createMirrorBall() {
         // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
         // Professional mirror ball suspended from center truss with dedicated spotlight
@@ -3937,6 +3988,41 @@ class VRClub {
         const speedMultiplierSpot = this.spotlightSpeed || 1.0;
         const speedMultiplierLaser = this.laserSpeed || 1.0;
         
+        // ANIMATE LASER SHEET (Hyperrealism)
+        if (this.laserSheet && this.laserSheetActive) {
+            // Vertical scanning motion (up and down)
+            // Height range: 0.2m to 2.5m
+            const scanSpeed = 0.5 * speedMultiplierLaser;
+            const scanHeight = Math.sin(time * scanSpeed) * 1.15 + 1.35; // 0.2 to 2.5
+            
+            this.laserSheet.position.y = scanHeight;
+            
+            // Animate texture for "flowing" light effect
+            if (this.laserSheet.material && this.laserSheet.material.opacityTexture) {
+                this.laserSheet.material.opacityTexture.vOffset += 0.02 * speedMultiplierLaser;
+                this.laserSheet.material.opacityTexture.uOffset += 0.01 * speedMultiplierLaser;
+            }
+            
+            // Pulse intensity with audio
+            const pulse = 0.5 + (audioData.average || 0) * 0.5;
+            this.laserSheet.material.alpha = 0.4 * pulse;
+            
+            // Color sync with lasers
+            if (this.laserEmissiveColors) {
+                // Match current laser color
+                let sheetColor;
+                if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
+                else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
+                else sheetColor = this.cachedColors.blue;
+                
+                this.laserSheet.material.emissiveColor = sheetColor;
+            }
+            
+            this.laserSheet.isVisible = true;
+        } else if (this.laserSheet) {
+            this.laserSheet.isVisible = false;
+        }
+
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
             this.updateDancingNPCs(time);
