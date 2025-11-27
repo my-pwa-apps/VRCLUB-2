@@ -3498,7 +3498,7 @@ class VRClub {
             flare.position.z = -0.2;
             flare.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
             
-            const flareTexture = new BABYLON.Texture("https://cdn.babylonjs.com/lensflare/flare.png", this.scene);
+            const flareTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
             const flareMat = new BABYLON.StandardMaterial("blinderFlareMat" + i, this.scene);
             flareMat.diffuseTexture = flareTexture;
             flareMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.7);
@@ -4937,7 +4937,7 @@ class VRClub {
                     
 
                     
-                    // Update HYPERREALISTIC floor light splash - 3-layer gradient effect
+                    // Update HYPERREALISTIC floor light splash - Single layer gobo effect
                     if (spot.lightPool) {
                         if (this.lightsActive && beamVisible) { // Also check beamVisible for flashing
                             // Calculate beam width at floor (cone: 0.25m → 2.0m)
@@ -4949,42 +4949,27 @@ class VRClub {
                             const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1;
                             
                             // Use floor intersection point where beam actually hits
-                            // Each pool layer needs its own y-offset for proper layering
                             
                             // CRITICAL: Use per-spotlight color to match beam and prevent color mismatches
                             const spotColor = spot.color || this.currentSpotColor;
                             
-                            // CORE (bright center hotspot)
-                            spot.lightPoolCore.position.x = floorIntersection.x;
-                            spot.lightPoolCore.position.y = 0.04;
-                            spot.lightPoolCore.position.z = floorIntersection.z;
-                            const coreSize = baseSize * 0.3;
-                            spot.lightPoolCore.scaling.set(coreSize, coreSize, 1);
-                            spot.lightPoolCore.visibility = 1.0;
-                            spot.poolCoreMat.emissiveColor = spotColor.scale(2.5);
-                            
-                            // MID GLOW (medium gradient)
+                            // GOBO POOL (Single layer with texture)
                             spot.lightPool.position.x = floorIntersection.x;
                             spot.lightPool.position.y = 0.03;
                             spot.lightPool.position.z = floorIntersection.z;
-                            const midSize = baseSize * 0.7 * atmosphericShimmer;
-                            spot.lightPool.scaling.set(midSize, midSize, 1);
-                            spot.lightPool.visibility = 0.9;
-                            spot.poolMat.emissiveColor = spotColor.scale(atmosphericShimmer);
                             
-                            // OUTER GLOW (soft falloff)
-                            spot.lightPoolGlow.position.x = floorIntersection.x;
-                            spot.lightPoolGlow.position.y = 0.02;
-                            spot.lightPoolGlow.position.z = floorIntersection.z;
-                            const glowSize = baseSize * 1.5 * atmosphericShimmer;
-                            spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
-                            spot.lightPoolGlow.visibility = 0.7;
-                            spot.poolGlowMat.emissiveColor = spotColor.scale(0.3);
+                            // Scale based on beam width
+                            const poolSize = baseSize * 2.0; // Larger for gobo
+                            spot.lightPool.scaling.set(poolSize, poolSize, 1);
+                            
+                            spot.lightPool.visibility = 0.9;
+                            if (spot.poolMat) {
+                                spot.poolMat.emissiveColor = spotColor.scale(1.5 * atmosphericShimmer);
+                            }
+                            
                         } else {
                             // CRITICAL: Hide floor pools immediately when lights turn off or flashing off
-                            spot.lightPoolCore.visibility = 0;
                             spot.lightPool.visibility = 0;
-                            spot.lightPoolGlow.visibility = 0;
                         }
                     }
                 }
