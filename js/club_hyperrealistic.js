@@ -3988,6 +3988,9 @@ class VRClub {
         const speedMultiplierSpot = this.spotlightSpeed || 1.0;
         const speedMultiplierLaser = this.laserSpeed || 1.0;
         
+        // Get audio data for reactive lighting (needed for laser sheet pulse)
+        const audioData = this.getAudioData();
+
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {
             // Vertical scanning motion (up and down)
@@ -4027,9 +4030,6 @@ class VRClub {
         if (this.npcAvatars && this.npcAvatars.length > 0) {
             this.updateDancingNPCs(time);
         }
-        
-        // Get audio data for reactive lighting
-        const audioData = this.getAudioData();
         
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
