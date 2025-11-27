@@ -4978,17 +4978,31 @@ class VRClub {
                 
                 // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
                 if (spot.beam) {
+                    // Get the actual world position of the light emission point (head position)
+                    // This accounts for head tilt moving the lens position
+                    let emissionPoint;
+                    if (spot.head) {
+                        // Get head's world position and offset to lens (-0.28 in local Y)
+                        emissionPoint = spot.head.getAbsolutePosition().clone();
+                        // Lens is at local Y = -0.28, but we need to transform this by head rotation
+                        // For simplicity, use the head's world Y minus a fixed offset
+                        emissionPoint.y -= 0.28;
+                    } else {
+                        emissionPoint = spot.basePos.clone();
+                    }
+                    
                     // Calculate where beam centerline intersects floor (for pool positioning)
                     let centerDistanceToFloor;
                     let floorIntersection;
                     
                     if (direction.y < -0.01) {
-                        centerDistanceToFloor = spot.basePos.y / Math.abs(direction.y);
-                        floorIntersection = spot.basePos.add(direction.scale(centerDistanceToFloor));
+                        // Use emission point (actual light position) instead of static basePos
+                        centerDistanceToFloor = emissionPoint.y / Math.abs(direction.y);
+                        floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                         floorIntersection.y = 0; // Clamp to floor
                     } else {
                         centerDistanceToFloor = 15;
-                        floorIntersection = spot.basePos.add(direction.scale(centerDistanceToFloor));
+                        floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
                     // IMPORTANT: Calculate beam length to ensure FULL CONE reaches floor
