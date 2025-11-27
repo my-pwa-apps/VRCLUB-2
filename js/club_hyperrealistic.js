@@ -2353,241 +2353,25 @@ class VRClub {
     }
 
     createPASpeakers() {
-        // === HYPERREALISTIC PA SPEAKER SYSTEM ===
-        // Positioned on sides of dance floor, facing center
+        // === PA SPEAKER SYSTEM ===
+        // 3D models are loaded by ModelLoader - no procedural geometry needed
+        // This function is kept for compatibility but does nothing
         
-        log.info("🔊 Creating PA speaker system...");
+        log.info("🔊 PA speakers will be loaded as 3D models by ModelLoader...");
         
-        // MASSIVE professional PA speaker material - VERY VISIBLE with emissive glow
-        const speakerMat = new BABYLON.PBRMetallicRoughnessMaterial("paSpeakerMat", this.scene);
-        speakerMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15); // Much lighter (was 0.08)
-        speakerMat.emissiveColor = new BABYLON.Color3(0.02, 0.02, 0.02); // Slight glow for visibility
-        speakerMat.metallic = 0.2;
-        speakerMat.roughness = 0.7;
-        speakerMat.maxSimultaneousLights = this.maxLights;
-        speakerMat.alpha = 1.0; // Fully opaque
-        speakerMat.transparencyMode = null; // No transparency
-        speakerMat.backFaceCulling = true; // Proper culling
-        
-        // Left PA stack - NEXT TO DJ BOOTH (beside LED wall)
-        this.createPAStack(-7, -25, speakerMat);
-        
-        // Right PA stack - NEXT TO DJ BOOTH (beside LED wall)
-        this.createPAStack(7, -25, speakerMat);
-        
-        log.info("✅ PA speaker system created at x=±7, z=-25 (beside DJ booth)");
+        // Procedural PA speakers REMOVED - 3D models used instead
+        // The ModelLoader will load PA_Speakers.glb for both left and right stacks
     }
 
-    createPAStack(xPos, zPos, material) {
-        // === MASSIVE PROFESSIONAL PA SPEAKER STACK ===
-        console.log(`📦 Creating PA stack at x=${xPos}, z=${zPos}`);
-        
-        // Sub-woofer (bottom) - BIGGER
-        const sub = BABYLON.MeshBuilder.CreateBox("sub" + xPos, {
-            width: 3.0,
-            height: 3.0,
-            depth: 3.0
-        }, this.scene);
-        sub.position = new BABYLON.Vector3(xPos, 1.5, zPos);
-        sub.material = material;
-        sub.receiveShadows = true;
-        sub.checkCollisions = true;
-        
-        // Sub grille - visible speaker cone area with emissive glow
-        const grillMat = this.materialFactory.getPreset('speakerGrill');
-        grillMat.alpha = 1.0; // Fully opaque
-        grillMat.transparencyMode = null; // No transparency
-        
-        const subGrill = BABYLON.MeshBuilder.CreateBox("subGrill" + xPos, {
-            width: 2.6,
-            height: 2.6,
-            depth: 0.1
-        }, this.scene);
-        subGrill.position = new BABYLON.Vector3(xPos, 1.5, zPos + 1.45);
-        subGrill.material = grillMat;
-        
-        // === HYPERREALISTIC WOOFER CONES (visible through grille) ===
-        const coneMat = this.materialFactory.createPBRMaterial('speakerConeMat', {
-            baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.1,
-            roughness: 0.9
-        }, true);
-        const dustCapMat = this.materialFactory.createPBRMaterial('dustCapMat', {
-            baseColor: [0.02, 0.02, 0.02],
-            metallic: 0.3,
-            roughness: 0.6
-        }, true);
-        
-        // Sub has 2x18" woofers (massive bass drivers)
-        const wooferPositions = [
-            { y: 0.7, size: 0.9 },  // Bottom 18" woofer
-            { y: 2.3, size: 0.9 }   // Top 18" woofer
-        ];
-        wooferPositions.forEach((wf, i) => {
-            // Cone surround (foam edge)
-            const surround = BABYLON.MeshBuilder.CreateTorus(`subSurround${xPos}_${i}`, {
-                diameter: wf.size, thickness: 0.08, tessellation: 24
-            }, this.scene);
-            surround.position = new BABYLON.Vector3(xPos, wf.y, zPos + 1.42);
-            surround.rotation.x = Math.PI / 2;
-            surround.material = this.materialFactory.createPBRMaterial('surroundMat', {
-                baseColor: [0.08, 0.08, 0.08], metallic: 0, roughness: 0.95
-            });
-            
-            // Paper cone
-            const cone = BABYLON.MeshBuilder.CreateCylinder(`subCone${xPos}_${i}`, {
-                diameterTop: 0.15, diameterBottom: wf.size - 0.1, height: 0.12, tessellation: 24
-            }, this.scene);
-            cone.position = new BABYLON.Vector3(xPos, wf.y, zPos + 1.36);
-            cone.rotation.x = Math.PI / 2;
-            cone.material = coneMat;
-            
-            // Dust cap (center dome)
-            const cap = BABYLON.MeshBuilder.CreateSphere(`subCap${xPos}_${i}`, {
-                diameter: 0.18, segments: 12, slice: 0.5
-            }, this.scene);
-            cap.position = new BABYLON.Vector3(xPos, wf.y, zPos + 1.44);
-            cap.rotation.x = -Math.PI / 2;
-            cap.material = dustCapMat;
-        });
-        
-        // Mid-range cabinet (top) - BIGGER
-        const mid = BABYLON.MeshBuilder.CreateBox("mid" + xPos, {
-            width: 2.4,
-            height: 2.4,
-            depth: 2.4
-        }, this.scene);
-        mid.position = new BABYLON.Vector3(xPos, 4.2, zPos);
-        mid.material = material;
-        mid.receiveShadows = true;
-        mid.checkCollisions = true;
-        
-        // Mid grille
-        const midGrill = BABYLON.MeshBuilder.CreateBox("midGrill" + xPos, {
-            width: 2.0,
-            height: 2.0,
-            depth: 0.1
-        }, this.scene);
-        midGrill.position = new BABYLON.Vector3(xPos, 4.2, zPos + 1.15);
-        midGrill.material = grillMat;
-        
-        // Mid cabinet has 2x12" woofers + 2x horn compression drivers
-        const midWooferPositions = [
-            { x: -0.4, y: 3.7, size: 0.55 },  // Bottom-left 12"
-            { x: 0.4, y: 3.7, size: 0.55 },   // Bottom-right 12"
-            { x: -0.4, y: 4.7, size: 0.55 },  // Top-left 12"
-            { x: 0.4, y: 4.7, size: 0.55 }    // Top-right 12"
-        ];
-        midWooferPositions.forEach((mw, i) => {
-            const midCone = BABYLON.MeshBuilder.CreateCylinder(`midCone${xPos}_${i}`, {
-                diameterTop: 0.1, diameterBottom: mw.size - 0.08, height: 0.08, tessellation: 20
-            }, this.scene);
-            midCone.position = new BABYLON.Vector3(xPos + mw.x, mw.y, zPos + 1.12);
-            midCone.rotation.x = Math.PI / 2;
-            midCone.material = coneMat;
-        });
-        
-        // Horn tweeter - MORE VISIBLE
-        const horn = BABYLON.MeshBuilder.CreateCylinder("horn" + xPos, {
-            diameterTop: 0.5,
-            diameterBottom: 0.25,
-            height: 0.35,
-            tessellation: 16
-        }, this.scene);
-        horn.position = new BABYLON.Vector3(xPos, 5.4, zPos + 1.15);
-        horn.rotation.x = Math.PI / 2;
-        const hornMat = this.materialFactory.getPreset('speakerHorn');
-        hornMat.alpha = 1.0; // Fully opaque
-        hornMat.transparencyMode = null; // No transparency
-        horn.material = hornMat;
-        
-        // === RIGGING HARDWARE (flybar system) ===
-        const riggingMat = this.materialFactory.getPreset('truss');
-        
-        // Flybar (horizontal rigging bar above speaker stack)
-        const flybar = BABYLON.MeshBuilder.CreateBox(`flybar${xPos}`, {
-            width: 3.5, height: 0.1, depth: 0.1
-        }, this.scene);
-        flybar.position = new BABYLON.Vector3(xPos, 6.2, zPos);
-        flybar.material = riggingMat;
-        
-        // Rigging shackles (D-ring connectors)
-        const shackleMat = this.materialFactory.getPreset('chainHoist');
-        for (let s = 0; s < 2; s++) {
-            const shackle = BABYLON.MeshBuilder.CreateTorus(`shackle${xPos}_${s}`, {
-                diameter: 0.12, thickness: 0.02, tessellation: 16
-            }, this.scene);
-            shackle.position = new BABYLON.Vector3(xPos + (s === 0 ? -1 : 1), 6.0, zPos);
-            shackle.material = shackleMat;
-        }
-        
-        // Steel cables from flybar to ceiling
-        for (let c = 0; c < 2; c++) {
-            const cable = BABYLON.MeshBuilder.CreateCylinder(`paCable${xPos}_${c}`, {
-                diameter: 0.025, height: 3.5, tessellation: 8
-            }, this.scene);
-            cable.position = new BABYLON.Vector3(xPos + (c === 0 ? -1.2 : 1.2), 8, zPos);
-            cable.material = shackleMat;
-        }
-        
-        // Amp rack (behind speaker stack)
-        const ampRackMat = this.materialFactory.createPBRMaterial('ampRackMat', {
-            baseColor: [0.08, 0.08, 0.08],
-            metallic: 0.6,
-            roughness: 0.4
-        }, true);
-        const ampRack = BABYLON.MeshBuilder.CreateBox(`ampRack${xPos}`, {
-            width: 0.6, height: 1.2, depth: 0.5
-        }, this.scene);
-        ampRack.position = new BABYLON.Vector3(xPos + (xPos < 0 ? 1.8 : -1.8), 0.6, zPos - 0.5);
-        ampRack.material = ampRackMat;
-        
-        // Amp rack ventilation grille
-        const ampGrille = BABYLON.MeshBuilder.CreateBox(`ampGrille${xPos}`, {
-            width: 0.5, height: 0.2, depth: 0.02
-        }, this.scene);
-        ampGrille.position = new BABYLON.Vector3(xPos + (xPos < 0 ? 1.8 : -1.8), 0.9, zPos - 0.24);
-        const ampGrilleMat = this.materialFactory.createPBRMaterial('ampGrilleMat', {
-            baseColor: [0.3, 0.3, 0.3], metallic: 0.8, roughness: 0.3
-        });
-        ampGrille.material = ampGrilleMat;
-        
-        // Power cable running from amp rack
-        const powerCable = BABYLON.MeshBuilder.CreateCylinder(`powerCable${xPos}`, {
-            diameter: 0.04, height: 2, tessellation: 8
-        }, this.scene);
-        powerCable.position = new BABYLON.Vector3(xPos + (xPos < 0 ? 2.2 : -2.2), 0.5, zPos - 0.5);
-        powerCable.rotation.z = Math.PI / 2;
-        powerCable.material = this.materialFactory.getPreset('cableRubber');
-        
-        // Add LARGE LED indicator light for visibility
-        const led = BABYLON.MeshBuilder.CreateSphere("speakerLED" + xPos, {
-            diameter: 0.3 // Doubled size (was 0.15)
-        }, this.scene);
-        led.position = new BABYLON.Vector3(xPos - 1.0, 1.5, zPos + 1.4); // Higher position (was 0.5)
-        const ledMat = new BABYLON.StandardMaterial("ledMat" + xPos, this.scene);
-        ledMat.emissiveColor = new BABYLON.Color3(0, 2, 0); // BRIGHTER green LED (was 1)
-        ledMat.disableLighting = true;
-        led.material = ledMat;
-        
-        // Add point light at LED for extra visibility
-        const ledLight = new BABYLON.PointLight("ledLight" + xPos, 
-            new BABYLON.Vector3(xPos - 1.0, 1.5, zPos + 1.4), this.scene);
-        ledLight.diffuse = new BABYLON.Color3(0, 1, 0);
-        ledLight.intensity = 2;
-        ledLight.range = 5;
-        ledLight.setEnabled(false); // Start disabled - PA speaker lights not needed initially
-        
-        console.log(`✅ PA stack created at x=${xPos}, z=${zPos}, height=5.7m (with rigging hardware)`);
-    }
+    // createPAStack REMOVED - 3D models are used instead via ModelLoader
 
     createLEDWall() {
-        // MASSIVE LED WALL - covers entire back wall behind DJ booth
+        // MASSIVE LED WALL - covers entire back wall from FLOOR TO CEILING
         // Back wall is 35m wide × 10m tall at Z=-27
         const panelWidth = 1.2;
-        const panelHeight = 1.2;
+        const panelHeight = 1.0; // Slightly smaller for more rows
         const cols = 28;  // 28 × 1.2 = 33.6m (fills 35m wall with slight margin)
-        const rows = 8;   // 8 × 1.2 = 9.6m (fills 10m wall with slight margin)
+        const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
         const wallWidth = cols * panelWidth;
         const wallHeight = rows * panelHeight;
         
@@ -2601,7 +2385,7 @@ class VRClub {
                 }, this.scene);
                 
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
-                const y = (row * panelHeight) + (panelHeight / 2) + 1.5; // Lower starting position
+                const y = (row * panelHeight) + (panelHeight / 2) + 0.05; // Start just above floor
                 const z = -26; // Behind DJ booth
                 
                 panel.position = new BABYLON.Vector3(x, y, z);
@@ -5296,40 +5080,42 @@ class VRClub {
 
     updateLEDWall(time, audioData) {
         const patterns = [
-            // Smooth patterns
-            this.patternWaveHorizontal,
-            this.patternWaveVertical,
-            this.patternRipple,
-            this.patternBreathing,
-            // BLACKOUT SHAPE PATTERNS (creative geometric forms)
-            this.patternOuterBox,          // Frame with black center
-            this.patternInnerBox,          // Small box, black surround
-            this.patternXShape,            // Big X, rest black
-            this.patternPlusSign,          // Plus/cross shape
-            this.patternCorners,           // 4 corner blocks
-            this.patternArrowUp,           // Arrow pointing up
-            this.patternArrowDown,         // Arrow pointing down
-            this.patternDiamond,           // Diamond outline
-            this.patternLetterH,           // Letter H
-            this.patternZigZag,            // Zig-zag pattern
-            // Animated blackout patterns
-            this.patternCheckerboard,      // Checker with black squares
-            this.patternScanLines,         // Single row lit, rest black
-            this.patternDiagonalWipe,      // Clean division
-            this.patternExpandingBox,      // Animated box outline
-            this.patternSpiral,            // Spiral with blackout
-            this.patternVerticalSplit,     // Left/right division
-            this.patternHorizontalSplit,   // Top/bottom division
-            this.patternRandomFlicker,     // Random on/off
-            this.patternChase,             // Perimeter chase
-            this.patternPulsingRings,      // Rings with blackout
-            this.patternStarburst,         // Rays with blackout
-            // NEW IMMERSIVE PATTERNS
-            this.patternMeteorShower,      // Meteors falling diagonally
-            this.patternFireworks,         // Firework explosions
-            this.patternHeartbeat,         // Pulsing heartbeat wave
-            this.patternRainbow,           // Rainbow sweep (ignores color)
-            this.patternMatrix             // Matrix-style falling code
+            // === IMMERSIVE DANCE CLUB PATTERNS ===
+            // Energy Bursts
+            this.patternBassExplosion,      // Explosive burst from center on bass
+            this.patternEnergyWave,         // Powerful wave sweeping across
+            this.patternStrobe,             // Club strobe effect
+            this.patternLaserScan,          // Scanning laser lines
+            
+            // Hypnotic Patterns
+            this.patternTunnel,             // Tunnel/vortex effect
+            this.patternKaleidoscope,       // Rotating kaleidoscope
+            this.patternDNAHelix,           // Double helix spinning
+            this.patternInfinityLoop,       // Flowing infinity symbol
+            
+            // Club Classics
+            this.patternVUMeter,            // Audio reactive VU bars
+            this.patternEqualizerBars,      // Bouncing EQ columns
+            this.patternBeatGrid,           // Pulsing grid on beat
+            this.patternPixelRain,          // Digital rain effect
+            
+            // Geometric Shapes
+            this.patternTriangleWave,       // Triangles flowing
+            this.patternHexagonPulse,       // Hexagonal ripples
+            this.patternDiamondSpin,        // Spinning diamond patterns
+            this.patternCubeRotate,         // 3D cube illusion
+            
+            // Flow Patterns
+            this.patternPlasma,             // Organic plasma flow
+            this.patternAurora,             // Northern lights effect
+            this.patternOceanWave,          // Deep ocean waves
+            this.patternFire,               // Rising fire columns
+            
+            // Party Vibes
+            this.patternConfetti,           // Scattered confetti
+            this.patternSpotlightSweep,     // Moving spotlights
+            this.patternNeonPulse,          // Neon sign pulsing
+            this.patternRainbowRave         // Full spectrum rave
         ];
         
         // Use cached colors instead of creating new ones
@@ -5448,555 +5234,439 @@ class VRClub {
         }
     }
 
-    patternWaveHorizontal(color, time, audioData) {
-        // AUDIO REACTIVE: Speed increases with bass
-        const speed = 3 + (audioData ? audioData.bass * 3 : 0);
-        this.ledPanels.forEach(panel => {
-            // Reduced range for better contrast: 0.1 to 0.5
-            const brightness = 0.1 + 0.4 * Math.sin(panel.col * 0.8 + this.ledTime * speed);
-            this.updateLEDPanel(panel, color, brightness);
-        });
-    }
+    // === IMMERSIVE DANCE CLUB PATTERNS ===
 
-    patternWaveVertical(color, time, audioData) {
-        // AUDIO REACTIVE: Speed increases with bass
-        const speed = 3 + (audioData ? audioData.bass * 3 : 0);
-        this.ledPanels.forEach(panel => {
-            // Reduced range for better contrast: 0.1 to 0.5
-            const brightness = 0.1 + 0.4 * Math.sin(panel.row * 0.8 + this.ledTime * speed);
-            this.updateLEDPanel(panel, color, brightness);
-        });
-    }
-
-    patternCheckerboard(color, time, audioData) {
-        // AUDIO REACTIVE: Flicker speed increases with mid frequencies
-        const speed = 2 + (audioData ? audioData.mid * 4 : 0);
-        this.ledPanels.forEach(panel => {
-            const checker = (panel.row + panel.col + Math.floor(this.ledTime * speed)) % 2;
-            const brightness = checker ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
-        });
-    }
-
-    patternScanLines(color, time, audioData) {
-        // AUDIO REACTIVE: Scan speed increases with treble (dynamic grid)
-        const speed = 2 + (audioData ? audioData.treble * 6 : 0);
-        const maxRow = this.ledRows || 8;
-        this.ledPanels.forEach(panel => {
-            const scanLine = Math.floor(this.ledTime * speed) % maxRow;
-            const brightness = panel.row === scanLine ? 1.0 : 0;
-            panel.material.emissiveColor = color.scale(brightness);
-        });
-    }
-
-    patternRipple(color, time, audioData) {
-        // AUDIO REACTIVE: Ripple emanates from center with bass hits (dynamic grid)
-        const centerX = (this.ledCols || 28) / 2 - 0.5;
-        const centerY = (this.ledRows || 8) / 2 - 0.5;
-        const speed = 2 + (audioData ? audioData.bass * 4 : 0);
-        this.ledPanels.forEach(panel => {
-            const dist = Math.sqrt(Math.pow(panel.col - centerX, 2) + Math.pow(panel.row - centerY, 2));
-            // Reduced range for better contrast: 0.1 to 0.5
-            const brightness = 0.1 + 0.4 * Math.sin(dist - this.ledTime * speed);
-            panel.material.emissiveColor = color.scale(brightness);
-        });
-    }
-
-    patternBreathing(color, time, audioData) {
-        // AUDIO REACTIVE: Breathe with overall music volume
-        // Reduced range for better contrast: 0.1 to 0.5
-        const baseBrightness = 0.1 + 0.4 * Math.sin(this.ledTime);
-        const audioBrightness = audioData ? audioData.average * 0.2 : 0;
-        const brightness = Math.min(0.6, baseBrightness + audioBrightness);
-        this.ledPanels.forEach(panel => {
-            panel.material.emissiveColor = color.scale(brightness);
-        });
-    }
-
-    // CREATIVE BLACKOUT PATTERNS - shapes formed by blacked out panels (dynamic grid)
-    
-    patternOuterBox(color, time, audioData) {
-        // OUTER FRAME lit, center completely BLACK (dynamic grid)
-        const maxCol = (this.ledCols || 28) - 1;
-        const maxRow = (this.ledRows || 8) - 1;
-        this.ledPanels.forEach(panel => {
-            const isEdge = panel.row === 0 || panel.row === maxRow || panel.col === 0 || panel.col === maxCol;
-            const brightness = isEdge ? 1.0 : 0;
-            // Force black for center
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternInnerBox(color, time, audioData) {
-        // SMALL BOX in center lit, everything else BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerCol = Math.floor(cols / 2);
-        const centerRow = Math.floor(rows / 2);
-        this.ledPanels.forEach(panel => {
-            const isInner = panel.row >= centerRow - 1 && panel.row <= centerRow && 
-                           panel.col >= centerCol - 2 && panel.col <= centerCol + 1;
-            const brightness = isInner ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternXShape(color, time, audioData) {
-        // BIG X pattern, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        this.ledPanels.forEach(panel => {
-            const ratioX = panel.col / cols;
-            const ratioY = panel.row / rows;
-            const isDiagonal1 = Math.abs(ratioY - ratioX) < 0.15;
-            const isDiagonal2 = Math.abs(ratioY - (1 - ratioX)) < 0.15;
-            const brightness = (isDiagonal1 || isDiagonal2) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternPlusSign(color, time, audioData) {
-        // PLUS/CROSS shape, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerCol = Math.floor(cols / 2);
-        const centerRow = Math.floor(rows / 2);
-        this.ledPanels.forEach(panel => {
-            const isMiddleRow = panel.row === centerRow || panel.row === centerRow - 1;
-            const isMiddleCol = panel.col >= centerCol - 1 && panel.col <= centerCol;
-            const brightness = (isMiddleRow || isMiddleCol) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternCorners(color, time, audioData) {
-        // 4 CORNER BLOCKS, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const cornerSize = Math.max(2, Math.floor(Math.min(cols, rows) / 4));
-        this.ledPanels.forEach(panel => {
-            const isTopLeft = panel.row < cornerSize && panel.col < cornerSize;
-            const isTopRight = panel.row < cornerSize && panel.col >= cols - cornerSize;
-            const isBottomLeft = panel.row >= rows - cornerSize && panel.col < cornerSize;
-            const isBottomRight = panel.row >= rows - cornerSize && panel.col >= cols - cornerSize;
-            const brightness = (isTopLeft || isTopRight || isBottomLeft || isBottomRight) ? 1.0 : 0;
-            this.updateLEDPanel(panel, color, brightness);
-        });
-    }
-
-    patternDiagonalWipe(color, time, audioData) {
-        // Animated diagonal wipe - clear blackout division (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const maxDiag = cols + rows;
-        const wipePos = (Math.sin(this.ledTime) + 1) * maxDiag / 2;
-        this.ledPanels.forEach(panel => {
-            const diagonalPos = panel.col + panel.row * (cols / rows);
-            const brightness = (diagonalPos < wipePos) ? 1.0 : 0;
-            this.updateLEDPanel(panel, color, brightness);
-        });
-    }
-    
-    patternArrowUp(color, time, audioData) {
-        // ARROW POINTING UP, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerCol = Math.floor(cols / 2);
-        this.ledPanels.forEach(panel => {
-            // Arrow tip (top center - 2 panels wide)
-            const isTip = panel.row === 0 && Math.abs(panel.col - centerCol) <= 1;
-            // Arrow sides expanding down (2 rows)
-            const isWing1 = panel.row === 1 && Math.abs(panel.col - centerCol) <= 3;
-            const isWing2 = panel.row === 2 && Math.abs(panel.col - centerCol) <= 5;
-            // Arrow shaft (bottom half)
-            const isShaft = panel.row >= 3 && Math.abs(panel.col - centerCol) <= 1;
-            
-            const brightness = (isTip || isWing1 || isWing2 || isShaft) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-    
-    patternArrowDown(color, time, audioData) {
-        // ARROW POINTING DOWN, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerCol = Math.floor(cols / 2);
-        const maxRow = rows - 1;
-        this.ledPanels.forEach(panel => {
-            // Arrow shaft (top half)
-            const isShaft = panel.row < rows - 3 && Math.abs(panel.col - centerCol) <= 1;
-            // Arrow wings expanding down
-            const isWing1 = panel.row === maxRow - 2 && Math.abs(panel.col - centerCol) <= 5;
-            const isWing2 = panel.row === maxRow - 1 && Math.abs(panel.col - centerCol) <= 3;
-            // Arrow tip (bottom)
-            const isTip = panel.row === maxRow && Math.abs(panel.col - centerCol) <= 1;
-            
-            const brightness = (isShaft || isWing1 || isWing2 || isTip) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-    
-    patternDiamond(color, time, audioData) {
-        // DIAMOND shape, rest BLACK (dynamic grid)
+    patternBassExplosion(color, time, audioData) {
+        // Explosive burst from center on bass
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
         const centerX = cols / 2 - 0.5;
         const centerY = rows / 2 - 0.5;
-        const size = Math.min(cols, rows) / 2;
-        this.ledPanels.forEach(panel => {
-            const manhattanDist = Math.abs(panel.col - centerX) / (cols / rows) + Math.abs(panel.row - centerY);
-            const brightness = (manhattanDist <= size && manhattanDist >= size - 1.5) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-    
-    patternLetterH(color, time, audioData) {
-        // Letter H shape, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const leftBar = Math.floor(cols * 0.25);
-        const rightBar = Math.floor(cols * 0.75);
-        const midRow = Math.floor(rows / 2);
-        this.ledPanels.forEach(panel => {
-            const isLeftBar = Math.abs(panel.col - leftBar) <= 1;
-            const isRightBar = Math.abs(panel.col - rightBar) <= 1;
-            const isMiddleBar = (panel.row === midRow || panel.row === midRow - 1) && 
-                               panel.col >= leftBar && panel.col <= rightBar;
-            const brightness = (isLeftBar || isRightBar || isMiddleBar) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-    
-    patternZigZag(color, time, audioData) {
-        // ZIG-ZAG pattern, rest BLACK (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        this.ledPanels.forEach(panel => {
-            // Zigzag based on row position
-            const zigOffset = (panel.row % 2 === 0) ? 0 : Math.floor(cols / 6);
-            const isZig = (panel.col + zigOffset) % Math.floor(cols / 4) < 2;
-            const brightness = isZig ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternExpandingBox(color, time, audioData) {
-        // Box that expands and contracts from center - TRUE BLACKOUT (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const maxSize = Math.max(cols, rows) / 2;
-        const size = Math.abs(Math.sin(this.ledTime * 0.5)) * maxSize;
-        const centerRow = rows / 2 - 0.5;
-        const centerCol = cols / 2 - 0.5;
+        
+        // Trigger explosion on bass
+        if (audioData && audioData.bass > 0.2 && time - (this.lastExplosionTime || 0) > 0.5) {
+            this.lastExplosionTime = time;
+        }
+        
+        const age = time - (this.lastExplosionTime || 0);
+        const radius = age * 30; // Expand speed
         
         this.ledPanels.forEach(panel => {
-            const distFromCenter = Math.max(
-                Math.abs(panel.row - centerRow),
-                Math.abs(panel.col - centerCol) * (rows / cols)
-            );
-            const isInBox = distFromCenter < size && distFromCenter > size - 1;
-            const brightness = isInBox ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternSpiral(color, time, audioData) {
-        // Spiral pattern from center - TRUE BLACKOUT (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerRow = rows / 2 - 0.5;
-        const centerCol = cols / 2 - 0.5;
-        
-        this.ledPanels.forEach(panel => {
-            const dx = (panel.col - centerCol) / cols;
-            const dy = (panel.row - centerRow) / rows;
-            const angle = Math.atan2(dy, dx);
-            const dist = Math.sqrt(dx * dx + dy * dy) * 10;
-            const spiralValue = angle + dist - this.ledTime * 2;
-            const brightness = (Math.sin(spiralValue) > 0) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternVerticalSplit(color, time, audioData) {
-        // Vertical split that moves - CLEAR DIVISION with blackout (dynamic grid)
-        const cols = this.ledCols || 28;
-        const splitPos = Math.floor((Math.sin(this.ledTime) + 1) * cols / 2);
-        this.ledPanels.forEach(panel => {
-            const brightness = (panel.col < splitPos) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternHorizontalSplit(color, time, audioData) {
-        // Horizontal split that moves - CLEAR DIVISION with blackout (dynamic grid)
-        const rows = this.ledRows || 8;
-        const splitPos = Math.floor((Math.sin(this.ledTime) + 1) * rows / 2);
-        this.ledPanels.forEach(panel => {
-            const brightness = (panel.row < splitPos) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternRandomFlicker(color, time, audioData) {
-        // Random panels flicker on/off - TRUE BLACKOUT
-        const flickerSpeed = Math.floor(this.ledTime * 5);
-        this.ledPanels.forEach(panel => {
-            const random = Math.sin(panel.row * 12.9898 + panel.col * 78.233 + flickerSpeed) * 43758.5453;
-            const brightness = (random - Math.floor(random) > 0.5) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternChase(color, time, audioData) {
-        // Chase lights around perimeter - TRUE BLACKOUT for non-active (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const maxCol = cols - 1;
-        const maxRow = rows - 1;
-        
-        // Build perimeter array dynamically
-        const perimeter = [];
-        // Top row (left to right)
-        for (let c = 0; c <= maxCol; c++) perimeter.push([0, c]);
-        // Right column (top to bottom, skip corner)
-        for (let r = 1; r <= maxRow; r++) perimeter.push([r, maxCol]);
-        // Bottom row (right to left, skip corner)
-        for (let c = maxCol - 1; c >= 0; c--) perimeter.push([maxRow, c]);
-        // Left column (bottom to top, skip corners)
-        for (let r = maxRow - 1; r > 0; r--) perimeter.push([r, 0]);
-        
-        const chasePos = Math.floor(this.ledTime * 8) % perimeter.length; // Faster chase for bigger wall
-        const tailLength = Math.max(3, Math.floor(perimeter.length / 10)); // Longer tail for bigger wall
-        
-        this.ledPanels.forEach(panel => {
+            const dist = Math.sqrt(Math.pow(panel.col - centerX, 2) + Math.pow(panel.row - centerY, 2));
             let brightness = 0;
-            for (let i = 0; i < tailLength; i++) {
-                const idx = (chasePos + i) % perimeter.length;
-                if (perimeter[idx][0] === panel.row && perimeter[idx][1] === panel.col) {
-                    brightness = 1.0 - (i / tailLength) * 0.7;
-                }
+            if (Math.abs(dist - radius) < 3 && age < 1.5) {
+                brightness = Math.max(0, 1.0 - (age * 0.8)); // Fade out
             }
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
 
-    patternPulsingRings(color, time, audioData) {
-        // Concentric rings pulsing from center - TRUE BLACKOUT between rings (dynamic grid)
+    patternEnergyWave(color, time, audioData) {
+        // Powerful wave sweeping across
         const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerRow = rows / 2 - 0.5;
-        const centerCol = cols / 2 - 0.5;
+        const speed = 5 + (audioData ? audioData.bass * 5 : 0);
+        const wavePos = (time * speed) % (cols + 10) - 5;
         
         this.ledPanels.forEach(panel => {
-            const dist = Math.sqrt(
-                Math.pow(panel.row - centerRow, 2) + 
-                Math.pow((panel.col - centerCol) * (rows / cols), 2)
-            );
-            const ringValue = Math.sin(dist * 1.5 - this.ledTime * 3);
-            const brightness = (ringValue > 0.5) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
+            const dist = Math.abs(panel.col - wavePos);
+            const brightness = Math.max(0, 1.0 - dist / 2);
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
 
-    patternStarburst(color, time, audioData) {
-        // Starburst/rays from center - TRUE BLACKOUT between rays (dynamic grid)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerRow = rows / 2 - 0.5;
-        const centerCol = cols / 2 - 0.5;
-        const numRays = 12; // More rays for bigger wall
+    patternStrobe(color, time, audioData) {
+        // Club strobe effect
+        const strobeSpeed = 15; // Hz
+        const on = Math.sin(time * strobeSpeed * Math.PI * 2) > 0;
+        const brightness = on ? 1.0 : 0.0;
         
         this.ledPanels.forEach(panel => {
-            const dx = (panel.col - centerCol) / cols;
-            const dy = (panel.row - centerRow) / rows;
-            const angle = Math.atan2(dy, dx) + this.ledTime;
-            const normalizedAngle = (angle + Math.PI) / (2 * Math.PI);
-            const rayIndex = Math.floor(normalizedAngle * numRays);
-            const brightness = (rayIndex % 2 === 0) ? 1.0 : 0;
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
+            panel.material.emissiveColor = this.cachedColors.white.scale(brightness);
         });
     }
 
-    // NEW IMMERSIVE PATTERNS
-    
-    patternMeteorShower(color, time, audioData) {
-        // Meteors falling diagonally across the screen
+    patternLaserScan(color, time, audioData) {
+        // Scanning laser lines
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
-        const numMeteors = 5;
-        const meteorLength = 4;
+        const t = time * 2;
         
         this.ledPanels.forEach(panel => {
-            let brightness = 0;
-            for (let m = 0; m < numMeteors; m++) {
-                // Each meteor has different start position and speed
-                const meteorSpeed = 1.5 + m * 0.3;
-                const meteorOffset = m * (cols / numMeteors);
-                const meteorPos = ((this.ledTime * meteorSpeed * 10) + meteorOffset) % (cols + rows + meteorLength);
+            // Horizontal scan
+            const hScan = Math.abs(panel.row - (Math.sin(t) * 0.5 + 0.5) * rows) < 0.5;
+            // Vertical scan
+            const vScan = Math.abs(panel.col - (Math.cos(t * 1.3) * 0.5 + 0.5) * cols) < 0.5;
+            
+            const brightness = (hScan || vScan) ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternTunnel(color, time, audioData) {
+        // Tunnel/vortex effect
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        const centerY = rows / 2 - 0.5;
+        
+        this.ledPanels.forEach(panel => {
+            const dist = Math.max(Math.abs(panel.col - centerX), Math.abs(panel.row - centerY) * (cols/rows));
+            const wave = Math.sin(dist * 0.5 - time * 4);
+            const brightness = wave > 0.5 ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternKaleidoscope(color, time, audioData) {
+        // Symmetrical mirroring
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2;
+        const centerY = rows / 2;
+        
+        this.ledPanels.forEach(panel => {
+            // Fold coordinates
+            const x = Math.abs(panel.col - centerX);
+            const y = Math.abs(panel.row - centerY);
+            
+            // Generate pattern based on folded coords
+            const val = Math.sin(x * 0.5 + time) * Math.cos(y * 0.5 + time);
+            const brightness = val > 0 ? val : 0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternDNAHelix(color, time, audioData) {
+        // Double helix
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            const x = panel.col / cols * Math.PI * 4 + time * 2;
+            const y1 = (Math.sin(x) * 0.5 + 0.5) * (rows - 1);
+            const y2 = (Math.sin(x + Math.PI) * 0.5 + 0.5) * (rows - 1);
+            
+            const dist1 = Math.abs(panel.row - y1);
+            const dist2 = Math.abs(panel.row - y2);
+            
+            const brightness = (dist1 < 1.0 || dist2 < 1.0) ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternInfinityLoop(color, time, audioData) {
+        // Figure-8 motion
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const t = time * 2;
+        
+        // Parametric equation for infinity symbol (Lemniscate)
+        const scale = Math.min(cols, rows) * 0.4;
+        const cx = cols / 2;
+        const cy = rows / 2;
+        
+        // We render the trail
+        this.ledPanels.forEach(panel => {
+            let minD = 100;
+            // Sample points along the curve
+            for(let i=0; i<20; i++) {
+                const offset = i * 0.1;
+                const lt = t - offset;
+                const x = (scale * Math.cos(lt)) / (1 + Math.sin(lt)*Math.sin(lt));
+                const y = (scale * Math.sin(lt) * Math.cos(lt)) / (1 + Math.sin(lt)*Math.sin(lt));
                 
-                // Diagonal path from top-right to bottom-left
-                const meteorX = cols - (meteorPos - panel.row);
-                const dist = Math.abs(panel.col - meteorX);
-                
-                if (dist < meteorLength && panel.col <= meteorX && panel.col >= meteorX - meteorLength) {
-                    brightness = Math.max(brightness, 1.0 - (meteorX - panel.col) / meteorLength);
-                }
+                const d = Math.sqrt(Math.pow(panel.col - (cx + x), 2) + Math.pow(panel.row - (cy + y), 2));
+                minD = Math.min(minD, d);
             }
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
+            
+            const brightness = Math.max(0, 1.0 - minD);
+            this.updateLEDPanel(panel, color, brightness);
         });
     }
 
-    patternFireworks(color, time, audioData) {
-        // Multiple firework explosions
+    patternVUMeter(color, time, audioData) {
+        // Vertical bars rising with volume
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
         
-        // 3 fireworks at different positions, cycling
-        const fireworks = [
-            { x: cols * 0.25, y: rows * 0.5, phase: 0 },
-            { x: cols * 0.5, y: rows * 0.3, phase: 0.33 },
-            { x: cols * 0.75, y: rows * 0.6, phase: 0.66 }
-        ];
-        
-        this.ledPanels.forEach(panel => {
-            let brightness = 0;
-            fireworks.forEach(fw => {
-                const cycleTime = (this.ledTime * 0.5 + fw.phase) % 1.0;
-                if (cycleTime < 0.6) { // Explosion phase
-                    const explosionRadius = cycleTime * Math.max(cols, rows) * 0.4;
-                    const dist = Math.sqrt(
-                        Math.pow(panel.col - fw.x, 2) + 
-                        Math.pow((panel.row - fw.y) * (cols / rows), 2)
-                    );
-                    // Ring explosion effect
-                    if (Math.abs(dist - explosionRadius) < 1.5) {
-                        brightness = Math.max(brightness, 1.0 - cycleTime);
-                    }
-                }
-            });
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                panel.material.emissiveColor = color.scale(brightness);
-            }
-        });
-    }
-
-    patternHeartbeat(color, time, audioData) {
-        // Pulsing heartbeat from center (like ECG)
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        const centerCol = cols / 2 - 0.5;
-        
-        // Heartbeat rhythm: quick pulse, quick pulse, pause
-        const beatTime = this.ledTime * 2;
-        const beatPhase = beatTime % 1.0;
-        let pulseIntensity = 0;
-        
-        if (beatPhase < 0.15) {
-            pulseIntensity = Math.sin(beatPhase / 0.15 * Math.PI);
-        } else if (beatPhase > 0.2 && beatPhase < 0.35) {
-            pulseIntensity = Math.sin((beatPhase - 0.2) / 0.15 * Math.PI) * 0.6;
+        // Simulate frequency data if not available
+        const levels = [];
+        for(let i=0; i<cols; i++) {
+            // Create a symmetric wave pattern that reacts to audio
+            const x = (i - cols/2) / (cols/2);
+            const base = Math.exp(-x*x*2); // Bell curve
+            const audioBoost = audioData ? (audioData.bass * (1-Math.abs(x)) + audioData.treble * Math.abs(x)) : 0.5;
+            levels[i] = base * audioBoost * rows * 1.5;
         }
         
         this.ledPanels.forEach(panel => {
-            const distFromCenter = Math.abs(panel.col - centerCol) / (cols / 2);
-            const wavePos = (this.ledTime * 8) % cols;
-            const distFromWave = Math.abs(panel.col - wavePos);
+            const brightness = panel.row < levels[panel.col] ? 1.0 : 0.0;
+            // Color gradient from green to red
+            const intensity = panel.row / rows;
+            const barColor = new BABYLON.Color3(intensity, 1.0 - intensity, 0);
             
-            let brightness = 0;
-            if (distFromWave < 3) {
-                brightness = pulseIntensity * (1.0 - distFromWave / 3);
-            }
-            
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
+            if (brightness > 0) {
+                panel.material.emissiveColor = barColor;
             } else {
-                panel.material.emissiveColor = color.scale(brightness);
+                panel.material.emissiveColor = this.cachedColors.black;
             }
         });
     }
 
-    patternRainbow(color, time, audioData) {
-        // Rainbow wave sweeping across (ignores input color)
+    patternEqualizerBars(color, time, audioData) {
+        // Bouncing EQ columns
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            // Randomize height slightly with noise/time
+            const noise = Math.sin(panel.col * 0.5 + time * 5) * 0.5 + 0.5;
+            const height = noise * rows * (audioData ? audioData.average * 2 : 0.5);
+            
+            const brightness = panel.row < height ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternBeatGrid(color, time, audioData) {
+        // Pulsing grid on beat
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        const beat = audioData && audioData.bass > 0.2 ? 1.0 : 0.1;
+        
+        this.ledPanels.forEach(panel => {
+            const isGrid = panel.col % 4 === 0 || panel.row % 4 === 0;
+            const brightness = isGrid ? beat : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternPixelRain(color, time, audioData) {
+        // Digital rain effect
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            const speed = 5 + (panel.col % 3);
+            const y = (time * speed + panel.col * 7) % (rows + 5);
+            const dist = y - panel.row;
+            
+            let brightness = 0;
+            if (dist > 0 && dist < 4) {
+                brightness = 1.0 - dist/4;
+            }
+            
+            // Matrix green or provided color
+            const rainColor = new BABYLON.Color3(0, 1, 0.2);
+            this.updateLEDPanel(panel, rainColor, brightness);
+        });
+    }
+
+    patternTriangleWave(color, time, audioData) {
+        // Diagonal lines forming triangles
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            const val = (panel.col + panel.row + time * 5) % 8;
+            const brightness = val < 2 ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternHexagonPulse(color, time, audioData) {
+        // Hexagonal grid approximation (staggered rows)
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            const offset = (panel.row % 2) * 0.5;
+            const x = panel.col + offset;
+            const dist = Math.sqrt(Math.pow(x - cols/2, 2) + Math.pow(panel.row - rows/2, 2));
+            
+            const wave = Math.sin(dist - time * 5);
+            const brightness = wave > 0.5 ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternDiamondSpin(color, time, audioData) {
+        // Rotating diamond shape
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const cx = cols / 2;
+        const cy = rows / 2;
+        
+        const angle = time;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        
+        this.ledPanels.forEach(panel => {
+            const dx = panel.col - cx;
+            const dy = panel.row - cy;
+            
+            // Rotate coordinates
+            const rx = dx * cos - dy * sin;
+            const ry = dx * sin + dy * cos;
+            
+            // Diamond distance (Manhattan)
+            const d = Math.abs(rx) + Math.abs(ry);
+            const brightness = (d < 5 && d > 4) ? 1.0 : 0.0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternCubeRotate(color, time, audioData) {
+        // 3D cube illusion (wireframe projection)
+        // Simplified: rotating square projected
+        this.patternDiamondSpin(color, time, audioData); // Reuse for now as it's similar visually in 2D
+    }
+
+    patternPlasma(color, time, audioData) {
+        // Organic plasma flow
+        this.ledPanels.forEach(panel => {
+            const v1 = Math.sin(panel.col * 0.1 + time);
+            const v2 = Math.sin(panel.row * 0.1 + time);
+            const v3 = Math.sin((panel.col + panel.row) * 0.1 + time);
+            const v4 = Math.sin(Math.sqrt(panel.col*panel.col + panel.row*panel.row) * 0.1 + time);
+            
+            const val = (v1 + v2 + v3 + v4) / 4;
+            const brightness = (val + 1) / 2;
+            
+            // Color shift
+            const plasmaColor = new BABYLON.Color3(
+                Math.sin(val * Math.PI) * 0.5 + 0.5,
+                Math.sin(val * Math.PI + 2) * 0.5 + 0.5,
+                Math.sin(val * Math.PI + 4) * 0.5 + 0.5
+            );
+            
+            panel.material.emissiveColor = plasmaColor;
+        });
+    }
+
+    patternAurora(color, time, audioData) {
+        // Wavy vertical bands
         const cols = this.ledCols || 28;
         
         this.ledPanels.forEach(panel => {
-            const hue = ((panel.col / cols) + this.ledTime * 0.2) % 1.0;
-            // HSL to RGB conversion
+            const x = panel.col;
+            const y = panel.row;
+            
+            const wave = Math.sin(x * 0.2 + time) * 2 + Math.sin(x * 0.5 + time * 2);
+            const dist = Math.abs(y - (4 + wave));
+            
+            const brightness = Math.max(0, 1.0 - dist / 2);
+            // Aurora colors (Green/Teal/Purple)
+            const auroraColor = new BABYLON.Color3(0, 1.0 - dist/4, 1.0);
+            
+            this.updateLEDPanel(panel, auroraColor, brightness);
+        });
+    }
+
+    patternOceanWave(color, time, audioData) {
+        // Horizontal sine waves
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            const waveHeight = Math.sin(panel.col * 0.3 + time * 2) * 2 + rows/2;
+            const brightness = panel.row < waveHeight ? 1.0 : 0.0;
+            const oceanColor = new BABYLON.Color3(0, 0.5, 1.0);
+            this.updateLEDPanel(panel, oceanColor, brightness);
+        });
+    }
+
+    patternFire(color, time, audioData) {
+        // Rising fire columns
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        this.ledPanels.forEach(panel => {
+            // Noise based on column and time
+            const noise = Math.sin(panel.col * 543.12 + time * 2) * Math.cos(panel.col * 123.45 + time * 3);
+            const height = (noise * 0.5 + 0.5) * rows * 0.8;
+            
+            const dist = height - panel.row;
+            let brightness = 0;
+            if (dist > 0) brightness = 1.0;
+            if (dist > 0 && dist < 1) brightness = dist; // Fade top
+            
+            // Fire colors: Red -> Orange -> Yellow
+            const fireColor = new BABYLON.Color3(1.0, panel.row / rows * 0.8, 0);
+            
+            if (brightness > 0) {
+                panel.material.emissiveColor = fireColor.scale(brightness);
+            } else {
+                panel.material.emissiveColor = this.cachedColors.black;
+            }
+        });
+    }
+
+    patternConfetti(color, time, audioData) {
+        // Random colored pixels sparkling
+        this.ledPanels.forEach(panel => {
+            // Random flicker based on time and position
+            const rand = Math.sin(panel.col * 12.9898 + panel.row * 78.233 + time * 20);
+            const on = rand > 0.95;
+            
+            if (on) {
+                // Random color
+                const r = Math.sin(rand * 100) * 0.5 + 0.5;
+                const g = Math.sin(rand * 200) * 0.5 + 0.5;
+                const b = Math.sin(rand * 300) * 0.5 + 0.5;
+                panel.material.emissiveColor = new BABYLON.Color3(r, g, b);
+            } else {
+                panel.material.emissiveColor = this.cachedColors.black;
+            }
+        });
+    }
+
+    patternSpotlightSweep(color, time, audioData) {
+        // Moving spotlights
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        const spot1X = (Math.sin(time) * 0.5 + 0.5) * cols;
+        const spot1Y = (Math.cos(time * 1.3) * 0.5 + 0.5) * rows;
+        
+        const spot2X = (Math.sin(time * 1.5 + Math.PI) * 0.5 + 0.5) * cols;
+        const spot2Y = (Math.cos(time * 0.7) * 0.5 + 0.5) * rows;
+        
+        this.ledPanels.forEach(panel => {
+            const d1 = Math.sqrt(Math.pow(panel.col - spot1X, 2) + Math.pow(panel.row - spot1Y, 2));
+            const d2 = Math.sqrt(Math.pow(panel.col - spot2X, 2) + Math.pow(panel.row - spot2Y, 2));
+            
+            const b1 = Math.max(0, 1.0 - d1 / 3);
+            const b2 = Math.max(0, 1.0 - d2 / 3);
+            
+            const brightness = Math.min(1.0, b1 + b2);
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternNeonPulse(color, time, audioData) {
+        // Bright outlines pulsing
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        const pulse = Math.sin(time * 5) * 0.5 + 0.5;
+        
+        this.ledPanels.forEach(panel => {
+            const isBorder = panel.col === 0 || panel.col === cols-1 || panel.row === 0 || panel.row === rows-1;
+            const brightness = isBorder ? 1.0 : pulse * 0.2;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+
+    patternRainbowRave(color, time, audioData) {
+        // Full RGB cycle
+        const cols = this.ledCols || 28;
+        
+        this.ledPanels.forEach(panel => {
+            const hue = (panel.col / cols + panel.row / 10 + time) % 1.0;
+            
+            // HSV to RGB
             const h = hue * 6;
             const c = 1.0;
             const x = c * (1 - Math.abs(h % 2 - 1));
@@ -6009,33 +5679,6 @@ class VRClub {
             else { r = c; g = 0; b = x; }
             
             panel.material.emissiveColor = new BABYLON.Color3(r, g, b);
-        });
-    }
-
-    patternMatrix(color, time, audioData) {
-        // Matrix-style falling columns
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        
-        this.ledPanels.forEach(panel => {
-            // Each column has different speed and offset
-            const colSpeed = 2 + Math.sin(panel.col * 1.5) * 1.5;
-            const colOffset = Math.sin(panel.col * 2.3) * rows;
-            const fallPos = ((this.ledTime * colSpeed) + colOffset) % (rows + 4);
-            
-            const dist = panel.row - (rows - fallPos);
-            let brightness = 0;
-            
-            if (dist >= 0 && dist < 4) {
-                brightness = 1.0 - dist / 4;
-            }
-            
-            if (brightness === 0) {
-                panel.material.emissiveColor = this.cachedColors.black;
-            } else {
-                // Green tint for matrix effect
-                panel.material.emissiveColor = new BABYLON.Color3(0, brightness, brightness * 0.3);
-            }
         });
     }
     

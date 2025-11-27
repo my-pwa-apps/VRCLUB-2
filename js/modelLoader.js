@@ -99,19 +99,21 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(-7, 0, -25), // Y will be auto-adjusted to sit on floor
-                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Face forward toward dance floor
+                position: new BABYLON.Vector3(-10, 0, -25), // Y will be auto-adjusted to sit on floor
+                rotation: new BABYLON.Vector3(0, 0, 0), // Face forward toward dance floor (cones pointing +Z)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
+                makeBlack: true, // Override material to black
                 attribution: 'PA Speakers (CC BY 4.0)'
             },
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(7, 0, -25), // Y will be auto-adjusted to sit on floor
-                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Face forward toward dance floor
+                position: new BABYLON.Vector3(10, 0, -25), // Y will be auto-adjusted to sit on floor
+                rotation: new BABYLON.Vector3(0, 0, 0), // Face forward toward dance floor (cones pointing +Z)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
+                makeBlack: true, // Override material to black
                 attribution: 'PA Speakers (CC BY 4.0)'
             }
         };
@@ -316,6 +318,7 @@ class ModelLoader {
                 console.log(`   💡 Added light for ${config.name}`);
                 
                 // Ensure PA speakers are fully opaque and render properly
+                // Also make them BLACK if configured
                 result.meshes.forEach(speakerMesh => {
                     speakerMesh.alphaIndex = 0; // Render first (opaque objects)
                     if (speakerMesh.material) {
@@ -327,66 +330,22 @@ class ModelLoader {
                         if (speakerMesh.material.alpha !== undefined) {
                             speakerMesh.material.alpha = 1.0;
                         }
-                        if (speakerMesh.material.albedoColor !== undefined && speakerMesh.material.albedoColor.a !== undefined) {
-                            speakerMesh.material.albedoColor.a = 1.0; // Force opaque albedo
-                        }
-                        if (speakerMesh.material.baseColor !== undefined && speakerMesh.material.baseColor.a !== undefined) {
-                            speakerMesh.material.baseColor.a = 1.0; // Force opaque base color
+                        
+                        // Make speakers BLACK if configured
+                        if (config.makeBlack) {
+                            if (speakerMesh.material.albedoColor !== undefined) {
+                                speakerMesh.material.albedoColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+                            }
+                            if (speakerMesh.material.baseColor !== undefined) {
+                                speakerMesh.material.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+                            }
+                            if (speakerMesh.material.diffuseColor !== undefined) {
+                                speakerMesh.material.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+                            }
                         }
                     }
                 });
-                console.log(`   🔒 Enforced opaque rendering for PA speakers`);
-                
-                // Hide ALL procedural PA speaker components when real 3D model loads
-                const xPos = config.position.x;
-                const xSuffix = xPos < 0 ? '-7' : '7';
-                
-                // Main speaker components
-                const mainComponents = ['sub', 'subGrill', 'mid', 'midGrill', 'horn', 'speakerLED'];
-                mainComponents.forEach(meshType => {
-                    const meshName = meshType + xSuffix;
-                    const mesh = this.scene.getMeshByName(meshName);
-                    if (mesh) {
-                        mesh.setEnabled(false);
-                        console.log(`   🚫 Hidden procedural ${meshName}`);
-                    }
-                });
-                
-                // Woofer components (sub has 2 woofers, mid has 4)
-                for (let i = 0; i < 2; i++) {
-                    ['subSurround', 'subCone', 'subCap'].forEach(prefix => {
-                        const mesh = this.scene.getMeshByName(`${prefix}${xSuffix}_${i}`);
-                        if (mesh) mesh.setEnabled(false);
-                    });
-                }
-                for (let i = 0; i < 4; i++) {
-                    const mesh = this.scene.getMeshByName(`midCone${xSuffix}_${i}`);
-                    if (mesh) mesh.setEnabled(false);
-                }
-                
-                // Rigging hardware
-                ['flybar', 'ampRack', 'ampGrille', 'powerCable'].forEach(prefix => {
-                    const mesh = this.scene.getMeshByName(`${prefix}${xSuffix}`);
-                    if (mesh) mesh.setEnabled(false);
-                });
-                
-                // Shackles and cables
-                for (let i = 0; i < 2; i++) {
-                    ['shackle', 'paCable'].forEach(prefix => {
-                        const mesh = this.scene.getMeshByName(`${prefix}${xSuffix}_${i}`);
-                        if (mesh) mesh.setEnabled(false);
-                    });
-                }
-                
-                // Hide LED light
-                const ledLightName = 'ledLight' + xSuffix;
-                const ledLight = this.scene.getLightByName(ledLightName);
-                if (ledLight) {
-                    ledLight.setEnabled(false);
-                    console.log(`   🚫 Hidden procedural ${ledLightName}`);
-                }
-                
-                console.log(`   ✅ All procedural PA speaker parts hidden for x=${xPos}`);
+                console.log(`   🔒 Enforced opaque rendering for PA speakers${config.makeBlack ? ' (BLACK)' : ''}`);
             }
             
             this.loadedModels[modelKey] = {
