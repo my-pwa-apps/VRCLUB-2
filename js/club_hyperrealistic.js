@@ -398,8 +398,9 @@ class VRClub {
         
         // Setup camera for post-processing pipeline
         // Using FreeCamera (not UniversalCamera) for proper desktop mouse rotation
-        this.camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(-12, 6, -12), this.scene);
-        this.camera.setTarget(new BABYLON.Vector3(0, 2, -15));
+        // Spawn at dance floor entrance at standing height (1.7m)
+        this.camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 1.7, -5), this.scene);
+        this.camera.setTarget(new BABYLON.Vector3(0, 1.7, -15));
         
         // Movement controls - WASD + Arrow Keys
         this.camera.keysUp = [87, 38]; // W + Up Arrow
@@ -417,22 +418,22 @@ class VRClub {
         this.camera.attachControl(this.canvas, true);
         
         // ENHANCED Camera properties for immersive experience
-        this.camera.speed = 0.35; // Slightly faster walking speed for better exploration
+        this.camera.speed = 0.5; // Faster movement speed for responsive controls
         this.camera.applyGravity = false; // No gravity for easier navigation
         this.camera.checkCollisions = true; // Enable collision detection with invisible walls
         this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Human-sized collision bounding box
         this.camera.fov = 1.2; // Enhanced FOV for more immersive peripheral vision
-        this.camera.minZ = 0.05; // Closer near plane for detailed close-ups
-        this.camera.maxZ = 150; // Far plane for full club visibility
+        this.camera.minZ = 0.1; // Near plane
+        this.camera.maxZ = 100; // Reduced far plane for better performance
         
         this.scene.activeCamera = this.camera;
         
-        // Add ENHANCED glow layer for hyperrealistic neon/LED effects (desktop and VR)
+        // PERFORMANCE: Reduced glow layer settings for better FPS
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
-            mainTextureFixedSize: 1024, // High resolution for sharp glow edges
-            blurKernelSize: 32  // Enhanced blur for smoother, more realistic glow spread
+            mainTextureFixedSize: 512, // Reduced from 1024 for better performance
+            blurKernelSize: 16  // Reduced from 32 for better performance
         });
-        this.glowLayer.intensity = 0.8; // Enhanced intensity for dramatic neon effects
+        this.glowLayer.intensity = 0.6; // Reduced from 0.8 for better performance
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -3588,63 +3589,10 @@ class VRClub {
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
             
-            // VOLUMETRIC GLOW - Outer soft glow around the beam for realistic atmospheric scatter
-            const beamGlow = BABYLON.MeshBuilder.CreateCylinder("spotBeamGlow" + i, {
-                diameterTop: 2.8,      // Larger outer glow
-                diameterBottom: 0.5,   // Larger at source
-                height: 1,
-                tessellation: 16,
-                cap: BABYLON.Mesh.NO_CAP
-            }, this.scene);
-            
-            if (head) {
-                beamGlow.parent = head;
-                beamGlow.rotation.x = Math.PI;
-                beamGlow.position = new BABYLON.Vector3(0, -0.5, 0);
-            } else {
-                beamGlow.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
-                beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
-            }
-            
-            beamGlow.isPickable = false;
-            
-            // Create glow gradient texture (softer than main beam)
-            const glowTexture = new BABYLON.DynamicTexture("glowGradient" + i, { width: 512, height: 512 }, this.scene);
-            const glowCtx = glowTexture.getContext();
-            
-            // Softer radial gradient for outer glow - Enhanced for better atmospheric scatter
-            const glowGradient = glowCtx.createRadialGradient(256, 256, 80, 256, 256, 256);
-            glowGradient.addColorStop(0, 'rgba(255, 255, 255, 0.5)');   // Brighter soft center (increased from 0.4)
-            glowGradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)'); // More visible middle
-            glowGradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.08)'); // Smooth transition
-            glowGradient.addColorStop(0.9, 'rgba(255, 255, 255, 0.02)'); // Very faint edge
-            glowGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent
-            
-            glowCtx.fillStyle = glowGradient;
-            glowCtx.fillRect(0, 0, 512, 512);
-            glowTexture.update();
-            
-            // Ultra-soft glow material with gradient
-            const beamGlowMat = new BABYLON.PBRMaterial("spotBeamGlowMat" + i, this.scene);
-            beamGlowMat.albedoColor = new BABYLON.Color3(0, 0, 0);
-            beamGlowMat.metallic = 0;
-            beamGlowMat.roughness = 1;
-            
-            // Apply gradient to glow
-            beamGlowMat.emissiveTexture = glowTexture;
-            beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.6); // Increased visibility
-            beamGlowMat.emissiveIntensity = 5.0; // Increased for more glow
-            
-            beamGlowMat.opacityTexture = glowTexture;
-            beamGlowMat.alpha = 0.15; // Increased from 0.08 for more visible glow
-            beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
-            beamGlowMat.backFaceCulling = false;
-            beamGlowMat.disableLighting = true;
-            beamGlowMat.unlit = true;
-            
-            beamGlow.material = beamGlowMat;
-            beamGlow.visibility = 1.0;
-            beamGlow.renderingGroupId = 1;
+            // PERFORMANCE: Removed beamGlow (outer glow cylinder) - caused doubled beam effect
+            // The main beam cone is sufficient for visual effect
+            const beamGlow = null;
+            const beamGlowMat = null;
 
             
             // HYPERREALISTIC FLOOR LIGHT SPLASH - Multi-layer gradient effect
@@ -3705,13 +3653,7 @@ class VRClub {
 
 
             
-            // Enable shadows for more immersion (expensive but worth it for some lights)
-            if (i % 3 === 0) { // Only every 3rd light for performance
-                const shadowGenerator = new BABYLON.ShadowGenerator(512, spot);
-                shadowGenerator.useBlurExponentialShadowMap = true;
-                shadowGenerator.blurScale = 2;
-                shadowGenerator.setDarkness(0.4);
-            }
+            // PERFORMANCE: Shadows disabled for better FPS\n            // Shadow generators are very expensive - removing them entirely\n            // if (i % 3 === 0) { // Only every 3rd light for performance\n            //     const shadowGenerator = new BABYLON.ShadowGenerator(512, spot);\n            //     shadowGenerator.useBlurExponentialShadowMap = true;\n            //     shadowGenerator.blurScale = 2;\n            //     shadowGenerator.setDarkness(0.4);\n            // }
             
             this.spotlights.push({
                 light: spot,
@@ -4033,9 +3975,8 @@ class VRClub {
         // === REFLECTION SPOTS (Simulated light spots from mirror facets) ===
         // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
         // These are purely emissive meshes that create the illusion of reflections
-        // Dense coverage for hyperrealistic mirror ball effect
         this.mirrorReflectionSpots = [];
-        const numSpots = 150; // OPTIMIZED: Reduced from 300 to 150 - still hyperrealistic, 2x faster
+        const numSpots = 60; // PERFORMANCE: Reduced from 150 to 60 for much better FPS
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
@@ -4515,8 +4456,8 @@ class VRClub {
         
         // Update LED wall (with audio reactivity) - respects ledWallActive control
         if (this.ledPanels && this.ledWallActive) {
-            // PERFORMANCE: Update LED wall every 2nd frame (30Hz is sufficient for LED animations)
-            if (this.frameCounter % 2 === 0) {
+            // PERFORMANCE: Update LED wall every 3rd frame (20Hz is sufficient for LED animations)
+            if (this.frameCounter % 3 === 0) {
                 this.updateLEDWall(time, audioData);
             }
         } else if (this.ledPanels && !this.ledWallActive) {
