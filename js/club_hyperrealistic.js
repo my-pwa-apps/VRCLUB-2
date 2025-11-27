@@ -1062,164 +1062,6 @@ class VRClub {
         log.info("✅ Created hyperrealistic entrance with velvet ropes and stanchions");
     }
 
-    // === BAR AREA WITH BOTTLES AND STOOLS ===
-    createBarArea() {
-        log.info("🍸 Creating hyperrealistic bar area...");
-        
-        // Materials
-        const barCounterMat = this.materialFactory.getPreset('barCounter');
-        const barTopMat = this.materialFactory.getPreset('barTop');
-        const barStoolMat = this.materialFactory.getPreset('barStool');
-        const stoolCushionMat = this.materialFactory.getPreset('stoolCushion');
-        
-        // === BAR COUNTER (Right wall) ===
-        // Main bar body (dark wood)
-        const barBody = BABYLON.MeshBuilder.CreateBox("barBody", {
-            width: 0.8, height: 1.1, depth: 8
-        }, this.scene);
-        barBody.position = new BABYLON.Vector3(16, 0.55, -8);
-        barBody.material = barCounterMat;
-        barBody.freezeWorldMatrix();
-        
-        // Bar top (polished granite/marble)
-        const barTop = BABYLON.MeshBuilder.CreateBox("barTop", {
-            width: 1.0, height: 0.08, depth: 8.2
-        }, this.scene);
-        barTop.position = new BABYLON.Vector3(16, 1.14, -8);
-        barTop.material = barTopMat;
-        barTop.freezeWorldMatrix();
-        
-        // Foot rail (brass)
-        const footRailMat = this.materialFactory.getPreset('stanchionPost');
-        const footRail = BABYLON.MeshBuilder.CreateCylinder("barFootRail", {
-            diameter: 0.06, height: 7.5, tessellation: 16
-        }, this.scene);
-        footRail.position = new BABYLON.Vector3(15.3, 0.2, -8);
-        footRail.rotation.x = Math.PI / 2;
-        footRail.material = footRailMat;
-        
-        // Foot rail brackets
-        for (let i = 0; i < 4; i++) {
-            const bracket = BABYLON.MeshBuilder.CreateBox(`footRailBracket${i}`, {
-                width: 0.15, height: 0.08, depth: 0.04
-            }, this.scene);
-            bracket.position = new BABYLON.Vector3(15.4, 0.2, -11 + i * 2);
-            bracket.material = footRailMat;
-        }
-        
-        // === BAR STOOLS ===
-        const stoolPositions = [-11, -9, -7, -5];
-        stoolPositions.forEach((z, i) => {
-            // Stool base (chrome ring)
-            const stoolBase = BABYLON.MeshBuilder.CreateTorus(`stoolBase${i}`, {
-                diameter: 0.45, thickness: 0.03, tessellation: 24
-            }, this.scene);
-            stoolBase.position = new BABYLON.Vector3(15, 0.03, z);
-            stoolBase.material = barStoolMat;
-            
-            // Stool post (chrome)
-            const stoolPost = BABYLON.MeshBuilder.CreateCylinder(`stoolPost${i}`, {
-                diameter: 0.08, height: 0.65, tessellation: 12
-            }, this.scene);
-            stoolPost.position = new BABYLON.Vector3(15, 0.35, z);
-            stoolPost.material = barStoolMat;
-            
-            // Seat cushion (leather)
-            const seatCushion = BABYLON.MeshBuilder.CreateCylinder(`stoolSeat${i}`, {
-                diameter: 0.38, height: 0.1, tessellation: 24
-            }, this.scene);
-            seatCushion.position = new BABYLON.Vector3(15, 0.72, z);
-            seatCushion.material = stoolCushionMat;
-            
-            // Backrest frame
-            const backrest = BABYLON.MeshBuilder.CreateBox(`stoolBack${i}`, {
-                width: 0.3, height: 0.35, depth: 0.04
-            }, this.scene);
-            backrest.position = new BABYLON.Vector3(14.8, 0.95, z);
-            backrest.material = barStoolMat;
-            
-            // PERFORMANCE: Freeze all static stool meshes
-            stoolBase.freezeWorldMatrix();
-            stoolPost.freezeWorldMatrix();
-            seatCushion.freezeWorldMatrix();
-            backrest.freezeWorldMatrix();
-            stoolBase.doNotSyncBoundingInfo = true;
-            stoolPost.doNotSyncBoundingInfo = true;
-            seatCushion.doNotSyncBoundingInfo = true;
-            backrest.doNotSyncBoundingInfo = true;
-        });
-        
-        // === BACK BAR SHELVING WITH BOTTLES ===
-        const shelfMat = this.materialFactory.createPBRMaterial('barShelfMat', {
-            baseColor: [0.1, 0.1, 0.1],
-            metallic: 0.7,
-            roughness: 0.3
-        }, true);
-        
-        // Glass shelves (3 tiers)
-        for (let tier = 0; tier < 3; tier++) {
-            const shelf = BABYLON.MeshBuilder.CreateBox(`barShelf${tier}`, {
-                width: 0.25, height: 0.02, depth: 6
-            }, this.scene);
-            shelf.position = new BABYLON.Vector3(16.6, 1.3 + tier * 0.5, -8);
-            shelf.material = shelfMat;
-            shelf.freezeWorldMatrix();
-            shelf.doNotSyncBoundingInfo = true;
-        }
-        
-        // LED strip under each shelf
-        const shelfLEDMat = this.materialFactory.getPreset('floorEdgeLED');
-        for (let tier = 0; tier < 3; tier++) {
-            const led = BABYLON.MeshBuilder.CreateBox(`barShelfLED${tier}`, {
-                width: 0.22, height: 0.01, depth: 5.8
-            }, this.scene);
-            led.position = new BABYLON.Vector3(16.6, 1.28 + tier * 0.5, -8);
-            const ledMat = shelfLEDMat.clone(`barShelfLEDMat${tier}`);
-            ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.5, 1); // Blue backlight
-            led.material = ledMat;
-            led.freezeWorldMatrix();
-            led.doNotSyncBoundingInfo = true;
-        }
-        
-        // === DECORATIVE BOTTLES (simplified) ===
-        const bottleColors = [
-            [0.1, 0.4, 0.15], // Green
-            [0.4, 0.2, 0.05], // Amber
-            [0.15, 0.15, 0.4], // Blue
-            [0.3, 0.05, 0.05]  // Red
-        ];
-        
-        for (let tier = 0; tier < 3; tier++) {
-            for (let b = 0; b < 8; b++) {
-                const bottleHeight = 0.2 + Math.random() * 0.1;
-                const bottle = BABYLON.MeshBuilder.CreateCylinder(`bottle_${tier}_${b}`, {
-                    diameterTop: 0.02,
-                    diameterBottom: 0.04,
-                    height: bottleHeight,
-                    tessellation: 8
-                }, this.scene);
-                bottle.position = new BABYLON.Vector3(
-                    16.6,
-                    1.32 + tier * 0.5 + bottleHeight / 2,
-                    -10.5 + b * 0.7
-                );
-                const bottleMat = this.materialFactory.createPBRMaterial(`bottleMat_${tier}_${b}`, {
-                    baseColor: bottleColors[b % bottleColors.length],
-                    metallic: 0.0,
-                    roughness: 0.1,
-                    alpha: 0.85
-                });
-                bottle.material = bottleMat;
-                // PERFORMANCE: Freeze static bottles
-                bottle.freezeWorldMatrix();
-                bottle.doNotSyncBoundingInfo = true;
-                bottle.isPickable = false;
-            }
-        }
-        
-        log.info("✅ Created hyperrealistic bar area with stools and bottles");
-    }
-
     // === DANCE FLOOR EDGE LIGHTING ===
     createDanceFloorLighting() {
         log.info("💃 Creating dance floor edge lighting...");
@@ -3015,14 +2857,16 @@ class VRClub {
         // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
         const lightFixtureMat = this.materialFactory.getPreset('lightFixture');
         
-        // Array of light positions on truss - MATCH spotlight positions exactly
+        // Array of light positions on truss - positioned ON actual truss beams
+        // Main trusses run along X at Z=-8, -12, -16, -20 (horizontal beams)
+        // Cross beams run along Z at X=-8, -4, 0, 4, 8 (vertical connecting beams)
         const lightPositions = [
-            { x: -8, z: -10 },  // Left front - matches spotlight
-            { x: -8, z: -14 },  // Left middle - matches spotlight
-            { x: -8, z: -18 },  // Left back - matches spotlight
-            { x: 8, z: -10 },   // Right front - matches spotlight
-            { x: 8, z: -14 },   // Right middle - matches spotlight
-            { x: 8, z: -18 }    // Right back - matches spotlight
+            { x: -8, z: -8 },   // Left on truss1 (front)
+            { x: -8, z: -12 },  // Left on truss2 (middle)
+            { x: -8, z: -16 },  // Left on truss3 (back)
+            { x: 8, z: -8 },    // Right on truss1 (front)
+            { x: 8, z: -12 },   // Right on truss2 (middle)
+            { x: 8, z: -16 }    // Right on truss3 (back)
         ];
         
         this.trussLights = [];
@@ -3596,14 +3440,15 @@ class VRClub {
         
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
-        // 6 spotlights: 3 on left side, 3 on right side
+        // 6 spotlights: 3 on left side, 3 on right side - POSITIONED ON ACTUAL TRUSSES
+        // Main trusses at Z=-8, -12, -16; spotlights at X=±8 (where trusses intersect side beams)
         const spotPositions = [
-            { x: -8, z: -10 },  // Left front
-            { x: -8, z: -14 },  // Left middle
-            { x: -8, z: -18 },  // Left back
-            { x: 8, z: -10 },   // Right front
-            { x: 8, z: -14 },   // Right middle
-            { x: 8, z: -18 }    // Right back
+            { x: -8, z: -8 },   // Left on truss1 (front)
+            { x: -8, z: -12 },  // Left on truss2 (middle)
+            { x: -8, z: -16 },  // Left on truss3 (back)
+            { x: 8, z: -8 },    // Right on truss1 (front)
+            { x: 8, z: -12 },   // Right on truss2 (middle)
+            { x: 8, z: -16 }    // Right on truss3 (back)
         ];
         
         const spotColors = [
