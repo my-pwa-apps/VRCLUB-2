@@ -1764,19 +1764,17 @@ class VRClub {
         // Truss 3 - Back (near LED wall)
         const truss3 = createBoxTruss("truss3", 24, new BABYLON.Vector3(0, 8, -16));
         
-        // Truss 4 - Extended back (for back spotlights)
-        const truss4 = createBoxTruss("truss4", 24, new BABYLON.Vector3(0, 8, -20));
-        
-        // Cross beams connecting the trusses - also box truss (extended to cover all spotlights)
-        // Store side beams for laser mounting
+        // Cross beams connecting the trusses at the sides (X = -8 and +8)
+        // These run perpendicular to main trusses, connecting them together
+        // Length of 10m covers Z=-8 to Z=-18 (connecting trusses 1, 2, and 3)
         this.sideTrusses = {};
-        for (let i = -12; i <= 12; i += 4) {
-            const crossBeam = createBoxTruss("crossBeam" + i, 14, new BABYLON.Vector3(i, 8, -14));
-            crossBeam.rotation.y = Math.PI / 2;
-            if (i === -8 || i === 8) {
-                this.sideTrusses[i] = crossBeam; // Store left (-8) and right (8) side trusses
-            }
-        }
+        const leftSideBeam = createBoxTruss("crossBeamLeft", 10, new BABYLON.Vector3(-8, 8, -12));
+        leftSideBeam.rotation.y = Math.PI / 2;
+        this.sideTrusses[-8] = leftSideBeam;
+        
+        const rightSideBeam = createBoxTruss("crossBeamRight", 10, new BABYLON.Vector3(8, 8, -12));
+        rightSideBeam.rotation.y = Math.PI / 2;
+        this.sideTrusses[8] = rightSideBeam;
         
         // === HYPERREALISTIC CHAIN MOTOR HOISTS ===
         // Professional stage rigging with chain hoists at strategic points
