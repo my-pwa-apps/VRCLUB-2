@@ -165,6 +165,7 @@ class VRClub {
         this.ledWallActive = true;
         this.strobesActive = true;
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
+        this.laserSheetActive = false; // Laser sheet effect
         
         // Spotlight pattern and speed controls
         this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
@@ -550,6 +551,7 @@ class VRClub {
         this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
         this.createLights();
         this.createBlinders();
+        this.createLaserSheet(); // Add scanning laser sheet effect
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
@@ -2513,6 +2515,13 @@ class VRClub {
                 onColor: new BABYLON.Color3(1, 0.5, 1),
                 offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
                 row: 2, col: 2
+            },
+            { 
+                label: "LASER SHEET", 
+                control: "laserSheetActive",
+                onColor: new BABYLON.Color3(0, 1, 0),
+                offColor: new BABYLON.Color3(0, 0.2, 0),
+                row: 3, col: 0 // New row for laser sheet
             }
         ];
         
