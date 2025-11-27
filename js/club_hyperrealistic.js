@@ -329,12 +329,19 @@ class VRClub {
         this.scene = new BABYLON.Scene(this.engine);
         this.scene.clearColor = new BABYLON.Color3(0.01, 0.01, 0.02); // Very dark club atmosphere
         
-        // Enable physics for avatar collisions (prevents floor sinking)
-        this.scene.enablePhysics(
-            new BABYLON.Vector3(0, -9.81, 0), // Gravity
-            new BABYLON.CannonJSPlugin()       // Physics engine
-        );
-        log.info('⚽ Physics engine enabled (avatars won\'t sink through floor)');
+        // PERFORMANCE OPTIMIZATIONS - Scene-level settings
+        this.scene.skipFrustumClipping = false; // Keep frustum culling for VR (important)
+        this.scene.blockMaterialDirtyMechanism = true; // Reduce material updates
+        this.scene.useGeometryIdsMap = true; // Faster mesh lookups
+        this.scene.useClonedMeshMap = true; // Faster instance lookups
+        
+        // Physics DISABLED - not needed without avatars (massive CPU savings)
+        // this.scene.enablePhysics(
+        //     new BABYLON.Vector3(0, -9.81, 0), // Gravity
+        //     new BABYLON.CannonJSPlugin()       // Physics engine
+        // );
+        // log.info('⚽ Physics engine enabled (avatars won\'t sink through floor)');
+        log.info('⚡ Physics disabled - single-player mode (better performance)');
         
         // Set scene reference in material factory
         this.materialFactory.scene = this.scene;
@@ -463,6 +470,30 @@ class VRClub {
         // Store VR helper for later use
         this.vrHelper = vrHelper;
         
+        // Enable VR controller locomotion (thumbstick movement)
+        if (vrHelper && vrHelper.baseExperience) {
+            try {
+                // Enable movement controller feature for smooth locomotion with thumbsticks
+                const movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
+                    BABYLON.WebXRFeatureName.MOVEMENT,
+                    'latest',
+                    {
+                        xrInput: vrHelper.input,
+                        // Smooth locomotion settings
+                        movementEnabled: true,
+                        movementSpeed: 0.5, // Movement speed (meters per second at full stick deflection)
+                        rotationEnabled: true,
+                        rotationSpeed: 0.8, // Turning speed with right stick
+                        // Keep user on floor
+                        movementOrientationFollowsViewerPose: true // Move in direction you're looking
+                    }
+                );
+                log.info('🎮 VR controller locomotion enabled (use thumbsticks to move/turn)');
+            } catch (e) {
+                console.warn('Could not enable VR movement feature:', e);
+            }
+        }
+        
         // Set VR starting position at dance floor center (below mirror ball)
         if (vrHelper) {
             vrHelper.baseExperience.onStateChangedObservable.add((state) => {
@@ -470,7 +501,8 @@ class VRClub {
                     // Position user at dance floor center below mirror ball
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
-                        xrCamera.position = new BABYLON.Vector3(0, 0, -12);
+                        // Y=1.7 for proper standing eye height (not 0 which is floor level)
+                        xrCamera.position = new BABYLON.Vector3(0, 1.7, -12);
                         
                         // Configure depth range for better VR rendering (now that session is active)
                         if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
@@ -1105,6 +1137,16 @@ class VRClub {
             }, this.scene);
             backrest.position = new BABYLON.Vector3(14.8, 0.95, z);
             backrest.material = barStoolMat;
+            
+            // PERFORMANCE: Freeze all static stool meshes
+            stoolBase.freezeWorldMatrix();
+            stoolPost.freezeWorldMatrix();
+            seatCushion.freezeWorldMatrix();
+            backrest.freezeWorldMatrix();
+            stoolBase.doNotSyncBoundingInfo = true;
+            stoolPost.doNotSyncBoundingInfo = true;
+            seatCushion.doNotSyncBoundingInfo = true;
+            backrest.doNotSyncBoundingInfo = true;
         });
         
         // === BACK BAR SHELVING WITH BOTTLES ===
@@ -1122,6 +1164,7 @@ class VRClub {
             shelf.position = new BABYLON.Vector3(16.6, 1.3 + tier * 0.5, -8);
             shelf.material = shelfMat;
             shelf.freezeWorldMatrix();
+            shelf.doNotSyncBoundingInfo = true;
         }
         
         // LED strip under each shelf
@@ -1134,6 +1177,8 @@ class VRClub {
             const ledMat = shelfLEDMat.clone(`barShelfLEDMat${tier}`);
             ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.5, 1); // Blue backlight
             led.material = ledMat;
+            led.freezeWorldMatrix();
+            led.doNotSyncBoundingInfo = true;
         }
         
         // === DECORATIVE BOTTLES (simplified) ===
@@ -1165,6 +1210,10 @@ class VRClub {
                     alpha: 0.85
                 });
                 bottle.material = bottleMat;
+                // PERFORMANCE: Freeze static bottles
+                bottle.freezeWorldMatrix();
+                bottle.doNotSyncBoundingInfo = true;
+                bottle.isPickable = false;
             }
         }
         
@@ -2723,6 +2772,11 @@ class VRClub {
                 panelMat.disableLighting = true;
                 panel.material = panelMat;
                 
+                // PERFORMANCE: Freeze static geometry (panel position never changes)
+                panel.freezeWorldMatrix();
+                panel.doNotSyncBoundingInfo = true;
+                panel.isPickable = false;
+                
                 // Remove most backlights - only minimal ambient
                 if (row === 3 && col === 5) {
                     const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
@@ -2974,12 +3028,65 @@ class VRClub {
         this.trussLights = [];
         
         lightPositions.forEach((pos, i) => {
-            // === REALISTIC MOVING HEAD FIXTURE ===
-            // Hierarchy: Root -> Base (Static) -> Yoke (Pan) -> Head (Tilt)
+            // === REALISTIC MOVING HEAD FIXTURE WITH TRUSS MOUNTING ===
+            // Hierarchy: Root -> Clamp (on truss) -> Drop Pipe -> Base (Static) -> Yoke (Pan) -> Head (Tilt)
             
             // Root Transform Node (for positioning the whole unit)
             const root = new BABYLON.TransformNode("lightRoot" + i, this.scene);
             root.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            
+            // === TRUSS MOUNTING HARDWARE (connects fixture to truss above) ===
+            // Professional C-clamp that wraps around truss tube
+            const clampMat = this.materialFactory.createPBRMaterial("clampMat" + i, {
+                baseColor: [0.1, 0.1, 0.1], // Dark gray steel
+                metallic: 0.9,
+                roughness: 0.4
+            });
+            
+            // C-Clamp body (wraps around truss tube at Y=8)
+            const clamp = BABYLON.MeshBuilder.CreateTorus("clamp" + i, {
+                diameter: 0.12,  // Fits around 48mm (0.048m) truss tube
+                thickness: 0.02,
+                tessellation: 16,
+                arc: 0.85  // Open C-shape
+            }, this.scene);
+            clamp.parent = root;
+            clamp.position.y = 0.2;  // 0.2m above fixture base (at truss level Y=8)
+            clamp.rotation.x = Math.PI / 2;  // Horizontal orientation
+            clamp.rotation.z = Math.PI;  // Open side facing outward
+            clamp.material = clampMat;
+            
+            // Clamp bolt (tightening mechanism)
+            const clampBolt = BABYLON.MeshBuilder.CreateCylinder("clampBolt" + i, {
+                diameter: 0.03,
+                height: 0.08,
+                tessellation: 8
+            }, this.scene);
+            clampBolt.parent = root;
+            clampBolt.position = new BABYLON.Vector3(0.06, 0.2, 0);
+            clampBolt.rotation.z = Math.PI / 2;
+            clampBolt.material = clampMat;
+            
+            // Drop pipe (vertical pipe from clamp to fixture base)
+            const dropPipe = BABYLON.MeshBuilder.CreateCylinder("dropPipe" + i, {
+                diameter: 0.04,
+                height: 0.2,  // 0.2m drop from truss to fixture
+                tessellation: 12
+            }, this.scene);
+            dropPipe.parent = root;
+            dropPipe.position.y = 0.1;  // Centered between clamp and base
+            dropPipe.material = lightFixtureMat;
+            
+            // Safety cable (realistic safety loop)
+            const safetyCable = BABYLON.MeshBuilder.CreateTorus("safetyCable" + i, {
+                diameter: 0.15,
+                thickness: 0.005,
+                tessellation: 16
+            }, this.scene);
+            safetyCable.parent = root;
+            safetyCable.position.y = 0.15;
+            safetyCable.rotation.x = Math.PI / 2;
+            safetyCable.material = clampMat;
 
             // 1. BASE (Static mount)
             const base = BABYLON.MeshBuilder.CreateBox("fixtureBase" + i, {
@@ -3121,7 +3228,35 @@ class VRClub {
         
         this.strobes = [];
         
+        // Reuse clamp material for strobe mounts
+        const strobeMountMat = this.materialFactory.createPBRMaterial("strobeMountMat", {
+            baseColor: [0.1, 0.1, 0.1],
+            metallic: 0.9,
+            roughness: 0.4
+        }, true); // shared
+        
         strobePositions.forEach((pos, i) => {
+            // === STROBE MOUNTING HARDWARE ===
+            // Bracket that connects strobe to truss
+            const bracket = BABYLON.MeshBuilder.CreateBox("strobeBracket" + i, {
+                width: 0.1,
+                height: 0.4,  // Drops from truss (Y=8) to strobe (Y=7.6)
+                depth: 0.1
+            }, this.scene);
+            bracket.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            bracket.material = strobeMountMat;
+            
+            // Clamp at top (grips truss)
+            const clamp = BABYLON.MeshBuilder.CreateTorus("strobeClamp" + i, {
+                diameter: 0.12,
+                thickness: 0.02,
+                tessellation: 12,
+                arc: 0.85
+            }, this.scene);
+            clamp.position = new BABYLON.Vector3(pos.x, 8, pos.z);
+            clamp.rotation.x = Math.PI / 2;
+            clamp.material = strobeMountMat;
+            
             const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
                 width: 0.4,
                 height: 0.3,
