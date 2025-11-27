@@ -367,6 +367,19 @@ class MaterialFactory {
             baseColor: [0.02, 0.02, 0.02],
             metallic: 0.0,
             roughness: 0.8
+        }, true),
+
+        // === FURNITURE ===
+        barStool: () => this.createPBRMaterial('barStoolMat', {
+            baseColor: [0.1, 0.1, 0.1], // Black metal frame
+            metallic: 0.9,
+            roughness: 0.3
+        }, true),
+
+        stoolCushion: () => this.createPBRMaterial('stoolCushionMat', {
+            baseColor: [0.05, 0.05, 0.05], // Black leather
+            metallic: 0.2,
+            roughness: 0.6
         }, true)
     };
 

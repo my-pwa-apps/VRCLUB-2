@@ -3449,6 +3449,75 @@ class VRClub {
         
     }
 
+    createBlinders() {
+        // AUDIENCE BLINDERS - High intensity warm white lights for drops/impacts
+        // 4 Blinders mounted on the front truss facing the crowd
+        this.blinders = [];
+        
+        const blinderPositions = [
+            { x: -6, y: 7.5, z: -8 },
+            { x: -2, y: 7.5, z: -8 },
+            { x: 2, y: 7.5, z: -8 },
+            { x: 6, y: 7.5, z: -8 }
+        ];
+
+        blinderPositions.forEach((pos, i) => {
+            // Fixture Mesh (Square 4-cell blinder style)
+            const fixture = BABYLON.MeshBuilder.CreateBox("blinder" + i, {
+                width: 0.8,
+                height: 0.8,
+                depth: 0.2
+            }, this.scene);
+            fixture.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
+            fixture.rotation.x = Math.PI / 6; // Angled down slightly
+            
+            const fixtureMat = this.materialFactory.getPreset('lightFixture');
+            fixture.material = fixtureMat;
+
+            // Light Emitter (The "Bulb" face)
+            const emitter = BABYLON.MeshBuilder.CreatePlane("blinderEmitter" + i, {
+                size: 0.7
+            }, this.scene);
+            emitter.parent = fixture;
+            emitter.position.z = -0.11; // Front face
+            emitter.rotation.y = Math.PI; // Face forward
+            
+            const emitterMat = new BABYLON.PBRMaterial("blinderMat" + i, this.scene);
+            emitterMat.albedoColor = new BABYLON.Color3(0, 0, 0);
+            emitterMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.7); // Warm white
+            emitterMat.emissiveIntensity = 0; // Start off
+            emitterMat.disableLighting = true;
+            emitter.material = emitterMat;
+
+            // Lens Flare for "Blinding" effect
+            // We use a billboarded plane with a flare texture that scales up when on
+            const flare = BABYLON.MeshBuilder.CreatePlane("blinderFlare" + i, {
+                size: 4.0
+            }, this.scene);
+            flare.parent = fixture;
+            flare.position.z = -0.2;
+            flare.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+            
+            const flareTexture = new BABYLON.Texture("https://cdn.babylonjs.com/lensflare/flare.png", this.scene);
+            const flareMat = new BABYLON.StandardMaterial("blinderFlareMat" + i, this.scene);
+            flareMat.diffuseTexture = flareTexture;
+            flareMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.7);
+            flareMat.opacityTexture = flareTexture;
+            flareMat.alpha = 0; // Start invisible
+            flareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            flareMat.disableLighting = true;
+            flare.material = flareMat;
+
+            this.blinders.push({
+                fixture: fixture,
+                emitterMat: emitterMat,
+                flare: flare,
+                flareMat: flareMat,
+                intensity: 0
+            });
+        });
+    }
+
     createMirrorBall() {
         // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
         // Professional mirror ball suspended from center truss with dedicated spotlight
