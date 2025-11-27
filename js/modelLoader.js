@@ -99,19 +99,19 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(-7, 0.5, -25),
-                rotation: new BABYLON.Vector3(0, Math.PI / 6, 0), // Angled toward center
-                scale: new BABYLON.Vector3(0.12, 0.12, 0.12), // Increased from 0.08 for better visibility
-                useProcedural: true, // Use procedural as primary (3D model as enhancement)
+                position: new BABYLON.Vector3(-7, 0, -25), // Y will be auto-adjusted to sit on floor
+                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Face forward toward dance floor
+                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
+                useProcedural: false, // USE the 3D model
                 attribution: 'PA Speakers (CC BY 4.0)'
             },
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(7, 0.5, -25),
-                rotation: new BABYLON.Vector3(0, -Math.PI / 6, 0), // Angled toward center
-                scale: new BABYLON.Vector3(0.12, 0.12, 0.12), // Increased from 0.08 for better visibility
-                useProcedural: true, // Use procedural as primary (3D model as enhancement)
+                position: new BABYLON.Vector3(7, 0, -25), // Y will be auto-adjusted to sit on floor
+                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Face forward toward dance floor
+                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
+                useProcedural: false, // USE the 3D model
                 attribution: 'PA Speakers (CC BY 4.0)'
             }
         };
@@ -202,6 +202,25 @@ class ModelLoader {
                 rootMesh.position = config.position.clone();
                 rootMesh.rotation = config.rotation.clone();
                 rootMesh.scaling = config.scale.clone();
+                
+                // Auto-scale PA speakers to desired height (5.5m tall like procedural ones)
+                if (modelKey.startsWith('pa_speaker')) {
+                    // Compute bounding box to get actual model height
+                    rootMesh.refreshBoundingInfo(true);
+                    const boundingInfo = rootMesh.getHierarchyBoundingVectors(true);
+                    const modelHeight = boundingInfo.max.y - boundingInfo.min.y;
+                    const desiredHeight = 5.5; // Match procedural speaker stack height
+                    
+                    if (modelHeight > 0) {
+                        const autoScale = desiredHeight / modelHeight;
+                        rootMesh.scaling = new BABYLON.Vector3(autoScale, autoScale, autoScale);
+                        console.log(`   📏 Auto-scaled PA speaker from ${modelHeight.toFixed(2)}m to ${desiredHeight}m (scale: ${autoScale.toFixed(4)})`);
+                        
+                        // Adjust Y position so bottom sits on floor
+                        const scaledMinY = boundingInfo.min.y * autoScale;
+                        rootMesh.position.y = -scaledMinY;
+                    }
+                }
             }
             
             // CRITICAL: Configure all meshes for optimal VR and desktop visibility
@@ -318,13 +337,14 @@ class ModelLoader {
                 });
                 console.log(`   🔒 Enforced opaque rendering for PA speakers`);
                 
-                // Hide procedural PA speakers when real 3D models load (they conflict)
+                // Hide ALL procedural PA speaker components when real 3D model loads
                 const xPos = config.position.x;
-                const prefix = xPos < 0 ? 'sub-7' : 'sub7';
+                const xSuffix = xPos < 0 ? '-7' : '7';
                 
-                // Find and hide all procedural speaker parts for this stack
-                ['sub', 'subGrill', 'mid', 'midGrill', 'horn', 'speakerLED'].forEach(meshType => {
-                    const meshName = meshType + (xPos < 0 ? '-7' : '7');
+                // Main speaker components
+                const mainComponents = ['sub', 'subGrill', 'mid', 'midGrill', 'horn', 'speakerLED'];
+                mainComponents.forEach(meshType => {
+                    const meshName = meshType + xSuffix;
                     const mesh = this.scene.getMeshByName(meshName);
                     if (mesh) {
                         mesh.setEnabled(false);
@@ -332,13 +352,41 @@ class ModelLoader {
                     }
                 });
                 
-                // Also hide the LED light for procedural speakers
-                const ledLightName = 'ledLight' + (xPos < 0 ? '-7' : '7');
+                // Woofer components (sub has 2 woofers, mid has 4)
+                for (let i = 0; i < 2; i++) {
+                    ['subSurround', 'subCone', 'subCap'].forEach(prefix => {
+                        const mesh = this.scene.getMeshByName(`${prefix}${xSuffix}_${i}`);
+                        if (mesh) mesh.setEnabled(false);
+                    });
+                }
+                for (let i = 0; i < 4; i++) {
+                    const mesh = this.scene.getMeshByName(`midCone${xSuffix}_${i}`);
+                    if (mesh) mesh.setEnabled(false);
+                }
+                
+                // Rigging hardware
+                ['flybar', 'ampRack', 'ampGrille', 'powerCable'].forEach(prefix => {
+                    const mesh = this.scene.getMeshByName(`${prefix}${xSuffix}`);
+                    if (mesh) mesh.setEnabled(false);
+                });
+                
+                // Shackles and cables
+                for (let i = 0; i < 2; i++) {
+                    ['shackle', 'paCable'].forEach(prefix => {
+                        const mesh = this.scene.getMeshByName(`${prefix}${xSuffix}_${i}`);
+                        if (mesh) mesh.setEnabled(false);
+                    });
+                }
+                
+                // Hide LED light
+                const ledLightName = 'ledLight' + xSuffix;
                 const ledLight = this.scene.getLightByName(ledLightName);
                 if (ledLight) {
                     ledLight.setEnabled(false);
                     console.log(`   🚫 Hidden procedural ${ledLightName}`);
                 }
+                
+                console.log(`   ✅ All procedural PA speaker parts hidden for x=${xPos}`);
             }
             
             this.loadedModels[modelKey] = {
