@@ -72,8 +72,9 @@ class ModelCache {
 }
 
 class ModelLoader {
-    constructor(scene) {
+    constructor(scene, materialFactory = null) {
         this.scene = scene;
+        this.materialFactory = materialFactory;
         this.cache = new ModelCache();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
@@ -231,6 +232,20 @@ class ModelLoader {
                 mesh.isVisible = true;
                 mesh.visibility = 1.0;
                 mesh.renderingGroupId = 0; // Default rendering group
+                
+                // Apply custom black material if requested (e.g., for PA speakers)
+                if (config.makeBlack && this.materialFactory) {
+                    const meshName = mesh.name.toLowerCase();
+                    // Intelligent material assignment based on mesh name
+                    if (meshName.includes('grill') || meshName.includes('front') || meshName.includes('mesh')) {
+                        mesh.material = this.materialFactory.getPreset('speakerGrill');
+                    } else if (meshName.includes('horn') || meshName.includes('tweeter')) {
+                        mesh.material = this.materialFactory.getPreset('speakerHorn');
+                    } else {
+                        mesh.material = this.materialFactory.getPreset('speakerBody');
+                    }
+                    console.log(`   🎨 Applied hyperrealistic material to ${mesh.name}`);
+                }
                 
                 if (mesh.material) {
                     // Limit to 4 lights (safe for PBR materials)

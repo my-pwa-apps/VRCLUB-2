@@ -215,7 +215,7 @@ class VRClub {
         this.avatarManager = null;
         this.isMultiplayer = false;
         this.vjManualMode = false;
-        this.VJ_TIMEOUT = 3600; // Seconds before resuming automated patterns (60 minutes - longer for live VJ sessions)
+        this.VJ_TIMEOUT = 60; // Seconds before resuming automated patterns (1 minute)
         
         // Animation phase tracking for smooth spotlight animations
         this.lastActivePhase = 0; // Initialize phase counter
@@ -392,7 +392,7 @@ class VRClub {
         
         // Initialize model loader for DJ equipment and PA speakers
         log.info('🎸 Initializing 3D model loader...');
-        this.modelLoader = new ModelLoader(this.scene);
+        this.modelLoader = new ModelLoader(this.scene, this.materialFactory);
         await this.modelLoader.init();
         
         // Load all models in the background (they'll load asynchronously)
@@ -473,6 +473,18 @@ class VRClub {
         // Enable VR controller locomotion (thumbstick movement)
         if (vrHelper && vrHelper.baseExperience) {
             try {
+                // CRITICAL FIX: Disable default teleportation to allow smooth movement
+                // Teleportation is enabled by default in createDefaultXRExperienceAsync and conflicts with movement
+                const teleportation = vrHelper.baseExperience.featuresManager.enableFeature(
+                    BABYLON.WebXRFeatureName.TELEPORTATION,
+                    'latest',
+                    { xrInput: vrHelper.input, floorMeshes: [this.floorMesh] }
+                );
+                if (teleportation) {
+                    teleportation.detach();
+                    log.info('🚫 Teleportation disabled to enable smooth locomotion');
+                }
+                
                 // Enable movement controller feature for smooth locomotion with thumbsticks
                 const movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
                     BABYLON.WebXRFeatureName.MOVEMENT,
@@ -589,13 +601,23 @@ class VRClub {
     }
 
     addPostProcessing() {
+        // Prevent duplicate pipelines
+        if (this.renderPipeline) {
+            return;
+        }
+
         // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
+        // Note: We create it without cameras first, then add camera to avoid potential "reuse" warnings
         const pipeline = new BABYLON.DefaultRenderingPipeline(
             "defaultPipeline",
             true, // HDR enabled for better color range
-            this.scene,
-            [this.camera]
+            this.scene
         );
+        
+        // Add camera explicitly
+        if (this.camera) {
+            pipeline.addCamera(this.camera);
+        }
         
         // FXAA anti-aliasing for smooth edges (essential for immersion)
         pipeline.fxaaEnabled = true;
@@ -3327,7 +3349,7 @@ class VRClub {
             // HYPERREALISTIC GOBO PROJECTION - Single layer with texture
             // Replaces the expensive 3-layer disc system with a single textured mesh
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 1.4, // Reduced from 2.0 to 1.4 to match beam better
+                radius: 0.8, // Reduced from 1.4 to 0.8 (much smaller)
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
@@ -3345,9 +3367,9 @@ class VRClub {
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(0.8); // Reduced from 1.5 to 0.8
+            poolMat.emissiveColor = this.currentSpotColor.scale(0.4); // Reduced from 0.8 to 0.4 (much dimmer)
             poolMat.opacityTexture = goboTexture; // Cutout shape
-            poolMat.alpha = 0.4; // Reduced from 0.6 to 0.4
+            poolMat.alpha = 0.2; // Reduced from 0.4 to 0.2 (very transparent)
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
             lightPool.material = poolMat;
@@ -4109,69 +4131,111 @@ class VRClub {
             
             if (time - this.lightModeSwitchTime > currentPhaseDuration) {
                 // PROFESSIONAL PHASE PROGRESSION (like real DJ sets)
-                // ONLY adjusts speed multipliers - VJ maintains full control over which lights are on/off
+                // ACTIVELY CONTROLS LIGHT STATES when in auto mode
                 switch(this.lightingPhase) {
                     case 'build':
                         // BUILD → PEAK: Transition from spotlights to lasers (high energy)
                         this.lightingPhase = 'peak';
                         this.targetEnergy = 1.0;
-                        // SPEED SUGGESTIONS ONLY - Don't force light on/off states
-                        this.spotlightSpeed = 1.5; // Speed up for peak energy
+                        
+                        // ACTIVE CONTROL: High Energy
+                        this.lightsActive = true;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = true;
+                        
+                        this.spotlightPattern = 0; // Random/Fast
+                        this.spotlightMode = 0; // Strobe + Sweep
+                        
+                        this.spotlightSpeed = 1.5;
                         this.laserSpeed = 1.5;
                         this.mirrorBallSpeed = 1.5;
                         this.ledWallSpeed = 1.5;
                         this.strobeSpeed = 1.5;
                         this.currentShowMode = 'lasers';
-                        log.info('🔥 PEAK: High energy speeds (VJ controls which lights are active)');
+                        log.info('🔥 PEAK: High energy - Lasers & Strobes ON');
                         break;
                         
                     case 'peak':
                         // PEAK → BREAKDOWN: Drop to mirror ball (dramatic moment)
                         this.lightingPhase = 'breakdown';
                         this.targetEnergy = 0.3;
-                        // SPEED SUGGESTIONS ONLY
-                        this.spotlightSpeed = 0.5; // Slow down for breakdown
+                        
+                        // ACTIVE CONTROL: Disco Moment
+                        this.lightsActive = false; // Spotlights OFF
+                        this.lasersActive = false; // Lasers OFF
+                        this.mirrorBallActive = true; // Mirror Ball ON
+                        this.strobesActive = false; // Strobes OFF
+                        
+                        this.spotlightSpeed = 0.5;
                         this.laserSpeed = 0.5;
                         this.mirrorBallSpeed = 0.5;
                         this.ledWallSpeed = 0.5;
                         this.strobeSpeed = 0.5;
                         this.currentShowMode = 'mirror';
-                        log.info('🪩 BREAKDOWN: Slow vibe speeds (VJ controls which lights are active)');
+                        log.info('🪩 BREAKDOWN: Mirror Ball Moment');
                         break;
                         
                     case 'breakdown':
                         // BREAKDOWN → AMBIENT: Slow atmospheric spotlights
                         this.lightingPhase = 'ambient';
                         this.targetEnergy = 0.4;
-                        // SPEED SUGGESTIONS ONLY
+                        
+                        // ACTIVE CONTROL: Atmospheric
+                        this.lightsActive = true;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        
+                        this.spotlightPattern = 0; // Automated
+                        this.spotlightMode = 1; // Sweep Only (No Strobe)
+                        
                         this.spotlightSpeed = 0.5; // Slow movement
                         this.laserSpeed = 0.3; // Very slow lasers
                         this.mirrorBallSpeed = 0.7;
                         this.ledWallSpeed = 0.6;
                         this.strobeSpeed = 0.5;
                         this.currentShowMode = 'spotlights';
-                        log.info('🌙 AMBIENT: Atmospheric speeds (VJ controls which lights are active)');
+                        log.info('🌙 AMBIENT: Atmospheric Spotlights & Slow Lasers');
                         break;
                         
                     case 'ambient':
                         // AMBIENT → DROP: Big drop with everything!
                         this.lightingPhase = 'drop';
                         this.targetEnergy = 1.0;
-                        // SPEED SUGGESTIONS ONLY
+                        
+                        // ACTIVE CONTROL: Maximum Chaos
+                        this.lightsActive = true;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = true;
+                        
+                        this.spotlightPattern = 0;
+                        this.spotlightMode = 0; // Strobe + Sweep
+                        
                         this.spotlightSpeed = 2.0; // Fast movement for drop
                         this.laserSpeed = 2.0;
                         this.mirrorBallSpeed = 2.0;
                         this.ledWallSpeed = 2.0;
                         this.strobeSpeed = 1.8; // Faster strobe
                         this.currentShowMode = 'combo';
-                        log.info('💥 DROP: Maximum energy speeds (VJ controls which lights are active)');
+                        log.info('💥 DROP: Maximum Energy - EVERYTHING ON');
                         break;
                         
                     case 'drop':
                         // DROP → BUILD: Return to building energy
                         this.lightingPhase = 'build';
                         this.targetEnergy = 0.7;
-                        // SPEED SUGGESTIONS ONLY
+                        
+                        // ACTIVE CONTROL: Building Up
+                        this.lightsActive = true;
+                        this.lasersActive = false; // Lasers OFF for contrast
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        
+                        this.spotlightPattern = 2; // Mirror Sweep (Structured)
+                        this.spotlightMode = 1; // Sweep Only
+                        
                         this.spotlightSpeed = 1.0; // Normal speed
                         this.laserSpeed = 1.0;
                         this.mirrorBallSpeed = 1.0;
@@ -4536,10 +4600,11 @@ class VRClub {
             }
         }
         
-        // Check if VJ manual mode should expire (60 minutes of no interaction)
+        // Check if VJ manual mode should expire (60 seconds of no interaction)
         if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
             this.vjManualMode = false;
-            log.info("🤖 Automated patterns resumed - no VJ interaction for 60 minutes");
+            this.spotlightPattern = 0; // Switch to automated pattern
+            log.info("🤖 Automated patterns resumed - no VJ interaction for 60 seconds");
         }
         
         // Calculate global phase for spotlight patterns (used in multiple places)
@@ -4629,32 +4694,32 @@ class VRClub {
                         dirZ = staticPos.z;
                     } else {
                         // Sweep mode: calculate animated pattern positions
-                        // Calculate CURRENT pattern position - FASTER for more energy
+                        // Calculate CURRENT pattern position - SLOWER for IMMERSIVE feel
                         if (currentPattern === 0) {
-                        // Linear sweep left to right - FAST
-                        dirX1 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster (0.8 → 1.6)
+                        // Linear sweep left to right - SMOOTH
+                        dirX1 = Math.sin(sweepPhase * 0.6) * 0.6; // Slower (1.6 → 0.6)
                         dirZ1 = -0.3;
                 } else if (currentPattern === 1) {
-                    // Circular sweep - ENERGETIC
-                    dirX1 = Math.sin(sweepPhase * 1.2) * 0.5; // 2x faster (0.6 → 1.2)
-                    dirZ1 = Math.cos(sweepPhase * 1.2) * 0.5;
+                    // Circular sweep - ELEGANT
+                    dirX1 = Math.sin(sweepPhase * 0.5) * 0.5; // Slower (1.2 → 0.5)
+                    dirZ1 = Math.cos(sweepPhase * 0.5) * 0.5;
                 } else if (currentPattern === 2) {
-                    // Fan sweep - RAPID
-                    const fanPhase = Math.sin(sweepPhase * 1.0); // 2x faster (0.5 → 1.0)
+                    // Fan sweep - GENTLE
+                    const fanPhase = Math.sin(sweepPhase * 0.4); // Slower (1.0 → 0.4)
                     dirX1 = fanPhase * 0.6;
                     dirZ1 = -0.2;
                 } else if (currentPattern === 3) {
-                    // Cross sweep - DYNAMIC
-                    dirX1 = Math.sin(sweepPhase * 1.4) * 0.5; // 2x faster (0.7 → 1.4)
-                    dirZ1 = Math.cos(sweepPhase * 1.4) * 0.5;
+                    // Cross sweep - FLOWING
+                    dirX1 = Math.sin(sweepPhase * 0.6) * 0.5; // Slower (1.4 → 0.6)
+                    dirZ1 = Math.cos(sweepPhase * 0.6) * 0.5;
                 } else if (currentPattern === 4) {
-                    // Figure-8 sweep - FLOWING
-                    dirX1 = Math.sin(sweepPhase * 1.0) * 0.6; // 2x faster (0.5 → 1.0)
-                    dirZ1 = Math.sin(sweepPhase * 2.0) * 0.4; // 2x faster (1.0 → 2.0)
+                    // Figure-8 sweep - HYPNOTIC
+                    dirX1 = Math.sin(sweepPhase * 0.4) * 0.6; // Slower (1.0 → 0.4)
+                    dirZ1 = Math.sin(sweepPhase * 0.8) * 0.4; // Slower (2.0 → 0.8)
                 } else if (currentPattern === 5) {
-                    // Pulse sweep - PULSING
-                    const pulsePhase = Math.sin(sweepPhase * 0.8); // 2x faster (0.4 → 0.8)
-                    const angle = sweepPhase * 0.6; // 2x faster (0.3 → 0.6)
+                    // Pulse sweep - BREATHING
+                    const pulsePhase = Math.sin(sweepPhase * 0.3); // Slower (0.8 → 0.3)
+                    const angle = sweepPhase * 0.2; // Slower (0.6 → 0.2)
                     dirX1 = pulsePhase * Math.cos(angle) * 0.6;
                     dirZ1 = pulsePhase * Math.sin(angle) * 0.6;
                 } else {
@@ -4663,26 +4728,26 @@ class VRClub {
                     dirZ1 = 0;
                 }
                 
-                // Calculate NEXT pattern position - FASTER for more energy
+                // Calculate NEXT pattern position - SLOWER for IMMERSIVE feel
                 if (nextPattern === 0) {
-                    dirX2 = Math.sin(sweepPhase * 1.6) * 0.6; // 2x faster
+                    dirX2 = Math.sin(sweepPhase * 0.6) * 0.6; // Slower
                     dirZ2 = -0.3;
                 } else if (nextPattern === 1) {
-                    dirX2 = Math.sin(sweepPhase * 1.2) * 0.5; // 2x faster
-                    dirZ2 = Math.cos(sweepPhase * 1.2) * 0.5;
+                    dirX2 = Math.sin(sweepPhase * 0.5) * 0.5; // Slower
+                    dirZ2 = Math.cos(sweepPhase * 0.5) * 0.5;
                 } else if (nextPattern === 2) {
-                    const fanPhase = Math.sin(sweepPhase * 1.0); // 2x faster
+                    const fanPhase = Math.sin(sweepPhase * 0.4); // Slower
                     dirX2 = fanPhase * 0.6;
                     dirZ2 = -0.2;
                 } else if (nextPattern === 3) {
-                    dirX2 = Math.sin(sweepPhase * 1.4) * 0.5; // 2x faster
-                    dirZ2 = Math.cos(sweepPhase * 1.4) * 0.5;
+                    dirX2 = Math.sin(sweepPhase * 0.6) * 0.5; // Slower
+                    dirZ2 = Math.cos(sweepPhase * 0.6) * 0.5;
                 } else if (nextPattern === 4) {
-                    dirX2 = Math.sin(sweepPhase * 1.0) * 0.6; // 2x faster
-                    dirZ2 = Math.sin(sweepPhase * 2.0) * 0.4; // 2x faster
+                    dirX2 = Math.sin(sweepPhase * 0.4) * 0.6; // Slower
+                    dirZ2 = Math.sin(sweepPhase * 0.8) * 0.4; // Slower
                 } else if (nextPattern === 5) {
-                    const pulsePhase = Math.sin(sweepPhase * 0.8); // 2x faster
-                    const angle = sweepPhase * 0.6; // 2x faster
+                    const pulsePhase = Math.sin(sweepPhase * 0.3); // Slower
+                    const angle = sweepPhase * 0.2; // Slower
                     dirX2 = pulsePhase * Math.cos(angle) * 0.6;
                     dirZ2 = pulsePhase * Math.sin(angle) * 0.6;
                 } else {
@@ -4915,12 +4980,12 @@ class VRClub {
                             spot.lightPool.position.z = floorIntersection.z;
                             
                             // Scale based on beam width
-                            const poolSize = baseSize * 1.4; // Reduced from 2.0 to 1.4
+                            const poolSize = baseSize * 1.0; // Reduced from 1.4 to 1.0 (match beam exactly)
                             spot.lightPool.scaling.set(poolSize, poolSize, 1);
                             
-                            spot.lightPool.visibility = 0.7; // Reduced from 0.9 to 0.7
+                            spot.lightPool.visibility = 0.5; // Reduced from 0.7 to 0.5
                             if (spot.poolMat) {
-                                spot.poolMat.emissiveColor = spotColor.scale(0.8 * atmosphericShimmer); // Reduced from 1.5 to 0.8
+                                spot.poolMat.emissiveColor = spotColor.scale(0.4 * atmosphericShimmer); // Reduced from 0.8 to 0.4
                             }
                             
                         } else {

@@ -229,24 +229,24 @@ class MaterialFactory {
 
         // Speakers - Enhanced realism
         speakerBody: () => this.createPBRMaterial('speakerBodyMat', {
-            baseColor: [0.08, 0.08, 0.08],
-            metallic: 0.3, // Increased from 0.2
-            roughness: 0.65, // Reduced from 0.7
-            emissiveColor: [0.02, 0.02, 0.02] // Boosted from [0.01, 0.01, 0.01]
+            baseColor: [0.02, 0.02, 0.02], // Deep black (professional cabinet finish)
+            metallic: 0.1, // Matte finish (painted wood/plastic)
+            roughness: 0.7, // Rough texture
+            emissiveColor: [0.005, 0.005, 0.005] // Minimal ambient visibility
         }, true),
 
         speakerGrill: () => this.createPBRMaterial('speakerGrillMat', {
-            baseColor: [0.3, 0.3, 0.3],
-            metallic: 0.7, // Increased from 0.6
-            roughness: 0.35, // Reduced from 0.4
-            emissiveColor: [0.08, 0.08, 0.08] // Boosted from [0.05, 0.05, 0.05]
+            baseColor: [0.15, 0.15, 0.15], // Dark metallic grey
+            metallic: 0.9, // Metal grill
+            roughness: 0.3, // Semi-gloss
+            emissiveColor: [0.01, 0.01, 0.01] // Slight sheen
         }, true),
 
         speakerHorn: () => this.createPBRMaterial('speakerHornMat', {
-            baseColor: [0.7, 0.7, 0.7],
-            metallic: 0.95, // Increased from 0.9
-            roughness: 0.15, // Reduced from 0.2
-            emissiveColor: [0.08, 0.08, 0.08] // Boosted from [0.05, 0.05, 0.05]
+            baseColor: [0.05, 0.05, 0.05], // Dark plastic
+            metallic: 0.5, // Hard plastic
+            roughness: 0.2, // Glossy
+            emissiveColor: [0.01, 0.01, 0.01]
         }, true),
 
         // Industrial Details
