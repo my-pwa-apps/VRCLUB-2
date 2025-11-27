@@ -537,6 +537,7 @@ class VRClub {
         this.createLasers();
         this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
         this.createLights();
+        this.createBlinders();
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
@@ -3150,7 +3151,7 @@ class VRClub {
         
         // CORE BEAM - Ultra-thin, super bright (realistic laser appearance)
         const beam = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_beam" + beamIndex, {
-            diameter: 0.015,  // Very thin - reduced from 0.04 to 0.015 (real laser thinness)
+            diameter: 0.008,  // Extremely thin (8mm) - reduced from 0.015
             height: 1,
             tessellation: 8
         }, this.scene);
@@ -3164,8 +3165,8 @@ class VRClub {
         beamMat.metallic = 0;
         beamMat.roughness = 1;
         beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red core
-        beamMat.emissiveIntensity = 4.0; // Very intense for laser
-        beamMat.alpha = 0.9; // Nearly opaque core
+        beamMat.emissiveIntensity = 8.0; // Blindingly bright core
+        beamMat.alpha = 1.0; // Fully opaque core
         beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
         beamMat.backFaceCulling = false;
         beamMat.disableLighting = true;
@@ -3174,8 +3175,16 @@ class VRClub {
         beam.renderingGroupId = 1;
         
         // VOLUMETRIC GLOW - Soft halo around the laser (atmospheric scatter)
+        // Use NoiseProceduralTexture for smoke effect
+        const glowTexture = new BABYLON.NoiseProceduralTexture("laserGlowNoise" + laserIndex + "_" + beamIndex, 128, this.scene);
+        glowTexture.octaves = 2;
+        glowTexture.persistence = 0.8;
+        glowTexture.animationSpeedFactor = 0.5;
+        glowTexture.brightness = 0.5;
+        glowTexture.contrast = 1.5;
+
         const beamGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_glow" + beamIndex, {
-            diameter: 0.08,   // Wider glow around thin core
+            diameter: 0.12,   // Wider glow (12cm)
             height: 1,
             tessellation: 8
         }, this.scene);
@@ -3187,9 +3196,11 @@ class VRClub {
         beamGlowMat.albedoColor = new BABYLON.Color3(0, 0, 0);
         beamGlowMat.metallic = 0;
         beamGlowMat.roughness = 1;
+        beamGlowMat.emissiveTexture = glowTexture;
         beamGlowMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red glow
-        beamGlowMat.emissiveIntensity = 1.5;
-        beamGlowMat.alpha = 0.15; // Very transparent for soft glow
+        beamGlowMat.emissiveIntensity = 2.0;
+        beamGlowMat.opacityTexture = glowTexture;
+        beamGlowMat.alpha = 0.2; // Very transparent for soft glow
         beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
         beamGlowMat.backFaceCulling = false;
         beamGlowMat.disableLighting = true;
@@ -3310,23 +3321,13 @@ class VRClub {
             // beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Removed to allow parenting rotation
             
             // ULTRA-REALISTIC VOLUMETRIC BEAM - Simulates light scattering with varying intensity
-            // Create gradient texture for realistic brightness falloff
-            const beamTexture = new BABYLON.DynamicTexture("beamGradient" + i, { width: 512, height: 512 }, this.scene);
-            const ctx = beamTexture.getContext();
-            
-            // Create radial gradient from center (bright) to edge (dim)
-            // Enhanced gradient with sharper center and smoother falloff for professional look
-            const gradient = ctx.createRadialGradient(256, 256, 30, 256, 256, 256);
-            gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Pure white center hotspot (increased from 0.8)
-            gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.7)');  // Sharp bright core
-            gradient.addColorStop(0.45, 'rgba(255, 255, 255, 0.4)'); // Smooth middle transition
-            gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.15)'); // Soft outer glow
-            gradient.addColorStop(0.9, 'rgba(255, 255, 255, 0.05)'); // Very faint edge
-            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent edge
-            
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, 512, 512);
-            beamTexture.update();
+            // Use NoiseProceduralTexture for dynamic smoke effect
+            const beamTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
+            beamTexture.octaves = 3;
+            beamTexture.persistence = 0.8;
+            beamTexture.animationSpeedFactor = 0.5; // Slow moving smoke
+            beamTexture.brightness = 0.5;
+            beamTexture.contrast = 2.0; // High contrast for defined beams
             
             // Use PBR material with gradient texture for realistic light falloff
             const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
@@ -3336,21 +3337,21 @@ class VRClub {
             beamMat.metallic = 0;
             beamMat.roughness = 1;
             
-            // Apply gradient texture to emissive channel for realistic brightness variation
+            // Apply noise texture to emissive channel for realistic smoke variation
             beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.currentSpotColor.scale(1.2); // Increased visibility
-            beamMat.emissiveIntensity = 6.0; // Increased for better visibility
+            beamMat.emissiveColor = this.currentSpotColor.scale(1.5); // Increased visibility
+            beamMat.emissiveIntensity = 4.0; 
             
-            // Use gradient as alpha mask for realistic edge softness
+            // Use noise as alpha mask for realistic smoke density
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.30; // Increased from 0.15 for much more visible beams
+            beamMat.alpha = 0.25; // Visible but transparent
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
             beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.15, 0.15, 0.15); // More opaque from side
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.2, 0.2, 0.2); // More opaque from side
             beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0); // Transparent when looking along beam
-            beamMat.opacityFresnel.bias = 0.2;
+            beamMat.opacityFresnel.bias = 0.3;
             beamMat.opacityFresnel.power = 2;
             
             // Important settings for realism
@@ -3363,65 +3364,44 @@ class VRClub {
             beam.renderingGroupId = 1; // Render after opaque objects
             
             // PERFORMANCE: Removed beamGlow (outer glow cylinder) - caused doubled beam effect
-            // The main beam cone is sufficient for visual effect
             const beamGlow = null;
             const beamGlowMat = null;
 
             
-            // HYPERREALISTIC FLOOR LIGHT SPLASH - Multi-layer gradient effect
-            // Core bright spot (center hotspot)
-            const lightPoolCore = BABYLON.MeshBuilder.CreateDisc("lightPoolCore" + i, {
-                radius: 0.5,
-                tessellation: 32
-            }, this.scene);
-            lightPoolCore.rotation.x = Math.PI / 2;
-            lightPoolCore.position = new BABYLON.Vector3(pos.x, 0.04, pos.z - 5);
-            lightPoolCore.isPickable = false;
-            
-            const poolCoreMat = new BABYLON.StandardMaterial("poolCoreMat" + i, this.scene);
-            poolCoreMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolCoreMat.emissiveColor = this.currentSpotColor.scale(2.5); // Very bright center
-            poolCoreMat.alpha = 0.8; // Nearly opaque center
-            poolCoreMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive for glow
-            poolCoreMat.disableLighting = true;
-            lightPoolCore.material = poolCoreMat;
-            lightPoolCore.renderingGroupId = 1;
-            
-            // Mid glow (gradient falloff)
+            // HYPERREALISTIC GOBO PROJECTION - Single layer with texture
+            // Replaces the expensive 3-layer disc system with a single textured mesh
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 1.5,
+                radius: 2.0, // Large pool
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
             lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5);
             lightPool.isPickable = false;
             
+            // Create a "Gobo" texture (breakup pattern)
+            const goboTexture = new BABYLON.NoiseProceduralTexture("goboNoise" + i, 256, this.scene);
+            goboTexture.octaves = 4;
+            goboTexture.persistence = 1.2; // High detail
+            goboTexture.animationSpeedFactor = 0; // Static pattern (we rotate the mesh)
+            goboTexture.brightness = 0.8;
+            goboTexture.contrast = 3.0; // Sharp edges like a real gobo
+            
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveColor = this.currentSpotColor.scale(1.0); // Medium bright
-            poolMat.alpha = 0.35; // Semi-transparent
+            poolMat.emissiveTexture = goboTexture;
+            poolMat.emissiveColor = this.currentSpotColor.scale(1.5);
+            poolMat.opacityTexture = goboTexture; // Cutout shape
+            poolMat.alpha = 0.6; 
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
             lightPool.material = poolMat;
             lightPool.renderingGroupId = 1;
             
-            // Outer soft glow (wide falloff)
-            const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
-                radius: 3.0,
-                tessellation: 32
-            }, this.scene);
-            lightPoolGlow.rotation.x = Math.PI / 2;
-            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
-            lightPoolGlow.isPickable = false;
-            
-            const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
-            poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.3); // Soft glow
-            poolGlowMat.alpha = 0.15; // Very transparent
-            poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
-            poolGlowMat.disableLighting = true;
-            lightPoolGlow.material = poolGlowMat;
-            lightPoolGlow.renderingGroupId = 1;
+            // Removed extra layers for performance
+            const lightPoolCore = null;
+            const poolCoreMat = null;
+            const lightPoolGlow = null;
+            const poolGlowMat = null;
             
 
 
@@ -4818,6 +4798,16 @@ class VRClub {
                     // UPDATE BEAM LENGTH (Position/Rotation handled by parenting to Head)
                     // Scale to actual length
                     spot.beam.scaling.y = beamLength;
+                    
+                    // ANIMATE SMOKE TEXTURE (Hyperrealism)
+                    if (spot.beamMat && spot.beamMat.emissiveTexture) {
+                        spot.beamMat.emissiveTexture.vOffset -= 0.01 * speedMultiplier; // Smoke rises up
+                    }
+
+                    // ANIMATE GOBO ROTATION (Hyperrealism)
+                    if (spot.lightPool) {
+                        spot.lightPool.rotation.z += 0.005 * speedMultiplier;
+                    }
                     
                     // Update position to keep start of beam at the lens
                     // Lens is at y=-0.28. Beam is rotated 180, so start is at top (+y relative to beam center).
