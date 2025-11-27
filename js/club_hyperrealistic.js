@@ -2194,6 +2194,14 @@ class VRClub {
                 row2: true
             },
             { 
+                label: "LASER SHEET", 
+                control: "laserSheetActive",
+                onColor: new BABYLON.Color3(0, 1, 0), // Green
+                offColor: new BABYLON.Color3(0, 0.2, 0),
+                x: 2.3,
+                row3: true
+            },
+            { 
                 label: "PATTERN", 
                 control: "cyclePattern",
                 onColor: new BABYLON.Color3(1, 0.5, 1), // Pink - changes per pattern
@@ -4155,6 +4163,7 @@ class VRClub {
                         this.lasersActive = true;
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
+                        this.laserSheetActive = true; // Laser Sheet ON
                         
                         this.spotlightPattern = 0; // Random/Fast
                         this.spotlightMode = 0; // Strobe + Sweep
@@ -4178,6 +4187,7 @@ class VRClub {
                         this.lasersActive = false; // Lasers OFF
                         this.mirrorBallActive = true; // Mirror Ball ON
                         this.strobesActive = false; // Strobes OFF
+                        this.laserSheetActive = false; // Laser Sheet OFF
                         
                         this.spotlightSpeed = 0.5;
                         this.laserSpeed = 0.5;
@@ -4198,6 +4208,7 @@ class VRClub {
                         this.lasersActive = true;
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
+                        this.laserSheetActive = false; // Laser Sheet OFF
                         
                         this.spotlightPattern = 0; // Automated
                         this.spotlightMode = 1; // Sweep Only (No Strobe)
@@ -4221,6 +4232,7 @@ class VRClub {
                         this.lasersActive = true;
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
+                        this.laserSheetActive = true; // Laser Sheet ON
                         
                         this.spotlightPattern = 0;
                         this.spotlightMode = 0; // Strobe + Sweep
@@ -4244,6 +4256,7 @@ class VRClub {
                         this.lasersActive = false; // Lasers OFF for contrast
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
+                        this.laserSheetActive = false; // Laser Sheet OFF
                         
                         this.spotlightPattern = 2; // Mirror Sweep (Structured)
                         this.spotlightMode = 1; // Sweep Only
@@ -4279,7 +4292,7 @@ class VRClub {
                     this.vjControlButtons.forEach(btn => {
                         if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
                             btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
-                            btn.control === 'ledWallActive') {
+                            btn.control === 'ledWallActive' || btn.control === 'laserSheetActive') {
                             btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                         }
                     });
