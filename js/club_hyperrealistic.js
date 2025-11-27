@@ -2088,54 +2088,10 @@ class VRClub {
             isPlaying: false
         };
         
-        // === MONITOR SPEAKERS (behind table, facing DJ) ===
-        // Use PBR material for realistic speaker cabinets
-        const monitorMat = this.materialFactory.createPBRMaterial("monitorMat", {
-            baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.1,
-            roughness: 0.6
-        }, true);
-        
-        const leftMonitor = BABYLON.MeshBuilder.CreateBox("leftMonitor", {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.35
-        }, this.scene);
-        leftMonitor.position = new BABYLON.Vector3(-2.3, 0.85, -23.8);
-        leftMonitor.rotation.y = Math.PI / 8; // Angled towards DJ
-        leftMonitor.material = monitorMat;
-        
-        const rightMonitor = BABYLON.MeshBuilder.CreateBox("rightMonitor", {
-            width: 0.4,
-            height: 0.6,
-            depth: 0.35
-        }, this.scene);
-        rightMonitor.position = new BABYLON.Vector3(2.3, 0.85, -23.8);
-        rightMonitor.rotation.y = -Math.PI / 8; // Angled towards DJ
-        rightMonitor.material = monitorMat;
+        // === MONITOR SPEAKERS REMOVED ===
+        // Monitor speakers removed per user request (2025-11-27)
+        // The DJ relies on headphones or the main PA system
 
-        // Speaker cones (woofers)
-        const coneMat = this.materialFactory.createPBRMaterial("monitorConeMat", {
-            baseColor: [0.1, 0.1, 0.1],
-            metallic: 0.5,
-            roughness: 0.4
-        }, true);
-
-        const createWoofer = (parent, yPos, size) => {
-            const woofer = BABYLON.MeshBuilder.CreateCylinder("woofer", {
-                diameter: size,
-                height: 0.02
-            }, this.scene);
-            woofer.rotation.x = Math.PI / 2;
-            woofer.position = new BABYLON.Vector3(0, yPos, -0.18); // Slightly protruding
-            woofer.parent = parent;
-            woofer.material = coneMat;
-        };
-
-        createWoofer(leftMonitor, -0.15, 0.25); // Main woofer
-        createWoofer(leftMonitor, 0.15, 0.1);   // Tweeter
-        createWoofer(rightMonitor, -0.15, 0.25);
-        createWoofer(rightMonitor, 0.15, 0.1);
         
         // === VJ LIGHTING CONTROL CONSOLE (RIGHT SIDE) ===
         const vjConsole = BABYLON.MeshBuilder.CreateBox("vjConsole", {
@@ -3371,7 +3327,7 @@ class VRClub {
             // HYPERREALISTIC GOBO PROJECTION - Single layer with texture
             // Replaces the expensive 3-layer disc system with a single textured mesh
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 2.0, // Large pool
+                radius: 1.4, // Reduced from 2.0 to 1.4 to match beam better
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
@@ -3389,9 +3345,9 @@ class VRClub {
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(1.5);
+            poolMat.emissiveColor = this.currentSpotColor.scale(0.8); // Reduced from 1.5 to 0.8
             poolMat.opacityTexture = goboTexture; // Cutout shape
-            poolMat.alpha = 0.6; 
+            poolMat.alpha = 0.4; // Reduced from 0.6 to 0.4
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
             lightPool.material = poolMat;
@@ -4959,12 +4915,12 @@ class VRClub {
                             spot.lightPool.position.z = floorIntersection.z;
                             
                             // Scale based on beam width
-                            const poolSize = baseSize * 2.0; // Larger for gobo
+                            const poolSize = baseSize * 1.4; // Reduced from 2.0 to 1.4
                             spot.lightPool.scaling.set(poolSize, poolSize, 1);
                             
-                            spot.lightPool.visibility = 0.9;
+                            spot.lightPool.visibility = 0.7; // Reduced from 0.9 to 0.7
                             if (spot.poolMat) {
-                                spot.poolMat.emissiveColor = spotColor.scale(1.5 * atmosphericShimmer);
+                                spot.poolMat.emissiveColor = spotColor.scale(0.8 * atmosphericShimmer); // Reduced from 1.5 to 0.8
                             }
                             
                         } else {
@@ -6529,7 +6485,7 @@ class VRClub {
             djBooth: { pos: new BABYLON.Vector3(0, 2.0, -24.5), target: new BABYLON.Vector3(0, 1.7, -10) },
             djSide: { pos: new BABYLON.Vector3(-5, 2.0, -23), target: new BABYLON.Vector3(0, 1.5, -23.5) },
             ledWallClose: { pos: new BABYLON.Vector3(0, 3, -22), target: new BABYLON.Vector3(0, 3, -26) },
-            speakers: { pos: new BABYLON.Vector3(0, 2.5, -20), target: new BABYLON.Vector3(-7, 2.5, -25) },
+            speakers: { pos: new BABYLON.Vector3(0, 2.5, -15), target: new BABYLON.Vector3(-11, 2.5, -22) },
             truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
             mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
             overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },

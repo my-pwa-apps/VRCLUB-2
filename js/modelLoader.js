@@ -99,8 +99,8 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(-10, 0, -25), // Y will be auto-adjusted to sit on floor
-                rotation: new BABYLON.Vector3(0, 0, 0), // Face forward toward dance floor (cones pointing +Z)
+                position: new BABYLON.Vector3(-11, 0, -22), // Moved forward from -25 to -22, wider to -11
+                rotation: new BABYLON.Vector3(0, Math.PI / 6, 0), // Tilted 30 degrees inward
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
                 makeBlack: true, // Override material to black
@@ -109,8 +109,8 @@ class ModelLoader {
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/PA_Speakers.glb',
-                position: new BABYLON.Vector3(10, 0, -25), // Y will be auto-adjusted to sit on floor
-                rotation: new BABYLON.Vector3(0, 0, 0), // Face forward toward dance floor (cones pointing +Z)
+                position: new BABYLON.Vector3(11, 0, -22), // Moved forward from -25 to -22, wider to 11
+                rotation: new BABYLON.Vector3(0, -Math.PI / 6, 0), // Tilted 30 degrees inward
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
                 makeBlack: true, // Override material to black
@@ -334,13 +334,13 @@ class ModelLoader {
                         // Make speakers BLACK if configured
                         if (config.makeBlack) {
                             if (speakerMesh.material.albedoColor !== undefined) {
-                                speakerMesh.material.albedoColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+                                speakerMesh.material.albedoColor = new BABYLON.Color3(0.01, 0.01, 0.01); // Darker black (was 0.05)
                             }
                             if (speakerMesh.material.baseColor !== undefined) {
-                                speakerMesh.material.baseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+                                speakerMesh.material.baseColor = new BABYLON.Color3(0.01, 0.01, 0.01);
                             }
                             if (speakerMesh.material.diffuseColor !== undefined) {
-                                speakerMesh.material.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+                                speakerMesh.material.diffuseColor = new BABYLON.Color3(0.01, 0.01, 0.01);
                             }
                         }
                     }
