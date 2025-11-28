@@ -2653,8 +2653,8 @@ class VRClub {
         this.floorFog.maxEmitBox = new BABYLON.Vector3(10, 0.5, 10);
         
         // Colors (Cold white/blueish for dry ice look)
-        this.floorFog.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.2);
-        this.floorFog.color2 = new BABYLON.Color4(0.9, 0.9, 1.0, 0.2);
+        this.floorFog.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.3); // Increased visibility
+        this.floorFog.color2 = new BABYLON.Color4(0.9, 0.9, 1.0, 0.3);
         this.floorFog.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
         
         // Size & Life
@@ -2664,7 +2664,7 @@ class VRClub {
         this.floorFog.maxLifeTime = 7.0;
         
         // Emission
-        this.floorFog.emitRate = 150;
+        this.floorFog.emitRate = 200; // Increased rate
         this.floorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
         
         // Physics (Gravity pulls down slightly to keep it low)
@@ -2692,8 +2692,8 @@ class VRClub {
         this.haze.maxEmitBox = new BABYLON.Vector3(12, 4, 12);
         
         // Colors (Very faint dust/smoke)
-        this.haze.color1 = new BABYLON.Color4(0.5, 0.5, 0.6, 0.03);
-        this.haze.color2 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.03);
+        this.haze.color1 = new BABYLON.Color4(0.5, 0.5, 0.6, 0.05); // Increased visibility
+        this.haze.color2 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.05);
         this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
         
         // Size & Life
@@ -3700,10 +3700,44 @@ class VRClub {
         this.laserLight.specular = new BABYLON.Color3(0, 1, 0);
         this.laserLight.setEnabled(false);
         
+        // === LASER FAN (Beam from source to sheet) ===
+        // Create a triangle mesh connecting the aperture to the sheet
+        // Custom mesh with pivot at the tip (0,0,0)
+        const fanMesh = new BABYLON.Mesh("laserFan", this.scene);
+        const positions = [
+            0, 0, 0,           // Tip (at projector)
+            -12.5, 0, 1,       // Left corner (at sheet distance 1)
+            12.5, 0, 1         // Right corner (at sheet distance 1)
+        ];
+        const indices = [0, 1, 2];
+        const normals = [];
+        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        
+        const vertexData = new BABYLON.VertexData();
+        vertexData.positions = positions;
+        vertexData.indices = indices;
+        vertexData.normals = normals;
+        vertexData.applyToMesh(fanMesh);
+        
+        fanMesh.position = sourcePos.clone(); // Start at projector
+        
+        // Fan Material (Faded version of sheet)
+        const fanMat = new BABYLON.StandardMaterial("laserFanMat", this.scene);
+        fanMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
+        fanMat.disableLighting = true;
+        fanMat.alpha = 0.15; // Very faint beam
+        fanMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+        fanMat.backFaceCulling = false;
+        
+        fanMesh.material = fanMat;
+        fanMesh.isVisible = false;
+        this.laserFan = fanMesh;
+
         // Add to glow layer for bloom effect
         if (this.glowLayer) {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
             this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
+            // Don't add fan to glow layer to keep it crisp/faint
         }
         
         log.info('✨ Laser sheet effect created with hyperrealistic source');
@@ -4133,6 +4167,17 @@ class VRClub {
         // Get audio data for reactive lighting (needed for laser sheet pulse)
         const audioData = this.getAudioData();
 
+        // SMOKE SYSTEM CONTROL
+        if (this.floorFog && this.haze) {
+            if (this.smokeActive) {
+                if (!this.floorFog.isStarted()) this.floorFog.start();
+                if (!this.haze.isStarted()) this.haze.start();
+            } else {
+                if (this.floorFog.isStarted()) this.floorFog.stop();
+                if (this.haze.isStarted()) this.haze.stop();
+            }
+        }
+
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {
             // Vertical scanning motion (up and down)
@@ -4152,6 +4197,33 @@ class VRClub {
                 // Pulse light intensity with audio
                 const pulse = 0.5 + (audioData.average || 0) * 0.5;
                 this.laserLight.intensity = 1.5 * pulse;
+            }
+
+            // Update Laser Fan (Beam from source to sheet)
+            if (this.laserFan) {
+                this.laserFan.isVisible = true;
+                // Point fan at the current sheet height
+                const targetPos = new BABYLON.Vector3(0, scanHeight, -12);
+                this.laserFan.lookAt(targetPos);
+                
+                // Scale fan to reach the sheet
+                // Source at (0, 1.1, -23.27), Target at (0, scanHeight, -12)
+                // Horizontal dist = 11.27, Vertical dist = scanHeight - 1.1
+                const dist = BABYLON.Vector3.Distance(this.laserFan.position, targetPos);
+                this.laserFan.scaling.z = dist; // Stretch to reach sheet
+                
+                // Pulse fan with audio
+                const pulse = 0.5 + (audioData.average || 0) * 0.5;
+                this.laserFan.material.alpha = 0.15 * pulse;
+                
+                // Match color
+                if (this.laserEmissiveColors) {
+                    let sheetColor;
+                    if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
+                    else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
+                    else sheetColor = this.cachedColors.blue;
+                    this.laserFan.material.emissiveColor = sheetColor;
+                }
             }
             
             // Animate texture for "flowing" light effect - SLOWER for "hanging smoke" feel
@@ -4190,6 +4262,7 @@ class VRClub {
             this.laserSheet.isVisible = false;
             if (this.laserLight) this.laserLight.setEnabled(false);
             if (this.laserAperture) this.laserAperture.isVisible = false;
+            if (this.laserFan) this.laserFan.isVisible = false;
         }
 
         // Update dancing NPC avatars
