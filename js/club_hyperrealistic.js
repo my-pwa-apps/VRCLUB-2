@@ -3420,7 +3420,7 @@ class VRClub {
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
             // Reduced size for more realistic club spotlights
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 2.0,      // Wide end - reduced from 4.0 to 2.0m for realism
+                diameterTop: 3.0,      // Wide end - increased from 2.0 to 3.0m for better visibility
                 diameterBottom: 0.25,  // Narrow end - slightly reduced for tighter beam
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 16,
@@ -3461,12 +3461,12 @@ class VRClub {
             
             // Apply noise texture to emissive channel for realistic smoke variation
             beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.currentSpotColor.scale(1.5); // Increased visibility
-            beamMat.emissiveIntensity = 4.0; 
+            beamMat.emissiveColor = this.currentSpotColor.scale(2.0); // Increased visibility (was 1.5)
+            beamMat.emissiveIntensity = 8.0; // Increased from 4.0 for hyperrealism
             
             // Use noise as alpha mask for realistic smoke density
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.25; // Visible but transparent
+            beamMat.alpha = 0.6; // Increased from 0.25 for better visibility
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
@@ -3493,7 +3493,7 @@ class VRClub {
             // HYPERREALISTIC GOBO PROJECTION - Single layer with texture
             // Replaces the expensive 3-layer disc system with a single textured mesh
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 0.8, // Reduced from 1.4 to 0.8 (much smaller)
+                radius: 1.5, // Increased from 0.8 to 1.5 for larger footprint
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
@@ -3505,15 +3505,15 @@ class VRClub {
             goboTexture.octaves = 4;
             goboTexture.persistence = 1.2; // High detail
             goboTexture.animationSpeedFactor = 0; // Static pattern (we rotate the mesh)
-            goboTexture.brightness = 0.8;
-            goboTexture.contrast = 3.0; // Sharp edges like a real gobo
+            goboTexture.brightness = 1.0; // Increased from 0.8
+            goboTexture.contrast = 4.0; // Increased from 3.0 for sharper edges
             
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(0.4); // Reduced from 0.8 to 0.4 (much dimmer)
+            poolMat.emissiveColor = this.currentSpotColor.scale(2.0); // Increased from 0.4 to 2.0 for hyperrealism
             poolMat.opacityTexture = goboTexture; // Cutout shape
-            poolMat.alpha = 0.2; // Reduced from 0.4 to 0.2 (very transparent)
+            poolMat.alpha = 0.8; // Increased from 0.2 to 0.8 for better visibility
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
             lightPool.material = poolMat;
@@ -4042,6 +4042,15 @@ class VRClub {
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
         let spotIndex = 0;
         
+        // SHARED TEXTURE for all reflection spots (Performance optimization)
+        // Creates a caustic-like light pattern instead of a flat circle
+        const spotTexture = new BABYLON.NoiseProceduralTexture("mirrorSpotTexture", 128, this.scene);
+        spotTexture.octaves = 3;
+        spotTexture.persistence = 0.8;
+        spotTexture.animationSpeedFactor = 0.2; // Slow shimmering effect
+        spotTexture.brightness = 1.0;
+        spotTexture.contrast = 3.0; // Sharp contrast for defined light rays
+        
         const surfaces = [
             { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02 },
             { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 }, // Ceiling box bottom at 9.85
@@ -4055,13 +4064,16 @@ class VRClub {
             for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.08 + Math.random() * 0.07, // 0.08-0.15m for realistic spot sizes
-                    tessellation: 6 // Good balance of performance and visual quality
+                    radius: 0.15 + Math.random() * 0.1, // Increased size: 0.15-0.25m for better visibility
+                    tessellation: 8 // Increased detail slightly
                 }, this.scene);
                 
                 const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
                 spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                spotMat.alpha = 1.0; // FULLY OPAQUE
+                spotMat.emissiveTexture = spotTexture; // Apply caustic texture
+                spotMat.opacityTexture = spotTexture; // Use texture for alpha cutout
+                spotMat.alpha = 0.9; // High visibility
+                spotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
                 spotMat.disableLighting = true;
                 spotMat.backFaceCulling = false; // Visible from both sides
                 spot.material = spotMat;
@@ -4072,7 +4084,7 @@ class VRClub {
                 // Thin cylinder stretching from ball to spot
                 const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorBeam${spotIndex}`, {
                     diameterTop: 0.02,    // Very thin at ball
-                    diameterBottom: 0.15, // Slightly wider at spot
+                    diameterBottom: 0.2,  // Wider at spot (was 0.15)
                     height: 1.0,          // Initial height (will be scaled)
                     tessellation: 4       // Low poly for performance (hundreds of beams)
                 }, this.scene);
@@ -4082,7 +4094,8 @@ class VRClub {
                 
                 const beamMat = new BABYLON.StandardMaterial(`mirrorBeamMat${spotIndex}`, this.scene);
                 beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                beamMat.alpha = 0.08; // Very faint smoke trail
+                beamMat.alpha = 0.15; // Increased from 0.08 for visible smoke beams
+                beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
                 beamMat.disableLighting = true;
                 beamMat.backFaceCulling = false;
                 beam.material = beamMat;
@@ -6958,12 +6971,13 @@ class VRClub {
 
     moveCameraToPreset(preset) {
         const presets = {
+            exterior: { pos: new BABYLON.Vector3(0, 1.7, 10), target: new BABYLON.Vector3(0, 2, 0) },
             entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
             danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -24) },
             djBooth: { pos: new BABYLON.Vector3(0, 2.0, -24.5), target: new BABYLON.Vector3(0, 1.7, -10) },
             djSide: { pos: new BABYLON.Vector3(-5, 2.0, -23), target: new BABYLON.Vector3(0, 1.5, -23.5) },
-            ledWallClose: { pos: new BABYLON.Vector3(0, 3, -22), target: new BABYLON.Vector3(0, 3, -26) },
-            speakers: { pos: new BABYLON.Vector3(0, 2.5, -15), target: new BABYLON.Vector3(-11, 2.5, -22) },
+            ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -18), target: new BABYLON.Vector3(0, 3, -25) },
+            speakers: { pos: new BABYLON.Vector3(-4, 1.7, -20), target: new BABYLON.Vector3(-7, 2.5, -25) },
             truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
             mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
             overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },
