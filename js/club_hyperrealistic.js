@@ -4215,6 +4215,9 @@ class VRClub {
             if (mesh.name.includes('spot') || mesh.name.includes('Spot')) return false;
             if (mesh.name.includes('housing') || mesh.name.includes('lens')) return false;
             if (mesh.name.includes('beam') || mesh.name.includes('Beam')) return false;
+            // CRITICAL FIX: Ignore invisible collision walls to prevent spots floating in mid-air
+            if (mesh.name.includes('collision') || mesh.name.includes('Collision')) return false;
+            if (mesh.name.includes('trigger') || mesh.name.includes('Trigger')) return false;
             // Accept room surfaces, avatars, NPCs, and other solid objects
             return true;
         };
@@ -5762,8 +5765,12 @@ class VRClub {
         const centerX = cols / 2 - 0.5;
         const centerY = rows / 2 - 0.5;
         
-        // Trigger explosion on bass
-        if (audioData && audioData.bass > 0.2 && time - (this.lastExplosionTime || 0) > 0.5) {
+        // Trigger explosion on bass OR periodically if no audio
+        const hasAudio = audioData && audioData.hasAudio;
+        const bassTrigger = hasAudio && audioData.bass > 0.2;
+        const autoTrigger = !hasAudio && (time - (this.lastExplosionTime || 0) > 2.0); // Every 2 seconds
+        
+        if ((bassTrigger || autoTrigger) && time - (this.lastExplosionTime || 0) > 0.5) {
             this.lastExplosionTime = time;
         }
         
@@ -5907,6 +5914,7 @@ class VRClub {
         // Vertical bars rising with volume
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
+        const hasAudio = audioData && audioData.hasAudio;
         
         // Simulate frequency data if not available
         const levels = [];
@@ -5914,7 +5922,15 @@ class VRClub {
             // Create a symmetric wave pattern that reacts to audio
             const x = (i - cols/2) / (cols/2);
             const base = Math.exp(-x*x*2); // Bell curve
-            const audioBoost = audioData ? (audioData.bass * (1-Math.abs(x)) + audioData.treble * Math.abs(x)) : 0.5;
+            
+            let audioBoost;
+            if (hasAudio) {
+                audioBoost = audioData.bass * (1-Math.abs(x)) + audioData.treble * Math.abs(x);
+            } else {
+                // Auto animation when no audio
+                audioBoost = 0.3 + Math.sin(time * 5 + Math.abs(x) * 5) * 0.2;
+            }
+            
             levels[i] = base * audioBoost * rows * 1.5;
         }
         
@@ -5936,11 +5952,19 @@ class VRClub {
         // Bouncing EQ columns
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
+        const hasAudio = audioData && audioData.hasAudio;
         
         this.ledPanels.forEach(panel => {
             // Randomize height slightly with noise/time
             const noise = Math.sin(panel.col * 0.5 + time * 5) * 0.5 + 0.5;
-            const height = noise * rows * (audioData ? audioData.average * 2 : 0.5);
+            
+            let height;
+            if (hasAudio) {
+                height = noise * rows * (audioData.average * 2);
+            } else {
+                // Auto animation
+                height = noise * rows * (0.3 + Math.sin(time * 2) * 0.2);
+            }
             
             const brightness = panel.row < height ? 1.0 : 0.0;
             this.updateLEDPanel(panel, color, brightness);
@@ -5951,8 +5975,15 @@ class VRClub {
         // Pulsing grid on beat
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
+        const hasAudio = audioData && audioData.hasAudio;
         
-        const beat = audioData && audioData.bass > 0.2 ? 1.0 : 0.1;
+        let beat = 0.1;
+        if (hasAudio) {
+            beat = audioData.bass > 0.2 ? 1.0 : 0.1;
+        } else {
+            // Auto beat (130 BPM approx)
+            beat = Math.sin(time * 13) > 0.8 ? 1.0 : 0.1;
+        }
         
         this.ledPanels.forEach(panel => {
             const isGrid = panel.col % 4 === 0 || panel.row % 4 === 0;
