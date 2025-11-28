@@ -4790,15 +4790,9 @@ class VRClub {
             this.lightModeSwitchTime = time;
         }
         
-        // Update LED wall (with audio reactivity) - respects ledWallActive control
-        // DEBUG: Force LED update every frame to diagnose issue
-        if (this.ledPanels && this.ledPanels.length > 0) {
-            // Simple direct color test - bypass all pattern logic
-            const brightness = 0.5 + Math.sin(time * 2) * 0.5;
-            const color = new BABYLON.Color3(brightness, 0, 1 - brightness); // Purple pulse
-            this.ledPanels.forEach(panel => {
-                panel.material.emissiveColor = color;
-            });
+        // Update LED wall animations
+        if (this.ledPanels && this.ledPanels.length > 0 && this.ledWallActive) {
+            this.updateLEDWallSimple(time);
         }
         
         // === DANCE FLOOR EDGE LED ANIMATION ===
@@ -5657,6 +5651,83 @@ class VRClub {
         }
         
         // Bartender removed - will be replaced with 3D model later
+    }
+
+    /**
+     * Simplified LED Wall animation - reliable patterns that always show
+     */
+    updateLEDWallSimple(time) {
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 10;
+        
+        // Cycle through patterns every 4 seconds
+        const patternDuration = 4.0;
+        const patternIndex = Math.floor(time / patternDuration) % 6;
+        
+        // Color cycling every 3 seconds
+        const colors = [
+            new BABYLON.Color3(1, 0, 0),    // Red
+            new BABYLON.Color3(0, 1, 0),    // Green
+            new BABYLON.Color3(0, 0, 1),    // Blue
+            new BABYLON.Color3(1, 0, 1),    // Magenta
+            new BABYLON.Color3(0, 1, 1),    // Cyan
+            new BABYLON.Color3(1, 1, 0),    // Yellow
+        ];
+        const colorIndex = Math.floor(time / 3) % colors.length;
+        const baseColor = colors[colorIndex];
+        
+        this.ledPanels.forEach(panel => {
+            let brightness = 0;
+            const col = panel.col;
+            const row = panel.row;
+            
+            switch (patternIndex) {
+                case 0: // Rainbow wave
+                    const hue = (col / cols + row / rows + time * 0.5) % 1.0;
+                    const h = hue * 6;
+                    const x = 1 - Math.abs(h % 2 - 1);
+                    let r, g, b;
+                    if (h < 1) { r = 1; g = x; b = 0; }
+                    else if (h < 2) { r = x; g = 1; b = 0; }
+                    else if (h < 3) { r = 0; g = 1; b = x; }
+                    else if (h < 4) { r = 0; g = x; b = 1; }
+                    else if (h < 5) { r = x; g = 0; b = 1; }
+                    else { r = 1; g = 0; b = x; }
+                    panel.material.emissiveColor = new BABYLON.Color3(r, g, b);
+                    return;
+                    
+                case 1: // Horizontal sweep
+                    const wavePos = (time * 10) % (cols + 5);
+                    brightness = Math.max(0, 1 - Math.abs(col - wavePos) / 3);
+                    break;
+                    
+                case 2: // Vertical bars (equalizer style)
+                    const barHeight = (Math.sin(time * 3 + col * 0.5) * 0.5 + 0.5) * rows;
+                    brightness = row < barHeight ? 1.0 : 0.0;
+                    break;
+                    
+                case 3: // Radial pulse from center
+                    const centerX = cols / 2;
+                    const centerY = rows / 2;
+                    const dist = Math.sqrt(Math.pow(col - centerX, 2) + Math.pow(row - centerY, 2));
+                    const pulse = (time * 5) % 15;
+                    brightness = Math.max(0, 1 - Math.abs(dist - pulse) / 2);
+                    break;
+                    
+                case 4: // Checkerboard flash
+                    const checker = ((col + row) % 2 === 0);
+                    const flash = Math.sin(time * 8) > 0;
+                    brightness = (checker === flash) ? 1.0 : 0.2;
+                    break;
+                    
+                case 5: // Diagonal stripes
+                    const stripe = ((col + row + Math.floor(time * 8)) % 4) < 2;
+                    brightness = stripe ? 1.0 : 0.1;
+                    break;
+            }
+            
+            panel.material.emissiveColor = baseColor.scale(brightness);
+        });
     }
 
     updateLEDWall(time, audioData) {
