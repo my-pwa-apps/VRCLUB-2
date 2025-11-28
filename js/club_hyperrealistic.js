@@ -229,7 +229,12 @@ class VRClub {
         
         // Apply post-processing to VR camera
         if (this.renderPipeline) {
+            // Fix: Remove desktop camera first to avoid "reuse" error
+            if (this.camera) {
+                this.renderPipeline.removeCamera(this.camera);
+            }
             this.renderPipeline.addCamera(xrCamera);
+            
             this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
             this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
             this.renderPipeline.grainEnabled = vr.grainEnabled;
@@ -251,6 +256,9 @@ class VRClub {
 
         // Disable SSAO in VR (too expensive)
         if (this.ssaoPipeline) {
+            // Detach desktop camera to save performance
+            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", this.camera);
+            // Also detach XR camera just in case
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
         }
         
@@ -270,6 +278,11 @@ class VRClub {
         
         // Restore post-processing
         if (this.renderPipeline) {
+            // Fix: Add desktop camera back
+            if (this.camera) {
+                this.renderPipeline.addCamera(this.camera);
+            }
+            
             this.renderPipeline.grainEnabled = desktop.grainEnabled;
             this.renderPipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
             this.renderPipeline.fxaaEnabled = desktop.fxaaEnabled;  // Restore FXAA anti-aliasing
@@ -4023,7 +4036,7 @@ class VRClub {
         // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
         // These are purely emissive meshes that create the illusion of reflections
         this.mirrorReflectionSpots = [];
-        const numSpots = 60; // PERFORMANCE: Reduced from 150 to 60 for much better FPS
+        const numSpots = 250; // INCREASED for hyperrealism (was 60)
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
@@ -4054,6 +4067,27 @@ class VRClub {
                 spot.material = spotMat;
                 spot.isPickable = false;
                 spot.setEnabled(false);
+                
+                // Create VOLUMETRIC BEAM for this spot (light cutting through smoke)
+                // Thin cylinder stretching from ball to spot
+                const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorBeam${spotIndex}`, {
+                    diameterTop: 0.02,    // Very thin at ball
+                    diameterBottom: 0.15, // Slightly wider at spot
+                    height: 1.0,          // Initial height (will be scaled)
+                    tessellation: 4       // Low poly for performance (hundreds of beams)
+                }, this.scene);
+                
+                // Pivot at top (ball position) so we can scale length easily
+                beam.setPivotPoint(new BABYLON.Vector3(0, 0.5, 0)); 
+                
+                const beamMat = new BABYLON.StandardMaterial(`mirrorBeamMat${spotIndex}`, this.scene);
+                beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                beamMat.alpha = 0.08; // Very faint smoke trail
+                beamMat.disableLighting = true;
+                beamMat.backFaceCulling = false;
+                beam.material = beamMat;
+                beam.isPickable = false;
+                beam.setEnabled(false);
                 
                 // Generate random position on this surface
                 let targetPos, normal;
@@ -4102,7 +4136,9 @@ class VRClub {
                 
                 this.mirrorReflectionSpots.push({
                     visual: spot,
+                    beam: beam, // Store beam reference
                     material: spotMat,
+                    beamMaterial: beamMat,
                     surface: surface.name,
                     surfaceNormal: normal,
                     targetPosition: targetPos.clone(),
@@ -4426,10 +4462,26 @@ class VRClub {
                         // DIMMER emissive color
                         spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
                         spot.material.alpha = 0.85; // Slightly transparent for softer look
+
+                        // UPDATE VOLUMETRIC BEAM
+                        if (spot.beam) {
+                            spot.beam.setEnabled(true);
+                            // Point beam at spot
+                            spot.beam.lookAt(spot.visual.position);
+                            // Scale length to reach spot
+                            const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
+                            spot.beam.scaling.y = beamDist; // Cylinder height is Y axis
+                            
+                            // Fade beam with distance
+                            spot.beamMaterial.alpha = 0.08 * distanceFade;
+                            spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
+                        }
+
                     } else {
                         // Ray didn't hit any surface - fade out
                         spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
                         spot.previousHitMesh = null;
+                        if (spot.beam) spot.beam.setEnabled(false);
                     }
                 }
                 } // Close if (shouldUpdate)
@@ -4438,6 +4490,9 @@ class VRClub {
                 // Spots remain visible between updates - only position/color updates are skipped
                 this.mirrorReflectionSpots.forEach(spot => {
                     spot.visual.setEnabled(true);
+                    if (spot.beam && spot.material.alpha > 0.1) {
+                        spot.beam.setEnabled(true);
+                    }
                 });
             } // Close if (this.mirrorReflectionSpots...)
         } else {
@@ -4460,6 +4515,7 @@ class VRClub {
             if (this.mirrorReflectionSpots) {
                 this.mirrorReflectionSpots.forEach(spot => {
                     spot.visual.setEnabled(false);
+                    if (spot.beam) spot.beam.setEnabled(false);
                 });
             }
         }
