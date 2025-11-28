@@ -183,18 +183,18 @@ class VRClub {
         this.cachedColors.purpleSoft = new BABYLON.Color3(0.7, 0.3, 1);
         
         // Mirror ball spotlight color (configurable) - reference cached colors
-        this.mirrorBallSpotlightColor = this.cachedColors.whiteSpot; // Default: pure white
-        this.mirrorBallColorIndex = 0;
+        this.mirrorBallSpotlightColor = this.cachedColors.magentaSoft; // Default: magenta (visible color)
+        this.mirrorBallColorIndex = 4; // Start at magenta
         this.mirrorBallColors = [
-            this.cachedColors.whiteSpot,    // White (classic)
+            this.cachedColors.magentaSoft,  // Magenta (start here - visible)
+            this.cachedColors.cyanSoft,     // Cyan
+            this.cachedColors.yellowSoft,   // Yellow
             this.cachedColors.redSoft,      // Red
             this.cachedColors.blueSoft,     // Blue
             this.cachedColors.greenSoft,    // Green
-            this.cachedColors.magentaSoft,  // Magenta
-            this.cachedColors.yellowSoft,   // Yellow
-            this.cachedColors.cyanSoft,     // Cyan
             this.cachedColors.orangeSoft,   // Orange
-            this.cachedColors.purpleSoft    // Purple
+            this.cachedColors.purpleSoft,   // Purple
+            this.cachedColors.whiteSpot     // White (classic) - now last
         ];
         
         // Spotlight mode: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
@@ -3457,44 +3457,16 @@ class VRClub {
             beam.isPickable = false;
             // beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Removed to allow parenting rotation
             
-            // ULTRA-REALISTIC VOLUMETRIC BEAM - Simulates light scattering with varying intensity
-            // Use NoiseProceduralTexture for STATIC smoke/haze effect (real beams don't have flowing texture)
-            const beamTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
-            beamTexture.octaves = 4; // Detail level for smoke variation
-            beamTexture.persistence = 0.7; // Soft edges
-            beamTexture.animationSpeedFactor = 0; // STATIC - no animation! Real light beams don't have moving textures
-            beamTexture.brightness = 0.5; // Subtle haze visibility
-            beamTexture.contrast = 1.0; // Smooth, natural haze (reduced from 1.2)
-            
-            // Use PBR material with gradient texture for realistic light falloff
-            const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
-            
-            // No base color - pure emission and transparency
-            beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.metallic = 0;
-            beamMat.roughness = 1;
-            
-            // Apply noise texture to emissive channel for realistic smoke variation
-            beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.currentSpotColor.scale(2.0); // Increased visibility (was 1.5)
-            beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
-            
-            // Use noise as alpha mask for realistic smoke density
-            beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.1; // Low alpha - mostly additive light
-            beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
-            
-            // Fresnel effect - more visible from the side (like real light beams)
-            beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.5, 0.5, 0.5); // More opaque from side
-            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0); // Transparent when looking along beam
-            beamMat.opacityFresnel.bias = 0.1;
-            beamMat.opacityFresnel.power = 1;
-            
-            // Important settings for realism
+            // HYPERREALISTIC VOLUMETRIC BEAM - Simple transparent cone (no animated textures)
+            // Real light beams in haze are smooth gradients, not textured
+            const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
+            beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
+            beamMat.alpha = 0.08; // Very subtle - realistic haze density
+            beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
-            beamMat.unlit = true; // Don't receive lighting
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -3505,9 +3477,8 @@ class VRClub {
             const beamGlowMat = null;
 
             
-            // HYPERREALISTIC GOBO PROJECTION - Single layer with texture
-            // Replaces the expensive 3-layer disc system with a single textured mesh
-            // Radius 0.5 = Diameter 1.0. This makes scaling calculations easier (scale = diameter in meters)
+            // HYPERREALISTIC LIGHT POOL - Simple colored disc on floor
+            // Real spotlight pools are smooth gradients, not textured
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
                 radius: 0.5, 
                 tessellation: 32
@@ -3516,24 +3487,19 @@ class VRClub {
             lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5);
             lightPool.isPickable = false;
             
-            // Create a "Gobo" texture (breakup pattern) - HYPERREALISTIC breakup pattern
-            const goboTexture = new BABYLON.NoiseProceduralTexture("goboNoise" + i, 512, this.scene); // Higher res
-            goboTexture.octaves = 5; // More detail
-            goboTexture.persistence = 1.0; // Balanced detail
-            goboTexture.animationSpeedFactor = 0; // Static pattern (we rotate the mesh)
-            goboTexture.brightness = 0.9;
-            goboTexture.contrast = 5.0; // High contrast for sharp "breakup" look
-            
+            // Simple emissive material - no texture animation
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(2.0); // Reduced from 5.0 to prevent whiteout
-            poolMat.opacityTexture = goboTexture; // Cutout shape
-            poolMat.alpha = 0.95; // Nearly full visibility
+            poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            poolMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
+            poolMat.alpha = 0.7; // Semi-transparent for realistic light pool
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
             lightPool.material = poolMat;
             lightPool.renderingGroupId = 1;
+            
+            // Store reference for gobo texture (null - not using procedural texture anymore)
+            const goboTexture = null;
             
             // HYPERREALISTIC SOFT EDGE GLOW - Outer ring for realistic light falloff
             const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
@@ -4073,14 +4039,7 @@ class VRClub {
         const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
         let spotIndex = 0;
         
-        // SHARED TEXTURE for all reflection spots (Performance optimization)
-        // Creates a caustic-like light pattern instead of a flat circle
-        const spotTexture = new BABYLON.NoiseProceduralTexture("mirrorSpotTexture", 128, this.scene);
-        spotTexture.octaves = 3;
-        spotTexture.persistence = 0.8;
-        spotTexture.animationSpeedFactor = 0.2; // Slow shimmering effect
-        spotTexture.brightness = 1.0;
-        spotTexture.contrast = 3.0; // Sharp contrast for defined light rays
+        // No shared texture - using simple colored discs for performance and correct color updates
         
         const surfaces = [
             { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02 },
@@ -4100,11 +4059,10 @@ class VRClub {
                 }, this.scene);
                 
                 const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
-                spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                // NOTE: Removed emissiveTexture - it was overriding the color with grayscale values
-                // The spots now show pure colored light as expected
-                spotMat.opacityTexture = spotTexture; // Use texture for alpha cutout only (caustic shape)
-                spotMat.alpha = 0.9; // High visibility
+                spotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+                spotMat.specularColor = new BABYLON.Color3(0, 0, 0);
+                spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone(); // Initial color - updated every frame in animation loop
+                spotMat.alpha = 0.85; // High visibility
                 spotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
                 spotMat.disableLighting = true;
                 spotMat.backFaceCulling = false; // Visible from both sides
@@ -4361,8 +4319,8 @@ class VRClub {
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
                 
                 // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set)
-                // Cycle colors every 5 seconds to match club atmosphere
-                if (!this.vjManualMode && this.frameCounter % 300 === 0) { // Every ~5 seconds at 60fps
+                // Cycle colors every 3 seconds for dynamic club atmosphere
+                if (!this.vjManualMode && this.frameCounter % 180 === 0) { // Every ~3 seconds at 60fps
                     this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
                     this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
                     
