@@ -5374,12 +5374,12 @@ class VRClub {
                     // Update emissive color with variation (audio disabled)
                     // CRITICAL: Use spot.color (per-spotlight) not currentSpotColor (global) to prevent mismatches
                     const spotColor = spot.color || this.currentSpotColor; // Fallback to global if not set
-                    const baseIntensity = 0.3 + atmosphericNoise;
+                    const baseIntensity = 2.0 + atmosphericNoise; // Increased base intensity (was 0.3)
                     spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
-                    spot.beamMat.emissiveIntensity = 1.8; // Constant intensity
+                    spot.beamMat.emissiveIntensity = 8.0; // Increased from 1.8 to 8.0 for hyperrealism
                     
                     // Very subtle alpha variation - creates "depth" in the beam
-                    spot.beamMat.alpha = 0.04 + Math.abs(atmosphericNoise) * 0.02;
+                    spot.beamMat.alpha = 0.6 + Math.abs(atmosphericNoise) * 0.1; // Increased from 0.04 to 0.6 base
                     
 
                     
@@ -5408,10 +5408,10 @@ class VRClub {
                             const poolSize = baseSize * 1.0; // Reduced from 1.4 to 1.0 (match beam exactly)
                             spot.lightPool.scaling.set(poolSize, poolSize, 1);
                             
-                            spot.lightPool.visibility = 0.8; // Increased from 0.5 for better visibility
+                            spot.lightPool.visibility = 0.9; // Increased from 0.8 for better visibility
                             if (spot.poolMat) {
-                                // Increased intensity significantly (0.4 -> 1.5) to ensure color is visible
-                                spot.poolMat.emissiveColor = spotColor.scale(1.5 * atmosphericShimmer);
+                                // Increased intensity significantly (1.5 -> 4.0) to ensure color is visible
+                                spot.poolMat.emissiveColor = spotColor.scale(4.0 * atmosphericShimmer);
                             }
                             
                         } else {
