@@ -12,9 +12,22 @@ This is a **WebXR VR nightclub** built with **Babylon.js 8.30.5** for Meta Quest
 3. **js/modelLoader.js** - 3D models (.glb) with IndexedDB cache + geometry instancing
 4. **js/materialFactory.js** - Centralized material creation and reuse
 5. **js/lightFactory.js** - Centralized light creation and group management
-6. **js/club_hyperrealistic.js** - Main VRClub class (~4000 lines)
+6. **js/systems/*.js** - Modular lighting system classes (NEW)
+7. **js/club_hyperrealistic.js** - Main VRClub class (~7500 lines, delegates to systems)
 
-**Critical**: Scripts load synchronously in this order. `textureLoader.js` and `modelLoader.js` MUST load before factory classes, which MUST load before `club_hyperrealistic.js`. MaterialFactory and LightFactory provide consistent creation patterns across the app.
+**Critical**: Scripts load synchronously in this order. `textureLoader.js` and `modelLoader.js` MUST load before factory classes, which MUST load before system modules, which MUST load before `club_hyperrealistic.js`. MaterialFactory and LightFactory provide consistent creation patterns across the app.
+
+### Modular Lighting System (NEW - 2025-01-17)
+The lighting system has been refactored into modular classes in `js/systems/`:
+- **laserSystem.js** - Laser units and laser sheet scanning effect (~500 lines)
+- **spotlightSystem.js** - Moving head spotlights/gobos with sweep patterns (~450 lines)
+- **mirrorBallSystem.js** - Disco ball with 150 raycast reflection spots (~600 lines)
+- **ledWallSystem.js** - LED video wall with 8 audio-reactive patterns (~400 lines)
+- **strobeSystem.js** - Strobe lights and audience blinders (~300 lines)
+- **hazeSystem.js** - Atmospheric fog and particle haze (~200 lines)
+- **vjControlSystem.js** - Centralized VJ controller with presets (~450 lines)
+
+**Migration Status**: Systems are initialized but legacy inline code is still active. Set `this.useModularSystems = true` in constructor to enable new architecture.
 
 ### Dual-Rendering Architecture
 The app maintains **separate rendering configurations** for desktop vs VR:
@@ -342,8 +355,38 @@ this.modelLoader.disposeAllInstances('dj_console');
 
 **Pattern**: Instances share geometry/materials (memory efficient) but have unique transforms. Use for repeated objects like speakers, lights, or decorative elements.
 
+### Using Modular Lighting Systems (NEW)
+When `useModularSystems = true`, access lighting via `this.systems`:
+
+```javascript
+// Laser system
+this.systems.laser.setActive(true);
+this.systems.laser.nextColor(); // Cycle RGB
+this.systems.laser.setSpeed(1.5);
+
+// Spotlight system  
+this.systems.spotlight.setMode(1); // 0=sweep, 1=static, 2=strobe
+this.systems.spotlight.nextMode();
+
+// Mirror ball system
+this.systems.mirrorBall.setActive(true);
+this.systems.mirrorBall.nextColor();
+
+// LED wall system
+this.systems.ledWall.setPattern('rainbow'); // bassExplosion, vuMeter, equalizer, beatGrid, rainbow, strobe, colorWash, matrix
+this.systems.ledWall.nextPattern();
+
+// VJ controller (coordinates all systems)
+this.systems.vjControl.applyPreset('disco'); // clubbing, disco, rave, chill, blackout
+this.systems.vjControl.toggleEffect('lasers');
+this.systems.vjControl.setMasterIntensity(0.8);
+```
+
+**Pattern**: Each system has `createX()`, `update(time, audioData)`, `setActive(bool)`, and effect-specific methods. VJControlSystem coordinates all systems and handles presets.
+
 ## Documentation Reference
 
+- **MODULAR_LIGHTING_ARCHITECTURE_2025-01-17.md** - Complete modular system documentation (NEW)
 - **OPTIMIZATION_SUMMARY.md** - Performance metrics, scene statistics
 - **CLEANUP_OPTIMIZATION_2025-10-08.md** - VR settings refactoring details
 - **REFACTORING_2025-10-17.md** - Factory pattern optimizations, texture pooling, geometry instancing

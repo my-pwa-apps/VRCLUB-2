@@ -221,6 +221,21 @@ class VRClub {
         // Animation phase tracking for smooth spotlight animations
         this.lastActivePhase = 0; // Initialize phase counter
         
+        // === MODULAR LIGHTING SYSTEMS ===
+        // These are the new refactored system classes that can replace inline code
+        // Set to null here, initialized in init() after scene creation
+        this.systems = {
+            laser: null,
+            spotlight: null,
+            mirrorBall: null,
+            ledWall: null,
+            strobe: null,
+            haze: null,
+            vjControl: null
+        };
+        // Toggle to use new modular systems vs legacy inline code
+        this.useModularSystems = false; // Set true to test new architecture
+        
         this.init();
     }
 
@@ -338,6 +353,59 @@ class VRClub {
         }
     }
 
+    /**
+     * Initialize modular lighting systems (new architecture)
+     * These systems encapsulate lighting logic into separate, maintainable classes
+     */
+    _initModularSystems() {
+        const systemOptions = { logger: log };
+        
+        // Only initialize if the classes are available (loaded via script tags)
+        if (typeof LaserSystem !== 'undefined') {
+            this.systems.laser = new LaserSystem(this.scene, this.materialFactory, systemOptions);
+            log.info('✅ LaserSystem module loaded');
+        }
+        
+        if (typeof SpotlightSystem !== 'undefined') {
+            this.systems.spotlight = new SpotlightSystem(this.scene, this.materialFactory, systemOptions);
+            log.info('✅ SpotlightSystem module loaded');
+        }
+        
+        if (typeof MirrorBallSystem !== 'undefined') {
+            this.systems.mirrorBall = new MirrorBallSystem(this.scene, this.materialFactory, systemOptions);
+            log.info('✅ MirrorBallSystem module loaded');
+        }
+        
+        if (typeof LEDWallSystem !== 'undefined') {
+            this.systems.ledWall = new LEDWallSystem(this.scene, this.materialFactory, systemOptions);
+            log.info('✅ LEDWallSystem module loaded');
+        }
+        
+        if (typeof StrobeSystem !== 'undefined') {
+            this.systems.strobe = new StrobeSystem(this.scene, this.materialFactory, systemOptions);
+            log.info('✅ StrobeSystem module loaded');
+        }
+        
+        if (typeof HazeSystem !== 'undefined') {
+            this.systems.haze = new HazeSystem(this.scene, systemOptions);
+            log.info('✅ HazeSystem module loaded');
+        }
+        
+        if (typeof VJControlSystem !== 'undefined') {
+            this.systems.vjControl = new VJControlSystem(this.scene, systemOptions);
+            // Register all systems with VJ controller
+            if (this.systems.laser) this.systems.vjControl.registerSystem('laser', this.systems.laser);
+            if (this.systems.spotlight) this.systems.vjControl.registerSystem('spotlight', this.systems.spotlight);
+            if (this.systems.mirrorBall) this.systems.vjControl.registerSystem('mirrorball', this.systems.mirrorBall);
+            if (this.systems.ledWall) this.systems.vjControl.registerSystem('ledwall', this.systems.ledWall);
+            if (this.systems.strobe) this.systems.vjControl.registerSystem('strobe', this.systems.strobe);
+            if (this.systems.haze) this.systems.vjControl.registerSystem('haze', this.systems.haze);
+            log.info('✅ VJControlSystem module loaded and systems registered');
+        }
+        
+        log.info('🎛️ Modular lighting systems initialized (useModularSystems=' + this.useModularSystems + ')');
+    }
+
     async init() {
         // Create scene with hyperrealistic atmosphere
         this.scene = new BABYLON.Scene(this.engine);
@@ -362,6 +430,9 @@ class VRClub {
         
         // Initialize light factory
         this.lightFactory = new LightFactory(this.scene, log);
+        
+        // Initialize modular lighting systems (new architecture)
+        this._initModularSystems();
         
         // Initialize Ready Player Me loader (optional, with fallback)
         // this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
