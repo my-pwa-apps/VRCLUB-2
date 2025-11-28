@@ -2605,11 +2605,12 @@ class VRClub {
             labelTexture.drawText(btnDef.label, null, null, 
                 "bold 72px Arial", "white", "transparent", true, true);
             
-            const labelMat = new BABYLON.StandardMaterial("labelMat_" + btnDef.control, this.scene);
-            labelMat.diffuseTexture = labelTexture;
-            labelMat.emissiveColor = new BABYLON.Color3(0.9, 0.9, 0.9);
-            labelMat.disableLighting = true;
-            labelMat.opacityTexture = labelTexture;
+            const labelMat = this.materialFactory.createStandardMaterial("labelMat_" + btnDef.control, {
+                diffuseTexture: labelTexture,
+                emissiveColor: [0.9, 0.9, 0.9],
+                disableLighting: true,
+                opacityTexture: labelTexture
+            });
             labelPlane.material = labelMat;
         });
         
@@ -2617,12 +2618,6 @@ class VRClub {
     }
 
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
-            const labelMat = this.materialFactory.createStandardMaterial("labelMat_" + btnDef.control, {
-                diffuseTexture: labelTexture,
-                emissiveColor: [0.9, 0.9, 0.9],
-                disableLighting: true,
-                opacityTexture: labelTexture
-            });
         // 2. Atmospheric Haze: Dispersed particles for light beams
         
         // Create a soft particle texture using Canvas (no external assets needed)
