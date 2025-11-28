@@ -3492,8 +3492,9 @@ class VRClub {
             
             // HYPERREALISTIC GOBO PROJECTION - Single layer with texture
             // Replaces the expensive 3-layer disc system with a single textured mesh
+            // Radius 0.5 = Diameter 1.0. This makes scaling calculations easier (scale = diameter in meters)
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 1.5, // Increased from 0.8 to 1.5 for larger footprint
+                radius: 0.5, 
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
@@ -3511,7 +3512,7 @@ class VRClub {
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(5.0); // Very bright for visibility
+            poolMat.emissiveColor = this.currentSpotColor.scale(2.0); // Reduced from 5.0 to prevent whiteout
             poolMat.opacityTexture = goboTexture; // Cutout shape
             poolMat.alpha = 0.95; // Nearly full visibility
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
@@ -3521,7 +3522,7 @@ class VRClub {
             
             // HYPERREALISTIC SOFT EDGE GLOW - Outer ring for realistic light falloff
             const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
-                radius: 2.0, // Larger than main pool
+                radius: 0.5, // Diameter 1.0 base
                 tessellation: 32
             }, this.scene);
             lightPoolGlow.rotation.x = Math.PI / 2;
@@ -4299,6 +4300,10 @@ class VRClub {
         
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
+            // SYNC COLOR: Mirror ball spots should match the main club lighting color
+            // This ensures the "spots pointed to the mirrorball" and their reflections match the vibe
+            this.mirrorBallSpotlightColor = this.currentSpotColor;
+
             // Mirror ball is now INDEPENDENT - doesn't disable other lights
             // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
             // VJ has full control to enable any combination
@@ -4467,22 +4472,33 @@ class VRClub {
                             spot.beamMaterial.alpha = 0.08 * distanceFade;
                             spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
                         }
+                        
+                        // Mark as visible for this frame
+                        spot.isVisible = true;
 
                     } else {
-                        // Ray didn't hit any surface - fade out
-                        spot.material.alpha = Math.max(0, spot.material.alpha - 0.02);
-                        spot.previousHitMesh = null;
+                        // Ray didn't hit any surface - HIDE IMMEDIATELY
+                        // Spots shouldn't float in mid-air
+                        spot.visual.setEnabled(false);
                         if (spot.beam) spot.beam.setEnabled(false);
+                        spot.isVisible = false;
+                        spot.previousHitMesh = null;
                     }
                 }
                 } // Close if (shouldUpdate)
                 
-                // ALWAYS keep all spots enabled (regardless of update frame)
-                // Spots remain visible between updates - only position/color updates are skipped
+                // Update visibility based on tracking state
                 this.mirrorReflectionSpots.forEach(spot => {
-                    spot.visual.setEnabled(true);
-                    if (spot.beam && spot.material.alpha > 0.1) {
-                        spot.beam.setEnabled(true);
+                    // Only enable if it was marked visible during the last update
+                    // AND if the mirror ball is active
+                    if (spot.isVisible) {
+                        spot.visual.setEnabled(true);
+                        if (spot.beam && spot.material.alpha > 0.01) {
+                            spot.beam.setEnabled(true);
+                        }
+                    } else {
+                        spot.visual.setEnabled(false);
+                        if (spot.beam) spot.beam.setEnabled(false);
                     }
                 });
             } // Close if (this.mirrorReflectionSpots...)
@@ -5294,7 +5310,10 @@ class VRClub {
                     
                     // ANIMATE SMOKE TEXTURE (Hyperrealism)
                     if (spot.beamMat && spot.beamMat.emissiveTexture) {
-                        spot.beamMat.emissiveTexture.vOffset -= 0.02 * speedMultiplier; // Faster smoke for more energy
+                        // Much slower animation for realistic drifting haze (was 0.02)
+                        spot.beamMat.emissiveTexture.vOffset -= 0.002 * speedMultiplier; 
+                        // Slight horizontal drift for turbulence
+                        spot.beamMat.emissiveTexture.uOffset += 0.0005 * Math.sin(time * 0.5 + i);
                     }
 
                     // ANIMATE GOBO ROTATION (Hyperrealism)
@@ -5389,7 +5408,8 @@ class VRClub {
                             spot.lightPool.visibility = 1.0; // Full visibility
                             if (spot.poolMat) {
                                 // HYPERREALISTIC: Bright core with color matching
-                                spot.poolMat.emissiveColor = spotColor.scale(5.0 * atmosphericShimmer);
+                                // Reduced scale from 5.0 to 2.0 to prevent whiteout
+                                spot.poolMat.emissiveColor = spotColor.scale(2.0 * atmosphericShimmer);
                             }
                             
                             // UPDATE GLOW RING - Soft outer halo for realistic light falloff
@@ -5405,7 +5425,7 @@ class VRClub {
                                 spot.lightPoolGlow.visibility = 0.8;
                                 if (spot.poolGlowMat) {
                                     // Softer outer glow with same color
-                                    spot.poolGlowMat.emissiveColor = spotColor.scale(1.5 * atmosphericShimmer);
+                                    spot.poolGlowMat.emissiveColor = spotColor.scale(1.0 * atmosphericShimmer);
                                 }
                             }
                             
