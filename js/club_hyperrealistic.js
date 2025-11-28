@@ -2618,6 +2618,108 @@ class VRClub {
 
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
 
+    createHyperrealisticSmoke() {
+        // === HYPERREALISTIC SMOKE & FOG SYSTEM ===
+        // Creates volumetric smoke effects using particle systems
+        // 1. Floor Fog: Low-lying dry ice effect
+        // 2. Atmospheric Haze: Dispersed particles for light beams
+        
+        // Create a soft particle texture using Canvas (no external assets needed)
+        const smokeCanvas = document.createElement('canvas');
+        smokeCanvas.width = 128;
+        smokeCanvas.height = 128;
+        const ctx = smokeCanvas.getContext('2d');
+        
+        // Create soft radial gradient for smoke puff
+        const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');     // Center opaque
+        grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.5)'); // Soft edge
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');     // Transparent fade
+        
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 128, 128);
+        
+        const particleTexture = new BABYLON.Texture(smokeCanvas.toDataURL(), this.scene);
+        particleTexture.name = "proceduralSmokeTexture";
+        
+        // --- 1. FLOOR FOG (Dry Ice) ---
+        // Heavy, low-lying fog that stays near the floor
+        this.floorFog = new BABYLON.ParticleSystem("floorFog", 2000, this.scene);
+        this.floorFog.particleTexture = particleTexture;
+        this.floorFog.emitter = new BABYLON.Vector3(0, 0.1, -12); // Center of dance floor
+        
+        // Emit box (wide area on floor)
+        this.floorFog.minEmitBox = new BABYLON.Vector3(-10, 0, -10);
+        this.floorFog.maxEmitBox = new BABYLON.Vector3(10, 0.5, 10);
+        
+        // Colors (Cold white/blueish for dry ice look)
+        this.floorFog.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.2);
+        this.floorFog.color2 = new BABYLON.Color4(0.9, 0.9, 1.0, 0.2);
+        this.floorFog.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
+        
+        // Size & Life
+        this.floorFog.minSize = 1.5;
+        this.floorFog.maxSize = 4.0;
+        this.floorFog.minLifeTime = 4.0;
+        this.floorFog.maxLifeTime = 7.0;
+        
+        // Emission
+        this.floorFog.emitRate = 150;
+        this.floorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+        
+        // Physics (Gravity pulls down slightly to keep it low)
+        this.floorFog.gravity = new BABYLON.Vector3(0, -0.05, 0);
+        this.floorFog.direction1 = new BABYLON.Vector3(-1, 0, -1);
+        this.floorFog.direction2 = new BABYLON.Vector3(1, 0.1, 1);
+        
+        // Rotation
+        this.floorFog.minAngularSpeed = -0.5;
+        this.floorFog.maxAngularSpeed = 0.5;
+        
+        // Speed
+        this.floorFog.minEmitPower = 0.5;
+        this.floorFog.maxEmitPower = 1.0;
+        this.floorFog.updateSpeed = 0.005;
+        
+        // --- 2. ATMOSPHERIC HAZE ---
+        // Light, dispersed particles to make light beams visible
+        this.haze = new BABYLON.ParticleSystem("haze", 1000, this.scene);
+        this.haze.particleTexture = particleTexture;
+        
+        // Emitter (Large box covering the room air volume)
+        this.haze.emitter = new BABYLON.Vector3(0, 4, -12);
+        this.haze.minEmitBox = new BABYLON.Vector3(-12, -4, -12);
+        this.haze.maxEmitBox = new BABYLON.Vector3(12, 4, 12);
+        
+        // Colors (Very faint dust/smoke)
+        this.haze.color1 = new BABYLON.Color4(0.5, 0.5, 0.6, 0.03);
+        this.haze.color2 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.03);
+        this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
+        
+        // Size & Life
+        this.haze.minSize = 0.2;
+        this.haze.maxSize = 1.5;
+        this.haze.minLifeTime = 3.0;
+        this.haze.maxLifeTime = 6.0;
+        
+        // Emission
+        this.haze.emitRate = 100;
+        this.haze.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+        
+        // Physics (Float gently)
+        this.haze.gravity = new BABYLON.Vector3(0, 0.01, 0); // Slight rise
+        this.haze.direction1 = new BABYLON.Vector3(-0.5, -0.5, -0.5);
+        this.haze.direction2 = new BABYLON.Vector3(0.5, 0.5, 0.5);
+        
+        this.haze.minEmitPower = 0.1;
+        this.haze.maxEmitPower = 0.5;
+        this.haze.updateSpeed = 0.005;
+        
+        // Initialize state
+        this.smokeActive = false;
+        
+        log.info('💨 Hyperrealistic smoke systems created (Floor Fog + Haze)');
+    }
 
     createBoothLighting() {
         // LED strip under platform (accent lighting)
@@ -3558,7 +3660,7 @@ class VRClub {
         const noiseTexture = new BABYLON.NoiseProceduralTexture("laserNoise", 256, this.scene);
         noiseTexture.octaves = 3;
         noiseTexture.persistence = 0.8;
-        noiseTexture.animationSpeedFactor = 2.0;
+        noiseTexture.animationSpeedFactor = 1.0; // Slower animation for "hanging smoke" feel
         noiseTexture.brightness = 0.5;
         
         // Use noise as opacity map (alpha)
@@ -3568,12 +3670,43 @@ class VRClub {
         this.laserSheet.isVisible = false; // Hidden by default
         this.laserSheet.isPickable = false;
         
+        // === HYPERREALISTIC LASER SOURCE ===
+        // Create a physical laser projector on the DJ booth
+        const sourcePos = new BABYLON.Vector3(0, 1.1, -23.4); // Center of DJ booth
+        
+        // Projector Housing
+        const projector = BABYLON.MeshBuilder.CreateBox("laserProjector", {
+            width: 0.4, height: 0.15, depth: 0.25
+        }, this.scene);
+        projector.position = sourcePos;
+        projector.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
+        
+        // Aperture (The glowing slit where laser comes out)
+        this.laserAperture = BABYLON.MeshBuilder.CreateBox("laserAperture", {
+            width: 0.35, height: 0.02, depth: 0.01
+        }, this.scene);
+        this.laserAperture.position = new BABYLON.Vector3(0, 1.1, -23.27); // Front of projector
+        
+        const apertureMat = new BABYLON.StandardMaterial("apertureMat", this.scene);
+        apertureMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
+        apertureMat.disableLighting = true;
+        this.laserAperture.material = apertureMat;
+        
+        // Real Light Source (illuminates smoke/avatars at the sheet height)
+        this.laserLight = new BABYLON.PointLight("laserSheetLight", new BABYLON.Vector3(0, 1.5, -12), this.scene);
+        this.laserLight.intensity = 0.8;
+        this.laserLight.range = 15;
+        this.laserLight.diffuse = new BABYLON.Color3(0, 1, 0);
+        this.laserLight.specular = new BABYLON.Color3(0, 1, 0);
+        this.laserLight.setEnabled(false);
+        
         // Add to glow layer for bloom effect
         if (this.glowLayer) {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
+            this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
         }
         
-        log.info('✨ Laser sheet effect created');
+        log.info('✨ Laser sheet effect created with hyperrealistic source');
     }
 
     createMirrorBall() {
@@ -4004,15 +4137,27 @@ class VRClub {
         if (this.laserSheet && this.laserSheetActive) {
             // Vertical scanning motion (up and down)
             // Height range: 0.2m to 2.5m
-            const scanSpeed = 0.5 * speedMultiplierLaser;
+            // SLOWER SPEED for hyperrealistic "liquid sky" effect
+            const scanSpeed = 0.15 * speedMultiplierLaser; // Was 0.5
             const scanHeight = Math.sin(time * scanSpeed) * 1.15 + 1.35; // 0.2 to 2.5
             
             this.laserSheet.position.y = scanHeight;
             
-            // Animate texture for "flowing" light effect
+            // Update real light source to follow sheet height
+            // This illuminates the smoke/fog/avatars at the exact height of the laser sheet
+            if (this.laserLight) {
+                this.laserLight.position.y = scanHeight;
+                this.laserLight.setEnabled(true);
+                
+                // Pulse light intensity with audio
+                const pulse = 0.5 + (audioData.average || 0) * 0.5;
+                this.laserLight.intensity = 1.5 * pulse;
+            }
+            
+            // Animate texture for "flowing" light effect - SLOWER for "hanging smoke" feel
             if (this.laserSheet.material && this.laserSheet.material.opacityTexture) {
-                this.laserSheet.material.opacityTexture.vOffset += 0.02 * speedMultiplierLaser;
-                this.laserSheet.material.opacityTexture.uOffset += 0.01 * speedMultiplierLaser;
+                this.laserSheet.material.opacityTexture.vOffset += 0.005 * speedMultiplierLaser; // Was 0.02
+                this.laserSheet.material.opacityTexture.uOffset += 0.002 * speedMultiplierLaser; // Was 0.01
             }
             
             // Pulse intensity with audio
@@ -4028,11 +4173,23 @@ class VRClub {
                 else sheetColor = this.cachedColors.blue;
                 
                 this.laserSheet.material.emissiveColor = sheetColor;
+                
+                // Update aperture and light color
+                if (this.laserAperture) {
+                    this.laserAperture.material.emissiveColor = sheetColor;
+                }
+                if (this.laserLight) {
+                    this.laserLight.diffuse = sheetColor;
+                    this.laserLight.specular = sheetColor;
+                }
             }
             
             this.laserSheet.isVisible = true;
+            if (this.laserAperture) this.laserAperture.isVisible = true;
         } else if (this.laserSheet) {
             this.laserSheet.isVisible = false;
+            if (this.laserLight) this.laserLight.setEnabled(false);
+            if (this.laserAperture) this.laserAperture.isVisible = false;
         }
 
         // Update dancing NPC avatars
