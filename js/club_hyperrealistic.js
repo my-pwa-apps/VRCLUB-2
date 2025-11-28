@@ -1415,9 +1415,10 @@ class VRClub {
         const usbLEDMat = this.materialFactory.createStandardMaterial("usbLEDMat", {
             emissiveColor: [0, 0.8, 0],
             disableLighting: true
-        });YLON.Color3(0, 0.8, 0);
-        usbLEDMat.disableLighting = true;
+        });
         usbLED.material = usbLEDMat;
+        usbLED.parent = usbStick;
+        usbLED.position.set(0, 0.005, 0.015);
         
         log.info("✅ Created DJ booth accessories (laptop, headphones, cables)");
     }
@@ -1427,8 +1428,6 @@ class VRClub {
         const collisionMat = this.materialFactory.createStandardMaterial("collisionMat", {
             alpha: 0 // Completely invisible
         });
-        const collisionMat = new BABYLON.StandardMaterial("collisionMat", this.scene);
-        collisionMat.alpha = 0; // Completely invisible
         
         // Room perimeter walls (using ROOM_BOUNDS constants)
         const boundaries = [
