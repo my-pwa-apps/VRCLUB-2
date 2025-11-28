@@ -4791,15 +4791,13 @@ class VRClub {
         }
         
         // Update LED wall (with audio reactivity) - respects ledWallActive control
-        if (this.ledPanels && this.ledWallActive) {
-            // PERFORMANCE: Update LED wall every 3rd frame (20Hz is sufficient for LED animations)
-            if (this.frameCounter % 3 === 0) {
-                this.updateLEDWall(time, audioData);
-            }
-        } else if (this.ledPanels && !this.ledWallActive) {
-            // Turn off LED wall when disabled - use cached color
+        // DEBUG: Force LED update every frame to diagnose issue
+        if (this.ledPanels && this.ledPanels.length > 0) {
+            // Simple direct color test - bypass all pattern logic
+            const brightness = 0.5 + Math.sin(time * 2) * 0.5;
+            const color = new BABYLON.Color3(brightness, 0, 1 - brightness); // Purple pulse
             this.ledPanels.forEach(panel => {
-                panel.material.emissiveColor = this.cachedColors.black;
+                panel.material.emissiveColor = color;
             });
         }
         
