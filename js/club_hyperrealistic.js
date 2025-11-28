@@ -3445,11 +3445,11 @@ class VRClub {
             // ULTRA-REALISTIC VOLUMETRIC BEAM - Simulates light scattering with varying intensity
             // Use NoiseProceduralTexture for dynamic smoke effect
             const beamTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
-            beamTexture.octaves = 3;
-            beamTexture.persistence = 0.8;
-            beamTexture.animationSpeedFactor = 0.5; // Slow moving smoke
-            beamTexture.brightness = 0.5;
-            beamTexture.contrast = 2.0; // High contrast for defined beams
+            beamTexture.octaves = 4; // Increased from 3 for more detail
+            beamTexture.persistence = 0.7; // Slightly reduced for softer edges
+            beamTexture.animationSpeedFactor = 0.8; // Faster smoke movement for realism
+            beamTexture.brightness = 0.6; // Increased for visibility
+            beamTexture.contrast = 1.8; // Reduced slightly for softer, more realistic smoke
             
             // Use PBR material with gradient texture for realistic light falloff
             const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
@@ -3500,30 +3500,47 @@ class VRClub {
             lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5);
             lightPool.isPickable = false;
             
-            // Create a "Gobo" texture (breakup pattern)
-            const goboTexture = new BABYLON.NoiseProceduralTexture("goboNoise" + i, 256, this.scene);
-            goboTexture.octaves = 4;
-            goboTexture.persistence = 1.2; // High detail
+            // Create a "Gobo" texture (breakup pattern) - HYPERREALISTIC breakup pattern
+            const goboTexture = new BABYLON.NoiseProceduralTexture("goboNoise" + i, 512, this.scene); // Higher res
+            goboTexture.octaves = 5; // More detail
+            goboTexture.persistence = 1.0; // Balanced detail
             goboTexture.animationSpeedFactor = 0; // Static pattern (we rotate the mesh)
-            goboTexture.brightness = 1.0; // Increased from 0.8
-            goboTexture.contrast = 4.0; // Increased from 3.0 for sharper edges
+            goboTexture.brightness = 0.9;
+            goboTexture.contrast = 3.5; // Sharp but not harsh
             
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(2.0); // Increased from 0.4 to 2.0 for hyperrealism
+            poolMat.emissiveColor = this.currentSpotColor.scale(3.0); // Bright for visibility
             poolMat.opacityTexture = goboTexture; // Cutout shape
-            poolMat.alpha = 0.8; // Increased from 0.2 to 0.8 for better visibility
+            poolMat.alpha = 0.95; // Nearly full visibility
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
             poolMat.disableLighting = true;
             lightPool.material = poolMat;
             lightPool.renderingGroupId = 1;
             
-            // Removed extra layers for performance
+            // HYPERREALISTIC SOFT EDGE GLOW - Outer ring for realistic light falloff
+            const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
+                radius: 2.0, // Larger than main pool
+                tessellation: 32
+            }, this.scene);
+            lightPoolGlow.rotation.x = Math.PI / 2;
+            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5); // Slightly below main pool
+            lightPoolGlow.isPickable = false;
+            
+            // Soft gradient material for outer glow
+            const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
+            poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.8); // Softer than core
+            poolGlowMat.alpha = 0.4; // Semi-transparent
+            poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            poolGlowMat.disableLighting = true;
+            lightPoolGlow.material = poolGlowMat;
+            lightPoolGlow.renderingGroupId = 1;
+            
+            // Core layer removed for performance - using main pool + glow ring only
             const lightPoolCore = null;
             const poolCoreMat = null;
-            const lightPoolGlow = null;
-            const poolGlowMat = null;
             
 
 
@@ -3542,6 +3559,7 @@ class VRClub {
                 poolCoreMat: poolCoreMat,
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
+                goboTexture: goboTexture, // Store for animation updates
                 fixture: fixtureData ? fixtureData.fixture : null,
                 head: head,
                 yoke: yoke,
@@ -5386,13 +5404,13 @@ class VRClub {
                     // Update HYPERREALISTIC floor light splash - Single layer gobo effect
                     if (spot.lightPool) {
                         if (this.lightsActive && beamVisible) { // Also check beamVisible for flashing
-                            // Calculate beam width at floor (cone: 0.25m → 2.0m)
+                            // Calculate beam width at floor (cone: 0.25m → 3.0m)
                             const beamProgress = centerDistanceToFloor / beamLength;
-                            const beamWidthAtFloor = 0.25 + 1.75 * beamProgress; // 1.75 = 2.0 - 0.25
-                            const baseSize = (beamWidthAtFloor * 0.5) * zoomFactor;
+                            const beamWidthAtFloor = 0.25 + 2.75 * beamProgress; // 2.75 = 3.0 - 0.25
+                            const baseSize = (beamWidthAtFloor * 0.6) * zoomFactor; // Slightly larger pool
                             
                             // Atmospheric shimmer (audio disabled)
-                            const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.1;
+                            const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.15; // More shimmer
                             
                             // Use floor intersection point where beam actually hits
                             
@@ -5405,18 +5423,36 @@ class VRClub {
                             spot.lightPool.position.z = floorIntersection.z;
                             
                             // Scale based on beam width
-                            const poolSize = baseSize * 1.0; // Reduced from 1.4 to 1.0 (match beam exactly)
+                            const poolSize = baseSize * 1.2; // Larger pool for better visibility
                             spot.lightPool.scaling.set(poolSize, poolSize, 1);
                             
-                            spot.lightPool.visibility = 0.9; // Increased from 0.8 for better visibility
+                            spot.lightPool.visibility = 1.0; // Full visibility
                             if (spot.poolMat) {
-                                // Increased intensity significantly (1.5 -> 4.0) to ensure color is visible
-                                spot.poolMat.emissiveColor = spotColor.scale(4.0 * atmosphericShimmer);
+                                // HYPERREALISTIC: Bright core with color matching
+                                spot.poolMat.emissiveColor = spotColor.scale(5.0 * atmosphericShimmer);
+                            }
+                            
+                            // UPDATE GLOW RING - Soft outer halo for realistic light falloff
+                            if (spot.lightPoolGlow) {
+                                spot.lightPoolGlow.position.x = floorIntersection.x;
+                                spot.lightPoolGlow.position.y = 0.02; // Just below main pool
+                                spot.lightPoolGlow.position.z = floorIntersection.z;
+                                
+                                // Glow is 1.5x larger than main pool
+                                const glowSize = poolSize * 1.5;
+                                spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
+                                
+                                spot.lightPoolGlow.visibility = 0.8;
+                                if (spot.poolGlowMat) {
+                                    // Softer outer glow with same color
+                                    spot.poolGlowMat.emissiveColor = spotColor.scale(1.5 * atmosphericShimmer);
+                                }
                             }
                             
                         } else {
                             // CRITICAL: Hide floor pools immediately when lights turn off or flashing off
                             spot.lightPool.visibility = 0;
+                            if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                         }
                     }
                 }
@@ -5425,6 +5461,7 @@ class VRClub {
                 if (!this.lightsActive) {
                     if (spot.beam) spot.beam.visibility = 0;
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
+                    if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                 }
                 
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
