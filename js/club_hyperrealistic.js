@@ -2293,18 +2293,17 @@ class VRClub {
             depth: 0.1
         }, this.scene);
         sliderTrack.position = new BABYLON.Vector3(sliderX + 0.25, sliderY, sliderZ);
-        const trackMat = new BABYLON.StandardMaterial("sliderTrackMat", this.scene);
-        trackMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Dark gray
-        trackMat.disableLighting = true;
+        
+        const trackMat = this.materialFactory.createStandardMaterial("sliderTrackMat", {
+            emissiveColor: [0.1, 0.1, 0.1], // Dark gray
+            disableLighting: true
+        });
         sliderTrack.material = trackMat;
         sliderTrack.isPickable = false;
         
         // Slider handle (draggable)
         const sliderHandle = BABYLON.MeshBuilder.CreateBox("speedSliderHandle", {
-        const trackMat = this.materialFactory.createStandardMaterial("sliderTrackMat", {
-            emissiveColor: [0.1, 0.1, 0.1], // Dark gray
-            disableLighting: true
-        });
+            width: 0.05, height: 0.06, depth: 0.12
         }, this.scene);
         
         // Initialize slider to current speed (default 1.0 = middle position)
@@ -2316,17 +2315,18 @@ class VRClub {
         };
         
         sliderHandle.position = new BABYLON.Vector3(speedToPosition(this.spotlightSpeed), sliderY, sliderZ);
-        const handleMat = new BABYLON.StandardMaterial("sliderHandleMat", this.scene);
-        handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Cyan
-        handleMat.disableLighting = true;
-        sliderHandle.material = handleMat;
-        sliderHandle.isPickable = true;
         
-        // Store slider references
         const handleMat = this.materialFactory.createStandardMaterial("sliderHandleMat", {
             emissiveColor: [0, 0.8, 1], // Cyan
             disableLighting: true
         });
+        sliderHandle.material = handleMat;
+        sliderHandle.isPickable = true;
+        
+        // Store slider references
+        this.speedSlider = {
+            handle: sliderHandle,
+            track: sliderTrack,
             handleMat: handleMat,
             minX: sliderX,
             maxX: sliderX + 0.5,
@@ -2354,17 +2354,12 @@ class VRClub {
         labelContext.fillText("SPEED", 256, 80);
         labelTexture.update();
         
-        const labelMat = new BABYLON.StandardMaterial("speedLabelMat", this.scene);
-        labelMat.emissiveTexture = labelTexture;
-        labelMat.disableLighting = true;
-        labelMat.opacityTexture = labelTexture;
-        sliderLabel.material = labelMat;
-        
         const labelMat = this.materialFactory.createStandardMaterial("speedLabelMat", {
             emissiveTexture: labelTexture,
             opacityTexture: labelTexture,
             disableLighting: true
         });
+        sliderLabel.material = labelMat;
         log.info("✅ Created hyperrealistic integrated DJ/VJ booth");
     }
 
