@@ -2532,15 +2532,19 @@ class VRClub {
         }
         
         this.ledTime = 0;
-        this.ledPattern = 0;
+        this.ledPattern = 23;  // Start with Rainbow Rave pattern (always visible)
         this.ledPatternSwitchTime = 0;
         this.ledColorIndex = 0;
-        this.lastColorChange = -1;
-        this.lastPatternChange = -1;
+        this.lastColorChange = 0;  // Initialize to 0 instead of -1
+        this.lastPatternChange = 0;  // Initialize to 0 instead of -1
+        this.lastExplosionTime = 0;  // Initialize explosion timer
         
         // Store LED grid dimensions for pattern calculations
         this.ledCols = cols;
         this.ledRows = rows;
+        
+        // Initialize LED panels with a visible color to confirm they work
+        log.info(`🎨 LED Wall created: ${cols}x${rows} = ${this.ledPanels.length} panels`);
         
         // Beat detection and BPM tracking
         this.bpm = 130; // Default 130 BPM
@@ -5658,6 +5662,13 @@ class VRClub {
     }
 
     updateLEDWall(time, audioData) {
+        // Debug: Log first few calls to verify update is running
+        if (this.ledUpdateCount === undefined) this.ledUpdateCount = 0;
+        this.ledUpdateCount++;
+        if (this.ledUpdateCount <= 3) {
+            log.info(`🎨 LED Wall update #${this.ledUpdateCount}, pattern=${this.ledPattern}, panels=${this.ledPanels?.length}`);
+        }
+        
         const patterns = [
             // === IMMERSIVE DANCE CLUB PATTERNS ===
             // Energy Bursts
@@ -5793,7 +5804,28 @@ class VRClub {
             }
         }
         
-        patterns[this.ledPattern].call(this, colors[this.ledColorIndex], time, audioData);
+        // Execute current pattern with error handling
+        const currentPattern = patterns[this.ledPattern];
+        if (currentPattern && typeof currentPattern === 'function') {
+            try {
+                currentPattern.call(this, colors[this.ledColorIndex], time, audioData);
+            } catch (err) {
+                log.warn('LED pattern error:', err);
+                // Fallback: simple color pulse
+                const brightness = 0.5 + Math.sin(time * 3) * 0.5;
+                this.ledPanels.forEach(panel => {
+                    panel.material.emissiveColor = colors[this.ledColorIndex].scale(brightness);
+                });
+            }
+        } else {
+            // Pattern not found - use simple rainbow wave fallback
+            log.warn(`LED pattern ${this.ledPattern} not found, using fallback`);
+            this.ledPanels.forEach(panel => {
+                const wave = Math.sin(time * 2 + panel.col * 0.3);
+                const brightness = 0.5 + wave * 0.5;
+                panel.material.emissiveColor = colors[this.ledColorIndex].scale(brightness);
+            });
+        }
     }
 
     /**
