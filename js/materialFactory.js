@@ -2,9 +2,10 @@
 // Eliminates code duplication and ensures consistent material settings
 
 class MaterialFactory {
-    constructor(scene, maxLights) {
+    constructor(scene, maxLights, logger = null) {
         this.scene = scene;
         this.maxLights = maxLights;
+        this.log = logger || console; // Use provided logger or fallback to console
         
         // Cache of shared materials (keyed by material type)
         this.sharedMaterials = {};
@@ -27,7 +28,9 @@ class MaterialFactory {
             transparencyMode = null,
             backFaceCulling = true,
             disableLighting = false,
-            unlit = false
+            unlit = false,
+            emissiveTexture = null,
+            opacityTexture = null
         } = config;
 
         // Generate cache key for shared materials
@@ -56,6 +59,8 @@ class MaterialFactory {
             if (transparencyMode) {
                 mat.transparencyMode = transparencyMode;
             }
+        } else if (transparencyMode) {
+             mat.transparencyMode = transparencyMode;
         }
 
         mat.backFaceCulling = backFaceCulling;
@@ -67,6 +72,9 @@ class MaterialFactory {
         if (unlit) {
             mat.unlit = true;
         }
+
+        if (emissiveTexture) mat.emissiveTexture = emissiveTexture;
+        if (opacityTexture) mat.opacityTexture = opacityTexture;
 
         // Cache if shared
         if (shared && cacheKey) {
@@ -87,7 +95,11 @@ class MaterialFactory {
             diffuseColor = null,
             emissiveColor = null,
             specularColor = null,
-            disableLighting = false
+            disableLighting = false,
+            alpha = 1.0,
+            diffuseTexture = null,
+            emissiveTexture = null,
+            opacityTexture = null
         } = config;
 
         const mat = new BABYLON.StandardMaterial(name, this.scene);
@@ -113,6 +125,14 @@ class MaterialFactory {
         if (disableLighting) {
             mat.disableLighting = true;
         }
+
+        if (alpha < 1.0) {
+            mat.alpha = alpha;
+        }
+
+        if (diffuseTexture) mat.diffuseTexture = diffuseTexture;
+        if (emissiveTexture) mat.emissiveTexture = emissiveTexture;
+        if (opacityTexture) mat.opacityTexture = opacityTexture;
 
         // Freeze material to prevent shader recompilation
         mat.freeze();
@@ -390,7 +410,7 @@ class MaterialFactory {
         if (this.presets[presetName]) {
             return this.presets[presetName]();
         }
-        console.warn(`Material preset "${presetName}" not found`);
+        this.log.warn(`Material preset "${presetName}" not found`);
         return this.createPBRMaterial('fallbackMat', {});
     }
 

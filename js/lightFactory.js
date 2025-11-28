@@ -2,8 +2,9 @@
 // Reduces code duplication and provides consistent light configuration
 
 class LightFactory {
-    constructor(scene) {
+    constructor(scene, logger = null) {
         this.scene = scene;
+        this.log = logger || console; // Use provided logger or fallback to console
         this.lights = new Map(); // name -> light instance
         this.lightGroups = new Map(); // group name -> array of lights
     }
@@ -392,7 +393,7 @@ class LightFactory {
         if (this.presets[presetName]) {
             return this.presets[presetName](...args);
         }
-        console.warn(`Light preset "${presetName}" not found`);
+        this.log.warn(`Light preset "${presetName}" not found`);
         return null;
     }
 }

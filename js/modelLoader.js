@@ -72,9 +72,10 @@ class ModelCache {
 }
 
 class ModelLoader {
-    constructor(scene, materialFactory = null) {
+    constructor(scene, materialFactory = null, logger = null) {
         this.scene = scene;
         this.materialFactory = materialFactory;
+        this.log = logger || console; // Use provided logger or fallback to console
         this.cache = new ModelCache();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
@@ -121,12 +122,12 @@ class ModelLoader {
     }
 
     async init() {
-        console.log('🎸 Initializing model loader...');
+        this.log.info('🎸 Initializing model loader...');
         await this.cache.init();
     }
 
     async downloadModel(url) {
-        console.log(`⬇️ Downloading model: ${url}`);
+        this.log.info(`⬇️ Downloading model: ${url}`);
         try {
             const response = await fetch(url, {
                 mode: 'cors',
@@ -139,10 +140,10 @@ class ModelLoader {
             
             const arrayBuffer = await response.arrayBuffer();
             const sizeMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
-            console.log(`✅ Downloaded: ${url.split('/').pop()} (${sizeMB} MB)`);
+            this.log.info(`✅ Downloaded: ${url.split('/').pop()} (${sizeMB} MB)`);
             return arrayBuffer;
         } catch (error) {
-            console.error(`❌ Failed to download ${url}:`, error);
+            this.log.error(`❌ Failed to download ${url}:`, error);
             throw error;
         }
     }
@@ -152,7 +153,7 @@ class ModelLoader {
         const cached = await this.cache.getModel(url);
         
         if (cached) {
-            console.log(`💾 Using cached model: ${url.split('/').pop()}`);
+            this.log.info(`💾 Using cached model: ${url.split('/').pop()}`);
             return cached.data;
         }
         
@@ -168,12 +169,12 @@ class ModelLoader {
             throw new Error(`Unknown model: ${modelKey}`);
         }
 
-        console.log(`🎸 Loading ${config.name}...`);
+        this.log.info(`🎸 Loading ${config.name}...`);
 
         try {
             // If configured for procedural, create enhanced model
             if (config.useProcedural) {
-                console.log(`📦 Creating enhanced procedural ${config.name}`);
+                this.log.info(`📦 Creating enhanced procedural ${config.name}`);
                 return this.createEnhancedProceduralModel(modelKey, config);
             }
 
@@ -217,7 +218,7 @@ class ModelLoader {
                     if (modelHeight > 0) {
                         const autoScale = desiredHeight / modelHeight;
                         rootMesh.scaling = new BABYLON.Vector3(autoScale, autoScale, autoScale);
-                        console.log(`   📏 Auto-scaled PA speaker from ${modelHeight.toFixed(2)}m to ${desiredHeight}m (scale: ${autoScale.toFixed(4)})`);
+                        this.log.info(`   📏 Auto-scaled PA speaker from ${modelHeight.toFixed(2)}m to ${desiredHeight}m (scale: ${autoScale.toFixed(4)})`);
                         
                         // Adjust Y position so bottom sits on floor
                         const scaledMinY = boundingInfo.min.y * autoScale;
@@ -259,13 +260,13 @@ class ModelLoader {
                             mesh.material = this.materialFactory.getPreset('speakerBody');
                         }
                     }
-                    console.log(`   🎨 Applied hyperrealistic material to ${mesh.name}`);
+                    this.log.info(`   🎨 Applied hyperrealistic material to ${mesh.name}`);
                 }
                 
                 if (mesh.material) {
                     // Limit to 4 lights (safe for PBR materials)
                     mesh.material.maxSimultaneousLights = 4;
-                    console.log(`   🔧 Limited lights on ${mesh.name} to 4`);
+                    this.log.info(`   🔧 Limited lights on ${mesh.name} to 4`);
                     
                     // Add subtle ambient brightness - reduced to avoid washed-out VR appearance
                     if (mesh.material.emissiveColor !== undefined) {
@@ -311,7 +312,7 @@ class ModelLoader {
                 djLight.intensity = 2.0; // Increased for better VR visibility
                 djLight.range = 8; // Wider range
                 djLight.diffuse = new BABYLON.Color3(1, 1, 1);
-                console.log(`   💡 Added dedicated light above DJ console (intensity: 2.0)`);
+                this.log.info(`   💡 Added dedicated light above DJ console (intensity: 2.0)`);
                 
                 // Hide procedural CDJs when real model loads (they conflict)
                 const leftCDJ = this.scene.getMeshByName('leftCDJ');
@@ -328,7 +329,7 @@ class ModelLoader {
                 if (mixer) mixer.setEnabled(false);
                 if (mixerDisplay) mixerDisplay.setEnabled(false);
                 
-                console.log(`   🚫 Hidden procedural CDJ/mixer objects to avoid conflicts`);
+                this.log.info(`   🚫 Hidden procedural CDJ/mixer objects to avoid conflicts`);
             }
             
             // Add lights for PA speakers for better visibility
@@ -345,7 +346,7 @@ class ModelLoader {
                 speakerLight.intensity = 1.2;
                 speakerLight.range = 6;
                 speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
-                console.log(`   💡 Added light for ${config.name}`);
+                this.log.info(`   💡 Added light for ${config.name}`);
                 
                 // Ensure PA speakers are fully opaque and render properly
                 // Also make them BLACK if configured
@@ -375,7 +376,7 @@ class ModelLoader {
                         }
                     }
                 });
-                console.log(`   🔒 Enforced opaque rendering for PA speakers${config.makeBlack ? ' (BLACK)' : ''}`);
+                this.log.info(`   🔒 Enforced opaque rendering for PA speakers${config.makeBlack ? ' (BLACK)' : ''}`);
             }
             
             this.loadedModels[modelKey] = {
@@ -384,17 +385,17 @@ class ModelLoader {
                 config: config
             };
             
-            console.log(`✅ ${config.name} loaded successfully`);
+            this.log.info(`✅ ${config.name} loaded successfully`);
             
             // Log attribution for CC BY licensed models
             if (config.attribution) {
-                console.log(`   📜 ${config.attribution}`);
+                this.log.info(`   📜 ${config.attribution}`);
             }
             
             return result;
             
         } catch (error) {
-            console.warn(`⚠️ Failed to load ${config.name}, using enhanced procedural:`, error);
+            this.log.warn(`⚠️ Failed to load ${config.name}, using enhanced procedural:`, error);
             
             // Create enhanced procedural model
             return this.createEnhancedProceduralModel(modelKey, config);
@@ -402,7 +403,7 @@ class ModelLoader {
     }
 
     createEnhancedProceduralModel(modelKey, config) {
-        console.log(`📦 Creating enhanced procedural model for ${config.name}`);
+        this.log.info(`📦 Creating enhanced procedural model for ${config.name}`);
         
         const parent = new BABYLON.TransformNode(modelKey, this.scene);
         parent.position = config.position.clone();
@@ -438,10 +439,19 @@ class ModelLoader {
         body.parent = parent;
         body.position.y = 0.04;
         
-        const bodyMat = new BABYLON.StandardMaterial(name + '_body_mat', this.scene);
-        bodyMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
-        bodyMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
-        bodyMat.roughness = 0.6;
+        let bodyMat;
+        if (this.materialFactory) {
+            bodyMat = this.materialFactory.createStandardMaterial(name + '_body_mat', {
+                diffuseColor: [0.08, 0.08, 0.1],
+                specularColor: [0.2, 0.2, 0.2],
+                roughness: 0.6
+            });
+        } else {
+            bodyMat = new BABYLON.StandardMaterial(name + '_body_mat', this.scene);
+            bodyMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
+            bodyMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            bodyMat.roughness = 0.6;
+        }
         body.material = bodyMat;
         meshes.push(body);
         
@@ -452,10 +462,19 @@ class ModelLoader {
         platter.parent = parent;
         platter.position.set(0, 0.09, 0.05);
         
-        const platterMat = new BABYLON.StandardMaterial(name + '_platter_mat', this.scene);
-        platterMat.diffuseColor = new BABYLON.Color3(0.02, 0.02, 0.02);
-        platterMat.emissiveColor = new BABYLON.Color3(0, 0.15, 0.3); // Blue glow
-        platterMat.specularColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+        let platterMat;
+        if (this.materialFactory) {
+            platterMat = this.materialFactory.createStandardMaterial(name + '_platter_mat', {
+                diffuseColor: [0.02, 0.02, 0.02],
+                emissiveColor: [0, 0.15, 0.3], // Blue glow
+                specularColor: [0.8, 0.8, 0.8]
+            });
+        } else {
+            platterMat = new BABYLON.StandardMaterial(name + '_platter_mat', this.scene);
+            platterMat.diffuseColor = new BABYLON.Color3(0.02, 0.02, 0.02);
+            platterMat.emissiveColor = new BABYLON.Color3(0, 0.15, 0.3);
+            platterMat.specularColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+        }
         platter.material = platterMat;
         meshes.push(platter);
         
@@ -467,9 +486,17 @@ class ModelLoader {
         screen.position.set(0, 0.085, -0.1);
         screen.rotation.x = Math.PI / 2;
         
-        const screenMat = new BABYLON.StandardMaterial(name + '_screen_mat', this.scene);
-        screenMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        screenMat.emissiveColor = new BABYLON.Color3(0, 0.4, 0.6); // Cyan glow
+        let screenMat;
+        if (this.materialFactory) {
+            screenMat = this.materialFactory.createStandardMaterial(name + '_screen_mat', {
+                diffuseColor: [0, 0, 0],
+                emissiveColor: [0, 0.4, 0.6] // Cyan glow
+            });
+        } else {
+            screenMat = new BABYLON.StandardMaterial(name + '_screen_mat', this.scene);
+            screenMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            screenMat.emissiveColor = new BABYLON.Color3(0, 0.4, 0.6);
+        }
         screen.material = screenMat;
         meshes.push(screen);
         
@@ -481,11 +508,19 @@ class ModelLoader {
             button.parent = parent;
             button.position.set(-0.15 + (i * 0.04), 0.085, 0.12);
             
-            const btnMat = new BABYLON.StandardMaterial(name + '_btn' + i + '_mat', this.scene);
-            btnMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-            btnMat.emissiveColor = i % 2 === 0 ? 
-                new BABYLON.Color3(0.3, 0, 0) : // Red
-                new BABYLON.Color3(0, 0.3, 0);   // Green
+            const emissive = i % 2 === 0 ? [0.3, 0, 0] : [0, 0.3, 0];
+            
+            let btnMat;
+            if (this.materialFactory) {
+                btnMat = this.materialFactory.createStandardMaterial(name + '_btn' + i + '_mat', {
+                    diffuseColor: [0.1, 0.1, 0.1],
+                    emissiveColor: emissive
+                });
+            } else {
+                btnMat = new BABYLON.StandardMaterial(name + '_btn' + i + '_mat', this.scene);
+                btnMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                btnMat.emissiveColor = new BABYLON.Color3(emissive[0], emissive[1], emissive[2]);
+            }
             button.material = btnMat;
             meshes.push(button);
         }
@@ -503,10 +538,19 @@ class ModelLoader {
         body.parent = parent;
         body.position.y = 0.05;
         
-        const bodyMat = new BABYLON.StandardMaterial(name + '_body_mat', this.scene);
-        bodyMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
-        bodyMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        bodyMat.roughness = 0.7;
+        let bodyMat;
+        if (this.materialFactory) {
+            bodyMat = this.materialFactory.createStandardMaterial(name + '_body_mat', {
+                diffuseColor: [0.05, 0.05, 0.06],
+                specularColor: [0.15, 0.15, 0.15],
+                roughness: 0.7
+            });
+        } else {
+            bodyMat = new BABYLON.StandardMaterial(name + '_body_mat', this.scene);
+            bodyMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
+            bodyMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+            bodyMat.roughness = 0.7;
+        }
         body.material = bodyMat;
         meshes.push(body);
         
@@ -518,9 +562,17 @@ class ModelLoader {
             fader.parent = parent;
             fader.position.set(-0.2 + (i * 0.2), 0.108, -0.05);
             
-            const faderMat = new BABYLON.StandardMaterial(name + '_fader' + i + '_mat', this.scene);
-            faderMat.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
-            faderMat.specularColor = new BABYLON.Color3(1, 1, 1);
+            let faderMat;
+            if (this.materialFactory) {
+                faderMat = this.materialFactory.createStandardMaterial(name + '_fader' + i + '_mat', {
+                    diffuseColor: [0.8, 0.8, 0.8],
+                    specularColor: [1, 1, 1]
+                });
+            } else {
+                faderMat = new BABYLON.StandardMaterial(name + '_fader' + i + '_mat', this.scene);
+                faderMat.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+                faderMat.specularColor = new BABYLON.Color3(1, 1, 1);
+            }
             fader.material = faderMat;
             meshes.push(fader);
         }
@@ -534,9 +586,17 @@ class ModelLoader {
                 knob.parent = parent;
                 knob.position.set(-0.2 + (ch * 0.2), 0.115, 0.08 - (eq * 0.04));
                 
-                const knobMat = new BABYLON.StandardMaterial(name + '_knob_mat', this.scene);
-                knobMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-                knobMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+                let knobMat;
+                if (this.materialFactory) {
+                    knobMat = this.materialFactory.createStandardMaterial(name + '_knob_mat', {
+                        diffuseColor: [0.1, 0.1, 0.1],
+                        specularColor: [0.5, 0.5, 0.5]
+                    }, true); // Shared material
+                } else {
+                    knobMat = new BABYLON.StandardMaterial(name + '_knob_mat', this.scene);
+                    knobMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                    knobMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+                }
                 knob.material = knobMat;
                 meshes.push(knob);
             }
@@ -550,9 +610,17 @@ class ModelLoader {
         vuMeter.position.set(0, 0.105, 0.15);
         vuMeter.rotation.x = Math.PI / 2;
         
-        const vuMat = new BABYLON.StandardMaterial(name + '_vu_mat', this.scene);
-        vuMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        vuMat.emissiveColor = new BABYLON.Color3(0.8, 0, 0); // Red VU meter
+        let vuMat;
+        if (this.materialFactory) {
+            vuMat = this.materialFactory.createStandardMaterial(name + '_vu_mat', {
+                diffuseColor: [0, 0, 0],
+                emissiveColor: [0.8, 0, 0] // Red VU meter
+            });
+        } else {
+            vuMat = new BABYLON.StandardMaterial(name + '_vu_mat', this.scene);
+            vuMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            vuMat.emissiveColor = new BABYLON.Color3(0.8, 0, 0);
+        }
         vuMeter.material = vuMat;
         meshes.push(vuMeter);
         
@@ -568,10 +636,19 @@ class ModelLoader {
         }, this.scene);
         cabinet.parent = parent;
         
-        const cabinetMat = new BABYLON.StandardMaterial(name + '_cabinet_mat', this.scene);
-        cabinetMat.diffuseColor = new BABYLON.Color3(0.12, 0.12, 0.12);
-        cabinetMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        cabinetMat.roughness = 0.9;
+        let cabinetMat;
+        if (this.materialFactory) {
+            cabinetMat = this.materialFactory.createStandardMaterial(name + '_cabinet_mat', {
+                diffuseColor: [0.12, 0.12, 0.12],
+                specularColor: [0.05, 0.05, 0.05],
+                roughness: 0.9
+            });
+        } else {
+            cabinetMat = new BABYLON.StandardMaterial(name + '_cabinet_mat', this.scene);
+            cabinetMat.diffuseColor = new BABYLON.Color3(0.12, 0.12, 0.12);
+            cabinetMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+            cabinetMat.roughness = 0.9;
+        }
         cabinet.material = cabinetMat;
         meshes.push(cabinet);
         
@@ -583,9 +660,17 @@ class ModelLoader {
         woofer.position.set(0, -0.3, 0.36);
         woofer.rotation.x = Math.PI / 2;
         
-        const wooferMat = new BABYLON.StandardMaterial(name + '_woofer_mat', this.scene);
-        wooferMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-        wooferMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        let wooferMat;
+        if (this.materialFactory) {
+            wooferMat = this.materialFactory.createStandardMaterial(name + '_woofer_mat', {
+                diffuseColor: [0.05, 0.05, 0.05],
+                specularColor: [0.1, 0.1, 0.1]
+            });
+        } else {
+            wooferMat = new BABYLON.StandardMaterial(name + '_woofer_mat', this.scene);
+            wooferMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+            wooferMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        }
         woofer.material = wooferMat;
         meshes.push(woofer);
         
@@ -597,9 +682,17 @@ class ModelLoader {
         midRange.position.set(0, 0.3, 0.36);
         midRange.rotation.x = Math.PI / 2;
         
-        const midMat = new BABYLON.StandardMaterial(name + '_mid_mat', this.scene);
-        midMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.08);
-        midMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        let midMat;
+        if (this.materialFactory) {
+            midMat = this.materialFactory.createStandardMaterial(name + '_mid_mat', {
+                diffuseColor: [0.08, 0.08, 0.08],
+                specularColor: [0.15, 0.15, 0.15]
+            });
+        } else {
+            midMat = new BABYLON.StandardMaterial(name + '_mid_mat', this.scene);
+            midMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+            midMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        }
         midRange.material = midMat;
         meshes.push(midRange);
         
@@ -611,10 +704,18 @@ class ModelLoader {
         tweeter.position.set(0, 0.65, 0.38);
         tweeter.rotation.x = Math.PI / 2;
         
-        const tweeterMat = new BABYLON.StandardMaterial(name + '_tweeter_mat', this.scene);
-        tweeterMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.9);
-        tweeterMat.specularColor = new BABYLON.Color3(1, 1, 1);
-        tweeterMat.metallic = 0.8;
+        let tweeterMat;
+        if (this.materialFactory) {
+            tweeterMat = this.materialFactory.createStandardMaterial(name + '_tweeter_mat', {
+                diffuseColor: [0.9, 0.9, 0.9],
+                specularColor: [1, 1, 1]
+            });
+            // StandardMaterial doesn't have metallic property directly, but we can simulate or ignore
+        } else {
+            tweeterMat = new BABYLON.StandardMaterial(name + '_tweeter_mat', this.scene);
+            tweeterMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.9);
+            tweeterMat.specularColor = new BABYLON.Color3(1, 1, 1);
+        }
         tweeter.material = tweeterMat;
         meshes.push(tweeter);
         
@@ -626,9 +727,17 @@ class ModelLoader {
             bar.parent = parent;
             bar.position.set(0, -0.8 + (i * 0.18), 0.355);
             
-            const barMat = new BABYLON.StandardMaterial(name + '_bar_mat', this.scene);
-            barMat.diffuseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-            barMat.alpha = 0.8;
+            let barMat;
+            if (this.materialFactory) {
+                barMat = this.materialFactory.createStandardMaterial(name + '_bar_mat', {
+                    diffuseColor: [0.15, 0.15, 0.15],
+                    alpha: 0.8
+                });
+            } else {
+                barMat = new BABYLON.StandardMaterial(name + '_bar_mat', this.scene);
+                barMat.diffuseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+                barMat.alpha = 0.8;
+            }
             bar.material = barMat;
             meshes.push(bar);
         }
@@ -637,7 +746,7 @@ class ModelLoader {
     }
 
     async loadAllModels() {
-        console.log('🎸 Starting model download and caching...');
+        this.log.info('🎸 Starting model download and caching...');
         const startTime = performance.now();
         
         // Load models in priority order
@@ -654,20 +763,20 @@ class ModelLoader {
             await Promise.allSettled(speakers.map(key => this.loadModel(key)));
             
             const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
-            console.log(`✅ All models loaded in ${loadTime}s`);
-            console.log('📜 Model Attributions:');
+            this.log.info(`✅ All models loaded in ${loadTime}s`);
+            this.log.info('📜 Model Attributions:');
             
             // Display all attributions
             for (const key of modelKeys) {
                 const config = this.modelConfigs[key];
                 if (config.attribution) {
-                    console.log(`   • ${config.attribution}`);
+                    this.log.info(`   • ${config.attribution}`);
                 }
             }
             
             return this.loadedModels;
         } catch (error) {
-            console.error('❌ Model loading failed:', error);
+            this.log.error('❌ Model loading failed:', error);
             throw error;
         }
     }

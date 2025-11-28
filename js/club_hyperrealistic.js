@@ -89,7 +89,7 @@ class VRClub {
         log.info(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
         
         // Initialize material factory for centralized material creation
-        this.materialFactory = new MaterialFactory(null, this.maxLights); // Scene set later in init()
+        this.materialFactory = new MaterialFactory(null, this.maxLights, log); // Scene set later in init()
         
         // Initialize light factory for centralized light creation
         this.lightFactory = null; // Initialized after scene creation
@@ -361,7 +361,7 @@ class VRClub {
         this.materialFactory.scene = this.scene;
         
         // Initialize light factory
-        this.lightFactory = new LightFactory(this.scene);
+        this.lightFactory = new LightFactory(this.scene, log);
         
         // Initialize Ready Player Me loader (optional, with fallback)
         this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
@@ -393,20 +393,20 @@ class VRClub {
         
         // Initialize texture loader and load textures from CDN (cached for subsequent loads)
         log.info('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
-        this.textureLoader = new TextureLoader(this.scene);
+        this.textureLoader = new TextureLoader(this.scene, log);
         await this.textureLoader.init();
         
         try {
             this.concreteTextures = await this.textureLoader.loadAllTextures();
             log.info('✅ All textures loaded and cached');
         } catch (error) {
-            console.warn('⚠️ Failed to load some textures, using fallback materials:', error);
+            log.warn('⚠️ Failed to load some textures, using fallback materials:', error);
             this.concreteTextures = null; // Will use procedural materials as fallback
         }
         
         // Initialize model loader for DJ equipment and PA speakers
         log.info('🎸 Initializing 3D model loader...');
-        this.modelLoader = new ModelLoader(this.scene, this.materialFactory);
+        this.modelLoader = new ModelLoader(this.scene, this.materialFactory, log);
         await this.modelLoader.init();
         
         // Load all models in the background (they'll load asynchronously)
@@ -414,7 +414,7 @@ class VRClub {
         this.modelLoader.loadAllModels().then(() => {
             log.info('✅ All 3D models loaded successfully');
         }).catch(error => {
-            console.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
+            log.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
         });
         
         // Setup camera for post-processing pipeline
@@ -516,7 +516,7 @@ class VRClub {
                 );
                 log.info('🎮 VR controller locomotion enabled (use thumbsticks to move/turn)');
             } catch (e) {
-                console.warn('Could not enable VR movement feature:', e);
+                log.warn('Could not enable VR movement feature:', e);
             }
         }
         
@@ -536,7 +536,7 @@ class VRClub {
                                 depthNear: 0.1,
                                 depthFar: 150
                             }).catch(err => {
-                                console.warn('Could not update render state:', err);
+                                log.warn('Could not update render state:', err);
                             });
                         }
                         
@@ -579,12 +579,12 @@ class VRClub {
         await this.createDancingNPCs();
         
         // Verify scene is ready
-        console.log('🎬 Scene initialization complete:');
-        console.log(`  📷 Camera: ${this.camera.position.toString()}`);
-        console.log(`  🎯 Active camera: ${this.scene.activeCamera ? 'Set' : 'MISSING!'}`);
-        console.log(`  💡 Lights: ${this.scene.lights.length}`);
-        console.log(`  📦 Meshes: ${this.scene.meshes.length}`);
-        console.log(`  🎨 Materials: ${this.scene.materials.length}`);
+        log.info('🎬 Scene initialization complete:');
+        log.info(`  📷 Camera: ${this.camera.position.toString()}`);
+        log.info(`  🎯 Active camera: ${this.scene.activeCamera ? 'Set' : 'MISSING!'}`);
+        log.info(`  💡 Lights: ${this.scene.lights.length}`);
+        log.info(`  📦 Meshes: ${this.scene.meshes.length}`);
+        log.info(`  🎨 Materials: ${this.scene.materials.length}`);
         
         // Start render loop
         this.engine.runRenderLoop(() => {
@@ -1138,9 +1138,10 @@ class VRClub {
                 0.01,
                 strip.z + strip.d / 2
             );
-            const mat = new BABYLON.StandardMaterial(`danceFloorLEDMat${i}`, this.scene);
-            mat.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
-            mat.disableLighting = true;
+            const mat = this.materialFactory.createStandardMaterial(`danceFloorLEDMat${i}`, {
+                emissiveColor: [0, 0.5, 1],
+                disableLighting: true
+            });
             led.material = mat;
             
             this.danceFloorLEDs.push({ mesh: led, material: mat });
@@ -1271,9 +1272,10 @@ class VRClub {
                 diameter: 0.015, segments: 8
             }, this.scene);
             led.position = new BABYLON.Vector3(pos.x, 9.77, pos.z + 0.04);
-            const ledMat = new BABYLON.StandardMaterial(`smokeDetectorLEDMat${i}`, this.scene);
-            ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green = normal
-            ledMat.disableLighting = true;
+            const ledMat = this.materialFactory.createStandardMaterial(`smokeDetectorLEDMat${i}`, {
+                emissiveColor: [0, 0.8, 0], // Green = normal
+                disableLighting: true
+            });
             led.material = ledMat;
         });
         
@@ -1322,9 +1324,10 @@ class VRClub {
         }, this.scene);
         screenDisplay.position = new BABYLON.Vector3(-0.8, 1.18, -23.635);
         screenDisplay.rotation.x = -0.5;
-        const screenMat = new BABYLON.StandardMaterial("laptopScreenMat", this.scene);
-        screenMat.emissiveColor = new BABYLON.Color3(0.2, 0.4, 0.8); // Blue waveform display
-        screenMat.disableLighting = true;
+        const screenMat = this.materialFactory.createStandardMaterial("laptopScreenMat", {
+            emissiveColor: [0.2, 0.4, 0.8], // Blue waveform display
+            disableLighting: true
+        });
         screenDisplay.material = screenMat;
         
         // === HEADPHONES (on mixer) ===
@@ -1408,9 +1411,10 @@ class VRClub {
         const usbLED = BABYLON.MeshBuilder.CreateSphere("usbLED", {
             diameter: 0.008, segments: 6
         }, this.scene);
-        usbLED.position = new BABYLON.Vector3(-1.1, 0.905, -22.63);
-        const usbLEDMat = new BABYLON.StandardMaterial("usbLEDMat", this.scene);
-        usbLEDMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0);
+        const usbLEDMat = this.materialFactory.createStandardMaterial("usbLEDMat", {
+            emissiveColor: [0, 0.8, 0],
+            disableLighting: true
+        });YLON.Color3(0, 0.8, 0);
         usbLEDMat.disableLighting = true;
         usbLED.material = usbLEDMat;
         
@@ -1419,8 +1423,9 @@ class VRClub {
 
     createCollisionBoundaries() {
         // Create invisible collision walls to prevent walking through geometry
-        // These use Babylon.js collision system for camera
-        
+        const collisionMat = this.materialFactory.createStandardMaterial("collisionMat", {
+            alpha: 0 // Completely invisible
+        });
         const collisionMat = new BABYLON.StandardMaterial("collisionMat", this.scene);
         collisionMat.alpha = 0; // Completely invisible
         
@@ -2101,9 +2106,10 @@ class VRClub {
         }, this.scene);
         mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -23.5);
         mixerDisplay.rotation.x = Math.PI / 6;
-        const displayMat = new BABYLON.StandardMaterial("mixerDisplayMat", this.scene);
-        displayMat.emissiveColor = new BABYLON.Color3(0, 1, 0.5);
-        displayMat.disableLighting = true;
+        const displayMat = this.materialFactory.createStandardMaterial("mixerDisplayMat", {
+            emissiveColor: [0, 1, 0.5],
+            disableLighting: true
+        });
         mixerDisplay.material = displayMat;
         
         // === AUDIO STREAM CONTROL BUTTON ===
@@ -2115,9 +2121,10 @@ class VRClub {
         audioBtn.position = new BABYLON.Vector3(0, 0.96, -22.5);
         audioBtn.isPickable = true;
         
-        const audioBtnMat = new BABYLON.StandardMaterial("audioBtnMat", this.scene);
-        audioBtnMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0);
-        audioBtnMat.disableLighting = true;
+        const audioBtnMat = this.materialFactory.createStandardMaterial("audioBtnMat", {
+            emissiveColor: [0, 0.8, 0],
+            disableLighting: true
+        });
         audioBtn.material = audioBtnMat;
         
         // Label (removed diagonal plane - was confusing)
@@ -2254,18 +2261,10 @@ class VRClub {
             
             toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, zPos);
             toggleBtn.isPickable = true;
-            
-            const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
-            // Check active state - action buttons start inactive
-            let isActive = false;
-            if (btnDef.control === "changeColor" || btnDef.control === "changeMirrorBallColor" || 
-                btnDef.control === "cycleSpotMode" || btnDef.control === "cyclePattern") {
-                isActive = false; // Action buttons, not toggles
-            } else {
-                isActive = this[btnDef.control]; // Normal toggle buttons
-            }
-            
-            toggleMat.emissiveColor = isActive ? btnDef.onColor : btnDef.offColor;
+            const toggleMat = this.materialFactory.createStandardMaterial("toggleMat_" + btnDef.control, {
+                emissiveColor: isActive ? btnDef.onColor : btnDef.offColor,
+                disableLighting: true
+            });e ? btnDef.onColor : btnDef.offColor;
             toggleMat.disableLighting = true;
             toggleBtn.material = toggleMat;
             
@@ -2302,9 +2301,10 @@ class VRClub {
         
         // Slider handle (draggable)
         const sliderHandle = BABYLON.MeshBuilder.CreateBox("speedSliderHandle", {
-            width: 0.08,
-            height: 0.12,
-            depth: 0.15
+        const trackMat = this.materialFactory.createStandardMaterial("sliderTrackMat", {
+            emissiveColor: [0.1, 0.1, 0.1], // Dark gray
+            disableLighting: true
+        });
         }, this.scene);
         
         // Initialize slider to current speed (default 1.0 = middle position)
@@ -2323,9 +2323,10 @@ class VRClub {
         sliderHandle.isPickable = true;
         
         // Store slider references
-        this.speedSlider = {
-            track: sliderTrack,
-            handle: sliderHandle,
+        const handleMat = this.materialFactory.createStandardMaterial("sliderHandleMat", {
+            emissiveColor: [0, 0.8, 1], // Cyan
+            disableLighting: true
+        });
             handleMat: handleMat,
             minX: sliderX,
             maxX: sliderX + 0.5,
@@ -2359,10 +2360,11 @@ class VRClub {
         labelMat.opacityTexture = labelTexture;
         sliderLabel.material = labelMat;
         
-        log.info("✅ Speed slider created at x=3.8-4.3, z=-25.3 (Row 3)");
-        
-        // Laptop removed - doesn't add useful functionality
-        
+        const labelMat = this.materialFactory.createStandardMaterial("speedLabelMat", {
+            emissiveTexture: labelTexture,
+            opacityTexture: labelTexture,
+            disableLighting: true
+        });
         log.info("✅ Created hyperrealistic integrated DJ/VJ booth");
     }
 
@@ -2406,9 +2408,10 @@ class VRClub {
                 panel.rotation.y = Math.PI; // Rotate 180° to face dance floor
                 
                 // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
-                const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
-                panelMat.emissiveColor = new BABYLON.Color3(0.1, 0, 0); // MUCH dimmer for contrast
-                panelMat.disableLighting = true;
+                const panelMat = this.materialFactory.createStandardMaterial("ledMat_" + row + "_" + col, {
+                    emissiveColor: [0.1, 0, 0], // MUCH dimmer for contrast
+                    disableLighting: true
+                });
                 panel.material = panelMat;
                 
                 // PERFORMANCE: Freeze static geometry (panel position never changes)
@@ -2467,10 +2470,11 @@ class VRClub {
         // Simple control panel with toggle buttons for easy lighting control
         // Positioned at x=3, facing DJ (who stands with back to LED wall)
         
-        const consoleMat = new BABYLON.PBRMetallicRoughnessMaterial("vjConsoleMat", this.scene);
-        consoleMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
-        consoleMat.metallic = 0.9;
-        consoleMat.roughness = 0.3;
+        const consoleMat = this.materialFactory.createPBRMaterial("vjConsoleMat", {
+            baseColor: [0.05, 0.05, 0.06],
+            metallic: 0.9,
+            roughness: 0.3
+        });
         
         // Console base/stand
         const consoleBase = BABYLON.MeshBuilder.CreateBox("vjConsoleBase", {
@@ -2576,22 +2580,10 @@ class VRClub {
             toggleBtn.position = new BABYLON.Vector3(xPos, yPos, startZ);
             toggleBtn.isPickable = true;
             
-            const toggleMat = new BABYLON.StandardMaterial("toggleMat_" + btnDef.control, this.scene);
-            // Special handling for different button types
-            let isActive = false;
-            if (btnDef.control === "changeColor") {
-                isActive = false; // Action button, not a toggle
-            } else if (btnDef.control.startsWith("pattern")) {
-                // Pattern buttons - check if this pattern is active
-                if (btnDef.control === "patternRandom") isActive = (this.spotlightPattern === 0);
-                else if (btnDef.control === "patternStatic") isActive = (this.spotlightPattern === 1);
-                else if (btnDef.control === "patternSweep") isActive = (this.spotlightPattern === 2);
-            } else {
-                // Regular toggle buttons
-                isActive = this[btnDef.control];
-            }
-            toggleMat.emissiveColor = isActive ? btnDef.onColor : btnDef.offColor;
-            toggleMat.disableLighting = true;
+            const toggleMat = this.materialFactory.createStandardMaterial("toggleMat_" + btnDef.control, {
+                emissiveColor: isActive ? btnDef.onColor : btnDef.offColor,
+                disableLighting: true
+            });
             toggleBtn.material = toggleMat;
             
             this.vjControlButtons.push({
@@ -2630,11 +2622,12 @@ class VRClub {
     }
 
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
-
-    createHyperrealisticSmoke() {
-        // === HYPERREALISTIC SMOKE & FOG SYSTEM ===
-        // Creates volumetric smoke effects using particle systems
-        // 1. Floor Fog: Low-lying dry ice effect
+            const labelMat = this.materialFactory.createStandardMaterial("labelMat_" + btnDef.control, {
+                diffuseTexture: labelTexture,
+                emissiveColor: [0.9, 0.9, 0.9],
+                disableLighting: true,
+                opacityTexture: labelTexture
+            });
         // 2. Atmospheric Haze: Dispersed particles for light beams
         
         // Create a soft particle texture using Canvas (no external assets needed)
@@ -2736,10 +2729,11 @@ class VRClub {
 
     createBoothLighting() {
         // LED strip under platform (accent lighting)
-        const stripMat = new BABYLON.StandardMaterial("ledStripMat", this.scene);
-        stripMat.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
-        stripMat.disableLighting = true;
-        stripMat.alpha = 0.8;
+        const stripMat = this.materialFactory.createStandardMaterial("ledStripMat", {
+            emissiveColor: [0, 0.5, 1],
+            disableLighting: true,
+            alpha: 0.8
+        });
         
         for (let side of [-4.2, 4.2]) {
             const strip = BABYLON.MeshBuilder.CreateBox("ledStrip", {
@@ -2929,9 +2923,10 @@ class VRClub {
             lens.parent = head;
             lens.position.y = -0.28; // Just inside bezel
             
-            const lensMat = new BABYLON.StandardMaterial("lensMat" + i, this.scene);
-            lensMat.emissiveColor = this.currentSpotColor.scale(6.0);
-            lensMat.disableLighting = true;
+            const lensMat = this.materialFactory.createStandardMaterial("lensMat" + i, {
+                emissiveColor: this.currentSpotColor.scale(6.0),
+                disableLighting: true
+            });
             lensMat.backFaceCulling = false;
             lens.material = lensMat;
             lens.renderingGroupId = 2;
@@ -2942,10 +2937,11 @@ class VRClub {
             }, this.scene);
             lightSource.parent = head;
             lightSource.position.y = -0.25;
-            
-            const sourceMat = new BABYLON.StandardMaterial("sourceMat" + i, this.scene);
-            sourceMat.emissiveColor = this.currentSpotColor.scale(10.0);
-            sourceMat.disableLighting = true;
+            const sourceMat = this.materialFactory.createStandardMaterial("sourceMat" + i, {
+                emissiveColor: this.currentSpotColor.scale(10.0),
+                disableLighting: true
+            });
+            sourceMat.backFaceCulling = false;
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
@@ -3017,9 +3013,10 @@ class VRClub {
                 depth: 0.3
             }, this.scene);
             strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
-            
-            const strobeMat = new BABYLON.StandardMaterial("strobeMat" + i, this.scene);
-            strobeMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Off by default
+            const strobeMat = this.materialFactory.createStandardMaterial("strobeMat" + i, {
+                emissiveColor: [0, 0, 0], // Off by default
+                disableLighting: true
+            });YLON.Color3(0, 0, 0); // Off by default
             strobeMat.disableLighting = true;
             strobe.material = strobeMat;
             
@@ -3096,10 +3093,11 @@ class VRClub {
             } else {
                 clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
             }
-            clamp.isPickable = false;
-            
-            const clampMat = new BABYLON.PBRMetallicRoughnessMaterial("clampMat" + i, this.scene);
-            clampMat.baseColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            const clampMat = this.materialFactory.createPBRMaterial("clampMat" + i, {
+                baseColor: [0.3, 0.3, 0.3],
+                metallic: 1.0,
+                roughness: 0.4
+            });BABYLON.Color3(0.3, 0.3, 0.3);
             clampMat.metallic = 1.0;
             clampMat.roughness = 0.4;
             clamp.material = clampMat;
@@ -3278,21 +3276,19 @@ class VRClub {
             tessellation: 8
         }, this.scene);
         beam.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        beam.isPickable = false;
-        beam.rotationQuaternion = BABYLON.Quaternion.Identity();
-        
         // PBR Material with high intensity for core beam
-        const beamMat = new BABYLON.PBRMaterial("laserBeamMat" + laserIndex + "_" + beamIndex, this.scene);
-        beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
-        beamMat.metallic = 0;
-        beamMat.roughness = 1;
-        beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red core
-        beamMat.emissiveIntensity = 8.0; // Blindingly bright core
-        beamMat.alpha = 1.0; // Fully opaque core
-        beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
-        beamMat.backFaceCulling = false;
-        beamMat.disableLighting = true;
-        beamMat.unlit = true;
+        const beamMat = this.materialFactory.createPBRMaterial("laserBeamMat" + laserIndex + "_" + beamIndex, {
+            baseColor: [0, 0, 0],
+            metallic: 0,
+            roughness: 1,
+            emissiveColor: [1, 0, 0], // Bright red core
+            emissiveIntensity: 8.0, // Blindingly bright core
+            alpha: 1.0, // Fully opaque core
+            transparencyMode: BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND,
+            backFaceCulling: false,
+            disableLighting: true,
+            unlit: true
+        });
         beam.material = beamMat;
         beam.renderingGroupId = 1;
         
@@ -3314,18 +3310,22 @@ class VRClub {
         beamGlow.isPickable = false;
         beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
         
-        const beamGlowMat = new BABYLON.PBRMaterial("laserGlowMat" + laserIndex + "_" + beamIndex, this.scene);
-        beamGlowMat.albedoColor = new BABYLON.Color3(0, 0, 0);
-        beamGlowMat.metallic = 0;
-        beamGlowMat.roughness = 1;
-        beamGlowMat.emissiveTexture = glowTexture;
-        beamGlowMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red glow
-        beamGlowMat.emissiveIntensity = 2.0;
-        beamGlowMat.opacityTexture = glowTexture;
-        beamGlowMat.alpha = 0.2; // Very transparent for soft glow
-        beamGlowMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
-        beamGlowMat.backFaceCulling = false;
-        beamGlowMat.disableLighting = true;
+        const beamGlowMat = this.materialFactory.createPBRMaterial("laserGlowMat" + laserIndex + "_" + beamIndex, {
+            baseColor: [0, 0, 0],
+            metallic: 0,
+            roughness: 1,
+            emissiveTexture: glowTexture,
+            emissiveColor: [1, 0, 0], // Red glow
+            emissiveIntensity: 2.0,
+            opacityTexture: glowTexture,
+            alpha: 0.2, // Very transparent for soft glow
+            transparencyMode: BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND,
+            backFaceCulling: false,
+            disableLighting: true,
+            unlit: true
+        });
+        beamGlow.material = beamGlowMat;
+        beamGlow.renderingGroupId = 1;true;
         beamGlowMat.unlit = true;
         beamGlow.material = beamGlowMat;
         beamGlow.renderingGroupId = 1;
@@ -4185,7 +4185,7 @@ class VRClub {
             }
         });
         
-        console.log(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls)`);
+        log.info(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls)`);
         
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
@@ -5667,7 +5667,7 @@ class VRClub {
                     this.beatInterval = 60 / this.bpm;
                     this.lastBPMUpdate = time;
                     
-                    console.log(`🎵 Detected BPM: ${this.bpm}`);
+                    log.info(`🎵 Detected BPM: ${this.bpm}`);
                 }
             }
         }
@@ -6195,7 +6195,7 @@ class VRClub {
     setupNetworkingCallbacks() {
         // Handle connection
         this.networkManager.onConnect = (playerId, clubState, players) => {
-            console.log(`🌐 Connected as Player ${playerId}`);
+            log.info(`🌐 Connected as Player ${playerId}`);
             this.isMultiplayer = true;
             
             // Apply server's club state
@@ -6231,13 +6231,13 @@ class VRClub {
         
         // Handle player joined
         this.networkManager.onPlayerJoined = (player) => {
-            console.log(`👤 ${player.username} joined the club`);
+            log.info(`👤 ${player.username} joined the club`);
             this.avatarManager.createAvatar(player.id, player);
         };
         
         // Handle player left
         this.networkManager.onPlayerLeft = (playerId) => {
-            console.log(`👋 Player ${playerId} left the club`);
+            log.info(`👋 Player ${playerId} left the club`);
             this.avatarManager.removeAvatar(playerId);
         };
         
@@ -6248,7 +6248,7 @@ class VRClub {
         
         // Handle VJ control changes from other players
         this.networkManager.onVJControl = (control, value, fromPlayerId) => {
-            console.log(`🎛️ ${control} changed to ${value} by Player ${fromPlayerId}`);
+            log.info(`🎛️ ${control} changed to ${value} by Player ${fromPlayerId}`);
             this[control] = value;
             
             // Update specific controls
@@ -6280,7 +6280,7 @@ class VRClub {
                     this.audioElement.currentTime,
                     true
                 );
-                console.log(`🔄 Audio sync: ${this.audioElement.currentTime.toFixed(1)}s`);
+                log.info(`🔄 Audio sync: ${this.audioElement.currentTime.toFixed(1)}s`);
             }
         }, 5000);
     }
@@ -6296,7 +6296,7 @@ class VRClub {
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
                 }
             }
-            console.log('🔇 Audio stopped by remote player');
+            log.info('🔇 Audio stopped by remote player');
             return;
         }
         
@@ -6320,7 +6320,7 @@ class VRClub {
         // Load and sync audio
         if (this.audioElement.src !== audioUrl) {
             this.audioElement.src = audioUrl;
-            console.log(`🎵 Remote player started audio: ${audioUrl}`);
+            log.info(`🎵 Remote player started audio: ${audioUrl}`);
         }
         
         this.audioElement.currentTime = audioTime;
@@ -6335,7 +6335,7 @@ class VRClub {
         
         if (isPlaying) {
             this.audioElement.play().catch(err => {
-                console.warn('Audio playback requires user interaction:', err);
+                log.warn('Audio playback requires user interaction:', err);
             });
         } else {
             this.audioElement.pause();
@@ -6352,7 +6352,7 @@ class VRClub {
                         await vrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
                     }
                 } catch (error) {
-                    console.error('VR Error:', error);
+                    log.error('VR Error:', error);
                     alert('VR not available. Make sure your Quest 3S is connected via Link/Air Link.');
                 }
             });
@@ -6406,7 +6406,7 @@ class VRClub {
                 const clickedButton = this.vjControlButtons.find(btn => btn.mesh === pickResult.pickedMesh);
                 
                 if (clickedButton) {
-                    console.log(`🎛️ VJ Control: ${clickedButton.label} clicked`);
+                    log.info(`🎛️ VJ Control: ${clickedButton.label} clicked`);
                     
                     // Track VJ interaction - but DON'T pause patterns for pattern/mode cycling
                     // Only pause for manual light toggles (ON/OFF controls)
@@ -6452,7 +6452,7 @@ class VRClub {
                             clickedButton.material.emissiveColor = clickedButton.offColor;
                         }, 200);
                         
-                        console.log(`🎨 Color changed to index ${this.spotColorIndex}`);
+                        log.info(`🎨 Color changed to index ${this.spotColorIndex}`);
                         
                         // Broadcast spotlight color change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
@@ -6502,7 +6502,7 @@ class VRClub {
                         }, 300);
                         
                         const colorNames = ["White", "Red", "Blue", "Green", "Magenta", "Yellow", "Cyan", "Orange", "Purple"];
-                        console.log(`🪩 Mirror ball color: ${colorNames[this.mirrorBallColorIndex]}`);
+                        log.info(`🪩 Mirror ball color: ${colorNames[this.mirrorBallColorIndex]}`);
                         
                         // Broadcast mirror ball color change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
@@ -6525,7 +6525,7 @@ class VRClub {
                         }, 300);
                         
                         const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
-                        console.log(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
+                        log.info(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
                         
                         // Broadcast spotlight mode change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
@@ -6547,7 +6547,7 @@ class VRClub {
                         }, 300);
                         
                         const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
-                        console.log(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
+                        log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
                         
                         // Broadcast spotlight pattern change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
@@ -6577,7 +6577,7 @@ class VRClub {
                         });
                         
                         const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
-                        console.log(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
+                        log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
                         
                         // Broadcast spotlight pattern change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
@@ -6591,7 +6591,7 @@ class VRClub {
                         clickedButton.material.emissiveColor = this[clickedButton.control] ? 
                             clickedButton.onColor : clickedButton.offColor;
                         
-                        console.log(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
+                        log.info(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
                         
                         // Broadcast VJ control change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
@@ -6607,7 +6607,7 @@ class VRClub {
             if (this.speedSlider && this.speedSlider.isDragging) {
                 this.speedSlider.isDragging = false;
                 this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Normal cyan
-                console.log(`🎛️ Speed set to: ${this.spotlightSpeed.toFixed(2)}x`);
+                log.info(`🎛️ Speed set to: ${this.spotlightSpeed.toFixed(2)}x`);
                 
                 // Broadcast speed change to other players (after drag completes)
                 if (this.networkManager && this.networkManager.isConnected()) {
@@ -6756,7 +6756,7 @@ class VRClub {
             if (file && file.type.startsWith('audio/')) {
                 selectedFile = file;
                 document.getElementById('audioUrlInput').value = `📁 ${file.name}`;
-                console.log(`📁 File selected: ${file.name}`);
+                log.info(`📁 File selected: ${file.name}`);
             }
         };
         
@@ -6786,9 +6786,9 @@ class VRClub {
             if (file && file.type.startsWith('audio/')) {
                 selectedFile = file;
                 urlInput.value = `📁 ${file.name}`;
-                console.log(`📁 File dropped: ${file.name}`);
+                log.info(`📁 File dropped: ${file.name}`);
             } else {
-                console.warn('⚠️ Please drop an audio file');
+                log.warn('⚠️ Please drop an audio file');
             }
         };
         
@@ -6802,7 +6802,7 @@ class VRClub {
                     const file = item.getAsFile();
                     selectedFile = file;
                     urlInput.value = `📁 ${file.name}`;
-                    console.log(`📁 File pasted: ${file.name}`);
+                    log.info(`📁 File pasted: ${file.name}`);
                     break;
                 }
             }
@@ -6865,7 +6865,7 @@ class VRClub {
     startAudioStream(url) {
         // Audio element should already exist from showAudioStreamInputUI()
         if (!this.audioElement) {
-            console.error("❌ Audio element not created! This shouldn't happen.");
+            log.error("❌ Audio element not created! This shouldn't happen.");
             return;
         }
         
@@ -6875,7 +6875,7 @@ class VRClub {
             log.info("🎵 Using demo audio stream");
         } else {
             this.audioElement.src = url;
-            console.log(`🎵 Loading audio stream: ${url}`);
+            log.info(`🎵 Loading audio stream: ${url}`);
         }
         
         // Force load
@@ -6908,7 +6908,7 @@ class VRClub {
                         log.info("🎚️ Audio analyzer connected");
                     }
                 }).catch(err => {
-                    console.error("❌ Failed to play audio:", err);
+                    log.error("❌ Failed to play audio:", err);
                     this.showErrorMessage("Audio loaded. Click play on the audio button to start.");
                 });
             }
@@ -6916,11 +6916,11 @@ class VRClub {
     }
 
     startAudioFromFile(file) {
-        console.log(`🎵 Loading audio file: ${file.name}`);
+        log.info(`🎵 Loading audio file: ${file.name}`);
         
         // Audio element should already exist from showAudioStreamInputUI()
         if (!this.audioElement) {
-            console.error("❌ Audio element not created! This shouldn't happen.");
+            log.error("❌ Audio element not created! This shouldn't happen.");
             return;
         }
         
@@ -6939,11 +6939,11 @@ class VRClub {
                 playPromise.then(() => {
                     this.audioStreamButton.isPlaying = true;
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
-                    console.log(`🔊 Playing audio file automatically: ${file.name}`);
+                    log.info(`🔊 Playing audio file automatically: ${file.name}`);
                     
                     // Note: Local files use blob URLs which can't be shared across network
                     // Only the local user will hear the file. Use streaming URLs for multiplayer.
-                    console.warn("⚠️ Local audio files are not shared in multiplayer (use stream URLs)");
+                    log.warn("⚠️ Local audio files are not shared in multiplayer (use stream URLs)");
                     
                     // Connect to audio analyzer
                     if (!this.audioContext && window.AudioContext) {
@@ -6956,7 +6956,7 @@ class VRClub {
                         log.info("🎚️ Audio analyzer connected");
                     }
                 }).catch(err => {
-                    console.error("❌ Failed to play audio file:", err);
+                    log.error("❌ Failed to play audio file:", err);
                     this.showErrorMessage(`Audio loaded. Click play on the audio button to start.`);
                 });
             }
@@ -7132,7 +7132,7 @@ class VRClub {
         // Shuffle names for variety
         const shuffledNames = [...npcNames].sort(() => Math.random() - 0.5);
         
-        console.log(`🕺 Creating ${npcCount} diverse dancing NPC avatars (Hip Hop + House styles)...`);
+        log.info(`🕺 Creating ${npcCount} diverse dancing NPC avatars (Hip Hop + House styles)...`);
         
         // Dancefloor boundaries
         const dancefloorCenter = { x: 0, z: -12 };
@@ -7197,7 +7197,7 @@ class VRClub {
             });
         }
         
-        console.log(`✅ Created ${npcCount} diverse NPC avatars on dancefloor`);
+        log.info(`✅ Created ${npcCount} diverse NPC avatars on dancefloor`);
     }
     
     getRandomSkinTone() {
@@ -7364,7 +7364,7 @@ class VRClub {
                 
                 // Debug: Log once that we're using built-in animation
                 if (!npc.loggedAnimation) {
-                    console.log(`🎭 ${npc.id} using built-in animation (skipping procedural)`);
+                    log.info(`🎭 ${npc.id} using built-in animation (skipping procedural)`);
                     npc.loggedAnimation = true;
                 }
                 return;
@@ -7372,7 +7372,7 @@ class VRClub {
             
             // Debug: Log once that we're using procedural animation
             if (!npc.loggedProcedural) {
-                console.log(`🤖 ${npc.id} using procedural animation (no built-in animation found)`);
+                log.info(`🤖 ${npc.id} using procedural animation (no built-in animation found)`);
                 npc.loggedProcedural = true;
             }
             

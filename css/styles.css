@@ -1,6 +1,9 @@
 /* VR Club - Optimized Main Stylesheet */
 /* Performance-focused with GPU acceleration and minimal reflows */
 
+/* Utility Classes */
+.hidden { display: none !important; }
+
 * {
     margin: 0;
     padding: 0;
@@ -1025,8 +1028,6 @@ html, body {
 }
 
 /* Fix inline styles - move to CSS classes */
-.hidden { display: none !important; }
-#roomCodeGroup.hidden { display: none; }
 #canvas.hidden { display: none; }
 #connectBtn { width: 100%; }
 #disconnectBtn { width: 100%; background: #dc3545; }

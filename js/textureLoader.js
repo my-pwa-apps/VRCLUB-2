@@ -68,8 +68,9 @@ class TextureCache {
 }
 
 class TextureLoader {
-    constructor(scene) {
+    constructor(scene, logger = null) {
         this.scene = scene;
+        this.log = logger || console; // Use provided logger or fallback to console
         this.cache = new TextureCache();
         this.textureConfigs = this.getTextureConfigs();
         
@@ -122,12 +123,12 @@ class TextureLoader {
     }
 
     async init() {
-        console.log('🎨 Initializing texture loader...');
+        this.log.info('🎨 Initializing texture loader...');
         await this.cache.init();
     }
 
     async downloadTexture(url) {
-        console.log(`⬇️ Downloading: ${url}`);
+        this.log.info(`⬇️ Downloading: ${url}`);
         try {
             const response = await fetch(url, {
                 mode: 'cors',
@@ -139,10 +140,10 @@ class TextureLoader {
             }
             
             const blob = await response.blob();
-            console.log(`✅ Downloaded: ${url.split('/').pop()} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
+            this.log.info(`✅ Downloaded: ${url.split('/').pop()} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
             return blob;
         } catch (error) {
-            console.error(`❌ Failed to download ${url}:`, error);
+            this.log.error(`❌ Failed to download ${url}:`, error);
             throw error;
         }
     }
@@ -150,7 +151,7 @@ class TextureLoader {
     async loadOrDownloadTexture(url) {
         // Check texture pool first (in-memory cache)
         if (this.blobUrlPool.has(url)) {
-            console.log(`♻️ Reusing pooled texture: ${url.split('/').pop()}`);
+            this.log.info(`♻️ Reusing pooled texture: ${url.split('/').pop()}`);
             this.textureUsageCount.set(url, (this.textureUsageCount.get(url) || 0) + 1);
             return this.blobUrlPool.get(url);
         }
@@ -159,7 +160,7 @@ class TextureLoader {
         const cached = await this.cache.getTexture(url);
         
         if (cached) {
-            console.log(`💾 Using cached: ${url.split('/').pop()}`);
+            this.log.info(`💾 Using cached: ${url.split('/').pop()}`);
             const blobUrl = URL.createObjectURL(cached.blob);
             this.blobUrlPool.set(url, blobUrl);
             this.textureUsageCount.set(url, 1);
@@ -181,7 +182,7 @@ class TextureLoader {
             throw new Error(`Unknown texture type: ${type}`);
         }
 
-        console.log(`🎨 Loading ${config.name}...`);
+        this.log.info(`🎨 Loading ${config.name}...`);
         
         const textures = {};
         const loadPromises = [];
@@ -193,7 +194,7 @@ class TextureLoader {
             
             // Check if texture already exists in pool with same scale
             if (this.texturePool.has(poolKey)) {
-                console.log(`  ♻️ Reusing pooled ${mapType}: ${filename}`);
+                this.log.info(`  ♻️ Reusing pooled ${mapType}: ${filename}`);
                 textures[mapType] = this.texturePool.get(poolKey);
                 this.textureUsageCount.set(poolKey, (this.textureUsageCount.get(poolKey) || 0) + 1);
                 continue;
@@ -213,19 +214,19 @@ class TextureLoader {
                     this.textureUsageCount.set(poolKey, 1);
                     
                     textures[mapType] = texture;
-                    console.log(`  ✅ ${mapType}: ${filename}`);
+                    this.log.info(`  ✅ ${mapType}: ${filename}`);
                 })
             );
         }
 
         await Promise.all(loadPromises);
-        console.log(`✅ ${config.name} loaded successfully`);
+        this.log.info(`✅ ${config.name} loaded successfully`);
         
         return textures;
     }
 
     async loadAllTextures() {
-        console.log('🎨 Starting texture download and caching...');
+        this.log.info('🎨 Starting texture download and caching...');
         const startTime = performance.now();
         
         try {
@@ -245,16 +246,16 @@ class TextureLoader {
             results.forEach((result, index) => {
                 if (result.status === 'rejected') {
                     const type = ['floor', 'walls', 'ceiling'][index];
-                    console.error(`❌ Failed to load ${type} textures:`, result.reason);
+                    this.log.error(`❌ Failed to load ${type} textures:`, result.reason);
                 }
             });
 
             const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
-            console.log(`✅ All textures loaded in ${loadTime}s`);
+            this.log.info(`✅ All textures loaded in ${loadTime}s`);
             
             return textures;
         } catch (error) {
-            console.error('❌ Texture loading failed:', error);
+            this.log.error('❌ Texture loading failed:', error);
             throw error;
         }
     }
@@ -308,7 +309,7 @@ class TextureLoader {
         // Re-freeze material for performance
         material.freeze();
         
-        console.log(`✅ Applied textures to material: ${material.name} (${material.getClassName()})`);
+        this.log.info(`✅ Applied textures to material: ${material.name} (${material.getClassName()})`);
     }
 
     /**
@@ -339,7 +340,7 @@ class TextureLoader {
                 const texture = this.texturePool.get(poolKey);
                 if (texture) {
                     texture.dispose();
-                    console.log(`🗑️ Disposed texture: ${url.split('/').pop()}`);
+                    this.log.info(`🗑️ Disposed texture: ${url.split('/').pop()}`);
                 }
                 this.texturePool.delete(poolKey);
                 this.textureUsageCount.delete(poolKey);
@@ -355,7 +356,7 @@ class TextureLoader {
      * Useful for memory cleanup or scene resets
      */
     clearTexturePool() {
-        console.log('🗑️ Clearing texture pool...');
+        this.log.info('🗑️ Clearing texture pool...');
         
         // Dispose all textures
         this.texturePool.forEach((texture, key) => {
@@ -371,7 +372,7 @@ class TextureLoader {
         this.blobUrlPool.clear();
         this.textureUsageCount.clear();
         
-        console.log('✅ Texture pool cleared');
+        this.log.info('✅ Texture pool cleared');
     }
 
     async clearAllCaches() {
