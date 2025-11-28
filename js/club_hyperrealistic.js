@@ -3447,9 +3447,9 @@ class VRClub {
             const beamTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
             beamTexture.octaves = 4; // Increased from 3 for more detail
             beamTexture.persistence = 0.7; // Slightly reduced for softer edges
-            beamTexture.animationSpeedFactor = 0.8; // Faster smoke movement for realism
-            beamTexture.brightness = 0.6; // Increased for visibility
-            beamTexture.contrast = 1.8; // Reduced slightly for softer, more realistic smoke
+            beamTexture.animationSpeedFactor = 0.5; // Slower smoke movement for majestic feel
+            beamTexture.brightness = 0.4; // Reduced for subtler haze
+            beamTexture.contrast = 1.2; // Reduced for smoother, less "cloudy" look
             
             // Use PBR material with gradient texture for realistic light falloff
             const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
@@ -3462,19 +3462,19 @@ class VRClub {
             // Apply noise texture to emissive channel for realistic smoke variation
             beamMat.emissiveTexture = beamTexture;
             beamMat.emissiveColor = this.currentSpotColor.scale(2.0); // Increased visibility (was 1.5)
-            beamMat.emissiveIntensity = 8.0; // Increased from 4.0 for hyperrealism
+            beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
             
             // Use noise as alpha mask for realistic smoke density
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.6; // Increased from 0.25 for better visibility
+            beamMat.alpha = 0.1; // Low alpha - mostly additive light
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side (like real light beams)
             beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.2, 0.2, 0.2); // More opaque from side
+            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.5, 0.5, 0.5); // More opaque from side
             beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0); // Transparent when looking along beam
-            beamMat.opacityFresnel.bias = 0.3;
-            beamMat.opacityFresnel.power = 2;
+            beamMat.opacityFresnel.bias = 0.1;
+            beamMat.opacityFresnel.power = 1;
             
             // Important settings for realism
             beamMat.backFaceCulling = false; // Visible from all angles
@@ -3506,12 +3506,12 @@ class VRClub {
             goboTexture.persistence = 1.0; // Balanced detail
             goboTexture.animationSpeedFactor = 0; // Static pattern (we rotate the mesh)
             goboTexture.brightness = 0.9;
-            goboTexture.contrast = 3.5; // Sharp but not harsh
+            goboTexture.contrast = 5.0; // High contrast for sharp "breakup" look
             
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveTexture = goboTexture;
-            poolMat.emissiveColor = this.currentSpotColor.scale(3.0); // Bright for visibility
+            poolMat.emissiveColor = this.currentSpotColor.scale(5.0); // Very bright for visibility
             poolMat.opacityTexture = goboTexture; // Cutout shape
             poolMat.alpha = 0.95; // Nearly full visibility
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
@@ -5394,10 +5394,10 @@ class VRClub {
                     const spotColor = spot.color || this.currentSpotColor; // Fallback to global if not set
                     const baseIntensity = 2.0 + atmosphericNoise; // Increased base intensity (was 0.3)
                     spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
-                    spot.beamMat.emissiveIntensity = 8.0; // Increased from 1.8 to 8.0 for hyperrealism
+                    spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
                     
                     // Very subtle alpha variation - creates "depth" in the beam
-                    spot.beamMat.alpha = 0.6 + Math.abs(atmosphericNoise) * 0.1; // Increased from 0.04 to 0.6 base
+                    spot.beamMat.alpha = 0.1 + Math.abs(atmosphericNoise) * 0.05; // Low alpha base (0.1)
                     
 
                     
