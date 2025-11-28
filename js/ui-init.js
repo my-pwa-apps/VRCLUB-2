@@ -284,28 +284,6 @@ function initVJMenu() {
                 vrClubInstance[control] = !vrClubInstance[control];
                 button.classList.toggle('active');
                 
-                // Handle mutual exclusivity: mirror ball turns off other lights
-                if (control === 'mirrorBallActive' && vrClubInstance.mirrorBallActive) {
-                    vrClubInstance.lightsActive = false;
-                    vrClubInstance.lasersActive = false;
-                    // Update button states
-                    vjButtons.forEach(btn => {
-                        const btnControl = btn.getAttribute('data-control');
-                        if (btnControl === 'lightsActive' || btnControl === 'lasersActive') {
-                            btn.classList.remove('active');
-                        }
-                    });
-                } else if ((control === 'lightsActive' || control === 'lasersActive') && vrClubInstance[control]) {
-                    // When turning on lights or lasers, turn off mirror ball
-                    vrClubInstance.mirrorBallActive = false;
-                    vjButtons.forEach(btn => {
-                        const btnControl = btn.getAttribute('data-control');
-                        if (btnControl === 'mirrorBallActive') {
-                            btn.classList.remove('active');
-                        }
-                    });
-                }
-                
                 // Activate VJ manual mode for toggle controls
                 vrClubInstance.lastVJInteraction = performance.now() / 1000;
                 vrClubInstance.vjManualMode = true;
