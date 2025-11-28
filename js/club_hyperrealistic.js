@@ -3435,8 +3435,8 @@ class VRClub {
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
             // Reduced size for more realistic club spotlights
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 3.0,      // Wide end - increased from 2.0 to 3.0m for better visibility
-                diameterBottom: 0.25,  // Narrow end - slightly reduced for tighter beam
+                diameterTop: 1.5,      // Wide end - reduced from 3.0 to 1.5m for tighter, more realistic beam
+                diameterBottom: 0.2,   // Narrow end - slightly reduced for tighter beam
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 16,
                 cap: BABYLON.Mesh.NO_CAP
@@ -3462,7 +3462,7 @@ class VRClub {
             const beamTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
             beamTexture.octaves = 4; // Increased from 3 for more detail
             beamTexture.persistence = 0.7; // Slightly reduced for softer edges
-            beamTexture.animationSpeedFactor = 0.5; // Slower smoke movement for majestic feel
+            beamTexture.animationSpeedFactor = 0.15; // Reduced from 0.5 to 0.15 - subtle smoke movement, not "flowing down"
             beamTexture.brightness = 0.4; // Reduced for subtler haze
             beamTexture.contrast = 1.2; // Reduced for smoother, less "cloudy" look
             
@@ -4358,6 +4358,31 @@ class VRClub {
                 const speedMultiplier = this.mirrorBallSpeed || 1.0;
                 this.mirrorBallRotation -= 0.003 * speedMultiplier; // Negative rotation - spots now move in same visual direction
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
+                
+                // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set)
+                // Cycle colors every 5 seconds to match club atmosphere
+                if (!this.vjManualMode && this.frameCounter % 300 === 0) { // Every ~5 seconds at 60fps
+                    this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
+                    this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
+                    
+                    // Update housing colors immediately
+                    if (this.mirrorBallHousings) {
+                        // Update cached colors
+                        this.mirrorBallCachedColors = {
+                            housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
+                            lensBright: this.mirrorBallSpotlightColor.scale(5.0),
+                            sourceVeryBright: this.mirrorBallSpotlightColor.scale(8.0),
+                            flareMedium: this.mirrorBallSpotlightColor.scale(3.0)
+                        };
+                        
+                        this.mirrorBallHousings.forEach(housing => {
+                            housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
+                            housing.lensMaterial.emissiveColor = this.mirrorBallCachedColors.lensBright;
+                            housing.sourceMaterial.emissiveColor = this.mirrorBallCachedColors.sourceVeryBright;
+                            housing.flareMaterial.emissiveColor = this.mirrorBallCachedColors.flareMedium;
+                        });
+                    }
+                }
             }
             
             // Animate reflection spots around the room (150 spots covering all surfaces)
