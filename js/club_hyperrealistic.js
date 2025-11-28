@@ -3458,13 +3458,13 @@ class VRClub {
             // beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Removed to allow parenting rotation
             
             // ULTRA-REALISTIC VOLUMETRIC BEAM - Simulates light scattering with varying intensity
-            // Use NoiseProceduralTexture for dynamic smoke effect
+            // Use NoiseProceduralTexture for STATIC smoke/haze effect (real beams don't have flowing texture)
             const beamTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
-            beamTexture.octaves = 4; // Increased from 3 for more detail
-            beamTexture.persistence = 0.7; // Slightly reduced for softer edges
-            beamTexture.animationSpeedFactor = 0.15; // Reduced from 0.5 to 0.15 - subtle smoke movement, not "flowing down"
-            beamTexture.brightness = 0.4; // Reduced for subtler haze
-            beamTexture.contrast = 1.2; // Reduced for smoother, less "cloudy" look
+            beamTexture.octaves = 4; // Detail level for smoke variation
+            beamTexture.persistence = 0.7; // Soft edges
+            beamTexture.animationSpeedFactor = 0; // STATIC - no animation! Real light beams don't have moving textures
+            beamTexture.brightness = 0.5; // Subtle haze visibility
+            beamTexture.contrast = 1.0; // Smooth, natural haze (reduced from 1.2)
             
             // Use PBR material with gradient texture for realistic light falloff
             const beamMat = new BABYLON.PBRMaterial("spotBeamMat" + i, this.scene);
@@ -4101,8 +4101,9 @@ class VRClub {
                 
                 const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
                 spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                spotMat.emissiveTexture = spotTexture; // Apply caustic texture
-                spotMat.opacityTexture = spotTexture; // Use texture for alpha cutout
+                // NOTE: Removed emissiveTexture - it was overriding the color with grayscale values
+                // The spots now show pure colored light as expected
+                spotMat.opacityTexture = spotTexture; // Use texture for alpha cutout only (caustic shape)
                 spotMat.alpha = 0.9; // High visibility
                 spotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
                 spotMat.disableLighting = true;
