@@ -2618,6 +2618,8 @@ class VRClub {
     }
 
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
+
+    createHyperrealisticSmoke() {
         // 2. Atmospheric Haze: Dispersed particles for light beams
         
         // Create a soft particle texture using Canvas (no external assets needed)
