@@ -364,8 +364,9 @@ class VRClub {
         this.lightFactory = new LightFactory(this.scene, log);
         
         // Initialize Ready Player Me loader (optional, with fallback)
-        this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
-        await this.readyPlayerMeLoader.testConnection(); // Check if RPM is available
+        // this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
+        // await this.readyPlayerMeLoader.testConnection(); // Check if RPM is available
+        this.readyPlayerMeLoader = null;
         
         // Initialize multiplayer managers (DISABLED - focusing on single-player quality)
         // this.networkManager = new NetworkManager(this.scene);
@@ -4300,10 +4301,6 @@ class VRClub {
         
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
-            // SYNC COLOR: Mirror ball spots should match the main club lighting color
-            // This ensures the "spots pointed to the mirrorball" and their reflections match the vibe
-            this.mirrorBallSpotlightColor = this.currentSpotColor;
-
             // Mirror ball is now INDEPENDENT - doesn't disable other lights
             // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
             // VJ has full control to enable any combination
@@ -6273,6 +6270,7 @@ class VRClub {
         };
         
         // Periodic audio sync to prevent drift (every 5 seconds)
+        /*
         this.audioSyncInterval = setInterval(() => {
             if (this.audioElement && !this.audioElement.paused && this.networkManager && this.networkManager.isConnected()) {
                 this.networkManager.sendAudioSync(
@@ -6283,6 +6281,7 @@ class VRClub {
                 log.info(`🔄 Audio sync: ${this.audioElement.currentTime.toFixed(1)}s`);
             }
         }, 5000);
+        */
     }
     
     syncAudio(audioUrl, audioTime, isPlaying = true) {
