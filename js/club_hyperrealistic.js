@@ -2494,13 +2494,15 @@ class VRClub {
                 const z = -26; // Behind DJ booth
                 
                 panel.position = new BABYLON.Vector3(x, y, z);
-                panel.rotation.y = Math.PI; // Rotate 180° to face dance floor
+                // Plane faces -Z by default, which is toward the dance floor - correct!
+                // No rotation needed (was incorrectly rotating to face the wall)
                 
                 // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
                 const panelMat = this.materialFactory.createStandardMaterial("ledMat_" + row + "_" + col, {
                     emissiveColor: [0.1, 0, 0], // MUCH dimmer for contrast
                     disableLighting: true
                 });
+                panelMat.backFaceCulling = false; // Ensure visible from both sides
                 panel.material = panelMat;
                 
                 // PERFORMANCE: Freeze static geometry (panel position never changes)
