@@ -2261,11 +2261,13 @@ class VRClub {
             
             toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, zPos);
             toggleBtn.isPickable = true;
+            // Determine initial state
+            const isActive = this[btnDef.control];
+            
             const toggleMat = this.materialFactory.createStandardMaterial("toggleMat_" + btnDef.control, {
                 emissiveColor: isActive ? btnDef.onColor : btnDef.offColor,
                 disableLighting: true
-            });e ? btnDef.onColor : btnDef.offColor;
-            toggleMat.disableLighting = true;
+            });
             toggleBtn.material = toggleMat;
             
             this.vjControlButtons.push({
