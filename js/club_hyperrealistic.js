@@ -466,7 +466,8 @@ class VRClub {
         // Enable VR with teleportation on floor - optimized for Quest 3S
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
             floorMeshes: [this.floorMesh],
-            optionalFeatures: true
+            optionalFeatures: true,
+            disableTeleportation: true // Disable default teleportation to allow smooth movement
         }).catch(err => {
             // VR not available - continue with desktop mode
             return null;
@@ -488,20 +489,8 @@ class VRClub {
         // Enable VR controller locomotion (thumbstick movement)
         if (vrHelper && vrHelper.baseExperience) {
             try {
-                // CRITICAL FIX: Disable default teleportation to allow smooth movement
-                // Teleportation is enabled by default in createDefaultXRExperienceAsync and conflicts with movement
-                const teleportation = vrHelper.baseExperience.featuresManager.enableFeature(
-                    BABYLON.WebXRFeatureName.TELEPORTATION,
-                    'latest',
-                    { xrInput: vrHelper.input, floorMeshes: [this.floorMesh] }
-                );
-                if (teleportation) {
-                    teleportation.detach();
-                    log.info('🚫 Teleportation disabled to enable smooth locomotion');
-                }
-                
                 // Enable movement controller feature for smooth locomotion with thumbsticks
-                const movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
+                this.movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
                     BABYLON.WebXRFeatureName.MOVEMENT,
                     'latest',
                     {
@@ -515,7 +504,39 @@ class VRClub {
                         movementOrientationFollowsViewerPose: true // Move in direction you're looking
                     }
                 );
-                log.info('🎮 VR controller locomotion enabled (use thumbsticks to move/turn)');
+                
+                // SPRINT FEATURE: Press thumbstick or Grip button to run
+                vrHelper.input.onControllerAddedObservable.add((controller) => {
+                    controller.onMotionControllerInitObservable.add((motionController) => {
+                        // 1. Thumbstick Press (Click)
+                        const thumbstick = motionController.getComponent("xr-standard-thumbstick");
+                        if (thumbstick) {
+                            thumbstick.onButtonStateChangedObservable.add((component) => {
+                                if (component.pressed) {
+                                    this.movementFeature.movementSpeed = 1.5; // Sprint (3x speed)
+                                    log.info('🏃 VR Sprint activated (Thumbstick)');
+                                } else {
+                                    this.movementFeature.movementSpeed = 0.5; // Walk
+                                }
+                            });
+                        }
+                        
+                        // 2. Squeeze/Grip Button (Alternative Sprint)
+                        const squeeze = motionController.getComponent("xr-standard-squeeze");
+                        if (squeeze) {
+                            squeeze.onButtonStateChangedObservable.add((component) => {
+                                if (component.pressed) {
+                                    this.movementFeature.movementSpeed = 1.5; // Sprint
+                                    log.info('🏃 VR Sprint activated (Grip)');
+                                } else {
+                                    this.movementFeature.movementSpeed = 0.5; // Walk
+                                }
+                            });
+                        }
+                    });
+                });
+                
+                log.info('🎮 VR controller locomotion enabled (Press Thumbstick or Grip to SPRINT)');
             } catch (e) {
                 log.warn('Could not enable VR movement feature:', e);
             }
@@ -631,11 +652,6 @@ class VRClub {
             this.scene
         );
         
-        // Add camera explicitly
-        if (this.camera) {
-            pipeline.addCamera(this.camera);
-        }
-        
         // FXAA anti-aliasing for smooth edges (essential for immersion)
         pipeline.fxaaEnabled = true;
         
@@ -669,6 +685,11 @@ class VRClub {
         
         // Store pipeline for VR/desktop switching
         this.renderPipeline = pipeline;
+
+        // Add camera explicitly AFTER configuration to avoid reuse warnings
+        if (this.camera) {
+            pipeline.addCamera(this.camera);
+        }
 
         // SSAO 2 Pipeline (Screen Space Ambient Occlusion) - Adds realistic contact shadows
         // ONLY for desktop mode (too expensive for standalone VR)
@@ -3010,8 +3031,8 @@ class VRClub {
             const strobeMat = this.materialFactory.createStandardMaterial("strobeMat" + i, {
                 emissiveColor: [0, 0, 0], // Off by default
                 disableLighting: true
-            });YLON.Color3(0, 0, 0); // Off by default
-            strobeMat.disableLighting = true;
+            });
+            
             strobe.material = strobeMat;
             
             // Add powerful point light for each strobe
