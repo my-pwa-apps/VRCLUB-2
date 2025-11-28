@@ -552,6 +552,7 @@ class VRClub {
         this.createLights();
         this.createBlinders();
         this.createLaserSheet(); // Add scanning laser sheet effect
+        this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
@@ -2192,6 +2193,14 @@ class VRClub {
                 offColor: new BABYLON.Color3(0, 0.3, 0.3), // Dark cyan
                 x: 4.3,
                 row2: true
+            },
+            { 
+                label: "SMOKE", 
+                control: "smokeActive",
+                onColor: new BABYLON.Color3(0.8, 0.8, 1.0), // White/Blueish
+                offColor: new BABYLON.Color3(0.2, 0.2, 0.3),
+                x: 1.8,
+                row3: true
             },
             { 
                 label: "LASER SHEET", 
@@ -4250,6 +4259,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
                         this.laserSheetActive = true; // Laser Sheet ON
+                        this.smokeActive = true; // Smoke ON
                         
                         this.spotlightPattern = 0; // Random/Fast
                         this.spotlightMode = 0; // Strobe + Sweep
@@ -4274,6 +4284,7 @@ class VRClub {
                         this.mirrorBallActive = true; // Mirror Ball ON
                         this.strobesActive = false; // Strobes OFF
                         this.laserSheetActive = false; // Laser Sheet OFF
+                        this.smokeActive = false; // Smoke OFF (Clear air for reflections)
                         
                         this.spotlightSpeed = 0.5;
                         this.laserSpeed = 0.5;
@@ -4295,6 +4306,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
                         this.laserSheetActive = false; // Laser Sheet OFF
+                        this.smokeActive = true; // Smoke ON (Atmosphere)
                         
                         this.spotlightPattern = 0; // Automated
                         this.spotlightMode = 1; // Sweep Only (No Strobe)
@@ -4319,6 +4331,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
                         this.laserSheetActive = true; // Laser Sheet ON
+                        this.smokeActive = true; // Smoke ON
                         
                         this.spotlightPattern = 0;
                         this.spotlightMode = 0; // Strobe + Sweep
@@ -4343,6 +4356,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
                         this.laserSheetActive = false; // Laser Sheet OFF
+                        this.smokeActive = true; // Smoke ON
                         
                         this.spotlightPattern = 2; // Mirror Sweep (Structured)
                         this.spotlightMode = 1; // Sweep Only
@@ -4378,7 +4392,8 @@ class VRClub {
                     this.vjControlButtons.forEach(btn => {
                         if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
                             btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
-                            btn.control === 'ledWallActive' || btn.control === 'laserSheetActive') {
+                            btn.control === 'ledWallActive' || btn.control === 'laserSheetActive' ||
+                            btn.control === 'smokeActive') {
                             btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                         }
                     });
