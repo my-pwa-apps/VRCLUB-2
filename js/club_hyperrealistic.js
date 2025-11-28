@@ -3660,115 +3660,112 @@ class VRClub {
 
     createLaserSheet() {
         // === LASER SHEET EFFECT ===
-        // A horizontal scanning laser plane that moves up and down
-        // Uses a procedural noise texture for the "smoke" effect
+        // Single source fan from LED wall scanning the room
+        // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
-        // Create the plane (large enough to cover dance floor)
-        // 25m x 25m plane, rotated to be horizontal
-        this.laserSheet = BABYLON.MeshBuilder.CreatePlane("laserSheet", {
-            width: 25,
-            height: 25,
-            sideOrientation: BABYLON.Mesh.DOUBLESIDE
+        // 1. Create the Source/Projector Housing
+        // Positioned high on the back LED wall (z=-26), centered
+        // Height 5.5m clears the DJ booth and hits the dancefloor nicely
+        const sourcePos = new BABYLON.Vector3(0, 5.5, -25.8); 
+        
+        this.laserSheetSource = BABYLON.MeshBuilder.CreateBox("laserSheetSource", {
+            width: 0.5, height: 0.2, depth: 0.4
         }, this.scene);
+        this.laserSheetSource.position = sourcePos;
+        this.laserSheetSource.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
         
-        // Rotate to be horizontal (flat)
-        this.laserSheet.rotation.x = Math.PI / 2;
-        
-        // Initial position (will be animated)
-        this.laserSheet.position = new BABYLON.Vector3(0, 1.5, -12);
-        
-        // Create the laser material
-        const sheetMat = new BABYLON.StandardMaterial("laserSheetMat", this.scene);
-        sheetMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
-        sheetMat.disableLighting = true; // Self-illuminated
-        sheetMat.alpha = 0.4; // Semi-transparent
-        sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
-        sheetMat.backFaceCulling = false;
-        
-        // Create procedural noise texture for the "laser smoke" look
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserNoise", 256, this.scene);
-        noiseTexture.octaves = 3;
-        noiseTexture.persistence = 0.8;
-        noiseTexture.animationSpeedFactor = 1.0; // Slower animation for "hanging smoke" feel
-        noiseTexture.brightness = 0.5;
-        
-        // Use noise as opacity map (alpha)
-        sheetMat.opacityTexture = noiseTexture;
-        
-        this.laserSheet.material = sheetMat;
-        this.laserSheet.isVisible = false; // Hidden by default
-        this.laserSheet.isPickable = false;
-        
-        // === HYPERREALISTIC LASER SOURCE ===
-        // Create a physical laser projector on the DJ booth
-        const sourcePos = new BABYLON.Vector3(0, 1.1, -23.4); // Center of DJ booth
-        
-        // Projector Housing
-        const projector = BABYLON.MeshBuilder.CreateBox("laserProjector", {
-            width: 0.4, height: 0.15, depth: 0.25
+        // Aperture (Glowing slit)
+        this.laserAperture = BABYLON.MeshBuilder.CreateBox("laserSheetAperture", {
+            width: 0.4, height: 0.05, depth: 0.02
         }, this.scene);
-        projector.position = sourcePos;
-        projector.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
-        
-        // Aperture (The glowing slit where laser comes out)
-        this.laserAperture = BABYLON.MeshBuilder.CreateBox("laserAperture", {
-            width: 0.35, height: 0.02, depth: 0.01
-        }, this.scene);
-        this.laserAperture.position = new BABYLON.Vector3(0, 1.1, -23.27); // Front of projector
+        this.laserAperture.parent = this.laserSheetSource;
+        this.laserAperture.position.z = 0.21; // Front face
         
         const apertureMat = new BABYLON.StandardMaterial("apertureMat", this.scene);
         apertureMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
         apertureMat.disableLighting = true;
         this.laserAperture.material = apertureMat;
         
-        // Real Light Source (illuminates smoke/avatars at the sheet height)
-        this.laserLight = new BABYLON.PointLight("laserSheetLight", new BABYLON.Vector3(0, 1.5, -12), this.scene);
-        this.laserLight.intensity = 0.8;
-        this.laserLight.range = 15;
-        this.laserLight.diffuse = new BABYLON.Color3(0, 1, 0);
-        this.laserLight.specular = new BABYLON.Color3(0, 1, 0);
-        this.laserLight.setEnabled(false);
+        // 2. Create the Laser Sheet Geometry (Triangle Fan)
+        // We create a custom mesh for the fan shape
+        const sheet = new BABYLON.Mesh("laserSheet", this.scene);
         
-        // === LASER FAN (Beam from source to sheet) ===
-        // Create a triangle mesh connecting the aperture to the sheet
-        // Custom mesh with pivot at the tip (0,0,0)
-        const fanMesh = new BABYLON.Mesh("laserFan", this.scene);
+        // Fan dimensions
+        const length = 45; // Reach across the room
+        const widthEnd = 35; // Wide spread at the end
+        
         const positions = [
-            0, 0, 0,           // Tip (at projector)
-            -12.5, 0, 1,       // Left corner (at sheet distance 1)
-            12.5, 0, 1         // Right corner (at sheet distance 1)
+            0, 0, 0,              // 0: Source (Tip)
+            -widthEnd/2, 0, length, // 1: Far Left
+            widthEnd/2, 0, length   // 2: Far Right
         ];
-        const indices = [0, 1, 2];
+        
+        const indices = [0, 1, 2, 0, 2, 1]; // Double sided
+        
+        const uvs = [
+            0.5, 0,  // Source
+            0, 1,    // Left
+            1, 1     // Right
+        ];
+        
         const normals = [];
         BABYLON.VertexData.ComputeNormals(positions, indices, normals);
         
         const vertexData = new BABYLON.VertexData();
         vertexData.positions = positions;
         vertexData.indices = indices;
+        vertexData.uvs = uvs;
         vertexData.normals = normals;
-        vertexData.applyToMesh(fanMesh);
+        vertexData.applyToMesh(sheet);
         
-        fanMesh.position = sourcePos.clone(); // Start at projector
+        // Parent to source for easy rotation/scanning
+        sheet.parent = this.laserSheetSource;
+        sheet.position = new BABYLON.Vector3(0, 0, 0.25); // Start at aperture
         
-        // Fan Material (Faded version of sheet)
-        const fanMat = new BABYLON.StandardMaterial("laserFanMat", this.scene);
-        fanMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
-        fanMat.disableLighting = true;
-        fanMat.alpha = 0.15; // Very faint beam
-        fanMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        fanMat.backFaceCulling = false;
+        // 3. Material & Texture (Hyperrealistic Smoke)
+        const sheetMat = new BABYLON.StandardMaterial("laserSheetMat", this.scene);
+        sheetMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
+        sheetMat.disableLighting = true;
+        sheetMat.alpha = 0.6;
+        sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+        sheetMat.backFaceCulling = false;
         
-        fanMesh.material = fanMat;
-        fanMesh.isVisible = false;
-        this.laserFan = fanMesh;
-
+        // Procedural noise for smoke movement
+        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 512, this.scene);
+        noiseTexture.octaves = 4;
+        noiseTexture.persistence = 0.8; // Smoky detail
+        noiseTexture.animationSpeedFactor = 0.5;
+        noiseTexture.brightness = 0.5;
+        noiseTexture.contrast = 2.0; // Defined smoke wisps
+        
+        sheetMat.opacityTexture = noiseTexture;
+        sheetMat.emissiveTexture = noiseTexture; // Texture the light itself
+        
+        sheet.material = sheetMat;
+        this.laserSheet = sheet;
+        
+        // 4. Light Source (Actual light projection)
+        // A spot light to illuminate the floor/avatars where the sheet hits
+        this.laserLight = new BABYLON.SpotLight("laserSheetLight", 
+            sourcePos,
+            new BABYLON.Vector3(0, -0.5, 1), // Initial direction
+            Math.PI / 2, // Wide angle
+            2, // Exponent
+            this.scene
+        );
+        this.laserLight.diffuse = new BABYLON.Color3(0, 1, 0);
+        this.laserLight.intensity = 0; // Controlled by animation
+        this.laserLight.parent = this.laserSheetSource; // Move with source
+        
+        // Remove old fan if it exists (cleanup)
+        this.laserFan = null;
+        
         // Add to glow layer for bloom effect
         if (this.glowLayer) {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
             this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
-            // Don't add fan to glow layer to keep it crisp/faint
         }
         
         log.info('✨ Laser sheet effect created with hyperrealistic source');
@@ -4247,89 +4244,52 @@ class VRClub {
 
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {
-            // Vertical scanning motion (up and down)
-            // Height range: 0.2m to 2.5m
-            // SLOWER SPEED for hyperrealistic "liquid sky" effect
-            const scanSpeed = 0.15 * speedMultiplierLaser; // Was 0.5
-            const scanHeight = Math.sin(time * scanSpeed) * 1.15 + 1.35; // 0.2 to 2.5
+            // SCANNING MOTION (Tilt up and down)
+            // Source is at y=5.5. Target z range is 0 to 40.
+            // Angle 0 = Horizontal. Angle + = Down.
             
-            this.laserSheet.position.y = scanHeight;
+            const scanSpeed = 0.2 * speedMultiplierLaser;
+            // Scan range: -0.1 (slightly up) to +0.4 (down to floor)
+            const scanAngle = 0.15 + Math.sin(time * scanSpeed) * 0.25; 
             
-            // Update real light source to follow sheet height
-            // This illuminates the smoke/fog/avatars at the exact height of the laser sheet
-            if (this.laserLight) {
-                this.laserLight.position.y = scanHeight;
-                this.laserLight.setEnabled(true);
-                
-                // Pulse light intensity with audio
-                const pulse = 0.5 + (audioData.average || 0) * 0.5;
-                this.laserLight.intensity = 1.5 * pulse;
-            }
-
-            // Update Laser Fan (Beam from source to sheet)
-            if (this.laserFan) {
-                this.laserFan.isVisible = true;
-                // Point fan at the current sheet height
-                const targetPos = new BABYLON.Vector3(0, scanHeight, -12);
-                this.laserFan.lookAt(targetPos);
-                
-                // Scale fan to reach the sheet
-                // Source at (0, 1.1, -23.27), Target at (0, scanHeight, -12)
-                // Horizontal dist = 11.27, Vertical dist = scanHeight - 1.1
-                const dist = BABYLON.Vector3.Distance(this.laserFan.position, targetPos);
-                this.laserFan.scaling.z = dist; // Stretch to reach sheet
-                
-                // Pulse fan with audio
-                const pulse = 0.5 + (audioData.average || 0) * 0.5;
-                this.laserFan.material.alpha = 0.15 * pulse;
-                
-                // Match color
-                if (this.laserEmissiveColors) {
-                    let sheetColor;
-                    if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
-                    else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
-                    else sheetColor = this.cachedColors.blue;
-                    this.laserFan.material.emissiveColor = sheetColor;
-                }
+            // Rotate the SOURCE (parent), sheet follows
+            if (this.laserSheetSource) {
+                this.laserSheetSource.rotation.x = scanAngle;
             }
             
-            // Animate texture for "flowing" light effect - SLOWER for "hanging smoke" feel
+            // Animate smoke texture flowing OUTWARD from source
             if (this.laserSheet.material && this.laserSheet.material.opacityTexture) {
-                this.laserSheet.material.opacityTexture.vOffset += 0.005 * speedMultiplierLaser; // Was 0.02
-                this.laserSheet.material.opacityTexture.uOffset += 0.002 * speedMultiplierLaser; // Was 0.01
+                // Move V offset to flow from 0 (source) to 1 (end)
+                this.laserSheet.material.opacityTexture.vOffset -= 0.008 * speedMultiplierLaser;
+                // Slight side drift
+                this.laserSheet.material.opacityTexture.uOffset += 0.001 * Math.sin(time * 0.5);
             }
             
             // Pulse intensity with audio
             const pulse = 0.5 + (audioData.average || 0) * 0.5;
-            this.laserSheet.material.alpha = 0.4 * pulse;
+            this.laserSheet.material.alpha = 0.5 * pulse;
             
-            // Color sync with lasers
+            // Color sync
             if (this.laserEmissiveColors) {
-                // Match current laser color
                 let sheetColor;
                 if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
                 else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
                 else sheetColor = this.cachedColors.blue;
                 
                 this.laserSheet.material.emissiveColor = sheetColor;
-                
-                // Update aperture and light color
-                if (this.laserAperture) {
-                    this.laserAperture.material.emissiveColor = sheetColor;
-                }
+                if (this.laserAperture) this.laserAperture.material.emissiveColor = sheetColor;
                 if (this.laserLight) {
                     this.laserLight.diffuse = sheetColor;
-                    this.laserLight.specular = sheetColor;
+                    this.laserLight.intensity = 2.0 * pulse;
                 }
             }
             
             this.laserSheet.isVisible = true;
-            if (this.laserAperture) this.laserAperture.isVisible = true;
+            if (this.laserSheetSource) this.laserSheetSource.isVisible = true;
         } else if (this.laserSheet) {
             this.laserSheet.isVisible = false;
-            if (this.laserLight) this.laserLight.setEnabled(false);
-            if (this.laserAperture) this.laserAperture.isVisible = false;
-            if (this.laserFan) this.laserFan.isVisible = false;
+            if (this.laserSheetSource) this.laserSheetSource.isVisible = false;
+            if (this.laserLight) this.laserLight.intensity = 0;
         }
 
         // Update dancing NPC avatars
