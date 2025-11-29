@@ -5924,17 +5924,15 @@ class VRClub {
         // Update truss-mounted light fixtures so they EXACTLY match their beams
         // Rule: fixture stays lit with current color when lightsActive=true (beam strobe doesn't affect fixture)
         if (this.spotlights && this.spotlights.length > 0) {
-            // DEBUG: Log once every 2 seconds
+            // DEBUG: Log once every 2 seconds - check for duplicate meshes
             if (!this._lastFixtureDebug || Date.now() - this._lastFixtureDebug > 2000) {
                 this._lastFixtureDebug = Date.now();
                 console.log('🔧 Fixture loop - spotlights count:', this.spotlights.length,
                     'lightsActive:', this.lightsActive,
                     'currentSpotColor:', `RGB(${this.currentSpotColor.r.toFixed(2)}, ${this.currentSpotColor.g.toFixed(2)}, ${this.currentSpotColor.b.toFixed(2)})`);
-                // Check each lens
-                for (let j = 0; j < 6; j++) {
-                    const testLens = this.scene.getMeshByName("lens" + j);
-                    console.log(`  lens${j}:`, testLens ? `found, emissive=${testLens.material?.emissiveColor?.r?.toFixed(2)},${testLens.material?.emissiveColor?.g?.toFixed(2)},${testLens.material?.emissiveColor?.b?.toFixed(2)}` : 'NOT FOUND');
-                }
+                // Check for duplicate meshes with same name pattern
+                const allMeshes = this.scene.meshes.filter(m => m.name.startsWith('lens') || m.name.startsWith('lightSource'));
+                console.log('🔍 ALL lens/lightSource meshes in scene:', allMeshes.map(m => m.name).join(', '));
             }
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
