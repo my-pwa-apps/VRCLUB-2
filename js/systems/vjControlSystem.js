@@ -53,11 +53,13 @@ class VJControlSystem {
 
     /**
      * Initialize preset configurations
+     * Note: Mutual exclusivity - lasers (ceiling) cannot be active with mirrorBall or laserSheet
      */
     _initPresets() {
         return {
             'clubbing': {
-                lasers: true,
+                lasers: false,          // Ceiling lasers OFF (using laser sheet instead)
+                laserSheet: true,       // Laser sheet ON
                 spotlights: true,
                 mirrorBall: false,
                 ledWall: true,
@@ -67,9 +69,10 @@ class VJControlSystem {
                 ledPattern: 'vuMeter'
             },
             'disco': {
-                lasers: false,
+                lasers: false,          // Ceiling lasers OFF (mirror ball is on)
+                laserSheet: false,      // Laser sheet OFF (mirror ball is on)
                 spotlights: true,
-                mirrorBall: true,
+                mirrorBall: true,       // Mirror ball ON (exclusive)
                 ledWall: true,
                 strobes: false,
                 blinders: false,
@@ -77,7 +80,8 @@ class VJControlSystem {
                 ledPattern: 'rainbow'
             },
             'rave': {
-                lasers: true,
+                lasers: false,          // Ceiling lasers OFF (using laser sheet)
+                laserSheet: true,       // Laser sheet ON
                 spotlights: true,
                 mirrorBall: false,
                 ledWall: true,
@@ -87,7 +91,8 @@ class VJControlSystem {
                 ledPattern: 'strobe'
             },
             'chill': {
-                lasers: false,
+                lasers: true,           // Ceiling lasers ON (slow atmospheric)
+                laserSheet: false,      // Laser sheet OFF
                 spotlights: true,
                 mirrorBall: false,
                 ledWall: true,
@@ -98,6 +103,7 @@ class VJControlSystem {
             },
             'blackout': {
                 lasers: false,
+                laserSheet: false,
                 spotlights: false,
                 mirrorBall: false,
                 ledWall: false,
@@ -121,9 +127,12 @@ class VJControlSystem {
         
         this.currentPreset = presetName;
         
-        // Apply to subsystems
+        // Apply to subsystems (respecting mutual exclusivity)
         if (this.laserSystem) {
             this.laserSystem.setActive(preset.lasers);
+            if (this.laserSystem.setLaserSheetActive) {
+                this.laserSystem.setLaserSheetActive(preset.laserSheet || false);
+            }
         }
         
         if (this.spotlightSystem) {
@@ -148,6 +157,10 @@ class VJControlSystem {
         
         if (this.hazeSystem) {
             this.hazeSystem.setActive(preset.haze);
+        }
+        
+        this.log.info?.('🎛️ Applied VJ preset: ' + presetName);
+    };
         }
         
         this.log.info?.('🎛️ Applied VJ preset: ' + presetName);
@@ -267,7 +280,8 @@ class VJControlSystem {
     }
 
     /**
-     * Toggle individual effect
+     * Toggle individual effect with mutual exclusivity rules
+     * Rule: Laser sheet and mirror ball cannot be active with ceiling lasers
      */
     toggleEffect(effectName, active = null) {
         this.manualOverride = true;
@@ -277,6 +291,25 @@ class VJControlSystem {
                 if (this.laserSystem) {
                     const newState = active !== null ? active : !this.laserSystem.lasersActive;
                     this.laserSystem.setActive(newState);
+                    // MUTUAL EXCLUSIVITY: If lasers turn ON, turn off mirror ball and laser sheet
+                    if (newState) {
+                        if (this.mirrorBallSystem) this.mirrorBallSystem.setActive(false);
+                        // Note: laser sheet is in laserSystem
+                        if (this.laserSystem.setLaserSheetActive) {
+                            this.laserSystem.setLaserSheetActive(false);
+                        }
+                    }
+                }
+                break;
+            case 'lasersheet':
+                if (this.laserSystem && this.laserSystem.setLaserSheetActive) {
+                    const newState = active !== null ? active : !this.laserSystem.laserSheetActive;
+                    this.laserSystem.setLaserSheetActive(newState);
+                    // MUTUAL EXCLUSIVITY: If laser sheet turns ON, turn off ceiling lasers and mirror ball
+                    if (newState) {
+                        this.laserSystem.setActive(false);
+                        if (this.mirrorBallSystem) this.mirrorBallSystem.setActive(false);
+                    }
                 }
                 break;
             case 'spotlights':
@@ -289,6 +322,15 @@ class VJControlSystem {
                 if (this.mirrorBallSystem) {
                     const newState = active !== null ? active : !this.mirrorBallSystem.isActive;
                     this.mirrorBallSystem.setActive(newState);
+                    // MUTUAL EXCLUSIVITY: If mirror ball turns ON, turn off lasers and laser sheet
+                    if (newState) {
+                        if (this.laserSystem) {
+                            this.laserSystem.setActive(false);
+                            if (this.laserSystem.setLaserSheetActive) {
+                                this.laserSystem.setLaserSheetActive(false);
+                            }
+                        }
+                    }
                 }
                 break;
             case 'ledwall':

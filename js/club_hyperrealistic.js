@@ -4627,13 +4627,13 @@ class VRClub {
                 // ACTIVELY CONTROLS LIGHT STATES when in auto mode
                 switch(this.lightingPhase) {
                     case 'build':
-                        // BUILD → PEAK: Transition from spotlights to lasers (high energy)
+                        // BUILD → PEAK: Transition to high energy with laser sheet
                         this.lightingPhase = 'peak';
                         this.targetEnergy = 1.0;
                         
-                        // ACTIVE CONTROL: High Energy
+                        // ACTIVE CONTROL: High Energy - Laser Sheet (NOT ceiling lasers)
                         this.lightsActive = true;
-                        this.lasersActive = true;
+                        this.lasersActive = false; // Ceiling lasers OFF (mutual exclusivity)
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
                         this.laserSheetActive = true; // Laser Sheet ON
@@ -4647,8 +4647,8 @@ class VRClub {
                         this.mirrorBallSpeed = 1.5;
                         this.ledWallSpeed = 1.5;
                         this.strobeSpeed = 1.5;
-                        this.currentShowMode = 'lasers';
-                        log.info('🔥 PEAK: High energy - Lasers & Strobes ON');
+                        this.currentShowMode = 'laserSheet';
+                        log.info('🔥 PEAK: High energy - Laser Sheet & Strobes ON');
                         break;
                         
                     case 'peak':
@@ -4674,16 +4674,16 @@ class VRClub {
                         break;
                         
                     case 'breakdown':
-                        // BREAKDOWN → AMBIENT: Slow atmospheric spotlights
+                        // BREAKDOWN → AMBIENT: Slow atmospheric spotlights with ceiling lasers
                         this.lightingPhase = 'ambient';
                         this.targetEnergy = 0.4;
                         
-                        // ACTIVE CONTROL: Atmospheric
+                        // ACTIVE CONTROL: Atmospheric - Ceiling lasers (NOT laser sheet/mirror ball)
                         this.lightsActive = true;
-                        this.lasersActive = true;
-                        this.mirrorBallActive = false;
+                        this.lasersActive = true; // Ceiling lasers ON (slow atmospheric)
+                        this.mirrorBallActive = false; // Mirror ball OFF (mutual exclusivity)
                         this.strobesActive = false;
-                        this.laserSheetActive = false; // Laser Sheet OFF
+                        this.laserSheetActive = false; // Laser Sheet OFF (mutual exclusivity)
                         this.smokeActive = true; // Smoke ON (Atmosphere)
                         
                         this.spotlightPattern = 0; // Automated
@@ -4699,13 +4699,13 @@ class VRClub {
                         break;
                         
                     case 'ambient':
-                        // AMBIENT → DROP: Big drop with everything!
+                        // AMBIENT → DROP: Big drop with laser sheet!
                         this.lightingPhase = 'drop';
                         this.targetEnergy = 1.0;
                         
-                        // ACTIVE CONTROL: Maximum Chaos
+                        // ACTIVE CONTROL: Maximum Chaos - Laser Sheet (NOT ceiling lasers)
                         this.lightsActive = true;
-                        this.lasersActive = true;
+                        this.lasersActive = false; // Ceiling lasers OFF (mutual exclusivity)
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
                         this.laserSheetActive = true; // Laser Sheet ON
@@ -4719,8 +4719,8 @@ class VRClub {
                         this.mirrorBallSpeed = 2.0;
                         this.ledWallSpeed = 2.0;
                         this.strobeSpeed = 1.8; // Faster strobe
-                        this.currentShowMode = 'combo';
-                        log.info('💥 DROP: Maximum Energy - EVERYTHING ON');
+                        this.currentShowMode = 'laserSheet';
+                        log.info('💥 DROP: Maximum Energy - Laser Sheet & Strobes ON');
                         break;
                         
                     case 'drop':
@@ -6746,7 +6746,30 @@ class VRClub {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
                         
-                        // Update button appearance
+                        // MUTUAL EXCLUSIVITY: Laser sheet and mirror ball cannot be active with ceiling lasers
+                        // When mirrorBall or laserSheet turns ON, turn OFF ceiling lasers (and vice versa)
+                        if (clickedButton.control === 'mirrorBallActive' && this.mirrorBallActive) {
+                            this.lasersActive = false;
+                            this.laserSheetActive = false; // Mirror ball is solo effect
+                            log.info('🪩 Mirror ball ON - ceiling lasers & laser sheet OFF');
+                        } else if (clickedButton.control === 'laserSheetActive' && this.laserSheetActive) {
+                            this.lasersActive = false;
+                            this.mirrorBallActive = false; // Laser sheet excludes mirror ball too
+                            log.info('📡 Laser sheet ON - ceiling lasers & mirror ball OFF');
+                        } else if (clickedButton.control === 'lasersActive' && this.lasersActive) {
+                            this.mirrorBallActive = false;
+                            this.laserSheetActive = false;
+                            log.info('🔴 Ceiling lasers ON - mirror ball & laser sheet OFF');
+                        }
+                        
+                        // Update ALL affected button appearances
+                        this.vjControlButtons.forEach(btn => {
+                            if (btn.control === 'lasersActive' || btn.control === 'mirrorBallActive' || btn.control === 'laserSheetActive') {
+                                btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
+                            }
+                        });
+                        
+                        // Update clicked button appearance (for non-exclusive controls)
                         clickedButton.material.emissiveColor = this[clickedButton.control] ? 
                             clickedButton.onColor : clickedButton.offColor;
                         
@@ -6755,6 +6778,14 @@ class VRClub {
                         // Broadcast VJ control change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
                             this.networkManager.sendVJControl(clickedButton.control, this[clickedButton.control]);
+                            // Also broadcast the mutual exclusivity changes
+                            if (clickedButton.control === 'mirrorBallActive' || 
+                                clickedButton.control === 'laserSheetActive' || 
+                                clickedButton.control === 'lasersActive') {
+                                this.networkManager.sendVJControl('lasersActive', this.lasersActive);
+                                this.networkManager.sendVJControl('mirrorBallActive', this.mirrorBallActive);
+                                this.networkManager.sendVJControl('laserSheetActive', this.laserSheetActive);
+                            }
                         }
                     }
                 }
