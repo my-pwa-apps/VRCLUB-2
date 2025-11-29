@@ -5900,94 +5900,54 @@ class VRClub {
         // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR + FLASHING
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
-        if (this.spotlights && this.spotlights.length > 0 && this.trussLights && this.trussLights.length > 0) {
-            // DEBUG: Log color sync once per color change
-            if (!this._lastLoggedSpotColor || 
-                this._lastLoggedSpotColor.r !== this.currentSpotColor.r ||
-                this._lastLoggedSpotColor.g !== this.currentSpotColor.g ||
-                this._lastLoggedSpotColor.b !== this.currentSpotColor.b) {
-                console.log('🎨 SPOTLIGHT COLOR SYNC DEBUG:');
-                console.log('  currentSpotColor:', this.currentSpotColor.r.toFixed(2), this.currentSpotColor.g.toFixed(2), this.currentSpotColor.b.toFixed(2));
-                console.log('  trussLights count:', this.trussLights.length);
-                console.log('  spotlights count:', this.spotlights.length);
-                if (this.trussLights[0] && this.trussLights[0].lensMat) {
-                    console.log('  trussLights[0].lensMat.emissiveColor BEFORE:', 
-                        this.trussLights[0].lensMat.emissiveColor.r.toFixed(2),
-                        this.trussLights[0].lensMat.emissiveColor.g.toFixed(2),
-                        this.trussLights[0].lensMat.emissiveColor.b.toFixed(2));
-                }
-                this._lastLoggedSpotColor = this.currentSpotColor.clone();
-                this._debugLogAfter = true; // Trigger after-log on next iteration
-            }
-            
-            this.spotlights.forEach((spot, i) => {
+        if (this.spotlights && this.spotlights.length > 0) {
+            // Update ALL 6 fixtures by finding meshes directly by name
+            for (let i = 0; i < 6; i++) {
+                const spot = this.spotlights[i];
+                if (!spot) continue;
+                
                 // CRITICAL: Use this.currentSpotColor as single source of truth
-                // This ensures fixture always matches the beam color exactly
                 const spotColor = this.currentSpotColor;
                 
-                // CRITICAL: Fixture visibility must respect BOTH lightsActive AND beamVisible
-                // If lightsActive is false, fixture MUST be off regardless of beamVisible
-                // If lightsActive is true, use beamVisible for strobe sync
+                // Fixture visibility must respect BOTH lightsActive AND beamVisible
                 const fixtureVisible = this.lightsActive && (spot.beamVisible !== false);
                 
-                // Get fixture data from trussLights
-                const trussLight = this.trussLights[i];
-                if (!trussLight) return;
-                
-                // CRITICAL FIX: Get materials DIRECTLY from the meshes themselves
-                // This ensures we update the ACTUAL material being rendered, not a stale reference
-                const lensMat = trussLight.lens ? trussLight.lens.material : null;
-                const sourceMat = trussLight.lightSource ? trussLight.lightSource.material : null;
+                // FIND MESHES DIRECTLY BY NAME from scene - guaranteed to get actual rendered meshes
+                const lens = this.scene.getMeshByName("lens" + i);
+                const lightSource = this.scene.getMeshByName("lightSource" + i);
                 
                 // Movement glow boost (brighter when head is moving fast)
                 const movementBoost = spot.movementSpeed ? Math.min(2.0, spot.movementSpeed * 10) : 0;
                 
                 // Update lens material (the bright front of the moving head)
-                if (lensMat && lensMat.emissiveColor) {
+                if (lens && lens.material && lens.material.emissiveColor) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        // DIRECTLY set r, g, b components to ensure exact color match
                         const scaleFactor = 4.0 + pulse + movementBoost;
-                        lensMat.emissiveColor.r = spotColor.r * scaleFactor;
-                        lensMat.emissiveColor.g = spotColor.g * scaleFactor;
-                        lensMat.emissiveColor.b = spotColor.b * scaleFactor;
+                        lens.material.emissiveColor.r = spotColor.r * scaleFactor;
+                        lens.material.emissiveColor.g = spotColor.g * scaleFactor;
+                        lens.material.emissiveColor.b = spotColor.b * scaleFactor;
                     } else {
-                        lensMat.emissiveColor.r = 0;
-                        lensMat.emissiveColor.g = 0;
-                        lensMat.emissiveColor.b = 0;
+                        lens.material.emissiveColor.r = 0;
+                        lens.material.emissiveColor.g = 0;
+                        lens.material.emissiveColor.b = 0;
                     }
                 }
                 
                 // Update light source material (the bright inner sphere)
-                if (sourceMat && sourceMat.emissiveColor) {
+                if (lightSource && lightSource.material && lightSource.material.emissiveColor) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        // DIRECTLY set r, g, b components to ensure exact color match
                         const scaleFactor = 6.0 + pulse * 2 + movementBoost;
-                        sourceMat.emissiveColor.r = spotColor.r * scaleFactor;
-                        sourceMat.emissiveColor.g = spotColor.g * scaleFactor;
-                        sourceMat.emissiveColor.b = spotColor.b * scaleFactor;
+                        lightSource.material.emissiveColor.r = spotColor.r * scaleFactor;
+                        lightSource.material.emissiveColor.g = spotColor.g * scaleFactor;
+                        lightSource.material.emissiveColor.b = spotColor.b * scaleFactor;
                     } else {
-                        sourceMat.emissiveColor.r = 0;
-                        sourceMat.emissiveColor.g = 0;
-                        sourceMat.emissiveColor.b = 0;
+                        lightSource.material.emissiveColor.r = 0;
+                        lightSource.material.emissiveColor.g = 0;
+                        lightSource.material.emissiveColor.b = 0;
                     }
                 }
-            });
-            
-            // DEBUG: Log color AFTER update (once per color change)
-            if (this._lastLoggedSpotColor && this._debugLogAfter) {
-                // Log BOTH the stored reference AND the actual mesh material
-                if (this.trussLights[0]) {
-                    const storedMat = this.trussLights[0].lensMat;
-                    const meshMat = this.trussLights[0].lens ? this.trussLights[0].lens.material : null;
-                    console.log('  STORED lensMat AFTER:', storedMat ? 
-                        `${storedMat.emissiveColor.r.toFixed(2)} ${storedMat.emissiveColor.g.toFixed(2)} ${storedMat.emissiveColor.b.toFixed(2)}` : 'null');
-                    console.log('  MESH lens.material AFTER:', meshMat && meshMat.emissiveColor ? 
-                        `${meshMat.emissiveColor.r.toFixed(2)} ${meshMat.emissiveColor.g.toFixed(2)} ${meshMat.emissiveColor.b.toFixed(2)}` : 'null/no emissive');
-                    console.log('  Same object?:', storedMat === meshMat);
-                }
-                this._debugLogAfter = false;
             }
         }
         } // End of legacy inline spotlight animation else block
