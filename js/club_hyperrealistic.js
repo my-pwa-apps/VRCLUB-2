@@ -5871,6 +5871,7 @@ class VRClub {
                 
                 // CRITICAL: Hide beams when lights are off (no beams without light source!)
                 if (!this.lightsActive) {
+                    spot.beamVisible = false; // CRITICAL: Update beamVisible for fixture sync
                     if (spot.beam) spot.beam.visibility = 0;
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                     if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
@@ -5900,14 +5901,34 @@ class VRClub {
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0 && this.trussLights && this.trussLights.length > 0) {
+            // DEBUG: Log color sync once per color change
+            if (!this._lastLoggedSpotColor || 
+                this._lastLoggedSpotColor.r !== this.currentSpotColor.r ||
+                this._lastLoggedSpotColor.g !== this.currentSpotColor.g ||
+                this._lastLoggedSpotColor.b !== this.currentSpotColor.b) {
+                console.log('🎨 SPOTLIGHT COLOR SYNC DEBUG:');
+                console.log('  currentSpotColor:', this.currentSpotColor.r.toFixed(2), this.currentSpotColor.g.toFixed(2), this.currentSpotColor.b.toFixed(2));
+                console.log('  trussLights count:', this.trussLights.length);
+                console.log('  spotlights count:', this.spotlights.length);
+                if (this.trussLights[0] && this.trussLights[0].lensMat) {
+                    console.log('  trussLights[0].lensMat.emissiveColor BEFORE:', 
+                        this.trussLights[0].lensMat.emissiveColor.r.toFixed(2),
+                        this.trussLights[0].lensMat.emissiveColor.g.toFixed(2),
+                        this.trussLights[0].lensMat.emissiveColor.b.toFixed(2));
+                }
+                this._lastLoggedSpotColor = this.currentSpotColor.clone();
+                this._debugLogAfter = true; // Trigger after-log on next iteration
+            }
+            
             this.spotlights.forEach((spot, i) => {
                 // CRITICAL: Use this.currentSpotColor as single source of truth
                 // This ensures fixture always matches the beam color exactly
                 const spotColor = this.currentSpotColor;
                 
-                // CRITICAL: Use stored beamVisible from beam update for PERFECT SYNC
-                // This ensures fixture flashes exactly when beam flashes
-                const fixtureVisible = spot.beamVisible !== undefined ? spot.beamVisible : this.lightsActive;
+                // CRITICAL: Fixture visibility must respect BOTH lightsActive AND beamVisible
+                // If lightsActive is false, fixture MUST be off regardless of beamVisible
+                // If lightsActive is true, use beamVisible for strobe sync
+                const fixtureVisible = this.lightsActive && (spot.beamVisible !== false);
                 
                 // Get materials DIRECTLY from trussLights (the actual materials on the meshes)
                 const trussLight = this.trussLights[i];
@@ -5951,6 +5972,17 @@ class VRClub {
                     }
                 }
             });
+            
+            // DEBUG: Log color AFTER update (once per color change)
+            if (this._lastLoggedSpotColor && this._debugLogAfter) {
+                if (this.trussLights[0] && this.trussLights[0].lensMat) {
+                    console.log('  trussLights[0].lensMat.emissiveColor AFTER:', 
+                        this.trussLights[0].lensMat.emissiveColor.r.toFixed(2),
+                        this.trussLights[0].lensMat.emissiveColor.g.toFixed(2),
+                        this.trussLights[0].lensMat.emissiveColor.b.toFixed(2));
+                }
+                this._debugLogAfter = false;
+            }
         }
         } // End of legacy inline spotlight animation else block
         
