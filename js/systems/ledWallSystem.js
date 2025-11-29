@@ -55,60 +55,63 @@ class LEDWallSystem {
     createLEDWall() {
         this.ledPanels = [];
         
-        const panelWidth = this.wallWidth / this.panelsX;
-        const panelHeight = this.wallHeight / this.panelsY;
-        const startX = -this.wallWidth / 2 + panelWidth / 2;
-        const startY = panelHeight / 2;
-        const wallZ = -26.4;
+        // Match legacy dimensions exactly
+        const panelWidth = 1.2;
+        const panelHeight = 1.0;
+        const cols = 28;
+        const rows = 10;
+        const wallWidth = cols * panelWidth;
+        const wallHeight = rows * panelHeight;
+        const wallZ = -26; // Match legacy position
         
-        // Create backing panel
-        const backing = BABYLON.MeshBuilder.CreateBox("ledBacking", {
-            width: this.wallWidth + 0.2,
-            height: this.wallHeight + 0.2,
-            depth: 0.1
-        }, this.scene);
-        backing.position = new BABYLON.Vector3(0, this.wallHeight / 2 + 0.5, wallZ - 0.1);
-        
-        const backingMat = this.materialFactory.createPBRMaterial("ledBackingMat", {
-            baseColor: [0.02, 0.02, 0.02],
-            metallic: 0.8,
-            roughness: 0.3
-        });
-        backing.material = backingMat;
+        // Store grid dimensions for patterns
+        this.ledCols = cols;
+        this.ledRows = rows;
         
         // Create LED panels
-        for (let y = 0; y < this.panelsY; y++) {
-            for (let x = 0; x < this.panelsX; x++) {
-                const panel = BABYLON.MeshBuilder.CreatePlane("ledPanel_" + x + "_" + y, {
-                    width: panelWidth * 0.9,
-                    height: panelHeight * 0.9
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const panel = BABYLON.MeshBuilder.CreatePlane("ledPanel_" + row + "_" + col, {
+                    width: panelWidth - 0.05,
+                    height: panelHeight - 0.05,
+                    sideOrientation: BABYLON.Mesh.DOUBLESIDE
                 }, this.scene);
                 
-                panel.position = new BABYLON.Vector3(
-                    startX + x * panelWidth,
-                    startY + y * panelHeight + 0.5,
-                    wallZ
-                );
+                const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
+                const y = (row * panelHeight) + (panelHeight / 2) + 0.05;
                 
-                const panelMat = new BABYLON.StandardMaterial("ledPanelMat_" + x + "_" + y, this.scene);
+                panel.position = new BABYLON.Vector3(x, y, wallZ);
+                
+                // Create material with slight initial glow
+                const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
                 panelMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-                panelMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                panelMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
                 panelMat.specularColor = new BABYLON.Color3(0, 0, 0);
                 panelMat.disableLighting = true;
+                panelMat.backFaceCulling = false;
                 panel.material = panelMat;
                 
+                // Performance optimizations
+                panel.freezeWorldMatrix();
+                panel.doNotSyncBoundingInfo = true;
+                panel.isPickable = false;
+                
+                // Store with structure matching legacy code
                 this.ledPanels.push({
                     mesh: panel,
                     material: panelMat,
-                    x: x,
-                    y: y,
-                    normalizedX: x / this.panelsX,
-                    normalizedY: y / this.panelsY
+                    row: row,
+                    col: col,
+                    centerX: col - (cols / 2) + 0.5,
+                    centerY: row - (rows / 2) + 0.5,
+                    // Also include normalized coords for new patterns
+                    normalizedX: col / cols,
+                    normalizedY: row / rows
                 });
             }
         }
         
-        this.log.info?.('✅ LED wall created with ' + this.ledPanels.length + ' panels');
+        this.log.info?.('✅ LED wall created with ' + this.ledPanels.length + ' panels at z=' + wallZ);
     }
 
     /**
@@ -323,8 +326,8 @@ class LEDWallSystem {
      */
     _patternMatrixRain(time, baseColor) {
         this.ledPanels.forEach(panel => {
-            const columnSpeed = 1 + (panel.x % 5) * 0.5;
-            const drop = ((time * columnSpeed + panel.x * 0.3) % 1.5);
+            const columnSpeed = 1 + (panel.col % 5) * 0.5;
+            const drop = ((time * columnSpeed + panel.col * 0.3) % 1.5);
             const dropY = 1 - drop;
             
             const dist = Math.abs(panel.normalizedY - dropY);
