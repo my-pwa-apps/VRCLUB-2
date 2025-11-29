@@ -5574,6 +5574,10 @@ class VRClub {
                     spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
                     spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
                     
+                    // CRITICAL: Store the actual beam color for fixture sync (BASE color, not scaled)
+                    // This ensures fixture uses EXACT same color as beam
+                    spot.currentBeamColor = spotColor;
+                    
                     // Very subtle alpha variation - creates "depth" in the beam
                     spot.beamMat.alpha = 0.1 + Math.abs(atmosphericNoise) * 0.05; // Low alpha base (0.1)
                     
@@ -5668,12 +5672,9 @@ class VRClub {
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
             this.spotlights.forEach((spot, i) => {
-                // CRITICAL FIX: Always sync spot.color with global color for consistency
-                // This ensures fixtures match beam color even if color changed while lights were off
-                if (this.currentSpotColor) {
-                    spot.color = this.currentSpotColor;
-                }
-                const spotColor = spot.color || this.currentSpotColor;
+                // CRITICAL: Use the EXACT color that was used for the beam this frame
+                // spot.currentBeamColor is set during beam update for perfect sync
+                const spotColor = spot.currentBeamColor || spot.color || this.currentSpotColor;
                 
                 // CRITICAL: Use stored beamVisible from beam update for PERFECT SYNC
                 // This ensures fixture flashes exactly when beam flashes
