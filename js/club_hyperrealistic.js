@@ -5942,34 +5942,40 @@ class VRClub {
 
                 // Update lens color
                 if (lens && lens.material) {
-                    if (!lens.material.emissiveColor) {
-                        lens.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    const mat = lens.material;
+                    if (!mat.emissiveColor) {
+                        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                     }
                     if (fixtureVisible) {
-                        lens.material.emissiveColor.r = targetColor.r * lensIntensity;
-                        lens.material.emissiveColor.g = targetColor.g * lensIntensity;
-                        lens.material.emissiveColor.b = targetColor.b * lensIntensity;
+                        mat.emissiveColor.copyFromFloats(
+                            targetColor.r * lensIntensity,
+                            targetColor.g * lensIntensity,
+                            targetColor.b * lensIntensity
+                        );
                     } else {
-                        lens.material.emissiveColor.r = 0;
-                        lens.material.emissiveColor.g = 0;
-                        lens.material.emissiveColor.b = 0;
+                        mat.emissiveColor.copyFromFloats(0, 0, 0);
                     }
+                    // Force material update
+                    mat.markAsDirty(BABYLON.Material.MiscDirtyFlag);
                 }
 
                 // Update light source (inner bulb) color
                 if (lightSource && lightSource.material) {
-                    if (!lightSource.material.emissiveColor) {
-                        lightSource.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    const mat = lightSource.material;
+                    if (!mat.emissiveColor) {
+                        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                     }
                     if (fixtureVisible) {
-                        lightSource.material.emissiveColor.r = targetColor.r * sourceIntensity;
-                        lightSource.material.emissiveColor.g = targetColor.g * sourceIntensity;
-                        lightSource.material.emissiveColor.b = targetColor.b * sourceIntensity;
+                        mat.emissiveColor.copyFromFloats(
+                            targetColor.r * sourceIntensity,
+                            targetColor.g * sourceIntensity,
+                            targetColor.b * sourceIntensity
+                        );
                     } else {
-                        lightSource.material.emissiveColor.r = 0;
-                        lightSource.material.emissiveColor.g = 0;
-                        lightSource.material.emissiveColor.b = 0;
+                        mat.emissiveColor.copyFromFloats(0, 0, 0);
                     }
+                    // Force material update
+                    mat.markAsDirty(BABYLON.Material.MiscDirtyFlag);
                 }
             }
         }
