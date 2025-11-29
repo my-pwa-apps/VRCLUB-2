@@ -620,18 +620,22 @@ class VRClub {
         if (vrHelper && vrHelper.baseExperience) {
             try {
                 // Enable movement controller feature for smooth locomotion with thumbsticks
+                // Left thumbstick = move, Right thumbstick = turn (Babylon.js default)
                 this.movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
                     BABYLON.WebXRFeatureName.MOVEMENT,
                     'latest',
                     {
                         xrInput: vrHelper.input,
-                        // Smooth locomotion settings
+                        // Smooth locomotion settings - left stick moves, right stick rotates
                         movementEnabled: true,
-                        movementSpeed: 0.5, // Movement speed (meters per second at full stick deflection)
+                        movementSpeed: 1.0, // Movement speed - increased for better responsiveness
+                        movementThreshold: 0.2, // Lower threshold to detect thumbstick input earlier
                         rotationEnabled: true,
-                        rotationSpeed: 0.8, // Turning speed with right stick
-                        // Keep user on floor
-                        movementOrientationFollowsViewerPose: true // Move in direction you're looking
+                        rotationSpeed: 1.0, // Turning speed with right stick
+                        rotationThreshold: 0.2, // Lower threshold for rotation detection
+                        // Move in direction you're looking (head direction)
+                        movementOrientationFollowsViewerPose: true,
+                        movementOrientationFollowsController: false // Don't follow controller direction
                     }
                 );
                 
@@ -6147,8 +6151,8 @@ class VRClub {
                             const burstPhase = (dropProgress * 4) % 1;
                             
                             if (burstPhase < 0.5) {
-                                targetIntensity = 15; // MAXIMUM POWER
-                                targetFlareAlpha = 0.95;
+                                targetIntensity = 6; // Reduced for VR comfort
+                                targetFlareAlpha = 0.5;
                             }
                         } else {
                             this.vjDropActive = false;
@@ -6158,8 +6162,8 @@ class VRClub {
                     // Pattern 2: BASS REACTIVE - Pulse on strong bass hits
                     if (!this.vjDropActive && bass > 0.5) {
                         const bassIntensity = (bass - 0.5) * 2; // 0-1 range
-                        targetIntensity = Math.max(targetIntensity, bassIntensity * 8);
-                        targetFlareAlpha = Math.max(targetFlareAlpha, bassIntensity * 0.6);
+                        targetIntensity = Math.max(targetIntensity, bassIntensity * 3);
+                        targetFlareAlpha = Math.max(targetFlareAlpha, bassIntensity * 0.3);
                     }
                     
                     // Pattern 3: BUILD PULSE - Increasing flicker during build-up
@@ -6167,16 +6171,16 @@ class VRClub {
                         const buildPulse = Math.sin(time * 8 * this.vjBuildIntensity * blinderSpeedMultiplier);
                         if (buildPulse > 0.7) {
                             const pulseIntensity = (buildPulse - 0.7) / 0.3 * this.vjBuildIntensity;
-                            targetIntensity = Math.max(targetIntensity, pulseIntensity * 5);
-                            targetFlareAlpha = Math.max(targetFlareAlpha, pulseIntensity * 0.3);
+                            targetIntensity = Math.max(targetIntensity, pulseIntensity * 2);
+                            targetFlareAlpha = Math.max(targetFlareAlpha, pulseIntensity * 0.15);
                         }
                     }
                     
-                    // Pattern 4: SEQUENTIAL SWEEP - Blinders fire in sequence (every 4 beats)
-                    const sweepCycle = (time * blinderSpeedMultiplier * 0.5) % 4;
-                    if (Math.floor(sweepCycle) === i && sweepCycle % 1 < 0.15) {
-                        targetIntensity = Math.max(targetIntensity, 10);
-                        targetFlareAlpha = Math.max(targetFlareAlpha, 0.7);
+                    // Pattern 4: SEQUENTIAL SWEEP - Blinders fire in sequence (every 8 beats, less frequent)
+                    const sweepCycle = (time * blinderSpeedMultiplier * 0.25) % 4; // Slower sweep
+                    if (Math.floor(sweepCycle) === i && sweepCycle % 1 < 0.1) { // Shorter on-time
+                        targetIntensity = Math.max(targetIntensity, 4);
+                        targetFlareAlpha = Math.max(targetFlareAlpha, 0.35);
                     }
                     
                     // Smooth intensity transitions (professional look)
@@ -6186,16 +6190,16 @@ class VRClub {
                     
                     // Apply blinder visuals
                     const warmWhite = this.cachedColors.warmWhite || new BABYLON.Color3(1, 0.9, 0.7);
-                    blinder.emitterMat.emissiveIntensity = blinder.intensity;
-                    blinder.emitterMat.emissiveColor = warmWhite.scale(blinder.intensity / 15);
+                    blinder.emitterMat.emissiveIntensity = blinder.intensity * 0.5; // Reduced for VR
+                    blinder.emitterMat.emissiveColor = warmWhite.scale(blinder.intensity / 20); // Softer color
                     
-                    // Flare effect (lens bloom simulation)
+                    // Flare effect (lens bloom simulation) - reduced for VR comfort
                     const currentFlare = blinder.flareMat.alpha || 0;
-                    blinder.flareMat.alpha = currentFlare + (targetFlareAlpha - currentFlare) * lerpSpeed;
+                    blinder.flareMat.alpha = currentFlare + (targetFlareAlpha * 0.6 - currentFlare) * lerpSpeed; // 60% max alpha
                     
-                    // Scale flare based on intensity for dramatic effect
+                    // Scale flare based on intensity (smaller range for VR)
                     if (blinder.flare) {
-                        const flareScale = 4.0 + blinder.intensity * 0.5;
+                        const flareScale = 2.0 + blinder.intensity * 0.2; // Smaller flares
                         blinder.flare.scaling.setAll(flareScale);
                     }
                 });

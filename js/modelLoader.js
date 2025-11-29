@@ -102,7 +102,7 @@ class ModelLoader {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
                 position: new BABYLON.Vector3(-11, 0, -22), // Moved forward from -25 to -22, wider to -11
-                rotation: new BABYLON.Vector3(0, Math.PI / 6, 0), // Tilted 30 degrees inward
+                rotation: new BABYLON.Vector3(0, Math.PI - Math.PI / 6, 0), // Face audience (180°) then tilt 30° inward
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
                 attribution: 'Stage Speaker (CC BY 4.0)'
@@ -111,7 +111,7 @@ class ModelLoader {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
                 position: new BABYLON.Vector3(11, 0, -22), // Moved forward from -25 to -22, wider to 11
-                rotation: new BABYLON.Vector3(0, -Math.PI / 6, 0), // Tilted 30 degrees inward
+                rotation: new BABYLON.Vector3(0, Math.PI + Math.PI / 6, 0), // Face audience (180°) then tilt 30° inward
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
                 attribution: 'Stage Speaker (CC BY 4.0)'
