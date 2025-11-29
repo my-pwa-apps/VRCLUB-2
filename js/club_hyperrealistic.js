@@ -4866,7 +4866,8 @@ class VRClub {
                     // Each spot represents a mirror facet at a specific angle (theta, phi)
                     // As ball rotates, the facet direction rotates with it in a realistic manner
                     // The ball rotates on Y-axis, so horizontal angle (theta) changes, vertical (phi) stays fixed
-                    const rotatedTheta = spot.theta - this.mirrorBallRotation; // Use actual rotation value for precise tracking
+                    // SYNC FIX: Use same rotation direction as outgoing rays (+ not -)
+                    const rotatedTheta = spot.theta + this.mirrorBallRotation; // Match outgoing ray rotation direction
                     
                     // OPTIMIZED: Cache cos/sin calculations for reuse
                     const cosTheta = Math.cos(rotatedTheta);
