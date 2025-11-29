@@ -5237,7 +5237,7 @@ class VRClub {
                 }
             });
         } else if (this.lasers) {
-            // Turn off lasers when not active
+            // Turn off lasers when not active (e.g., when laser sheet is on)
             this.lasers.forEach(laser => {
                 laser.lights.forEach(light => {
                     light.intensity = 0;
@@ -5245,8 +5245,10 @@ class VRClub {
                 laser.beams.forEach(beam => {
                     beam.mesh.visibility = 0;
                     beam.material.alpha = 0;
+                    if (beam.innerGlow) beam.innerGlow.visibility = 0;
                     if (beam.beamGlow) beam.beamGlow.visibility = 0;
                     if (beam.hitSpot) beam.hitSpot.visibility = 0;
+                    if (beam.hitGlow) beam.hitGlow.visibility = 0;
                 });
                 // Also turn off emitter when lasers are off
                 if (laser.emitterMat) {
@@ -5258,18 +5260,24 @@ class VRClub {
             });
         }
         
-        // Make laser beams visible only when spinning
+        // Make laser beams visible only when spinning AND lasers are active
         if (this.lasers) {
             this.lasers.forEach(laser => {
                 laser.beams.forEach(beam => {
-                    // Only show beams if laser is actively spinning
+                    // Only show beams if laser is actively spinning AND lasersActive is true
                     if (laser.isSpinning && this.lasersActive) {
                         beam.mesh.visibility = 1;
                         beam.material.alpha = 0.6;
+                        if (beam.innerGlow) beam.innerGlow.visibility = 1;
+                        if (beam.beamGlow) beam.beamGlow.visibility = 1;
                     } else {
-                        // Turn off beams when not spinning
+                        // Turn off ALL beam components when not spinning or lasers disabled
                         beam.mesh.visibility = 0;
                         beam.material.alpha = 0;
+                        if (beam.innerGlow) beam.innerGlow.visibility = 0;
+                        if (beam.beamGlow) beam.beamGlow.visibility = 0;
+                        if (beam.hitSpot) beam.hitSpot.visibility = 0;
+                        if (beam.hitGlow) beam.hitGlow.visibility = 0;
                     }
                 });
                 // Reset spinning flag for next frame
@@ -5293,17 +5301,8 @@ class VRClub {
             // Update ALL lights to new color
             if (this.spotlights) {
                 this.spotlights.forEach((spot, i) => {
-                    // spot.light.diffuse stays black - no ambient colored glow
+                    // Update color reference - fixture materials updated in animation loop
                     spot.color = this.currentSpotColor;
-                    
-                    // Update fixture lens and light source colors immediately
-                    if (spot.lensMat && this.lightsActive) {
-                        spot.lensMat.emissiveColor = this.currentSpotColor.scale(5.0);
-                    }
-                    if (spot.sourceMat && this.lightsActive) {
-                        spot.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0);
-                    }
-                    // Beam color updated in animation loop
                 });
             }
         }
@@ -5558,11 +5557,9 @@ class VRClub {
                         const movementBoost = Math.min(0.15, movementSpeed * 2); // Cap at 0.15 extra
                         spot.flareMat.alpha = 0.2 + (viewBrightness * 0.3) + movementBoost;
                         
-                        // Also pulse the lens brightness slightly when moving fast (light scatter effect)
-                        if (spot.lensMat && this.lightsActive) {
-                            const baseGlow = 5.0 + (movementSpeed * 10); // Brighter when sweeping
-                            spot.lensMat.emissiveColor = this.currentSpotColor.scale(Math.min(7.0, baseGlow));
-                        }
+                        // Movement glow boost is now handled in main fixture update loop
+                        // Store movement speed for fixture update to use
+                        spot.movementSpeed = movementSpeed;
                     }
                 } else if (spot.fixture) {
                     // Fallback for legacy fixtures (if any)
@@ -5802,11 +5799,14 @@ class VRClub {
                 const sourceMat = spot.sourceMat || (trussLight ? trussLight.sourceMat : null);
                 const flareMat = spot.flareMat || (trussLight ? trussLight.flareMat : null);
                 
+                // Movement glow boost (brighter when head is moving fast)
+                const movementBoost = spot.movementSpeed ? Math.min(2.0, spot.movementSpeed * 10) : 0;
+                
                 // Update lens material (the bright front of the moving head)
                 if (lensMat) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        lensMat.emissiveColor = spotColor.scale(4.0 + pulse);
+                        lensMat.emissiveColor = spotColor.scale(4.0 + pulse + movementBoost);
                     } else {
                         lensMat.emissiveColor = this.cachedColors.black;
                     }
@@ -5816,7 +5816,7 @@ class VRClub {
                 if (sourceMat) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        sourceMat.emissiveColor = spotColor.scale(6.0 + pulse * 2);
+                        sourceMat.emissiveColor = spotColor.scale(6.0 + pulse * 2 + movementBoost);
                     } else {
                         sourceMat.emissiveColor = this.cachedColors.black;
                     }
@@ -6827,20 +6827,9 @@ class VRClub {
                         // Update ALL light colors immediately (specular for reflections, NO diffuse ambient)
                         if (this.spotlights) {
                             this.spotlights.forEach((spot, i) => {
-                                // spot.light.diffuse stays black - no ambient colored glow
+                                // Update color references - fixture materials updated in animation loop
                                 spot.light.specular = this.currentSpotColor; // Specular for reflections
                                 spot.color = this.currentSpotColor;
-                                
-                                // Update fixture lens and light source colors
-                                if (this.trussLights && this.trussLights[i]) {
-                                    const trussLight = this.trussLights[i];
-                                    if (trussLight.lensMat && this.lightsActive) {
-                                        trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0);
-                                    }
-                                    if (trussLight.sourceMat && this.lightsActive) {
-                                        trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0);
-                                    }
-                                }
                             });
                         }
                         
