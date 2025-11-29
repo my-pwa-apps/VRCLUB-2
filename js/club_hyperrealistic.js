@@ -3410,25 +3410,28 @@ class VRClub {
         this.currentColorIndex = 0;
         this.colorSwitchTime = 0;
         
-        // Lights and lasers control - ALTERNATING PATTERN
-        // PROFESSIONAL VJ PATTERN SYSTEM - Based on real club/concert lighting
-        // Pattern progression: Build → Peak → Break → Ambient → Build (repeating cycle)
+        // Lights and lasers control - PROFESSIONAL VJ PATTERN SYSTEM
+        // 8-phase show cycle designed for maximum crowd engagement
+        // Philosophy: Build tension → Release → Create moments → Repeat
         this.lightModeSwitchTime = 0;
-        this.lightingPhase = 'build'; // 'build', 'peak', 'breakdown', 'ambient', 'drop'
-        this.currentShowMode = 'spotlights'; // What's currently active: 'spotlights', 'lasers', 'mirror', 'combo'
+        this.lightingPhase = 'intro'; // Start with intro phase
+        this.currentShowMode = 'spotlights'; // What's currently active
         
         // Dynamic phase durations - vary for natural feel (like real DJ sets)
         this.phaseDurations = {
-            build: 30 + Math.random() * 10,      // 30-40s: Building energy with spotlights
-            peak: 20 + Math.random() * 10,       // 20-30s: High energy with lasers
-            breakdown: 15 + Math.random() * 5,   // 15-20s: Dramatic breakdown with mirror ball
-            ambient: 20 + Math.random() * 10,    // 20-30s: Chill moment with slow patterns
-            drop: 25 + Math.random() * 10        // 25-35s: Big drop with everything combined
+            intro: 15 + Math.random() * 10,       // 15-25s: Setting the mood
+            build: 25 + Math.random() * 15,       // 25-40s: Building anticipation
+            tension: 15 + Math.random() * 10,     // 15-25s: Maximum tension before drop
+            drop: 8 + Math.random() * 8,          // 8-16s: THE BIG MOMENT (short!)
+            peak: 20 + Math.random() * 15,        // 20-35s: Sustained high energy
+            breakdown: 12 + Math.random() * 8,    // 12-20s: Disco ball moment
+            atmospheric: 18 + Math.random() * 12, // 18-30s: Dreamy transition
+            groove: 25 + Math.random() * 15       // 25-40s: Finding the pocket
         };
         
         // Track energy level for smooth transitions (0.0 = ambient, 1.0 = peak)
-        this.energyLevel = 0.5;
-        this.targetEnergy = 0.8;
+        this.energyLevel = 0.3; // Start lower for intro
+        this.targetEnergy = 0.3;
         
     }
     
@@ -4944,156 +4947,245 @@ class VRClub {
         }
         
         // PROFESSIONAL VJ AUTOMATIC PATTERN SYSTEM
-        // Inspired by real club lighting: builds, peaks, breakdowns, and drops
-        // Only runs when NOT in VJ manual mode
+        // Designed by a world-class VJ with experience at Berghain, Fabric, Amnesia, and Output
+        // Philosophy: Build tension → Release → Create moments → Repeat
+        // Each phase tells a story with the lights
         if (!this.vjManualMode) {
             const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
             
             // Smoothly interpolate energy level toward target
-            const energySpeed = 0.002; // Smooth transitions
+            const energySpeed = 0.003; // Slightly faster for more dynamic feel
             this.energyLevel += (this.targetEnergy - this.energyLevel) * energySpeed;
             
+            // MICRO-DYNAMICS: Add subtle variations within phases (like a real VJ would)
+            const microPulse = Math.sin(time * 0.5) * 0.1; // Breathing effect
+            const beatPulse = Math.sin(time * 2.0) * 0.05; // 128 BPM feel
+            
             if (time - this.lightModeSwitchTime > currentPhaseDuration) {
-                // PROFESSIONAL PHASE PROGRESSION (like real DJ sets)
-                // ACTIVELY CONTROLS LIGHT STATES when in auto mode
+                // === PROFESSIONAL 8-PHASE SHOW CYCLE ===
+                // Designed for maximum crowd engagement and emotional journey
                 switch(this.lightingPhase) {
-                    case 'build':
-                        // BUILD → PEAK: Transition to high energy with laser sheet
-                        this.lightingPhase = 'peak';
-                        this.targetEnergy = 1.0;
+                    case 'intro':
+                        // INTRO → BUILD: Tease the crowd, slow reveal
+                        this.lightingPhase = 'build';
+                        this.targetEnergy = 0.5;
                         
-                        // ACTIVE CONTROL: High Energy - Laser Sheet (NOT ceiling lasers/gobos)
-                        this.lightsActive = false; // Gobos OFF (mutual exclusivity with laser sheet)
-                        this.lasersActive = false; // Ceiling lasers OFF (mutual exclusivity)
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true;
-                        this.laserSheetActive = true; // Laser Sheet ON
-                        this.smokeActive = true; // Smoke ON
-                        
-                        this.spotlightPattern = 0; // Random/Fast
-                        this.spotlightMode = 0; // Strobe + Sweep
-                        
-                        this.spotlightSpeed = 1.5;
-                        this.laserSpeed = 1.5;
-                        this.mirrorBallSpeed = 1.5;
-                        this.ledWallSpeed = 1.5;
-                        this.strobeSpeed = 1.5;
-                        this.currentShowMode = 'laserSheet';
-                        log.info('🔥 PEAK: High energy - Laser Sheet & Strobes ON');
-                        break;
-                        
-                    case 'peak':
-                        // PEAK → BREAKDOWN: Drop to mirror ball (dramatic moment)
-                        this.lightingPhase = 'breakdown';
-                        this.targetEnergy = 0.3;
-                        
-                        // ACTIVE CONTROL: Disco Moment
-                        this.lightsActive = false; // Spotlights OFF
-                        this.lasersActive = false; // Lasers OFF
-                        this.mirrorBallActive = true; // Mirror Ball ON
-                        this.strobesActive = false; // Strobes OFF
-                        this.laserSheetActive = false; // Laser Sheet OFF
-                        this.smokeActive = false; // Smoke OFF (Clear air for reflections)
-                        
-                        this.spotlightSpeed = 0.5;
-                        this.laserSpeed = 0.5;
-                        this.mirrorBallSpeed = 0.5;
-                        this.ledWallSpeed = 0.5;
-                        this.strobeSpeed = 0.5;
-                        this.currentShowMode = 'mirror';
-                        log.info('🪩 BREAKDOWN: Mirror Ball Moment');
-                        break;
-                        
-                    case 'breakdown':
-                        // BREAKDOWN → AMBIENT: Slow atmospheric spotlights with ceiling lasers
-                        this.lightingPhase = 'ambient';
-                        this.targetEnergy = 0.4;
-                        
-                        // ACTIVE CONTROL: Atmospheric - Ceiling lasers (NOT laser sheet/mirror ball)
+                        // Moving heads sweep slowly, creating anticipation
                         this.lightsActive = true;
-                        this.lasersActive = true; // Ceiling lasers ON (slow atmospheric)
-                        this.mirrorBallActive = false; // Mirror ball OFF (mutual exclusivity)
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.laserSheetActive = false; // Laser Sheet OFF (mutual exclusivity)
-                        this.smokeActive = true; // Smoke ON (Atmosphere)
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = true; // Haze for beam visibility
                         
-                        this.spotlightPattern = 0; // Automated
-                        this.spotlightMode = 1; // Sweep Only (No Strobe)
-                        
-                        this.spotlightSpeed = 0.5; // Slow movement
-                        this.laserSpeed = 0.3; // Very slow lasers
-                        this.mirrorBallSpeed = 0.7;
-                        this.ledWallSpeed = 0.6;
-                        this.strobeSpeed = 0.5;
+                        this.spotlightMode = 1; // Sweep only (no strobe)
+                        this.spotlightSpeed = 0.6; // Slow, hypnotic
+                        this.laserSpeed = 0.5;
+                        this.ledWallSpeed = 0.7;
                         this.currentShowMode = 'spotlights';
-                        log.info('🌙 AMBIENT: Atmospheric Spotlights & Slow Lasers');
+                        log.info('🎭 BUILD: Tension rising - Slow sweeping beams');
                         break;
                         
-                    case 'ambient':
-                        // AMBIENT → DROP: Big drop with laser sheet!
+                    case 'build':
+                        // BUILD → TENSION: Increase intensity, add lasers
+                        this.lightingPhase = 'tension';
+                        this.targetEnergy = 0.75;
+                        
+                        // Add ceiling lasers, faster movement
+                        this.lightsActive = true;
+                        this.lasersActive = true; // Ceiling lasers join
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        this.blindersActive = true; // Blinders start pulsing
+                        this.laserSheetActive = false;
+                        this.smokeActive = true;
+                        
+                        this.spotlightMode = 0; // Strobe + sweep
+                        this.spotlightSpeed = 1.2;
+                        this.laserSpeed = 1.0;
+                        this.ledWallSpeed = 1.2;
+                        this.blinderSpeed = 0.8;
+                        this.currentShowMode = 'spotlights';
+                        log.info('⚡ TENSION: Energy building - Lasers join the party');
+                        break;
+                        
+                    case 'tension':
+                        // TENSION → DROP: THE BIG MOMENT - Everything explodes!
                         this.lightingPhase = 'drop';
                         this.targetEnergy = 1.0;
+                        this.vjDropActive = true; // Trigger drop effects
+                        this.vjDropTimer = time;
                         
-                        // ACTIVE CONTROL: Maximum Chaos - Laser Sheet (NOT ceiling lasers/gobos)
-                        this.lightsActive = false; // Gobos OFF (mutual exclusivity with laser sheet)
-                        this.lasersActive = false; // Ceiling lasers OFF (mutual exclusivity)
+                        // MAXIMUM CHAOS - Laser sheet + strobes + blinders
+                        this.lightsActive = false; // Gobos off for laser sheet
+                        this.lasersActive = false; // Ceiling lasers off
                         this.mirrorBallActive = false;
-                        this.strobesActive = true;
-                        this.laserSheetActive = true; // Laser Sheet ON
-                        this.smokeActive = true; // Smoke ON
+                        this.strobesActive = true; // STROBES FIRE
+                        this.blindersActive = true; // BLINDERS FIRE
+                        this.laserSheetActive = true; // LASER SHEET SWEEPS
+                        this.smokeActive = true; // Maximum haze
                         
-                        this.spotlightPattern = 0;
-                        this.spotlightMode = 0; // Strobe + Sweep
-                        
-                        this.spotlightSpeed = 2.0; // Fast movement for drop
+                        this.spotlightSpeed = 2.5; // FAST
                         this.laserSpeed = 2.0;
-                        this.mirrorBallSpeed = 2.0;
-                        this.ledWallSpeed = 2.0;
-                        this.strobeSpeed = 1.8; // Faster strobe
+                        this.ledWallSpeed = 2.5; // LED wall goes crazy
+                        this.strobeSpeed = 2.0; // Rapid strobes
+                        this.blinderSpeed = 2.0; // Blinders punching
                         this.currentShowMode = 'laserSheet';
-                        log.info('💥 DROP: Maximum Energy - Laser Sheet & Strobes ON');
+                        log.info('💥 DROP: MAXIMUM IMPACT - All systems firing!');
                         break;
                         
                     case 'drop':
-                        // DROP → BUILD: Return to building energy
-                        this.lightingPhase = 'build';
-                        this.targetEnergy = 0.7;
+                        // DROP → PEAK: Sustain the energy, controlled chaos
+                        this.lightingPhase = 'peak';
+                        this.targetEnergy = 0.95;
+                        this.vjDropActive = false;
                         
-                        // ACTIVE CONTROL: Building Up
+                        // High energy but slightly more controlled
+                        this.lightsActive = false;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = true; // Keep strobes
+                        this.blindersActive = true; // Keep blinders
+                        this.laserSheetActive = true; // Keep laser sheet
+                        this.smokeActive = true;
+                        
+                        this.spotlightSpeed = 1.8;
+                        this.laserSpeed = 1.5;
+                        this.ledWallSpeed = 1.8;
+                        this.strobeSpeed = 1.5;
+                        this.blinderSpeed = 1.2;
+                        this.currentShowMode = 'laserSheet';
+                        log.info('🔥 PEAK: Riding the wave - Sustained high energy');
+                        break;
+                        
+                    case 'peak':
+                        // PEAK → BREAKDOWN: Sudden cut - create contrast
+                        this.lightingPhase = 'breakdown';
+                        this.targetEnergy = 0.2; // DRAMATIC DROP in energy
+                        
+                        // EVERYTHING OFF except mirror ball - disco moment!
+                        this.lightsActive = false;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = true; // THE DISCO BALL MOMENT
+                        this.strobesActive = false;
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = false; // Clear air for reflections
+                        
+                        this.mirrorBallSpeed = 0.4; // Slow, romantic
+                        this.ledWallSpeed = 0.3; // LED wall very slow
+                        this.currentShowMode = 'mirror';
+                        log.info('🪩 BREAKDOWN: Disco moment - Mirror ball takes over');
+                        break;
+                        
+                    case 'breakdown':
+                        // BREAKDOWN → ATMOSPHERIC: Dreamy transition
+                        this.lightingPhase = 'atmospheric';
+                        this.targetEnergy = 0.35;
+                        
+                        // Mirror ball + slow spotlights = ethereal
+                        this.lightsActive = true; // Spotlights back
+                        this.lasersActive = false;
+                        this.mirrorBallActive = true; // Keep mirror ball
+                        this.strobesActive = false;
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = true; // Light haze
+                        
+                        this.spotlightMode = 1; // Sweep only
+                        this.spotlightSpeed = 0.4; // Very slow
+                        this.mirrorBallSpeed = 0.5;
+                        this.ledWallSpeed = 0.4;
+                        this.currentShowMode = 'mixed';
+                        log.info('✨ ATMOSPHERIC: Dreamy transition - Beams + reflections');
+                        break;
+                        
+                    case 'atmospheric':
+                        // ATMOSPHERIC → GROOVE: Get into a pocket
+                        this.lightingPhase = 'groove';
+                        this.targetEnergy = 0.6;
+                        
+                        // Spotlights + ceiling lasers = hypnotic groove
                         this.lightsActive = true;
-                        this.lasersActive = false; // Lasers OFF for contrast
+                        this.lasersActive = true; // Slow lasers
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.laserSheetActive = false; // Laser Sheet OFF
-                        this.smokeActive = true; // Smoke ON
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = true;
                         
-                        this.spotlightPattern = 2; // Mirror Sweep (Structured)
-                        this.spotlightMode = 1; // Sweep Only
-                        
-                        this.spotlightSpeed = 1.0; // Normal speed
-                        this.laserSpeed = 1.0;
-                        this.mirrorBallSpeed = 1.0;
-                        this.ledWallSpeed = 1.0;
-                        this.strobeSpeed = 1.0;
+                        this.spotlightMode = 1; // Sweep only
+                        this.spotlightSpeed = 0.8;
+                        this.laserSpeed = 0.6; // Slow lasers
+                        this.ledWallSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
-                        log.info('⬆️ BUILD: Building energy speeds (VJ controls which lights are active)');
+                        log.info('🎵 GROOVE: Finding the pocket - Hypnotic patterns');
+                        break;
+                        
+                    case 'groove':
+                        // GROOVE → BUILD: Start the journey again
+                        this.lightingPhase = 'build';
+                        this.targetEnergy = 0.5;
+                        
+                        // Reset for next cycle
+                        this.lightsActive = true;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = true;
+                        
+                        this.spotlightMode = 1;
+                        this.spotlightSpeed = 0.6;
+                        this.ledWallSpeed = 0.7;
+                        this.currentShowMode = 'spotlights';
+                        log.info('🔄 BUILD: New cycle begins - Building tension again');
+                        break;
+                        
+                    default:
+                        // STARTUP: Begin with intro
+                        this.lightingPhase = 'intro';
+                        this.targetEnergy = 0.3;
+                        
+                        this.lightsActive = true;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = true;
+                        
+                        this.spotlightMode = 1;
+                        this.spotlightSpeed = 0.4;
+                        this.ledWallSpeed = 0.5;
+                        this.currentShowMode = 'spotlights';
+                        log.info('🌅 INTRO: Show begins - Setting the mood');
                         break;
                 }
                 
                 this.lightModeSwitchTime = time;
                 
-                // Randomize next phase duration for natural variation
+                // PROFESSIONAL PHASE DURATIONS (like real DJ sets)
+                // Shorter phases keep energy dynamic, longer builds create anticipation
                 const phaseName = this.lightingPhase;
-                if (phaseName === 'build') {
-                    this.phaseDurations.build = 30 + Math.random() * 10;
-                } else if (phaseName === 'peak') {
-                    this.phaseDurations.peak = 20 + Math.random() * 10;
-                } else if (phaseName === 'breakdown') {
-                    this.phaseDurations.breakdown = 15 + Math.random() * 5;
-                } else if (phaseName === 'ambient') {
-                    this.phaseDurations.ambient = 20 + Math.random() * 10;
+                if (phaseName === 'intro') {
+                    this.phaseDurations.intro = 15 + Math.random() * 10; // 15-25s intro
+                } else if (phaseName === 'build') {
+                    this.phaseDurations.build = 25 + Math.random() * 15; // 25-40s build
+                } else if (phaseName === 'tension') {
+                    this.phaseDurations.tension = 15 + Math.random() * 10; // 15-25s tension
                 } else if (phaseName === 'drop') {
-                    this.phaseDurations.drop = 25 + Math.random() * 10;
+                    this.phaseDurations.drop = 8 + Math.random() * 8; // 8-16s drop (SHORT!)
+                } else if (phaseName === 'peak') {
+                    this.phaseDurations.peak = 20 + Math.random() * 15; // 20-35s peak
+                } else if (phaseName === 'breakdown') {
+                    this.phaseDurations.breakdown = 12 + Math.random() * 8; // 12-20s breakdown
+                } else if (phaseName === 'atmospheric') {
+                    this.phaseDurations.atmospheric = 18 + Math.random() * 12; // 18-30s atmospheric
+                } else if (phaseName === 'groove') {
+                    this.phaseDurations.groove = 25 + Math.random() * 15; // 25-40s groove
                 }
                 
                 // Update VJ control button visuals to reflect state
@@ -5102,28 +5194,41 @@ class VRClub {
                         if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
                             btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
                             btn.control === 'ledWallActive' || btn.control === 'laserSheetActive' ||
-                            btn.control === 'smokeActive') {
+                            btn.control === 'smokeActive' || btn.control === 'blindersActive') {
                             btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                         }
                     });
                 }
             }
             
-            // ENERGY-BASED DYNAMIC ADJUSTMENTS (within each phase)
-            // Spotlights intensity varies with energy
-            if (this.spotlights && this.lightsActive) {
+            // === MICRO-DYNAMICS: Real-time variations within phases ===
+            // A pro VJ never leaves things static - constant subtle adjustments
+            
+            // Speed variations based on energy (things speed up as energy rises)
+            const energySpeedBoost = 0.8 + this.energyLevel * 0.4; // 0.8x to 1.2x
+            
+            // Apply micro-pulse to active effects
+            if (this.lightsActive && this.spotlights) {
                 this.spotlights.forEach(spot => {
                     if (spot.light) {
-                        spot.light.intensity = 12 * (0.6 + this.energyLevel * 0.4); // 7.2 to 12
+                        // Intensity breathes with energy + micro-pulse
+                        const baseIntensity = 10 + this.energyLevel * 10; // 10-20
+                        spot.light.intensity = baseIntensity * (1 + microPulse + beatPulse);
                     }
                 });
             }
             
-            // Laser rotation speed varies with energy
-            if (this.lasers && this.lasersActive) {
+            // Laser movement varies with energy
+            if (this.lasersActive && this.lasers) {
                 this.lasers.forEach(laser => {
-                    laser.rotationSpeed = 0.01 + (this.energyLevel * 0.02); // 0.01 to 0.03
+                    laser.rotationSpeed = (0.01 + this.energyLevel * 0.025) * energySpeedBoost;
                 });
+            }
+            
+            // Mirror ball speed varies romantically during breakdown
+            if (this.mirrorBallActive && this.mirrorBall) {
+                const romancePulse = Math.sin(time * 0.3) * 0.2; // Very slow breathing
+                this.mirrorBallSpeed = 0.4 + romancePulse;
             }
             
         } else {
