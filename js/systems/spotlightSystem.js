@@ -342,11 +342,17 @@ class SpotlightSystem {
      * Update beam visual
      */
     _updateBeam(spotlight, direction, intensity) {
-        const beamLength = 7.3; // Height to floor
+        // Calculate actual beam length to reach floor based on direction angle
+        // beamLength = height / cos(angle) where angle is from vertical
+        const originY = spotlight.basePos.y;
+        const verticalComponent = Math.abs(direction.y);
+        
+        // Prevent division by zero when beam is horizontal
+        const beamLength = verticalComponent > 0.1 ? originY / verticalComponent : 15;
         
         if (!spotlight.head) {
             // Non-parented beam - position manually
-            const midY = spotlight.basePos.y - beamLength / 2;
+            const midY = originY - beamLength / 2;
             spotlight.beam.position.y = midY;
             spotlight.beam.scaling.y = beamLength;
             
@@ -354,8 +360,10 @@ class SpotlightSystem {
             spotlight.beam.lookAt(spotlight.beam.position.add(direction.scale(10)));
             spotlight.beam.rotation.x += Math.PI / 2;
         } else {
-            // Parented beam - just scale
+            // Parented beam - scale to reach floor
             spotlight.beam.scaling.y = beamLength;
+            // Position beam center so it extends from lens to floor
+            spotlight.beam.position.y = -0.28 - (beamLength * 0.5);
         }
         
         // Update beam visibility based on intensity (binary on/off for strobe)
@@ -366,6 +374,10 @@ class SpotlightSystem {
         // Also update floor pool visibility
         spotlight.lightPool.visibility = beamVisible ? 1.0 : 0;
         spotlight.lightPoolGlow.visibility = beamVisible ? 0.8 : 0;
+        
+        // Update beam color to match spotlight color
+        const spotColor = spotlight.color || this.currentSpotColor;
+        spotlight.beamMat.emissiveColor = spotColor.scale(2.0);
     }
 
     /**

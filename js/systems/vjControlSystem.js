@@ -160,10 +160,6 @@ class VJControlSystem {
         }
         
         this.log.info?.('🎛️ Applied VJ preset: ' + presetName);
-    };
-        }
-        
-        this.log.info?.('🎛️ Applied VJ preset: ' + presetName);
     }
 
     /**

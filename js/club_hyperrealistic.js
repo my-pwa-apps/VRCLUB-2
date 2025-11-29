@@ -234,7 +234,7 @@ class VRClub {
             vjControl: null
         };
         // Toggle to use new modular systems vs legacy inline code
-        this.useModularSystems = true; // Modular architecture enabled
+        this.useModularSystems = false; // Disabled - modular spotlights cause too many lights error
         
         this.init();
     }
