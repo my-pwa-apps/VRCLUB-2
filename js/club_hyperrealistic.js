@@ -779,11 +779,12 @@ class VRClub {
         }
 
         // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
-        // Note: We create it without cameras first, then add camera to avoid potential "reuse" warnings
+        // Pass cameras array in constructor to avoid "reuse" warnings from addCamera()
         const pipeline = new BABYLON.DefaultRenderingPipeline(
             "defaultPipeline",
             true, // HDR enabled for better color range
-            this.scene
+            this.scene,
+            this.camera ? [this.camera] : [] // Pass camera array directly
         );
         
         // FXAA anti-aliasing for smooth edges (essential for immersion)
@@ -820,23 +821,16 @@ class VRClub {
         // Store pipeline for VR/desktop switching
         this.renderPipeline = pipeline;
 
-        // Add camera explicitly AFTER configuration to avoid reuse warnings
-        if (this.camera) {
-            pipeline.addCamera(this.camera);
-        }
-
         // SSAO 2 Pipeline (Screen Space Ambient Occlusion) - Adds realistic contact shadows
         // ONLY for desktop mode (too expensive for standalone VR)
         // Adds depth to corners and contact points for hyperrealism
-        this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, [this.camera]);
+        // Note: Pass camera in constructor - don't call attachCamerasToRenderPipeline again (causes reuse warnings)
+        this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, this.camera ? [this.camera] : []);
         this.ssaoPipeline.radius = 3.5;
         this.ssaoPipeline.totalStrength = 1.2;
         this.ssaoPipeline.expensiveBlur = true;
         this.ssaoPipeline.samples = 16;
         this.ssaoPipeline.maxZ = 250;
-        
-        // Attach to pipeline but disable by default (enabled in applyDesktopSettings)
-        this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", this.camera);
         
         log.info('✨ Enhanced post-processing pipeline initialized (hyperrealistic mode)');
     }
@@ -5930,6 +5924,22 @@ class VRClub {
         // Update truss-mounted light fixtures so they EXACTLY match their beams
         // Rule: fixture ON + colored IFF its own beam is visible; otherwise dark
         if (this.spotlights && this.spotlights.length > 0) {
+            // DEBUG: Log once every 2 seconds to verify this code is running
+            if (!this._lastFixtureDebug || Date.now() - this._lastFixtureDebug > 2000) {
+                this._lastFixtureDebug = Date.now();
+                const lens0 = this.scene.getMeshByName("lens0");
+                console.log('🔧 Fixture update running:', {
+                    currentColor: `RGB(${this.currentSpotColor.r.toFixed(2)}, ${this.currentSpotColor.g.toFixed(2)}, ${this.currentSpotColor.b.toFixed(2)})`,
+                    lens0Found: !!lens0,
+                    lens0Material: lens0?.material?.name,
+                    lens0EmissiveExists: !!(lens0?.material?.emissiveColor),
+                    lens0Emissive: lens0?.material?.emissiveColor ? 
+                        `RGB(${lens0.material.emissiveColor.r.toFixed(2)}, ${lens0.material.emissiveColor.g.toFixed(2)}, ${lens0.material.emissiveColor.b.toFixed(2)})` : 'N/A',
+                    lightsActive: this.lightsActive,
+                    spotlightsCount: this.spotlights.length
+                });
+            }
+            
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
                 if (!spot) continue;
@@ -5938,10 +5948,9 @@ class VRClub {
                 const beamVisibleFlag = !!(spot.beam && spot.beam.visibility > 0.0);
                 const fixtureVisible = this.lightsActive && beamVisibleFlag;
 
-                // Authoritative beam color (fall back to currentSpotColor if missing)
-                const beamColor = (spot.beamMat && spot.beamMat.emissiveColor)
-                    ? spot.beamMat.emissiveColor
-                    : this.currentSpotColor;
+                // CRITICAL FIX: Use the GLOBAL currentSpotColor directly (normalized, not scaled)
+                // The beamMat.emissiveColor is scaled by baseIntensity which distorts the color
+                const beamColor = this.currentSpotColor;
 
                 // Lookup meshes by name (guaranteed unique per fixture)
                 const lens = this.scene.getMeshByName("lens" + i);
