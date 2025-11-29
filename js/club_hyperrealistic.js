@@ -5930,18 +5930,20 @@ class VRClub {
                 // If lightsActive is true, use beamVisible for strobe sync
                 const fixtureVisible = this.lightsActive && (spot.beamVisible !== false);
                 
-                // Get materials DIRECTLY from trussLights (the actual materials on the meshes)
+                // Get fixture data from trussLights
                 const trussLight = this.trussLights[i];
                 if (!trussLight) return;
                 
-                const lensMat = trussLight.lensMat;
-                const sourceMat = trussLight.sourceMat;
+                // CRITICAL FIX: Get materials DIRECTLY from the meshes themselves
+                // This ensures we update the ACTUAL material being rendered, not a stale reference
+                const lensMat = trussLight.lens ? trussLight.lens.material : null;
+                const sourceMat = trussLight.lightSource ? trussLight.lightSource.material : null;
                 
                 // Movement glow boost (brighter when head is moving fast)
                 const movementBoost = spot.movementSpeed ? Math.min(2.0, spot.movementSpeed * 10) : 0;
                 
                 // Update lens material (the bright front of the moving head)
-                if (lensMat) {
+                if (lensMat && lensMat.emissiveColor) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
                         // DIRECTLY set r, g, b components to ensure exact color match
@@ -5957,7 +5959,7 @@ class VRClub {
                 }
                 
                 // Update light source material (the bright inner sphere)
-                if (sourceMat) {
+                if (sourceMat && sourceMat.emissiveColor) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
                         // DIRECTLY set r, g, b components to ensure exact color match
