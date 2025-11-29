@@ -553,6 +553,9 @@ class MirrorBallSystem {
                 // Update beam
                 if (spot.beam) {
                     spot.beam.setEnabled(true);
+                    // CRITICAL: Position beam at the mirror ball
+                    spot.beam.position.copyFrom(ballPos);
+                    // Point beam at spot position
                     spot.beam.lookAt(spot.visual.position);
                     const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
                     spot.beam.scaling.y = beamDist;

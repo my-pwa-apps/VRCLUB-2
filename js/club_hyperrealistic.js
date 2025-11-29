@@ -4542,10 +4542,12 @@ class VRClub {
                         spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
                         spot.material.alpha = 0.85; // Slightly transparent for softer look
 
-                        // UPDATE VOLUMETRIC BEAM
+                        // UPDATE VOLUMETRIC BEAM - Position at ball, point at spot
                         if (spot.beam) {
                             spot.beam.setEnabled(true);
-                            // Point beam at spot
+                            // CRITICAL: Set beam position at the mirror ball
+                            spot.beam.position.copyFrom(ballPos);
+                            // Point beam at spot position
                             spot.beam.lookAt(spot.visual.position);
                             // Scale length to reach spot
                             const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
@@ -4991,43 +4993,38 @@ class VRClub {
                     // Apply color to hit spot (already handled above with visibility check)
                 });
                 
-                // Update lights and emitter color - PERFORMANCE: Only update when color changes
-                if (laser.lastColorIndex !== this.currentColorIndex) {
-                    laser.lastColorIndex = this.currentColorIndex;
-                    
-                    // Cache emissive colors to avoid creating new Color3 objects
-                    if (!this.laserEmissiveColors) {
-                        this.laserEmissiveColors = {
-                            red: new BABYLON.Color3(0.2, 0, 0),
-                            green: new BABYLON.Color3(0, 0.2, 0),
-                            blue: new BABYLON.Color3(0, 0, 0.2),
-                            redBright: this.cachedColors.red.scale(3.0),
-                            greenBright: this.cachedColors.green.scale(3.0),
-                            blueBright: this.cachedColors.blue.scale(3.0)
-                        };
-                    }
-                    
-                    laser.lights.forEach((light) => {
-                        if (this.currentColorIndex === 0) {
-                            light.diffuse = this.cachedColors.red;
-                            laser.housingMat.emissiveColor = this.laserEmissiveColors.red;
-                            if (laser.emitterMat) laser.emitterMat.emissiveColor = this.laserEmissiveColors.redBright;
-                        } else if (this.currentColorIndex === 1) {
-                            light.diffuse = this.cachedColors.green;
-                            laser.housingMat.emissiveColor = this.laserEmissiveColors.green;
-                            if (laser.emitterMat) laser.emitterMat.emissiveColor = this.laserEmissiveColors.greenBright;
-                        } else {
-                            light.diffuse = this.cachedColors.blue;
-                            laser.housingMat.emissiveColor = this.laserEmissiveColors.blue;
-                            if (laser.emitterMat) laser.emitterMat.emissiveColor = this.laserEmissiveColors.blueBright;
-                        }
-                    });
+                // Update lights and emitter color - Now updates every frame for sync with beams
+                // Get current color based on color index
+                let currentLaserColor, currentEmissiveColor, currentBrightColor;
+                if (this.currentColorIndex === 0) {
+                    currentLaserColor = this.cachedColors.red;
+                    currentEmissiveColor = new BABYLON.Color3(0.2, 0, 0);
+                    currentBrightColor = this.cachedColors.red.scale(3.0);
+                } else if (this.currentColorIndex === 1) {
+                    currentLaserColor = this.cachedColors.green;
+                    currentEmissiveColor = new BABYLON.Color3(0, 0.2, 0);
+                    currentBrightColor = this.cachedColors.green.scale(3.0);
+                } else {
+                    currentLaserColor = this.cachedColors.blue;
+                    currentEmissiveColor = new BABYLON.Color3(0, 0, 0.2);
+                    currentBrightColor = this.cachedColors.blue.scale(3.0);
                 }
                 
-                // Update light intensity separately (may change even when color doesn't)
+                // Update light diffuse color
                 laser.lights.forEach((light) => {
+                    light.diffuse = currentLaserColor;
                     light.intensity = this.lasersActive ? 5 : 0;
                 });
+                
+                // Update housing glow with current color
+                if (laser.housingMat) {
+                    laser.housingMat.emissiveColor = this.lasersActive ? currentEmissiveColor : this.cachedColors.black;
+                }
+                
+                // Update emitter to match beam color - this is the visible light source
+                if (laser.emitterMat) {
+                    laser.emitterMat.emissiveColor = this.lasersActive ? currentBrightColor : this.cachedColors.black;
+                }
             });
         } else if (this.lasers) {
             // Turn off lasers when not active
@@ -5041,6 +5038,13 @@ class VRClub {
                     if (beam.beamGlow) beam.beamGlow.visibility = 0;
                     if (beam.hitSpot) beam.hitSpot.visibility = 0;
                 });
+                // Also turn off emitter when lasers are off
+                if (laser.emitterMat) {
+                    laser.emitterMat.emissiveColor = this.cachedColors.black;
+                }
+                if (laser.housingMat) {
+                    laser.housingMat.emissiveColor = this.cachedColors.black;
+                }
             });
         }
         
@@ -5543,60 +5547,49 @@ class VRClub {
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
-            // Check if we're in flashing pattern using same logic as beams
+            // Use same flash timing as beams for perfect sync
             const sweepPhase = globalPhase * audioSpeedMultiplier;
-            const patternCycle = (sweepPhase / 10) % 7;
-            const currentPattern = Math.floor(patternCycle);
-            const nextPattern = (currentPattern + 1) % 7;
-            const isFlashing = (currentPattern === 6 || nextPattern === 6);
+            const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
+            const isStrobeEnabled = this.spotStrobeActive && isStrobeMode;
             const flashPhase = sweepPhase * 2.5;
             const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
             
-            // PERFORMANCE: Cache spotlight emissive colors (only recalculate when color changes)
-            if (!this.spotlightCachedColors || this.spotlightCachedColorSource !== this.currentSpotColor) {
-                this.spotlightCachedColors = {
-                    lens5: this.currentSpotColor.scale(5.0),
-                    lens4: this.currentSpotColor.scale(4.0),
-                    source8: this.currentSpotColor.scale(8.0),
-                    source6: this.currentSpotColor.scale(6.4)
-                };
-                this.spotlightCachedColorSource = this.currentSpotColor;
-            }
-            
             this.spotlights.forEach((spot, i) => {
-                if (spot.fixture) {
-                    // Find corresponding lens from trussLights if available
-                    const trussLight = this.trussLights && this.trussLights[i];
-                    if (trussLight && trussLight.lensMat) {
-                        const fixtureVisible = this.lightsActive && (!isFlashing || flashOn);
-                        
-                        if (fixtureVisible) {
-                            // EXTREMELY BRIGHT lens when active - the actual light source
-                            // PERFORMANCE: Use pre-cached colors, simple pulse via direct interpolation
-                            const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2; // 0.6-1.0
-                            
-                            // Interpolate between cached 4.0 and 5.0 scaled colors based on pulse
-                            if (pulse > 0.9) {
-                                trussLight.lensMat.emissiveColor = this.spotlightCachedColors.lens5;
-                            } else {
-                                trussLight.lensMat.emissiveColor = this.spotlightCachedColors.lens4;
-                            }
-                            
-                            // Update the bright inner light source sphere
-                            if (trussLight.sourceMat) {
-                                if (pulse > 0.9) {
-                                    trussLight.sourceMat.emissiveColor = this.spotlightCachedColors.source8;
-                                } else {
-                                    trussLight.sourceMat.emissiveColor = this.spotlightCachedColors.source6;
-                                }
-                            }
-                        } else {
-                            // Completely dark when off or flashing off - use cached color
-                            trussLight.lensMat.emissiveColor = this.cachedColors.black;
-                            if (trussLight.sourceMat) {
-                                trussLight.sourceMat.emissiveColor = this.cachedColors.black;
-                            }
-                        }
+                // CRITICAL: Use per-spotlight color to match beam color
+                const spotColor = spot.color || this.currentSpotColor;
+                
+                // Fixture visibility synced with beam visibility
+                let fixtureVisible = this.lightsActive;
+                if (isStrobeEnabled) {
+                    fixtureVisible = fixtureVisible && flashOn;
+                }
+                
+                // Update lens material (the bright front of the moving head)
+                if (spot.lensMat) {
+                    if (fixtureVisible) {
+                        const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
+                        spot.lensMat.emissiveColor = spotColor.scale(4.0 + pulse);
+                    } else {
+                        spot.lensMat.emissiveColor = this.cachedColors.black;
+                    }
+                }
+                
+                // Update light source material (the bright inner sphere)
+                if (spot.sourceMat) {
+                    if (fixtureVisible) {
+                        const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
+                        spot.sourceMat.emissiveColor = spotColor.scale(6.0 + pulse * 2);
+                    } else {
+                        spot.sourceMat.emissiveColor = this.cachedColors.black;
+                    }
+                }
+                
+                // Update flare material
+                if (spot.flareMat) {
+                    if (fixtureVisible) {
+                        spot.flareMat.emissiveColor = spotColor.scale(2.0);
+                    } else {
+                        spot.flareMat.emissiveColor = this.cachedColors.black;
                     }
                 }
             });

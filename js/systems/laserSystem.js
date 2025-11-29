@@ -453,8 +453,11 @@ class LaserSystem {
             laser.rotation += laser.rotationSpeed * speedMultiplier;
             laser.tiltPhase += 0.015 * speedMultiplier;
             
-            // Update emitter color
+            // Update emitter and housing color to match beam
             laser.emitterMat.emissiveColor = currentColor;
+            if (laser.housingMat) {
+                laser.housingMat.emissiveColor = currentColor.scale(0.5);
+            }
             
             // Get origin position
             let originPos;
@@ -530,6 +533,8 @@ class LaserSystem {
      * Disable all laser visuals
      */
     _disableLasers() {
+        const black = new BABYLON.Color3(0, 0, 0);
+        
         this.lasers.forEach(laser => {
             laser.beams.forEach(beam => {
                 beam.mesh.setEnabled(false);
@@ -537,6 +542,14 @@ class LaserSystem {
                 if (beam.hitSpot) beam.hitSpot.setEnabled(false);
             });
             laser.lights.forEach(light => light.setEnabled(false));
+            
+            // Turn off emitter when lasers are disabled
+            if (laser.emitterMat) {
+                laser.emitterMat.emissiveColor = black;
+            }
+            if (laser.housingMat) {
+                laser.housingMat.emissiveColor = black;
+            }
         });
     }
 

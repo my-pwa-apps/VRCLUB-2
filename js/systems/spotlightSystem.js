@@ -388,18 +388,35 @@ class SpotlightSystem {
     }
 
     /**
-     * Update fixture glow (lens, source, flare)
+     * Update fixture glow (lens, source, flare) - Synced with beam intensity and color
      */
     _updateFixtureGlow(spotlight, intensity) {
+        // Use per-spotlight color if available, otherwise global color
+        const spotColor = spotlight.color || this.currentSpotColor;
+        
         if (spotlight.lensMat) {
-            spotlight.lensMat.emissiveColor = this.currentSpotColor.scale(3.0 * intensity);
+            if (intensity > 0.5) {
+                spotlight.lensMat.emissiveColor = spotColor.scale(3.0 + intensity);
+            } else {
+                // Turn off when strobe is off
+                spotlight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            }
         }
         if (spotlight.sourceMat) {
-            spotlight.sourceMat.emissiveColor = this.currentSpotColor.scale(5.0 * intensity);
+            if (intensity > 0.5) {
+                spotlight.sourceMat.emissiveColor = spotColor.scale(5.0 + intensity * 2);
+            } else {
+                spotlight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            }
         }
         if (spotlight.flareMat) {
-            spotlight.flareMat.emissiveColor = this.currentSpotColor.scale(2.0 * intensity);
-            spotlight.flareMat.alpha = 0.3 * intensity;
+            if (intensity > 0.5) {
+                spotlight.flareMat.emissiveColor = spotColor.scale(2.0);
+                spotlight.flareMat.alpha = 0.3 * intensity;
+            } else {
+                spotlight.flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                spotlight.flareMat.alpha = 0;
+            }
         }
     }
 
