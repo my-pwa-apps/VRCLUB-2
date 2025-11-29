@@ -5924,6 +5924,18 @@ class VRClub {
         // Update truss-mounted light fixtures so they EXACTLY match their beams
         // Rule: fixture stays lit with current color when lightsActive=true (beam strobe doesn't affect fixture)
         if (this.spotlights && this.spotlights.length > 0) {
+            // DEBUG: Log once every 2 seconds
+            if (!this._lastFixtureDebug || Date.now() - this._lastFixtureDebug > 2000) {
+                this._lastFixtureDebug = Date.now();
+                console.log('🔧 Fixture loop - spotlights count:', this.spotlights.length,
+                    'lightsActive:', this.lightsActive,
+                    'currentSpotColor:', `RGB(${this.currentSpotColor.r.toFixed(2)}, ${this.currentSpotColor.g.toFixed(2)}, ${this.currentSpotColor.b.toFixed(2)})`);
+                // Check each lens
+                for (let j = 0; j < 6; j++) {
+                    const testLens = this.scene.getMeshByName("lens" + j);
+                    console.log(`  lens${j}:`, testLens ? `found, emissive=${testLens.material?.emissiveColor?.r?.toFixed(2)},${testLens.material?.emissiveColor?.g?.toFixed(2)},${testLens.material?.emissiveColor?.b?.toFixed(2)}` : 'NOT FOUND');
+                }
+            }
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
                 if (!spot) continue;
