@@ -5901,6 +5901,21 @@ class VRClub {
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
+            // ONE-TIME DEBUG: Check mesh lookup
+            if (!this._fixtureDebugDone) {
+                this._fixtureDebugDone = true;
+                console.log('🔍 FIXTURE MESH DEBUG:');
+                for (let j = 0; j < 6; j++) {
+                    const testLens = this.scene.getMeshByName("lens" + j);
+                    const testSource = this.scene.getMeshByName("lightSource" + j);
+                    console.log(`  lens${j}:`, testLens ? 'FOUND' : 'NOT FOUND', 
+                        testLens && testLens.material ? `mat=${testLens.material.name}` : '');
+                    console.log(`  lightSource${j}:`, testSource ? 'FOUND' : 'NOT FOUND',
+                        testSource && testSource.material ? `mat=${testSource.material.name}` : '');
+                }
+                console.log('  currentSpotColor:', this.currentSpotColor);
+            }
+            
             // Update ALL 6 fixtures by finding meshes directly by name
             for (let i = 0; i < 6; i++) {
                 const spot = this.spotlights[i];
