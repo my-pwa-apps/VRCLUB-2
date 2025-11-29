@@ -87,6 +87,10 @@ class VRClub {
             }
         };
         
+        // CRITICAL: Track VR mode to disable frame-skip optimizations
+        // Frame-skipping causes different states per eye = epileptic effect
+        this.isInVRMode = false;
+        
         // Detect device capabilities for optimal light count
         this.maxLights = this.detectMaxLights();
         log.info(`🎮 Device detected - Max lights per material: ${this.maxLights}`);
@@ -259,13 +263,28 @@ class VRClub {
     applyVRSettings(xrCamera) {
         const vr = this.vrSettings.vr;
         
+        // CRITICAL: Track VR mode to disable frame-skip optimizations
+        // Frame-skipping causes different states per eye = epileptic effect
+        this.isInVRMode = true;
+        
         // Apply post-processing to VR camera
         if (this.renderPipeline) {
             // Fix: Remove desktop camera first to avoid "reuse" error
             if (this.camera) {
                 this.renderPipeline.removeCamera(this.camera);
             }
+            
+            // Add XR camera to the rendering pipeline for post-processing
             this.renderPipeline.addCamera(xrCamera);
+            
+            // CRITICAL: Also add XR camera's rig cameras for stereoscopic rendering
+            // This ensures post-processing (including FXAA) applies to both eyes
+            if (xrCamera.rigCameras && xrCamera.rigCameras.length > 0) {
+                xrCamera.rigCameras.forEach(rigCam => {
+                    this.renderPipeline.addCamera(rigCam);
+                });
+                log.info('📹 Added XR rig cameras to render pipeline for stereoscopic AA');
+            }
             
             this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
             this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
@@ -597,7 +616,17 @@ class VRClub {
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
             floorMeshes: [this.floorMesh],
             optionalFeatures: true,
-            disableTeleportation: true // Disable default teleportation to allow smooth movement
+            disableTeleportation: true, // Disable default teleportation to allow smooth movement
+            // CRITICAL: Configure XR layer with anti-aliasing enabled
+            outputCanvasOptions: {
+                canvasOptions: {
+                    antialias: true, // Enable anti-aliasing in XR layer
+                    depth: true,
+                    stencil: true,
+                    alpha: true,
+                    framebufferScaleFactor: 1.0 // Use native resolution (can increase for supersampling)
+                }
+            }
         }).catch(err => {
             // VR not available - continue with desktop mode
             return null;
@@ -617,63 +646,75 @@ class VRClub {
         this.vrHelper = vrHelper;
         
         // Enable VR controller locomotion (thumbstick movement)
+        // CRITICAL: Must wait for XR session to be active before enabling movement
         if (vrHelper && vrHelper.baseExperience) {
-            try {
-                // Enable movement controller feature for smooth locomotion with thumbsticks
-                // Left thumbstick = move, Right thumbstick = turn (Babylon.js default)
-                this.movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
-                    BABYLON.WebXRFeatureName.MOVEMENT,
-                    'latest',
-                    {
-                        xrInput: vrHelper.input,
-                        // Smooth locomotion settings - left stick moves, right stick rotates
-                        movementEnabled: true,
-                        movementSpeed: 1.0, // Movement speed - increased for better responsiveness
-                        movementThreshold: 0.2, // Lower threshold to detect thumbstick input earlier
-                        rotationEnabled: true,
-                        rotationSpeed: 1.0, // Turning speed with right stick
-                        rotationThreshold: 0.2, // Lower threshold for rotation detection
-                        // Move in direction you're looking (head direction)
-                        movementOrientationFollowsViewerPose: true,
-                        movementOrientationFollowsController: false // Don't follow controller direction
-                    }
-                );
-                
-                // SPRINT FEATURE: Press thumbstick or Grip button to run
-                vrHelper.input.onControllerAddedObservable.add((controller) => {
-                    controller.onMotionControllerInitObservable.add((motionController) => {
-                        // 1. Thumbstick Press (Click)
-                        const thumbstick = motionController.getComponent("xr-standard-thumbstick");
-                        if (thumbstick) {
-                            thumbstick.onButtonStateChangedObservable.add((component) => {
-                                if (component.pressed) {
-                                    this.movementFeature.movementSpeed = 1.5; // Sprint (3x speed)
-                                    log.info('🏃 VR Sprint activated (Thumbstick)');
-                                } else {
-                                    this.movementFeature.movementSpeed = 0.5; // Walk
-                                }
-                            });
-                        }
+            // Enable movement feature AFTER entering XR mode (when controllers are available)
+            vrHelper.baseExperience.onStateChangedObservable.add((state) => {
+                if (state === BABYLON.WebXRState.IN_XR && !this.movementFeature) {
+                    try {
+                        // Enable movement controller feature for smooth locomotion with thumbsticks
+                        // Left thumbstick = move, Right thumbstick = turn (Babylon.js default)
+                        this.movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
+                            BABYLON.WebXRFeatureName.MOVEMENT,
+                            'latest',
+                            {
+                                xrInput: vrHelper.input,
+                                // Smooth locomotion settings - left stick moves, right stick rotates
+                                movementEnabled: true,
+                                movementSpeed: 3.0, // Increased from 1.0 for responsive movement
+                                movementThreshold: 0.15, // Lower threshold to detect thumbstick input earlier
+                                rotationEnabled: true,
+                                rotationSpeed: 1.0, // Turning speed with right stick
+                                rotationThreshold: 0.15, // Lower threshold for rotation detection
+                                // Move in direction you're looking (head direction)
+                                movementOrientationFollowsViewerPose: true,
+                                movementOrientationFollowsController: false // Don't follow controller direction
+                            }
+                        );
+                        log.info('🎮 VR controller locomotion enabled');
                         
-                        // 2. Squeeze/Grip Button (Alternative Sprint)
-                        const squeeze = motionController.getComponent("xr-standard-squeeze");
-                        if (squeeze) {
-                            squeeze.onButtonStateChangedObservable.add((component) => {
-                                if (component.pressed) {
-                                    this.movementFeature.movementSpeed = 1.5; // Sprint
-                                    log.info('🏃 VR Sprint activated (Grip)');
-                                } else {
-                                    this.movementFeature.movementSpeed = 0.5; // Walk
+                        // SPRINT FEATURE: Press thumbstick or Grip button to run
+                        vrHelper.input.onControllerAddedObservable.add((controller) => {
+                            controller.onMotionControllerInitObservable.add((motionController) => {
+                                // 1. Thumbstick Press (Click)
+                                const thumbstick = motionController.getComponent("xr-standard-thumbstick");
+                                if (thumbstick) {
+                                    thumbstick.onButtonStateChangedObservable.add((component) => {
+                                        if (component.pressed) {
+                                            if (this.movementFeature) {
+                                                this.movementFeature.movementSpeed = 6.0; // Sprint (2x normal)
+                                                log.info('🏃 VR Sprint activated');
+                                            }
+                                        } else {
+                                            if (this.movementFeature) {
+                                                this.movementFeature.movementSpeed = 3.0; // Normal walk
+                                            }
+                                        }
+                                    });
+                                }
+                                
+                                // 2. Squeeze/Grip Button (Alternative Sprint)
+                                const squeeze = motionController.getComponent("xr-standard-squeeze");
+                                if (squeeze) {
+                                    squeeze.onButtonStateChangedObservable.add((component) => {
+                                        if (component.pressed) {
+                                            if (this.movementFeature) {
+                                                this.movementFeature.movementSpeed = 6.0; // Sprint
+                                            }
+                                        } else {
+                                            if (this.movementFeature) {
+                                                this.movementFeature.movementSpeed = 3.0; // Normal
+                                            }
+                                        }
+                                    });
                                 }
                             });
-                        }
-                    });
-                });
-                
-                log.info('🎮 VR controller locomotion enabled (Press Thumbstick or Grip to SPRINT)');
-            } catch (e) {
-                log.warn('Could not enable VR movement feature:', e);
-            }
+                        });
+                    } catch (e) {
+                        log.warn('Could not enable VR movement feature:', e);
+                    }
+                }
+            });
         }
         
         // Set VR starting position at dance floor center (below mirror ball)
@@ -701,6 +742,8 @@ class VRClub {
                         log.info('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                    // CRITICAL: Re-enable frame-skip optimizations on desktop
+                    this.isInVRMode = false;
                     // Restore desktop settings
                     this.applyDesktopSettings();
                     log.info('🖥️ Desktop mode restored');
@@ -4298,7 +4341,7 @@ class VRClub {
         // These are the visible light rays emanating FROM the ball in all directions
         // Real disco balls reflect light to ceiling, walls, floor - creating a sphere of rays
         this.mirrorBallOutgoingRays = [];
-        const numRays = 80; // Number of visible rays shooting out from the ball
+        const numRays = 40; // Reduced from 80 for VR performance
         
         for (let i = 0; i < numRays; i++) {
             // Distribute rays evenly using golden angle spiral on a sphere
@@ -4368,7 +4411,7 @@ class VRClub {
         // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
         // These are purely emissive meshes that create the illusion of reflections
         this.mirrorReflectionSpots = [];
-        const numSpots = 300; // HYPERREALISTIC: More spots for all-around coverage
+        const numSpots = 100; // Reduced from 300 for VR performance
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         // Weight distribution to emphasize walls and ceiling (more visible in VR)
@@ -4721,10 +4764,28 @@ class VRClub {
             }
             
             // === ANIMATE OUTGOING RAYS FROM MIRROR BALL ===
-            // These rays rotate WITH the ball, creating the classic disco ball light spray effect
+            // These rays rotate WITH the ball and raycast to surfaces for realistic termination
             if (this.mirrorBallOutgoingRays && this.mirrorBallOutgoingRays.length > 0) {
                 const ballPos = this.mirrorBall.position;
                 const speedMultiplier = this.mirrorBallSpeed || 1.0;
+                
+                // Reuse ray object for performance
+                if (!this.mirrorOutgoingRay) {
+                    this.mirrorOutgoingRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 40);
+                    this.mirrorOutgoingRayPredicate = (mesh) => {
+                        return mesh.isPickable && 
+                               !mesh.name.includes('mirror') && 
+                               !mesh.name.includes('Ray') &&
+                               !mesh.name.includes('spot') &&
+                               !mesh.name.includes('laser');
+                    };
+                }
+                
+                // Only update ray lengths every 6th frame on desktop (expensive raycasts)
+                // In VR update every 2nd frame for better sync
+                const shouldUpdateRayLengths = this.isInVRMode ? 
+                    (this.frameCounter % 2 === 0) : 
+                    (this.frameCounter % 6 === 0);
                 
                 this.mirrorBallOutgoingRays.forEach((ray, i) => {
                     ray.mesh.setEnabled(true);
@@ -4739,8 +4800,32 @@ class VRClub {
                     const dirZ = sinPhi * Math.sin(rotatedTheta);
                     const dir = new BABYLON.Vector3(dirX, dirY, dirZ);
                     
+                    // Raycast to find actual surface hit (staggered for performance)
+                    let actualLength = ray.length; // Default to stored length
+                    if (shouldUpdateRayLengths && (i % 8 === this.frameCounter % 8)) {
+                        // Raycast from ball surface outward
+                        const rayStart = ballPos.add(dir.scale(0.6)); // Start at ball surface
+                        this.mirrorOutgoingRay.origin.copyFrom(rayStart);
+                        this.mirrorOutgoingRay.direction.copyFrom(dir);
+                        
+                        const hit = this.scene.pickWithRay(this.mirrorOutgoingRay, this.mirrorOutgoingRayPredicate);
+                        if (hit && hit.hit && hit.pickedPoint) {
+                            actualLength = hit.distance;
+                            ray.currentLength = actualLength; // Cache for smooth interpolation
+                        }
+                    }
+                    
+                    // Use cached length with smooth interpolation
+                    const targetLength = ray.currentLength || ray.length;
+                    ray.displayLength = ray.displayLength || ray.length;
+                    ray.displayLength += (targetLength - ray.displayLength) * 0.1; // Smooth
+                    
+                    // Update mesh scale to match actual ray length
+                    const scaleRatio = ray.displayLength / ray.length;
+                    ray.mesh.scaling.y = scaleRatio;
+                    
                     // Position ray starting from ball surface
-                    ray.mesh.position = ballPos.add(dir.scale(ray.length / 2 + 0.6));
+                    ray.mesh.position = ballPos.add(dir.scale(ray.displayLength / 2 + 0.6));
                     
                     // Rotate ray to point along direction
                     const up = new BABYLON.Vector3(0, 1, 0);
@@ -4765,11 +4850,10 @@ class VRClub {
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // FRAME-SKIP STRATEGY: Update all 150 spots simultaneously every 3rd frame
-                // This maintains synchronized movement (no lag between spots) while reducing ray casts
-                // 150 spots ÷ 3 frames = 50 ray casts/frame average (better than 60, all spots sync)
+                // FRAME-SKIP STRATEGY: Update every frame in VR (stereo sync), every 3rd frame on desktop
+                // Frame-skipping in VR causes different states per eye = epileptic effect
                 this.spotUpdateFrameCounter = (this.spotUpdateFrameCounter || 0) + 1;
-                const shouldUpdate = (this.spotUpdateFrameCounter % 3 === 0);
+                const shouldUpdate = this.isInVRMode ? true : (this.spotUpdateFrameCounter % 3 === 0);
                 
                 if (shouldUpdate) {
                     // Update ALL spots synchronously
@@ -5348,9 +5432,9 @@ class VRClub {
                         direction = new BABYLON.Vector3(dirX, dirY, dirZ);
                     }
                     
-                    // PERFORMANCE: Raycast only every 2nd frame per laser (staggered)
-                    // This reduces ray casts by 50% while maintaining smooth visuals
-                    const shouldRaycast = ((this.frameCounter + i) % 2 === 0);
+                    // PERFORMANCE: Raycast every frame in VR (stereo sync), every 2nd frame on desktop
+                    // Frame-skipping in VR causes different states per eye = epileptic effect
+                    const shouldRaycast = this.isInVRMode ? true : ((this.frameCounter + i) % 2 === 0);
                     
                     let hit = beam.lastHit; // Reuse last hit result
                     if (shouldRaycast || !hit) {
@@ -5367,7 +5451,7 @@ class VRClub {
                         beam.lastHit = hit; // Cache for next frame
                     }
                     
-                    let beamLength = 15;
+                    let beamLength = 35; // Default to room length if raycast fails
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
                     }
