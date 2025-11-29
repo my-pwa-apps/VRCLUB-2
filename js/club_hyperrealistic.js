@@ -707,13 +707,25 @@ class VRClub {
                                 rotationEnabled: true,
                                 rotationSpeed: 0.8, // Slightly slower turning for comfort
                                 rotationThreshold: 0.2, // Higher threshold for rotation
-                                // Move in direction you're looking (head direction)
-                                movementOrientationFollowsViewerPose: true,
-                                movementOrientationFollowsController: false, // Don't follow controller direction
-                                // CRITICAL: Gravity simulation - constrains movement to XZ plane (no flying)
-                                gravityEnabled: true // Enable gravity to keep player grounded
+                                // IMPORTANT: Set to FALSE so movement doesn't follow head pitch (looking up/down)
+                                // This prevents flying when looking up and moving forward
+                                movementOrientationFollowsViewerPose: false,
+                                // Instead follow controller orientation (flattened to XZ plane)
+                                movementOrientationFollowsController: true
                             }
                         );
+                        
+                        // GROUND LOCK: Keep player at fixed Y height (no flying)
+                        // Store the initial ground height when entering VR
+                        this.vrGroundHeight = vrHelper.baseExperience.camera.position.y;
+                        
+                        // Lock Y position every frame to prevent vertical movement
+                        this.vrYLockObserver = this.scene.onBeforeRenderObservable.add(() => {
+                            if (this.isInVRMode && vrHelper.baseExperience.camera) {
+                                // Force Y position to ground height (1.7m standing eye level)
+                                vrHelper.baseExperience.camera.position.y = 1.7;
+                            }
+                        });
                         log.info('🎮 VR controller locomotion enabled');
                         
                         // SPRINT FEATURE: Press thumbstick or Grip button to run
@@ -787,6 +799,13 @@ class VRClub {
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     // CRITICAL: Re-enable frame-skip optimizations on desktop
                     this.isInVRMode = false;
+                    
+                    // Remove Y-lock observer when exiting VR
+                    if (this.vrYLockObserver) {
+                        this.scene.onBeforeRenderObservable.remove(this.vrYLockObserver);
+                        this.vrYLockObserver = null;
+                    }
+                    
                     // Restore desktop settings
                     this.applyDesktopSettings();
                     log.info('🖥️ Desktop mode restored');
@@ -1321,6 +1340,10 @@ class VRClub {
             midRope.rotation.x = Math.PI / 2;
             midRope.rotation.y = angle;
             midRope.material = velvetRopeMat;
+            
+            // OPTIMIZATION: Freeze rope meshes (static)
+            rope.freezeWorldMatrix();
+            midRope.freezeWorldMatrix();
         };
         
         // Connect ropes on left queue line
@@ -1333,6 +1356,19 @@ class VRClub {
         
         // Cross rope at entrance
         createVelvetRope(stanchionPositions[6], stanchionPositions[7], "velvetRope_entrance");
+        
+        // OPTIMIZATION: Freeze all stanchion components (static entrance decoration)
+        stanchions.forEach(s => {
+            s.base.freezeWorldMatrix();
+            s.post.freezeWorldMatrix();
+            s.topBall.freezeWorldMatrix();
+            s.hookRing.freezeWorldMatrix();
+        });
+        
+        // Freeze stanchion materials
+        if (stanchionBaseMat.freeze) stanchionBaseMat.freeze();
+        if (stanchionPostMat.freeze) stanchionPostMat.freeze();
+        if (velvetRopeMat.freeze) velvetRopeMat.freeze();
         
         // === STEP LIGHTING (LED strips) ===
         const stepLightMat = this.materialFactory.getPreset('floorEdgeLED');
@@ -1350,9 +1386,10 @@ class VRClub {
             const mat = stepLightMat.clone(`stepLightMat${i}`);
             mat.emissiveColor = new BABYLON.Color3(...light.c);
             strip.material = mat;
+            strip.freezeWorldMatrix(); // Static step lighting
         });
         
-        log.info("✅ Created hyperrealistic entrance with velvet ropes and stanchions");
+        log.info("✅ Created hyperrealistic entrance with velvet ropes and stanchions - frozen for performance");
     }
 
     // === DANCE FLOOR EDGE LIGHTING ===
@@ -1449,6 +1486,7 @@ class VRClub {
                 metallic: 0.5,
                 roughness: 0.5
             });
+            signHousing.freezeWorldMatrix(); // OPTIMIZATION: Static
             
             // Glowing EXIT text (simplified as plane)
             const signFace = BABYLON.MeshBuilder.CreatePlane(`exitSign${i}`, {
@@ -1458,6 +1496,7 @@ class VRClub {
             signFace.position.x += pos.rotY === Math.PI/2 ? 0.05 : 0;
             signFace.rotation.y = pos.rotY;
             signFace.material = exitSignMat;
+            signFace.freezeWorldMatrix(); // OPTIMIZATION: Static
         });
         
         // === FIRE EXTINGUISHERS ===
@@ -1475,6 +1514,7 @@ class VRClub {
             }, this.scene);
             extBody.position = new BABYLON.Vector3(pos.x, 0.8, pos.z);
             extBody.material = fireExtMat;
+            extBody.freezeWorldMatrix(); // OPTIMIZATION: Static
             
             // Valve/handle
             const extHandle = BABYLON.MeshBuilder.CreateBox(`fireExtHandle${i}`, {
@@ -1482,6 +1522,7 @@ class VRClub {
             }, this.scene);
             extHandle.position = new BABYLON.Vector3(pos.x, 1.08, pos.z);
             extHandle.material = this.materialFactory.getPreset('barStool');
+            extHandle.freezeWorldMatrix(); // OPTIMIZATION: Static
             
             // Wall bracket
             const bracket = BABYLON.MeshBuilder.CreateBox(`fireExtBracket${i}`, {
@@ -1489,6 +1530,7 @@ class VRClub {
             }, this.scene);
             bracket.position = new BABYLON.Vector3(pos.x, 0.7, pos.z);
             bracket.material = this.materialFactory.getPreset('barStool');
+            bracket.freezeWorldMatrix(); // OPTIMIZATION: Static
         });
         
         // === SPRINKLER HEADS (ceiling) ===
@@ -1502,6 +1544,7 @@ class VRClub {
                 }, this.scene);
                 sprinkler.position = new BABYLON.Vector3(x, 9.7, z);
                 sprinkler.material = sprinklerMat;
+                sprinkler.freezeWorldMatrix(); // OPTIMIZATION: Static
             }
         }
         
@@ -1520,6 +1563,7 @@ class VRClub {
             }, this.scene);
             detector.position = new BABYLON.Vector3(pos.x, 9.8, pos.z);
             detector.material = smokeMat;
+            detector.freezeWorldMatrix(); // OPTIMIZATION: Static
             
             // LED indicator
             const led = BABYLON.MeshBuilder.CreateSphere(`smokeDetectorLED${i}`, {
@@ -1531,9 +1575,16 @@ class VRClub {
                 disableLighting: true
             });
             led.material = ledMat;
+            led.freezeWorldMatrix(); // OPTIMIZATION: Static
         });
         
-        log.info("✅ Created safety details (exit signs, fire extinguishers, sprinklers, smoke detectors)");
+        // OPTIMIZATION: Freeze all safety equipment materials
+        if (exitSignMat.freeze) exitSignMat.freeze();
+        if (fireExtMat.freeze) fireExtMat.freeze();
+        if (sprinklerMat.freeze) sprinklerMat.freeze();
+        if (smokeMat.freeze) smokeMat.freeze();
+        
+        log.info("✅ Created safety details (exit signs, fire extinguishers, sprinklers, smoke detectors) - frozen for performance");
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
@@ -1673,7 +1724,32 @@ class VRClub {
         usbLED.parent = usbStick;
         usbLED.position.set(0, 0.005, 0.015);
         
-        log.info("✅ Created DJ booth accessories (laptop, headphones, cables)");
+        // OPTIMIZATION: Freeze static DJ booth accessories (never move)
+        standBase.freezeWorldMatrix();
+        standArm.freezeWorldMatrix();
+        laptopBase.freezeWorldMatrix();
+        laptopScreen.freezeWorldMatrix();
+        screenDisplay.freezeWorldMatrix();
+        headphoneBand.freezeWorldMatrix();
+        leftCup.freezeWorldMatrix();
+        rightCup.freezeWorldMatrix();
+        leftPad.freezeWorldMatrix();
+        rightPad.freezeWorldMatrix();
+        cableBundle.freezeWorldMatrix();
+        usbStick.freezeWorldMatrix();
+        usbLED.freezeWorldMatrix();
+        cableDrops.forEach((x, i) => {
+            const drop = this.scene.getMeshByName(`cableDrop${i}`);
+            if (drop) drop.freezeWorldMatrix();
+        });
+        
+        // Freeze materials too
+        [standBase, standArm, laptopBase, laptopScreen, headphoneBand, leftCup, rightCup, 
+         leftPad, rightPad, cableBundle, usbStick].forEach(mesh => {
+            if (mesh.material && mesh.material.freeze) mesh.material.freeze();
+        });
+        
+        log.info("✅ Created DJ booth accessories (laptop, headphones, cables) - frozen for performance");
     }
 
     createCollisionBoundaries() {
@@ -5488,16 +5564,26 @@ class VRClub {
                             // (lasers at y=7.55 pointing diagonally need ~45 units to reach floor at room edges)
                             this.laserRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 50);
                             this.laserRayPredicate = (mesh) => {
-                                return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing') && !mesh.name.includes('Clamp');
+                                // Only hit floor and walls, not other laser components or light fixtures
+                                return mesh.isPickable && 
+                                       !mesh.name.includes('laser') && 
+                                       !mesh.name.includes('Housing') && 
+                                       !mesh.name.includes('Clamp') &&
+                                       !mesh.name.includes('beam') &&
+                                       !mesh.name.includes('hitSpot') &&
+                                       !mesh.name.includes('hitGlow');
                             };
                         }
                         this.laserRay.origin.copyFrom(laser.originPos);
+                        // CRITICAL: Normalize direction and set ray length explicitly
+                        direction.normalize();
                         this.laserRay.direction.copyFrom(direction);
+                        this.laserRay.length = 50; // Ensure length is set for each raycast
                         hit = this.scene.pickWithRay(this.laserRay, this.laserRayPredicate);
                         beam.lastHit = hit; // Cache for next frame
                     }
                     
-                    let beamLength = 35; // Default to room length if raycast fails
+                    let beamLength = 50; // Default to full ray length if raycast fails
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
                     }
@@ -7440,13 +7526,28 @@ class VRClub {
                             });
                         }
                         
-                        // Update reflection spot colors (visual only, no lights)
+                        // Update reflection spot colors IMMEDIATELY (don't wait for animation loop)
+                        // This ensures instant visual sync when VJ changes color
                         if (this.mirrorReflectionSpots) {
                             this.mirrorReflectionSpots.forEach(spot => {
-                                // Color will be applied in animation loop with shimmer effect
-                                // Just store the base material reference
+                                // Immediate color update for spot disc
+                                spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(spot.baseIntensity || 0.7);
+                                // Immediate color update for volumetric beam
+                                if (spot.beamMaterial) {
+                                    spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
+                                }
                             });
                         }
+                        
+                        // Update outgoing rays from mirror ball
+                        if (this.mirrorBallOutgoingRays) {
+                            this.mirrorBallOutgoingRays.forEach(ray => {
+                                ray.material.emissiveColor = this.mirrorBallSpotlightColor;
+                            });
+                        }
+                        
+                        // Invalidate cached colors so they get recalculated
+                        this.mirrorBallCachedColors = null;
                         
                         // Flash button with current color
                         clickedButton.material.emissiveColor = this.mirrorBallSpotlightColor;

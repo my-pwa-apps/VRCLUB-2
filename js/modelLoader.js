@@ -105,6 +105,7 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
+                makeBlack: true, // Apply hyperrealistic black speaker materials
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             },
@@ -115,6 +116,7 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
+                makeBlack: true, // Apply hyperrealistic black speaker materials
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
@@ -223,6 +225,10 @@ class ModelLoader {
                         if (config.hangFromCeiling) {
                             // Hung from ceiling - position is already set, keep rotation for tilt
                             this.log.info(`   🔗 PA speaker hung from ceiling at y=${config.position.y}`);
+                            
+                            // === CREATE HYPERREALISTIC HANGING HARDWARE ===
+                            // Create rigging chains/cables and mounting bracket
+                            this.createSpeakerHangingHardware(config.position, autoScale, modelKey);
                         } else {
                             // Standing on floor - adjust Y position so bottom sits on floor
                             const scaledMinY = boundingInfo.min.y * autoScale;
@@ -750,6 +756,140 @@ class ModelLoader {
         }
         
         return meshes;
+    }
+
+    /**
+     * Create hyperrealistic hanging hardware for ceiling-mounted PA speakers
+     * Includes chains, shackles, mounting bracket, and truss clamp
+     */
+    createSpeakerHangingHardware(speakerPos, speakerScale, modelKey) {
+        const ceilingY = 8.0; // Ceiling/truss height
+        const chainLength = ceilingY - speakerPos.y - 0.5; // Distance from ceiling to top of speaker
+        
+        // Material for all metal hardware (black steel rigging)
+        const rigMat = this.materialFactory ? 
+            this.materialFactory.createPBRMaterial('rigMat_' + modelKey, {
+                baseColor: [0.08, 0.08, 0.08], // Dark steel
+                metallic: 0.9,
+                roughness: 0.35
+            }, true) :
+            new BABYLON.StandardMaterial('rigMat_' + modelKey, this.scene);
+        
+        // === TRUSS MOUNTING BRACKET (at ceiling) ===
+        const bracket = BABYLON.MeshBuilder.CreateBox('speakerBracket_' + modelKey, {
+            width: 0.4,
+            height: 0.08,
+            depth: 0.15
+        }, this.scene);
+        bracket.position = new BABYLON.Vector3(speakerPos.x, ceilingY - 0.04, speakerPos.z);
+        bracket.material = rigMat;
+        
+        // Truss clamp (U-bolt style)
+        const clamp = BABYLON.MeshBuilder.CreateTorus('speakerClamp_' + modelKey, {
+            diameter: 0.12,
+            thickness: 0.015,
+            tessellation: 16,
+            arc: 0.75
+        }, this.scene);
+        clamp.position = new BABYLON.Vector3(speakerPos.x, ceilingY, speakerPos.z);
+        clamp.rotation.x = Math.PI / 2;
+        clamp.material = rigMat;
+        
+        // === CHAIN LINKS (2 parallel chains for stability) ===
+        const chainOffsets = [-0.12, 0.12]; // Two chains, offset from center
+        const linkHeight = 0.06;
+        const linkGap = 0.02;
+        const numLinks = Math.floor(chainLength / (linkHeight + linkGap));
+        
+        chainOffsets.forEach((offsetX, chainIdx) => {
+            for (let i = 0; i < numLinks; i++) {
+                // Alternate link orientation for chain appearance
+                const link = BABYLON.MeshBuilder.CreateTorus('chainLink_' + modelKey + '_' + chainIdx + '_' + i, {
+                    diameter: 0.04,
+                    thickness: 0.008,
+                    tessellation: 8
+                }, this.scene);
+                
+                const linkY = ceilingY - 0.1 - (i * (linkHeight + linkGap));
+                link.position = new BABYLON.Vector3(
+                    speakerPos.x + offsetX,
+                    linkY,
+                    speakerPos.z
+                );
+                
+                // Alternate rotation for interlocking appearance
+                if (i % 2 === 0) {
+                    link.rotation.y = Math.PI / 2;
+                } else {
+                    link.rotation.x = Math.PI / 2;
+                }
+                
+                link.material = rigMat;
+            }
+        });
+        
+        // === SHACKLES (connect chains to speaker) ===
+        chainOffsets.forEach((offsetX, shackleIdx) => {
+            // D-shackle at bottom of each chain
+            const shackle = BABYLON.MeshBuilder.CreateTorus('shackle_' + modelKey + '_' + shackleIdx, {
+                diameter: 0.06,
+                thickness: 0.01,
+                tessellation: 12,
+                arc: 0.7
+            }, this.scene);
+            shackle.position = new BABYLON.Vector3(
+                speakerPos.x + offsetX,
+                speakerPos.y + 1.2, // Just above speaker top
+                speakerPos.z
+            );
+            shackle.rotation.z = Math.PI; // Open side up
+            shackle.material = rigMat;
+            
+            // Shackle pin (bolt)
+            const pin = BABYLON.MeshBuilder.CreateCylinder('shacklePin_' + modelKey + '_' + shackleIdx, {
+                diameter: 0.015,
+                height: 0.08
+            }, this.scene);
+            pin.position = new BABYLON.Vector3(
+                speakerPos.x + offsetX,
+                speakerPos.y + 1.17,
+                speakerPos.z
+            );
+            pin.rotation.z = Math.PI / 2;
+            pin.material = rigMat;
+        });
+        
+        // === FLYING FRAME (top mounting point on speaker) ===
+        // Steel bar across top of speaker where chains attach
+        const flyBar = BABYLON.MeshBuilder.CreateBox('flyBar_' + modelKey, {
+            width: 0.5,
+            height: 0.04,
+            depth: 0.04
+        }, this.scene);
+        flyBar.position = new BABYLON.Vector3(
+            speakerPos.x,
+            speakerPos.y + 1.25,
+            speakerPos.z
+        );
+        flyBar.material = rigMat;
+        
+        // Eye bolts on flying frame (where shackles attach)
+        chainOffsets.forEach((offsetX, eyeIdx) => {
+            const eyeBolt = BABYLON.MeshBuilder.CreateTorus('eyeBolt_' + modelKey + '_' + eyeIdx, {
+                diameter: 0.03,
+                thickness: 0.006,
+                tessellation: 10
+            }, this.scene);
+            eyeBolt.position = new BABYLON.Vector3(
+                speakerPos.x + offsetX,
+                speakerPos.y + 1.25,
+                speakerPos.z
+            );
+            eyeBolt.rotation.x = Math.PI / 2;
+            eyeBolt.material = rigMat;
+        });
+        
+        this.log.info(`   ⛓️ Created hyperrealistic hanging hardware for ${modelKey}`);
     }
 
     async loadAllModels() {
