@@ -5783,7 +5783,7 @@ class VRClub {
         // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR + FLASHING
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
-        if (this.spotlights && this.spotlights.length > 0) {
+        if (this.spotlights && this.spotlights.length > 0 && this.trussLights && this.trussLights.length > 0) {
             this.spotlights.forEach((spot, i) => {
                 // CRITICAL: Use this.currentSpotColor as single source of truth
                 // This ensures fixture always matches the beam color exactly
@@ -5793,11 +5793,12 @@ class VRClub {
                 // This ensures fixture flashes exactly when beam flashes
                 const fixtureVisible = spot.beamVisible !== undefined ? spot.beamVisible : this.lightsActive;
                 
-                // Get materials - fallback to trussLights array if not on spot object
-                const trussLight = this.trussLights && this.trussLights[i] ? this.trussLights[i] : null;
-                const lensMat = spot.lensMat || (trussLight ? trussLight.lensMat : null);
-                const sourceMat = spot.sourceMat || (trussLight ? trussLight.sourceMat : null);
-                const flareMat = spot.flareMat || (trussLight ? trussLight.flareMat : null);
+                // Get materials DIRECTLY from trussLights (the actual materials on the meshes)
+                const trussLight = this.trussLights[i];
+                if (!trussLight) return;
+                
+                const lensMat = trussLight.lensMat;
+                const sourceMat = trussLight.sourceMat;
                 
                 // Movement glow boost (brighter when head is moving fast)
                 const movementBoost = spot.movementSpeed ? Math.min(2.0, spot.movementSpeed * 10) : 0;
@@ -5806,9 +5807,15 @@ class VRClub {
                 if (lensMat) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        lensMat.emissiveColor = spotColor.scale(4.0 + pulse + movementBoost);
+                        // DIRECTLY set r, g, b components to ensure exact color match
+                        const scaleFactor = 4.0 + pulse + movementBoost;
+                        lensMat.emissiveColor.r = spotColor.r * scaleFactor;
+                        lensMat.emissiveColor.g = spotColor.g * scaleFactor;
+                        lensMat.emissiveColor.b = spotColor.b * scaleFactor;
                     } else {
-                        lensMat.emissiveColor = this.cachedColors.black;
+                        lensMat.emissiveColor.r = 0;
+                        lensMat.emissiveColor.g = 0;
+                        lensMat.emissiveColor.b = 0;
                     }
                 }
                 
@@ -5816,18 +5823,15 @@ class VRClub {
                 if (sourceMat) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        sourceMat.emissiveColor = spotColor.scale(6.0 + pulse * 2 + movementBoost);
+                        // DIRECTLY set r, g, b components to ensure exact color match
+                        const scaleFactor = 6.0 + pulse * 2 + movementBoost;
+                        sourceMat.emissiveColor.r = spotColor.r * scaleFactor;
+                        sourceMat.emissiveColor.g = spotColor.g * scaleFactor;
+                        sourceMat.emissiveColor.b = spotColor.b * scaleFactor;
                     } else {
-                        sourceMat.emissiveColor = this.cachedColors.black;
-                    }
-                }
-                
-                // Update flare material
-                if (flareMat) {
-                    if (fixtureVisible) {
-                        flareMat.emissiveColor = spotColor.scale(2.0);
-                    } else {
-                        flareMat.emissiveColor = this.cachedColors.black;
+                        sourceMat.emissiveColor.r = 0;
+                        sourceMat.emissiveColor.g = 0;
+                        sourceMat.emissiveColor.b = 0;
                     }
                 }
             });
