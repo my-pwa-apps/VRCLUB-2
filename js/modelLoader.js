@@ -101,19 +101,21 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(-11, 0, -22), // Moved forward from -25 to -22, wider to -11
-                rotation: new BABYLON.Vector3(0, Math.PI + Math.PI / 9, 0), // Face audience (180°) then tilt 20° inward (toward center)
-                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
+                position: new BABYLON.Vector3(-8, 6.5, -15), // Hung from ceiling (y=6.5), closer to dancefloor
+                rotation: new BABYLON.Vector3(Math.PI / 8, Math.PI + Math.PI / 6, 0), // Tilted down 22.5° (X), facing audience + 30° inward (Y)
+                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
+                hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             },
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(11, 0, -22), // Moved forward from -25 to -22, wider to 11
-                rotation: new BABYLON.Vector3(0, Math.PI - Math.PI / 9, 0), // Face audience (180°) then tilt 20° inward (toward center)
-                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
+                position: new BABYLON.Vector3(8, 6.5, -15), // Hung from ceiling (y=6.5), closer to dancefloor
+                rotation: new BABYLON.Vector3(Math.PI / 8, Math.PI - Math.PI / 6, 0), // Tilted down 22.5° (X), facing audience - 30° inward (Y)
+                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
+                hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
         };
@@ -205,22 +207,27 @@ class ModelLoader {
                 rootMesh.rotation = config.rotation.clone();
                 rootMesh.scaling = config.scale.clone();
                 
-                // Auto-scale PA speakers to desired height (5.5m tall like procedural ones)
+                // Auto-scale PA speakers to desired height
                 if (modelKey.startsWith('pa_speaker')) {
                     // Compute bounding box to get actual model height
                     rootMesh.refreshBoundingInfo(true);
                     const boundingInfo = rootMesh.getHierarchyBoundingVectors(true);
                     const modelHeight = boundingInfo.max.y - boundingInfo.min.y;
-                    const desiredHeight = 5.5; // Match procedural speaker stack height
+                    const desiredHeight = config.hangFromCeiling ? 3.0 : 5.5; // Smaller when hung from ceiling
                     
                     if (modelHeight > 0) {
                         const autoScale = desiredHeight / modelHeight;
                         rootMesh.scaling = new BABYLON.Vector3(autoScale, autoScale, autoScale);
                         this.log.info(`   📏 Auto-scaled PA speaker from ${modelHeight.toFixed(2)}m to ${desiredHeight}m (scale: ${autoScale.toFixed(4)})`);
                         
-                        // Adjust Y position so bottom sits on floor
-                        const scaledMinY = boundingInfo.min.y * autoScale;
-                        rootMesh.position.y = -scaledMinY;
+                        if (config.hangFromCeiling) {
+                            // Hung from ceiling - position is already set, keep rotation for tilt
+                            this.log.info(`   🔗 PA speaker hung from ceiling at y=${config.position.y}`);
+                        } else {
+                            // Standing on floor - adjust Y position so bottom sits on floor
+                            const scaledMinY = boundingInfo.min.y * autoScale;
+                            rootMesh.position.y = -scaledMinY;
+                        }
                     }
                 }
             }
@@ -332,19 +339,21 @@ class ModelLoader {
             
             // Add lights for PA speakers for better visibility
             if ((modelKey === 'pa_speaker_left' || modelKey === 'pa_speaker_right') && rootMesh) {
+                // Position light near the speaker (slightly in front for hung speakers)
+                const lightOffset = config.hangFromCeiling ? -1 : 2; // In front if hung, above if on floor
                 const speakerLight = new BABYLON.PointLight(
                     'speakerLight_' + modelKey,
                     new BABYLON.Vector3(
                         config.position.x,
-                        config.position.y + 2,
-                        config.position.z
+                        config.position.y + (config.hangFromCeiling ? 0 : 2),
+                        config.position.z + (config.hangFromCeiling ? 2 : 0) // In front when hung
                     ),
                     this.scene
                 );
-                speakerLight.intensity = 1.2;
-                speakerLight.range = 6;
+                speakerLight.intensity = 0.8; // Reduced intensity
+                speakerLight.range = 8; // Wider range for hung speakers
                 speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
-                this.log.info(`   💡 Added light for ${config.name}`);
+                this.log.info(`   💡 Added light for ${config.name} (${config.hangFromCeiling ? 'ceiling-hung' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
                 // Also make them BLACK if configured

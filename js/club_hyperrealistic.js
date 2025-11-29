@@ -267,43 +267,25 @@ class VRClub {
         // Frame-skipping causes different states per eye = epileptic effect
         this.isInVRMode = true;
         
-        // Apply post-processing to VR camera
+        // CRITICAL VR PERFORMANCE: Disable ALL post-processing in VR
+        // Post-processing pipelines are extremely expensive in stereoscopic rendering
+        // WebXR layer's native antialias: true handles AA much more efficiently
         if (this.renderPipeline) {
-            // Fix: Remove desktop camera first to avoid "reuse" error
+            // Remove desktop camera from pipeline
             if (this.camera) {
                 this.renderPipeline.removeCamera(this.camera);
             }
             
-            // Add XR camera to the rendering pipeline for post-processing
-            this.renderPipeline.addCamera(xrCamera);
+            // DISABLE all post-processing for VR performance
+            // The XR layer's native antialias handles AA efficiently at the hardware level
+            this.renderPipeline.fxaaEnabled = false; // Disable - use XR layer's native AA
+            this.renderPipeline.bloomEnabled = false; // Disable - too expensive in VR
+            this.renderPipeline.sharpenEnabled = false; // Disable - not needed with native AA
+            this.renderPipeline.imageProcessingEnabled = false; // Disable - saves GPU cycles
+            this.renderPipeline.grainEnabled = false;
+            this.renderPipeline.chromaticAberrationEnabled = false;
             
-            // CRITICAL: Also add XR camera's rig cameras for stereoscopic rendering
-            // This ensures post-processing (including FXAA) applies to both eyes
-            if (xrCamera.rigCameras && xrCamera.rigCameras.length > 0) {
-                xrCamera.rigCameras.forEach(rigCam => {
-                    this.renderPipeline.addCamera(rigCam);
-                });
-                log.info('📹 Added XR rig cameras to render pipeline for stereoscopic AA');
-            }
-            
-            this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
-            this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
-            this.renderPipeline.grainEnabled = vr.grainEnabled;
-            this.renderPipeline.chromaticAberrationEnabled = vr.chromaticAberrationEnabled;
-            this.renderPipeline.fxaaEnabled = vr.fxaaEnabled;  // Enable FXAA anti-aliasing
-            
-            if (this.renderPipeline.imageProcessing) {
-                this.renderPipeline.imageProcessing.exposure = vr.exposure;
-                this.renderPipeline.imageProcessing.contrast = vr.contrast;
-                this.renderPipeline.imageProcessing.toneMappingEnabled = vr.toneMappingEnabled;
-            }
-            
-            // OPTIMIZED: Reduce bloom significantly in VR for performance
-            if (this.renderPipeline.bloomEnabled) {
-                this.renderPipeline.bloomWeight = 0.05; // OPTIMIZED: Much lower than desktop
-                this.renderPipeline.bloomThreshold = 0.9; // Higher threshold = fewer pixels bloomed
-                this.renderPipeline.bloomScale = 0.15; // Smaller bloom spread
-            }
+            log.info('⚡ Disabled post-processing pipeline for VR performance (using native XR AA)');
         }
 
         // OPTIMIZED: Disable SSAO in VR (too expensive)
@@ -314,11 +296,14 @@ class VRClub {
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
         }
         
-        // #5 OPTIMIZED: Use hardware scaling for VR (render at 80% resolution)
-        this.engine.setHardwareScalingLevel(1.25);
+        // #5 OPTIMIZED: Use native resolution for VR (let XR layer handle scaling)
+        this.engine.setHardwareScalingLevel(1.0); // Native resolution - XR handles foveated rendering
         
-        // #4 OPTIMIZED: Reduce glow layer intensity significantly in VR
-        if (this.glowLayer) this.glowLayer.intensity = 0.15; // Much lower than desktop
+        // #4 OPTIMIZED: Disable glow layer entirely in VR for performance
+        if (this.glowLayer) {
+            this.glowLayer.isEnabled = false; // Completely disable glow for VR performance
+            log.info('⚡ Disabled glow layer for VR performance');
+        }
         
         const ambient = this.scene.getLightByName('ambient');
         if (ambient) ambient.intensity = vr.ambientIntensity;
@@ -357,9 +342,13 @@ class VRClub {
                 this.renderPipeline.addCamera(this.camera);
             }
             
+            // Re-enable all post-processing effects for desktop
+            this.renderPipeline.fxaaEnabled = desktop.fxaaEnabled;
+            this.renderPipeline.bloomEnabled = true;
+            this.renderPipeline.sharpenEnabled = true;
+            this.renderPipeline.imageProcessingEnabled = true;
             this.renderPipeline.grainEnabled = desktop.grainEnabled;
             this.renderPipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
-            this.renderPipeline.fxaaEnabled = desktop.fxaaEnabled;  // Restore FXAA anti-aliasing
             
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = desktop.exposure;
@@ -372,6 +361,8 @@ class VRClub {
                 this.renderPipeline.bloomThreshold = desktop.bloomThreshold;
                 this.renderPipeline.bloomScale = desktop.bloomScale;
             }
+            
+            log.info('✨ Re-enabled post-processing pipeline for desktop');
         }
 
         // Enable SSAO in Desktop mode
@@ -382,8 +373,11 @@ class VRClub {
         // Restore hardware scaling to native resolution
         this.engine.setHardwareScalingLevel(1.0);
         
-        // Restore scene settings
-        if (this.glowLayer) this.glowLayer.intensity = desktop.glowIntensity;
+        // Restore glow layer for desktop
+        if (this.glowLayer) {
+            this.glowLayer.isEnabled = true;
+            this.glowLayer.intensity = desktop.glowIntensity;
+        }
         
         const ambient = this.scene.getLightByName('ambient');
         if (ambient) ambient.intensity = desktop.ambientIntensity;
