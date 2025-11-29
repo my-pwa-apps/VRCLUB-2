@@ -3694,46 +3694,80 @@ class VRClub {
             const beamGlowMat = null;
 
             
-            // HYPERREALISTIC LIGHT POOL - Simple colored disc on floor
-            // Real spotlight pools are smooth gradients, not textured
+            // HYPERREALISTIC LIGHT POOL - Soft radial gradient for realistic light hitting floor
+            // Real spotlight pools have bright centers that fade smoothly to soft edges
+            
+            // Create radial gradient texture for soft falloff (reuse across all pools)
+            if (!this._poolGradientTexture) {
+                const gradientSize = 128;
+                const gradientCanvas = document.createElement('canvas');
+                gradientCanvas.width = gradientSize;
+                gradientCanvas.height = gradientSize;
+                const ctx = gradientCanvas.getContext('2d');
+                
+                // Create radial gradient: bright center -> transparent edges
+                const gradient = ctx.createRadialGradient(
+                    gradientSize/2, gradientSize/2, 0,           // Inner circle (center)
+                    gradientSize/2, gradientSize/2, gradientSize/2  // Outer circle (edge)
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Bright center
+                gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)');  // Still bright
+                gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.4)');  // Fading
+                gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.1)');  // Very soft
+                gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Fully transparent edge
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, gradientSize, gradientSize);
+                
+                this._poolGradientTexture = new BABYLON.DynamicTexture("poolGradient", gradientCanvas, this.scene, false);
+                this._poolGradientTexture.hasAlpha = true;
+                this._poolGradientTexture.update();
+            }
+            
+            // Main light pool with soft gradient
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
                 radius: 0.5, 
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
-            lightPool.position = new BABYLON.Vector3(pos.x, 0.03, pos.z - 5);
+            lightPool.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
             lightPool.isPickable = false;
             
-            // Simple emissive material - no texture animation
+            // Material with radial gradient for soft edges
             const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
             poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
-            poolMat.alpha = 0.7; // Semi-transparent for realistic light pool
-            poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
+            poolMat.emissiveColor = this.currentSpotColor.clone();
+            poolMat.opacityTexture = this._poolGradientTexture; // Use gradient for soft edges
+            poolMat.alpha = 0.6; // Lower alpha for more subtle, realistic light
+            poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
             poolMat.disableLighting = true;
+            poolMat.backFaceCulling = false;
             lightPool.material = poolMat;
             lightPool.renderingGroupId = 1;
             
             // Store reference for gobo texture (null - not using procedural texture anymore)
             const goboTexture = null;
             
-            // HYPERREALISTIC SOFT EDGE GLOW - Outer ring for realistic light falloff
+            // HYPERREALISTIC SOFT OUTER GLOW - Very soft ambient light spread
+            // Creates the "light spill" effect around the main pool
             const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
-                radius: 0.5, // Diameter 1.0 base
+                radius: 0.5,
                 tessellation: 32
             }, this.scene);
             lightPoolGlow.rotation.x = Math.PI / 2;
-            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5); // Slightly below main pool
+            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.01, pos.z - 5); // Just above floor
             lightPoolGlow.isPickable = false;
             
-            // Soft gradient material for outer glow
+            // Very soft glow with same gradient texture
             const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
             poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.8); // Softer than core
-            poolGlowMat.alpha = 0.4; // Semi-transparent
+            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.5);
+            poolGlowMat.opacityTexture = this._poolGradientTexture; // Same soft gradient
+            poolGlowMat.alpha = 0.25; // Very subtle ambient glow
             poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
             poolGlowMat.disableLighting = true;
+            poolGlowMat.backFaceCulling = false;
             lightPoolGlow.material = poolGlowMat;
             lightPoolGlow.renderingGroupId = 1;
             
@@ -5812,52 +5846,48 @@ class VRClub {
                     
 
                     
-                    // Update HYPERREALISTIC floor light splash - Single layer gobo effect
+                    // Update HYPERREALISTIC floor light pool - Soft radial gradient for realistic light reflection
                     if (spot.lightPool) {
-                        if (this.lightsActive && beamVisible) { // Also check beamVisible for flashing
-                            // Calculate beam width at floor (cone: 0.25m → 3.0m)
-                            const beamProgress = centerDistanceToFloor / beamLength;
-                            const beamWidthAtFloor = 0.25 + 2.75 * beamProgress; // 2.75 = 3.0 - 0.25
-                            const baseSize = (beamWidthAtFloor * 0.6) * zoomFactor; // Slightly larger pool
+                        if (this.lightsActive && beamVisible) {
+                            // Calculate beam width at floor based on cone angle
+                            const beamProgress = Math.min(1.0, centerDistanceToFloor / beamLength);
+                            const beamWidthAtFloor = 0.25 + 2.75 * beamProgress;
                             
-                            // Atmospheric shimmer (audio disabled)
-                            const atmosphericShimmer = 1.0 + Math.sin(time * 2 + i) * 0.15; // More shimmer
+                            // Pool size matches where beam actually hits - slightly larger for soft edge
+                            const poolSize = beamWidthAtFloor * zoomFactor * 1.0;
                             
-                            // Use floor intersection point where beam actually hits
+                            // Subtle shimmer for realistic light variation
+                            const shimmer = 1.0 + Math.sin(time * 1.5 + i * 0.7) * 0.08;
                             
-                            // CRITICAL: Use global color for perfect sync
-                            const spotColor = this.currentSpotColor;
-                            
-                            // GOBO POOL (Single layer with texture)
+                            // Position at beam-floor intersection
                             spot.lightPool.position.x = floorIntersection.x;
-                            spot.lightPool.position.y = 0.03;
+                            spot.lightPool.position.y = 0.02; // Just above floor to prevent z-fighting
                             spot.lightPool.position.z = floorIntersection.z;
-                            
-                            // Scale based on beam width
-                            const poolSize = baseSize * 1.2; // Larger pool for better visibility
                             spot.lightPool.scaling.set(poolSize, poolSize, 1);
+                            spot.lightPool.visibility = 1.0;
                             
-                            spot.lightPool.visibility = 1.0; // Full visibility
+                            // Color intensity falls off with distance (inverse square approximation)
+                            const distanceFalloff = Math.max(0.3, 1.0 - (beamProgress * 0.5));
+                            const poolIntensity = 1.5 * shimmer * distanceFalloff;
+                            
                             if (spot.poolMat) {
-                                // HYPERREALISTIC: Bright core with color matching
-                                // Reduced scale from 5.0 to 2.0 to prevent whiteout
-                                spot.poolMat.emissiveColor = spotColor.scale(2.0 * atmosphericShimmer);
+                                spot.poolMat.emissiveColor = spotColor.scale(poolIntensity);
+                                spot.poolMat.alpha = 0.5 * distanceFalloff; // Fade alpha with distance too
                             }
                             
-                            // UPDATE GLOW RING - Soft outer halo for realistic light falloff
+                            // Outer glow - larger, softer ambient light spread
                             if (spot.lightPoolGlow) {
+                                const glowSize = poolSize * 2.0; // Much larger for soft ambient spread
                                 spot.lightPoolGlow.position.x = floorIntersection.x;
-                                spot.lightPoolGlow.position.y = 0.02; // Just below main pool
+                                spot.lightPoolGlow.position.y = 0.01;
                                 spot.lightPoolGlow.position.z = floorIntersection.z;
-                                
-                                // Glow is 1.5x larger than main pool
-                                const glowSize = poolSize * 1.5;
                                 spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
+                                spot.lightPoolGlow.visibility = 1.0;
                                 
-                                spot.lightPoolGlow.visibility = 0.8;
                                 if (spot.poolGlowMat) {
-                                    // Softer outer glow with same color
-                                    spot.poolGlowMat.emissiveColor = spotColor.scale(1.0 * atmosphericShimmer);
+                                    // Very soft ambient glow
+                                    spot.poolGlowMat.emissiveColor = spotColor.scale(0.4 * shimmer * distanceFalloff);
+                                    spot.poolGlowMat.alpha = 0.2 * distanceFalloff;
                                 }
                             }
                             
@@ -5896,71 +5926,54 @@ class VRClub {
         }
         
         // Laser curtain show removed (was broken)
-        
-        // Update truss-mounted light fixtures - MATCH SPOTLIGHT COLOR + FLASHING
-        // Update spotlight fixture lenses - make them VERY BRIGHT when active
-        // These are the actual visible light sources in the moving heads
+
+        // Update truss-mounted light fixtures so they EXACTLY match their beams
+        // Rule: fixture ON + colored IFF its own beam is visible; otherwise dark
         if (this.spotlights && this.spotlights.length > 0) {
-            // ONE-TIME DEBUG: Check mesh lookup
-            if (!this._fixtureDebugDone) {
-                this._fixtureDebugDone = true;
-                console.log('🔍 FIXTURE MESH DEBUG:');
-                for (let j = 0; j < 6; j++) {
-                    const testLens = this.scene.getMeshByName("lens" + j);
-                    const testSource = this.scene.getMeshByName("lightSource" + j);
-                    console.log(`  lens${j}:`, testLens ? 'FOUND' : 'NOT FOUND', 
-                        testLens && testLens.material ? `mat=${testLens.material.name}` : '');
-                    console.log(`  lightSource${j}:`, testSource ? 'FOUND' : 'NOT FOUND',
-                        testSource && testSource.material ? `mat=${testSource.material.name}` : '');
-                }
-                console.log('  currentSpotColor:', this.currentSpotColor);
-            }
-            
-            // Update ALL 6 fixtures by finding meshes directly by name
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
                 if (!spot) continue;
-                
-                // CRITICAL: Use this.currentSpotColor as single source of truth
-                const spotColor = this.currentSpotColor;
-                
-                // Fixture visibility must respect BOTH lightsActive AND beamVisible
-                const fixtureVisible = this.lightsActive && (spot.beamVisible !== false);
-                
-                // FIND MESHES DIRECTLY BY NAME from scene - guaranteed to get actual rendered meshes
+
+                // Authoritative beam state
+                const beamVisibleFlag = !!(spot.beam && spot.beam.visibility > 0.0);
+                const fixtureVisible = this.lightsActive && beamVisibleFlag;
+
+                // Authoritative beam color (fall back to currentSpotColor if missing)
+                const beamColor = (spot.beamMat && spot.beamMat.emissiveColor)
+                    ? spot.beamMat.emissiveColor
+                    : this.currentSpotColor;
+
+                // Lookup meshes by name (guaranteed unique per fixture)
                 const lens = this.scene.getMeshByName("lens" + i);
                 const lightSource = this.scene.getMeshByName("lightSource" + i);
-                
-                // Movement glow boost (brighter when head is moving fast)
-                const movementBoost = spot.movementSpeed ? Math.min(2.0, spot.movementSpeed * 10) : 0;
-                
-                // Update lens material (the bright front of the moving head)
+
+                // Lens: slightly dimmer than beam
                 if (lens && lens.material && lens.material.emissiveColor) {
+                    const col = lens.material.emissiveColor;
                     if (fixtureVisible) {
-                        const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        const scaleFactor = 4.0 + pulse + movementBoost;
-                        lens.material.emissiveColor.r = spotColor.r * scaleFactor;
-                        lens.material.emissiveColor.g = spotColor.g * scaleFactor;
-                        lens.material.emissiveColor.b = spotColor.b * scaleFactor;
+                        const lensScale = 1.8;
+                        col.r = beamColor.r * lensScale;
+                        col.g = beamColor.g * lensScale;
+                        col.b = beamColor.b * lensScale;
                     } else {
-                        lens.material.emissiveColor.r = 0;
-                        lens.material.emissiveColor.g = 0;
-                        lens.material.emissiveColor.b = 0;
+                        col.r = 0;
+                        col.g = 0;
+                        col.b = 0;
                     }
                 }
-                
-                // Update light source material (the bright inner sphere)
+
+                // Inner bulb: brightest
                 if (lightSource && lightSource.material && lightSource.material.emissiveColor) {
+                    const col = lightSource.material.emissiveColor;
                     if (fixtureVisible) {
-                        const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        const scaleFactor = 6.0 + pulse * 2 + movementBoost;
-                        lightSource.material.emissiveColor.r = spotColor.r * scaleFactor;
-                        lightSource.material.emissiveColor.g = spotColor.g * scaleFactor;
-                        lightSource.material.emissiveColor.b = spotColor.b * scaleFactor;
+                        const bulbScale = 3.0;
+                        col.r = beamColor.r * bulbScale;
+                        col.g = beamColor.g * bulbScale;
+                        col.b = beamColor.b * bulbScale;
                     } else {
-                        lightSource.material.emissiveColor.r = 0;
-                        lightSource.material.emissiveColor.g = 0;
-                        lightSource.material.emissiveColor.b = 0;
+                        col.r = 0;
+                        col.g = 0;
+                        col.b = 0;
                     }
                 }
             }
