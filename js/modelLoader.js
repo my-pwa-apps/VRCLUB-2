@@ -105,7 +105,7 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
-                makeBlack: true, // Apply hyperrealistic black speaker materials
+                useOriginalTextures: true, // Use GLB's built-in textures from /textures folder
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             },
@@ -116,7 +116,7 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
-                makeBlack: true, // Apply hyperrealistic black speaker materials
+                useOriginalTextures: true, // Use GLB's built-in textures from /textures folder
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
