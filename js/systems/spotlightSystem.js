@@ -260,11 +260,13 @@ class SpotlightSystem {
                     tiltAngle = 0.3;
             }
             
-            // Apply strobe effect
+            // Apply strobe effect - binary on/off for clean flashing
             let intensity = 1.0;
+            let beamVisible = true;
             if (withStrobe && this.spotStrobeActive) {
                 const strobeSpeed = 8 * speedMultiplier;
-                intensity = Math.sin(time * strobeSpeed + i * 0.5) > 0.7 ? 1.0 : 0.3;
+                beamVisible = Math.sin(time * strobeSpeed + i * 0.5) > 0.7;
+                intensity = beamVisible ? 1.0 : 0.0;
             }
             
             // Update fixture rotation
@@ -356,8 +358,14 @@ class SpotlightSystem {
             spotlight.beam.scaling.y = beamLength;
         }
         
-        // Update beam alpha based on intensity
-        spotlight.beamMat.alpha = 0.08 * intensity;
+        // Update beam visibility based on intensity (binary on/off for strobe)
+        const beamVisible = intensity > 0.5;
+        spotlight.beam.visibility = beamVisible ? 1.0 : 0;
+        spotlight.beamMat.alpha = beamVisible ? 0.08 : 0;
+        
+        // Also update floor pool visibility
+        spotlight.lightPool.visibility = beamVisible ? 1.0 : 0;
+        spotlight.lightPoolGlow.visibility = beamVisible ? 0.8 : 0;
     }
 
     /**
@@ -425,6 +433,9 @@ class SpotlightSystem {
      */
     _updateColors() {
         this.spotlights.forEach(spotlight => {
+            // Update per-spotlight color for fixture glow sync
+            spotlight.color = this.currentSpotColor;
+            
             spotlight.beamMat.emissiveColor = this.currentSpotColor;
             spotlight.poolMat.emissiveColor = this.currentSpotColor;
             spotlight.poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.8);

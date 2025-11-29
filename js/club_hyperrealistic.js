@@ -234,7 +234,7 @@ class VRClub {
             vjControl: null
         };
         // Toggle to use new modular systems vs legacy inline code
-        this.useModularSystems = false; // Set true to test new architecture
+        this.useModularSystems = true; // Modular architecture enabled
         
         this.init();
     }
@@ -663,7 +663,17 @@ class VRClub {
         
         this.createLasers();
         this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
-        this.createLights();
+        
+        // Use modular spotlight system if enabled
+        if (this.useModularSystems && this.systems.spotlight) {
+            this.systems.spotlight.setTrussLights(this.trussLights);
+            this.systems.spotlight.createSpotlights();
+            // Store reference for compatibility with VJ controls
+            this.spotlights = this.systems.spotlight.spotlights;
+            log.info('🔦 Spotlights created via SpotlightSystem module');
+        }
+        
+        this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
         this.createBlinders();
         this.createLaserSheet(); // Add scanning laser sheet effect
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
@@ -3464,6 +3474,38 @@ class VRClub {
         // Ambient light - brighter for better visibility in VR and desktop
         this.lightFactory.getPreset('ambient', 'ambient');
         
+        // Skip inline spotlight creation if using modular system
+        if (this.useModularSystems && this.systems.spotlight) {
+            log.info('⏭️ Skipping inline spotlight creation (using modular SpotlightSystem)');
+            
+            // Initialize color tracking (still needed for VJ controls)
+            const spotColors = [
+                new BABYLON.Color3(1, 0, 0),      // Red
+                new BABYLON.Color3(0, 0, 1),      // Blue
+                new BABYLON.Color3(0, 1, 0),      // Green
+                new BABYLON.Color3(1, 0, 1),      // Magenta
+                new BABYLON.Color3(1, 1, 0),      // Yellow
+                new BABYLON.Color3(0, 1, 1),      // Cyan
+                new BABYLON.Color3(1, 0.5, 0),    // Orange
+                new BABYLON.Color3(0.5, 0, 1),    // Purple
+                new BABYLON.Color3(1, 1, 1)       // White
+            ];
+            this.currentSpotColor = spotColors[0];
+            this.spotColorIndex = 0;
+            this.lastColorChange = 0;
+            this.spotColorList = spotColors;
+            
+            // LED wall backlight
+            const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
+            ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
+            ledLight.intensity = 10;
+            ledLight.range = 25;
+            ledLight.setEnabled(false);
+            
+            return; // Skip rest of inline spotlight creation
+        }
+        
+        // === LEGACY INLINE SPOTLIGHT CREATION (when modular systems disabled) ===
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
         // 6 spotlights: 3 on left side, 3 on right side - POSITIONED ON ACTUAL TRUSSES
@@ -5105,13 +5147,35 @@ class VRClub {
             log.info("🤖 Automated patterns resumed - no VJ interaction for 60 seconds");
         }
         
-        // Calculate global phase for spotlight patterns (used in multiple places)
-        // Phase ALWAYS advances when lights are active (for sweep animations)
-        // VJ manual mode only affects Pattern 0's auto-cycling between sub-patterns
-        if (this.lightsActive) {
-            this.lastActivePhase = time * 0.8; // Always update when lights on
-        }
-        const globalPhase = this.lastActivePhase || 0;
+        // === MODULAR SPOTLIGHT SYSTEM UPDATE ===
+        // When useModularSystems is enabled, delegate to SpotlightSystem module
+        if (this.useModularSystems && this.systems.spotlight) {
+            // Sync state from VJ controls to modular system
+            this.systems.spotlight.lightsActive = this.lightsActive;
+            this.systems.spotlight.spotlightSpeed = this.spotlightSpeed || 1.0;
+            this.systems.spotlight.spotlightMode = this.spotlightMode;
+            this.systems.spotlight.spotlightPattern = this.spotlightPattern;
+            this.systems.spotlight.spotStrobeActive = this.spotStrobeActive;
+            
+            // Sync color changes
+            if (this.currentSpotColor) {
+                this.systems.spotlight.currentSpotColor = this.currentSpotColor;
+            }
+            
+            // Update modular system
+            this.systems.spotlight.update(time, audioData);
+            
+            // Sync spotlights reference back for compatibility
+            this.spotlights = this.systems.spotlight.spotlights;
+        } else {
+            // === LEGACY INLINE SPOTLIGHT ANIMATION ===
+            // Calculate global phase for spotlight patterns (used in multiple places)
+            // Phase ALWAYS advances when lights are active (for sweep animations)
+            // VJ manual mode only affects Pattern 0's auto-cycling between sub-patterns
+            if (this.lightsActive) {
+                this.lastActivePhase = time * 0.8; // Always update when lights on
+            }
+            const globalPhase = this.lastActivePhase || 0;
         
         // Audio speed multiplier: only apply when actual audio is playing
         // When no audio: use default 1.0x speed for consistent automated patterns
@@ -5411,20 +5475,6 @@ class VRClub {
                     spot.beam.scaling.z = zoomFactor;
                     
                     // UPDATE GLOW BEAM - Same scaling and position
-                    if (spot.beamGlow) {
-                        // Position/Rotation handled by parenting
-                        spot.beamGlow.scaling.y = beamLength;
-                        spot.beamGlow.scaling.x = zoomFactor;
-                        spot.beamGlow.scaling.z = zoomFactor;
-                        // Match position with main beam
-                        spot.beamGlow.position.y = -0.28 - (beamLength * 0.5);
-                        
-                        spot.beamGlow.visibility = this.lightsActive ? 1.0 : 0;
-                        // Use per-spotlight color to match beam
-                        const spotColor = spot.color || this.currentSpotColor;
-                        spot.beamGlowMat.emissiveColor = spotColor.scale(0.15);
-                    }
-                    
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
                     // Strobe is controlled by both toggle button AND spotlight mode
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
@@ -5441,7 +5491,26 @@ class VRClub {
                         beamVisible = beamVisible && flashOn;
                     }
                     
+                    // Store beamVisible on spot for fixture sync
+                    spot.beamVisible = beamVisible;
+                    
                     spot.beam.visibility = beamVisible ? 1.0 : 0;
+                    
+                    // Update beamGlow - SYNC WITH STROBE
+                    if (spot.beamGlow) {
+                        // Position/Rotation handled by parenting
+                        spot.beamGlow.scaling.y = beamLength;
+                        spot.beamGlow.scaling.x = zoomFactor;
+                        spot.beamGlow.scaling.z = zoomFactor;
+                        // Match position with main beam
+                        spot.beamGlow.position.y = -0.28 - (beamLength * 0.5);
+                        
+                        // CRITICAL: Sync glow visibility with strobe/beam visibility
+                        spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
+                        // Use per-spotlight color to match beam
+                        const spotColor = spot.color || this.currentSpotColor;
+                        spot.beamGlowMat.emissiveColor = spotColor.scale(0.15);
+                    }
                     spot.light.intensity = beamVisible ? 12 : 0; // Also control light intensity
                     
                     // Subtle atmospheric variation - simulates particles moving through beam
@@ -5547,22 +5616,13 @@ class VRClub {
         // Update spotlight fixture lenses - make them VERY BRIGHT when active
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
-            // Use same flash timing as beams for perfect sync
-            const sweepPhase = globalPhase * audioSpeedMultiplier;
-            const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
-            const isStrobeEnabled = this.spotStrobeActive && isStrobeMode;
-            const flashPhase = sweepPhase * 2.5;
-            const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
-            
             this.spotlights.forEach((spot, i) => {
                 // CRITICAL: Use per-spotlight color to match beam color
                 const spotColor = spot.color || this.currentSpotColor;
                 
-                // Fixture visibility synced with beam visibility
-                let fixtureVisible = this.lightsActive;
-                if (isStrobeEnabled) {
-                    fixtureVisible = fixtureVisible && flashOn;
-                }
+                // CRITICAL: Use stored beamVisible from beam update for PERFECT SYNC
+                // This ensures fixture flashes exactly when beam flashes
+                const fixtureVisible = spot.beamVisible !== undefined ? spot.beamVisible : this.lightsActive;
                 
                 // Update lens material (the bright front of the moving head)
                 if (spot.lensMat) {
@@ -5594,6 +5654,7 @@ class VRClub {
                 }
             });
         }
+        } // End of legacy inline spotlight animation else block
         
         // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
         // with the new 26-pattern system including creative blackout shapes
