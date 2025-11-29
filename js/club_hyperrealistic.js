@@ -172,7 +172,7 @@ class VRClub {
         this.laserSheetActive = false; // Laser sheet effect
         
         // Spotlight pattern and speed controls
-        this.spotlightPattern = 1; // 0=random, 1=static down (DEFAULT), 2=synchronized sweep
+        this.spotlightPattern = 0; // 0=automated/moving (DEFAULT), 1=static down, 2=mirror sweep
         this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
         // Add color variations for mirror ball (soft pastels) - reference cached colors
@@ -4979,6 +4979,7 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true; // Haze for beam visibility
                         
+                        this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 1; // Sweep only (no strobe)
                         this.spotlightSpeed = 0.6; // Slow, hypnotic
                         this.laserSpeed = 0.5;
@@ -5001,6 +5002,7 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
+                        this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 0; // Strobe + sweep
                         this.spotlightSpeed = 1.2;
                         this.laserSpeed = 1.0;
@@ -5093,6 +5095,7 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true; // Light haze
                         
+                        this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 1; // Sweep only
                         this.spotlightSpeed = 0.4; // Very slow
                         this.mirrorBallSpeed = 0.5;
@@ -5115,6 +5118,7 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
+                        this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 1; // Sweep only
                         this.spotlightSpeed = 0.8;
                         this.laserSpeed = 0.6; // Slow lasers
@@ -5137,6 +5141,7 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
+                        this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 1;
                         this.spotlightSpeed = 0.6;
                         this.ledWallSpeed = 0.7;
@@ -5157,6 +5162,7 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
+                        this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 1;
                         this.spotlightSpeed = 0.4;
                         this.ledWallSpeed = 0.5;
