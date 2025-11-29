@@ -4246,33 +4246,106 @@ class VRClub {
             this.mirrorBallBeams.push({ mesh: beam, material: beamMat, texture: beamTexture });
         });
         
+        // === OUTGOING RAYS FROM MIRROR BALL (Hyperrealistic all-direction light rays) ===
+        // These are the visible light rays emanating FROM the ball in all directions
+        // Real disco balls reflect light to ceiling, walls, floor - creating a sphere of rays
+        this.mirrorBallOutgoingRays = [];
+        const numRays = 80; // Number of visible rays shooting out from the ball
+        
+        for (let i = 0; i < numRays; i++) {
+            // Distribute rays evenly using golden angle spiral on a sphere
+            const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5 degrees
+            const theta = goldenAngle * i;
+            const phi = Math.acos(1 - 2 * (i + 0.5) / numRays); // Uniform sphere distribution
+            
+            // Calculate ray direction in spherical coordinates
+            const dirX = Math.sin(phi) * Math.cos(theta);
+            const dirY = Math.cos(phi); // Goes up AND down
+            const dirZ = Math.sin(phi) * Math.sin(theta);
+            
+            // Vary ray length (6-15m) for natural look
+            const rayLength = 6 + Math.random() * 9;
+            
+            // Create ray cylinder from ball position
+            const ray = BABYLON.MeshBuilder.CreateCylinder(`mirrorOutgoingRay${i}`, {
+                diameterTop: 0.015,   // Very thin at ball (light source point)
+                diameterBottom: 0.08, // Slightly wider at end (light spread)
+                height: rayLength,
+                tessellation: 4
+            }, this.scene);
+            
+            // Position at ball and orient along direction
+            ray.position = ballPosition.clone();
+            
+            // Calculate rotation to point along direction
+            // Cylinder default is Y-up, so we need to rotate it to point along our direction
+            const up = new BABYLON.Vector3(0, 1, 0);
+            const dir = new BABYLON.Vector3(dirX, dirY, dirZ);
+            
+            // Create rotation from default up to desired direction
+            const angle = Math.acos(BABYLON.Vector3.Dot(up, dir));
+            const axis = BABYLON.Vector3.Cross(up, dir);
+            if (axis.length() > 0.001) {
+                ray.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
+            }
+            
+            // Offset position so ray starts at ball surface, not center
+            ray.position = ballPosition.add(dir.scale(rayLength / 2 + 0.6)); // 0.6m = ball radius
+            
+            // Ray material - bright, glowing
+            const rayMat = new BABYLON.StandardMaterial(`mirrorRayMat${i}`, this.scene);
+            rayMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
+            rayMat.alpha = 0.12 + Math.random() * 0.08; // Varied transparency (0.12-0.20)
+            rayMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            rayMat.disableLighting = true;
+            rayMat.backFaceCulling = false;
+            ray.material = rayMat;
+            ray.isPickable = false;
+            ray.setEnabled(false); // Starts disabled
+            
+            this.mirrorBallOutgoingRays.push({
+                mesh: ray,
+                material: rayMat,
+                theta: theta,
+                phi: phi,
+                length: rayLength,
+                direction: dir.clone(),
+                rotationSpeed: 0.3 + Math.random() * 0.4 // Individual rotation speeds
+            });
+        }
+        
+        log.info(`✨ Created ${numRays} outgoing rays from mirror ball (all directions)`);
+        
         // === REFLECTION SPOTS (Simulated light spots from mirror facets) ===
         // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
         // These are purely emissive meshes that create the illusion of reflections
         this.mirrorReflectionSpots = [];
-        const numSpots = 250; // INCREASED for hyperrealism (was 60)
+        const numSpots = 300; // HYPERREALISTIC: More spots for all-around coverage
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
-        const spotsPerSurface = Math.floor(numSpots / 6); // Divide evenly among 6 surfaces (including front wall)
+        // Weight distribution to emphasize walls and ceiling (more visible in VR)
+        const floorSpots = Math.floor(numSpots * 0.20);     // 20% on floor
+        const ceilingSpots = Math.floor(numSpots * 0.20);   // 20% on ceiling
+        const wallSpots = Math.floor(numSpots * 0.15);      // 15% per wall (4 walls = 60%)
         let spotIndex = 0;
         
         // No shared texture - using simple colored discs for performance and correct color updates
         
         const surfaces = [
-            { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02 },
-            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 }, // Ceiling box bottom at 9.85
-            { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 }, // Left wall inner face at -16.75
-            { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 }, // Right wall inner face at 16.75
-            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 }, // Back wall front face at -26.75
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.77 } // Front wall inner face at 1.75 + 0.02 offset (box center at 2, depth 0.5)
+            { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02, count: floorSpots },
+            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83, count: ceilingSpots },
+            { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73, count: wallSpots },
+            { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73, count: wallSpots },
+            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73, count: wallSpots },
+            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.77, count: wallSpots }
         ];
         
         surfaces.forEach(surface => {
-            for (let i = 0; i < spotsPerSurface && spotIndex < numSpots; i++, spotIndex++) {
+            for (let i = 0; i < surface.count; i++, spotIndex++) {
                 // Visual spot (emissive disc - looks like light reflection)
                 const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.15 + Math.random() * 0.1, // Increased size: 0.15-0.25m for better visibility
-                    tessellation: 8 // Increased detail slightly
+                    radius: 0.12 + Math.random() * 0.12, // Size: 0.12-0.24m 
+                    tessellation: 8
                 }, this.scene);
                 
                 const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
@@ -4288,10 +4361,10 @@ class VRClub {
                 spot.setEnabled(false);
                 
                 // Create VOLUMETRIC BEAM for this spot (light cutting through smoke)
-                // Thin cylinder stretching from ball to spot
+                // Thin cylinder stretching from ball to spot - HYPERREALISTIC light rays
                 const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorBeam${spotIndex}`, {
-                    diameterTop: 0.02,    // Very thin at ball
-                    diameterBottom: 0.2,  // Wider at spot (was 0.15)
+                    diameterTop: 0.03,    // Thin at ball (light source)
+                    diameterBottom: 0.25, // Wider at spot (light spread)
                     height: 1.0,          // Initial height (will be scaled)
                     tessellation: 4       // Low poly for performance (hundreds of beams)
                 }, this.scene);
@@ -4301,7 +4374,7 @@ class VRClub {
                 
                 const beamMat = new BABYLON.StandardMaterial(`mirrorBeamMat${spotIndex}`, this.scene);
                 beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                beamMat.alpha = 0.15; // Increased from 0.08 for visible smoke beams
+                beamMat.alpha = 0.2; // Visible smoke beams
                 beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
                 beamMat.disableLighting = true;
                 beamMat.backFaceCulling = false;
@@ -4599,6 +4672,45 @@ class VRClub {
                 }
             }
             
+            // === ANIMATE OUTGOING RAYS FROM MIRROR BALL ===
+            // These rays rotate WITH the ball, creating the classic disco ball light spray effect
+            if (this.mirrorBallOutgoingRays && this.mirrorBallOutgoingRays.length > 0) {
+                const ballPos = this.mirrorBall.position;
+                const speedMultiplier = this.mirrorBallSpeed || 1.0;
+                
+                this.mirrorBallOutgoingRays.forEach((ray, i) => {
+                    ray.mesh.setEnabled(true);
+                    
+                    // Rotate ray direction with the mirror ball (around Y axis)
+                    const rotatedTheta = ray.theta + this.mirrorBallRotation;
+                    
+                    // Calculate new direction based on rotated angle
+                    const sinPhi = Math.sin(ray.phi);
+                    const dirX = sinPhi * Math.cos(rotatedTheta);
+                    const dirY = Math.cos(ray.phi);
+                    const dirZ = sinPhi * Math.sin(rotatedTheta);
+                    const dir = new BABYLON.Vector3(dirX, dirY, dirZ);
+                    
+                    // Position ray starting from ball surface
+                    ray.mesh.position = ballPos.add(dir.scale(ray.length / 2 + 0.6));
+                    
+                    // Rotate ray to point along direction
+                    const up = new BABYLON.Vector3(0, 1, 0);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(up, dir));
+                    const axis = BABYLON.Vector3.Cross(up, dir);
+                    if (axis.length() > 0.001) {
+                        ray.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
+                    }
+                    
+                    // Twinkling effect - subtle alpha variation
+                    const twinkle = 0.8 + 0.2 * Math.sin(time * 5 + i * 0.7);
+                    ray.material.alpha = (0.12 + (i % 5) * 0.02) * twinkle;
+                    
+                    // Update ray color to match current mirror ball color
+                    ray.material.emissiveColor = this.mirrorBallSpotlightColor;
+                });
+            }
+            
             // Animate reflection spots around the room (150 spots covering all surfaces)
             // SYNCHRONIZED FRAME-SKIP OPTIMIZATION: Update ALL spots every 3 frames
             // This eliminates "catch-up" effect while maintaining 60fps performance
@@ -4709,8 +4821,8 @@ class VRClub {
                         const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6; // 40% dimmer overall
                         
                         // DIMMER emissive color
-                        spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
-                        spot.material.alpha = 0.85; // Slightly transparent for softer look
+                        spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.5, brightness));
+                        spot.material.alpha = 0.9; // More visible spot
 
                         // UPDATE VOLUMETRIC BEAM - Position at ball, point at spot
                         if (spot.beam) {
@@ -4723,9 +4835,10 @@ class VRClub {
                             const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
                             spot.beam.scaling.y = beamDist; // Cylinder height is Y axis
                             
-                            // Fade beam with distance
-                            spot.beamMaterial.alpha = 0.08 * distanceFade;
-                            spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
+                            // HYPERREALISTIC: Brighter beams for all directions
+                            // Beams hitting walls/ceiling should be as visible as floor beams
+                            spot.beamMaterial.alpha = 0.18 * distanceFade; // Increased from 0.08
+                            spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
                         }
                         
                         // Mark as visible for this frame
@@ -4766,6 +4879,9 @@ class VRClub {
             }
             if (this.mirrorBallBeams) {
                 this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(false));
+            }
+            if (this.mirrorBallOutgoingRays) {
+                this.mirrorBallOutgoingRays.forEach(ray => ray.mesh.setEnabled(false));
             }
             if (this.mirrorBallHousings) {
                 // PERFORMANCE: Use cached black color instead of creating new Color3 objects
