@@ -4451,6 +4451,20 @@ class VRClub {
                     this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
                     this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
                     
+                    // Update spotlight diffuse colors (the actual lights pointing at the ball)
+                    if (this.mirrorBallSpotlights) {
+                        this.mirrorBallSpotlights.forEach(light => {
+                            if (light) light.diffuse = this.mirrorBallSpotlightColor.clone();
+                        });
+                    }
+                    
+                    // Update beam colors (visual beams from fixtures to ball)
+                    if (this.mirrorBallBeams) {
+                        this.mirrorBallBeams.forEach(beam => {
+                            beam.material.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                        });
+                    }
+                    
                     // Update housing colors immediately
                     if (this.mirrorBallHousings) {
                         // Update cached colors
@@ -5626,32 +5640,38 @@ class VRClub {
                 // This ensures fixture flashes exactly when beam flashes
                 const fixtureVisible = spot.beamVisible !== undefined ? spot.beamVisible : this.lightsActive;
                 
+                // Get materials - fallback to trussLights array if not on spot object
+                const trussLight = this.trussLights && this.trussLights[i] ? this.trussLights[i] : null;
+                const lensMat = spot.lensMat || (trussLight ? trussLight.lensMat : null);
+                const sourceMat = spot.sourceMat || (trussLight ? trussLight.sourceMat : null);
+                const flareMat = spot.flareMat || (trussLight ? trussLight.flareMat : null);
+                
                 // Update lens material (the bright front of the moving head)
-                if (spot.lensMat) {
+                if (lensMat) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        spot.lensMat.emissiveColor = spotColor.scale(4.0 + pulse);
+                        lensMat.emissiveColor = spotColor.scale(4.0 + pulse);
                     } else {
-                        spot.lensMat.emissiveColor = this.cachedColors.black;
+                        lensMat.emissiveColor = this.cachedColors.black;
                     }
                 }
                 
                 // Update light source material (the bright inner sphere)
-                if (spot.sourceMat) {
+                if (sourceMat) {
                     if (fixtureVisible) {
                         const pulse = 0.8 + Math.sin(time * 4 + i * 0.5) * 0.2;
-                        spot.sourceMat.emissiveColor = spotColor.scale(6.0 + pulse * 2);
+                        sourceMat.emissiveColor = spotColor.scale(6.0 + pulse * 2);
                     } else {
-                        spot.sourceMat.emissiveColor = this.cachedColors.black;
+                        sourceMat.emissiveColor = this.cachedColors.black;
                     }
                 }
                 
                 // Update flare material
-                if (spot.flareMat) {
+                if (flareMat) {
                     if (fixtureVisible) {
-                        spot.flareMat.emissiveColor = spotColor.scale(2.0);
+                        flareMat.emissiveColor = spotColor.scale(2.0);
                     } else {
-                        spot.flareMat.emissiveColor = this.cachedColors.black;
+                        flareMat.emissiveColor = this.cachedColors.black;
                     }
                 }
             });
