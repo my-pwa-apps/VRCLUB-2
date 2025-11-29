@@ -100,23 +100,21 @@ class ModelLoader {
             },
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
-                url: './js/models/paspeakers/source/PA_Speakers.glb',
+                url: './js/models/paspeakers/source/stage_speaker___black.glb',
                 position: new BABYLON.Vector3(-11, 0, -22), // Moved forward from -25 to -22, wider to -11
                 rotation: new BABYLON.Vector3(0, Math.PI / 6, 0), // Tilted 30 degrees inward
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
-                makeBlack: true, // Override material to black
-                attribution: 'PA Speakers (CC BY 4.0)'
+                attribution: 'Stage Speaker (CC BY 4.0)'
             },
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
-                url: './js/models/paspeakers/source/PA_Speakers.glb',
+                url: './js/models/paspeakers/source/stage_speaker___black.glb',
                 position: new BABYLON.Vector3(11, 0, -22), // Moved forward from -25 to -22, wider to 11
                 rotation: new BABYLON.Vector3(0, -Math.PI / 6, 0), // Tilted 30 degrees inward
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 5.5m height
                 useProcedural: false, // USE the 3D model
-                makeBlack: true, // Override material to black
-                attribution: 'PA Speakers (CC BY 4.0)'
+                attribution: 'Stage Speaker (CC BY 4.0)'
             }
         };
     }

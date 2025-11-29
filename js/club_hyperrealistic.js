@@ -115,7 +115,8 @@ class VRClub {
             white: new BABYLON.Color3(10, 10, 10),
             black: new BABYLON.Color3(0, 0, 0),
             orange: new BABYLON.Color3(1, 0.5, 0),
-            purple: new BABYLON.Color3(0.5, 0, 1)
+            purple: new BABYLON.Color3(0.5, 0, 1),
+            warmWhite: new BABYLON.Color3(1, 0.9, 0.7) // Blinder warm white
         };
         
         // PERFORMANCE: Reusable Vector3 pool for animation calculations (reduces GC pressure)
@@ -210,6 +211,19 @@ class VRClub {
         this.mirrorBallSpeed = 1.0; // Mirror ball rotation speed
         this.ledWallSpeed = 1.0;    // LED wall animation speed
         this.strobeSpeed = 1.0;     // Strobe flash rate
+        this.blinderSpeed = 1.0;    // Blinder intensity speed
+        
+        // === PROFESSIONAL VJ AUTO-PATTERN SYSTEM ===
+        // Immersive light show timing for drops, builds, and impacts
+        this.blindersActive = true;     // Audience blinders for drops/impacts
+        this.vjAutoMode = true;         // Auto VJ show mode (synchronized effects)
+        this.vjBeatPhase = 0;           // Current beat phase (0-3 for 4/4 timing)
+        this.vjDropTimer = 0;           // Time since last drop effect
+        this.vjBuildIntensity = 0;      // Build-up intensity (0-1)
+        this.vjLastBeatTime = 0;        // Last detected beat timestamp
+        this.vjBPM = 128;               // Estimated BPM (will be auto-detected from audio)
+        this.vjDropActive = false;      // Currently in a drop sequence
+        this.vjBuildActive = false;     // Currently building up
         
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
@@ -5990,38 +6004,86 @@ class VRClub {
         
         // Update strobes - respects strobesActive control
         // Strobe lights animation (with speed multiplier)
+        // === PROFESSIONAL VJ STROBE SYSTEM ===
+        // Synchronized with drops, builds, and bass for maximum impact
         const strobeSpeedMultiplier = this.strobeSpeed || 1.0;
         if (this.strobes && this.strobes.length > 0) {
             if (this.strobesActive) {
+                // Get audio data for reactive strobing
+                const bass = audioData.bass || 0;
+                const treble = audioData.treble || 0;
+                
+                // VJ AUTO-MODE: Enhanced strobing during drops
+                const inDropMode = this.vjDropActive;
+                const inBuildMode = this.vjBuildIntensity > 0.7;
+                
                 this.strobes.forEach((strobe, i) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
-                        strobe.flashDuration -= 0.016 * strobeSpeedMultiplier; // Apply speed to decay
+                        strobe.flashDuration -= 0.016 * strobeSpeedMultiplier;
                     
                     // Variable intensity - SUPER BRIGHT strobes
-                    const intensityVariation = strobe.currentIntensity || 80; // Store current intensity (increased from 50)
-                    const burstPhase = Math.floor(strobe.flashDuration * 40 * strobeSpeedMultiplier) % 2; // Fast bursts with speed
+                    // BOOST during drops for maximum crowd impact
+                    let intensityVariation = strobe.currentIntensity || 80;
+                    if (inDropMode) {
+                        intensityVariation *= 1.5; // 50% brighter during drops
+                    }
+                    
+                    const burstPhase = Math.floor(strobe.flashDuration * 40 * strobeSpeedMultiplier) % 2;
                     const intensity = burstPhase === 0 ? intensityVariation : 0;
                     
-                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5); // Brighter emissive (1.5x)
-                    strobe.light.intensity = intensity * 200; // MUCH brighter (was 120, now 200)
-                    strobe.light.range = 80 + (intensityVariation * 0.8); // Wider range (was 50, now 80)
+                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5);
+                    strobe.light.intensity = intensity * 200;
+                    strobe.light.range = 80 + (intensityVariation * 0.8);
+                    strobe.light.setEnabled(intensity > 0);
                     
                     if (strobe.flashDuration <= 0) {
                         strobe.material.emissiveColor = this.cachedColors.black;
                         strobe.light.intensity = 0;
-                        const flashInterval = (0.1 + Math.random() * 0.9) / strobeSpeedMultiplier; // Adjust interval by speed
-                        strobe.nextFlashTime = time + flashInterval; // Frequent flashes (0.1-1.0s divided by speed)
+                        strobe.light.setEnabled(false);
+                        
+                        // VJ AUTO-MODE: Faster strobing during drops and builds
+                        let flashInterval;
+                        if (inDropMode) {
+                            // RAPID FIRE during drops (0.05-0.15s)
+                            flashInterval = (0.05 + Math.random() * 0.1) / strobeSpeedMultiplier;
+                        } else if (inBuildMode) {
+                            // Increasing frequency during build (0.1-0.3s)
+                            const buildFactor = 1 - (this.vjBuildIntensity - 0.7) / 0.3;
+                            flashInterval = (0.1 + Math.random() * 0.2 * buildFactor) / strobeSpeedMultiplier;
+                        } else {
+                            // Normal operation (0.1-1.0s)
+                            flashInterval = (0.1 + Math.random() * 0.9) / strobeSpeedMultiplier;
+                        }
+                        strobe.nextFlashTime = time + flashInterval;
                     }
                 } else {
-                    // Check if it's time for next flash (ALWAYS fires, no condition)
+                    // Check if it's time for next flash
                     if (time >= strobe.nextFlashTime) {
-                        // Vary intensity: MUCH BRIGHTER - 60% bright (60-80), 40% super bright (80-100)
-                        strobe.currentIntensity = Math.random() > 0.6 ? 
-                            (60 + Math.random() * 20) : // Bright (was 30-40, now 60-80)
-                            (80 + Math.random() * 20);  // Super bright (was 50-70, now 80-100)
+                        // VJ AUTO-MODE: Brighter strobes during drops
+                        let intensityBase = Math.random() > 0.6 ? 
+                            (60 + Math.random() * 20) : 
+                            (80 + Math.random() * 20);
                         
-                        const flashDuration = (0.15 + Math.random() * 0.2) / strobeSpeedMultiplier; // Duration 0.15-0.35s divided by speed
+                        // BASS REACTIVE: Boost on bass hits
+                        if (bass > 0.6) {
+                            intensityBase *= 1 + (bass - 0.6) * 0.5;
+                        }
+                        
+                        // DROP BOOST: Maximum power during drops
+                        if (inDropMode) {
+                            intensityBase = 100; // Full power
+                        }
+                        
+                        strobe.currentIntensity = Math.min(100, intensityBase);
+                        
+                        // Flash duration varies with mode
+                        let flashDuration;
+                        if (inDropMode) {
+                            flashDuration = (0.08 + Math.random() * 0.12) / strobeSpeedMultiplier;
+                        } else {
+                            flashDuration = (0.15 + Math.random() * 0.2) / strobeSpeedMultiplier;
+                        }
                         strobe.flashDuration = flashDuration;
                     }
                 }
@@ -6031,8 +6093,121 @@ class VRClub {
                 this.strobes.forEach((strobe) => {
                     strobe.material.emissiveColor = this.cachedColors.black;
                     strobe.light.intensity = 0;
+                    strobe.light.setEnabled(false);
                     strobe.flashDuration = 0;
                 });
+            }
+        }
+        
+        // === AUDIENCE BLINDERS - Professional VJ Drop/Impact System ===
+        // Blinders fire on drops, bass hits, and build releases for maximum crowd impact
+        if (this.blinders && this.blinders.length > 0) {
+            const blinderSpeedMultiplier = this.blinderSpeed || 1.0;
+            
+            if (this.blindersActive && this.strobesActive) {
+                // Get audio data for reactive blinding
+                const bass = audioData.bass || 0;
+                const average = audioData.average || 0;
+                
+                // === VJ AUTO-PATTERN: Detect drops and impacts ===
+                // Professional VJ timing: build tension, release with blinders
+                const beatInterval = 60 / this.vjBPM; // Seconds per beat
+                const timeSinceLastDrop = time - this.vjDropTimer;
+                
+                // Detect bass drop (sudden bass spike after low activity)
+                const bassThreshold = 0.7;
+                const isBassDrop = bass > bassThreshold && this.vjBuildIntensity > 0.5;
+                
+                // Auto-build system: intensity increases over 8 bars, releases on drop
+                if (!this.vjDropActive) {
+                    // Build phase: gradually increase tension
+                    this.vjBuildIntensity = Math.min(1.0, this.vjBuildIntensity + 0.002 * blinderSpeedMultiplier);
+                    
+                    // Trigger drop on bass hit during high tension
+                    if (isBassDrop || (this.vjBuildIntensity >= 1.0 && timeSinceLastDrop > 8)) {
+                        this.vjDropActive = true;
+                        this.vjDropTimer = time;
+                        this.vjBuildIntensity = 0;
+                    }
+                }
+                
+                // === BLINDER ANIMATION PATTERNS ===
+                this.blinders.forEach((blinder, i) => {
+                    let targetIntensity = 0;
+                    let targetFlareAlpha = 0;
+                    
+                    // Pattern 1: DROP BURST - All blinders full power on drop
+                    if (this.vjDropActive) {
+                        const dropDuration = 0.8 / blinderSpeedMultiplier;
+                        const dropProgress = (time - this.vjDropTimer) / dropDuration;
+                        
+                        if (dropProgress < 1.0) {
+                            // Rapid strobe bursts during drop (3-4 flashes)
+                            const burstCount = Math.floor(dropProgress * 4);
+                            const burstPhase = (dropProgress * 4) % 1;
+                            
+                            if (burstPhase < 0.5) {
+                                targetIntensity = 15; // MAXIMUM POWER
+                                targetFlareAlpha = 0.95;
+                            }
+                        } else {
+                            this.vjDropActive = false;
+                        }
+                    }
+                    
+                    // Pattern 2: BASS REACTIVE - Pulse on strong bass hits
+                    if (!this.vjDropActive && bass > 0.5) {
+                        const bassIntensity = (bass - 0.5) * 2; // 0-1 range
+                        targetIntensity = Math.max(targetIntensity, bassIntensity * 8);
+                        targetFlareAlpha = Math.max(targetFlareAlpha, bassIntensity * 0.6);
+                    }
+                    
+                    // Pattern 3: BUILD PULSE - Increasing flicker during build-up
+                    if (this.vjBuildIntensity > 0.5 && !this.vjDropActive) {
+                        const buildPulse = Math.sin(time * 8 * this.vjBuildIntensity * blinderSpeedMultiplier);
+                        if (buildPulse > 0.7) {
+                            const pulseIntensity = (buildPulse - 0.7) / 0.3 * this.vjBuildIntensity;
+                            targetIntensity = Math.max(targetIntensity, pulseIntensity * 5);
+                            targetFlareAlpha = Math.max(targetFlareAlpha, pulseIntensity * 0.3);
+                        }
+                    }
+                    
+                    // Pattern 4: SEQUENTIAL SWEEP - Blinders fire in sequence (every 4 beats)
+                    const sweepCycle = (time * blinderSpeedMultiplier * 0.5) % 4;
+                    if (Math.floor(sweepCycle) === i && sweepCycle % 1 < 0.15) {
+                        targetIntensity = Math.max(targetIntensity, 10);
+                        targetFlareAlpha = Math.max(targetFlareAlpha, 0.7);
+                    }
+                    
+                    // Smooth intensity transitions (professional look)
+                    const currentIntensity = blinder.intensity || 0;
+                    const lerpSpeed = targetIntensity > currentIntensity ? 0.4 : 0.15; // Fast attack, slower decay
+                    blinder.intensity = currentIntensity + (targetIntensity - currentIntensity) * lerpSpeed;
+                    
+                    // Apply blinder visuals
+                    const warmWhite = this.cachedColors.warmWhite || new BABYLON.Color3(1, 0.9, 0.7);
+                    blinder.emitterMat.emissiveIntensity = blinder.intensity;
+                    blinder.emitterMat.emissiveColor = warmWhite.scale(blinder.intensity / 15);
+                    
+                    // Flare effect (lens bloom simulation)
+                    const currentFlare = blinder.flareMat.alpha || 0;
+                    blinder.flareMat.alpha = currentFlare + (targetFlareAlpha - currentFlare) * lerpSpeed;
+                    
+                    // Scale flare based on intensity for dramatic effect
+                    if (blinder.flare) {
+                        const flareScale = 4.0 + blinder.intensity * 0.5;
+                        blinder.flare.scaling.setAll(flareScale);
+                    }
+                });
+            } else {
+                // Turn off blinders when disabled
+                this.blinders.forEach(blinder => {
+                    blinder.intensity = 0;
+                    blinder.emitterMat.emissiveIntensity = 0;
+                    blinder.flareMat.alpha = 0;
+                });
+                this.vjBuildIntensity = 0;
+                this.vjDropActive = false;
             }
         }
         
@@ -7683,89 +7858,98 @@ class VRClub {
     }
 
     async createDancingNPCs() {
-        // Check if avatar manager is available (disabled when multiplayer is off)
-        if (!this.avatarManager) {
-            log.info('🕺 NPC avatars disabled (multiplayer system not active)');
-            return; // Skip NPC creation when avatar manager is disabled
-        }
+        // Load 3 animated GLB avatars directly onto the dancefloor
+        // These GLB files contain pre-baked dance animations
         
-        // Create 4 random HUMANLIKE NPC avatars dancing on the dancefloor (using 2 dance styles)
-        const npcCount = 4; // Fixed count - mix of hip hop and house dance styles
-        const npcNames = [
-            'Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey',
-            'Riley', 'Skyler', 'Cameron', 'Avery', 'Quinn',
-            'Sam', 'Jesse', 'Dakota', 'River', 'Phoenix'
+        const avatarModels = [
+            {
+                name: 'HipHopDancer',
+                url: './js/models/avatars/Hip Hop Dancing.glb',
+                position: new BABYLON.Vector3(-3, 0, -10),
+                rotation: Math.PI * 0.2, // Facing slightly toward DJ
+                scale: 1.0
+            },
+            {
+                name: 'HouseDancer',
+                url: './js/models/avatars/house.glb',
+                position: new BABYLON.Vector3(0, 0, -14),
+                rotation: Math.PI, // Facing DJ booth
+                scale: 1.0
+            },
+            {
+                name: 'RumbaDancer',
+                url: './js/models/avatars/rumba_dancing_female_character.glb',
+                position: new BABYLON.Vector3(3, 0, -10),
+                rotation: Math.PI * -0.2, // Facing slightly toward DJ
+                scale: 1.0
+            }
         ];
         
-        // Shuffle names for variety
-        const shuffledNames = [...npcNames].sort(() => Math.random() - 0.5);
+        log.info(`🕺 Loading ${avatarModels.length} animated dancing avatars...`);
         
-        log.info(`🕺 Creating ${npcCount} diverse dancing NPC avatars (Hip Hop + House styles)...`);
-        
-        // Dancefloor boundaries
-        const dancefloorCenter = { x: 0, z: -12 };
-        const dancefloorRadius = 5; // 5m radius around center
-        
-        for (let i = 0; i < npcCount; i++) {
-            // Random position on dancefloor (avoid exact center where user spawns)
-            const angle = (Math.PI * 2 * i) / npcCount + Math.random() * 0.5;
-            const distance = 2 + Math.random() * 3; // 2-5m from center
-            
-            const x = dancefloorCenter.x + Math.cos(angle) * distance;
-            const z = dancefloorCenter.z + Math.sin(angle) * distance;
-            
-            // Random VR vs Desktop (50/50 mix for variety)
-            const isVR = Math.random() < 0.5;
-            
-            // HUMANLIKE RANDOMIZATION - Make each NPC unique
-            const npcId = `npc_${i}`;
-            const npcData = {
-                username: shuffledNames[i],
-                isVR: isVR,
-                position: { x, y: 0, z },
-                rotation: { x: 0, y: Math.random() * Math.PI * 2, z: 0 },
-                // Unique appearance traits
-                customization: {
-                    // Random height variation (±15% from base)
-                    heightMultiplier: 0.85 + Math.random() * 0.3,
-                    
-                    // Random body size (slim to broad)
-                    bodyScale: 0.8 + Math.random() * 0.4,
-                    
-                    // Random skin tone (variety of human skin colors)
-                    skinTone: this.getRandomSkinTone(),
-                    
-                    // Random outfit/body color
-                    outfitColor: this.getRandomOutfitColor(),
-                    
-                    // Random head size (slight variation)
-                    headScale: 0.9 + Math.random() * 0.2
+        for (const avatar of avatarModels) {
+            try {
+                const result = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    "",
+                    avatar.url,
+                    this.scene
+                );
+                
+                const rootMesh = result.meshes[0];
+                rootMesh.name = avatar.name;
+                rootMesh.position = avatar.position;
+                rootMesh.rotation.y = avatar.rotation;
+                
+                // Auto-scale to reasonable human height (~1.7m)
+                const boundingInfo = rootMesh.getHierarchyBoundingVectors();
+                const currentHeight = boundingInfo.max.y - boundingInfo.min.y;
+                const targetHeight = 1.7; // 1.7 meters
+                const scaleFactor = (targetHeight / currentHeight) * avatar.scale;
+                rootMesh.scaling.setAll(scaleFactor);
+                
+                // Ensure avatar is grounded (feet on floor)
+                const newBounding = rootMesh.getHierarchyBoundingVectors();
+                rootMesh.position.y = -newBounding.min.y * scaleFactor;
+                
+                // Fix materials for proper rendering in the club
+                result.meshes.forEach(mesh => {
+                    if (mesh.material) {
+                        mesh.material.maxSimultaneousLights = this.maxLights;
+                        // Ensure proper alpha handling
+                        if (mesh.material.alpha !== undefined) {
+                            mesh.material.alpha = 1.0;
+                        }
+                    }
+                });
+                
+                // Play all animation groups from the GLB
+                if (result.animationGroups && result.animationGroups.length > 0) {
+                    result.animationGroups.forEach(animGroup => {
+                        animGroup.start(true); // Loop the animation
+                        // Vary speed slightly for natural feel
+                        animGroup.speedRatio = 0.9 + Math.random() * 0.2;
+                    });
+                    log.info(`  ✅ ${avatar.name}: ${result.animationGroups.length} animations playing`);
+                } else {
+                    log.info(`  ⚠️ ${avatar.name}: No animations found in GLB`);
                 }
-            };
-            
-            // Create avatar using existing AvatarManager (wait for loading)
-            await this.avatarManager.createAvatar(npcId, npcData);
-            
-            // Apply customization after creation
-            this.customizeNPCAvatar(npcId, npcData.customization);
-            
-            // Store NPC data for animation
-            this.npcAvatars.push({
-                id: npcId,
-                isVR: isVR,
-                basePosition: { x, y: 0, z },
-                angle: Math.random() * Math.PI * 2,
-                danceSpeed: 0.4 + Math.random() * 0.8, // Varied dance speed
-                bobPhase: Math.random() * Math.PI * 2,
-                spinPhase: Math.random() * Math.PI * 2,
-                handWavePhase: Math.random() * Math.PI * 2,
-                // Unique dance style
-                danceStyle: Math.floor(Math.random() * 4), // 0-3: different dance patterns
-                heightMultiplier: npcData.customization.heightMultiplier
-            });
+                
+                // Store reference for potential future use
+                this.npcAvatars.push({
+                    name: avatar.name,
+                    root: rootMesh,
+                    meshes: result.meshes,
+                    animations: result.animationGroups,
+                    position: avatar.position
+                });
+                
+            } catch (error) {
+                log.warn(`  ❌ Failed to load ${avatar.name}: ${error.message}`);
+            }
         }
         
-        log.info(`✅ Created ${npcCount} diverse NPC avatars on dancefloor`);
+        log.info(`✅ Loaded ${this.npcAvatars.length} dancing avatars on dancefloor`);
     }
     
     getRandomSkinTone() {
@@ -7914,112 +8098,24 @@ class VRClub {
     }
     
     updateDancingNPCs(time) {
-        // Skip if avatar manager is disabled
-        if (!this.avatarManager) return;
+        // GLB avatars with built-in animations play automatically via animation groups
+        // This function can be used for any additional effects (e.g., lighting response)
         
-        // Animate each NPC with unique, humanlike dancing movements
-        this.npcAvatars.forEach(npc => {
-            const avatar = this.avatarManager.avatars.get(npc.id);
-            if (!avatar || !avatar.root) return;
-            
-            // Skip procedural animation if avatar has built-in animations (Mixamo, etc.)
-            if (avatar.root.currentAnimation) {
-                // Avatar has its own animation - just keep it at base position
-                avatar.root.position.x = npc.basePosition.x;
-                avatar.root.position.z = npc.basePosition.z;
-                avatar.root.position.y = npc.basePosition.y;
-                // Don't override rotation - let the animation handle it
-                
-                // Debug: Log once that we're using built-in animation
-                if (!npc.loggedAnimation) {
-                    log.info(`🎭 ${npc.id} using built-in animation (skipping procedural)`);
-                    npc.loggedAnimation = true;
+        if (!this.npcAvatars || this.npcAvatars.length === 0) return;
+        
+        // Optional: Sync animation speed to audio
+        const audioData = this.getAudioData();
+        if (audioData.hasAudio && audioData.bass > 0.3) {
+            // Speed up animations slightly with the beat
+            const beatBoost = 1.0 + (audioData.bass - 0.3) * 0.3;
+            this.npcAvatars.forEach(npc => {
+                if (npc.animations) {
+                    npc.animations.forEach(anim => {
+                        anim.speedRatio = (0.9 + Math.random() * 0.2) * beatBoost;
+                    });
                 }
-                return;
-            }
-            
-            // Debug: Log once that we're using procedural animation
-            if (!npc.loggedProcedural) {
-                log.info(`🤖 ${npc.id} using procedural animation (no built-in animation found)`);
-                npc.loggedProcedural = true;
-            }
-            
-            // DANCE STYLE VARIATIONS - Each NPC has their own style
-            let sideMotion, forwardMotion, bobAmount, rotationAmount;
-            
-            switch(npc.danceStyle) {
-                case 0: // ENERGETIC - Big movements, lots of jumping
-                    sideMotion = Math.sin(time * npc.danceSpeed * 1.5 + npc.angle) * 0.4;
-                    forwardMotion = Math.cos(time * npc.danceSpeed * 1.8 + npc.angle) * 0.3;
-                    bobAmount = Math.abs(Math.sin(time * npc.danceSpeed * 3 + npc.bobPhase)) * 0.25;
-                    rotationAmount = Math.sin(time * npc.danceSpeed * 0.8 + npc.spinPhase) * 0.8;
-                    break;
-                    
-                case 1: // CHILL - Smooth, flowing movements
-                    sideMotion = Math.sin(time * npc.danceSpeed * 0.6 + npc.angle) * 0.2;
-                    forwardMotion = Math.cos(time * npc.danceSpeed * 0.7 + npc.angle) * 0.15;
-                    bobAmount = Math.abs(Math.sin(time * npc.danceSpeed * 1.5 + npc.bobPhase)) * 0.1;
-                    rotationAmount = Math.sin(time * npc.danceSpeed * 0.3 + npc.spinPhase) * 0.3;
-                    break;
-                    
-                case 2: // RHYTHMIC - Sharp, beat-focused movements
-                    sideMotion = Math.floor(Math.sin(time * npc.danceSpeed * 2 + npc.angle) * 4) * 0.1;
-                    forwardMotion = Math.floor(Math.cos(time * npc.danceSpeed * 2.2 + npc.angle) * 4) * 0.08;
-                    bobAmount = Math.floor(Math.sin(time * npc.danceSpeed * 4 + npc.bobPhase) * 2) * 0.15;
-                    rotationAmount = Math.floor(Math.sin(time * npc.danceSpeed * 0.6 + npc.spinPhase) * 3) * 0.2;
-                    break;
-                    
-                case 3: // SHUFFLE - Side-to-side with occasional spins
-                    const shufflePhase = Math.floor(time * npc.danceSpeed * 0.5) % 4;
-                    sideMotion = (shufflePhase < 2 ? 0.3 : -0.3) * Math.sin(time * npc.danceSpeed * 2);
-                    forwardMotion = Math.sin(time * npc.danceSpeed * 0.5 + npc.angle) * 0.1;
-                    bobAmount = Math.abs(Math.sin(time * npc.danceSpeed * 2 + npc.bobPhase)) * 0.12;
-                    rotationAmount = Math.sin(time * npc.danceSpeed * 0.4 + npc.spinPhase) * 1.2;
-                    break;
-            }
-            
-            // Apply movement (accounting for height variation)
-            avatar.root.position.x = npc.basePosition.x + sideMotion;
-            avatar.root.position.z = npc.basePosition.z + forwardMotion;
-            avatar.root.position.y = bobAmount * npc.heightMultiplier; // Shorter NPCs bob less
-            
-            // Apply rotation
-            avatar.root.rotation.y = rotationAmount;
-            
-            // VR avatars: animate hands with style-specific movements
-            if (npc.isVR && avatar.leftHand && avatar.rightHand) {
-                switch(npc.danceStyle) {
-                    case 0: // ENERGETIC - Hands way up, waving wildly
-                        avatar.leftHand.position.y = 1.5 + Math.sin(time * npc.danceSpeed * 4 + npc.handWavePhase) * 0.4;
-                        avatar.rightHand.position.y = 1.5 + Math.cos(time * npc.danceSpeed * 4 + npc.handWavePhase) * 0.4;
-                        avatar.leftHand.position.x = -0.4 + Math.sin(time * npc.danceSpeed * 3) * 0.2;
-                        avatar.rightHand.position.x = 0.4 + Math.cos(time * npc.danceSpeed * 3) * 0.2;
-                        break;
-                        
-                    case 1: // CHILL - Hands at chest level, gentle sway
-                        avatar.leftHand.position.y = 1.0 + Math.sin(time * npc.danceSpeed * 1.5 + npc.handWavePhase) * 0.15;
-                        avatar.rightHand.position.y = 1.0 + Math.cos(time * npc.danceSpeed * 1.5 + npc.handWavePhase) * 0.15;
-                        avatar.leftHand.position.x = -0.25 + Math.sin(time * npc.danceSpeed) * 0.05;
-                        avatar.rightHand.position.x = 0.25 + Math.cos(time * npc.danceSpeed) * 0.05;
-                        break;
-                        
-                    case 2: // RHYTHMIC - Hands pumping to the beat
-                        avatar.leftHand.position.y = 1.2 + Math.floor(Math.sin(time * npc.danceSpeed * 4 + npc.handWavePhase) * 2) * 0.15;
-                        avatar.rightHand.position.y = 1.2 + Math.floor(Math.cos(time * npc.danceSpeed * 4 + npc.handWavePhase) * 2) * 0.15;
-                        avatar.leftHand.position.x = -0.3;
-                        avatar.rightHand.position.x = 0.3;
-                        break;
-                        
-                    case 3: // SHUFFLE - One hand up, one down alternating
-                        const handSwitch = Math.floor(time * npc.danceSpeed * 0.5) % 2;
-                        avatar.leftHand.position.y = handSwitch ? 1.5 : 0.8;
-                        avatar.rightHand.position.y = handSwitch ? 0.8 : 1.5;
-                        avatar.leftHand.position.x = -0.3 + Math.sin(time * npc.danceSpeed) * 0.1;
-                        avatar.rightHand.position.x = 0.3 + Math.cos(time * npc.danceSpeed) * 0.1;
-                        break;
-                }
-            }
-        });
+            });
+        }
     }
 
     setupPerformanceMonitor() {

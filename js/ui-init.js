@@ -305,6 +305,7 @@ function initVJMenu() {
             vrClubInstance.mirrorBallSpeed = value;
             vrClubInstance.ledWallSpeed = value;
             vrClubInstance.strobeSpeed = value;
+            vrClubInstance.blinderSpeed = value;
             spotSpeedValue.textContent = `${value.toFixed(1)}x`;
         });
     }
