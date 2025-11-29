@@ -5922,31 +5922,16 @@ class VRClub {
         // Laser curtain show removed (was broken)
 
         // Update truss-mounted light fixtures so they EXACTLY match their beams
-        // Rule: fixture ON + colored IFF its own beam is visible; otherwise dark
+        // Rule: fixture stays lit with current color when lightsActive=true (beam strobe doesn't affect fixture)
         if (this.spotlights && this.spotlights.length > 0) {
-            // DEBUG: Log once every 2 seconds to verify this code is running
-            if (!this._lastFixtureDebug || Date.now() - this._lastFixtureDebug > 2000) {
-                this._lastFixtureDebug = Date.now();
-                const lens0 = this.scene.getMeshByName("lens0");
-                console.log('🔧 Fixture update running:', {
-                    currentColor: `RGB(${this.currentSpotColor.r.toFixed(2)}, ${this.currentSpotColor.g.toFixed(2)}, ${this.currentSpotColor.b.toFixed(2)})`,
-                    lens0Found: !!lens0,
-                    lens0Material: lens0?.material?.name,
-                    lens0EmissiveExists: !!(lens0?.material?.emissiveColor),
-                    lens0Emissive: lens0?.material?.emissiveColor ? 
-                        `RGB(${lens0.material.emissiveColor.r.toFixed(2)}, ${lens0.material.emissiveColor.g.toFixed(2)}, ${lens0.material.emissiveColor.b.toFixed(2)})` : 'N/A',
-                    lightsActive: this.lightsActive,
-                    spotlightsCount: this.spotlights.length
-                });
-            }
-            
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
                 if (!spot) continue;
 
-                // Authoritative beam state
-                const beamVisibleFlag = !!(spot.beam && spot.beam.visibility > 0.0);
-                const fixtureVisible = this.lightsActive && beamVisibleFlag;
+                // CRITICAL FIX: Fixture lens should stay lit when lights are active
+                // Only the BEAM should strobe, not the fixture itself
+                // The fixture represents the physical light source which stays on
+                const fixtureVisible = this.lightsActive;
 
                 // CRITICAL FIX: Use the GLOBAL currentSpotColor directly (normalized, not scaled)
                 // The beamMat.emissiveColor is scaled by baseIntensity which distorts the color
