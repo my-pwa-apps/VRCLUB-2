@@ -3091,7 +3091,6 @@ class VRClub {
                 disableLighting: true
             });
             sourceMat.backFaceCulling = false;
-            sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
             

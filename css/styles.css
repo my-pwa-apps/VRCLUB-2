@@ -403,61 +403,6 @@ html, body {
     transform: scale(1.1);
 }
 
-/* Multiplayer Toggle */
-#multiplayerToggle {
-    position: absolute;
-    top: 70px;
-    left: 20px;
-    background: rgba(0, 0, 0, 0.75);
-    border: none;
-    color: white;
-    padding: 12px 16px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 16px;
-    z-index: 101;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    transition: all 0.3s;
-}
-
-#multiplayerToggle:hover {
-    background: #667eea;
-    transform: scale(1.1);
-}
-
-/* Multiplayer Menu */
-#multiplayerMenu {
-    position: absolute;
-    top: 120px;
-    left: 20px;
-    background: rgba(0, 0, 0, 0.9);
-    padding: 15px;
-    border-radius: 12px;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    z-index: 100;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    color: white;
-    min-width: 280px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-#multiplayerMenu.minimized {
-    padding: 8px 12px;
-    min-width: auto;
-}
-
-#multiplayerMenu.minimized .vj-content {
-    display: none;
-}
-
-#multiplayerMenu.hidden {
-    display: none;
-}
-
 /* Audio Upload Menu */
 #audioMenu {
     position: absolute;
@@ -1029,16 +974,6 @@ html, body {
 
 /* Fix inline styles - move to CSS classes */
 #canvas.hidden { display: none; }
-#connectBtn { width: 100%; }
-#disconnectBtn { width: 100%; background: #dc3545; }
-#disconnectBtn.hidden { display: none; }
-#playerList.hidden { display: none; }
-#playerListContent {
-    font-size: 12px;
-    max-height: 150px;
-    overflow-y: auto;
-}
-#mpStatus.hidden { display: none; }
 #audioStatus.hidden { display: none; }
 .vj-button[data-control="changeMirrorBallColor"] {
     grid-column: 1 / -1;
