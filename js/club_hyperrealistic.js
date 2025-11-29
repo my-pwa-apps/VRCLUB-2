@@ -5977,11 +5977,15 @@ class VRClub {
             
             // DEBUG: Log color AFTER update (once per color change)
             if (this._lastLoggedSpotColor && this._debugLogAfter) {
-                if (this.trussLights[0] && this.trussLights[0].lensMat) {
-                    console.log('  trussLights[0].lensMat.emissiveColor AFTER:', 
-                        this.trussLights[0].lensMat.emissiveColor.r.toFixed(2),
-                        this.trussLights[0].lensMat.emissiveColor.g.toFixed(2),
-                        this.trussLights[0].lensMat.emissiveColor.b.toFixed(2));
+                // Log BOTH the stored reference AND the actual mesh material
+                if (this.trussLights[0]) {
+                    const storedMat = this.trussLights[0].lensMat;
+                    const meshMat = this.trussLights[0].lens ? this.trussLights[0].lens.material : null;
+                    console.log('  STORED lensMat AFTER:', storedMat ? 
+                        `${storedMat.emissiveColor.r.toFixed(2)} ${storedMat.emissiveColor.g.toFixed(2)} ${storedMat.emissiveColor.b.toFixed(2)}` : 'null');
+                    console.log('  MESH lens.material AFTER:', meshMat && meshMat.emissiveColor ? 
+                        `${meshMat.emissiveColor.r.toFixed(2)} ${meshMat.emissiveColor.g.toFixed(2)} ${meshMat.emissiveColor.b.toFixed(2)}` : 'null/no emissive');
+                    console.log('  Same object?:', storedMat === meshMat);
                 }
                 this._debugLogAfter = false;
             }
