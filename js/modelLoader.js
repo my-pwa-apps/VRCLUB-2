@@ -101,8 +101,8 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(-8, 6.5, -15), // Hung from ceiling (y=6.5), closer to dancefloor
-                rotation: new BABYLON.Vector3(Math.PI / 8, Math.PI + Math.PI / 6, 0), // Tilted down 22.5° (X), facing audience + 30° inward (Y)
+                position: new BABYLON.Vector3(-6, 6.5, -22), // Hung from ceiling, in front of LED wall (z=-25)
+                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
                 hangFromCeiling: true, // Flag for special positioning
@@ -111,8 +111,8 @@ class ModelLoader {
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(8, 6.5, -15), // Hung from ceiling (y=6.5), closer to dancefloor
-                rotation: new BABYLON.Vector3(Math.PI / 8, Math.PI - Math.PI / 6, 0), // Tilted down 22.5° (X), facing audience - 30° inward (Y)
+                position: new BABYLON.Vector3(6, 6.5, -22), // Hung from ceiling, in front of LED wall (z=-25)
+                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
                 hangFromCeiling: true, // Flag for special positioning

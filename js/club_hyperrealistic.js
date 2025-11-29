@@ -702,14 +702,16 @@ class VRClub {
                                 xrInput: vrHelper.input,
                                 // Smooth locomotion settings - left stick moves, right stick rotates
                                 movementEnabled: true,
-                                movementSpeed: 3.0, // Increased from 1.0 for responsive movement
-                                movementThreshold: 0.15, // Lower threshold to detect thumbstick input earlier
+                                movementSpeed: 2.5, // Slightly slower for more realistic walking feel
+                                movementThreshold: 0.2, // Higher threshold to prevent drift
                                 rotationEnabled: true,
-                                rotationSpeed: 1.0, // Turning speed with right stick
-                                rotationThreshold: 0.15, // Lower threshold for rotation detection
+                                rotationSpeed: 0.8, // Slightly slower turning for comfort
+                                rotationThreshold: 0.2, // Higher threshold for rotation
                                 // Move in direction you're looking (head direction)
                                 movementOrientationFollowsViewerPose: true,
-                                movementOrientationFollowsController: false // Don't follow controller direction
+                                movementOrientationFollowsController: false, // Don't follow controller direction
+                                // CRITICAL: Gravity simulation - constrains movement to XZ plane (no flying)
+                                gravityEnabled: true // Enable gravity to keep player grounded
                             }
                         );
                         log.info('🎮 VR controller locomotion enabled');
@@ -5482,7 +5484,9 @@ class VRClub {
                     if (shouldRaycast || !hit) {
                         // Reuse ray object instead of creating new one
                         if (!this.laserRay) {
-                            this.laserRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 30);
+                            // Ray length 50 ensures beams reach floor even at steep diagonal angles
+                            // (lasers at y=7.55 pointing diagonally need ~45 units to reach floor at room edges)
+                            this.laserRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 50);
                             this.laserRayPredicate = (mesh) => {
                                 return mesh.isPickable && !mesh.name.includes('laser') && !mesh.name.includes('Housing') && !mesh.name.includes('Clamp');
                             };
