@@ -3422,73 +3422,86 @@ class VRClub {
     }
     
     createLaserBeam(laserIndex, beamIndex, pos) {
-        // HYPERREALISTIC LASER BEAM - Very thin, intense core with volumetric glow
+        // HYPERREALISTIC LASER BEAM - Physically accurate laser appearance
+        // Real lasers: pencil-thin coherent light with atmospheric scatter creating visible beam
         
-        // CORE BEAM - Ultra-thin, super bright (realistic laser appearance)
+        // === CORE BEAM - Ultra-thin, razor-sharp coherent light ===
+        // Real show lasers are 2-4mm diameter, we use 5mm for visibility
         const beam = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_beam" + beamIndex, {
-            diameter: 0.008,  // Extremely thin (8mm) - reduced from 0.015
+            diameterTop: 0.004,    // 4mm at source (very tight)
+            diameterBottom: 0.008, // 8mm at end (slight divergence like real laser)
             height: 1,
-            tessellation: 8
+            tessellation: 6        // Low poly - lasers are perfectly round
         }, this.scene);
         beam.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        // PBR Material with high intensity for core beam
-        const beamMat = this.materialFactory.createPBRMaterial("laserBeamMat" + laserIndex + "_" + beamIndex, {
-            baseColor: [0, 0, 0],
-            metallic: 0,
-            roughness: 1,
-            emissiveColor: [1, 0, 0], // Bright red core
-            emissiveIntensity: 8.0, // Blindingly bright core
-            alpha: 1.0, // Fully opaque core
-            transparencyMode: BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND,
-            backFaceCulling: false,
-            disableLighting: true,
-            unlit: true
-        });
-        beam.material = beamMat;
-        beam.renderingGroupId = 1;
         
-        // VOLUMETRIC GLOW - Soft halo around the laser (atmospheric scatter)
-        // Use NoiseProceduralTexture for smoke effect
-        const glowTexture = new BABYLON.NoiseProceduralTexture("laserGlowNoise" + laserIndex + "_" + beamIndex, 128, this.scene);
-        glowTexture.octaves = 2;
-        glowTexture.persistence = 0.8;
-        glowTexture.animationSpeedFactor = 0.5;
-        glowTexture.brightness = 0.5;
-        glowTexture.contrast = 1.5;
-
-        const beamGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_glow" + beamIndex, {
-            diameter: 0.12,   // Wider glow (12cm)
+        // Core material - BLINDINGLY bright, pure saturated color
+        const beamMat = new BABYLON.StandardMaterial("laserCoreMat" + laserIndex + "_" + beamIndex, this.scene);
+        beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Pure red - will be updated
+        beamMat.disableLighting = true;
+        beamMat.backFaceCulling = false;
+        beam.material = beamMat;
+        beam.renderingGroupId = 2; // Render on top for crisp appearance
+        beam.isPickable = false;
+        
+        // === INNER GLOW - Tight halo simulating light scatter in immediate vicinity ===
+        const innerGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_innerGlow" + beamIndex, {
+            diameterTop: 0.025,    // 2.5cm at source
+            diameterBottom: 0.05,  // 5cm at end (expands with beam)
             height: 1,
             tessellation: 8
         }, this.scene);
-        beamGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        beamGlow.isPickable = false;
-        beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
+        innerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
+        innerGlow.isPickable = false;
         
-        const beamGlowMat = this.materialFactory.createPBRMaterial("laserGlowMat" + laserIndex + "_" + beamIndex, {
-            baseColor: [0, 0, 0],
-            metallic: 0,
-            roughness: 1,
-            emissiveTexture: glowTexture,
-            emissiveColor: [1, 0, 0], // Red glow
-            emissiveIntensity: 2.0,
-            opacityTexture: glowTexture,
-            alpha: 0.2, // Very transparent for soft glow
-            transparencyMode: BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND,
-            backFaceCulling: false,
-            disableLighting: true,
-            unlit: true
-        });
-        beamGlow.material = beamGlowMat;
-        beamGlow.renderingGroupId = 1;true;
-        beamGlowMat.unlit = true;
-        beamGlow.material = beamGlowMat;
-        beamGlow.renderingGroupId = 1;
+        const innerGlowMat = new BABYLON.StandardMaterial("laserInnerGlowMat" + laserIndex + "_" + beamIndex, this.scene);
+        innerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        innerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        innerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.3, 0.3); // Slightly desaturated for glow
+        innerGlowMat.alpha = 0.6; // Semi-transparent
+        innerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for glow
+        innerGlowMat.disableLighting = true;
+        innerGlowMat.backFaceCulling = false;
+        innerGlow.material = innerGlowMat;
+        innerGlow.renderingGroupId = 1;
         
-        // FLOOR HIT SPOT - Where laser hits the ground (small, focused like real laser)
+        // === OUTER ATMOSPHERIC SCATTER - Wide soft haze from fog/smoke ===
+        // This is what makes laser beams visible in clubs (haze machine effect)
+        const outerGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_outerGlow" + beamIndex, {
+            diameterTop: 0.08,     // 8cm at source
+            diameterBottom: 0.18,  // 18cm at end (wide scatter)
+            height: 1,
+            tessellation: 8
+        }, this.scene);
+        outerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
+        outerGlow.isPickable = false;
+        
+        // Animated noise texture for realistic atmospheric turbulence
+        const hazeNoise = new BABYLON.NoiseProceduralTexture("laserHazeNoise" + laserIndex + "_" + beamIndex, 64, this.scene);
+        hazeNoise.octaves = 3;
+        hazeNoise.persistence = 0.7;
+        hazeNoise.animationSpeedFactor = 2.0; // Faster animation for turbulent haze
+        hazeNoise.brightness = 0.6;
+        
+        const outerGlowMat = new BABYLON.StandardMaterial("laserOuterGlowMat" + laserIndex + "_" + beamIndex, this.scene);
+        outerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        outerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        outerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2); // Soft color
+        outerGlowMat.opacityTexture = hazeNoise; // Noise creates realistic haze pattern
+        outerGlowMat.alpha = 0.15; // Very transparent
+        outerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+        outerGlowMat.disableLighting = true;
+        outerGlowMat.backFaceCulling = false;
+        outerGlow.material = outerGlowMat;
+        outerGlow.renderingGroupId = 1;
+        
+        // === FLOOR HIT SPOT - Sharp bright point where laser terminates ===
+        // Real lasers create a small, intense dot
         const hitSpot = BABYLON.MeshBuilder.CreateDisc("laserHit" + laserIndex + "_" + beamIndex, {
-            radius: 0.04,  // Much smaller - reduced from 0.15 to 0.04 (realistic laser spot)
-            tessellation: 16
+            radius: 0.025,  // 2.5cm - very small like real laser
+            tessellation: 12
         }, this.scene);
         hitSpot.rotation.x = Math.PI / 2;
         hitSpot.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
@@ -3496,20 +3509,42 @@ class VRClub {
         
         const hitSpotMat = new BABYLON.StandardMaterial("laserHitMat" + laserIndex + "_" + beamIndex, this.scene);
         hitSpotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        hitSpotMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Bright red spot (will be updated with color)
-        hitSpotMat.alpha = 0.9;  // More opaque for brighter spot
-        hitSpotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive for bright glow
+        hitSpotMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+        hitSpotMat.alpha = 1.0;
+        hitSpotMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         hitSpotMat.disableLighting = true;
         hitSpot.material = hitSpotMat;
-        hitSpot.renderingGroupId = 1;
+        hitSpot.renderingGroupId = 2;
+        
+        // === HIT SPOT GLOW - Soft bloom around termination point ===
+        const hitGlow = BABYLON.MeshBuilder.CreateDisc("laserHitGlow" + laserIndex + "_" + beamIndex, {
+            radius: 0.12,  // 12cm soft glow around hit point
+            tessellation: 16
+        }, this.scene);
+        hitGlow.rotation.x = Math.PI / 2;
+        hitGlow.position = new BABYLON.Vector3(pos.x, 0.015, pos.z - 5);
+        hitGlow.isPickable = false;
+        
+        const hitGlowMat = new BABYLON.StandardMaterial("laserHitGlowMat" + laserIndex + "_" + beamIndex, this.scene);
+        hitGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        hitGlowMat.emissiveColor = new BABYLON.Color3(1, 0.3, 0.3);
+        hitGlowMat.alpha = 0.4;
+        hitGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+        hitGlowMat.disableLighting = true;
+        hitGlow.material = hitGlowMat;
+        hitGlow.renderingGroupId = 1;
         
         return { 
             mesh: beam, 
-            material: beamMat, 
-            beamGlow: beamGlow,
-            glowMat: beamGlowMat,
+            material: beamMat,
+            innerGlow: innerGlow,
+            innerGlowMat: innerGlowMat,
+            beamGlow: outerGlow,  // Keep name for compatibility
+            glowMat: outerGlowMat,
             hitSpot: hitSpot,
             hitSpotMat: hitSpotMat,
+            hitGlow: hitGlow,
+            hitGlowMat: hitGlowMat,
             beamIndex: beamIndex 
         };
     }
@@ -5082,7 +5117,12 @@ class VRClub {
                             BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
                     }
                     
-                    // UPDATE GLOW BEAM - Same position/rotation/scale as core
+                    // UPDATE GLOW BEAMS - Same position/rotation/scale as core
+                    if (beam.innerGlow) {
+                        beam.innerGlow.scaling.y = beamLength;
+                        beam.innerGlow.position.copyFrom(beam.mesh.position);
+                        beam.innerGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
+                    }
                     if (beam.beamGlow) {
                         beam.beamGlow.scaling.y = beamLength;
                         beam.beamGlow.position.copyFrom(beam.mesh.position);
@@ -5095,37 +5135,72 @@ class VRClub {
                         beam.hitSpot.position.y = 0.02; // Slightly above floor to avoid z-fighting
                         beam.hitSpot.visibility = 1.0;
                         
-                        // Pulse effect on hit spot
-                        const pulse = 0.8 + Math.sin(time * 8 + beamIdx) * 0.2;
+                        // Pulse effect on hit spot - rapid flicker like real laser
+                        const pulse = 0.85 + Math.sin(time * 12 + beamIdx * 2) * 0.15;
                         beam.hitSpot.scaling.x = pulse;
                         beam.hitSpot.scaling.y = pulse;
+                        
+                        // Update hit glow too
+                        if (beam.hitGlow) {
+                            beam.hitGlow.position.copyFrom(hit.pickedPoint);
+                            beam.hitGlow.position.y = 0.015;
+                            beam.hitGlow.visibility = 1.0;
+                            // Softer pulse for glow
+                            const glowPulse = 0.9 + Math.sin(time * 6 + beamIdx) * 0.1;
+                            beam.hitGlow.scaling.x = glowPulse * 1.2;
+                            beam.hitGlow.scaling.y = glowPulse * 1.2;
+                        }
                     } else if (beam.hitSpot) {
                         beam.hitSpot.visibility = 0; // Hide if no hit
+                        if (beam.hitGlow) beam.hitGlow.visibility = 0;
                     }
                     
-                    // Color all beam elements with current color
-                    let currentColor;
+                    // Color all beam elements with current color - HYPERREALISTIC color grading
+                    let currentColor, innerGlowColor, outerGlowColor, hitGlowColor;
                     if (this.currentColorIndex === 0) {
                         currentColor = this.cachedColors.red;
+                        innerGlowColor = new BABYLON.Color3(1, 0.4, 0.4);  // Slightly desaturated
+                        outerGlowColor = new BABYLON.Color3(1, 0.25, 0.25); // Even softer
+                        hitGlowColor = new BABYLON.Color3(1, 0.5, 0.5);
                     } else if (this.currentColorIndex === 1) {
                         currentColor = this.cachedColors.green;
+                        innerGlowColor = new BABYLON.Color3(0.4, 1, 0.4);
+                        outerGlowColor = new BABYLON.Color3(0.25, 1, 0.25);
+                        hitGlowColor = new BABYLON.Color3(0.5, 1, 0.5);
                     } else {
                         currentColor = this.cachedColors.blue;
+                        innerGlowColor = new BABYLON.Color3(0.4, 0.4, 1);
+                        outerGlowColor = new BABYLON.Color3(0.25, 0.25, 1);
+                        hitGlowColor = new BABYLON.Color3(0.5, 0.5, 1);
                     }
                     
-                    // Apply color to core beam
+                    // Apply color to core beam - pure saturated color
                     beam.material.emissiveColor = currentColor;
                     beam.mesh.visibility = 1.0;
                     
-                    // Apply softer color to glow
+                    // Apply inner glow color (tight halo)
+                    if (beam.innerGlowMat) {
+                        beam.innerGlowMat.emissiveColor = innerGlowColor;
+                    }
+                    if (beam.innerGlow) {
+                        beam.innerGlow.visibility = 1.0;
+                    }
+                    
+                    // Apply outer glow color (atmospheric scatter)
                     if (beam.glowMat) {
-                        beam.glowMat.emissiveColor = currentColor;
+                        beam.glowMat.emissiveColor = outerGlowColor;
                     }
                     if (beam.beamGlow) {
                         beam.beamGlow.visibility = 1.0;
                     }
                     
-                    // Apply color to hit spot (already handled above with visibility check)
+                    // Apply color to hit spots
+                    if (beam.hitSpotMat) {
+                        beam.hitSpotMat.emissiveColor = currentColor;
+                    }
+                    if (beam.hitGlowMat) {
+                        beam.hitGlowMat.emissiveColor = hitGlowColor;
+                    }
                 });
                 
                 // Update lights and emitter color - Now updates every frame for sync with beams
@@ -5485,9 +5560,8 @@ class VRClub {
                         
                         // Also pulse the lens brightness slightly when moving fast (light scatter effect)
                         if (spot.lensMat && this.lightsActive) {
-                            const spotColor = spot.color || this.currentSpotColor;
                             const baseGlow = 5.0 + (movementSpeed * 10); // Brighter when sweeping
-                            spot.lensMat.emissiveColor = spotColor.scale(Math.min(7.0, baseGlow));
+                            spot.lensMat.emissiveColor = this.currentSpotColor.scale(Math.min(7.0, baseGlow));
                         }
                     }
                 } else if (spot.fixture) {
@@ -5600,9 +5674,8 @@ class VRClub {
                         
                         // CRITICAL: Sync glow visibility with strobe/beam visibility
                         spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
-                        // Use per-spotlight color to match beam
-                        const spotColor = spot.color || this.currentSpotColor;
-                        spot.beamGlowMat.emissiveColor = spotColor.scale(0.15);
+                        // Use global color for perfect sync
+                        spot.beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15);
                     }
                     spot.light.intensity = beamVisible ? 12 : 0; // Also control light intensity
                     
@@ -5610,8 +5683,9 @@ class VRClub {
                     const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
                     
                     // Update emissive color with variation (audio disabled)
-                    // CRITICAL: Use spot.color (per-spotlight) not currentSpotColor (global) to prevent mismatches
-                    const spotColor = spot.color || this.currentSpotColor; // Fallback to global if not set
+                    // CRITICAL: Use this.currentSpotColor (global) as single source of truth
+                    // This ensures beam, fixture, and all effects use the EXACT same color
+                    const spotColor = this.currentSpotColor;
                     const baseIntensity = 2.0 + atmosphericNoise; // Increased base intensity (was 0.3)
                     spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
                     spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
@@ -5638,8 +5712,8 @@ class VRClub {
                             
                             // Use floor intersection point where beam actually hits
                             
-                            // CRITICAL: Use per-spotlight color to match beam and prevent color mismatches
-                            const spotColor = spot.color || this.currentSpotColor;
+                            // CRITICAL: Use global color for perfect sync
+                            const spotColor = this.currentSpotColor;
                             
                             // GOBO POOL (Single layer with texture)
                             spot.lightPool.position.x = floorIntersection.x;
@@ -5714,9 +5788,9 @@ class VRClub {
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
             this.spotlights.forEach((spot, i) => {
-                // CRITICAL: Use the EXACT color that was used for the beam this frame
-                // spot.currentBeamColor is set during beam update for perfect sync
-                const spotColor = spot.currentBeamColor || spot.color || this.currentSpotColor;
+                // CRITICAL: Use this.currentSpotColor as single source of truth
+                // This ensures fixture always matches the beam color exactly
+                const spotColor = this.currentSpotColor;
                 
                 // CRITICAL: Use stored beamVisible from beam update for PERFECT SYNC
                 // This ensures fixture flashes exactly when beam flashes
