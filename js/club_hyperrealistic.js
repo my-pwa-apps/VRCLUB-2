@@ -5924,60 +5924,51 @@ class VRClub {
         // Update truss-mounted light fixtures so they EXACTLY match their beams
         // Rule: fixture stays lit with current color when lightsActive=true (beam strobe doesn't affect fixture)
         if (this.spotlights && this.spotlights.length > 0) {
-            // DEBUG: Log once every 2 seconds - check for duplicate meshes
-            if (!this._lastFixtureDebug || Date.now() - this._lastFixtureDebug > 2000) {
-                this._lastFixtureDebug = Date.now();
-                console.log('🔧 Fixture loop - spotlights count:', this.spotlights.length,
-                    'lightsActive:', this.lightsActive,
-                    'currentSpotColor:', `RGB(${this.currentSpotColor.r.toFixed(2)}, ${this.currentSpotColor.g.toFixed(2)}, ${this.currentSpotColor.b.toFixed(2)})`);
-                // Check for duplicate meshes with same name pattern
-                const allMeshes = this.scene.meshes.filter(m => m.name.startsWith('lens') || m.name.startsWith('lightSource'));
-                console.log('🔍 ALL lens/lightSource meshes in scene:', allMeshes.map(m => m.name).join(', '));
-            }
+            // Use the GLOBAL currentSpotColor for ALL fixtures - they must all match
+            const targetColor = this.currentSpotColor;
+            const lensIntensity = 1.8;
+            const sourceIntensity = 3.0;
+            
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
                 if (!spot) continue;
 
-                // CRITICAL FIX: Fixture lens should stay lit when lights are active
-                // Only the BEAM should strobe, not the fixture itself
-                // The fixture represents the physical light source which stays on
+                // Fixture should be lit when lights are active
                 const fixtureVisible = this.lightsActive;
-
-                // CRITICAL FIX: Use the GLOBAL currentSpotColor directly (normalized, not scaled)
-                // The beamMat.emissiveColor is scaled by baseIntensity which distorts the color
-                const beamColor = this.currentSpotColor;
 
                 // Lookup meshes by name (guaranteed unique per fixture)
                 const lens = this.scene.getMeshByName("lens" + i);
                 const lightSource = this.scene.getMeshByName("lightSource" + i);
 
-                // Lens: slightly dimmer than beam
-                if (lens && lens.material && lens.material.emissiveColor) {
-                    const col = lens.material.emissiveColor;
+                // Update lens color
+                if (lens && lens.material) {
+                    if (!lens.material.emissiveColor) {
+                        lens.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    }
                     if (fixtureVisible) {
-                        const lensScale = 1.8;
-                        col.r = beamColor.r * lensScale;
-                        col.g = beamColor.g * lensScale;
-                        col.b = beamColor.b * lensScale;
+                        lens.material.emissiveColor.r = targetColor.r * lensIntensity;
+                        lens.material.emissiveColor.g = targetColor.g * lensIntensity;
+                        lens.material.emissiveColor.b = targetColor.b * lensIntensity;
                     } else {
-                        col.r = 0;
-                        col.g = 0;
-                        col.b = 0;
+                        lens.material.emissiveColor.r = 0;
+                        lens.material.emissiveColor.g = 0;
+                        lens.material.emissiveColor.b = 0;
                     }
                 }
 
-                // Inner bulb: brightest
-                if (lightSource && lightSource.material && lightSource.material.emissiveColor) {
-                    const col = lightSource.material.emissiveColor;
+                // Update light source (inner bulb) color
+                if (lightSource && lightSource.material) {
+                    if (!lightSource.material.emissiveColor) {
+                        lightSource.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    }
                     if (fixtureVisible) {
-                        const bulbScale = 3.0;
-                        col.r = beamColor.r * bulbScale;
-                        col.g = beamColor.g * bulbScale;
-                        col.b = beamColor.b * bulbScale;
+                        lightSource.material.emissiveColor.r = targetColor.r * sourceIntensity;
+                        lightSource.material.emissiveColor.g = targetColor.g * sourceIntensity;
+                        lightSource.material.emissiveColor.b = targetColor.b * sourceIntensity;
                     } else {
-                        col.r = 0;
-                        col.g = 0;
-                        col.b = 0;
+                        lightSource.material.emissiveColor.r = 0;
+                        lightSource.material.emissiveColor.g = 0;
+                        lightSource.material.emissiveColor.b = 0;
                     }
                 }
             }
