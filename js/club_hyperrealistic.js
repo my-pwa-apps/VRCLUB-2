@@ -4673,8 +4673,8 @@ class VRClub {
                         this.lightingPhase = 'peak';
                         this.targetEnergy = 1.0;
                         
-                        // ACTIVE CONTROL: High Energy - Laser Sheet (NOT ceiling lasers)
-                        this.lightsActive = true;
+                        // ACTIVE CONTROL: High Energy - Laser Sheet (NOT ceiling lasers/gobos)
+                        this.lightsActive = false; // Gobos OFF (mutual exclusivity with laser sheet)
                         this.lasersActive = false; // Ceiling lasers OFF (mutual exclusivity)
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
@@ -4745,8 +4745,8 @@ class VRClub {
                         this.lightingPhase = 'drop';
                         this.targetEnergy = 1.0;
                         
-                        // ACTIVE CONTROL: Maximum Chaos - Laser Sheet (NOT ceiling lasers)
-                        this.lightsActive = true;
+                        // ACTIVE CONTROL: Maximum Chaos - Laser Sheet (NOT ceiling lasers/gobos)
+                        this.lightsActive = false; // Gobos OFF (mutual exclusivity with laser sheet)
                         this.lasersActive = false; // Ceiling lasers OFF (mutual exclusivity)
                         this.mirrorBallActive = false;
                         this.strobesActive = true;
@@ -6807,25 +6807,29 @@ class VRClub {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
                         
-                        // MUTUAL EXCLUSIVITY: Laser sheet and mirror ball cannot be active with ceiling lasers
-                        // When mirrorBall or laserSheet turns ON, turn OFF ceiling lasers (and vice versa)
+                        // MUTUAL EXCLUSIVITY: Laser sheet and mirror ball cannot be active with ceiling lasers/gobos
+                        // When mirrorBall or laserSheet turns ON, turn OFF ceiling lasers AND gobos (and vice versa)
                         if (clickedButton.control === 'mirrorBallActive' && this.mirrorBallActive) {
                             this.lasersActive = false;
                             this.laserSheetActive = false; // Mirror ball is solo effect
-                            log.info('🪩 Mirror ball ON - ceiling lasers & laser sheet OFF');
+                            this.lightsActive = false; // Gobos OFF
+                            log.info('🪩 Mirror ball ON - ceiling lasers, laser sheet & gobos OFF');
                         } else if (clickedButton.control === 'laserSheetActive' && this.laserSheetActive) {
                             this.lasersActive = false;
                             this.mirrorBallActive = false; // Laser sheet excludes mirror ball too
-                            log.info('📡 Laser sheet ON - ceiling lasers & mirror ball OFF');
+                            this.lightsActive = false; // Gobos OFF (mutual exclusivity)
+                            log.info('📡 Laser sheet ON - ceiling lasers, mirror ball & gobos OFF');
                         } else if (clickedButton.control === 'lasersActive' && this.lasersActive) {
                             this.mirrorBallActive = false;
                             this.laserSheetActive = false;
-                            log.info('🔴 Ceiling lasers ON - mirror ball & laser sheet OFF');
+                            this.lightsActive = true; // Gobos ON with ceiling lasers
+                            log.info('🔴 Ceiling lasers ON - mirror ball & laser sheet OFF, gobos ON');
                         }
                         
-                        // Update ALL affected button appearances
+                        // Update ALL affected button appearances (including lightsActive/gobos)
                         this.vjControlButtons.forEach(btn => {
-                            if (btn.control === 'lasersActive' || btn.control === 'mirrorBallActive' || btn.control === 'laserSheetActive') {
+                            if (btn.control === 'lasersActive' || btn.control === 'mirrorBallActive' || 
+                                btn.control === 'laserSheetActive' || btn.control === 'lightsActive') {
                                 btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                             }
                         });
