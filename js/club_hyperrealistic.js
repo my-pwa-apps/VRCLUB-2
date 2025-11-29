@@ -5943,6 +5943,8 @@ class VRClub {
                 // Update lens color
                 if (lens && lens.material) {
                     const mat = lens.material;
+                    // Unfreeze material to allow dynamic updates (factory freezes by default)
+                    mat.unfreeze();
                     if (!mat.emissiveColor) {
                         mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                     }
@@ -5955,13 +5957,13 @@ class VRClub {
                     } else {
                         mat.emissiveColor.copyFromFloats(0, 0, 0);
                     }
-                    // Force material update
-                    mat.markAsDirty(BABYLON.Material.MiscDirtyFlag);
                 }
 
                 // Update light source (inner bulb) color
                 if (lightSource && lightSource.material) {
                     const mat = lightSource.material;
+                    // Unfreeze material to allow dynamic updates (factory freezes by default)
+                    mat.unfreeze();
                     if (!mat.emissiveColor) {
                         mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                     }
@@ -5974,8 +5976,6 @@ class VRClub {
                     } else {
                         mat.emissiveColor.copyFromFloats(0, 0, 0);
                     }
-                    // Force material update
-                    mat.markAsDirty(BABYLON.Material.MiscDirtyFlag);
                 }
             }
         }
