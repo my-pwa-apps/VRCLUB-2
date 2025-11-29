@@ -37,6 +37,9 @@ class VRClub {
             preserveDrawingBuffer: true,
             stencil: true,
             antialias: true,
+            // VR Anti-Aliasing: Enable MSAA for smooth edges in VR headsets
+            // FXAA alone causes jaggies in VR - MSAA is essential
+            antialiasingSamples: 4, // 4x MSAA for VR quality
             // PERFORMANCE: Additional engine optimizations
             doNotHandleContextLost: true, // Skip context lost handling for performance
             useHighPrecisionFloats: false // Use medium precision for better performance
@@ -3584,16 +3587,26 @@ class VRClub {
             beam.isPickable = false;
             // beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Removed to allow parenting rotation
             
-            // HYPERREALISTIC VOLUMETRIC BEAM - Simple transparent cone (no animated textures)
-            // Real light beams in haze are smooth gradients, not textured
+            // HYPERREALISTIC VOLUMETRIC BEAM - Animated smoke/dust particles in light cone
+            // Real light beams show visible particles drifting through the beam
             const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
             beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
             beamMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
-            beamMat.alpha = 0.08; // Very subtle - realistic haze density
+            
+            // HYPERREALISM: Add animated noise texture for smoke/dust particles in beam
+            const noiseTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
+            noiseTexture.animationSpeedFactor = 0.8; // Slow drifting smoke
+            noiseTexture.persistence = 0.3; // Softer noise pattern
+            noiseTexture.brightness = 0.6;
+            noiseTexture.octaves = 3;
+            beamMat.opacityTexture = noiseTexture; // Use noise as opacity for particle effect
+            
+            beamMat.alpha = 0.12; // Slightly more visible for hyperrealism
             beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
+            beamMat.useAlphaFromDiffuseTexture = false;
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -4294,18 +4307,42 @@ class VRClub {
         this.spotUpdateFrameCounter = 0; // Frame counter for synchronized updates
         
         // PERFORMANCE: Cache ray picking predicate (avoid creating new function every ray cast)
+        // CRITICAL: Only accept REAL ROOM SURFACES - floor, walls, ceiling, pillars, truss
+        // Reject everything else to prevent reflection spots floating in mid-air
         this.mirrorBallRayPredicate = (mesh) => {
-            // Ignore mirror ball components, light housings, and invisible meshes
             if (!mesh.isPickable || !mesh.isEnabled()) return false;
-            if (mesh.name.includes('mirrorBall')) return false;
-            if (mesh.name.includes('spot') || mesh.name.includes('Spot')) return false;
-            if (mesh.name.includes('housing') || mesh.name.includes('lens')) return false;
-            if (mesh.name.includes('beam') || mesh.name.includes('Beam')) return false;
-            // CRITICAL FIX: Ignore invisible collision walls to prevent spots floating in mid-air
-            if (mesh.name.includes('collision') || mesh.name.includes('Collision')) return false;
-            if (mesh.name.includes('trigger') || mesh.name.includes('Trigger')) return false;
-            // Accept room surfaces, avatars, NPCs, and other solid objects
-            return true;
+            if (!mesh.isVisible) return false;
+            
+            const name = mesh.name.toLowerCase();
+            
+            // WHITELIST APPROACH: Only accept known room surfaces
+            // This prevents spots appearing on invisible/transparent objects
+            const validSurfaces = [
+                'floor', 'ground', 'dancefloor',
+                'wall', 'backwall', 'sidewall', 'frontwall',
+                'ceiling',
+                'pillar', 'column',
+                'truss', 'beam',  // Structural beams, not light beams
+                'stage', 'platform', 'booth',
+                'bar', 'counter',
+                'brick', 'concrete'
+            ];
+            
+            // Check if mesh name contains any valid surface keyword
+            for (const surface of validSurfaces) {
+                if (name.includes(surface)) {
+                    // Double-check it's not a light beam or effect
+                    if (name.includes('light') || name.includes('spot') || 
+                        name.includes('laser') || name.includes('glow') ||
+                        name.includes('led') || name.includes('pool')) {
+                        return false;
+                    }
+                    return true;
+                }
+            }
+            
+            // Reject everything else (avatars, NPCs, effects, UI, etc.)
+            return false;
         };
         
         // PERFORMANCE: Pre-create reusable Ray object (avoid allocating new Ray every frame)
@@ -5631,10 +5668,12 @@ class VRClub {
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
             this.spotlights.forEach((spot, i) => {
-                // CRITICAL: Use the EXACT same color as the beam
-                // First, get the current beam color from the material itself for perfect sync
-                const beamColor = spot.beamMat ? spot.beamMat.emissiveColor : null;
-                const spotColor = beamColor || spot.color || this.currentSpotColor;
+                // CRITICAL FIX: Always sync spot.color with global color for consistency
+                // This ensures fixtures match beam color even if color changed while lights were off
+                if (this.currentSpotColor) {
+                    spot.color = this.currentSpotColor;
+                }
+                const spotColor = spot.color || this.currentSpotColor;
                 
                 // CRITICAL: Use stored beamVisible from beam update for PERFECT SYNC
                 // This ensures fixture flashes exactly when beam flashes
