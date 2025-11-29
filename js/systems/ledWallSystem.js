@@ -115,6 +115,8 @@ class LEDWallSystem {
      * Update LED wall animation each frame
      */
     update(time, audioData = null) {
+        if (!this.ledPanels || this.ledPanels.length === 0) return;
+        
         this.frameCounter++;
         
         if (!this.ledWallActive) {
@@ -122,7 +124,8 @@ class LEDWallSystem {
             return;
         }
         
-        this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
+        // Use performance.now() directly for reliable animation timing
+        const t = performance.now() / 1000;
         
         // Get current color
         const baseColor = this.ledColors[this.ledColorIndex];
@@ -130,34 +133,34 @@ class LEDWallSystem {
         // Check if we have audio data
         const hasAudio = audioData && (audioData.bass > 0.01 || audioData.mid > 0.01 || audioData.high > 0.01);
         
-        // Run pattern
+        // Run pattern using real time (t)
         switch (this.ledPattern) {
             case 0:
-                this._patternBassExplosion(this.ledTime, audioData, hasAudio, baseColor);
+                this._patternBassExplosion(t, audioData, hasAudio, baseColor);
                 break;
             case 1:
-                this._patternVUMeter(this.ledTime, audioData, hasAudio, baseColor);
+                this._patternVUMeter(t, audioData, hasAudio, baseColor);
                 break;
             case 2:
-                this._patternEqualizerBars(this.ledTime, audioData, hasAudio, baseColor);
+                this._patternEqualizerBars(t, audioData, hasAudio, baseColor);
                 break;
             case 3:
-                this._patternBeatGrid(this.ledTime, audioData, hasAudio, baseColor);
+                this._patternBeatGrid(t, audioData, hasAudio, baseColor);
                 break;
             case 4:
-                this._patternRainbowWave(this.ledTime, baseColor);
+                this._patternRainbowWave(t, baseColor);
                 break;
             case 5:
-                this._patternStrobeFlash(this.ledTime, baseColor);
+                this._patternStrobeFlash(t, baseColor);
                 break;
             case 6:
-                this._patternColorWash(this.ledTime, baseColor);
+                this._patternColorWash(t, baseColor);
                 break;
             case 7:
-                this._patternMatrixRain(this.ledTime, baseColor);
+                this._patternMatrixRain(t, baseColor);
                 break;
             default:
-                this._patternRainbowWave(this.ledTime, baseColor);
+                this._patternRainbowWave(t, baseColor);
         }
     }
 
