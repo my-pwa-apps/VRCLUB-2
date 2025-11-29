@@ -330,6 +330,40 @@ class VRClub {
                 }
             }
         });
+        
+        // #8 OPTIMIZED: Reduce particle systems for VR performance
+        // Particles are expensive - reduce capacity and emit rates in VR
+        if (this.floorFog) {
+            this.floorFog.emitRate = 50; // Reduced from 200 (75% reduction)
+            log.info('⚡ Reduced floor fog emit rate for VR');
+        }
+        if (this.haze) {
+            this.haze.emitRate = 25; // Reduced from 100 (75% reduction)
+            log.info('⚡ Reduced haze emit rate for VR');
+        }
+        
+        // #9 OPTIMIZED: Disable scene fog in VR (use particle-based fog instead if needed)
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
+        log.info('⚡ Disabled scene fog for VR performance');
+        
+        // #10 OPTIMIZED: Enable Fixed Foveated Rendering (FFR) on Quest 3S
+        // Quest 3S supports hardware-level foveated rendering which renders peripheral vision
+        // at lower resolution, significantly improving GPU performance
+        try {
+            const session = this.vrHelper?.baseExperience?.sessionManager?.session;
+            if (session && 'updateRenderState' in session) {
+                // Check if XR layer supports foveated rendering
+                const xrLayer = session.renderState.baseLayer;
+                if (xrLayer && 'fixedFoveation' in xrLayer) {
+                    // Set high foveation (0 = none, 1 = maximum peripheral reduction)
+                    // 0.75-1.0 is good for performance without noticeable quality loss
+                    xrLayer.fixedFoveation = 1.0; // Maximum foveation for best performance
+                    log.info('⚡ Fixed Foveated Rendering enabled (1.0 max) - hardware accelerated');
+                }
+            }
+        } catch (err) {
+            log.warn('Could not enable Fixed Foveated Rendering:', err);
+        }
     }
     
     applyDesktopSettings() {
@@ -401,6 +435,19 @@ class VRClub {
                 }
             }
         });
+        
+        // Restore particle system emit rates for desktop
+        if (this.floorFog) {
+            this.floorFog.emitRate = 200; // Full rate for desktop
+        }
+        if (this.haze) {
+            this.haze.emitRate = 100; // Full rate for desktop
+        }
+        
+        // Restore scene fog for desktop
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP;
+        this.scene.fogDensity = desktop.fogDensity;
+        log.info('🌫️ Restored scene fog and particle rates for desktop');
     }
 
     detectMaxLights() {
