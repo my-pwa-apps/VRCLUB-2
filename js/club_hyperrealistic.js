@@ -265,14 +265,15 @@ class VRClub {
                 this.renderPipeline.imageProcessing.toneMappingEnabled = vr.toneMappingEnabled;
             }
             
+            // OPTIMIZED: Reduce bloom significantly in VR for performance
             if (this.renderPipeline.bloomEnabled) {
-                this.renderPipeline.bloomWeight = vr.bloomWeight;
-                this.renderPipeline.bloomThreshold = vr.bloomThreshold;
-                this.renderPipeline.bloomScale = vr.bloomScale;
+                this.renderPipeline.bloomWeight = 0.05; // OPTIMIZED: Much lower than desktop
+                this.renderPipeline.bloomThreshold = 0.9; // Higher threshold = fewer pixels bloomed
+                this.renderPipeline.bloomScale = 0.15; // Smaller bloom spread
             }
         }
 
-        // Disable SSAO in VR (too expensive)
+        // OPTIMIZED: Disable SSAO in VR (too expensive)
         if (this.ssaoPipeline) {
             // Detach desktop camera to save performance
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", this.camera);
@@ -280,8 +281,11 @@ class VRClub {
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
         }
         
-        // Apply scene settings
-        if (this.glowLayer) this.glowLayer.intensity = vr.glowIntensity;
+        // #5 OPTIMIZED: Use hardware scaling for VR (render at 80% resolution)
+        this.engine.setHardwareScalingLevel(1.25);
+        
+        // #4 OPTIMIZED: Reduce glow layer intensity significantly in VR
+        if (this.glowLayer) this.glowLayer.intensity = 0.15; // Much lower than desktop
         
         const ambient = this.scene.getLightByName('ambient');
         if (ambient) ambient.intensity = vr.ambientIntensity;
@@ -289,6 +293,25 @@ class VRClub {
         this.scene.environmentIntensity = vr.environmentIntensity;
         this.scene.clearColor = vr.clearColor;
         this.scene.fogDensity = vr.fogDensity;
+        
+        // #6 OPTIMIZED: Freeze static materials to prevent shader recompilation
+        this.scene.materials.forEach(mat => {
+            if (mat.name && !mat.name.includes('beam') && !mat.name.includes('laser') && 
+                !mat.name.includes('led') && !mat.name.includes('strobe') && !mat.name.includes('spot')) {
+                mat.freeze();
+            }
+        });
+        
+        // #7 OPTIMIZED: Reduce shadow quality for better VR performance
+        this.scene.lights.forEach(light => {
+            if (light.getShadowGenerator) {
+                const shadowGen = light.getShadowGenerator();
+                if (shadowGen) {
+                    shadowGen.usePercentageCloserFiltering = false;
+                    shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_LOW;
+                }
+            }
+        });
     }
     
     applyDesktopSettings() {
@@ -323,6 +346,9 @@ class VRClub {
             this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", this.camera);
         }
         
+        // Restore hardware scaling to native resolution
+        this.engine.setHardwareScalingLevel(1.0);
+        
         // Restore scene settings
         if (this.glowLayer) this.glowLayer.intensity = desktop.glowIntensity;
         
@@ -332,6 +358,22 @@ class VRClub {
         this.scene.environmentIntensity = desktop.environmentIntensity;
         this.scene.clearColor = desktop.clearColor;
         this.scene.fogDensity = desktop.fogDensity;
+        
+        // Unfreeze materials for desktop (allows dynamic updates)
+        this.scene.materials.forEach(mat => {
+            if (mat.unfreeze) mat.unfreeze();
+        });
+        
+        // Restore shadow quality for desktop
+        this.scene.lights.forEach(light => {
+            if (light.getShadowGenerator) {
+                const shadowGen = light.getShadowGenerator();
+                if (shadowGen) {
+                    shadowGen.usePercentageCloserFiltering = true;
+                    shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
+                }
+            }
+        });
     }
 
     detectMaxLights() {
@@ -831,7 +873,7 @@ class VRClub {
         } else {
             // Enhanced fallback to procedural noise texture
             log.info('🎨 Using ENHANCED procedural floor texture (fallback)');
-            const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 1024, this.scene);
+            const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene); // OPTIMIZED: Reduced from 1024
             noiseTexture.octaves = 6; // More detail layers
             noiseTexture.persistence = 0.9; // Stronger detail retention
             noiseTexture.animationSpeedFactor = 0; // Static texture
@@ -3568,7 +3610,7 @@ class VRClub {
                 diameterTop: 1.5,      // Wide end - reduced from 3.0 to 1.5m for tighter, more realistic beam
                 diameterBottom: 0.2,   // Narrow end - slightly reduced for tighter beam
                 height: 1,             // Will be scaled to actual beam length
-                tessellation: 16,
+                tessellation: 8,       // OPTIMIZED: Reduced from 16 (sufficient for VR)
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
@@ -3595,7 +3637,7 @@ class VRClub {
             beamMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
             
             // HYPERREALISM: Add animated noise texture for smoke/dust particles in beam
-            const noiseTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 256, this.scene);
+            const noiseTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 128, this.scene); // OPTIMIZED: Reduced from 256
             noiseTexture.animationSpeedFactor = 0.8; // Slow drifting smoke
             noiseTexture.persistence = 0.3; // Softer noise pattern
             noiseTexture.brightness = 0.6;
@@ -3855,7 +3897,7 @@ class VRClub {
         sheetMat.backFaceCulling = false;
         
         // Procedural noise for smoke movement
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 512, this.scene);
+        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
         noiseTexture.octaves = 4;
         noiseTexture.persistence = 0.8; // Smoky detail
         noiseTexture.animationSpeedFactor = 0.5;
