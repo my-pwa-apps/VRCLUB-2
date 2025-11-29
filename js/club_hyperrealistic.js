@@ -5617,8 +5617,10 @@ class VRClub {
         // These are the actual visible light sources in the moving heads
         if (this.spotlights && this.spotlights.length > 0) {
             this.spotlights.forEach((spot, i) => {
-                // CRITICAL: Use per-spotlight color to match beam color
-                const spotColor = spot.color || this.currentSpotColor;
+                // CRITICAL: Use the EXACT same color as the beam
+                // First, get the current beam color from the material itself for perfect sync
+                const beamColor = spot.beamMat ? spot.beamMat.emissiveColor : null;
+                const spotColor = beamColor || spot.color || this.currentSpotColor;
                 
                 // CRITICAL: Use stored beamVisible from beam update for PERFECT SYNC
                 // This ensures fixture flashes exactly when beam flashes
