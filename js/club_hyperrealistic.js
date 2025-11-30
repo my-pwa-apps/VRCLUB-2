@@ -966,6 +966,9 @@ class VRClub {
         }, this.scene);
         floor.position.z = -10;
         
+        // CRITICAL: Ensure floor is pickable for laser/spotlight raycasts
+        floor.isPickable = true;
+        
         // Store floor mesh for VR teleportation
         this.floorMesh = floor;
         
@@ -5772,8 +5775,21 @@ class VRClub {
                     }
                     
                     let beamLength = 50; // Default to full ray length if raycast fails
+                    let hitPoint = null;
+                    
                     if (hit && hit.hit && hit.pickedPoint) {
                         beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
+                        hitPoint = hit.pickedPoint.clone();
+                    } else {
+                        // HYPERREALISTIC FALLBACK: If raycast misses, calculate floor intersection manually
+                        // This ensures beams ALWAYS terminate at a surface (floor) instead of mid-air
+                        if (direction.y < -0.01) {
+                            // Laser pointing downward - calculate floor intersection
+                            const distanceToFloor = laser.originPos.y / Math.abs(direction.y);
+                            beamLength = Math.min(distanceToFloor, 50); // Cap at 50
+                            hitPoint = laser.originPos.add(direction.scale(beamLength));
+                            hitPoint.y = 0; // Snap to floor
+                        }
                     }
                     
                     // Update beam geometry
@@ -5806,9 +5822,10 @@ class VRClub {
                     }
                     
                     // UPDATE HIT SPOT - Position where laser hits surface
-                    if (beam.hitSpot && hit && hit.hit && hit.pickedPoint) {
-                        beam.hitSpot.position.copyFrom(hit.pickedPoint);
-                        beam.hitSpot.position.y = 0.02; // Slightly above floor to avoid z-fighting
+                    // HYPERREALISTIC: Use calculated hitPoint (from raycast OR floor fallback)
+                    if (beam.hitSpot && hitPoint) {
+                        beam.hitSpot.position.copyFrom(hitPoint);
+                        beam.hitSpot.position.y = hitPoint.y + 0.02; // Slightly above surface to avoid z-fighting
                         beam.hitSpot.visibility = 1.0;
                         
                         // Pulse effect on hit spot - rapid flicker like real laser
@@ -5818,8 +5835,8 @@ class VRClub {
                         
                         // Update hit glow too
                         if (beam.hitGlow) {
-                            beam.hitGlow.position.copyFrom(hit.pickedPoint);
-                            beam.hitGlow.position.y = 0.015;
+                            beam.hitGlow.position.copyFrom(hitPoint);
+                            beam.hitGlow.position.y = hitPoint.y + 0.015;
                             beam.hitGlow.visibility = 1.0;
                             // Softer pulse for glow
                             const glowPulse = 0.9 + Math.sin(time * 6 + beamIdx) * 0.1;
