@@ -2388,7 +2388,7 @@ class VRClub {
         
         // === RAISED PLATFORM (STAGE) ===
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
-            width: 10,
+            width: 8,
             height: 0.5,
             depth: 4
         }, this.scene);
@@ -2403,7 +2403,7 @@ class VRClub {
         
         // Anti-slip surface
         const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
-            width: 10,
+            width: 8,
             height: 0.02,
             depth: 4
         }, this.scene);
@@ -2420,7 +2420,7 @@ class VRClub {
         const railMat = this.materialFactory.getPreset('rail');
         
         const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
-            width: 9,
+            width: 7,
             height: 0.08,
             depth: 0.08
         }, this.scene);
@@ -2766,10 +2766,10 @@ class VRClub {
 
     createLEDWall() {
         // MASSIVE LED WALL - covers entire back wall from FLOOR TO CEILING
-        // Back wall is 35m wide × 10m tall at Z=-27
+        // Back wall is 25m wide × 10m tall at Z=-27
         const panelWidth = 1.2;
         const panelHeight = 1.0; // Slightly smaller for more rows
-        const cols = 28;  // 28 × 1.2 = 33.6m (fills 35m wall with slight margin)
+        const cols = 20;  // 20 × 1.2 = 24m (fills 25m wall with slight margin)
         const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
         const wallWidth = cols * panelWidth;
         const wallHeight = rows * panelHeight;
@@ -2871,7 +2871,7 @@ class VRClub {
             height: 0.15,
             depth: 1.2
         }, this.scene);
-        consoleBase.position = new BABYLON.Vector3(3, 0.8, -24);
+        consoleBase.position = new BABYLON.Vector3(2.5, 0.8, -24);
         consoleBase.material = consoleMat;
         
         // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
@@ -2952,7 +2952,7 @@ class VRClub {
         const buttonHeight = 0.15;
         const buttonDepth = 0.4;
         const spacing = 0.7;
-        const startX = 2.2;
+        const startX = 1.7;
         const startZ = -23.5;
         const rowSpacing = 0.5;
         
