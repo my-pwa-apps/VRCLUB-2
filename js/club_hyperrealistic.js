@@ -5558,7 +5558,9 @@ class VRClub {
         }
         
         // Update LED wall animations using the modular system
-        if (this.systems.ledWall && this.ledWallActive) {
+        // CRITICAL FIX: Always update modular system to handle blanking when inactive
+        if (this.systems.ledWall) {
+            this.systems.ledWall.setActive(this.ledWallActive);
             this.systems.ledWall.update(time, audioData);
         } else if (this.ledPanels && this.ledPanels.length > 0 && !this.ledWallActive) {
             // LED Wall is OFF - turn all panels black (not just paused)
