@@ -6122,24 +6122,46 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // HYPERREALISTIC BEAM: Position in WORLD SPACE
-                    // This ensures beam visually connects emission point to floor pool
+                    // HYPERREALISTIC BEAM: Extend beam so ALL edges of cone touch the floor
+                    // When a cone is tilted, the "uphill" edge needs to extend further to reach the floor
+                    // 
+                    // Geometry: For a cone tilted at angle θ from vertical:
+                    // - Centerline distance to floor: L = h / cos(θ) where h = emission height
+                    // - Cone radius at floor: r = L * tan(coneAngle/2)
+                    // - The uphill edge of the cone needs extra length: r / cos(θ)
+                    // - Total beam length should be: L + r * tan(θ) approximately
+                    //
+                    // cos(θ) = |direction.y| (since direction is normalized)
+                    const cosTheta = Math.abs(direction.y);
+                    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+                    const tanTheta = cosTheta > 0.01 ? sinTheta / cosTheta : 0;
                     
-                    // Beam length from emission to floor intersection
-                    const beamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
+                    // Cone half-angle from beam creation (diameterTop=1.5, over typical 7.5m length ≈ 5.7°)
+                    // At floor, radius is 0.75m (half of 1.5m diameter)
+                    const coneRadiusAtFloor = 0.75; // meters
                     
-                    // CRITICAL FIX: Position beam so wide end (diameterTop) TOUCHES the floor
-                    // Cylinder height=1 at creation, scaling.y=beamLength stretches it
-                    // After rotation, the cylinder's local +Y points toward floor (direction)
-                    // The cylinder center should be at: floorIntersection + direction * (-beamLength/2)
-                    // This positions wide end at floor, narrow end at emission
+                    // Extension needed for uphill edge to reach floor
+                    // This is approximately: coneRadius * tan(tiltAngle) / cos(tiltAngle)
+                    // Simplified: coneRadius * sin(θ) / cos²(θ) = coneRadius * tan(θ) / cos(θ)
+                    const beamExtension = cosTheta > 0.1 ? coneRadiusAtFloor * tanTheta : 0;
+                    
+                    // Base beam length from emission to floor intersection (centerline)
+                    const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
+                    
+                    // Extended beam length so uphill cone edge reaches floor
+                    const beamLength = centerBeamLength + beamExtension;
+                    
+                    // Position beam: Start at emission point, extend in direction for full length
+                    // Cylinder center should be at midpoint of the EXTENDED beam
+                    // The wide end (diameterTop, +Y local) should extend PAST the floor intersection
+                    // so the uphill edge reaches the floor
                     const beamMidpoint = new BABYLON.Vector3(
-                        floorIntersection.x - direction.x * (beamLength * 0.5),
-                        floorIntersection.y - direction.y * (beamLength * 0.5),
-                        floorIntersection.z - direction.z * (beamLength * 0.5)
+                        emissionPoint.x + direction.x * (beamLength * 0.5),
+                        emissionPoint.y + direction.y * (beamLength * 0.5),
+                        emissionPoint.z + direction.z * (beamLength * 0.5)
                     );
                     
-                    // Position beam at calculated midpoint (centered between emission and floor)
+                    // Position beam at calculated midpoint
                     spot.beam.position.copyFrom(beamMidpoint);
                     
                     // Orient beam to point from emission toward floor
@@ -6265,17 +6287,17 @@ class VRClub {
                     if (spot.lightPool) {
                         if (this.lightsActive && beamVisible) {
                             // HYPERREALISTIC: Pool is ELLIPTICAL when beam hits floor at angle
-                            // Beam cone: diameterBottom=0.2 (at emission), diameterTop=1.5 (at floor)
+                            // When a circular cone intersects a plane at angle θ, the result is an ellipse
+                            // - Minor axis (perpendicular to tilt): same as cone diameter = 1.5m
+                            // - Major axis (along tilt direction): diameter / cos(θ)
                             const beamDiameterAtFloor = 1.5; // Matches diameterTop from beam creation
                             
-                            // Calculate ellipse stretch based on beam angle to floor
-                            // cosTheta = |direction.y| (how vertical the beam is)
-                            // When vertical (cosTheta=1): circle. When angled (cosTheta<1): ellipse
-                            const cosTheta = Math.abs(direction.y);
-                            const ellipseStretch = 1.0 / Math.max(0.3, cosTheta); // Limit max stretch
+                            // cosTheta already calculated above for beam extension
+                            // Use the same values for consistency
+                            const ellipseStretch = 1.0 / Math.max(0.25, cosTheta); // How much to stretch along tilt
                             
-                            // Pool radius = half diameter, with small expansion for soft edge
-                            const poolBaseSize = (beamDiameterAtFloor * 0.5) * 1.2; // 0.9m radius with soft edge
+                            // Pool radius = half diameter, with expansion for soft edge glow
+                            const poolBaseSize = (beamDiameterAtFloor * 0.5) * 1.3; // Base radius with soft edge
                             
                             // Calculate ellipse orientation (stretch in direction of beam tilt)
                             // Project beam direction onto XZ plane to get stretch direction
@@ -6286,35 +6308,37 @@ class VRClub {
                             // Subtle shimmer for realistic light variation
                             const shimmer = 1.0 + Math.sin(time * 1.5 + i * 0.7) * 0.08;
                             
-                            // Position at beam-floor intersection
+                            // Position at beam-floor intersection (centerline)
                             spot.lightPool.position.x = floorIntersection.x;
                             spot.lightPool.position.y = 0.02; // Just above floor to prevent z-fighting
                             spot.lightPool.position.z = floorIntersection.z;
                             
                             // ELLIPTICAL SCALING: stretch in tilt direction
-                            // Rotate pool to align stretch with beam tilt direction
+                            // The disc mesh is in XY plane, rotated 90° around X to lie flat
+                            // So disc's local X = world X (perpendicular to tilt when rotated)
+                            // And disc's local Y = world Z (along tilt direction when rotated)
                             if (tiltMagnitude > 0.05) {
-                                // Calculate rotation angle from tilt direction
+                                // Calculate rotation angle around Y to align stretch with tilt direction
                                 const poolRotation = Math.atan2(tiltDirX, tiltDirZ);
-                                spot.lightPool.rotation.z = poolRotation;
-                                // Scale: X is perpendicular to tilt (stays same), Y is along tilt (stretched)
+                                spot.lightPool.rotation.y = poolRotation; // Rotate around Y (vertical axis)
+                                // After Y rotation, local +Z aligns with tilt direction
+                                // Scale: X stays same (minor axis), Z is stretched (major axis along tilt)
                                 spot.lightPool.scaling.set(poolBaseSize, poolBaseSize * ellipseStretch, 1);
                             } else {
                                 // Nearly vertical - circular pool
-                                spot.lightPool.rotation.z = 0;
+                                spot.lightPool.rotation.y = 0;
                                 spot.lightPool.scaling.set(poolBaseSize, poolBaseSize, 1);
                             }
                             spot.lightPool.visibility = 1.0;
                             
                             // Color intensity falls off with distance (inverse square approximation)
-                            // Typical spotlight height is ~7.5m, so use that as reference for falloff
-                            const normalizedDistance = Math.min(1.0, beamLength / 10.0);
+                            const normalizedDistance = Math.min(1.0, centerBeamLength / 10.0);
                             const distanceFalloff = Math.max(0.3, 1.0 - (normalizedDistance * 0.5));
-                            const poolIntensity = 1.8 * shimmer * distanceFalloff; // Slightly brighter
+                            const poolIntensity = 1.8 * shimmer * distanceFalloff;
                             
                             if (spot.poolMat) {
                                 spot.poolMat.emissiveColor = spotColor.scale(poolIntensity);
-                                spot.poolMat.alpha = 0.55 * distanceFalloff; // Slightly more visible
+                                spot.poolMat.alpha = 0.55 * distanceFalloff;
                             }
                             
                             // Outer glow - larger, softer ambient light spread (also elliptical)
@@ -6324,12 +6348,12 @@ class VRClub {
                                 spot.lightPoolGlow.position.y = 0.01;
                                 spot.lightPoolGlow.position.z = floorIntersection.z;
                                 
-                                // Match ellipse shape of main pool
+                                // Match ellipse shape of main pool (use rotation.y for horizontal rotation)
                                 if (tiltMagnitude > 0.05) {
-                                    spot.lightPoolGlow.rotation.z = spot.lightPool.rotation.z;
+                                    spot.lightPoolGlow.rotation.y = spot.lightPool.rotation.y;
                                     spot.lightPoolGlow.scaling.set(glowBaseSize, glowBaseSize * ellipseStretch, 1);
                                 } else {
-                                    spot.lightPoolGlow.rotation.z = 0;
+                                    spot.lightPoolGlow.rotation.y = 0;
                                     spot.lightPoolGlow.scaling.set(glowBaseSize, glowBaseSize, 1);
                                 }
                                 spot.lightPoolGlow.visibility = 1.0;
