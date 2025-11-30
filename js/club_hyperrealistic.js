@@ -713,18 +713,14 @@ class VRClub {
                             }
                         );
                         
-                        // GROUND LOCK: Keep player at fixed Y height (no flying)
-                        // Store the initial ground height when entering VR
-                        this.vrGroundHeight = vrHelper.baseExperience.camera.position.y;
+                        // GRAVITY & COLLISIONS: Enable physics-like movement
+                        const xrCamera = vrHelper.baseExperience.camera;
+                        xrCamera.applyGravity = true;
+                        xrCamera.checkCollisions = true;
+                        // Set ellipsoid for collision detection (approximate human size)
+                        xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.9, 0.3);
                         
-                        // Lock Y position every frame to prevent vertical movement
-                        this.vrYLockObserver = this.scene.onBeforeRenderObservable.add(() => {
-                            if (this.isInVRMode && vrHelper.baseExperience.camera) {
-                                // Force Y position to ground height (1.7m standing eye level)
-                                vrHelper.baseExperience.camera.position.y = 1.7;
-                            }
-                        });
-                        log.info('🎮 VR controller locomotion enabled');
+                        log.info('🎮 VR controller locomotion enabled with gravity');
                         
                         // SPRINT FEATURE: Press thumbstick or Grip button to run
                         vrHelper.input.onControllerAddedObservable.add((controller) => {
@@ -966,6 +962,7 @@ class VRClub {
         
         // CRITICAL: Ensure floor is pickable for laser/spotlight raycasts
         floor.isPickable = true;
+        floor.checkCollisions = true; // Enable collisions for gravity/walking
         
         // Store floor mesh for VR teleportation
         this.floorMesh = floor;
@@ -1247,6 +1244,7 @@ class VRClub {
         }, this.scene);
         leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, 1.5);
         leftArchPillar.material = archMat;
+        leftArchPillar.checkCollisions = true;
         leftArchPillar.freezeWorldMatrix();
         
         // Right arch pillar
@@ -1255,6 +1253,7 @@ class VRClub {
         }, this.scene);
         rightArchPillar.position = new BABYLON.Vector3(3, 1.75, 1.5);
         rightArchPillar.material = archMat;
+        rightArchPillar.checkCollisions = true;
         rightArchPillar.freezeWorldMatrix();
         
         // Arch top beam
@@ -2343,6 +2342,7 @@ class VRClub {
         const platformMat = this.materialFactory.getPreset('platform');
         platform.material = platformMat;
         platform.receiveShadows = true;
+        platform.checkCollisions = true; // Enable collisions for walking
         platform.freezeWorldMatrix(); // OPTIMIZATION: Freeze static platform
         platform.doNotSyncBoundingInfo = true;
         
@@ -2357,6 +2357,7 @@ class VRClub {
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
         platformTop.receiveShadows = true;
+        platformTop.checkCollisions = true; // Enable collisions for walking
         platformTop.freezeWorldMatrix(); // OPTIMIZATION: Freeze static platform top
         platformTop.doNotSyncBoundingInfo = true;
         
@@ -5504,6 +5505,12 @@ class VRClub {
         // Update LED wall animations using the modular system
         if (this.systems.ledWall && this.ledWallActive) {
             this.systems.ledWall.update(time, audioData);
+        } else if (this.ledPanels && this.ledPanels.length > 0 && !this.ledWallActive) {
+            // LED Wall is OFF - turn all panels black (not just paused)
+            const blackColor = this.cachedColors.black;
+            this.ledPanels.forEach(panel => {
+                panel.material.emissiveColor = blackColor;
+            });
         }
         
         // === IMMERSIVE DANCE FLOOR EDGE LED ANIMATION ===
