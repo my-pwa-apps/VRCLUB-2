@@ -2388,7 +2388,7 @@ class VRClub {
         
         // === RAISED PLATFORM (STAGE) ===
         const platform = BABYLON.MeshBuilder.CreateBox("djPlatform", {
-            width: 8,
+            width: 6,
             height: 0.5,
             depth: 4
         }, this.scene);
@@ -2403,7 +2403,7 @@ class VRClub {
         
         // Anti-slip surface
         const platformTop = BABYLON.MeshBuilder.CreateBox("djPlatformTop", {
-            width: 8,
+            width: 6,
             height: 0.02,
             depth: 4
         }, this.scene);
@@ -2420,7 +2420,7 @@ class VRClub {
         const railMat = this.materialFactory.getPreset('rail');
         
         const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
-            width: 7,
+            width: 5,
             height: 0.08,
             depth: 0.08
         }, this.scene);
@@ -2429,7 +2429,7 @@ class VRClub {
         
         // === DJ EQUIPMENT TABLE (CENTER) ===
         const djTable = BABYLON.MeshBuilder.CreateBox("djTable", {
-            width: 5,
+            width: 4,
             height: 0.08,
             depth: 1.5
         }, this.scene);
@@ -2769,7 +2769,7 @@ class VRClub {
         // Back wall is 25m wide × 10m tall at Z=-27
         const panelWidth = 1.2;
         const panelHeight = 1.0; // Slightly smaller for more rows
-        const cols = 20;  // 20 × 1.2 = 24m (fills 25m wall with slight margin)
+        const cols = 16;  // 16 × 1.2 = 19.2m (fills 25m wall with margin)
         const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
         const wallWidth = cols * panelWidth;
         const wallHeight = rows * panelHeight;
@@ -2871,7 +2871,7 @@ class VRClub {
             height: 0.15,
             depth: 1.2
         }, this.scene);
-        consoleBase.position = new BABYLON.Vector3(2.5, 0.8, -24);
+        consoleBase.position = new BABYLON.Vector3(2.0, 0.8, -24);
         consoleBase.material = consoleMat;
         
         // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
@@ -2952,7 +2952,7 @@ class VRClub {
         const buttonHeight = 0.15;
         const buttonDepth = 0.4;
         const spacing = 0.7;
-        const startX = 1.7;
+        const startX = 1.2;
         const startZ = -23.5;
         const rowSpacing = 0.5;
         
