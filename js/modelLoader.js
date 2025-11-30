@@ -308,13 +308,19 @@ class ModelLoader {
                         mesh.material.alpha = 1.0; // Fully opaque
                     }
                     if (mesh.material.transparencyMode !== undefined) {
-                        mesh.material.transparencyMode = null; // Disable transparency
+                        // Fix: Set to OPAQUE (0) instead of null
+                        mesh.material.transparencyMode = 0; // BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE
                     }
                     
                     // Ensure proper rendering in VR and prevent see-through
                     mesh.material.backFaceCulling = true;
                     mesh.material.needDepthPrePass = false; // Disable depth pre-pass that can cause transparency issues
                     mesh.material.disableDepthWrite = false; // CRITICAL: Enable depth write to prevent see-through
+                    mesh.material.separateCullingPass = false; // Disable separate culling pass
+                    
+                    // Force opaque rendering
+                    mesh.material.needAlphaBlending = () => false;
+                    mesh.material.needAlphaTesting = () => false;
                     
                     // Set rendering group to ensure DJ gear renders BEFORE beams (renderingGroupId 0 vs 1)
                     mesh.renderingGroupId = 0; // Default group, renders first
@@ -981,15 +987,17 @@ class ModelLoader {
         mat.ambientTextureStrength = 1.0;
         
         // PBR material settings for realistic appearance
-        mat.metallic = 1.0; // Driven by texture
-        mat.roughness = 1.0; // Driven by texture
+        mat.metallic = 0.1; // Default to plastic/matte if texture fails
+        mat.roughness = 0.7; // Default to rough if texture fails
         mat.maxSimultaneousLights = 4;
         
         // Ensure fully opaque for VR
         mat.alpha = 1.0;
-        mat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE;
+        mat.transparencyMode = 0; // BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE
         mat.backFaceCulling = true;
         mat.disableDepthWrite = false;
+        mat.separateCullingPass = false;
+        mat.forceDepthWrite = true; // Force depth writing
         
         // Apply material to mesh
         mesh.material = mat;

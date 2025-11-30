@@ -13,9 +13,9 @@ const log = {
 
 // Room dimensions and boundaries
 const ROOM_BOUNDS = {
-    x: { min: -15, max: 15, width: 30 },
+    x: { min: -12.5, max: 12.5, width: 25 },
     y: { min: 0, max: 8, height: 8 },
-    z: { min: -26, max: 2, depth: 28 }
+    z: { min: -26, max: -5, depth: 21 }
 };
 
 // Key positions in the club
@@ -622,7 +622,7 @@ class VRClub {
         
         // ENHANCED Mouse rotation settings (must be set BEFORE attachControl)
         this.camera.angularSensibility = 900; // Enhanced sensitivity for responsive look controls
-        this.camera.inertia = 0.8; // Smooth, natural camera movement with slight momentum
+        this.camera.inertia = 0.1; // Reduced inertia to prevent "ice skating" feel
         
         // Attach controls AFTER setting up inputs
         this.camera.attachControl(this.canvas, true);
@@ -1077,7 +1077,7 @@ class VRClub {
         
         // Back wall
         const backWall = BABYLON.MeshBuilder.CreateBox("backWall", {
-            width: 35,
+            width: 25,
             height: 10,
             depth: 0.5
         }, this.scene);
@@ -1093,7 +1093,7 @@ class VRClub {
             height: 10,
             depth: 45
         }, this.scene);
-        leftWall.position = new BABYLON.Vector3(-17, 5, -10);
+        leftWall.position = new BABYLON.Vector3(-12.5, 5, -10);
         leftWall.material = wallMat;
         leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         leftWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1105,7 +1105,7 @@ class VRClub {
             height: 10,
             depth: 45
         }, this.scene);
-        rightWall.position = new BABYLON.Vector3(17, 5, -10);
+        rightWall.position = new BABYLON.Vector3(12.5, 5, -10);
         rightWall.material = wallMat;
         rightWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         rightWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1113,11 +1113,11 @@ class VRClub {
         
         // Front wall
         const frontWall = BABYLON.MeshBuilder.CreateBox("frontWall", {
-            width: 35,
+            width: 25,
             height: 10,
             depth: 0.5
         }, this.scene);
-        frontWall.position = new BABYLON.Vector3(0, 5, 2);
+        frontWall.position = new BABYLON.Vector3(0, 5, -5);
         frontWall.material = wallMat;
         frontWall.receiveShadows = false; // Optimization: disable shadows on walls
         frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1154,8 +1154,8 @@ class VRClub {
         
         // Add concrete support pillars along walls
         const pillarPositions = [
-            { x: -17, z: -5 }, { x: -17, z: -15 }, { x: -17, z: -25 },
-            { x: 17, z: -5 }, { x: 17, z: -15 }, { x: 17, z: -25 }
+            { x: -12.5, z: -5 }, { x: -12.5, z: -15 }, { x: -12.5, z: -25 },
+            { x: 12.5, z: -5 }, { x: 12.5, z: -15 }, { x: 12.5, z: -25 }
         ];
         
         // OPTIMIZATION: Create pillars array for merging
@@ -1190,10 +1190,10 @@ class VRClub {
         
         // Add exposed brick sections between pillars
         const brickSections = [
-            { x: -16.5, z: -10, width: 1, height: 4 },
-            { x: -16.5, z: -20, width: 1, height: 3 },
-            { x: 16.5, z: -10, width: 1, height: 4 },
-            { x: 16.5, z: -20, width: 1, height: 3 }
+            { x: -12.0, z: -10, width: 1, height: 4 },
+            { x: -12.0, z: -20, width: 1, height: 3 },
+            { x: 12.0, z: -10, width: 1, height: 4 },
+            { x: 12.0, z: -20, width: 1, height: 3 }
         ];
         
         // OPTIMIZATION: Create bricks array for merging
@@ -1228,8 +1228,8 @@ class VRClub {
         
         // Add industrial pipes running along ceiling (near walls)
         const pipeRuns = [
-            { start: { x: -16, z: -25 }, end: { x: -16, z: 5 } },  // Left wall
-            { start: { x: 16, z: -25 }, end: { x: 16, z: 5 } }     // Right wall
+            { start: { x: -11.5, z: -25 }, end: { x: -11.5, z: 5 } },  // Left wall
+            { start: { x: 11.5, z: -25 }, end: { x: 11.5, z: 5 } }     // Right wall
         ];
         
         // OPTIMIZATION: Create pipes/conduits array for merging
@@ -1297,7 +1297,7 @@ class VRClub {
         const leftArchPillar = BABYLON.MeshBuilder.CreateBox("leftArchPillar", {
             width: 0.4, height: 3.5, depth: 0.4
         }, this.scene);
-        leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, 1.5);
+        leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, -5);
         leftArchPillar.material = archMat;
         leftArchPillar.checkCollisions = true;
         leftArchPillar.freezeWorldMatrix();
@@ -1306,7 +1306,7 @@ class VRClub {
         const rightArchPillar = BABYLON.MeshBuilder.CreateBox("rightArchPillar", {
             width: 0.4, height: 3.5, depth: 0.4
         }, this.scene);
-        rightArchPillar.position = new BABYLON.Vector3(3, 1.75, 1.5);
+        rightArchPillar.position = new BABYLON.Vector3(3, 1.75, -5);
         rightArchPillar.material = archMat;
         rightArchPillar.checkCollisions = true;
         rightArchPillar.freezeWorldMatrix();
@@ -1315,18 +1315,18 @@ class VRClub {
         const archTop = BABYLON.MeshBuilder.CreateBox("archTop", {
             width: 6.4, height: 0.3, depth: 0.4
         }, this.scene);
-        archTop.position = new BABYLON.Vector3(0, 3.65, 1.5);
+        archTop.position = new BABYLON.Vector3(0, 3.65, -5);
         archTop.material = archMat;
         archTop.freezeWorldMatrix();
         
         // === VELVET ROPE QUEUE SYSTEM ===
         const stanchionPositions = [
             // Left queue line
-            { x: -5, z: -1 }, { x: -5, z: 1 }, { x: -5, z: 3 },
+            { x: -5, z: -7.5 }, { x: -5, z: -5.5 }, { x: -5, z: -3.5 },
             // Right queue line  
-            { x: -3.5, z: -1 }, { x: -3.5, z: 1 }, { x: -3.5, z: 3 },
+            { x: -3.5, z: -7.5 }, { x: -3.5, z: -5.5 }, { x: -3.5, z: -3.5 },
             // Entrance guide right side
-            { x: 5, z: -1 }, { x: 5, z: 1 }
+            { x: 5, z: -7.5 }, { x: 5, z: -5.5 }
         ];
         
         const stanchions = [];
@@ -1526,7 +1526,7 @@ class VRClub {
         
         const exitPositions = [
             { x: 0, y: 3.2, z: 1.8, rotY: Math.PI },      // Front entrance (facing in)
-            { x: -16.5, y: 3.2, z: -15, rotY: Math.PI/2 } // Side exit (facing in)
+            { x: -12.0, y: 3.2, z: -15, rotY: Math.PI/2 } // Side exit (facing in)
         ];
         
         exitPositions.forEach((pos, i) => {
@@ -1558,8 +1558,8 @@ class VRClub {
         const fireExtMat = this.materialFactory.getPreset('fireExtinguisher');
         
         const fireExtPositions = [
-            { x: -16.5, z: -5 },
-            { x: 16.5, z: -20 }
+            { x: -12.0, z: -5 },
+            { x: 12.0, z: -20 }
         ];
         
         fireExtPositions.forEach((pos, i) => {
@@ -1592,7 +1592,7 @@ class VRClub {
         const sprinklerMat = this.materialFactory.getPreset('sprinklerHead');
         
         // Grid of sprinklers every 5m
-        for (let x = -15; x <= 15; x += 5) {
+        for (let x = -10; x <= 10; x += 5) {
             for (let z = -25; z <= 0; z += 5) {
                 const sprinkler = BABYLON.MeshBuilder.CreateCylinder(`sprinkler_${x}_${z}`, {
                     diameterTop: 0.06, diameterBottom: 0.02, height: 0.06, tessellation: 12
@@ -1825,10 +1825,10 @@ class VRClub {
             { width: ROOM_BOUNDS.x.width, height: 4, depth: 0.5, 
               pos: new BABYLON.Vector3(0, 2, ROOM_BOUNDS.z.min) },
             // Front wall (partial - leave entrance open)
-            { width: 10, height: 4, depth: 0.5, 
-              pos: new BABYLON.Vector3(-12, 2, ROOM_BOUNDS.z.max) },
-            { width: 10, height: 4, depth: 0.5, 
-              pos: new BABYLON.Vector3(12, 2, ROOM_BOUNDS.z.max) },
+            { width: 10.5, height: 4, depth: 0.5, 
+              pos: new BABYLON.Vector3(-7.25, 2, ROOM_BOUNDS.z.max) },
+            { width: 10.5, height: 4, depth: 0.5, 
+              pos: new BABYLON.Vector3(7.25, 2, ROOM_BOUNDS.z.max) },
             
             // DJ Booth protection area (prevent walking through equipment)
             { width: 8, height: 2, depth: 0.5, 
@@ -3151,12 +3151,12 @@ class VRClub {
         // Main trusses run along X at Z=-8, -12, -16, -20 (horizontal beams)
         // Cross beams run along Z at X=-8, -4, 0, 4, 8 (vertical connecting beams)
         const lightPositions = [
-            { x: -8, z: -8 },   // Left on truss1 (front)
+            { x: -8, z: -10 },   // Left on truss1 (front) - Moved closer to dancefloor
             { x: -8, z: -12 },  // Left on truss2 (middle)
-            { x: -8, z: -16 },  // Left on truss3 (back)
-            { x: 8, z: -8 },    // Right on truss1 (front)
+            { x: -8, z: -14 },  // Left on truss3 (back) - Moved closer to dancefloor
+            { x: 8, z: -10 },    // Right on truss1 (front) - Moved closer to dancefloor
             { x: 8, z: -12 },   // Right on truss2 (middle)
-            { x: 8, z: -16 }    // Right on truss3 (back)
+            { x: 8, z: -14 }    // Right on truss3 (back) - Moved closer to dancefloor
         ];
         
         this.trussLights = [];
@@ -3434,7 +3434,7 @@ class VRClub {
         // ALL LASERS ON SAME Z POSITION for consistency (z: -14)
         const laserPositions = [
             { x: -8, z: -14, trussY: 7.55, type: 'multi' },   // Multi-beam left (left truss) - CHANGED
-            { x: 0, z: -12, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss) - FIXED: Moved to Z=-12 to sit ON truss
+            { x: 0, z: -8, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss) - Moved to farthest truss from DJ
             { x: 8, z: -14, trussY: 7.55, type: 'multi' }     // Multi-beam right (right truss) - CHANGED
         ];
         
