@@ -929,7 +929,8 @@ class ModelLoader {
         const aoPath = textureBasePath + 'small_speaker_1_1001_AO.jpg';
         
         // Load albedo (base color) texture with proper error handling
-        const albedoTexture = new BABYLON.Texture(albedoPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE, 
+        // CRITICAL: invertY=false for GLTF models (UVs match GLTF standard)
+        const albedoTexture = new BABYLON.Texture(albedoPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE, 
             () => { this.log.info(`   ✅ Loaded albedo: ${albedoPath}`); },
             (message, exception) => { 
                 this.log.warn(`   ⚠️ Failed to load albedo: ${albedoPath} - ${message}`);
@@ -940,7 +941,7 @@ class ModelLoader {
         mat.albedoTexture.hasAlpha = false;
         
         // Load normal map
-        const normalTexture = new BABYLON.Texture(normalPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+        const normalTexture = new BABYLON.Texture(normalPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
             () => { this.log.info(`   ✅ Loaded normal: ${normalPath}`); },
             (message, exception) => { this.log.warn(`   ⚠️ Failed to load normal: ${normalPath}`); }
         );
@@ -948,7 +949,7 @@ class ModelLoader {
         mat.bumpTexture.level = 1.0;
         
         // Load metallic texture
-        const metallicTexture = new BABYLON.Texture(metallicPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+        const metallicTexture = new BABYLON.Texture(metallicPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
             () => { this.log.info(`   ✅ Loaded metallic: ${metallicPath}`); },
             (message, exception) => { 
                 this.log.warn(`   ⚠️ Failed to load metallic: ${metallicPath}`);
@@ -958,7 +959,7 @@ class ModelLoader {
         mat.metallicTexture = metallicTexture;
         
         // Load roughness texture
-        const roughnessTexture = new BABYLON.Texture(roughnessPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+        const roughnessTexture = new BABYLON.Texture(roughnessPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
             () => { this.log.info(`   ✅ Loaded roughness: ${roughnessPath}`); },
             (message, exception) => { 
                 this.log.warn(`   ⚠️ Failed to load roughness: ${roughnessPath}`);
@@ -968,7 +969,7 @@ class ModelLoader {
         mat.microSurfaceTexture = roughnessTexture;
         
         // Load AO texture
-        const aoTexture = new BABYLON.Texture(aoPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+        const aoTexture = new BABYLON.Texture(aoPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
             () => { this.log.info(`   ✅ Loaded AO: ${aoPath}`); },
             (message, exception) => { this.log.warn(`   ⚠️ Failed to load AO: ${aoPath}`); }
         );
