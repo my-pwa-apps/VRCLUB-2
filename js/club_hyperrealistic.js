@@ -6125,17 +6125,21 @@ class VRClub {
                     // HYPERREALISTIC BEAM: Position in WORLD SPACE
                     // This ensures beam visually connects emission point to floor pool
                     
-                    // Calculate beam midpoint in world space (halfway between emission and floor)
-                    const beamMidpoint = new BABYLON.Vector3(
-                        (emissionPoint.x + floorIntersection.x) * 0.5,
-                        (emissionPoint.y + floorIntersection.y) * 0.5,
-                        (emissionPoint.z + floorIntersection.z) * 0.5
-                    );
-                    
                     // Beam length from emission to floor intersection
                     const beamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
-                    // Position beam at midpoint
+                    // CRITICAL FIX: Position beam so wide end (diameterTop) TOUCHES the floor
+                    // Cylinder height=1 at creation, scaling.y=beamLength stretches it
+                    // After rotation, the cylinder's local +Y points toward floor (direction)
+                    // The cylinder center should be at: floorIntersection + direction * (-beamLength/2)
+                    // This positions wide end at floor, narrow end at emission
+                    const beamMidpoint = new BABYLON.Vector3(
+                        floorIntersection.x - direction.x * (beamLength * 0.5),
+                        floorIntersection.y - direction.y * (beamLength * 0.5),
+                        floorIntersection.z - direction.z * (beamLength * 0.5)
+                    );
+                    
+                    // Position beam at calculated midpoint (centered between emission and floor)
                     spot.beam.position.copyFrom(beamMidpoint);
                     
                     // Orient beam to point from emission toward floor
@@ -6147,6 +6151,9 @@ class VRClub {
                     
                     // Use lookAt toward floor intersection, then rotate 90° to align cylinder axis
                     // Actually, easier: compute rotation directly from direction vector
+                    // Cylinder: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
+                    // We want WIDE end at FLOOR, NARROW end at fixture
+                    // So cylinder +Y (diameterTop) should point TOWARD floor (same as direction)
                     const up = new BABYLON.Vector3(0, 1, 0);
                     const angle = Math.acos(BABYLON.Vector3.Dot(direction, up));
                     const axis = BABYLON.Vector3.Cross(up, direction).normalize();
@@ -6154,11 +6161,11 @@ class VRClub {
                     if (axis.length() > 0.001) {
                         spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis, angle);
                     } else if (direction.y > 0) {
-                        // Pointing up (away from floor) - flip 180°
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
-                    } else {
-                        // Pointing straight down - no rotation needed
+                        // Pointing up (away from floor) - no flip needed (narrow end up is correct)
                         spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+                    } else {
+                        // Pointing straight down - FLIP 180° so wide end (diameterTop) goes to floor
+                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
                     }
                     
                     // UPDATE BEAM LENGTH
@@ -6180,10 +6187,17 @@ class VRClub {
                     // REMOVED: Old local positioning code (now using world space)
                     // Beam is positioned at beamMidpoint with quaternion rotation above
                     
-                    // Consistent beam size (no zoom variation)
-                    const zoomFactor = 1.0; 
-                    spot.beam.scaling.x = zoomFactor;
-                    spot.beam.scaling.z = zoomFactor;
+                    // HYPERREALISTIC: Stretch beam cone when hitting floor at angle
+                    // The cone's base (diameterTop) expands into an ellipse on the floor
+                    // We approximate this by scaling the cylinder wider in the tilt direction
+                    const cosTheta = Math.abs(direction.y);
+                    const tiltStretch = 1.0 / Math.max(0.4, cosTheta); // How much to stretch due to angle
+                    
+                    // Scale beam: X/Z control diameter, Y controls length
+                    // When tilted, the cone appears wider in the tilt direction
+                    const baseScale = 1.0;
+                    spot.beam.scaling.x = baseScale;
+                    spot.beam.scaling.z = baseScale * Math.min(1.3, tiltStretch); // Subtle stretch in Z (forward/back)
                     
                     // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
@@ -6217,8 +6231,8 @@ class VRClub {
                         spot.beamGlow.position.copyFrom(beamMidpoint);
                         spot.beamGlow.rotationQuaternion = spot.beam.rotationQuaternion.clone();
                         spot.beamGlow.scaling.y = beamLength;
-                        spot.beamGlow.scaling.x = zoomFactor;
-                        spot.beamGlow.scaling.z = zoomFactor;
+                        spot.beamGlow.scaling.x = baseScale;
+                        spot.beamGlow.scaling.z = baseScale * Math.min(1.3, tiltStretch);
                         
                         // CRITICAL: Sync glow visibility with strobe/beam visibility
                         spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
@@ -6250,13 +6264,24 @@ class VRClub {
                     // Update HYPERREALISTIC floor light pool - Soft radial gradient for realistic light reflection
                     if (spot.lightPool) {
                         if (this.lightsActive && beamVisible) {
-                            // HYPERREALISTIC: Pool size matches beam cone exactly
+                            // HYPERREALISTIC: Pool is ELLIPTICAL when beam hits floor at angle
                             // Beam cone: diameterBottom=0.2 (at emission), diameterTop=1.5 (at floor)
-                            // The floor pool should match the beam's wide end diameter (1.5m)
                             const beamDiameterAtFloor = 1.5; // Matches diameterTop from beam creation
                             
+                            // Calculate ellipse stretch based on beam angle to floor
+                            // cosTheta = |direction.y| (how vertical the beam is)
+                            // When vertical (cosTheta=1): circle. When angled (cosTheta<1): ellipse
+                            const cosTheta = Math.abs(direction.y);
+                            const ellipseStretch = 1.0 / Math.max(0.3, cosTheta); // Limit max stretch
+                            
                             // Pool radius = half diameter, with small expansion for soft edge
-                            const poolSize = (beamDiameterAtFloor * 0.5) * 1.1; // 0.825m radius with soft edge
+                            const poolBaseSize = (beamDiameterAtFloor * 0.5) * 1.2; // 0.9m radius with soft edge
+                            
+                            // Calculate ellipse orientation (stretch in direction of beam tilt)
+                            // Project beam direction onto XZ plane to get stretch direction
+                            const tiltDirX = direction.x;
+                            const tiltDirZ = direction.z;
+                            const tiltMagnitude = Math.sqrt(tiltDirX * tiltDirX + tiltDirZ * tiltDirZ);
                             
                             // Subtle shimmer for realistic light variation
                             const shimmer = 1.0 + Math.sin(time * 1.5 + i * 0.7) * 0.08;
@@ -6265,33 +6290,54 @@ class VRClub {
                             spot.lightPool.position.x = floorIntersection.x;
                             spot.lightPool.position.y = 0.02; // Just above floor to prevent z-fighting
                             spot.lightPool.position.z = floorIntersection.z;
-                            spot.lightPool.scaling.set(poolSize, poolSize, 1);
+                            
+                            // ELLIPTICAL SCALING: stretch in tilt direction
+                            // Rotate pool to align stretch with beam tilt direction
+                            if (tiltMagnitude > 0.05) {
+                                // Calculate rotation angle from tilt direction
+                                const poolRotation = Math.atan2(tiltDirX, tiltDirZ);
+                                spot.lightPool.rotation.z = poolRotation;
+                                // Scale: X is perpendicular to tilt (stays same), Y is along tilt (stretched)
+                                spot.lightPool.scaling.set(poolBaseSize, poolBaseSize * ellipseStretch, 1);
+                            } else {
+                                // Nearly vertical - circular pool
+                                spot.lightPool.rotation.z = 0;
+                                spot.lightPool.scaling.set(poolBaseSize, poolBaseSize, 1);
+                            }
                             spot.lightPool.visibility = 1.0;
                             
                             // Color intensity falls off with distance (inverse square approximation)
                             // Typical spotlight height is ~7.5m, so use that as reference for falloff
                             const normalizedDistance = Math.min(1.0, beamLength / 10.0);
                             const distanceFalloff = Math.max(0.3, 1.0 - (normalizedDistance * 0.5));
-                            const poolIntensity = 1.5 * shimmer * distanceFalloff;
+                            const poolIntensity = 1.8 * shimmer * distanceFalloff; // Slightly brighter
                             
                             if (spot.poolMat) {
                                 spot.poolMat.emissiveColor = spotColor.scale(poolIntensity);
-                                spot.poolMat.alpha = 0.5 * distanceFalloff; // Fade alpha with distance too
+                                spot.poolMat.alpha = 0.55 * distanceFalloff; // Slightly more visible
                             }
                             
-                            // Outer glow - larger, softer ambient light spread
+                            // Outer glow - larger, softer ambient light spread (also elliptical)
                             if (spot.lightPoolGlow) {
-                                const glowSize = poolSize * 2.0; // Much larger for soft ambient spread
+                                const glowBaseSize = poolBaseSize * 2.2; // Much larger for soft ambient spread
                                 spot.lightPoolGlow.position.x = floorIntersection.x;
                                 spot.lightPoolGlow.position.y = 0.01;
                                 spot.lightPoolGlow.position.z = floorIntersection.z;
-                                spot.lightPoolGlow.scaling.set(glowSize, glowSize, 1);
+                                
+                                // Match ellipse shape of main pool
+                                if (tiltMagnitude > 0.05) {
+                                    spot.lightPoolGlow.rotation.z = spot.lightPool.rotation.z;
+                                    spot.lightPoolGlow.scaling.set(glowBaseSize, glowBaseSize * ellipseStretch, 1);
+                                } else {
+                                    spot.lightPoolGlow.rotation.z = 0;
+                                    spot.lightPoolGlow.scaling.set(glowBaseSize, glowBaseSize, 1);
+                                }
                                 spot.lightPoolGlow.visibility = 1.0;
                                 
                                 if (spot.poolGlowMat) {
                                     // Very soft ambient glow
-                                    spot.poolGlowMat.emissiveColor = spotColor.scale(0.4 * shimmer * distanceFalloff);
-                                    spot.poolGlowMat.alpha = 0.2 * distanceFalloff;
+                                    spot.poolGlowMat.emissiveColor = spotColor.scale(0.5 * shimmer * distanceFalloff);
+                                    spot.poolGlowMat.alpha = 0.25 * distanceFalloff;
                                 }
                             }
                             
