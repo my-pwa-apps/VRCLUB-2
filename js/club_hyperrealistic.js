@@ -700,7 +700,7 @@ class VRClub {
                                 xrInput: vrHelper.input,
                                 // Smooth locomotion settings - left stick moves, right stick rotates
                                 movementEnabled: true,
-                                movementSpeed: 2.5, // Slightly slower for more realistic walking feel
+                                movementSpeed: 1.5, // Slower for realistic walking feel
                                 movementThreshold: 0.2, // Higher threshold to prevent drift
                                 rotationEnabled: true,
                                 rotationSpeed: 0.8, // Slightly slower turning for comfort
@@ -718,7 +718,8 @@ class VRClub {
                         xrCamera.applyGravity = true;
                         xrCamera.checkCollisions = true;
                         // Set ellipsoid for collision detection (approximate human size)
-                        xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.9, 0.3);
+                        xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.8, 0.3); // Lower height
+                        xrCamera.inertia = 0.1; // Reduce sliding (default 0.9)
                         
                         log.info('🎮 VR controller locomotion enabled with gravity');
                         
@@ -731,12 +732,12 @@ class VRClub {
                                     thumbstick.onButtonStateChangedObservable.add((component) => {
                                         if (component.pressed) {
                                             if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 6.0; // Sprint (2x normal)
+                                                this.movementFeature.movementSpeed = 3.0; // Sprint (2x normal)
                                                 log.info('🏃 VR Sprint activated');
                                             }
                                         } else {
                                             if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 3.0; // Normal walk
+                                                this.movementFeature.movementSpeed = 1.5; // Normal walk
                                             }
                                         }
                                     });
@@ -1117,7 +1118,7 @@ class VRClub {
             height: 10,
             depth: 0.5
         }, this.scene);
-        frontWall.position = new BABYLON.Vector3(0, 5, -5);
+        frontWall.position = new BABYLON.Vector3(0, 5, 0);
         frontWall.material = wallMat;
         frontWall.receiveShadows = false; // Optimization: disable shadows on walls
         frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1297,7 +1298,7 @@ class VRClub {
         const leftArchPillar = BABYLON.MeshBuilder.CreateBox("leftArchPillar", {
             width: 0.4, height: 3.5, depth: 0.4
         }, this.scene);
-        leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, -5);
+        leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, 0);
         leftArchPillar.material = archMat;
         leftArchPillar.checkCollisions = true;
         leftArchPillar.freezeWorldMatrix();
@@ -1306,7 +1307,7 @@ class VRClub {
         const rightArchPillar = BABYLON.MeshBuilder.CreateBox("rightArchPillar", {
             width: 0.4, height: 3.5, depth: 0.4
         }, this.scene);
-        rightArchPillar.position = new BABYLON.Vector3(3, 1.75, -5);
+        rightArchPillar.position = new BABYLON.Vector3(3, 1.75, 0);
         rightArchPillar.material = archMat;
         rightArchPillar.checkCollisions = true;
         rightArchPillar.freezeWorldMatrix();
@@ -1315,7 +1316,7 @@ class VRClub {
         const archTop = BABYLON.MeshBuilder.CreateBox("archTop", {
             width: 6.4, height: 0.3, depth: 0.4
         }, this.scene);
-        archTop.position = new BABYLON.Vector3(0, 3.65, -5);
+        archTop.position = new BABYLON.Vector3(0, 3.65, 0);
         archTop.material = archMat;
         archTop.freezeWorldMatrix();
         
@@ -2407,7 +2408,7 @@ class VRClub {
             height: 0.02,
             depth: 4
         }, this.scene);
-        platformTop.position = new BABYLON.Vector3(0, 0.51, -18);
+        platformTop.position = new BABYLON.Vector3(0, 0.51, -21);
         
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
@@ -2424,7 +2425,7 @@ class VRClub {
             height: 0.08,
             depth: 0.08
         }, this.scene);
-        frontRail.position = new BABYLON.Vector3(0, 0.8, -16);
+        frontRail.position = new BABYLON.Vector3(0, 0.8, -19);
         frontRail.material = railMat;
         
         // === DJ EQUIPMENT TABLE (CENTER) ===
@@ -2433,7 +2434,7 @@ class VRClub {
             height: 0.08,
             depth: 1.5
         }, this.scene);
-        djTable.position = new BABYLON.Vector3(0, 0.8, -17);
+        djTable.position = new BABYLON.Vector3(0, 0.8, -20);
         
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
@@ -2447,7 +2448,7 @@ class VRClub {
             height: 0.1,
             depth: 1.0
         }, this.scene);
-        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -17);
+        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -20);
         leftCDJ.material = cdjMat;
         
         // Left jog wheel (glowing)
@@ -2455,7 +2456,7 @@ class VRClub {
             diameter: 0.5,
             height: 0.04
         }, this.scene);
-        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -17);
+        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -20);
         const jogMat = this.materialFactory.getPreset('jogWheel');
         leftJog.material = jogMat;
         
@@ -2465,7 +2466,7 @@ class VRClub {
             height: 0.1,
             depth: 1.0
         }, this.scene);
-        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -17);
+        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -20);
         rightCDJ.material = cdjMat;
         
         // Right jog wheel
@@ -2473,7 +2474,7 @@ class VRClub {
             diameter: 0.5,
             height: 0.04
         }, this.scene);
-        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -17);
+        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -20);
         rightJog.material = jogMat.clone("rightJogMat");
         
         // === DJ MIXER (CENTER) ===
@@ -2482,7 +2483,7 @@ class VRClub {
             height: 0.12,
             depth: 0.9
         }, this.scene);
-        mixer.position = new BABYLON.Vector3(0, 0.89, -17);
+        mixer.position = new BABYLON.Vector3(0, 0.89, -20);
         mixer.material = cdjMat; // Reuse CDJ material for mixer body
         
         // Mixer display (facing DJ)
@@ -2490,7 +2491,7 @@ class VRClub {
             width: 1.2,
             height: 0.2
         }, this.scene);
-        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -17.5);
+        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -20.5);
         mixerDisplay.rotation.x = Math.PI / 6;
         const displayMat = this.materialFactory.createStandardMaterial("mixerDisplayMat", {
             emissiveColor: [0, 1, 0.5],
@@ -2504,7 +2505,7 @@ class VRClub {
             height: 0.08,
             depth: 0.25
         }, this.scene);
-        audioBtn.position = new BABYLON.Vector3(0, 0.96, -16.5);
+        audioBtn.position = new BABYLON.Vector3(0, 0.96, -19.5);
         audioBtn.isPickable = true;
         
         const audioBtnMat = this.materialFactory.createStandardMaterial("audioBtnMat", {
@@ -2533,7 +2534,7 @@ class VRClub {
             height: 0.15,
             depth: 2.0 // Extended to fit 3 rows
         }, this.scene);
-        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -18.4); // Moved back to center
+        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -21.4); // Moved back to center
         vjConsole.material = tableMat;
         
         // VJ Console label removed - buttons are self-explanatory by color
@@ -2640,10 +2641,10 @@ class VRClub {
                 height: 0.1,
                 depth: 0.3
             }, this.scene);
-            // Row 1: z=-23.7, Row 2: z=-24.5, Row 3: z=-25.3
-            let zPos = -23.7; // Row 1 (default)
-            if (btnDef.row2) zPos = -24.5; // Row 2
-            if (btnDef.row3) zPos = -25.3; // Row 3
+            // Row 1: z=-26.7, Row 2: z=-27.5, Row 3: z=-28.3
+            let zPos = -26.7; // Row 1 (default)
+            if (btnDef.row2) zPos = -27.5; // Row 2
+            if (btnDef.row3) zPos = -28.3; // Row 3
             
             toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, zPos);
             toggleBtn.isPickable = true;
@@ -2671,7 +2672,7 @@ class VRClub {
         // === SPEED SLIDER for controlling spotlight sweep speed ===
         // Position: Row 3, right side (x=3.8 to 4.3)
         const sliderX = 3.8;
-        const sliderZ = -25.3; // Row 3
+        const sliderZ = -28.3; // Row 3
         const sliderY = 0.95;
         
         // Slider track (background rail)
@@ -3151,12 +3152,12 @@ class VRClub {
         // Main trusses run along X at Z=-8, -12, -16, -20 (horizontal beams)
         // Cross beams run along Z at X=-8, -4, 0, 4, 8 (vertical connecting beams)
         const lightPositions = [
-            { x: -8, z: -10 },   // Left on truss1 (front) - Moved closer to dancefloor
+            { x: -8, z: -8 },   // Left on truss1 (front) - Moved closer to dancefloor
             { x: -8, z: -12 },  // Left on truss2 (middle)
-            { x: -8, z: -14 },  // Left on truss3 (back) - Moved closer to dancefloor
-            { x: 8, z: -10 },    // Right on truss1 (front) - Moved closer to dancefloor
+            { x: -8, z: -16 },  // Left on truss3 (back) - Moved closer to dancefloor
+            { x: 8, z: -8 },    // Right on truss1 (front) - Moved closer to dancefloor
             { x: 8, z: -12 },   // Right on truss2 (middle)
-            { x: 8, z: -14 }    // Right on truss3 (back) - Moved closer to dancefloor
+            { x: 8, z: -16 }    // Right on truss3 (back) - Moved closer to dancefloor
         ];
         
         this.trussLights = [];
