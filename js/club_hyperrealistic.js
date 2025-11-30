@@ -757,6 +757,61 @@ class VRClub {
                                         }
                                     });
                                 }
+
+                                // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump
+                                const jumpBtnIds = ["a-button", "x-button"];
+                                jumpBtnIds.forEach(id => {
+                                    const btn = motionController.getComponent(id);
+                                    if (btn) {
+                                        btn.onButtonStateChangedObservable.add((c) => {
+                                            if (c.pressed && (!this.jumpState || !this.jumpState.active)) {
+                                                log.info('🦘 VR Jump activated');
+                                                
+                                                // Initialize jump state if needed
+                                                if (!this.jumpState) {
+                                                    this.jumpState = { active: false, velocity: 0 };
+                                                    
+                                                    // Add physics observer for jump arc
+                                                    this.scene.onBeforeRenderObservable.add(() => {
+                                                        if (this.jumpState.active && xrCamera) {
+                                                            // Apply velocity
+                                                            xrCamera.position.y += this.jumpState.velocity;
+                                                            // Apply gravity to velocity
+                                                            this.jumpState.velocity -= 0.006; // Gravity
+                                                            
+                                                            // Check for landing (only when falling)
+                                                            if (this.jumpState.velocity < 0) {
+                                                                // Raycast down to find ground
+                                                                const ray = new BABYLON.Ray(xrCamera.position, new BABYLON.Vector3(0, -1, 0), 2.5);
+                                                                // Pick meshes that have collisions enabled (floor, platform)
+                                                                const pick = this.scene.pickWithRay(ray, (mesh) => mesh.checkCollisions);
+                                                                
+                                                                // If ground is within standing height (1.7m) + tolerance
+                                                                if (pick && pick.hit && pick.distance <= 1.75) {
+                                                                    this.jumpState.active = false;
+                                                                    xrCamera.applyGravity = true; // Re-enable Babylon gravity
+                                                                    // Smooth landing
+                                                                    xrCamera.position.y = pick.pickedPoint.y + 1.7;
+                                                                }
+                                                                // Fallback for infinite fall (reset to floor)
+                                                                else if (xrCamera.position.y < 1.7) {
+                                                                    this.jumpState.active = false;
+                                                                    xrCamera.applyGravity = true;
+                                                                    xrCamera.position.y = 1.7;
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                                
+                                                // Trigger jump
+                                                this.jumpState.active = true;
+                                                this.jumpState.velocity = 0.12; // Jump force
+                                                xrCamera.applyGravity = false; // Disable Babylon gravity during jump
+                                            }
+                                        });
+                                    }
+                                });
                             });
                         });
                     } catch (e) {
