@@ -2769,7 +2769,7 @@ class VRClub {
         // Back wall is 25m wide × 10m tall at Z=-27
         const panelWidth = 1.2;
         const panelHeight = 1.0; // Slightly smaller for more rows
-        const cols = 16;  // 16 × 1.2 = 19.2m (fills 25m wall with margin)
+        const cols = 21;  // 21 × 1.2 = 25.2m (fills 25m wall completely)
         const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
         const wallWidth = cols * panelWidth;
         const wallHeight = rows * panelHeight;
@@ -5557,12 +5557,15 @@ class VRClub {
             this.lightModeSwitchTime = time;
         }
         
-        // Update LED wall animations using the modular system
-        // CRITICAL FIX: Always update modular system to handle blanking when inactive
-        if (this.systems.ledWall) {
+        // Update LED wall animations
+        // CRITICAL FIX: Handle both modular and legacy systems
+        if (this.useModularSystems && this.systems.ledWall) {
             this.systems.ledWall.setActive(this.ledWallActive);
             this.systems.ledWall.update(time, audioData);
-        } else if (this.ledPanels && this.ledPanels.length > 0 && !this.ledWallActive) {
+        } else if (this.ledWallActive) {
+            // Legacy update method
+            this.updateLEDWall(time, audioData);
+        } else if (this.ledPanels && this.ledPanels.length > 0) {
             // LED Wall is OFF - turn all panels black (not just paused)
             const blackColor = this.cachedColors.black;
             this.ledPanels.forEach(panel => {
