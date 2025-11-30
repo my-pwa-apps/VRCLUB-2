@@ -1081,7 +1081,7 @@ class VRClub {
             height: 10,
             depth: 0.5
         }, this.scene);
-        backWall.position = new BABYLON.Vector3(0, 5, -27);
+        backWall.position = new BABYLON.Vector3(0, 5, -21);
         backWall.material = wallMat;
         backWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         backWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1154,8 +1154,8 @@ class VRClub {
         
         // Add concrete support pillars along walls
         const pillarPositions = [
-            { x: -12.5, z: -5 }, { x: -12.5, z: -15 }, { x: -12.5, z: -25 },
-            { x: 12.5, z: -5 }, { x: 12.5, z: -15 }, { x: 12.5, z: -25 }
+            { x: -12.5, z: -5 }, { x: -12.5, z: -15 }, { x: -12.5, z: -21 },
+            { x: 12.5, z: -5 }, { x: 12.5, z: -15 }, { x: 12.5, z: -21 }
         ];
         
         // OPTIMIZATION: Create pillars array for merging
@@ -1228,8 +1228,8 @@ class VRClub {
         
         // Add industrial pipes running along ceiling (near walls)
         const pipeRuns = [
-            { start: { x: -11.5, z: -25 }, end: { x: -11.5, z: 5 } },  // Left wall
-            { start: { x: 11.5, z: -25 }, end: { x: 11.5, z: 5 } }     // Right wall
+            { start: { x: -11.5, z: -21 }, end: { x: -11.5, z: 5 } },  // Left wall
+            { start: { x: 11.5, z: -21 }, end: { x: 11.5, z: 5 } }     // Right wall
         ];
         
         // OPTIMIZATION: Create pipes/conduits array for merging
@@ -1559,7 +1559,7 @@ class VRClub {
         
         const fireExtPositions = [
             { x: -12.0, z: -5 },
-            { x: 12.0, z: -20 }
+            { x: 12.0, z: -15 }
         ];
         
         fireExtPositions.forEach((pos, i) => {
@@ -1593,7 +1593,7 @@ class VRClub {
         
         // Grid of sprinklers every 5m
         for (let x = -10; x <= 10; x += 5) {
-            for (let z = -25; z <= 0; z += 5) {
+            for (let z = -20; z <= 0; z += 5) {
                 const sprinkler = BABYLON.MeshBuilder.CreateCylinder(`sprinkler_${x}_${z}`, {
                     diameterTop: 0.06, diameterBottom: 0.02, height: 0.06, tessellation: 12
                 }, this.scene);
@@ -1608,8 +1608,8 @@ class VRClub {
         
         const smokePositions = [
             { x: -8, z: -8 }, { x: 8, z: -8 },
-            { x: -8, z: -18 }, { x: 8, z: -18 },
-            { x: 0, z: -24 }
+            { x: -8, z: -14 }, { x: 8, z: -14 },
+            { x: 0, z: -18 }
         ];
         
         smokePositions.forEach((pos, i) => {
@@ -1653,20 +1653,20 @@ class VRClub {
         const standBase = BABYLON.MeshBuilder.CreateBox("laptopStandBase", {
             width: 0.3, height: 0.02, depth: 0.25
         }, this.scene);
-        standBase.position = new BABYLON.Vector3(-0.8, 0.84, -23.6);
+        standBase.position = new BABYLON.Vector3(-0.8, 0.84, -17.6);
         standBase.material = this.materialFactory.getPreset('barStool');
         
         const standArm = BABYLON.MeshBuilder.CreateBox("laptopStandArm", {
             width: 0.04, height: 0.15, depth: 0.04
         }, this.scene);
-        standArm.position = new BABYLON.Vector3(-0.8, 0.92, -23.65);
+        standArm.position = new BABYLON.Vector3(-0.8, 0.92, -17.65);
         standArm.material = this.materialFactory.getPreset('barStool');
         
         // Laptop base
         const laptopBase = BABYLON.MeshBuilder.CreateBox("laptopBase", {
             width: 0.32, height: 0.015, depth: 0.22
         }, this.scene);
-        laptopBase.position = new BABYLON.Vector3(-0.8, 1.02, -23.55);
+        laptopBase.position = new BABYLON.Vector3(-0.8, 1.02, -17.55);
         laptopBase.rotation.x = -0.2; // Tilted toward DJ
         laptopBase.material = laptopMat;
         
@@ -1674,7 +1674,7 @@ class VRClub {
         const laptopScreen = BABYLON.MeshBuilder.CreateBox("laptopScreen", {
             width: 0.3, height: 0.2, depth: 0.008
         }, this.scene);
-        laptopScreen.position = new BABYLON.Vector3(-0.8, 1.18, -23.64);
+        laptopScreen.position = new BABYLON.Vector3(-0.8, 1.18, -17.64);
         laptopScreen.rotation.x = -0.5;
         laptopScreen.material = laptopMat;
         
@@ -1682,7 +1682,7 @@ class VRClub {
         const screenDisplay = BABYLON.MeshBuilder.CreatePlane("laptopDisplay", {
             width: 0.28, height: 0.18
         }, this.scene);
-        screenDisplay.position = new BABYLON.Vector3(-0.8, 1.18, -23.635);
+        screenDisplay.position = new BABYLON.Vector3(-0.8, 1.18, -17.635);
         screenDisplay.rotation.x = -0.5;
         const screenMat = this.materialFactory.createStandardMaterial("laptopScreenMat", {
             emissiveColor: [0.2, 0.4, 0.8], // Blue waveform display
@@ -1698,7 +1698,7 @@ class VRClub {
         const headphoneBand = BABYLON.MeshBuilder.CreateTorus("headphoneBand", {
             diameter: 0.2, thickness: 0.015, tessellation: 24, arc: 0.5
         }, this.scene);
-        headphoneBand.position = new BABYLON.Vector3(0.6, 0.98, -22.7);
+        headphoneBand.position = new BABYLON.Vector3(0.6, 0.98, -16.7);
         headphoneBand.rotation.z = Math.PI;
         headphoneBand.rotation.y = 0.3;
         headphoneBand.material = headphoneBandMat;
@@ -1707,7 +1707,7 @@ class VRClub {
         const leftCup = BABYLON.MeshBuilder.CreateCylinder("headphoneLeftCup", {
             diameter: 0.1, height: 0.05, tessellation: 16
         }, this.scene);
-        leftCup.position = new BABYLON.Vector3(0.5, 0.94, -22.68);
+        leftCup.position = new BABYLON.Vector3(0.5, 0.94, -16.68);
         leftCup.rotation.z = Math.PI / 2;
         leftCup.material = headphoneCupMat;
         
@@ -1715,7 +1715,7 @@ class VRClub {
         const rightCup = BABYLON.MeshBuilder.CreateCylinder("headphoneRightCup", {
             diameter: 0.1, height: 0.05, tessellation: 16
         }, this.scene);
-        rightCup.position = new BABYLON.Vector3(0.7, 0.94, -22.72);
+        rightCup.position = new BABYLON.Vector3(0.7, 0.94, -16.72);
         rightCup.rotation.z = Math.PI / 2;
         rightCup.material = headphoneCupMat;
         
@@ -1724,14 +1724,14 @@ class VRClub {
         const leftPad = BABYLON.MeshBuilder.CreateCylinder("headphoneLeftPad", {
             diameter: 0.09, height: 0.02, tessellation: 16
         }, this.scene);
-        leftPad.position = new BABYLON.Vector3(0.47, 0.94, -22.68);
+        leftPad.position = new BABYLON.Vector3(0.47, 0.94, -16.68);
         leftPad.rotation.z = Math.PI / 2;
         leftPad.material = cushionMat;
         
         const rightPad = BABYLON.MeshBuilder.CreateCylinder("headphoneRightPad", {
             diameter: 0.09, height: 0.02, tessellation: 16
         }, this.scene);
-        rightPad.position = new BABYLON.Vector3(0.73, 0.94, -22.72);
+        rightPad.position = new BABYLON.Vector3(0.73, 0.94, -16.72);
         rightPad.rotation.z = Math.PI / 2;
         rightPad.material = cushionMat;
         
@@ -1742,7 +1742,7 @@ class VRClub {
         const cableBundle = BABYLON.MeshBuilder.CreateCylinder("cableBundle", {
             diameter: 0.06, height: 4.5, tessellation: 8
         }, this.scene);
-        cableBundle.position = new BABYLON.Vector3(0, 0.7, -23.5);
+        cableBundle.position = new BABYLON.Vector3(0, 0.7, -17.5);
         cableBundle.rotation.z = Math.PI / 2;
         cableBundle.material = cableMat;
         
@@ -1752,7 +1752,7 @@ class VRClub {
             const drop = BABYLON.MeshBuilder.CreateCylinder(`cableDrop${i}`, {
                 diameter: 0.025, height: 0.4, tessellation: 8
             }, this.scene);
-            drop.position = new BABYLON.Vector3(x, 0.5, -23.5);
+            drop.position = new BABYLON.Vector3(x, 0.5, -17.5);
             drop.material = cableMat;
         });
         
@@ -1760,7 +1760,7 @@ class VRClub {
         const usbStick = BABYLON.MeshBuilder.CreateBox("usbStick", {
             width: 0.02, height: 0.008, depth: 0.04
         }, this.scene);
-        usbStick.position = new BABYLON.Vector3(-1.1, 0.9, -22.65);
+        usbStick.position = new BABYLON.Vector3(-1.1, 0.9, -16.65);
         usbStick.material = this.materialFactory.createPBRMaterial('usbMat', {
             baseColor: [0.2, 0.2, 0.2],
             metallic: 0.3,
@@ -1832,18 +1832,18 @@ class VRClub {
             
             // DJ Booth protection area (prevent walking through equipment)
             { width: 8, height: 2, depth: 0.5, 
-              pos: new BABYLON.Vector3(0, 1, -23.8) }, // Front of DJ booth
+              pos: new BABYLON.Vector3(0, 1, -17.8) }, // Front of DJ booth
             { width: 0.5, height: 2, depth: 2, 
-              pos: new BABYLON.Vector3(-4.5, 1, -23) }, // Left side
+              pos: new BABYLON.Vector3(-4.5, 1, -17) }, // Left side
             { width: 0.5, height: 2, depth: 2, 
-              pos: new BABYLON.Vector3(4.5, 1, -23) }, // Right side
+              pos: new BABYLON.Vector3(4.5, 1, -17) }, // Right side
             
             // PA Speaker protection (left stack)
             { width: 3, height: 6, depth: 2, 
-              pos: new BABYLON.Vector3(-7, 3, -25) },
+              pos: new BABYLON.Vector3(-7, 3, -19) },
             // PA Speaker protection (right stack)
             { width: 3, height: 6, depth: 2, 
-              pos: new BABYLON.Vector3(7, 3, -25) }
+              pos: new BABYLON.Vector3(7, 3, -19) }
         ];
         
         boundaries.forEach((b, i) => {
@@ -2381,7 +2381,7 @@ class VRClub {
     
     createDJBooth() {
         // === HYPERREALISTIC INTEGRATED DJ/VJ BOOTH ===
-        // Positioned at BACK of club (z=-24)
+        // Positioned at BACK of club (z=-18)
         // DJ faces DANCE FLOOR (toward positive z direction)
         
         log.info("🎛️ Creating integrated DJ/VJ booth...");
@@ -2392,7 +2392,7 @@ class VRClub {
             height: 0.5,
             depth: 4
         }, this.scene);
-        platform.position = new BABYLON.Vector3(0, 0.25, -24);
+        platform.position = new BABYLON.Vector3(0, 0.25, -18);
         
         const platformMat = this.materialFactory.getPreset('platform');
         platform.material = platformMat;
@@ -2407,7 +2407,7 @@ class VRClub {
             height: 0.02,
             depth: 4
         }, this.scene);
-        platformTop.position = new BABYLON.Vector3(0, 0.51, -24);
+        platformTop.position = new BABYLON.Vector3(0, 0.51, -18);
         
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
@@ -2424,7 +2424,7 @@ class VRClub {
             height: 0.08,
             depth: 0.08
         }, this.scene);
-        frontRail.position = new BABYLON.Vector3(0, 0.8, -22);
+        frontRail.position = new BABYLON.Vector3(0, 0.8, -16);
         frontRail.material = railMat;
         
         // === DJ EQUIPMENT TABLE (CENTER) ===
@@ -2433,7 +2433,7 @@ class VRClub {
             height: 0.08,
             depth: 1.5
         }, this.scene);
-        djTable.position = new BABYLON.Vector3(0, 0.8, -23);
+        djTable.position = new BABYLON.Vector3(0, 0.8, -17);
         
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
@@ -2447,7 +2447,7 @@ class VRClub {
             height: 0.1,
             depth: 1.0
         }, this.scene);
-        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -23);
+        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -17);
         leftCDJ.material = cdjMat;
         
         // Left jog wheel (glowing)
@@ -2455,7 +2455,7 @@ class VRClub {
             diameter: 0.5,
             height: 0.04
         }, this.scene);
-        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -23);
+        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -17);
         const jogMat = this.materialFactory.getPreset('jogWheel');
         leftJog.material = jogMat;
         
@@ -2465,7 +2465,7 @@ class VRClub {
             height: 0.1,
             depth: 1.0
         }, this.scene);
-        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -23);
+        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -17);
         rightCDJ.material = cdjMat;
         
         // Right jog wheel
@@ -2473,7 +2473,7 @@ class VRClub {
             diameter: 0.5,
             height: 0.04
         }, this.scene);
-        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -23);
+        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -17);
         rightJog.material = jogMat.clone("rightJogMat");
         
         // === DJ MIXER (CENTER) ===
@@ -2482,7 +2482,7 @@ class VRClub {
             height: 0.12,
             depth: 0.9
         }, this.scene);
-        mixer.position = new BABYLON.Vector3(0, 0.89, -23);
+        mixer.position = new BABYLON.Vector3(0, 0.89, -17);
         mixer.material = cdjMat; // Reuse CDJ material for mixer body
         
         // Mixer display (facing DJ)
@@ -2490,7 +2490,7 @@ class VRClub {
             width: 1.2,
             height: 0.2
         }, this.scene);
-        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -23.5);
+        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -17.5);
         mixerDisplay.rotation.x = Math.PI / 6;
         const displayMat = this.materialFactory.createStandardMaterial("mixerDisplayMat", {
             emissiveColor: [0, 1, 0.5],
@@ -2504,7 +2504,7 @@ class VRClub {
             height: 0.08,
             depth: 0.25
         }, this.scene);
-        audioBtn.position = new BABYLON.Vector3(0, 0.96, -22.5);
+        audioBtn.position = new BABYLON.Vector3(0, 0.96, -16.5);
         audioBtn.isPickable = true;
         
         const audioBtnMat = this.materialFactory.createStandardMaterial("audioBtnMat", {
@@ -2533,7 +2533,7 @@ class VRClub {
             height: 0.15,
             depth: 2.0 // Extended to fit 3 rows
         }, this.scene);
-        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -24.4); // Moved back to center
+        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -18.4); // Moved back to center
         vjConsole.material = tableMat;
         
         // VJ Console label removed - buttons are self-explanatory by color
@@ -2785,7 +2785,7 @@ class VRClub {
                 
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
                 const y = (row * panelHeight) + (panelHeight / 2) + 0.05; // Start just above floor
-                const z = -26; // Behind DJ booth
+                const z = -20; // Behind DJ booth
                 
                 panel.position = new BABYLON.Vector3(x, y, z);
                 // Plane faces -Z by default, which is toward the dance floor - correct!
@@ -8474,11 +8474,11 @@ class VRClub {
         const presets = {
             exterior: { pos: new BABYLON.Vector3(0, 1.7, 10), target: new BABYLON.Vector3(0, 2, 0) },
             entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
-            danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -24) },
-            djBooth: { pos: new BABYLON.Vector3(0, 2.0, -24.5), target: new BABYLON.Vector3(0, 1.7, -10) },
-            djSide: { pos: new BABYLON.Vector3(-5, 2.0, -23), target: new BABYLON.Vector3(0, 1.5, -23.5) },
-            ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -18), target: new BABYLON.Vector3(0, 3, -25) },
-            speakers: { pos: new BABYLON.Vector3(-4, 1.7, -20), target: new BABYLON.Vector3(-7, 2.5, -25) },
+            danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -18) },
+            djBooth: { pos: new BABYLON.Vector3(0, 2.0, -18.5), target: new BABYLON.Vector3(0, 1.7, -10) },
+            djSide: { pos: new BABYLON.Vector3(-5, 2.0, -17), target: new BABYLON.Vector3(0, 1.5, -17.5) },
+            ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -19) },
+            speakers: { pos: new BABYLON.Vector3(-4, 1.7, -14), target: new BABYLON.Vector3(-7, 2.5, -19) },
             truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
             mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
             overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },

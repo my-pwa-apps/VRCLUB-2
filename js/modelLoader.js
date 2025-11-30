@@ -92,7 +92,7 @@ class ModelLoader {
             dj_console: {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
-                position: new BABYLON.Vector3(-1.0, 0.95, -23.4), // Left side, slightly higher, away from VJ controls
+                position: new BABYLON.Vector3(-1.0, 0.95, -17.4), // Left side, slightly higher, away from VJ controls
                 rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotated 180° to face DJ (was mirrored in original model)
                 scale: new BABYLON.Vector3(-0.025, 0.025, 0.025), // NEGATIVE X to unmirror, reduced size
                 useProcedural: false, // Use real 3D model
@@ -101,7 +101,7 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(-6, 6.5, -22), // Hung from ceiling, in front of LED wall (z=-25)
+                position: new BABYLON.Vector3(-6, 6.5, -16), // Hung from ceiling, in front of LED wall (z=-20)
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
@@ -114,7 +114,7 @@ class ModelLoader {
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(6, 6.5, -22), // Hung from ceiling, in front of LED wall (z=-25)
+                position: new BABYLON.Vector3(6, 6.5, -16), // Hung from ceiling, in front of LED wall (z=-20)
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
