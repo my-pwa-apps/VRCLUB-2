@@ -3689,42 +3689,7 @@ class VRClub {
         outerGlow.material = outerGlowMat;
         outerGlow.renderingGroupId = 1;
         
-        // === FLOOR HIT SPOT - Sharp bright point where laser terminates ===
-        // Real lasers create a small, intense dot
-        const hitSpot = BABYLON.MeshBuilder.CreateDisc("laserHit" + laserIndex + "_" + beamIndex, {
-            radius: 0.025,  // 2.5cm - very small like real laser
-            tessellation: 12
-        }, this.scene);
-        hitSpot.rotation.x = Math.PI / 2;
-        hitSpot.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
-        hitSpot.isPickable = false;
-        
-        const hitSpotMat = new BABYLON.StandardMaterial("laserHitMat" + laserIndex + "_" + beamIndex, this.scene);
-        hitSpotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        hitSpotMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
-        hitSpotMat.alpha = 1.0;
-        hitSpotMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        hitSpotMat.disableLighting = true;
-        hitSpot.material = hitSpotMat;
-        hitSpot.renderingGroupId = 2;
-        
-        // === HIT SPOT GLOW - Soft bloom around termination point ===
-        const hitGlow = BABYLON.MeshBuilder.CreateDisc("laserHitGlow" + laserIndex + "_" + beamIndex, {
-            radius: 0.12,  // 12cm soft glow around hit point
-            tessellation: 16
-        }, this.scene);
-        hitGlow.rotation.x = Math.PI / 2;
-        hitGlow.position = new BABYLON.Vector3(pos.x, 0.015, pos.z - 5);
-        hitGlow.isPickable = false;
-        
-        const hitGlowMat = new BABYLON.StandardMaterial("laserHitGlowMat" + laserIndex + "_" + beamIndex, this.scene);
-        hitGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        hitGlowMat.emissiveColor = new BABYLON.Color3(1, 0.3, 0.3);
-        hitGlowMat.alpha = 0.4;
-        hitGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        hitGlowMat.disableLighting = true;
-        hitGlow.material = hitGlowMat;
-        hitGlow.renderingGroupId = 1;
+        // Hit spots removed - cleaner laser look without floor reflections
         
         return { 
             mesh: beam, 
@@ -3733,10 +3698,10 @@ class VRClub {
             innerGlowMat: innerGlowMat,
             beamGlow: outerGlow,  // Keep name for compatibility
             glowMat: outerGlowMat,
-            hitSpot: hitSpot,
-            hitSpotMat: hitSpotMat,
-            hitGlow: hitGlow,
-            hitGlowMat: hitGlowMat,
+            hitSpot: null,        // No longer created
+            hitSpotMat: null,
+            hitGlow: null,
+            hitGlowMat: null,
             beamIndex: beamIndex 
         };
     }
@@ -5716,10 +5681,7 @@ class VRClub {
                         beam.beamGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
                     }
                     
-                    // HIT SPOTS REMOVED - cleaner laser look without floor reflections
-                    // Hide hit spots if they exist from previous creation
-                    if (beam.hitSpot) beam.hitSpot.visibility = 0;
-                    if (beam.hitGlow) beam.hitGlow.visibility = 0;
+                    // Hit spots removed - no floor reflections needed
                     
                     // Color all beam elements with current color - HYPERREALISTIC color grading
                     let currentColor, innerGlowColor, outerGlowColor;
