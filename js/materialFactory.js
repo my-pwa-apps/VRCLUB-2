@@ -365,12 +365,6 @@ class MaterialFactory {
             roughness: 0.3
         }, true),
 
-        sprinklerHead: () => this.createPBRMaterial('sprinklerHeadMat', {
-            baseColor: [0.75, 0.72, 0.7], // Chrome/nickel
-            metallic: 0.95,
-            roughness: 0.2
-        }, true),
-
         smokeDetector: () => this.createPBRMaterial('smokeDetectorMat', {
             baseColor: [0.9, 0.9, 0.88], // Off-white plastic
             metallic: 0.0,

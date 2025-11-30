@@ -312,9 +312,37 @@ class VRClub {
         
         // #6 OPTIMIZED: Freeze static materials to prevent shader recompilation
         this.scene.materials.forEach(mat => {
+            // CRITICAL FIX: Explicitly unfreeze LED materials to ensure animation works
+            if (mat.name && (mat.name.includes('led') || mat.name.includes('LED'))) {
+                mat.unfreeze();
+                return; // Skip freezing
+            }
+            
             if (mat.name && !mat.name.includes('beam') && !mat.name.includes('laser') && 
-                !mat.name.includes('led') && !mat.name.includes('strobe') && !mat.name.includes('spot')) {
+                !mat.name.includes('strobe') && !mat.name.includes('spot')) {
                 mat.freeze();
+            }
+        });
+        
+        // #11 OPTIMIZED: Aggressively freeze static meshes in VR
+        // Freeze world matrix for objects that never move
+        this.scene.meshes.forEach(mesh => {
+            if (mesh.name && (
+                mesh.name.includes('wall') || 
+                mesh.name.includes('floor') || 
+                mesh.name.includes('ceiling') || 
+                mesh.name.includes('pillar') || 
+                mesh.name.includes('truss') || 
+                mesh.name.includes('speaker') || 
+                mesh.name.includes('djTable') || 
+                mesh.name.includes('platform') ||
+                mesh.name.includes('rail') ||
+                mesh.name.includes('pipe') ||
+                mesh.name.includes('brick')
+            )) {
+                mesh.freezeWorldMatrix();
+                mesh.doNotSyncBoundingInfo = true;
+                mesh.isPickable = false;
             }
         });
         
@@ -348,6 +376,12 @@ class VRClub {
         // Quest 3S supports hardware-level foveated rendering which renders peripheral vision
         // at lower resolution, significantly improving GPU performance
         try {
+            // CRITICAL PERFORMANCE FIX: Reduce render resolution slightly for Quest 3S
+            // Native resolution is too high for complex scenes. 1.3x scaling = ~75% resolution
+            // This provides massive FPS boost with minimal visual impact in VR
+            this.engine.setHardwareScalingLevel(1.3);
+            log.info('⚡ Set hardware scaling level to 1.3 for VR performance');
+
             const session = this.vrHelper?.baseExperience?.sessionManager?.session;
             if (session && 'updateRenderState' in session) {
                 // Check if XR layer supports foveated rendering
@@ -897,7 +931,7 @@ class VRClub {
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
-        this.createSafetyDetails(); // Exit signs, fire extinguishers, sprinklers
+        this.createSafetyDetails(); // Exit signs, fire extinguishers, smoke detectors
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -1589,21 +1623,6 @@ class VRClub {
             bracket.freezeWorldMatrix(); // OPTIMIZATION: Static
         });
         
-        // === SPRINKLER HEADS (ceiling) ===
-        const sprinklerMat = this.materialFactory.getPreset('sprinklerHead');
-        
-        // Grid of sprinklers every 5m
-        for (let x = -10; x <= 10; x += 5) {
-            for (let z = -20; z <= 0; z += 5) {
-                const sprinkler = BABYLON.MeshBuilder.CreateCylinder(`sprinkler_${x}_${z}`, {
-                    diameterTop: 0.06, diameterBottom: 0.02, height: 0.06, tessellation: 12
-                }, this.scene);
-                sprinkler.position = new BABYLON.Vector3(x, 9.7, z);
-                sprinkler.material = sprinklerMat;
-                sprinkler.freezeWorldMatrix(); // OPTIMIZATION: Static
-            }
-        }
-        
         // === SMOKE DETECTORS ===
         const smokeMat = this.materialFactory.getPreset('smokeDetector');
         
@@ -1637,10 +1656,9 @@ class VRClub {
         // OPTIMIZATION: Freeze all safety equipment materials
         if (exitSignMat.freeze) exitSignMat.freeze();
         if (fireExtMat.freeze) fireExtMat.freeze();
-        if (sprinklerMat.freeze) sprinklerMat.freeze();
         if (smokeMat.freeze) smokeMat.freeze();
         
-        log.info("✅ Created safety details (exit signs, fire extinguishers, sprinklers, smoke detectors) - frozen for performance");
+        log.info("✅ Created safety details (exit signs, fire extinguishers, smoke detectors) - frozen for performance");
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
@@ -5533,7 +5551,8 @@ class VRClub {
             }
             
             // === MIRROR BALL IMMERSIVE DYNAMICS ===
-            if (this.mirrorBallActive && this.mirrorBall) {
+            // OPTIMIZATION: Skip mirror ball updates in VR if performance is critical
+            if (this.mirrorBallActive && this.mirrorBall && (!this.isInVRMode || this.frameCounter % 2 === 0)) {
                 if (this.lightingPhase === 'breakdown') {
                     // Romantic slow rotation with breathing
                     const romancePulse = Math.sin(time * 0.3) * 0.15;
