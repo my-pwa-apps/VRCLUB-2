@@ -8,47 +8,17 @@ class ReadyPlayerMeLoader {
         this.scene = scene;
         this.cache = new Map(); // Cache loaded avatars by URL
         
-        // Avatar library - supports multiple sources:
-        // 1. VRoid Studio avatars (local GLB files)
-        // 2. Ready Player Me avatars (URLs or local files)
-        // 3. Mixamo characters (local GLB files)
-        // 4. Any other GLB format avatars
+        // Avatar library - supports VRoid, Ready Player Me, Mixamo, and custom GLB files
+        // Add paths to your avatar files here, e.g.:
+        // './js/models/avatars/vroid_01.glb',
+        // 'https://models.readyplayer.me/YOUR_AVATAR_ID.glb'
+        this.avatarLibrary = [];
         
-        this.avatarLibrary = [
-            // VRoid Studio avatars (recommended - free, unlimited):
-            // './js/models/avatars/vroid_01.glb',
-            // './js/models/avatars/vroid_02.glb',
-            // './js/models/avatars/vroid_03.glb',
-            // './js/models/avatars/vroid_04.glb',
-            // './js/models/avatars/vroid_05.glb',
-            // './js/models/avatars/vroid_06.glb',
-            // './js/models/avatars/vroid_07.glb',
-            // './js/models/avatars/vroid_08.glb',
-            
-            // Ready Player Me avatars (URLs):
-            // Mixamo characters (local files with animations):
-            // './js/models/avatars/Hip Hop Dancing.glb', // File missing
-            // './js/models/avatars/house.glb', // File missing
-            
-            // Ready Player Me (static, no animations) - TEMPORARILY DISABLED for testing:
-            // 'https://models.readyplayer.me/68f3d2c50e54a41a64979fcc.glb',
-            // 'https://models.readyplayer.me/68f3d5b9c8049dcd18a36de2.glb'
-            
-            // Instructions:
-            // 1. Create avatars using VRoid Studio (see docs/VROID_INTEGRATION_GUIDE_2025-10-18.md)
-            // 2. Export as VRM, convert to GLB
-            // 3. Copy GLB files to js/models/avatars/
-            // 4. Uncomment paths above or add your own
-            // 5. Set useAvatarLibrary = true below
-        ];
+        // Enable/disable 3D avatar loading (set to true when avatars are added)
+        this.useAvatarLibrary = true;
+        this.fallbackMode = false;
         
-        // Enable/disable 3D avatar loading
-        // Set to true once you've added avatar files to the library above
-        this.useAvatarLibrary = true; // Change to true when avatars are ready
-        
-        this.fallbackMode = false; // Set to true if avatar loading fails
-        
-        console.log('🎭 Avatar Loader initialized (supports VRoid, RPM, Mixamo, custom GLB)');
+        console.info('🎭 Avatar Loader initialized');
     }
     
     /**

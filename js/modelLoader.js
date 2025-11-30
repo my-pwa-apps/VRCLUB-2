@@ -16,7 +16,7 @@ class ModelCache {
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
                 this.db = request.result;
-                console.log('✅ Model cache database initialized');
+                console.info('✅ Model cache database initialized');
                 resolve();
             };
             
@@ -24,7 +24,7 @@ class ModelCache {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'url' });
-                    console.log('📦 Created model cache store');
+                    console.info('📦 Created model cache store');
                 }
             };
         });
@@ -63,7 +63,7 @@ class ModelCache {
             const request = store.clear();
             
             request.onsuccess = () => {
-                console.log('🗑️ Model cache cleared');
+                console.info('🗑️ Model cache cleared');
                 resolve();
             };
             request.onerror = () => reject(request.error);

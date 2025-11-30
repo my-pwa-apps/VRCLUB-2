@@ -16,7 +16,7 @@ class TextureCache {
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
                 this.db = request.result;
-                console.log('✅ Texture cache database initialized');
+                console.info('✅ Texture cache database initialized');
                 resolve();
             };
             
@@ -24,7 +24,7 @@ class TextureCache {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'url' });
-                    console.log('📦 Created texture cache store');
+                    console.info('📦 Created texture cache store');
                 }
             };
         });
@@ -59,7 +59,7 @@ class TextureCache {
             const request = store.clear();
             
             request.onsuccess = () => {
-                console.log('🗑️ Texture cache cleared');
+                console.info('🗑️ Texture cache cleared');
                 resolve();
             };
             request.onerror = () => reject(request.error);
