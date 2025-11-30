@@ -135,7 +135,11 @@ class MaterialFactory {
         if (opacityTexture) mat.opacityTexture = opacityTexture;
 
         // Freeze material to prevent shader recompilation
-        mat.freeze();
+        // CRITICAL: Don't freeze LED or strobe materials - they need dynamic emissive color updates
+        const nameLower = name.toLowerCase();
+        if (!nameLower.includes('led') && !nameLower.includes('strobe')) {
+            mat.freeze();
+        }
 
         return mat;
     }

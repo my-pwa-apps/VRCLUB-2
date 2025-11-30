@@ -312,17 +312,38 @@ class VRClub {
         
         // #6 OPTIMIZED: Freeze static materials to prevent shader recompilation
         this.scene.materials.forEach(mat => {
-            // CRITICAL FIX: Explicitly unfreeze LED materials to ensure animation works
-            if (mat.name && (mat.name.includes('led') || mat.name.includes('LED'))) {
+            // CRITICAL FIX: Explicitly unfreeze LED and strobe materials to ensure animation works in VR
+            const matName = mat.name ? mat.name.toLowerCase() : '';
+            if (matName.includes('led') || matName.includes('strobe')) {
                 mat.unfreeze();
-                return; // Skip freezing
+                return; // Skip freezing - these need dynamic emissive color updates
             }
             
             if (mat.name && !mat.name.includes('beam') && !mat.name.includes('laser') && 
-                !mat.name.includes('strobe') && !mat.name.includes('spot')) {
+                !mat.name.includes('spot')) {
                 mat.freeze();
             }
         });
+        
+        // CRITICAL: Force unfreeze ALL LED panel materials (they may have been frozen during creation)
+        if (this.ledPanels && this.ledPanels.length > 0) {
+            this.ledPanels.forEach(panel => {
+                if (panel.material) {
+                    panel.material.unfreeze();
+                }
+            });
+            log.info(`⚡ Unfroze ${this.ledPanels.length} LED panel materials for VR animation`);
+        }
+        
+        // CRITICAL: Force unfreeze strobe materials
+        if (this.strobes && this.strobes.length > 0) {
+            this.strobes.forEach(strobe => {
+                if (strobe.material) {
+                    strobe.material.unfreeze();
+                }
+            });
+            log.info(`⚡ Unfroze ${this.strobes.length} strobe materials for VR animation`);
+        }
         
         // #11 OPTIMIZED: Aggressively freeze static meshes in VR
         // Freeze world matrix for objects that never move
@@ -3652,29 +3673,48 @@ class VRClub {
         // 8-phase show cycle designed for maximum crowd engagement
         // Philosophy: Build tension → Release → Create moments → Repeat
         this.lightModeSwitchTime = 0;
-        this.lightingPhase = 'intro'; // Start with intro phase
+        this.lightingPhase = 'tension'; // Start with tension phase for immediate action
         this.currentShowMode = 'spotlights'; // What's currently active
         
-        // Dynamic phase durations - vary for natural feel (like real DJ sets)
+        // Dynamic phase durations - SHORTENED for faster action and more variety
         this.phaseDurations = {
-            intro: 12 + Math.random() * 8,        // 12-20s: Setting the mood
-            build: 20 + Math.random() * 12,       // 20-32s: Building anticipation
-            tension: 12 + Math.random() * 8,      // 12-20s: Maximum tension before drop
-            drop: 6 + Math.random() * 6,          // 6-12s: THE BIG MOMENT (short!)
-            peak: 16 + Math.random() * 12,        // 16-28s: Sustained high energy
-            breakdown: 10 + Math.random() * 6,    // 10-16s: Disco ball moment
-            atmospheric: 14 + Math.random() * 10, // 14-24s: Dreamy transition
-            groove: 20 + Math.random() * 12,      // 20-32s: Finding the pocket
+            intro: 6 + Math.random() * 4,         // 6-10s: Quick mood setting
+            build: 10 + Math.random() * 6,        // 10-16s: Building anticipation
+            tension: 8 + Math.random() * 4,       // 8-12s: Maximum tension before drop
+            drop: 4 + Math.random() * 4,          // 4-8s: THE BIG MOMENT (short!)
+            peak: 10 + Math.random() * 6,         // 10-16s: Sustained high energy
+            breakdown: 6 + Math.random() * 4,     // 6-10s: Disco ball moment
+            atmospheric: 8 + Math.random() * 6,   // 8-14s: Dreamy transition
+            groove: 12 + Math.random() * 8,       // 12-20s: Finding the pocket
             // NEW PHASES for more immersive experience
-            euphoria: 8 + Math.random() * 6,      // 8-14s: Pure bliss moment
-            darkness: 4 + Math.random() * 4,      // 4-8s: Dramatic blackout
-            strobe_attack: 5 + Math.random() * 3, // 5-8s: Intense strobe assault
-            laser_tunnel: 12 + Math.random() * 8  // 12-20s: Laser beam immersion
+            euphoria: 6 + Math.random() * 4,      // 6-10s: Pure bliss moment
+            darkness: 3 + Math.random() * 2,      // 3-5s: Dramatic blackout
+            strobe_attack: 4 + Math.random() * 2, // 4-6s: Intense strobe assault
+            laser_tunnel: 8 + Math.random() * 6   // 8-14s: Laser beam immersion
         };
         
         // Track energy level for smooth transitions (0.0 = ambient, 1.0 = peak)
-        this.energyLevel = 0.3; // Start lower for intro
-        this.targetEnergy = 0.3;
+        this.energyLevel = 0.7; // Start higher for immediate action
+        this.targetEnergy = 0.75; // Tension phase target
+        
+        // === INITIAL TENSION PHASE SETTINGS ===
+        // Starting in 'tension' phase means we need to set all the effect states here
+        // (The switch statement only handles transitions, not initial state)
+        this.lightsActive = true;       // Spotlights on
+        this.lasersActive = true;       // Ceiling lasers on
+        this.mirrorBallActive = false;
+        this.strobesActive = true;      // Strobes ENABLED for immediate impact
+        this.blindersActive = true;     // Blinders pulsing
+        this.laserSheetActive = false;
+        this.smokeActive = true;        // Haze for beam visibility
+        
+        this.spotlightPattern = 0;      // Automated movement patterns
+        this.spotlightMode = 0;         // Strobe + sweep
+        this.spotlightSpeed = 1.2;
+        this.laserSpeed = 1.0;
+        this.ledWallSpeed = 1.2;
+        this.blinderSpeed = 0.8;
+        this.strobeSpeed = 1.5;         // Active strobe rate
         
         // === IMMERSIVE ANIMATION PARAMETERS ===
         // Professional VJ timing variables for crowd-focused moments
