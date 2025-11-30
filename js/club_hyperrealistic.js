@@ -6212,7 +6212,7 @@ class VRClub {
                     // HYPERREALISTIC: Stretch beam cone when hitting floor at angle
                     // The cone's base (diameterTop) expands into an ellipse on the floor
                     // We approximate this by scaling the cylinder wider in the tilt direction
-                    const cosTheta = Math.abs(direction.y);
+                    // Note: cosTheta already calculated above for beam extension
                     const tiltStretch = 1.0 / Math.max(0.4, cosTheta); // How much to stretch due to angle
                     
                     // Scale beam: X/Z control diameter, Y controls length
