@@ -831,6 +831,9 @@ class LEDWallSystem {
     /** Set LED wall active state */
     setActive(active) {
         this.ledWallActive = active;
+        if (!active) {
+            this._disableLEDWall();
+        }
     }
 
     /** Set animation speed */

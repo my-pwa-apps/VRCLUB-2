@@ -348,7 +348,11 @@ class SpotlightSystem {
         const verticalComponent = Math.abs(direction.y);
         
         // Prevent division by zero when beam is horizontal
-        const beamLength = verticalComponent > 0.1 ? originY / verticalComponent : 15;
+        // ADDED: Extra length to ensure beam penetrates floor at steep angles
+        // The flat end of the cylinder beam needs to extend past the floor plane
+        const baseLength = verticalComponent > 0.1 ? originY / verticalComponent : 15;
+        const extraLength = 2.0 + (1.0 / (verticalComponent + 0.05)); // Dynamic extension
+        const beamLength = baseLength + extraLength;
         
         if (!spotlight.head) {
             // Non-parented beam - position manually
