@@ -841,7 +841,7 @@ class VRClub {
         
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
         // Blinders removed - strobes are sufficient
-        this.createLaserSheet(); // Add scanning laser sheet effect
+        // this.createLaserSheet(); // Laser sheet disabled for now
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
@@ -5148,7 +5148,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // STROBES FIRE
                         this.blindersActive = true; // BLINDERS FIRE
-                        this.laserSheetActive = true; // LASER SHEET SWEEPS
+                        // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true; // Maximum haze
                         
                         this.spotlightSpeed = 2.5; // FAST
@@ -5172,7 +5172,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // Keep strobes
                         this.blindersActive = true; // Keep blinders
-                        this.laserSheetActive = true; // Keep laser sheet
+                        // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true;
                         
                         this.spotlightSpeed = 1.8;
@@ -5238,7 +5238,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
                         this.blindersActive = false;
-                        this.laserSheetActive = true; // Laser sheet adds to tunnel
+                        // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true; // Maximum haze for beam visibility
                         
                         this.laserSpeed = 0.3; // Very slow rotation
