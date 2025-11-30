@@ -247,26 +247,47 @@ class MaterialFactory {
             roughness: 0.15 // Reduced from 0.2
         }, true),
 
-        // Speakers - Enhanced realism
+        // Speakers - Enhanced realism with clear visual differentiation
         speakerBody: () => this.createPBRMaterial('speakerBodyMat', {
-            baseColor: [0.02, 0.02, 0.02], // Deep black (professional cabinet finish)
-            metallic: 0.1, // Matte finish (painted wood/plastic)
-            roughness: 0.7, // Rough texture
-            emissiveColor: [0.005, 0.005, 0.005] // Minimal ambient visibility
+            baseColor: [0.03, 0.03, 0.03], // Near-black cabinet (tolex/vinyl covering)
+            metallic: 0.05, // Matte finish (vinyl wrap)
+            roughness: 0.85, // Textured tolex surface
+            emissiveColor: [0.02, 0.02, 0.02] // Slight visibility in dark
         }, true),
 
         speakerGrill: () => this.createPBRMaterial('speakerGrillMat', {
-            baseColor: [0.15, 0.15, 0.15], // Dark metallic grey
-            metallic: 0.9, // Metal grill
-            roughness: 0.3, // Semi-gloss
-            emissiveColor: [0.01, 0.01, 0.01] // Slight sheen
+            baseColor: [0.25, 0.25, 0.28], // Lighter metallic grey - much more visible
+            metallic: 0.95, // Highly metallic perforated steel
+            roughness: 0.15, // Polished metal grill
+            emissiveColor: [0.04, 0.04, 0.05] // Visible grill catching light
         }, true),
 
         speakerHorn: () => this.createPBRMaterial('speakerHornMat', {
-            baseColor: [0.05, 0.05, 0.05], // Dark plastic
-            metallic: 0.5, // Hard plastic
-            roughness: 0.2, // Glossy
+            baseColor: [0.08, 0.08, 0.08], // Dark but glossy plastic/fiberglass
+            metallic: 0.3, // Hard composite material
+            roughness: 0.08, // Very glossy horn flare
+            emissiveColor: [0.03, 0.03, 0.03] // Slight reflection visibility
+        }, true),
+
+        speakerWoofer: () => this.createPBRMaterial('speakerWooferMat', {
+            baseColor: [0.12, 0.12, 0.12], // Dark grey cone material
+            metallic: 0.0, // Paper/kevlar/fabric cone - no metal
+            roughness: 0.95, // Matte cone surface
+            emissiveColor: [0.02, 0.02, 0.02]
+        }, true),
+
+        speakerDustCap: () => this.createPBRMaterial('speakerDustCapMat', {
+            baseColor: [0.05, 0.05, 0.05], // Black dust cap
+            metallic: 0.1,
+            roughness: 0.6, // Semi-matte plastic/foam
             emissiveColor: [0.01, 0.01, 0.01]
+        }, true),
+
+        speakerSurround: () => this.createPBRMaterial('speakerSurroundMat', {
+            baseColor: [0.06, 0.06, 0.06], // Black rubber surround
+            metallic: 0.0,
+            roughness: 0.7, // Rubber texture
+            emissiveColor: [0.015, 0.015, 0.015]
         }, true),
 
         // Industrial Details

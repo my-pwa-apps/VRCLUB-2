@@ -6550,6 +6550,16 @@ class VRClub {
             this.patternStrobe,             // Club strobe effect
             this.patternLaserScan,          // Scanning laser lines
             
+            // === PULSATING/BREATHING PATTERNS (NEW) ===
+            this.patternHeartbeat,          // Rhythmic heartbeat pulse
+            this.patternBreathing,          // Slow inhale/exhale glow
+            this.patternShockwave,          // Concentric rings expanding
+            this.patternPulseStar,          // Star shape pulsing outward
+            this.patternCrossBeam,          // Crossing beams pulsating
+            this.patternRadialPulse,        // Radial rays pulsing from center
+            this.patternWaveCollide,        // Waves colliding at center
+            this.patternCellularPulse,      // Organic cell-like pulsation
+            
             // Hypnotic Patterns
             this.patternTunnel,             // Tunnel/vortex effect
             this.patternKaleidoscope,       // Rotating kaleidoscope
@@ -7191,6 +7201,301 @@ class VRClub {
             else { r = c; g = 0; b = x; }
             
             panel.material.emissiveColor = new BABYLON.Color3(r, g, b);
+        });
+    }
+
+    // === IMMERSIVE PULSATING PATTERNS ===
+    
+    patternHeartbeat(color, time, audioData) {
+        // Rhythmic heartbeat pulse - two quick beats then pause
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        const centerY = rows / 2 - 0.5;
+        
+        // Heartbeat timing: beat-beat-pause (~72 BPM heart rate feel)
+        const cycle = time * 1.2; // Speed of heartbeat cycle
+        const phase = cycle % 1.0;
+        
+        // Two pulses in quick succession
+        let pulse = 0;
+        if (phase < 0.15) {
+            // First beat (lub)
+            pulse = Math.sin(phase / 0.15 * Math.PI);
+        } else if (phase > 0.2 && phase < 0.35) {
+            // Second beat (dub)
+            pulse = Math.sin((phase - 0.2) / 0.15 * Math.PI) * 0.8;
+        }
+        // Rest of cycle is pause
+        
+        // Heart shape approximation expanding from center
+        const heartRadius = 2 + pulse * 6;
+        
+        this.ledPanels.forEach(panel => {
+            const dx = (panel.col - centerX) / 3;
+            const dy = (panel.row - centerY) / 2.5;
+            
+            // Heart equation: (x^2 + y^2 - 1)^3 - x^2*y^3 < 0
+            const heartEq = Math.pow(dx*dx + dy*dy - 1, 3) - dx*dx * Math.pow(dy, 3);
+            const inHeart = heartEq < heartRadius * 0.1;
+            
+            const dist = Math.sqrt(Math.pow(panel.col - centerX, 2) + Math.pow(panel.row - centerY, 2));
+            const ringMatch = Math.abs(dist - heartRadius) < 2;
+            
+            const brightness = (inHeart || ringMatch) ? pulse : pulse * 0.1;
+            
+            // Deep red/pink for heartbeat
+            const heartColor = new BABYLON.Color3(1.0, 0.1 + pulse * 0.2, 0.2 + pulse * 0.1);
+            this.updateLEDPanel(panel, heartColor, brightness);
+        });
+    }
+    
+    patternBreathing(color, time, audioData) {
+        // Slow inhale/exhale - meditative pulsing glow
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        // Very slow breathing cycle (4 seconds per breath)
+        const breathCycle = Math.sin(time * 0.5) * 0.5 + 0.5; // 0 to 1
+        
+        // Inhale is slower than exhale (realistic breathing)
+        const breath = Math.pow(breathCycle, 0.7); // Ease in the exhale
+        
+        // Color shifts from cool (exhale) to warm (inhale)
+        const r = 0.2 + breath * 0.6;
+        const g = 0.1 + breath * 0.3;
+        const b = 0.8 - breath * 0.5;
+        const breathColor = new BABYLON.Color3(r, g, b);
+        
+        this.ledPanels.forEach(panel => {
+            // Gentle radial gradient that expands/contracts with breath
+            const centerX = cols / 2;
+            const centerY = rows / 2;
+            const dist = Math.sqrt(Math.pow(panel.col - centerX, 2) + Math.pow(panel.row - centerY, 2));
+            const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+            
+            // Brightness peaks at center and expands outward with breath
+            const expandRadius = breath * maxDist * 1.5;
+            const brightness = Math.max(0, 1.0 - Math.abs(dist - expandRadius * 0.3) / (3 + breath * 5));
+            
+            panel.material.emissiveColor = breathColor.scale(brightness * 0.8 + 0.2);
+        });
+    }
+    
+    patternShockwave(color, time, audioData) {
+        // Concentric rings expanding rapidly from center
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        const centerY = rows / 2 - 0.5;
+        
+        // Multiple shockwaves at different phases
+        const waveSpeed = 15;
+        const waveSpacing = 8; // Distance between waves
+        
+        this.ledPanels.forEach(panel => {
+            const dist = Math.sqrt(Math.pow(panel.col - centerX, 2) + Math.pow((panel.row - centerY) * 2, 2));
+            
+            // Multiple expanding rings
+            let brightness = 0;
+            for (let i = 0; i < 4; i++) {
+                const wavePos = ((time * waveSpeed + i * waveSpacing) % 30);
+                const ringDist = Math.abs(dist - wavePos);
+                if (ringDist < 1.5) {
+                    // Intensity decreases as wave expands
+                    const fade = Math.max(0, 1.0 - wavePos / 25);
+                    brightness = Math.max(brightness, (1.0 - ringDist / 1.5) * fade);
+                }
+            }
+            
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+    
+    patternPulseStar(color, time, audioData) {
+        // Star shape that pulses and rotates
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        const centerY = rows / 2 - 0.5;
+        
+        const pulse = Math.sin(time * 4) * 0.5 + 0.5; // Fast pulse
+        const rotation = time * 0.5; // Slow rotation
+        const numPoints = 5;
+        
+        this.ledPanels.forEach(panel => {
+            const dx = panel.col - centerX;
+            const dy = (panel.row - centerY) * 2; // Stretch Y
+            
+            // Convert to polar
+            const angle = Math.atan2(dy, dx) + rotation;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // Star shape: radius varies with angle
+            const starAngle = angle * numPoints;
+            const innerRadius = 2 + pulse * 2;
+            const outerRadius = 5 + pulse * 4;
+            const starRadius = innerRadius + (outerRadius - innerRadius) * Math.pow((Math.cos(starAngle) + 1) / 2, 2);
+            
+            const brightness = dist < starRadius ? (1.0 - dist / starRadius) * (0.5 + pulse * 0.5) : 0;
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+    
+    patternCrossBeam(color, time, audioData) {
+        // Crossing beams that pulse in intensity
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        const centerY = rows / 2 - 0.5;
+        
+        // Two crossing beams rotating
+        const angle1 = time * 0.8;
+        const angle2 = time * 0.8 + Math.PI / 2;
+        
+        // Pulse intensity
+        const pulse1 = Math.sin(time * 6) * 0.5 + 0.5;
+        const pulse2 = Math.sin(time * 6 + Math.PI) * 0.5 + 0.5;
+        
+        this.ledPanels.forEach(panel => {
+            const dx = panel.col - centerX;
+            const dy = (panel.row - centerY) * 2;
+            
+            // Distance to each beam line
+            const dist1 = Math.abs(dx * Math.sin(angle1) - dy * Math.cos(angle1));
+            const dist2 = Math.abs(dx * Math.sin(angle2) - dy * Math.cos(angle2));
+            
+            const beamWidth = 1.5;
+            const b1 = dist1 < beamWidth ? (1.0 - dist1 / beamWidth) * pulse1 : 0;
+            const b2 = dist2 < beamWidth ? (1.0 - dist2 / beamWidth) * pulse2 : 0;
+            
+            const brightness = Math.min(1.0, b1 + b2);
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+    
+    patternRadialPulse(color, time, audioData) {
+        // Radial rays pulsing outward from center like a sun
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        const centerY = rows / 2 - 0.5;
+        
+        const numRays = 12;
+        const rayRotation = time * 0.3;
+        const rayPulse = time * 8; // Fast pulse along rays
+        
+        this.ledPanels.forEach(panel => {
+            const dx = panel.col - centerX;
+            const dy = (panel.row - centerY) * 2.5;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx) + rayRotation;
+            
+            // Check if on a ray
+            const rayAngle = (angle * numRays / (2 * Math.PI) + 100) % 1.0;
+            const onRay = rayAngle < 0.3 || rayAngle > 0.7;
+            
+            // Pulse travels outward along rays
+            const pulseDist = (rayPulse % 20);
+            const pulseMatch = Math.abs(dist - pulseDist) < 2;
+            
+            let brightness = 0;
+            if (onRay) {
+                brightness = 0.2; // Base ray visibility
+                if (pulseMatch) {
+                    brightness = 1.0 - Math.abs(dist - pulseDist) / 2;
+                }
+            }
+            // Center always bright
+            if (dist < 2) brightness = 1.0;
+            
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+    
+    patternWaveCollide(color, time, audioData) {
+        // Waves from left and right that collide at center with splash
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        const centerX = cols / 2 - 0.5;
+        
+        const waveSpeed = 8;
+        const cycleDuration = cols / waveSpeed + 1;
+        const cycleTime = time % cycleDuration;
+        
+        // Wave positions (moving toward center)
+        const leftWave = cycleTime * waveSpeed;
+        const rightWave = cols - cycleTime * waveSpeed;
+        
+        // Collision detection
+        const colliding = Math.abs(leftWave - centerX) < 3 && Math.abs(rightWave - centerX) < 3;
+        
+        this.ledPanels.forEach(panel => {
+            let brightness = 0;
+            
+            // Left wave
+            const distLeft = Math.abs(panel.col - leftWave);
+            if (distLeft < 2) {
+                brightness = Math.max(brightness, 1.0 - distLeft / 2);
+            }
+            
+            // Right wave  
+            const distRight = Math.abs(panel.col - rightWave);
+            if (distRight < 2) {
+                brightness = Math.max(brightness, 1.0 - distRight / 2);
+            }
+            
+            // Collision splash - vertical burst at center
+            if (colliding) {
+                const distCenter = Math.abs(panel.col - centerX);
+                if (distCenter < 4) {
+                    // Vertical splash
+                    brightness = 1.0;
+                }
+            }
+            
+            this.updateLEDPanel(panel, color, brightness);
+        });
+    }
+    
+    patternCellularPulse(color, time, audioData) {
+        // Organic cell-like blobs that pulse and merge
+        const cols = this.ledCols || 28;
+        const rows = this.ledRows || 8;
+        
+        // Define 4 cell centers that move slowly
+        const cells = [
+            { x: cols * 0.25 + Math.sin(time * 0.5) * 3, y: rows * 0.3 + Math.cos(time * 0.7) * 2 },
+            { x: cols * 0.75 + Math.sin(time * 0.6 + 1) * 3, y: rows * 0.3 + Math.cos(time * 0.5 + 1) * 2 },
+            { x: cols * 0.25 + Math.sin(time * 0.4 + 2) * 3, y: rows * 0.7 + Math.cos(time * 0.8 + 2) * 2 },
+            { x: cols * 0.75 + Math.sin(time * 0.7 + 3) * 3, y: rows * 0.7 + Math.cos(time * 0.6 + 3) * 2 }
+        ];
+        
+        // Each cell pulses at slightly different rate
+        const pulses = cells.map((_, i) => Math.sin(time * (3 + i * 0.5)) * 0.5 + 0.5);
+        
+        this.ledPanels.forEach(panel => {
+            let totalInfluence = 0;
+            
+            // Sum influence from all cells (metaball-like)
+            cells.forEach((cell, i) => {
+                const dist = Math.sqrt(Math.pow(panel.col - cell.x, 2) + Math.pow((panel.row - cell.y) * 2, 2));
+                const radius = 3 + pulses[i] * 3;
+                if (dist < radius) {
+                    totalInfluence += (1.0 - dist / radius) * pulses[i];
+                }
+            });
+            
+            const brightness = Math.min(1.0, totalInfluence);
+            
+            // Shift color based on brightness for organic feel
+            const cellColor = new BABYLON.Color3(
+                color.r * (0.7 + brightness * 0.3),
+                color.g * (0.5 + brightness * 0.5),
+                color.b * (0.8 + brightness * 0.2)
+            );
+            
+            this.updateLEDPanel(panel, cellColor, brightness);
         });
     }
     

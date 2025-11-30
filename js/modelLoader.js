@@ -253,14 +253,21 @@ class ModelLoader {
                 else if (config.makeBlack && this.materialFactory) {
                     const meshName = mesh.name.toLowerCase();
                     // Intelligent material assignment based on mesh name
-                    // PA Speaker specific mapping
+                    // PA Speaker specific mapping - more granular for visual differentiation
                     if (modelKey.startsWith('pa_speaker')) {
-                        if (meshName.includes('grill') || meshName.includes('front') || meshName.includes('mesh') || meshName.includes('bar')) {
+                        if (meshName.includes('grill') || meshName.includes('front') || meshName.includes('mesh') || meshName.includes('bar') || meshName.includes('grille')) {
                             mesh.material = this.materialFactory.getPreset('speakerGrill');
-                        } else if (meshName.includes('horn') || meshName.includes('tweeter') || meshName.includes('mid')) {
+                        } else if (meshName.includes('horn') || meshName.includes('tweeter') || meshName.includes('flare') || meshName.includes('compression')) {
                             mesh.material = this.materialFactory.getPreset('speakerHorn');
-                        } else if (meshName.includes('woofer') || meshName.includes('cone')) {
-                            mesh.material = this.materialFactory.getPreset('speakerHorn'); // Glossy cone
+                        } else if (meshName.includes('woofer') || meshName.includes('cone') || meshName.includes('diaphragm')) {
+                            mesh.material = this.materialFactory.getPreset('speakerWoofer');
+                        } else if (meshName.includes('dustcap') || meshName.includes('dust') || meshName.includes('cap') || meshName.includes('dome')) {
+                            mesh.material = this.materialFactory.getPreset('speakerDustCap');
+                        } else if (meshName.includes('surround') || meshName.includes('suspension') || meshName.includes('rubber')) {
+                            mesh.material = this.materialFactory.getPreset('speakerSurround');
+                        } else if (meshName.includes('mid') || meshName.includes('driver')) {
+                            // Mid-range drivers get horn material (glossy)
+                            mesh.material = this.materialFactory.getPreset('speakerHorn');
                         } else {
                             // Default to matte black body for everything else (cabinet, back, sides)
                             mesh.material = this.materialFactory.getPreset('speakerBody');
