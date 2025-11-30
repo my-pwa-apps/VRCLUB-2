@@ -5326,7 +5326,7 @@ class VRClub {
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // FULL STROBES
                         this.blindersActive = true; // BLINDERS PUNCH
-                        this.laserSheetActive = true;
+                        // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true;
                         
                         this.strobeSpeed = 3.0; // VERY FAST
@@ -5416,7 +5416,7 @@ class VRClub {
                     this.vjControlButtons.forEach(btn => {
                         if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
                             btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
-                            btn.control === 'ledWallActive' || btn.control === 'laserSheetActive' ||
+                            btn.control === 'ledWallActive' ||
                             btn.control === 'smokeActive') {
                             btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                         }
