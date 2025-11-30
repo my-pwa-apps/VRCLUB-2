@@ -927,48 +927,52 @@ class ModelLoader {
             // Main speaker body
             albedoPath = textureBasePath + 'PA_speakers_Albedo_1.png';
             normalPath = textureBasePath + 'PA_speakers_Normal_0.png';
-            // Combined metallic-roughness texture
-            metallicPath = textureBasePath + 'PA_speakers_Metalness.png-PA_speakers_Roughness.png_2@channe.png';
+            // Combined metallic-roughness texture (renamed for compatibility)
+            metallicPath = textureBasePath + 'PA_speakers_MetallicRoughness.png';
             roughnessPath = metallicPath; // Same file, different channel
             aoPath = textureBasePath + 'internal_ground_ao_texture.jpeg';
         }
         
-        // Load albedo (base color) texture
-        try {
-            mat.albedoTexture = new BABYLON.Texture(albedoPath, this.scene);
-            mat.albedoTexture.hasAlpha = false;
-        } catch (e) {
-            this.log.warn(`   ⚠️ Could not load albedo texture for ${mesh.name}`);
-            mat.albedoColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Fallback dark gray
-        }
+        // Load albedo (base color) texture with proper error handling
+        const albedoTexture = new BABYLON.Texture(albedoPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE, 
+            () => { this.log.info(`   ✅ Loaded albedo: ${albedoPath}`); },
+            (message, exception) => { 
+                this.log.warn(`   ⚠️ Failed to load albedo: ${albedoPath} - ${message}`);
+                mat.albedoColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Fallback dark gray
+            }
+        );
+        mat.albedoTexture = albedoTexture;
+        mat.albedoTexture.hasAlpha = false;
         
         // Load normal map
-        try {
-            mat.bumpTexture = new BABYLON.Texture(normalPath, this.scene);
-            mat.bumpTexture.level = 1.0;
-        } catch (e) {
-            this.log.warn(`   ⚠️ Could not load normal texture for ${mesh.name}`);
-        }
+        const normalTexture = new BABYLON.Texture(normalPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+            () => { this.log.info(`   ✅ Loaded normal: ${normalPath}`); },
+            (message, exception) => { this.log.warn(`   ⚠️ Failed to load normal: ${normalPath}`); }
+        );
+        mat.bumpTexture = normalTexture;
+        mat.bumpTexture.level = 1.0;
         
         // Load metallic texture (or use the combined channel texture)
-        try {
-            mat.metallicTexture = new BABYLON.Texture(metallicPath, this.scene);
-            mat.useMetallnessFromMetallicTextureBlue = false; // Red channel = metallic
-            mat.useRoughnessFromMetallicTextureGreen = true; // Green channel = roughness
-            mat.useRoughnessFromMetallicTextureAlpha = false;
-        } catch (e) {
-            this.log.warn(`   ⚠️ Could not load metallic texture for ${mesh.name}`);
-            mat.metallic = 0.3; // Fallback
-            mat.roughness = 0.7;
-        }
+        const metallicTexture = new BABYLON.Texture(metallicPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+            () => { this.log.info(`   ✅ Loaded metallic: ${metallicPath}`); },
+            (message, exception) => { 
+                this.log.warn(`   ⚠️ Failed to load metallic: ${metallicPath}`);
+                mat.metallic = 0.3; // Fallback
+                mat.roughness = 0.7;
+            }
+        );
+        mat.metallicTexture = metallicTexture;
+        mat.useMetallnessFromMetallicTextureBlue = false; // Red channel = metallic
+        mat.useRoughnessFromMetallicTextureGreen = true; // Green channel = roughness
+        mat.useRoughnessFromMetallicTextureAlpha = false;
         
         // Load AO texture
-        try {
-            mat.ambientTexture = new BABYLON.Texture(aoPath, this.scene);
-            mat.ambientTextureStrength = 0.8;
-        } catch (e) {
-            this.log.warn(`   ⚠️ Could not load AO texture for ${mesh.name}`);
-        }
+        const aoTexture = new BABYLON.Texture(aoPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+            () => { this.log.info(`   ✅ Loaded AO: ${aoPath}`); },
+            (message, exception) => { this.log.warn(`   ⚠️ Failed to load AO: ${aoPath}`); }
+        );
+        mat.ambientTexture = aoTexture;
+        mat.ambientTextureStrength = 0.8;
         
         // PBR material settings for realistic appearance
         mat.metallic = 0.2; // Slight metallic for speaker cabinet

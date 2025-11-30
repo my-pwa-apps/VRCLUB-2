@@ -215,11 +215,9 @@ class VRClub {
         this.mirrorBallSpeed = 1.0; // Mirror ball rotation speed
         this.ledWallSpeed = 1.0;    // LED wall animation speed
         this.strobeSpeed = 1.0;     // Strobe flash rate
-        this.blinderSpeed = 1.0;    // Blinder intensity speed
         
         // === PROFESSIONAL VJ AUTO-PATTERN SYSTEM ===
         // Immersive light show timing for drops, builds, and impacts
-        this.blindersActive = true;     // Audience blinders for drops/impacts
         this.vjAutoMode = true;         // Auto VJ show mode (synchronized effects)
         this.vjBeatPhase = 0;           // Current beat phase (0-3 for 4/4 timing)
         this.vjDropTimer = 0;           // Time since last drop effect
@@ -842,7 +840,7 @@ class VRClub {
         }
         
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
-        this.createBlinders();
+        // Blinders removed - strobes are sufficient
         this.createLaserSheet(); // Add scanning laser sheet effect
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
@@ -4009,74 +4007,7 @@ class VRClub {
         
     }
 
-    createBlinders() {
-        // AUDIENCE BLINDERS - High intensity warm white lights for drops/impacts
-        // 4 Blinders mounted on the front truss facing the crowd
-        this.blinders = [];
-        
-        const blinderPositions = [
-            { x: -6, y: 7.5, z: -8 },
-            { x: -2, y: 7.5, z: -8 },
-            { x: 2, y: 7.5, z: -8 },
-            { x: 6, y: 7.5, z: -8 }
-        ];
-
-        blinderPositions.forEach((pos, i) => {
-            // Fixture Mesh (Square 4-cell blinder style)
-            const fixture = BABYLON.MeshBuilder.CreateBox("blinder" + i, {
-                width: 0.8,
-                height: 0.8,
-                depth: 0.2
-            }, this.scene);
-            fixture.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
-            fixture.rotation.x = Math.PI / 6; // Angled down slightly
-            
-            const fixtureMat = this.materialFactory.getPreset('lightFixture');
-            fixture.material = fixtureMat;
-
-            // Light Emitter (The "Bulb" face)
-            const emitter = BABYLON.MeshBuilder.CreatePlane("blinderEmitter" + i, {
-                size: 0.7
-            }, this.scene);
-            emitter.parent = fixture;
-            emitter.position.z = -0.11; // Front face
-            emitter.rotation.y = Math.PI; // Face forward
-            
-            const emitterMat = new BABYLON.PBRMaterial("blinderMat" + i, this.scene);
-            emitterMat.albedoColor = new BABYLON.Color3(0, 0, 0);
-            emitterMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.7); // Warm white
-            emitterMat.emissiveIntensity = 0; // Start off
-            emitterMat.disableLighting = true;
-            emitter.material = emitterMat;
-
-            // Lens Flare for "Blinding" effect
-            // We use a billboarded plane with a flare texture that scales up when on
-            const flare = BABYLON.MeshBuilder.CreatePlane("blinderFlare" + i, {
-                size: 4.0
-            }, this.scene);
-            flare.parent = fixture;
-            flare.position.z = -0.2;
-            flare.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-            
-            const flareTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", this.scene);
-            const flareMat = new BABYLON.StandardMaterial("blinderFlareMat" + i, this.scene);
-            flareMat.diffuseTexture = flareTexture;
-            flareMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.7);
-            flareMat.opacityTexture = flareTexture;
-            flareMat.alpha = 0; // Start invisible
-            flareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            flareMat.disableLighting = true;
-            flare.material = flareMat;
-
-            this.blinders.push({
-                fixture: fixture,
-                emitterMat: emitterMat,
-                flare: flare,
-                flareMat: flareMat,
-                intensity: 0
-            });
-        });
-    }
+    // Blinders removed - strobes provide sufficient impact lighting
 
     createLaserSheet() {
         // === LASER SHEET EFFECT ===
@@ -5521,7 +5452,7 @@ class VRClub {
                         if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
                             btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
                             btn.control === 'ledWallActive' || btn.control === 'laserSheetActive' ||
-                            btn.control === 'smokeActive' || btn.control === 'blindersActive') {
+                            btn.control === 'smokeActive') {
                             btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
                         }
                     });
@@ -5743,53 +5674,17 @@ class VRClub {
                         direction = new BABYLON.Vector3(dirX, dirY, dirZ);
                     }
                     
-                    // PERFORMANCE: Raycast every frame in VR (stereo sync), every 2nd frame on desktop
-                    // Frame-skipping in VR causes different states per eye = epileptic effect
-                    const shouldRaycast = this.isInVRMode ? true : ((this.frameCounter + i) % 2 === 0);
+                    // SIMPLIFIED: Always calculate floor intersection directly
+                    // This is more reliable than raycasting, especially in VR
+                    // Raycasting can fail due to timing issues between eyes
                     
-                    let hit = beam.lastHit; // Reuse last hit result
-                    if (shouldRaycast || !hit) {
-                        // Reuse ray object instead of creating new one
-                        if (!this.laserRay) {
-                            // Ray length 50 ensures beams reach floor even at steep diagonal angles
-                            // (lasers at y=7.55 pointing diagonally need ~45 units to reach floor at room edges)
-                            this.laserRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 50);
-                            this.laserRayPredicate = (mesh) => {
-                                // Only hit floor and walls, not other laser components or light fixtures
-                                return mesh.isPickable && 
-                                       !mesh.name.includes('laser') && 
-                                       !mesh.name.includes('Housing') && 
-                                       !mesh.name.includes('Clamp') &&
-                                       !mesh.name.includes('beam') &&
-                                       !mesh.name.includes('hitSpot') &&
-                                       !mesh.name.includes('hitGlow');
-                            };
-                        }
-                        this.laserRay.origin.copyFrom(laser.originPos);
-                        // CRITICAL: Normalize direction and set ray length explicitly
-                        direction.normalize();
-                        this.laserRay.direction.copyFrom(direction);
-                        this.laserRay.length = 50; // Ensure length is set for each raycast
-                        hit = this.scene.pickWithRay(this.laserRay, this.laserRayPredicate);
-                        beam.lastHit = hit; // Cache for next frame
-                    }
+                    let beamLength = 50; // Default max length
                     
-                    let beamLength = 50; // Default to full ray length if raycast fails
-                    let hitPoint = null;
-                    
-                    if (hit && hit.hit && hit.pickedPoint) {
-                        beamLength = BABYLON.Vector3.Distance(laser.originPos, hit.pickedPoint);
-                        hitPoint = hit.pickedPoint.clone();
-                    } else {
-                        // HYPERREALISTIC FALLBACK: If raycast misses, calculate floor intersection manually
-                        // This ensures beams ALWAYS terminate at a surface (floor) instead of mid-air
-                        if (direction.y < -0.01) {
-                            // Laser pointing downward - calculate floor intersection
-                            const distanceToFloor = laser.originPos.y / Math.abs(direction.y);
-                            beamLength = Math.min(distanceToFloor, 50); // Cap at 50
-                            hitPoint = laser.originPos.add(direction.scale(beamLength));
-                            hitPoint.y = 0; // Snap to floor
-                        }
+                    // Calculate floor intersection mathematically (always works, VR-safe)
+                    if (direction.y < -0.01) {
+                        // Laser pointing downward - calculate floor intersection
+                        const distanceToFloor = laser.originPos.y / Math.abs(direction.y);
+                        beamLength = Math.min(distanceToFloor, 50); // Cap at 50
                     }
                     
                     // Update beam geometry
@@ -5821,50 +5716,25 @@ class VRClub {
                         beam.beamGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
                     }
                     
-                    // UPDATE HIT SPOT - Position where laser hits surface
-                    // HYPERREALISTIC: Use calculated hitPoint (from raycast OR floor fallback)
-                    if (beam.hitSpot && hitPoint) {
-                        beam.hitSpot.position.copyFrom(hitPoint);
-                        beam.hitSpot.position.y = hitPoint.y + 0.02; // Slightly above surface to avoid z-fighting
-                        beam.hitSpot.visibility = 1.0;
-                        
-                        // Pulse effect on hit spot - rapid flicker like real laser
-                        const pulse = 0.85 + Math.sin(time * 12 + beamIdx * 2) * 0.15;
-                        beam.hitSpot.scaling.x = pulse;
-                        beam.hitSpot.scaling.y = pulse;
-                        
-                        // Update hit glow too
-                        if (beam.hitGlow) {
-                            beam.hitGlow.position.copyFrom(hitPoint);
-                            beam.hitGlow.position.y = hitPoint.y + 0.015;
-                            beam.hitGlow.visibility = 1.0;
-                            // Softer pulse for glow
-                            const glowPulse = 0.9 + Math.sin(time * 6 + beamIdx) * 0.1;
-                            beam.hitGlow.scaling.x = glowPulse * 1.2;
-                            beam.hitGlow.scaling.y = glowPulse * 1.2;
-                        }
-                    } else if (beam.hitSpot) {
-                        beam.hitSpot.visibility = 0; // Hide if no hit
-                        if (beam.hitGlow) beam.hitGlow.visibility = 0;
-                    }
+                    // HIT SPOTS REMOVED - cleaner laser look without floor reflections
+                    // Hide hit spots if they exist from previous creation
+                    if (beam.hitSpot) beam.hitSpot.visibility = 0;
+                    if (beam.hitGlow) beam.hitGlow.visibility = 0;
                     
                     // Color all beam elements with current color - HYPERREALISTIC color grading
-                    let currentColor, innerGlowColor, outerGlowColor, hitGlowColor;
+                    let currentColor, innerGlowColor, outerGlowColor;
                     if (this.currentColorIndex === 0) {
                         currentColor = this.cachedColors.red;
                         innerGlowColor = new BABYLON.Color3(1, 0.4, 0.4);  // Slightly desaturated
                         outerGlowColor = new BABYLON.Color3(1, 0.25, 0.25); // Even softer
-                        hitGlowColor = new BABYLON.Color3(1, 0.5, 0.5);
                     } else if (this.currentColorIndex === 1) {
                         currentColor = this.cachedColors.green;
                         innerGlowColor = new BABYLON.Color3(0.4, 1, 0.4);
                         outerGlowColor = new BABYLON.Color3(0.25, 1, 0.25);
-                        hitGlowColor = new BABYLON.Color3(0.5, 1, 0.5);
                     } else {
                         currentColor = this.cachedColors.blue;
                         innerGlowColor = new BABYLON.Color3(0.4, 0.4, 1);
                         outerGlowColor = new BABYLON.Color3(0.25, 0.25, 1);
-                        hitGlowColor = new BABYLON.Color3(0.5, 0.5, 1);
                     }
                     
                     // Apply color to core beam - pure saturated color
@@ -5887,13 +5757,7 @@ class VRClub {
                         beam.beamGlow.visibility = 1.0;
                     }
                     
-                    // Apply color to hit spots
-                    if (beam.hitSpotMat) {
-                        beam.hitSpotMat.emissiveColor = currentColor;
-                    }
-                    if (beam.hitGlowMat) {
-                        beam.hitGlowMat.emissiveColor = hitGlowColor;
-                    }
+                    // Hit spot materials no longer updated (spots are hidden)
                 });
                 
                 // Update lights and emitter color - Now updates every frame for sync with beams
@@ -6670,117 +6534,7 @@ class VRClub {
             }
         }
         
-        // === AUDIENCE BLINDERS - Professional VJ Drop/Impact System ===
-        // Blinders fire on drops, bass hits, and build releases for maximum crowd impact
-        if (this.blinders && this.blinders.length > 0) {
-            const blinderSpeedMultiplier = this.blinderSpeed || 1.0;
-            
-            if (this.blindersActive && this.strobesActive) {
-                // Get audio data for reactive blinding
-                const bass = audioData.bass || 0;
-                const average = audioData.average || 0;
-                
-                // === VJ AUTO-PATTERN: Detect drops and impacts ===
-                // Professional VJ timing: build tension, release with blinders
-                const beatInterval = 60 / this.vjBPM; // Seconds per beat
-                const timeSinceLastDrop = time - this.vjDropTimer;
-                
-                // Detect bass drop (sudden bass spike after low activity)
-                const bassThreshold = 0.7;
-                const isBassDrop = bass > bassThreshold && this.vjBuildIntensity > 0.5;
-                
-                // Auto-build system: intensity increases over 8 bars, releases on drop
-                if (!this.vjDropActive) {
-                    // Build phase: gradually increase tension
-                    this.vjBuildIntensity = Math.min(1.0, this.vjBuildIntensity + 0.002 * blinderSpeedMultiplier);
-                    
-                    // Trigger drop on bass hit during high tension
-                    if (isBassDrop || (this.vjBuildIntensity >= 1.0 && timeSinceLastDrop > 8)) {
-                        this.vjDropActive = true;
-                        this.vjDropTimer = time;
-                        this.vjBuildIntensity = 0;
-                    }
-                }
-                
-                // === BLINDER ANIMATION PATTERNS ===
-                this.blinders.forEach((blinder, i) => {
-                    let targetIntensity = 0;
-                    let targetFlareAlpha = 0;
-                    
-                    // Pattern 1: DROP BURST - All blinders full power on drop
-                    if (this.vjDropActive) {
-                        const dropDuration = 0.8 / blinderSpeedMultiplier;
-                        const dropProgress = (time - this.vjDropTimer) / dropDuration;
-                        
-                        if (dropProgress < 1.0) {
-                            // Rapid strobe bursts during drop (3-4 flashes)
-                            const burstCount = Math.floor(dropProgress * 4);
-                            const burstPhase = (dropProgress * 4) % 1;
-                            
-                            if (burstPhase < 0.5) {
-                                targetIntensity = 6; // Reduced for VR comfort
-                                targetFlareAlpha = 0.5;
-                            }
-                        } else {
-                            this.vjDropActive = false;
-                        }
-                    }
-                    
-                    // Pattern 2: BASS REACTIVE - Pulse on strong bass hits
-                    if (!this.vjDropActive && bass > 0.5) {
-                        const bassIntensity = (bass - 0.5) * 2; // 0-1 range
-                        targetIntensity = Math.max(targetIntensity, bassIntensity * 3);
-                        targetFlareAlpha = Math.max(targetFlareAlpha, bassIntensity * 0.3);
-                    }
-                    
-                    // Pattern 3: BUILD PULSE - Increasing flicker during build-up
-                    if (this.vjBuildIntensity > 0.5 && !this.vjDropActive) {
-                        const buildPulse = Math.sin(time * 8 * this.vjBuildIntensity * blinderSpeedMultiplier);
-                        if (buildPulse > 0.7) {
-                            const pulseIntensity = (buildPulse - 0.7) / 0.3 * this.vjBuildIntensity;
-                            targetIntensity = Math.max(targetIntensity, pulseIntensity * 2);
-                            targetFlareAlpha = Math.max(targetFlareAlpha, pulseIntensity * 0.15);
-                        }
-                    }
-                    
-                    // Pattern 4: SEQUENTIAL SWEEP - Blinders fire in sequence (every 8 beats, less frequent)
-                    const sweepCycle = (time * blinderSpeedMultiplier * 0.25) % 4; // Slower sweep
-                    if (Math.floor(sweepCycle) === i && sweepCycle % 1 < 0.1) { // Shorter on-time
-                        targetIntensity = Math.max(targetIntensity, 4);
-                        targetFlareAlpha = Math.max(targetFlareAlpha, 0.35);
-                    }
-                    
-                    // Smooth intensity transitions (professional look)
-                    const currentIntensity = blinder.intensity || 0;
-                    const lerpSpeed = targetIntensity > currentIntensity ? 0.4 : 0.15; // Fast attack, slower decay
-                    blinder.intensity = currentIntensity + (targetIntensity - currentIntensity) * lerpSpeed;
-                    
-                    // Apply blinder visuals
-                    const warmWhite = this.cachedColors.warmWhite || new BABYLON.Color3(1, 0.9, 0.7);
-                    blinder.emitterMat.emissiveIntensity = blinder.intensity * 0.5; // Reduced for VR
-                    blinder.emitterMat.emissiveColor = warmWhite.scale(blinder.intensity / 20); // Softer color
-                    
-                    // Flare effect (lens bloom simulation) - reduced for VR comfort
-                    const currentFlare = blinder.flareMat.alpha || 0;
-                    blinder.flareMat.alpha = currentFlare + (targetFlareAlpha * 0.6 - currentFlare) * lerpSpeed; // 60% max alpha
-                    
-                    // Scale flare based on intensity (smaller range for VR)
-                    if (blinder.flare) {
-                        const flareScale = 2.0 + blinder.intensity * 0.2; // Smaller flares
-                        blinder.flare.scaling.setAll(flareScale);
-                    }
-                });
-            } else {
-                // Turn off blinders when disabled
-                this.blinders.forEach(blinder => {
-                    blinder.intensity = 0;
-                    blinder.emitterMat.emissiveIntensity = 0;
-                    blinder.flareMat.alpha = 0;
-                });
-                this.vjBuildIntensity = 0;
-                this.vjDropActive = false;
-            }
-        }
+        // Blinders removed - strobes provide sufficient impact lighting
         
         // Bartender removed - will be replaced with 3D model later
     }
