@@ -15,18 +15,18 @@ const log = {
 const ROOM_BOUNDS = {
     x: { min: -12.5, max: 12.5, width: 25 },
     y: { min: 0, max: 8, height: 8 },
-    z: { min: -26, max: -5, depth: 21 }
+    z: { min: -21, max: -5, depth: 16 }
 };
 
 // Key positions in the club
 const CLUB_POSITIONS = {
-    djBooth: { x: 0, y: 0.95, z: -23 },
+    djBooth: { x: 0, y: 0.95, z: -18 },
     danceFloor: { x: 0, y: 0, z: -12 },
     entrance: { x: 0, y: 0, z: 0 },
     mirrorBall: { x: 0, y: 6.5, z: -12 },
     paSpeakers: {
-        left: { x: -7, y: 0, z: -25 },
-        right: { x: 7, y: 0, z: -25 }
+        left: { x: -7, y: 0, z: -16 },
+        right: { x: 7, y: 0, z: -16 }
     }
 };
 
@@ -871,7 +871,7 @@ class VRClub {
         this.createPASpeakers();
         
         // Use modular LED wall system
-        if (this.systems.ledWall) {
+        if (this.useModularSystems && this.systems.ledWall) {
             this.systems.ledWall.createLEDWall();
             log.info('🎨 LED Wall created via LEDWallSystem module');
         } else {

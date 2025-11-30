@@ -88,11 +88,11 @@ class LEDWallSystem {
         // Match legacy dimensions exactly
         const panelWidth = 1.2;
         const panelHeight = 1.0;
-        const cols = 28;
+        const cols = 16; // Reduced from 28 to fit new room width
         const rows = 10;
         const wallWidth = cols * panelWidth;
         const wallHeight = rows * panelHeight;
-        const wallZ = -26; // Match legacy position
+        const wallZ = -20; // Moved forward from -26
         
         // Store grid dimensions for patterns
         this.ledCols = cols;
