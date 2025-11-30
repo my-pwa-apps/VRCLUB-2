@@ -3581,19 +3581,34 @@ class VRClub {
         
         // Dynamic phase durations - vary for natural feel (like real DJ sets)
         this.phaseDurations = {
-            intro: 15 + Math.random() * 10,       // 15-25s: Setting the mood
-            build: 25 + Math.random() * 15,       // 25-40s: Building anticipation
-            tension: 15 + Math.random() * 10,     // 15-25s: Maximum tension before drop
-            drop: 8 + Math.random() * 8,          // 8-16s: THE BIG MOMENT (short!)
-            peak: 20 + Math.random() * 15,        // 20-35s: Sustained high energy
-            breakdown: 12 + Math.random() * 8,    // 12-20s: Disco ball moment
-            atmospheric: 18 + Math.random() * 12, // 18-30s: Dreamy transition
-            groove: 25 + Math.random() * 15       // 25-40s: Finding the pocket
+            intro: 12 + Math.random() * 8,        // 12-20s: Setting the mood
+            build: 20 + Math.random() * 12,       // 20-32s: Building anticipation
+            tension: 12 + Math.random() * 8,      // 12-20s: Maximum tension before drop
+            drop: 6 + Math.random() * 6,          // 6-12s: THE BIG MOMENT (short!)
+            peak: 16 + Math.random() * 12,        // 16-28s: Sustained high energy
+            breakdown: 10 + Math.random() * 6,    // 10-16s: Disco ball moment
+            atmospheric: 14 + Math.random() * 10, // 14-24s: Dreamy transition
+            groove: 20 + Math.random() * 12,      // 20-32s: Finding the pocket
+            // NEW PHASES for more immersive experience
+            euphoria: 8 + Math.random() * 6,      // 8-14s: Pure bliss moment
+            darkness: 4 + Math.random() * 4,      // 4-8s: Dramatic blackout
+            strobe_attack: 5 + Math.random() * 3, // 5-8s: Intense strobe assault
+            laser_tunnel: 12 + Math.random() * 8  // 12-20s: Laser beam immersion
         };
         
         // Track energy level for smooth transitions (0.0 = ambient, 1.0 = peak)
         this.energyLevel = 0.3; // Start lower for intro
         this.targetEnergy = 0.3;
+        
+        // === IMMERSIVE ANIMATION PARAMETERS ===
+        // Professional VJ timing variables for crowd-focused moments
+        this.crowdFocusIntensity = 0; // 0-1: How much focus on dance floor
+        this.beamConvergencePoint = new BABYLON.Vector3(0, 2, -12); // Center of dance floor
+        this.colorTransitionSpeed = 0.5; // How fast colors morph
+        this.syncedBeatPhase = 0; // All lights pulse together on beat
+        this.dramaticPauseTimer = 0; // For tension builds
+        this.spotlightChaseIndex = 0; // For chase sequences
+        this.laserFanAngle = 0; // For expanding/contracting laser fans
         
     }
     
@@ -3818,27 +3833,20 @@ class VRClub {
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
             // Reduced size for more realistic club spotlights
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 1.5,      // Wide end - reduced from 3.0 to 1.5m for tighter, more realistic beam
-                diameterBottom: 0.2,   // Narrow end - slightly reduced for tighter beam
+                diameterTop: 1.5,      // Wide end at floor - 1.5m diameter for realistic spotlight
+                diameterBottom: 0.2,   // Narrow end at fixture - 0.2m (roughly 8 inch lens)
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 8,       // OPTIMIZED: Reduced from 16 (sufficient for VR)
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
-            // PARENT BEAM TO HEAD for realistic movement
-            if (head) {
-                beam.parent = head;
-                // Cylinder is Y-up. We want it to point along local -Y (down relative to head)
-                // But diameterTop is the "top" (+Y). We want the wide end at the bottom.
-                // So we need to rotate it 180 degrees so "top" (wide) points down (-Y).
-                beam.rotation.x = Math.PI; 
-                beam.position = new BABYLON.Vector3(0, -0.5, 0); // Initial position
-            } else {
-                beam.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);
-            }
+            // HYPERREALISTIC: Beam positioned in WORLD SPACE (not parented to head)
+            // This ensures beam visually connects from fixture lens to floor pool
+            // Position will be set dynamically in animation loop
+            beam.position = new BABYLON.Vector3(pos.x, 4, pos.z); // Initial position (will be updated)
+            beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Use quaternion for proper world-space rotation
             
             beam.isPickable = false;
-            // beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Removed to allow parenting rotation
             
             // HYPERREALISTIC VOLUMETRIC BEAM - Animated smoke/dust particles in light cone
             // Real light beams show visible particles drifting through the beam
@@ -5158,16 +5166,28 @@ class VRClub {
             const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
             
             // Smoothly interpolate energy level toward target
-            const energySpeed = 0.003; // Slightly faster for more dynamic feel
+            const energySpeed = 0.005; // Faster for more dynamic feel
             this.energyLevel += (this.targetEnergy - this.energyLevel) * energySpeed;
             
-            // MICRO-DYNAMICS: Add subtle variations within phases (like a real VJ would)
-            const microPulse = Math.sin(time * 0.5) * 0.1; // Breathing effect
-            const beatPulse = Math.sin(time * 2.0) * 0.05; // 128 BPM feel
+            // === IMMERSIVE BEAT-SYNCED MICRO-DYNAMICS ===
+            // Real VJ: constant subtle adjustments, never static
+            const bpm = this.bpm || 128;
+            const beatTime = 60 / bpm;
+            this.syncedBeatPhase = (time % beatTime) / beatTime; // 0-1 per beat
+            
+            // Breathing effect synced to 4-beat bars
+            const barPhase = (time % (beatTime * 4)) / (beatTime * 4);
+            const microPulse = Math.sin(barPhase * Math.PI * 2) * 0.15;
+            
+            // Sharp beat pulse (peaks on each beat)
+            const beatPulse = Math.pow(1 - this.syncedBeatPhase, 3) * 0.2;
+            
+            // Crowd focus: spotlights occasionally converge on dance floor center
+            this.crowdFocusIntensity = Math.sin(time * 0.1) * 0.5 + 0.5;
             
             if (time - this.lightModeSwitchTime > currentPhaseDuration) {
-                // === PROFESSIONAL 8-PHASE SHOW CYCLE ===
-                // Designed for maximum crowd engagement and emotional journey
+                // === IMMERSIVE 12-PHASE SHOW CYCLE ===
+                // Professional animation sequence designed for maximum crowd immersion
                 switch(this.lightingPhase) {
                     case 'intro':
                         // INTRO → BUILD: Tease the crowd, slow reveal
@@ -5309,7 +5329,28 @@ class VRClub {
                         break;
                         
                     case 'atmospheric':
-                        // ATMOSPHERIC → GROOVE: Get into a pocket
+                        // ATMOSPHERIC → LASER TUNNEL: Immersive laser experience
+                        this.lightingPhase = 'laser_tunnel';
+                        this.targetEnergy = 0.7;
+                        
+                        // ALL lasers converge toward dance floor - tunnel effect
+                        this.lightsActive = false;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        this.blindersActive = false;
+                        this.laserSheetActive = true; // Laser sheet adds to tunnel
+                        this.smokeActive = true; // Maximum haze for beam visibility
+                        
+                        this.laserSpeed = 0.3; // Very slow rotation
+                        this.laserFanAngle = 0.2; // Narrow fan - beams converge
+                        this.ledWallSpeed = 0.5;
+                        this.currentShowMode = 'lasers';
+                        log.info('🌀 LASER TUNNEL: Immersive laser cocoon around dancers');
+                        break;
+                        
+                    case 'laser_tunnel':
+                        // LASER TUNNEL → GROOVE: Transition to hypnotic groove
                         this.lightingPhase = 'groove';
                         this.targetEnergy = 0.6;
                         
@@ -5326,17 +5367,82 @@ class VRClub {
                         this.spotlightMode = 1; // Sweep only
                         this.spotlightSpeed = 0.8;
                         this.laserSpeed = 0.6; // Slow lasers
+                        this.laserFanAngle = 0.5; // Normal spread
                         this.ledWallSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
                         log.info('🎵 GROOVE: Finding the pocket - Hypnotic patterns');
                         break;
                         
                     case 'groove':
-                        // GROOVE → BUILD: Start the journey again
-                        this.lightingPhase = 'build';
-                        this.targetEnergy = 0.5;
+                        // GROOVE → EUPHORIA: Pure bliss moment - everything harmonizes
+                        this.lightingPhase = 'euphoria';
+                        this.targetEnergy = 0.85;
                         
-                        // Reset for next cycle
+                        // Everything on but gentle - synchronized beauty
+                        this.lightsActive = true;
+                        this.lasersActive = true;
+                        this.mirrorBallActive = true;
+                        this.strobesActive = false; // No strobes - pure vibes
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = true;
+                        
+                        this.spotlightPattern = 0;
+                        this.spotlightMode = 1; // Sweep only - elegant
+                        this.spotlightSpeed = 1.0;
+                        this.laserSpeed = 0.8;
+                        this.mirrorBallSpeed = 0.6;
+                        this.ledWallSpeed = 1.0;
+                        this.currentShowMode = 'euphoria';
+                        log.info('💫 EUPHORIA: Pure bliss - Everything harmonizes');
+                        break;
+                        
+                    case 'euphoria':
+                        // EUPHORIA → DARKNESS: Dramatic blackout for contrast
+                        this.lightingPhase = 'darkness';
+                        this.targetEnergy = 0.05; // Near-blackout
+                        
+                        // EVERYTHING OFF - total darkness except minimal LED
+                        this.lightsActive = false;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = false;
+                        this.blindersActive = false;
+                        this.laserSheetActive = false;
+                        this.smokeActive = false;
+                        
+                        this.ledWallSpeed = 0.1; // LED wall very dim, slow pulse
+                        this.currentShowMode = 'darkness';
+                        log.info('🌑 DARKNESS: Dramatic blackout - anticipation builds');
+                        break;
+                        
+                    case 'darkness':
+                        // DARKNESS → STROBE ATTACK: Explosive return!
+                        this.lightingPhase = 'strobe_attack';
+                        this.targetEnergy = 1.0; // MAXIMUM
+                        
+                        // STROBES + BLINDERS - sensory overload
+                        this.lightsActive = false;
+                        this.lasersActive = false;
+                        this.mirrorBallActive = false;
+                        this.strobesActive = true; // FULL STROBES
+                        this.blindersActive = true; // BLINDERS PUNCH
+                        this.laserSheetActive = true;
+                        this.smokeActive = true;
+                        
+                        this.strobeSpeed = 3.0; // VERY FAST
+                        this.blinderSpeed = 2.5;
+                        this.ledWallSpeed = 3.0; // LED goes crazy
+                        this.currentShowMode = 'strobe_attack';
+                        log.info('⚡ STROBE ATTACK: Explosive return from darkness!');
+                        break;
+                        
+                    case 'strobe_attack':
+                        // STROBE ATTACK → BUILD: Reset cycle with high energy start
+                        this.lightingPhase = 'build';
+                        this.targetEnergy = 0.55;
+                        
+                        // Transition back to building phase
                         this.lightsActive = true;
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
@@ -5345,12 +5451,13 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
-                        this.spotlightPattern = 0; // Automated movement patterns
+                        this.spotlightPattern = 0;
                         this.spotlightMode = 1;
-                        this.spotlightSpeed = 0.6;
-                        this.ledWallSpeed = 0.7;
+                        this.spotlightSpeed = 0.7;
+                        this.ledWallSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
-                        log.info('🔄 BUILD: New cycle begins - Building tension again');
+                        log.info('🔄 BUILD: New cycle begins - The journey continues');
+                        break;
                         break;
                         
                     default:
@@ -5377,25 +5484,32 @@ class VRClub {
                 
                 this.lightModeSwitchTime = time;
                 
-                // PROFESSIONAL PHASE DURATIONS (like real DJ sets)
-                // Shorter phases keep energy dynamic, longer builds create anticipation
+                // DYNAMIC PHASE DURATIONS - Randomized for natural feel
                 const phaseName = this.lightingPhase;
                 if (phaseName === 'intro') {
-                    this.phaseDurations.intro = 15 + Math.random() * 10; // 15-25s intro
+                    this.phaseDurations.intro = 12 + Math.random() * 8;
                 } else if (phaseName === 'build') {
-                    this.phaseDurations.build = 25 + Math.random() * 15; // 25-40s build
+                    this.phaseDurations.build = 20 + Math.random() * 12;
                 } else if (phaseName === 'tension') {
-                    this.phaseDurations.tension = 15 + Math.random() * 10; // 15-25s tension
+                    this.phaseDurations.tension = 12 + Math.random() * 8;
                 } else if (phaseName === 'drop') {
-                    this.phaseDurations.drop = 8 + Math.random() * 8; // 8-16s drop (SHORT!)
+                    this.phaseDurations.drop = 6 + Math.random() * 6; // SHORT for impact!
                 } else if (phaseName === 'peak') {
-                    this.phaseDurations.peak = 20 + Math.random() * 15; // 20-35s peak
+                    this.phaseDurations.peak = 16 + Math.random() * 12;
                 } else if (phaseName === 'breakdown') {
-                    this.phaseDurations.breakdown = 12 + Math.random() * 8; // 12-20s breakdown
+                    this.phaseDurations.breakdown = 10 + Math.random() * 6;
                 } else if (phaseName === 'atmospheric') {
-                    this.phaseDurations.atmospheric = 18 + Math.random() * 12; // 18-30s atmospheric
+                    this.phaseDurations.atmospheric = 14 + Math.random() * 10;
                 } else if (phaseName === 'groove') {
-                    this.phaseDurations.groove = 25 + Math.random() * 15; // 25-40s groove
+                    this.phaseDurations.groove = 20 + Math.random() * 12;
+                } else if (phaseName === 'euphoria') {
+                    this.phaseDurations.euphoria = 8 + Math.random() * 6;
+                } else if (phaseName === 'darkness') {
+                    this.phaseDurations.darkness = 4 + Math.random() * 4; // Very short!
+                } else if (phaseName === 'strobe_attack') {
+                    this.phaseDurations.strobe_attack = 5 + Math.random() * 3;
+                } else if (phaseName === 'laser_tunnel') {
+                    this.phaseDurations.laser_tunnel = 12 + Math.random() * 8;
                 }
                 
                 // Update VJ control button visuals to reflect state
@@ -5411,34 +5525,76 @@ class VRClub {
                 }
             }
             
-            // === MICRO-DYNAMICS: Real-time variations within phases ===
-            // A pro VJ never leaves things static - constant subtle adjustments
+            // === IMMERSIVE MICRO-DYNAMICS: Real-time crowd-focused animations ===
+            // Professional VJ technique: constant subtle adjustments create "living" show
             
-            // Speed variations based on energy (things speed up as energy rises)
-            const energySpeedBoost = 0.8 + this.energyLevel * 0.4; // 0.8x to 1.2x
+            // Speed variations based on energy (things accelerate as energy rises)
+            const energySpeedBoost = 0.7 + this.energyLevel * 0.6; // 0.7x to 1.3x
             
-            // Apply micro-pulse to active effects
+            // === SPOTLIGHT CROWD FOCUS ===
+            // Occasionally converge spotlights on dance floor center for dramatic effect
             if (this.lightsActive && this.spotlights) {
-                this.spotlights.forEach(spot => {
+                const convergeFactor = this.crowdFocusIntensity * 0.3; // 0-0.3 convergence
+                
+                this.spotlights.forEach((spot, i) => {
                     if (spot.light) {
-                        // Intensity breathes with energy + micro-pulse
-                        const baseIntensity = 10 + this.energyLevel * 10; // 10-20
-                        spot.light.intensity = baseIntensity * (1 + microPulse + beatPulse);
+                        // Intensity breathes with energy + beat sync
+                        const baseIntensity = 8 + this.energyLevel * 15; // 8-23
+                        const beatBoost = beatPulse * 2; // Punch on beats
+                        spot.light.intensity = baseIntensity * (1 + microPulse + beatBoost);
+                        
+                        // Color temperature shifts with phase
+                        if (this.lightingPhase === 'euphoria') {
+                            // Warm, golden tones during euphoria
+                            spot.light.diffuse.r = Math.min(1, spot.light.diffuse.r + 0.1);
+                            spot.light.diffuse.g = Math.min(1, spot.light.diffuse.g + 0.05);
+                        } else if (this.lightingPhase === 'tension') {
+                            // Cooler, bluer tones during tension
+                            spot.light.diffuse.b = Math.min(1, spot.light.diffuse.b + 0.1);
+                        }
                     }
                 });
             }
             
-            // Laser movement varies with energy
+            // === LASER DYNAMICS ===
+            // Lasers respond to energy and create immersive patterns
             if (this.lasersActive && this.lasers) {
-                this.lasers.forEach(laser => {
-                    laser.rotationSpeed = (0.01 + this.energyLevel * 0.025) * energySpeedBoost;
+                const fanAngle = this.laserFanAngle || 0.5;
+                
+                this.lasers.forEach((laser, i) => {
+                    // Rotation speed tied to energy
+                    laser.rotationSpeed = (0.008 + this.energyLevel * 0.03) * energySpeedBoost;
+                    
+                    // During laser_tunnel phase, lasers converge
+                    if (this.lightingPhase === 'laser_tunnel') {
+                        laser.convergenceTarget = this.beamConvergencePoint;
+                        laser.fanSpread = fanAngle; // Narrow spread
+                    } else {
+                        laser.convergenceTarget = null;
+                        laser.fanSpread = 0.5; // Normal spread
+                    }
                 });
             }
             
-            // Mirror ball speed varies romantically during breakdown
+            // === MIRROR BALL IMMERSIVE DYNAMICS ===
             if (this.mirrorBallActive && this.mirrorBall) {
-                const romancePulse = Math.sin(time * 0.3) * 0.2; // Very slow breathing
-                this.mirrorBallSpeed = 0.4 + romancePulse;
+                if (this.lightingPhase === 'breakdown') {
+                    // Romantic slow rotation with breathing
+                    const romancePulse = Math.sin(time * 0.3) * 0.15;
+                    this.mirrorBallSpeed = 0.35 + romancePulse;
+                } else if (this.lightingPhase === 'euphoria') {
+                    // Faster, joyful rotation
+                    this.mirrorBallSpeed = 0.6 + Math.sin(time * 0.5) * 0.1;
+                } else {
+                    // Normal rotation
+                    this.mirrorBallSpeed = 0.5;
+                }
+            }
+            
+            // === STROBE INTENSITY CONTROL ===
+            if (this.strobesActive && this.lightingPhase === 'strobe_attack') {
+                // Maximum intensity during strobe attack
+                this.strobeSpeed = 2.5 + Math.random() * 0.5; // Vary speed slightly
             }
             
         } else {
@@ -5451,21 +5607,53 @@ class VRClub {
             this.systems.ledWall.update(time, audioData);
         }
         
-        // === DANCE FLOOR EDGE LED ANIMATION ===
+        // === IMMERSIVE DANCE FLOOR EDGE LED ANIMATION ===
+        // Creates a "breathing" floor that responds to the music and phase
         if (this.danceFloorLEDs && this.danceFloorLEDs.length > 0) {
-            // Animated color cycling synchronized with music if available
             const bassLevel = audioData ? audioData.bass / 255 : 0.5;
             const midLevel = audioData ? audioData.mid / 255 : 0.5;
+            const phase = this.lightingPhase;
             
             this.danceFloorLEDs.forEach((led, i) => {
-                // Color cycling with phase offset per strip
-                const phase = time * 0.8 + i * Math.PI / 2;
-                const r = Math.sin(phase) * 0.5 + 0.5;
-                const g = Math.sin(phase + Math.PI * 2 / 3) * 0.5 + 0.5;
-                const b = Math.sin(phase + Math.PI * 4 / 3) * 0.5 + 0.5;
+                let r, g, b, intensity;
                 
-                // Intensity pulses with bass
-                const intensity = 0.5 + bassLevel * 0.5;
+                // Phase-specific floor colors for immersion
+                if (phase === 'darkness') {
+                    // Minimal glow during blackout - just enough to see
+                    r = 0.1; g = 0.1; b = 0.2;
+                    intensity = 0.2 + Math.sin(time * 0.5) * 0.1;
+                } else if (phase === 'strobe_attack') {
+                    // White strobe sync with floor
+                    const strobe = Math.sin(time * 20) > 0 ? 1 : 0;
+                    r = g = b = strobe;
+                    intensity = 1.0;
+                } else if (phase === 'euphoria') {
+                    // Warm golden pulse
+                    const warmPhase = time * 1.2 + i * 0.5;
+                    r = 1.0;
+                    g = 0.7 + Math.sin(warmPhase) * 0.2;
+                    b = 0.3;
+                    intensity = 0.7 + bassLevel * 0.3;
+                } else if (phase === 'laser_tunnel') {
+                    // Match laser colors (cycling RGB)
+                    const laserPhase = time * 0.5;
+                    r = Math.sin(laserPhase) * 0.5 + 0.5;
+                    g = Math.sin(laserPhase + 2.1) * 0.5 + 0.5;
+                    b = Math.sin(laserPhase + 4.2) * 0.5 + 0.5;
+                    intensity = 0.5 + midLevel * 0.5;
+                } else if (phase === 'breakdown') {
+                    // Soft purple/pink for romantic moment
+                    r = 0.8; g = 0.3; b = 0.9;
+                    intensity = 0.4 + Math.sin(time * 0.4) * 0.2;
+                } else {
+                    // Default: Color cycling with phase offset
+                    const colorPhase = time * 0.8 + i * Math.PI / 2;
+                    r = Math.sin(colorPhase) * 0.5 + 0.5;
+                    g = Math.sin(colorPhase + Math.PI * 2 / 3) * 0.5 + 0.5;
+                    b = Math.sin(colorPhase + Math.PI * 4 / 3) * 0.5 + 0.5;
+                    intensity = 0.5 + bassLevel * 0.5;
+                }
+                
                 led.material.emissiveColor.set(r * intensity, g * intensity, b * intensity);
             });
         }
@@ -6055,7 +6243,8 @@ class VRClub {
                     spot.fixture.lookAt(targetPoint);
                 }
                 
-                // PROFESSIONAL VOLUMETRIC BEAM - Simple and effective
+                // PROFESSIONAL VOLUMETRIC BEAM - Hyperrealistic light cone
+                // The beam must VISUALLY CONNECT to the floor light pool for realism
                 if (spot.beam) {
                     // Get the actual world position of the light emission point (lens position)
                     // This correctly accounts for head tilt and rotation
@@ -6090,17 +6279,46 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // IMPORTANT: Calculate beam length to ensure FULL CONE reaches floor
-                    // The cone widens from 0.25m to 2.0m, so at angles the edge hits floor first
-                    // We need to extend the beam so the WIDE END fully reaches floor
-                    const coneRadiusAtFloor = 1.0; // Half of diameterTop (2.0)
-                    const horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
-                    const angleFromVertical = Math.atan2(horizontalDistance, Math.abs(direction.y));
-                    const extraLength = coneRadiusAtFloor * Math.tan(angleFromVertical);
-                    const beamLength = centerDistanceToFloor + extraLength;
+                    // HYPERREALISTIC BEAM: Position in WORLD SPACE
+                    // This ensures beam visually connects emission point to floor pool
                     
-                    // UPDATE BEAM LENGTH (Position/Rotation handled by parenting to Head)
-                    // Scale to actual length
+                    // Calculate beam midpoint in world space (halfway between emission and floor)
+                    const beamMidpoint = new BABYLON.Vector3(
+                        (emissionPoint.x + floorIntersection.x) * 0.5,
+                        (emissionPoint.y + floorIntersection.y) * 0.5,
+                        (emissionPoint.z + floorIntersection.z) * 0.5
+                    );
+                    
+                    // Beam length from emission to floor intersection
+                    const beamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
+                    
+                    // Position beam at midpoint
+                    spot.beam.position.copyFrom(beamMidpoint);
+                    
+                    // Orient beam to point from emission toward floor
+                    // The cylinder's local +Y points "up". We rotate it so +Y aligns with our direction.
+                    // But we want narrow end (diameterBottom) at emission, wide end (diameterTop) at floor.
+                    // Cylinder is created with diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
+                    // Default: +Y is top (wide). We need +Y to point TOWARD floor (where wide end should be).
+                    // direction points FROM emission TOWARD floor - that's exactly what we want for +Y!
+                    
+                    // Use lookAt toward floor intersection, then rotate 90° to align cylinder axis
+                    // Actually, easier: compute rotation directly from direction vector
+                    const up = new BABYLON.Vector3(0, 1, 0);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(direction, up));
+                    const axis = BABYLON.Vector3.Cross(up, direction).normalize();
+                    
+                    if (axis.length() > 0.001) {
+                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis, angle);
+                    } else if (direction.y > 0) {
+                        // Pointing up (away from floor) - flip 180°
+                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                    } else {
+                        // Pointing straight down - no rotation needed
+                        spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+                    }
+                    
+                    // UPDATE BEAM LENGTH
                     spot.beam.scaling.y = beamLength;
                     
                     // ANIMATE SMOKE TEXTURE (Hyperrealism)
@@ -6116,17 +6334,15 @@ class VRClub {
                         spot.lightPool.rotation.z += 0.01 * speedMultiplier; // Faster rotation
                     }
                     
-                    // Update position to keep start of beam at the lens
-                    // Lens is at y=-0.28. Beam is rotated 180, so start is at top (+y relative to beam center).
-                    // We need center to be lower so top aligns with lens.
-                    spot.beam.position.y = -0.28 - (beamLength * 0.5);
+                    // REMOVED: Old local positioning code (now using world space)
+                    // Beam is positioned at beamMidpoint with quaternion rotation above
                     
                     // Consistent beam size (no zoom variation)
                     const zoomFactor = 1.0; 
                     spot.beam.scaling.x = zoomFactor;
                     spot.beam.scaling.z = zoomFactor;
                     
-                    // UPDATE GLOW BEAM - Same scaling and position
+                    // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
                     // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
                     // Strobe is controlled by both toggle button AND spotlight mode
                     const sweepPhase = globalPhase * audioSpeedMultiplier;
@@ -6148,14 +6364,18 @@ class VRClub {
                     
                     spot.beam.visibility = beamVisible ? 1.0 : 0;
                     
-                    // Update beamGlow - SYNC WITH STROBE
+                    // Update beamGlow - Match main beam world-space positioning
                     if (spot.beamGlow) {
-                        // Position/Rotation handled by parenting
+                        // Unparent if needed
+                        if (spot.beamGlow.parent) {
+                            spot.beamGlow.setParent(null);
+                        }
+                        // Match main beam position and rotation exactly
+                        spot.beamGlow.position.copyFrom(beamMidpoint);
+                        spot.beamGlow.rotationQuaternion = spot.beam.rotationQuaternion.clone();
                         spot.beamGlow.scaling.y = beamLength;
                         spot.beamGlow.scaling.x = zoomFactor;
                         spot.beamGlow.scaling.z = zoomFactor;
-                        // Match position with main beam
-                        spot.beamGlow.position.y = -0.28 - (beamLength * 0.5);
                         
                         // CRITICAL: Sync glow visibility with strobe/beam visibility
                         spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
@@ -6187,12 +6407,13 @@ class VRClub {
                     // Update HYPERREALISTIC floor light pool - Soft radial gradient for realistic light reflection
                     if (spot.lightPool) {
                         if (this.lightsActive && beamVisible) {
-                            // Calculate beam width at floor based on cone angle
-                            const beamProgress = Math.min(1.0, centerDistanceToFloor / beamLength);
-                            const beamWidthAtFloor = 0.25 + 2.75 * beamProgress;
+                            // HYPERREALISTIC: Pool size matches beam cone exactly
+                            // Beam cone: diameterBottom=0.2 (at emission), diameterTop=1.5 (at floor)
+                            // The floor pool should match the beam's wide end diameter (1.5m)
+                            const beamDiameterAtFloor = 1.5; // Matches diameterTop from beam creation
                             
-                            // Pool size matches where beam actually hits - slightly larger for soft edge
-                            const poolSize = beamWidthAtFloor * zoomFactor * 1.0;
+                            // Pool radius = half diameter, with small expansion for soft edge
+                            const poolSize = (beamDiameterAtFloor * 0.5) * 1.1; // 0.825m radius with soft edge
                             
                             // Subtle shimmer for realistic light variation
                             const shimmer = 1.0 + Math.sin(time * 1.5 + i * 0.7) * 0.08;
@@ -6205,7 +6426,9 @@ class VRClub {
                             spot.lightPool.visibility = 1.0;
                             
                             // Color intensity falls off with distance (inverse square approximation)
-                            const distanceFalloff = Math.max(0.3, 1.0 - (beamProgress * 0.5));
+                            // Typical spotlight height is ~7.5m, so use that as reference for falloff
+                            const normalizedDistance = Math.min(1.0, beamLength / 10.0);
+                            const distanceFalloff = Math.max(0.3, 1.0 - (normalizedDistance * 0.5));
                             const poolIntensity = 1.5 * shimmer * distanceFalloff;
                             
                             if (spot.poolMat) {

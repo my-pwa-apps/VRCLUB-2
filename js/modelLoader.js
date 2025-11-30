@@ -105,7 +105,8 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
-                useOriginalTextures: true, // Use GLB's built-in textures from /textures folder
+                applyExternalTextures: true, // Load textures from /textures folder
+                textureBasePath: './js/models/paspeakers/textures/',
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             },
@@ -116,7 +117,8 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
-                useOriginalTextures: true, // Use GLB's built-in textures from /textures folder
+                applyExternalTextures: true, // Load textures from /textures folder
+                textureBasePath: './js/models/paspeakers/textures/',
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
@@ -245,8 +247,12 @@ class ModelLoader {
                 mesh.visibility = 1.0;
                 mesh.renderingGroupId = 0; // Default rendering group
                 
+                // Apply external textures for PA speakers (PBR materials with proper textures)
+                if (config.applyExternalTextures && modelKey.startsWith('pa_speaker')) {
+                    this.applyPASpeakerTextures(mesh, config.textureBasePath);
+                }
                 // Apply custom black material if requested (e.g., for PA speakers)
-                if (config.makeBlack && this.materialFactory) {
+                else if (config.makeBlack && this.materialFactory) {
                     const meshName = mesh.name.toLowerCase();
                     // Intelligent material assignment based on mesh name
                     // PA Speaker specific mapping
@@ -890,6 +896,93 @@ class ModelLoader {
         });
         
         this.log.info(`   ⛓️ Created hyperrealistic hanging hardware for ${modelKey}`);
+    }
+
+    /**
+     * Apply external PBR textures to PA speaker meshes
+     * Textures: Albedo, Normal, Metallic, Roughness, AO
+     */
+    applyPASpeakerTextures(mesh, textureBasePath) {
+        if (!mesh || mesh.name === '__root__') return;
+        
+        const meshName = mesh.name.toLowerCase();
+        this.log.info(`   🎨 Applying PBR textures to ${mesh.name}`);
+        
+        // Create a new PBR material for each mesh
+        const mat = new BABYLON.PBRMaterial(`paSpeakerMat_${mesh.name}`, this.scene);
+        
+        // Determine which texture set to use based on mesh name
+        // Main speaker body uses PA_speakers_* textures
+        // Small speakers/components might use small_speaker_* textures
+        let albedoPath, normalPath, metallicPath, roughnessPath, aoPath;
+        
+        if (meshName.includes('small') || meshName.includes('tweeter') || meshName.includes('mid')) {
+            // Small speaker components
+            albedoPath = textureBasePath + 'small_speaker_1_1001_albedo.jpeg';
+            normalPath = textureBasePath + 'small_speaker_1_1001_normal.png';
+            metallicPath = textureBasePath + 'small_speaker_1_1001_metallic.jpeg';
+            roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpeg';
+            aoPath = textureBasePath + 'small_speaker_1_1001_AO.jpeg';
+        } else {
+            // Main speaker body
+            albedoPath = textureBasePath + 'PA_speakers_Albedo_1.png';
+            normalPath = textureBasePath + 'PA_speakers_Normal_0.png';
+            // Combined metallic-roughness texture
+            metallicPath = textureBasePath + 'PA_speakers_Metalness.png-PA_speakers_Roughness.png_2@channe.png';
+            roughnessPath = metallicPath; // Same file, different channel
+            aoPath = textureBasePath + 'internal_ground_ao_texture.jpeg';
+        }
+        
+        // Load albedo (base color) texture
+        try {
+            mat.albedoTexture = new BABYLON.Texture(albedoPath, this.scene);
+            mat.albedoTexture.hasAlpha = false;
+        } catch (e) {
+            this.log.warn(`   ⚠️ Could not load albedo texture for ${mesh.name}`);
+            mat.albedoColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Fallback dark gray
+        }
+        
+        // Load normal map
+        try {
+            mat.bumpTexture = new BABYLON.Texture(normalPath, this.scene);
+            mat.bumpTexture.level = 1.0;
+        } catch (e) {
+            this.log.warn(`   ⚠️ Could not load normal texture for ${mesh.name}`);
+        }
+        
+        // Load metallic texture (or use the combined channel texture)
+        try {
+            mat.metallicTexture = new BABYLON.Texture(metallicPath, this.scene);
+            mat.useMetallnessFromMetallicTextureBlue = false; // Red channel = metallic
+            mat.useRoughnessFromMetallicTextureGreen = true; // Green channel = roughness
+            mat.useRoughnessFromMetallicTextureAlpha = false;
+        } catch (e) {
+            this.log.warn(`   ⚠️ Could not load metallic texture for ${mesh.name}`);
+            mat.metallic = 0.3; // Fallback
+            mat.roughness = 0.7;
+        }
+        
+        // Load AO texture
+        try {
+            mat.ambientTexture = new BABYLON.Texture(aoPath, this.scene);
+            mat.ambientTextureStrength = 0.8;
+        } catch (e) {
+            this.log.warn(`   ⚠️ Could not load AO texture for ${mesh.name}`);
+        }
+        
+        // PBR material settings for realistic appearance
+        mat.metallic = 0.2; // Slight metallic for speaker cabinet
+        mat.roughness = 0.6; // Matte finish
+        mat.maxSimultaneousLights = 4;
+        
+        // Ensure fully opaque for VR
+        mat.alpha = 1.0;
+        mat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE;
+        mat.backFaceCulling = true;
+        mat.disableDepthWrite = false;
+        
+        // Apply material to mesh
+        mesh.material = mat;
     }
 
     async loadAllModels() {
