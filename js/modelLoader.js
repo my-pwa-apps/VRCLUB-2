@@ -105,7 +105,9 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
-                makeBlack: true, // Use factory presets for consistent dark speaker look
+                makeBlack: false, // Disable black override to use textures
+                applyExternalTextures: true, // Enable external textures
+                textureBasePath: './js/models/paspeakers/source/textures/',
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             },
@@ -116,7 +118,9 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
                 scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
                 useProcedural: false, // USE the 3D model
-                makeBlack: true, // Use factory presets for consistent dark speaker look
+                makeBlack: false, // Disable black override to use textures
+                applyExternalTextures: true, // Enable external textures
+                textureBasePath: './js/models/paspeakers/source/textures/',
                 hangFromCeiling: true, // Flag for special positioning
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
@@ -916,27 +920,13 @@ class ModelLoader {
         // Create a new PBR material for each mesh
         const mat = new BABYLON.PBRMaterial(`paSpeakerMat_${mesh.name}`, this.scene);
         
-        // Determine which texture set to use based on mesh name
-        // Main speaker body uses PA_speakers_* textures
-        // Small speakers/components might use small_speaker_* textures
-        let albedoPath, normalPath, metallicPath, roughnessPath, aoPath;
-        
-        if (meshName.includes('small') || meshName.includes('tweeter') || meshName.includes('mid')) {
-            // Small speaker components
-            albedoPath = textureBasePath + 'small_speaker_1_1001_albedo.jpeg';
-            normalPath = textureBasePath + 'small_speaker_1_1001_normal.png';
-            metallicPath = textureBasePath + 'small_speaker_1_1001_metallic.jpeg';
-            roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpeg';
-            aoPath = textureBasePath + 'small_speaker_1_1001_AO.jpeg';
-        } else {
-            // Main speaker body
-            albedoPath = textureBasePath + 'PA_speakers_Albedo_1.png';
-            normalPath = textureBasePath + 'PA_speakers_Normal_0.png';
-            // Combined metallic-roughness texture (renamed for compatibility)
-            metallicPath = textureBasePath + 'PA_speakers_MetallicRoughness.png';
-            roughnessPath = metallicPath; // Same file, different channel
-            aoPath = textureBasePath + 'internal_ground_ao_texture.jpeg';
-        }
+        // Use the provided small_speaker textures for all parts
+        // Corrected extensions to match actual files (.jpg instead of .jpeg)
+        const albedoPath = textureBasePath + 'small_speaker_1_1001_albedo.jpg';
+        const normalPath = textureBasePath + 'small_speaker_1_1001_normal.png';
+        const metallicPath = textureBasePath + 'small_speaker_1_1001_metallic.jpg';
+        const roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpg';
+        const aoPath = textureBasePath + 'small_speaker_1_1001_AO.jpg';
         
         // Load albedo (base color) texture with proper error handling
         const albedoTexture = new BABYLON.Texture(albedoPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE, 
@@ -957,19 +947,25 @@ class ModelLoader {
         mat.bumpTexture = normalTexture;
         mat.bumpTexture.level = 1.0;
         
-        // Load metallic texture (or use the combined channel texture)
+        // Load metallic texture
         const metallicTexture = new BABYLON.Texture(metallicPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
             () => { this.log.info(`   ✅ Loaded metallic: ${metallicPath}`); },
             (message, exception) => { 
                 this.log.warn(`   ⚠️ Failed to load metallic: ${metallicPath}`);
-                mat.metallic = 0.3; // Fallback
-                mat.roughness = 0.7;
+                mat.metallic = 0.1; // Fallback
             }
         );
         mat.metallicTexture = metallicTexture;
-        mat.useMetallnessFromMetallicTextureBlue = false; // Red channel = metallic
-        mat.useRoughnessFromMetallicTextureGreen = true; // Green channel = roughness
-        mat.useRoughnessFromMetallicTextureAlpha = false;
+        
+        // Load roughness texture
+        const roughnessTexture = new BABYLON.Texture(roughnessPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+            () => { this.log.info(`   ✅ Loaded roughness: ${roughnessPath}`); },
+            (message, exception) => { 
+                this.log.warn(`   ⚠️ Failed to load roughness: ${roughnessPath}`);
+                mat.roughness = 0.6; // Fallback
+            }
+        );
+        mat.microSurfaceTexture = roughnessTexture;
         
         // Load AO texture
         const aoTexture = new BABYLON.Texture(aoPath, this.scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
@@ -977,11 +973,11 @@ class ModelLoader {
             (message, exception) => { this.log.warn(`   ⚠️ Failed to load AO: ${aoPath}`); }
         );
         mat.ambientTexture = aoTexture;
-        mat.ambientTextureStrength = 0.8;
+        mat.ambientTextureStrength = 1.0;
         
         // PBR material settings for realistic appearance
-        mat.metallic = 0.2; // Slight metallic for speaker cabinet
-        mat.roughness = 0.6; // Matte finish
+        mat.metallic = 1.0; // Driven by texture
+        mat.roughness = 1.0; // Driven by texture
         mat.maxSimultaneousLights = 4;
         
         // Ensure fully opaque for VR
