@@ -920,6 +920,9 @@ class ModelLoader {
         // Create a new PBR material for each mesh
         const mat = new BABYLON.PBRMaterial(`paSpeakerMat_${mesh.name}`, this.scene);
         
+        // CRITICAL: Set base color to WHITE so texture colors show through
+        mat.albedoColor = new BABYLON.Color3(1, 1, 1);
+        
         // Use the provided small_speaker textures for all parts
         // Corrected extensions to match actual files (.jpg instead of .jpeg)
         const albedoPath = textureBasePath + 'small_speaker_1_1001_albedo.jpg';
@@ -934,7 +937,8 @@ class ModelLoader {
             () => { this.log.info(`   ✅ Loaded albedo: ${albedoPath}`); },
             (message, exception) => { 
                 this.log.warn(`   ⚠️ Failed to load albedo: ${albedoPath} - ${message}`);
-                mat.albedoColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Fallback dark gray
+                // Set to MAGENTA to make error obvious
+                mat.albedoColor = new BABYLON.Color3(1, 0, 1); 
             }
         );
         mat.albedoTexture = albedoTexture;
