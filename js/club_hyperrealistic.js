@@ -4040,10 +4040,20 @@ class VRClub {
             const lightPoolCore = null;
             const poolCoreMat = null;
             
-
-
+            // === HYPERREALISTIC POOL LIGHT ===
+            // Actual point light that illuminates floor and objects where the beam hits
+            // This creates realistic light reflection on surfaces and NPCs
+            const poolLight = new BABYLON.PointLight("poolLight" + i,
+                new BABYLON.Vector3(pos.x, 0.5, pos.z - 5), // Just above floor at pool position
+                this.scene
+            );
+            poolLight.diffuse = this.currentSpotColor.clone();
+            poolLight.specular = this.currentSpotColor.scale(0.3);
+            poolLight.intensity = 4.0; // Moderate intensity for realistic illumination
+            poolLight.range = 4.0; // Limited range to match pool size
+            poolLight.setEnabled(false); // Start disabled
             
-            // PERFORMANCE: Shadows disabled for better FPS\n            // Shadow generators are very expensive - removing them entirely\n            // if (i % 3 === 0) { // Only every 3rd light for performance\n            //     const shadowGenerator = new BABYLON.ShadowGenerator(512, spot);\n            //     shadowGenerator.useBlurExponentialShadowMap = true;\n            //     shadowGenerator.blurScale = 2;\n            //     shadowGenerator.setDarkness(0.4);\n            // }
+            // PERFORMANCE: Shadows disabled for better FPS
             
             this.spotlights.push({
                 light: spot,
@@ -4053,6 +4063,7 @@ class VRClub {
                 beamGlowMat: beamGlowMat,
                 lightPool: lightPool,
                 poolMat: poolMat,
+                poolLight: poolLight, // NEW: Actual light for surface illumination
                 lightPoolCore: lightPoolCore,
                 poolCoreMat: poolCoreMat,
                 lightPoolGlow: lightPoolGlow,
@@ -6468,6 +6479,19 @@ class VRClub {
                                 spot.poolMat.alpha = 0.55 * distanceFalloff;
                             }
                             
+                            // === HYPERREALISTIC POOL LIGHT UPDATE ===
+                            // Move the actual point light to illuminate surfaces where beam hits
+                            if (spot.poolLight) {
+                                spot.poolLight.position.x = floorIntersection.x;
+                                spot.poolLight.position.y = 0.8; // Slightly above floor for better spread
+                                spot.poolLight.position.z = floorIntersection.z;
+                                spot.poolLight.diffuse = spotColor.clone();
+                                spot.poolLight.specular = spotColor.scale(0.4);
+                                spot.poolLight.intensity = 5.0 * distanceFalloff * shimmer;
+                                spot.poolLight.range = 3.5 + (ellipseStretch * 0.5); // Range matches pool size
+                                spot.poolLight.setEnabled(true);
+                            }
+                            
                             // Outer glow - larger, softer ambient light spread (also elliptical)
                             if (spot.lightPoolGlow) {
                                 const glowBaseSize = poolBaseSize * 2.2; // Much larger for soft ambient spread
@@ -6496,6 +6520,8 @@ class VRClub {
                             // CRITICAL: Hide floor pools immediately when lights turn off or flashing off
                             spot.lightPool.visibility = 0;
                             if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
+                            // Disable pool light when beam is off
+                            if (spot.poolLight) spot.poolLight.setEnabled(false);
                         }
                     }
                 }
@@ -6506,6 +6532,7 @@ class VRClub {
                     if (spot.beam) spot.beam.visibility = 0;
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                     if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
+                    if (spot.poolLight) spot.poolLight.setEnabled(false);
                 }
                 
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
@@ -6523,6 +6550,7 @@ class VRClub {
                 if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
                 if (spot.lightPool) spot.lightPool.visibility = 0;
                 if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
+                if (spot.poolLight) spot.poolLight.setEnabled(false);
             });
         }
         
@@ -8717,13 +8745,41 @@ class VRClub {
                 rootMesh.position.y = -newBounding.min.y * scaleFactor;
                 
                 // Fix materials for proper rendering in the club
+                // CRITICAL: Enforce fully opaque materials to prevent see-through NPCs
                 result.meshes.forEach(mesh => {
                     if (mesh.material) {
-                        mesh.material.maxSimultaneousLights = this.maxLights;
-                        // Ensure proper alpha handling
-                        if (mesh.material.alpha !== undefined) {
-                            mesh.material.alpha = 1.0;
+                        const mat = mesh.material;
+                        mat.maxSimultaneousLights = this.maxLights;
+                        
+                        // CRITICAL: Force fully opaque - NPCs should NOT be transparent
+                        mat.alpha = 1.0;
+                        mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+                        
+                        // Disable all alpha blending paths
+                        if (mat.needAlphaBlending) {
+                            mat.needAlphaBlending = () => false;
                         }
+                        if (mat.needAlphaTesting) {
+                            mat.needAlphaTesting = () => false;
+                        }
+                        
+                        // Force depth write for proper occlusion
+                        mat.disableDepthWrite = false;
+                        mat.forceDepthWrite = true;
+                        
+                        // For PBR materials, disable any alpha from textures
+                        if (mat.albedoTexture) {
+                            mat.albedoTexture.hasAlpha = false;
+                        }
+                        if (mat.baseTexture) {
+                            mat.baseTexture.hasAlpha = false;
+                        }
+                        
+                        // Set backface culling for performance
+                        mat.backFaceCulling = true;
+                        
+                        // Freeze material after changes
+                        mat.freeze();
                     }
                 });
                 
