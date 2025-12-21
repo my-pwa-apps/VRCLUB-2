@@ -293,9 +293,10 @@ class ModelLoader {
                 }
                 
                 if (mesh.material) {
-                    // Limit to 4 lights (safe for PBR materials)
-                    mesh.material.maxSimultaneousLights = 4;
-                    this.log.info(`   🔧 Limited lights on ${mesh.name} to 4`);
+                    // Limit lights based on device capability (from MaterialFactory)
+                    const maxLights = this.materialFactory ? this.materialFactory.maxLights : 3;
+                    mesh.material.maxSimultaneousLights = maxLights;
+                    this.log.info(`   🔧 Limited lights on ${mesh.name} to ${maxLights}`);
                     
                     // Add subtle ambient brightness - reduced to avoid washed-out VR appearance
                     if (mesh.material.emissiveColor !== undefined) {
@@ -992,7 +993,8 @@ class ModelLoader {
         // PBR material settings for realistic appearance
         mat.metallic = 0.1; // Default to plastic/matte if texture fails
         mat.roughness = 0.7; // Default to rough if texture fails
-        mat.maxSimultaneousLights = 4;
+        const maxLights = this.materialFactory ? this.materialFactory.maxLights : 3;
+        mat.maxSimultaneousLights = maxLights;
         
         // Ensure fully opaque for VR
         mat.alpha = 1.0;

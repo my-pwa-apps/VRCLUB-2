@@ -3445,20 +3445,16 @@ class VRClub {
             
             strobe.material = strobeMat;
             
-            // Add powerful point light for each strobe
-            const strobeLight = new BABYLON.PointLight("strobeLight" + i,
-                new BABYLON.Vector3(pos.x, 7.6, pos.z),
-                this.scene
-            );
-            strobeLight.diffuse = new BABYLON.Color3(1, 1, 1);
-            strobeLight.intensity = 0; // Off by default
-            strobeLight.range = 50; // Increased from 30
-            strobeLight.setEnabled(false); // Start disabled - will be enabled when strobesActive = true
+            // DISABLED: Strobe PointLights caused shader uniform buffer overflow
+            // WebGL2 PBR materials have strict uniform buffer limits (~12)
+            // With 6 spotlights + ambient + LED + strobes = too many lights
+            // Visual strobe effect still works via emissive mesh materials
+            const strobeLight = null; // Disabled - strobe visual only via emissive mesh
             
             this.strobes.push({ 
                 mesh: strobe, 
                 material: strobeMat,
-                light: strobeLight,
+                light: strobeLight, // null - visual-only strobe
                 flashDuration: 0,
                 nextFlashTime: Math.random() * 2
             });
@@ -3577,40 +3573,23 @@ class VRClub {
             
             // Create beams based on laser type
             const beams = [];
-            const lights = [];
+            // DISABLED: Laser SpotLights caused shader uniform buffer overflow
+            // 3 multi-beam lasers × 5 lights each = 15 SpotLights, way over limit
+            // Visual laser beams still work via emissive cylinder meshes
+            const lights = []; // Empty - no actual lights, visual-only beams
             
             if (pos.type === 'single') {
                 // Single beam laser
                 const beam = this.createLaserBeam(i, 0, pos);
                 beams.push(beam);
-                
-                const light = new BABYLON.SpotLight("laserLight" + i,
-                    new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
-                    new BABYLON.Vector3(0, -1, 0),
-                    Math.PI / 8, 5, this.scene
-                );
-                light.diffuse = new BABYLON.Color3(1, 0, 0);
-                light.intensity = 5;
-                light.range = 20;
-                light.setEnabled(false); // Start disabled
-                lights.push(light);
+                // No light - visual beam only
                 
             } else if (pos.type === 'spread') {
                 // Spread laser (3 beams fanning out)
                 for (let j = -1; j <= 1; j++) {
                     const beam = this.createLaserBeam(i, j, pos);
                     beams.push(beam);
-                    
-                    const light = new BABYLON.SpotLight("laserLight" + i + "_" + j,
-                        new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
-                        new BABYLON.Vector3(j * 0.3, -1, 0).normalize(),
-                        Math.PI / 12, 5, this.scene
-                    );
-                    light.diffuse = new BABYLON.Color3(1, 0, 0);
-                    light.intensity = 3;
-                    light.range = 20;
-                    light.setEnabled(false); // Start disabled
-                    lights.push(light);
+                    // No light - visual beam only
                 }
                 
             } else if (pos.type === 'multi') {
@@ -3618,18 +3597,7 @@ class VRClub {
                 for (let j = 0; j < 5; j++) {
                     const beam = this.createLaserBeam(i, j, pos);
                     beams.push(beam);
-                    
-                    const angle = (j / 5) * Math.PI * 2;
-                    const light = new BABYLON.SpotLight("laserLight" + i + "_" + j,
-                        new BABYLON.Vector3(pos.x, pos.trussY, pos.z),
-                        new BABYLON.Vector3(Math.sin(angle) * 0.3, -1, Math.cos(angle) * 0.3).normalize(),
-                        Math.PI / 12, 5, this.scene
-                    );
-                    light.diffuse = new BABYLON.Color3(1, 0, 0);
-                    light.intensity = 2;
-                    light.range = 20;
-                    light.setEnabled(false); // Start disabled
-                    lights.push(light);
+                    // No light - visual beam only
                 }
             }
             
@@ -4041,19 +4009,14 @@ class VRClub {
             const poolCoreMat = null;
             
             // === HYPERREALISTIC POOL LIGHT ===
-            // Actual point light that illuminates floor and objects where the beam hits
-            // This creates realistic light reflection on surfaces and NPCs
-            const poolLight = new BABYLON.PointLight("poolLight" + i,
-                new BABYLON.Vector3(pos.x, 0.5, pos.z - 5), // Just above floor at pool position
-                this.scene
-            );
-            poolLight.diffuse = this.currentSpotColor.clone();
-            poolLight.specular = this.currentSpotColor.scale(0.3);
-            poolLight.intensity = 4.0; // Moderate intensity for realistic illumination
-            poolLight.range = 4.0; // Limited range to match pool size
-            poolLight.setEnabled(false); // Start disabled
+            // DISABLED: Pool lights (PointLights) caused shader uniform buffer overflow
+            // With 6 spotlights + 6 pool lights + ambient + LED = 14+ lights
+            // WebGL2 only supports ~12 uniform buffers for PBR materials
+            // The visual pool meshes still create the light pool effect on the floor
+            // Real illumination comes from the SpotLights which are more efficient
+            const poolLight = null; // Disabled for performance - was causing shader compilation errors
             
-            // PERFORMANCE: Shadows disabled for better FPS
+            // PERFORMANCE: Shadows and pool lights disabled for better FPS
             
             this.spotlights.push({
                 light: spot,
@@ -4188,18 +4151,10 @@ class VRClub {
         sheet.material = sheetMat;
         this.laserSheet = sheet;
         
-        // 4. Light Source (Actual light projection)
-        // A spot light to illuminate the floor/avatars where the sheet hits
-        this.laserLight = new BABYLON.SpotLight("laserSheetLight", 
-            sourcePos,
-            new BABYLON.Vector3(0, -0.5, 1), // Initial direction
-            Math.PI / 2, // Wide angle
-            2, // Exponent
-            this.scene
-        );
-        this.laserLight.diffuse = new BABYLON.Color3(0, 1, 0);
-        this.laserLight.intensity = 0; // Controlled by animation
-        this.laserLight.parent = this.laserSheetSource; // Move with source
+        // 4. Light Source (Actual light projection) - DISABLED for performance
+        // DISABLED: Laser sheet SpotLight adds to uniform buffer count
+        // Visual effect from emissive laser sheet mesh is sufficient
+        this.laserLight = null; // Disabled - visual sheet provides the effect
         
         // Remove old fan if it exists (cleanup)
         this.laserFan = null;
@@ -5877,10 +5832,12 @@ class VRClub {
                     currentBrightColor = this.cachedColors.blue.scale(3.0);
                 }
                 
-                // Update light diffuse color
+                // Update light diffuse color (if lights exist - disabled for performance)
                 laser.lights.forEach((light) => {
-                    light.diffuse = currentLaserColor;
-                    light.intensity = this.lasersActive ? 5 : 0;
+                    if (light) {
+                        light.diffuse = currentLaserColor;
+                        light.intensity = this.lasersActive ? 5 : 0;
+                    }
                 });
                 
                 // Update housing glow with current color
@@ -5897,7 +5854,7 @@ class VRClub {
             // Turn off lasers when not active (e.g., when laser sheet is on)
             this.lasers.forEach(laser => {
                 laser.lights.forEach(light => {
-                    light.intensity = 0;
+                    if (light) light.intensity = 0;
                 });
                 laser.beams.forEach(beam => {
                     beam.mesh.visibility = 0;
@@ -6655,14 +6612,19 @@ class VRClub {
                     const intensity = burstPhase === 0 ? intensityVariation : 0;
                     
                     strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5);
-                    strobe.light.intensity = intensity * 200;
-                    strobe.light.range = 80 + (intensityVariation * 0.8);
-                    strobe.light.setEnabled(intensity > 0);
+                    // Strobe lights disabled for performance - visual effect only via emissive material
+                    if (strobe.light) {
+                        strobe.light.intensity = intensity * 200;
+                        strobe.light.range = 80 + (intensityVariation * 0.8);
+                        strobe.light.setEnabled(intensity > 0);
+                    }
                     
                     if (strobe.flashDuration <= 0) {
                         strobe.material.emissiveColor = this.cachedColors.black;
-                        strobe.light.intensity = 0;
-                        strobe.light.setEnabled(false);
+                        if (strobe.light) {
+                            strobe.light.intensity = 0;
+                            strobe.light.setEnabled(false);
+                        }
                         
                         // VJ AUTO-MODE: Faster strobing during drops and builds
                         let flashInterval;
@@ -6714,8 +6676,10 @@ class VRClub {
                 // Turn off strobes when disabled
                 this.strobes.forEach((strobe) => {
                     strobe.material.emissiveColor = this.cachedColors.black;
-                    strobe.light.intensity = 0;
-                    strobe.light.setEnabled(false);
+                    if (strobe.light) {
+                        strobe.light.intensity = 0;
+                        strobe.light.setEnabled(false);
+                    }
                     strobe.flashDuration = 0;
                 });
             }
