@@ -1,7 +1,18 @@
-/* VR Club - Optimized Main Stylesheet */
-/* Performance-focused with GPU acceleration and minimal reflows */
+/* VR Club - Optimized Stylesheet for Quest 3S */
+/* GPU-accelerated, reduced blur/shadow complexity */
 
-/* Utility Classes */
+:root {
+    --blur-light: blur(8px);
+    --blur-heavy: blur(12px);
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --accent: #667eea;
+    --accent-hover: #764ba2;
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.25s ease;
+}
+
 .hidden { display: none !important; }
 
 * {
@@ -25,29 +36,25 @@ html, body {
     height: 100%;
     display: block;
     touch-action: none;
-    /* GPU acceleration for WebGL canvas */
     transform: translateZ(0);
-    will-change: transform;
+    contain: strict;
 }
 
 #cameraControls {
     position: absolute;
     bottom: 20px;
     left: 50%;
-    transform: translateX(-50%) translateZ(0);
-    background: rgba(10, 10, 20, 0.6);
+    transform: translateX(-50%);
+    background: rgba(10, 10, 20, 0.75);
     padding: 10px 15px;
     border-radius: 12px;
-    -webkit-backdrop-filter: blur(15px);
-    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
     z-index: 100;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    /* GPU acceleration */
-    will-change: transform;
-    backface-visibility: hidden;
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: var(--shadow-md);
+    transition: opacity var(--transition-normal);
 }
 
 #cameraControls:hover {
@@ -69,30 +76,26 @@ html, body {
     font-size: 12px;
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.2s ease;
-    /* GPU acceleration for smooth hover effects */
-    transform: translateZ(0);
-    will-change: transform;
+    transition: background var(--transition-fast), transform var(--transition-fast);
     font-weight: 500;
 }
 
 .preset-grid button:hover {
     background: rgba(102, 126, 234, 0.6);
     border-color: rgba(102, 126, 234, 0.8);
-    transform: translateY(-2px) translateZ(0);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    transform: translateY(-2px);
     color: white;
 }
 
 .preset-grid button:active {
-    transform: translateY(0) translateZ(0);
+    transform: translateY(0);
 }
 
 #settingsToggle {
     position: absolute;
     top: 20px;
     right: 20px;
-    background: rgba(0, 0, 0, 0.75);
+    background: rgba(0, 0, 0, 0.8);
     border: none;
     color: white;
     padding: 12px 16px;
@@ -100,14 +103,14 @@ html, body {
     cursor: pointer;
     font-size: 16px;
     z-index: 101;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    transition: all 0.3s;
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
+    transition: background var(--transition-fast), transform var(--transition-fast);
 }
 
 #settingsToggle:hover {
-    background: #667eea;
-    transform: scale(1.1);
+    background: var(--accent);
+    transform: scale(1.05);
 }
 
 #settingsPanel {
@@ -117,8 +120,8 @@ html, body {
     background: rgba(0, 0, 0, 0.9);
     padding: 15px;
     border-radius: 8px;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
     z-index: 100;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
@@ -148,7 +151,7 @@ html, body {
 }
 
 #settingsPanel button {
-    background: #667eea;
+    background: var(--accent);
     border: none;
     color: white;
     padding: 10px;
@@ -157,11 +160,11 @@ html, body {
     width: 100%;
     margin: 5px 0;
     font-size: 13px;
-    transition: all 0.3s;
+    transition: background var(--transition-fast);
 }
 
 #settingsPanel button:hover {
-    background: #764ba2;
+    background: var(--accent-hover);
 }
 
 .setting-label {
@@ -210,15 +213,15 @@ html, body {
     background: rgba(0, 0, 0, 0.9);
     padding: 15px;
     border-radius: 12px;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
     z-index: 100;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     min-width: 280px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity var(--transition-normal);
 }
 
 #vjMenu.minimized {
@@ -312,30 +315,24 @@ html, body {
     font-size: 11px;
     border-radius: 6px;
     cursor: pointer;
-    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: transform var(--transition-fast), background var(--transition-fast);
     text-align: center;
     font-weight: 500;
-    /* GPU acceleration */
-    transform: translateZ(0);
-    will-change: transform;
-    backface-visibility: hidden;
 }
 
 .vj-button:hover {
     background: rgba(102, 126, 234, 0.5);
     border-color: rgba(102, 126, 234, 0.8);
-    transform: translateY(-2px) translateZ(0);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    transform: translateY(-2px);
 }
 
 .vj-button:active {
-    transform: translateY(0) translateZ(0);
+    transform: translateY(0);
 }
 
 .vj-button.active {
     background: rgba(102, 126, 234, 0.8);
-    border-color: #667eea;
-    box-shadow: 0 0 12px rgba(102, 126, 234, 0.5);
+    border-color: var(--accent);
 }
 
 .vj-slider-container {
@@ -385,7 +382,7 @@ html, body {
     position: absolute;
     top: 20px;
     left: 20px;
-    background: rgba(0, 0, 0, 0.75);
+    background: rgba(0, 0, 0, 0.8);
     border: none;
     color: white;
     padding: 12px 16px;
@@ -393,14 +390,14 @@ html, body {
     cursor: pointer;
     font-size: 16px;
     z-index: 101;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    transition: all 0.3s;
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
+    transition: background var(--transition-fast), transform var(--transition-fast);
 }
 
 #vjToggle:hover {
-    background: #667eea;
-    transform: scale(1.1);
+    background: var(--accent);
+    transform: scale(1.05);
 }
 
 /* Audio Upload Menu */
@@ -412,15 +409,15 @@ html, body {
     background: rgba(0, 0, 0, 0.9);
     padding: 15px;
     border-radius: 12px;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
     z-index: 100;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     min-width: 320px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity var(--transition-normal);
 }
 
 #audioMenu.minimized {
@@ -520,7 +517,7 @@ html, body {
 }
 
 .audio-button {
-    background: #667eea;
+    background: var(--accent);
     border: none;
     color: white;
     padding: 10px 20px;
@@ -528,16 +525,15 @@ html, body {
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: all 0.2s;
+    transition: background var(--transition-fast), transform var(--transition-fast);
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
 .audio-button:hover {
-    background: #764ba2;
+    background: var(--accent-hover);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .audio-button:active {
@@ -608,7 +604,7 @@ html, body {
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.75);
+    background: rgba(0, 0, 0, 0.8);
     border: none;
     color: white;
     padding: 12px 16px;
@@ -616,15 +612,15 @@ html, body {
     cursor: pointer;
     font-size: 16px;
     z-index: 99;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    transition: all 0.3s;
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
+    transition: background var(--transition-fast), transform var(--transition-fast);
     margin-bottom: -60px;
 }
 
 #audioToggle:hover {
-    background: #667eea;
-    transform: translateX(-50%) scale(1.1);
+    background: var(--accent);
+    transform: translateX(-50%) scale(1.05);
 }
 
 /* Splash Screen - Club Style */
@@ -675,13 +671,13 @@ html, body {
 }
 
 @keyframes gridMove {
-    0% { transform: perspective(500px) rotateX(60deg) translateY(0) translateZ(0); }
-    100% { transform: perspective(500px) rotateX(60deg) translateY(50px) translateZ(0); }
+    0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
+    100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
 }
 
 @keyframes gradientRotate {
-    0% { transform: rotate(0deg) translateZ(0); }
-    100% { transform: rotate(360deg) translateZ(0); }
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 #splashScreen.hidden {
@@ -701,17 +697,17 @@ html, body {
 @keyframes neonPulse {
     0%, 100% { 
         filter: drop-shadow(0 0 20px rgba(255, 0, 255, 0.8)) drop-shadow(0 0 40px rgba(0, 255, 255, 0.6));
-        transform: scale(1) translateZ(0);
+        transform: scale(1);
     }
     50% { 
         filter: drop-shadow(0 0 30px rgba(255, 0, 255, 1)) drop-shadow(0 0 60px rgba(0, 255, 255, 0.8));
-        transform: scale(1.05) translateZ(0);
+        transform: scale(1.05);
     }
 }
 
 @keyframes float {
-    0%, 100% { transform: translateY(0px) translateZ(0); }
-    50% { transform: translateY(-10px) translateZ(0); }
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
 }
 
 .splash-title {
@@ -755,31 +751,21 @@ html, body {
 }
 
 .splash-content {
-    background: rgba(10, 10, 20, 0.65);
+    background: rgba(10, 10, 20, 0.8);
     padding: 50px;
     border-radius: 24px;
-    -webkit-backdrop-filter: blur(40px) saturate(150%);
-    backdrop-filter: blur(40px) saturate(150%);
+    -webkit-backdrop-filter: var(--blur-heavy);
+    backdrop-filter: var(--blur-heavy);
     max-width: 500px;
     text-align: center;
     border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 
-        0 30px 60px rgba(0, 0, 0, 0.6),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    box-shadow: var(--shadow-lg);
     position: relative;
     z-index: 2;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.splash-content:hover {
-    box-shadow: 
-        0 40px 80px rgba(0, 0, 0, 0.7),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.2),
-        0 0 30px rgba(255, 0, 255, 0.1);
 }
 
 .splash-button {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
     border: 1px solid rgba(255, 255, 255, 0.2);
     padding: 18px 60px;
@@ -787,31 +773,13 @@ html, body {
     font-weight: 700;
     border-radius: 12px;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    transition: background var(--transition-fast), transform var(--transition-fast);
+    box-shadow: var(--shadow-md);
     margin-top: 30px;
     text-transform: uppercase;
     letter-spacing: 3px;
     position: relative;
     overflow: hidden;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    /* GPU acceleration */
-    transform: translateZ(0);
-    will-change: transform, box-shadow, background;
-}
-
-/* Add noise texture for film grain effect */
-.noise-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0.04;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
 .splash-button::before {
@@ -831,17 +799,12 @@ html, body {
 
 .splash-button:hover {
     background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.5);
-    transform: translateY(-2px) translateZ(0);
-    box-shadow: 
-        0 15px 40px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(255, 0, 255, 0.3);
-    text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-2px);
 }
 
 .splash-button:active {
-    transform: translateY(0) scale(0.98) translateZ(0);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    transform: translateY(0);
 }
 
 .splash-options {
@@ -935,8 +898,8 @@ html, body {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg) translateZ(0); }
-    100% { transform: rotate(360deg) translateZ(0); }
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* Floating particles in background */
@@ -947,17 +910,14 @@ html, body {
     background: #ff00ff;
     border-radius: 50%;
     opacity: 0.6;
-    box-shadow: 0 0 10px #ff00ff;
+    box-shadow: 0 0 8px #ff00ff;
     animation: particleFloat 10s infinite;
     z-index: 1;
-    /* GPU acceleration for particle animations */
-    will-change: transform, opacity;
-    backface-visibility: hidden;
 }
 
 @keyframes particleFloat {
     0% {
-        transform: translateY(100vh) translateX(0) scale(0) translateZ(0);
+        transform: translateY(100vh) translateX(0) scale(0);
         opacity: 0;
     }
     10% {
@@ -967,7 +927,7 @@ html, body {
         opacity: 0.6;
     }
     100% {
-        transform: translateY(-100px) translateX(100px) scale(1) translateZ(0);
+        transform: translateY(-100px) translateX(100px) scale(1);
         opacity: 0;
     }
 }

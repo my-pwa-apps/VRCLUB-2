@@ -1,7 +1,16 @@
 /**
  * UI Initialization Script
- * Handles splash screen, VJ controls, audio menu, and multiplayer menu
+ * Handles splash screen, VJ controls, and audio menu
+ * Optimized for Quest 3S browser
  */
+
+// Debug mode - set false for production
+const UI_DEBUG = false;
+const uiLog = {
+    info: (...args) => UI_DEBUG && console.log('[UI]', ...args),
+    warn: (...args) => console.warn('[UI]', ...args),
+    error: (...args) => console.error('[UI]', ...args)
+};
 
 // =============================================================================
 // SPLASH SCREEN PARTICLES
@@ -12,7 +21,10 @@
     const splashBg = document.getElementById('splashScreen');
     if (!splashBg) return;
     
-    for (let i = 0; i < 30; i++) {
+    // Reduced particle count for mobile/VR performance
+    const particleCount = 15;
+    
+    for (let i = 0; i < particleCount; i++) {
         const particle = document.createElement('div');
         particle.className = 'splash-particle';
         particle.style.left = Math.random() * 100 + '%';
@@ -20,7 +32,7 @@
         particle.style.animationDuration = (8 + Math.random() * 4) + 's';
         if (Math.random() > 0.5) {
             particle.style.background = '#00ffff';
-            particle.style.boxShadow = '0 0 10px #00ffff';
+            particle.style.boxShadow = '0 0 8px #00ffff';
         }
         splashBg.appendChild(particle);
     }
@@ -134,10 +146,10 @@ function waitForVRClubInstance() {
             clearInterval(checkInterval);
             initVJMenu();
             initAudioMenu();
-            console.log('✅ VJ/Audio menus initialized');
+            uiLog.info('VJ/Audio menus initialized');
         } else if (waitAttempts >= maxWaitAttempts) {
             clearInterval(checkInterval);
-            console.error('❌ Timeout waiting for VRClub instance');
+            uiLog.error('Timeout waiting for VRClub instance');
         }
     }, 100);
 }
@@ -332,8 +344,8 @@ function initVJMenu() {
         }
     }
     
-    // Update button states every second
-    setInterval(updateButtonStates, 1000);
+    // Update button states every 2 seconds (reduced frequency for VR performance)
+    setInterval(updateButtonStates, 2000);
     
     // Hide VJ menu in VR mode (wait for scene to be ready)
     if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
@@ -347,7 +359,7 @@ function initVJMenu() {
         });
     }
     
-    console.log('✅ VJ desktop menu initialized');
+    uiLog.info('VJ desktop menu initialized');
 }
 
 // =============================================================================
@@ -512,7 +524,7 @@ function initAudioMenu() {
         });
     }
     
-    console.log('✅ Audio menu initialized');
+    uiLog.info('Audio menu initialized');
 }
 
 // Audio menu is now initialized by waitForVRClubInstance() after Enter Club is clicked

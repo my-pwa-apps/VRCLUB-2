@@ -1,6 +1,9 @@
 // Texture Loader with CDN Download and IndexedDB Caching
 // Downloads industrial concrete textures from Polyhaven CDN on first run
 
+// Debug mode - set false for production
+const TEX_DEBUG = false;
+
 class TextureCache {
     constructor() {
         this.dbName = 'VRClubTextureCache';
@@ -16,7 +19,7 @@ class TextureCache {
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
                 this.db = request.result;
-                console.info('✅ Texture cache database initialized');
+                TEX_DEBUG && console.log('[Texture] Cache database initialized');
                 resolve();
             };
             
@@ -24,7 +27,7 @@ class TextureCache {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'url' });
-                    console.info('📦 Created texture cache store');
+                    TEX_DEBUG && console.log('[Texture] Created cache store');
                 }
             };
         });
@@ -59,7 +62,7 @@ class TextureCache {
             const request = store.clear();
             
             request.onsuccess = () => {
-                console.info('🗑️ Texture cache cleared');
+                TEX_DEBUG && console.log('[Texture] Cache cleared');
                 resolve();
             };
             request.onerror = () => reject(request.error);

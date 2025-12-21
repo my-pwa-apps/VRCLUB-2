@@ -3,28 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="description" content="Immersive hyperrealistic VR nightclub experience with professional lighting, DJ booth, and audio-reactive visuals for Meta Quest 3S">
+    <meta name="description" content="Immersive VR nightclub for Meta Quest 3S with professional lighting, DJ booth, and audio-reactive visuals">
     <meta name="theme-color" content="#000000">
     
-    <!-- Performance Optimization Hints -->
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!-- Quest 3S / WebXR Optimization -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Performance Hints -->
     <link rel="preconnect" href="https://cdn.babylonjs.com" crossorigin>
-    <link rel="preconnect" href="https://dl.polyhaven.org" crossorigin>
-    <link rel="dns-prefetch" href="https://unpkg.com">
+    <link rel="dns-prefetch" href="https://cdn.babylonjs.com">
     
-    <title>VR Club - Hyperrealistic Virtual Nightclub Experience</title>
+    <title>VR Club - Virtual Nightclub Experience</title>
     
-    <!-- Inline SVG Favicon (prevents 404 error) -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    
-    <!-- Preload Critical CSS -->
-    <link rel="preload" href="css/styles.css" as="style">
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <!-- Noise Overlay -->
-    <div class="noise-overlay"></div>
-
     <!-- Splash Screen -->
     <div id="splashScreen">
         

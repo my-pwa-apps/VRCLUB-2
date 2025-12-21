@@ -1,6 +1,9 @@
 // 3D Model Loader with CDN Download and IndexedDB Caching
 // Downloads DJ equipment and speaker models from CDN on first run
 
+// Debug mode - set false for production
+const MODEL_DEBUG = false;
+
 class ModelCache {
     constructor() {
         this.dbName = 'VRClubModelCache';
@@ -16,7 +19,7 @@ class ModelCache {
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
                 this.db = request.result;
-                console.info('✅ Model cache database initialized');
+                MODEL_DEBUG && console.log('[Model] Cache database initialized');
                 resolve();
             };
             
@@ -24,7 +27,7 @@ class ModelCache {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'url' });
-                    console.info('📦 Created model cache store');
+                    MODEL_DEBUG && console.log('[Model] Created cache store');
                 }
             };
         });
@@ -63,7 +66,7 @@ class ModelCache {
             const request = store.clear();
             
             request.onsuccess = () => {
-                console.info('🗑️ Model cache cleared');
+                MODEL_DEBUG && console.log('[Model] Cache cleared');
                 resolve();
             };
             request.onerror = () => reject(request.error);
