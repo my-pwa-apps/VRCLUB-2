@@ -3912,11 +3912,18 @@ class VRClub {
             noiseTexture.octaves = 3;
             beamMat.opacityTexture = noiseTexture; // Use noise as opacity for particle effect
             
-            beamMat.alpha = 0.12; // Slightly more visible for hyperrealism
-            beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
+            beamMat.alpha = 0.18; // Slightly higher alpha for COMBINE mode
+            beamMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE; // Standard alpha blending respects depth
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
             beamMat.useAlphaFromDiffuseTexture = false;
+            
+            // CRITICAL: Beam must respect depth buffer to NOT render through NPCs
+            // ALPHA_COMBINE properly discards fragments behind opaque geometry
+            beamMat.disableDepthWrite = true; // Don't write to depth (transparent object)
+            beamMat.separateCullingPass = false;
+            beamMat.needDepthPrePass = false;
+            beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -3932,21 +3939,25 @@ class VRClub {
             
             // Create radial gradient texture for soft falloff (reuse across all pools)
             if (!this._poolGradientTexture) {
-                const gradientSize = 128;
+                const gradientSize = 256; // Higher resolution for smoother gradient
                 const gradientCanvas = document.createElement('canvas');
                 gradientCanvas.width = gradientSize;
                 gradientCanvas.height = gradientSize;
                 const ctx = gradientCanvas.getContext('2d');
                 
                 // Create radial gradient: bright center -> transparent edges
+                // HYPERREALISTIC: Use more gradual falloff like real light on floor
                 const gradient = ctx.createRadialGradient(
                     gradientSize/2, gradientSize/2, 0,           // Inner circle (center)
                     gradientSize/2, gradientSize/2, gradientSize/2  // Outer circle (edge)
                 );
-                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Bright center
-                gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.8)');  // Still bright
-                gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.4)');  // Fading
-                gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.1)');  // Very soft
+                // Realistic inverse-square-ish falloff with soft center hotspot
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Bright center hotspot
+                gradient.addColorStop(0.1, 'rgba(255, 255, 255, 0.95)'); // Still very bright
+                gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.7)'); // Starting to fade
+                gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.45)'); // Inverse square region
+                gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.2)');  // Soft falloff
+                gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.08)'); // Very soft edge
                 gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Fully transparent edge
                 
                 ctx.fillStyle = gradient;
@@ -3963,7 +3974,9 @@ class VRClub {
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
-            lightPool.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
+            // HYPERREALISTIC: Position pool at floor level (y=0.005, just above to prevent z-fighting)
+            // The pool should look like it's ON the floor, not floating
+            lightPool.position = new BABYLON.Vector3(pos.x, 0.005, pos.z - 5);
             lightPool.isPickable = false;
             
             // Material with radial gradient for soft edges
@@ -3972,10 +3985,13 @@ class VRClub {
             poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveColor = this.currentSpotColor.clone();
             poolMat.opacityTexture = this._poolGradientTexture; // Use gradient for soft edges
-            poolMat.alpha = 0.6; // Lower alpha for more subtle, realistic light
+            poolMat.alpha = 0.7; // Brighter for more visible pool
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
             poolMat.disableLighting = true;
             poolMat.backFaceCulling = false;
+            // HYPERREALISTIC: Ensure pool respects depth buffer
+            poolMat.disableDepthWrite = true; // Transparent, don't write depth
+            poolMat.depthFunction = BABYLON.Constants.LEQUAL; // Check depth
             lightPool.material = poolMat;
             lightPool.renderingGroupId = 1;
             
@@ -3989,7 +4005,7 @@ class VRClub {
                 tessellation: 32
             }, this.scene);
             lightPoolGlow.rotation.x = Math.PI / 2;
-            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.01, pos.z - 5); // Just above floor
+            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.002, pos.z - 5); // At floor level
             lightPoolGlow.isPickable = false;
             
             // Very soft glow with same gradient texture
@@ -6244,12 +6260,25 @@ class VRClub {
                     const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
                     // Extended beam length so uphill cone edge reaches floor
-                    const beamLength = centerBeamLength + beamExtension;
+                    // Add extra extension to ensure beam visually touches floor
+                    const beamLength = centerBeamLength + beamExtension + 0.3; // +0.3m extra to reach floor
                     
-                    // Position beam: Start at emission point, extend in direction for full length
-                    // Cylinder center should be at midpoint of the EXTENDED beam
-                    // The wide end (diameterTop, +Y local) should extend PAST the floor intersection
-                    // so the uphill edge reaches the floor
+                    // Position beam: Cylinder is centered at its origin
+                    // After rotation, one end will be at emission point, other at floor
+                    // 
+                    // BABYLON cylinder: local +Y is "top" (diameterTop), local -Y is "bottom" (diameterBottom)
+                    // We created: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
+                    // We want: wide end at floor, narrow end at fixture (emission point)
+                    // So: local +Y should point TOWARD FLOOR (same as direction)
+                    //
+                    // Cylinder extends from center: -height/2 to +height/2 in local Y
+                    // After scaling.y = beamLength: from -beamLength/2 to +beamLength/2
+                    // After rotation (local +Y = direction):
+                    //   - Local +Y end (wide) is at: center + direction * beamLength/2 (should be at floor)
+                    //   - Local -Y end (narrow) is at: center - direction * beamLength/2 (should be at emission)
+                    //
+                    // So center should be at: emissionPoint + direction * beamLength/2
+                    // This places: narrow end at emissionPoint, wide end at emissionPoint + direction * beamLength
                     const beamMidpoint = new BABYLON.Vector3(
                         emissionPoint.x + direction.x * (beamLength * 0.5),
                         emissionPoint.y + direction.y * (beamLength * 0.5),
@@ -6403,9 +6432,10 @@ class VRClub {
                             // Subtle shimmer for realistic light variation
                             const shimmer = 1.0 + Math.sin(time * 1.5 + i * 0.7) * 0.08;
                             
-                            // Position at beam-floor intersection (centerline)
+                            // HYPERREALISTIC: Position pool exactly at floor level
+                            // y=0.003 is just enough to prevent z-fighting while looking like it's ON the floor
                             spot.lightPool.position.x = floorIntersection.x;
-                            spot.lightPool.position.y = 0.02; // Just above floor to prevent z-fighting
+                            spot.lightPool.position.y = 0.003; // Closer to floor for realistic look
                             spot.lightPool.position.z = floorIntersection.z;
                             
                             // ELLIPTICAL SCALING: stretch in tilt direction
@@ -6453,7 +6483,7 @@ class VRClub {
                             if (spot.lightPoolGlow) {
                                 const glowBaseSize = poolBaseSize * 2.2; // Much larger for soft ambient spread
                                 spot.lightPoolGlow.position.x = floorIntersection.x;
-                                spot.lightPoolGlow.position.y = 0.01;
+                                spot.lightPoolGlow.position.y = 0.002;
                                 spot.lightPoolGlow.position.z = floorIntersection.z;
                                 
                                 // Match ellipse shape of main pool (use rotation.y for horizontal rotation)
@@ -8745,6 +8775,16 @@ class VRClub {
                         // Freeze material after changes
                         mat.freeze();
                     }
+                    
+                    // CRITICAL: Set rendering group so NPCs properly OCCLUDE beams
+                    // Beams use renderingGroupId=1 with additive blending
+                    // NPCs must render BEFORE beams (group 0) with depth write enabled
+                    // This ensures beams are depth-tested against NPC geometry
+                    mesh.renderingGroupId = 0; // Opaque objects group
+                    
+                    // Ensure mesh writes to depth buffer
+                    mesh.material.disableDepthWrite = false;
+                    mesh.material.forceDepthWrite = true;
                 });
                 
                 // Play all animation groups from the GLB
