@@ -363,17 +363,7 @@ class MaterialFactory {
             disableLighting: true
         }),
 
-        fireExtinguisher: () => this.createPBRMaterial('fireExtinguisherMat', {
-            baseColor: [0.8, 0.05, 0.05], // Fire engine red
-            metallic: 0.7,
-            roughness: 0.3
-        }, true),
 
-        smokeDetector: () => this.createPBRMaterial('smokeDetectorMat', {
-            baseColor: [0.9, 0.9, 0.88], // Off-white plastic
-            metallic: 0.0,
-            roughness: 0.7
-        }, true),
 
         // === NEON SIGNAGE ===
         neonTubeGlass: () => this.createPBRMaterial('neonTubeGlassMat', {
@@ -390,23 +380,7 @@ class MaterialFactory {
             roughness: 0.2
         }, true),
 
-        headphoneBand: () => this.createPBRMaterial('headphoneBandMat', {
-            baseColor: [0.08, 0.08, 0.08],
-            metallic: 0.85,
-            roughness: 0.25
-        }, true),
 
-        headphoneCup: () => this.createPBRMaterial('headphoneCupMat', {
-            baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.7,
-            roughness: 0.4
-        }, true),
-
-        cableRubber: () => this.createPBRMaterial('cableRubberMat', {
-            baseColor: [0.02, 0.02, 0.02],
-            metallic: 0.0,
-            roughness: 0.8
-        }, true),
 
         // === FURNITURE ===
         barStool: () => this.createPBRMaterial('barStoolMat', {

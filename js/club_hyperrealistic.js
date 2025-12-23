@@ -923,7 +923,7 @@ class VRClub {
         this.createCollisionBoundaries(); // Add invisible collision walls
         this.createCeiling();
         this.createDJBooth();
-        this.createDJBoothAccessories(); // Add laptop, headphones, cables
+        this.createDJBoothAccessories(); // Add laptop stand with laptop
         this.createPASpeakers();
         
         // Use modular LED wall system
@@ -952,7 +952,7 @@ class VRClub {
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
-        this.createSafetyDetails(); // Exit signs, fire extinguishers, smoke detectors
+        this.createSafetyDetails(); // Exit signs only
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -1610,76 +1610,10 @@ class VRClub {
             signFace.freezeWorldMatrix(); // OPTIMIZATION: Static
         });
         
-        // === FIRE EXTINGUISHERS ===
-        const fireExtMat = this.materialFactory.getPreset('fireExtinguisher');
-        
-        const fireExtPositions = [
-            { x: -12.0, z: -5 },
-            { x: 12.0, z: -15 }
-        ];
-        
-        fireExtPositions.forEach((pos, i) => {
-            // Extinguisher body
-            const extBody = BABYLON.MeshBuilder.CreateCylinder(`fireExt${i}`, {
-                diameter: 0.15, height: 0.45, tessellation: 16
-            }, this.scene);
-            extBody.position = new BABYLON.Vector3(pos.x, 0.8, pos.z);
-            extBody.material = fireExtMat;
-            extBody.freezeWorldMatrix(); // OPTIMIZATION: Static
-            
-            // Valve/handle
-            const extHandle = BABYLON.MeshBuilder.CreateBox(`fireExtHandle${i}`, {
-                width: 0.12, height: 0.08, depth: 0.05
-            }, this.scene);
-            extHandle.position = new BABYLON.Vector3(pos.x, 1.08, pos.z);
-            extHandle.material = this.materialFactory.getPreset('barStool');
-            extHandle.freezeWorldMatrix(); // OPTIMIZATION: Static
-            
-            // Wall bracket
-            const bracket = BABYLON.MeshBuilder.CreateBox(`fireExtBracket${i}`, {
-                width: 0.2, height: 0.06, depth: 0.1
-            }, this.scene);
-            bracket.position = new BABYLON.Vector3(pos.x, 0.7, pos.z);
-            bracket.material = this.materialFactory.getPreset('barStool');
-            bracket.freezeWorldMatrix(); // OPTIMIZATION: Static
-        });
-        
-        // === SMOKE DETECTORS ===
-        const smokeMat = this.materialFactory.getPreset('smokeDetector');
-        
-        const smokePositions = [
-            { x: -8, z: -8 }, { x: 8, z: -8 },
-            { x: -8, z: -14 }, { x: 8, z: -14 },
-            { x: 0, z: -18 }
-        ];
-        
-        smokePositions.forEach((pos, i) => {
-            const detector = BABYLON.MeshBuilder.CreateCylinder(`smokeDetector${i}`, {
-                diameter: 0.12, height: 0.04, tessellation: 16
-            }, this.scene);
-            detector.position = new BABYLON.Vector3(pos.x, 9.8, pos.z);
-            detector.material = smokeMat;
-            detector.freezeWorldMatrix(); // OPTIMIZATION: Static
-            
-            // LED indicator
-            const led = BABYLON.MeshBuilder.CreateSphere(`smokeDetectorLED${i}`, {
-                diameter: 0.015, segments: 8
-            }, this.scene);
-            led.position = new BABYLON.Vector3(pos.x, 9.77, pos.z + 0.04);
-            const ledMat = this.materialFactory.createStandardMaterial(`smokeDetectorLEDMat${i}`, {
-                emissiveColor: [0, 0.8, 0], // Green = normal
-                disableLighting: true
-            });
-            led.material = ledMat;
-            led.freezeWorldMatrix(); // OPTIMIZATION: Static
-        });
-        
-        // OPTIMIZATION: Freeze all safety equipment materials
+        // OPTIMIZATION: Freeze exit sign material
         if (exitSignMat.freeze) exitSignMat.freeze();
-        if (fireExtMat.freeze) fireExtMat.freeze();
-        if (smokeMat.freeze) smokeMat.freeze();
         
-        log.info("✅ Created safety details (exit signs, fire extinguishers, smoke detectors) - frozen for performance");
+        log.info("✅ Created safety details (exit signs) - frozen for performance");
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
@@ -1730,94 +1664,7 @@ class VRClub {
         });
         screenDisplay.material = screenMat;
         
-        // === HEADPHONES (on mixer) ===
-        const headphoneBandMat = this.materialFactory.getPreset('headphoneBand');
-        const headphoneCupMat = this.materialFactory.getPreset('headphoneCup');
-        
-        // Headphone band
-        const headphoneBand = BABYLON.MeshBuilder.CreateTorus("headphoneBand", {
-            diameter: 0.2, thickness: 0.015, tessellation: 24, arc: 0.5
-        }, this.scene);
-        headphoneBand.position = new BABYLON.Vector3(0.6, 0.98, -16.7);
-        headphoneBand.rotation.z = Math.PI;
-        headphoneBand.rotation.y = 0.3;
-        headphoneBand.material = headphoneBandMat;
-        
-        // Left ear cup
-        const leftCup = BABYLON.MeshBuilder.CreateCylinder("headphoneLeftCup", {
-            diameter: 0.1, height: 0.05, tessellation: 16
-        }, this.scene);
-        leftCup.position = new BABYLON.Vector3(0.5, 0.94, -16.68);
-        leftCup.rotation.z = Math.PI / 2;
-        leftCup.material = headphoneCupMat;
-        
-        // Right ear cup
-        const rightCup = BABYLON.MeshBuilder.CreateCylinder("headphoneRightCup", {
-            diameter: 0.1, height: 0.05, tessellation: 16
-        }, this.scene);
-        rightCup.position = new BABYLON.Vector3(0.7, 0.94, -16.72);
-        rightCup.rotation.z = Math.PI / 2;
-        rightCup.material = headphoneCupMat;
-        
-        // Cushion pads
-        const cushionMat = this.materialFactory.getPreset('stoolCushion');
-        const leftPad = BABYLON.MeshBuilder.CreateCylinder("headphoneLeftPad", {
-            diameter: 0.09, height: 0.02, tessellation: 16
-        }, this.scene);
-        leftPad.position = new BABYLON.Vector3(0.47, 0.94, -16.68);
-        leftPad.rotation.z = Math.PI / 2;
-        leftPad.material = cushionMat;
-        
-        const rightPad = BABYLON.MeshBuilder.CreateCylinder("headphoneRightPad", {
-            diameter: 0.09, height: 0.02, tessellation: 16
-        }, this.scene);
-        rightPad.position = new BABYLON.Vector3(0.73, 0.94, -16.72);
-        rightPad.rotation.z = Math.PI / 2;
-        rightPad.material = cushionMat;
-        
-        // === CABLE MANAGEMENT (under table) ===
-        const cableMat = this.materialFactory.getPreset('cableRubber');
-        
-        // Main cable bundle running under DJ table
-        const cableBundle = BABYLON.MeshBuilder.CreateCylinder("cableBundle", {
-            diameter: 0.06, height: 4.5, tessellation: 8
-        }, this.scene);
-        cableBundle.position = new BABYLON.Vector3(0, 0.7, -17.5);
-        cableBundle.rotation.z = Math.PI / 2;
-        cableBundle.material = cableMat;
-        
-        // Vertical cable drops
-        const cableDrops = [-1.5, 0, 1.5]; // Under each CDJ and mixer
-        cableDrops.forEach((x, i) => {
-            const drop = BABYLON.MeshBuilder.CreateCylinder(`cableDrop${i}`, {
-                diameter: 0.025, height: 0.4, tessellation: 8
-            }, this.scene);
-            drop.position = new BABYLON.Vector3(x, 0.5, -17.5);
-            drop.material = cableMat;
-        });
-        
-        // === USB STICK IN CDJ (left deck) ===
-        const usbStick = BABYLON.MeshBuilder.CreateBox("usbStick", {
-            width: 0.02, height: 0.008, depth: 0.04
-        }, this.scene);
-        usbStick.position = new BABYLON.Vector3(-1.1, 0.9, -16.65);
-        usbStick.material = this.materialFactory.createPBRMaterial('usbMat', {
-            baseColor: [0.2, 0.2, 0.2],
-            metallic: 0.3,
-            roughness: 0.5
-        });
-        
-        // USB LED indicator
-        const usbLED = BABYLON.MeshBuilder.CreateSphere("usbLED", {
-            diameter: 0.008, segments: 6
-        }, this.scene);
-        const usbLEDMat = this.materialFactory.createStandardMaterial("usbLEDMat", {
-            emissiveColor: [0, 0.8, 0],
-            disableLighting: true
-        });
-        usbLED.material = usbLEDMat;
-        usbLED.parent = usbStick;
-        usbLED.position.set(0, 0.005, 0.015);
+
         
         // OPTIMIZATION: Freeze static DJ booth accessories (never move)
         standBase.freezeWorldMatrix();
@@ -1825,26 +1672,13 @@ class VRClub {
         laptopBase.freezeWorldMatrix();
         laptopScreen.freezeWorldMatrix();
         screenDisplay.freezeWorldMatrix();
-        headphoneBand.freezeWorldMatrix();
-        leftCup.freezeWorldMatrix();
-        rightCup.freezeWorldMatrix();
-        leftPad.freezeWorldMatrix();
-        rightPad.freezeWorldMatrix();
-        cableBundle.freezeWorldMatrix();
-        usbStick.freezeWorldMatrix();
-        usbLED.freezeWorldMatrix();
-        cableDrops.forEach((x, i) => {
-            const drop = this.scene.getMeshByName(`cableDrop${i}`);
-            if (drop) drop.freezeWorldMatrix();
-        });
         
         // Freeze materials too
-        [standBase, standArm, laptopBase, laptopScreen, headphoneBand, leftCup, rightCup, 
-         leftPad, rightPad, cableBundle, usbStick].forEach(mesh => {
+        [standBase, standArm, laptopBase, laptopScreen].forEach(mesh => {
             if (mesh.material && mesh.material.freeze) mesh.material.freeze();
         });
         
-        log.info("✅ Created DJ booth accessories (laptop, headphones, cables) - frozen for performance");
+        log.info("✅ Created DJ booth accessories (laptop) - frozen for performance");
     }
 
     createCollisionBoundaries() {
