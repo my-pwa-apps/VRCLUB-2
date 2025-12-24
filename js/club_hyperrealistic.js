@@ -3858,10 +3858,10 @@ class VRClub {
             // When cylinder points DOWN, its +Y local axis points toward floor
             // So: diameterTop (at +Y local) should be WIDE (at floor)
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
-            // Reduced size for more realistic club spotlights
+            // Larger diameter helps cone edges reach floor at tilted angles
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 1.5,      // Wide end at floor - 1.5m diameter for realistic spotlight
-                diameterBottom: 0.2,   // Narrow end at fixture - 0.2m (roughly 8 inch lens)
+                diameterTop: 2.0,      // Wide end at floor - 2.0m diameter
+                diameterBottom: 0.15,  // Narrow end at fixture - small lens opening
                 height: 1,             // Will be scaled to actual beam length
                 tessellation: 8,       // OPTIMIZED: Reduced from 16 (sufficient for VR)
                 cap: BABYLON.Mesh.NO_CAP
@@ -3902,12 +3902,6 @@ class VRClub {
             beamMat.separateCullingPass = false;
             beamMat.needDepthPrePass = false;
             beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
-            
-            // FLOOR CLIP PLANE: Hide beam geometry below floor level (y=0)
-            // This allows us to extend the beam past the floor to avoid floating edges
-            // Clip plane equation: ax + by + cz + d > 0 keeps the fragment
-            // For y > 0.02: we need y - 0.02 > 0, so (0, 1, 0, -0.02)
-            beamMat.clipPlane = new BABYLON.Plane(0, 1, 0, -0.02); // Keep fragments where y > 0.02
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -6435,35 +6429,23 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // HYPERREALISTIC BEAM: Extend beam PAST floor to prevent floating edges
+                    // HYPERREALISTIC BEAM: Beam centerline reaches floor exactly
                     // 
-                    // When a cone is tilted, one edge reaches the floor before the centerline
-                    // To prevent any part of the beam from floating above the floor:
-                    // - Extend the beam past the floor intersection
-                    // - Use a clip plane on the material to hide geometry below floor (y=0)
+                    // The cone naturally expands - we position it so the centerline
+                    // touches the floor intersection point. The cone edges will be
+                    // slightly above or below floor depending on tilt angle.
                     //
-                    // cos(θ) = |direction.y| (since direction is normalized)
-                    const cosTheta = Math.abs(direction.y);
-                    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-                    
-                    // Cone radius at floor end (from mesh: diameterTop=1.5)
-                    const coneRadiusAtEnd = 0.75; // meters (half of 1.5m diameter)
-                    
                     // Base beam length from emission to floor intersection (centerline)
                     const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
-                    // Extension needed for the uphill edge of the tilted cone to reach floor
-                    // At tilt angle θ, the uphill edge is r*sin(θ) above centerline endpoint
-                    // It needs extra length: r*sin(θ)/cos(θ) = r*tan(θ)
-                    const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
-                    const uphillExtension = coneRadiusAtEnd * tanTheta;
-                    
-                    // FINAL BEAM LENGTH: Centerline + extension so ALL cone edges touch floor
-                    // The clip plane on the material will hide any geometry below y=0
-                    const beamLength = Math.min(20, Math.max(1, centerBeamLength + uphillExtension + 0.5));
+                    // BEAM LENGTH: Centerline to floor, clamped to reasonable range
+                    const beamLength = Math.min(15, Math.max(2, centerBeamLength));
                     
                     // Store beamLength on spot for pool calculations
                     spot.currentBeamLength = beamLength;
+                    
+                    // Calculate cos(theta) for pool physics calculations later
+                    const cosTheta = Math.abs(direction.y);
                     
                     // Position beam: Cylinder is centered at its origin
                     // After rotation, one end will be at emission point, other past floor
