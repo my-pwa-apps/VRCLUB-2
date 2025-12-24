@@ -3958,13 +3958,13 @@ class VRClub {
             
             // Main light pool with soft gradient
             const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 0.5, 
+                radius: 1.0, // Larger base radius for better visibility
                 tessellation: 32
             }, this.scene);
             lightPool.rotation.x = Math.PI / 2;
-            // HYPERREALISTIC: Position pool at floor level (y=0.005, just above to prevent z-fighting)
+            // HYPERREALISTIC: Position pool at floor level (y=0.01, just above to prevent z-fighting)
             // The pool should look like it's ON the floor, not floating
-            lightPool.position = new BABYLON.Vector3(pos.x, 0.005, pos.z - 5);
+            lightPool.position = new BABYLON.Vector3(pos.x, 0.01, pos.z - 5);
             lightPool.isPickable = false;
             
             // Material with radial gradient for soft edges
@@ -3973,15 +3973,16 @@ class VRClub {
             poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
             poolMat.emissiveColor = this.currentSpotColor.clone();
             poolMat.opacityTexture = this._poolGradientTexture; // Use gradient for soft edges
-            poolMat.alpha = 0.7; // Brighter for more visible pool
+            poolMat.alpha = 0.9; // High alpha for visible pool
             poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
             poolMat.disableLighting = true;
             poolMat.backFaceCulling = false;
-            // HYPERREALISTIC: Ensure pool respects depth buffer
-            poolMat.disableDepthWrite = true; // Transparent, don't write depth
-            poolMat.depthFunction = BABYLON.Constants.LEQUAL; // Check depth
+            // Transparent mesh settings
+            poolMat.disableDepthWrite = true;
+            poolMat.depthFunction = BABYLON.Constants.LEQUAL;
             lightPool.material = poolMat;
-            lightPool.renderingGroupId = 1;
+            // Use default rendering group (0) so pool renders with floor
+            lightPool.renderingGroupId = 0;
             
             // Store reference for gobo texture (null - not using procedural texture anymore)
             const goboTexture = null;
@@ -3989,12 +3990,13 @@ class VRClub {
             // HYPERREALISTIC SOFT OUTER GLOW - Very soft ambient light spread
             // Creates the "light spill" effect around the main pool
             const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
-                radius: 0.5,
+                radius: 1.5, // Larger glow radius
                 tessellation: 32
             }, this.scene);
             lightPoolGlow.rotation.x = Math.PI / 2;
-            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.002, pos.z - 5); // At floor level
+            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.005, pos.z - 5); // Just below main pool
             lightPoolGlow.isPickable = false;
+            lightPoolGlow.renderingGroupId = 0; // Same group as floor
             
             // Very soft glow with same gradient texture
             const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
@@ -6427,49 +6429,34 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // HYPERREALISTIC BEAM: Beam must reach floor with its FULL cone width
-                    // When a cone is tilted, the geometry is complex:
-                    // - The "uphill" edge of the cone (edge pointing away from floor) 
-                    //   needs to travel FURTHER to reach the floor
-                    // - The "downhill" edge reaches the floor BEFORE the centerline
+                    // HYPERREALISTIC BEAM: Beam stops AT the floor, never goes through
+                    // 
+                    // The beam is a cone from fixture (narrow) to floor (wide)
+                    // We calculate the length so the beam's CENTERLINE reaches the floor
+                    // The cone edges will naturally spread around the floor intersection point
                     //
-                    // For proper floor contact with a TILTED cone:
-                    // - The beam's CENTERLINE goes to floorIntersection
-                    // - But the CONE EDGES at the floor end are at different heights
-                    // - To make ALL edges touch floor, beam must extend PAST centerline intersection
-                    // - The downhill edge will go BELOW floor (clipped), uphill edge will just touch
+                    // CRITICAL: Do NOT extend beam past floor - it will show through!
+                    // The beam mesh uses additive blending which doesn't respect depth
                     //
                     // cos(θ) = |direction.y| (since direction is normalized)
                     const cosTheta = Math.abs(direction.y);
-                    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-                    
-                    // Cone radius at floor (from mesh: diameterTop=1.5 at unit height)
-                    const coneRadiusAtBeamEnd = 0.75; // meters (half of 1.5m)
                     
                     // Base beam length from emission to floor intersection (centerline)
                     const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
-                    // When tilted, the uphill edge of the cone needs extra length to reach floor
-                    // At angle θ, with cone radius r, the uphill point is r*sin(θ) above centerline endpoint
-                    // It needs to travel: r*sin(θ) / cos(θ) = r*tan(θ) extra
-                    const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
-                    
-                    // Extension for uphill edge to reach floor
-                    const uphillExtension = coneRadiusAtBeamEnd * tanTheta;
-                    
-                    // FINAL BEAM LENGTH: Centerline + extension for uphill edge
-                    // The downhill edge will go below floor (hidden by floor mesh) - this is correct!
-                    const beamLength = centerBeamLength + uphillExtension;
+                    // BEAM LENGTH: Exactly to floor, no extension
+                    // Clamp to reasonable range to prevent visual artifacts
+                    const beamLength = Math.min(15, Math.max(1, centerBeamLength));
                     
                     // Store beamLength on spot for pool calculations
                     spot.currentBeamLength = beamLength;
                     
                     // Position beam: Cylinder is centered at its origin
-                    // After rotation, one end will be at emission point, other toward floor
+                    // After rotation, one end will be at emission point, other at floor
                     // 
                     // BABYLON cylinder: local +Y is "top" (diameterTop), local -Y is "bottom" (diameterBottom)
                     // We created: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
-                    // We want: wide end toward floor, narrow end at fixture (emission point)
+                    // We want: wide end at floor, narrow end at fixture (emission point)
                     // So: local +Y should point TOWARD FLOOR (same as direction)
                     //
                     // Cylinder extends from center: -height/2 to +height/2 in local Y
@@ -6479,7 +6466,7 @@ class VRClub {
                     //   - Local -Y end (narrow) is at: center - direction * beamLength/2 (should be at emission)
                     //
                     // So center should be at: emissionPoint + direction * beamLength/2
-                    // This places: narrow end at emissionPoint, wide end at emissionPoint + direction * beamLength
+                    // This places: narrow end at emissionPoint, wide end at floor intersection
                     const beamMidpoint = new BABYLON.Vector3(
                         emissionPoint.x + direction.x * (beamLength * 0.5),
                         emissionPoint.y + direction.y * (beamLength * 0.5),
@@ -6697,10 +6684,11 @@ class VRClub {
                             spot.lightPool.visibility = 1.0;
                             
                             // === POOL MATERIAL - Physics-based brightness ===
-                            const poolBrightness = 1.8 * physicsIntensity * shimmer;
+                            // Make pool clearly visible on the floor
+                            const poolBrightness = 2.5 * physicsIntensity * shimmer;
                             if (spot.poolMat) {
                                 spot.poolMat.emissiveColor = spotColor.scale(poolBrightness);
-                                spot.poolMat.alpha = 0.55 * Math.min(1.0, physicsIntensity);
+                                spot.poolMat.alpha = 0.8 * Math.min(1.0, physicsIntensity);
                             }
                             
                             // === POOL LIGHT (if enabled) ===
@@ -6738,9 +6726,9 @@ class VRClub {
                                 spot.lightPoolGlow.visibility = 1.0;
                                 
                                 if (spot.poolGlowMat) {
-                                    const glowBrightness = 0.35 * physicsIntensity * shimmer;
+                                    const glowBrightness = 0.6 * physicsIntensity * shimmer;
                                     spot.poolGlowMat.emissiveColor = spotColor.scale(glowBrightness);
-                                    spot.poolGlowMat.alpha = 0.18 * Math.min(1.0, physicsIntensity);
+                                    spot.poolGlowMat.alpha = 0.35 * Math.min(1.0, physicsIntensity);
                                 }
                             }
                             
