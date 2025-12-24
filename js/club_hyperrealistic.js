@@ -5284,6 +5284,12 @@ class VRClub {
                         this.laserSpeed = 1.0;
                         this.ledWallSpeed = 1.2;
                         this.blinderSpeed = 0.8;
+                        
+                        // === FOG: Building intensity ===
+                        this.fogIntensity = 1.2;
+                        this.fogBurstMode = 'auto';
+                        this.fogBurstInterval = 6;
+                        
                         this.currentShowMode = 'spotlights';
                         log.info('⚡ TENSION: Gobos intensify - Crossed beams building');
                         break;
@@ -5345,6 +5351,11 @@ class VRClub {
                         this.ledWallSpeed = 1.8;
                         this.strobeSpeed = 1.5;
                         this.blinderSpeed = 1.2;
+                        
+                        // === FOG: Sustained high output ===
+                        this.fogIntensity = 1.5;
+                        this.fogBurstMode = 'continuous';
+                        
                         this.currentShowMode = 'laserSheet';
                         log.info('🔥 PEAK: Riding the wave - Sustained high energy');
                         break;
@@ -5397,6 +5408,12 @@ class VRClub {
                         this.spotlightSpeed = 0.3; // Very slow, dreamlike
                         this.mirrorBallSpeed = 0.5;
                         this.ledWallSpeed = 0.4;
+                        
+                        // === FOG: Light haze for ethereal beams ===
+                        this.fogIntensity = 0.6;
+                        this.fogBurstMode = 'auto';
+                        this.fogBurstInterval = 20;
+                        
                         this.currentShowMode = 'spotlights';
                         log.info('✨ ATMOSPHERIC: Ethereal gobos - Dreamlike sweeps');
                         break;
@@ -5446,6 +5463,12 @@ class VRClub {
                         this.laserSpeed = 0.6;
                         this.laserFanAngle = 0.5; // Normal spread
                         this.ledWallSpeed = 0.8;
+                        
+                        // === FOG: Light haze for groove ===
+                        this.fogIntensity = 0.7;
+                        this.fogBurstMode = 'auto';
+                        this.fogBurstInterval = 15;
+                        
                         this.currentShowMode = 'spotlights';
                         log.info('🎵 GROOVE: Gobos-only hypnosis after laser intensity');
                         break;
@@ -5470,6 +5493,13 @@ class VRClub {
                         this.spotlightSpeed = 0.3; // Very slow - don't compete
                         this.mirrorBallSpeed = 0.6;
                         this.ledWallSpeed = 0.4; // Subdued LED wall
+                        
+                        // === FOG OFF - clear air for mirror ball reflections ===
+                        this.fogIntensity = 0;
+                        if (this.fogMachines) {
+                            this.fogMachines.forEach(m => { m.isBursting = false; m.emitter.emitRate = 0; });
+                        }
+                        
                         this.currentShowMode = 'mirror';
                         log.info('💫 EUPHORIA: Mirror ball glory - Disco moment');
                         break;
@@ -5488,9 +5518,15 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = false;
                         
+                        // === FOG OFF - pure darkness ===
+                        this.fogIntensity = 0;
+                        if (this.fogMachines) {
+                            this.fogMachines.forEach(m => { m.isBursting = false; m.emitter.emitRate = 0; });
+                        }
+                        
                         this.ledWallSpeed = 0.1; // LED wall very dim, slow pulse
                         this.currentShowMode = 'darkness';
-                        log.info('🌑 DARKNESS: Dramatic blackout - anticipation builds');
+                        log.info('🌑 DARKNESS: Dramatic blackout - fog cleared');
                         break;
                         
                     case 'darkness':
@@ -5507,11 +5543,23 @@ class VRClub {
                         // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true;
                         
+                        // === FOG BURST on strobe attack ===
+                        this.fogIntensity = 1.8;
+                        this.fogBurstMode = 'auto';
+                        this.fogBurstInterval = 4;
+                        if (this.fogMachines) {
+                            this.fogMachines.forEach(m => {
+                                m.isBursting = true;
+                                m.burstTimer = 3.0;
+                                m.emitter.emitRate = 180;
+                            });
+                        }
+                        
                         this.strobeSpeed = 3.0; // VERY FAST
                         this.blinderSpeed = 2.5;
                         this.ledWallSpeed = 3.0; // LED goes crazy
                         this.currentShowMode = 'strobe_attack';
-                        log.info('⚡ STROBE ATTACK: Explosive return from darkness!');
+                        log.info('⚡ STROBE ATTACK: Fog blast with strobes!');
                         break;
                         
                     case 'strobe_attack':
@@ -5527,6 +5575,11 @@ class VRClub {
                         this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true;
+                        
+                        // === FOG: moderate auto mode for new cycle ===
+                        this.fogIntensity = 1.0;
+                        this.fogBurstMode = 'auto';
+                        this.fogBurstInterval = 10;
                         
                         this.spotlightPattern = 0;
                         this.spotlightMode = 1;
@@ -6374,48 +6427,55 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // HYPERREALISTIC BEAM: Extend beam so ALL edges of cone touch the floor
-                    // When a cone is tilted, the "uphill" edge needs to extend further to reach the floor
-                    // 
-                    // Geometry: For a cone tilted at angle θ from vertical:
-                    // - Centerline distance to floor: L = h / cos(θ) where h = emission height
-                    // - Cone radius at floor: r = L * tan(coneAngle/2)
-                    // - The uphill edge of the cone needs extra length: r / cos(θ)
-                    // - Total beam length should be: L + r * tan(θ) approximately
+                    // HYPERREALISTIC BEAM: Beam must reach floor with its FULL cone width
+                    // When a cone is tilted, the geometry is complex:
+                    // - The "uphill" edge of the cone (edge pointing away from floor) 
+                    //   needs to travel FURTHER to reach the floor
+                    // - The "downhill" edge reaches the floor BEFORE the centerline
+                    //
+                    // For proper floor contact with a TILTED cone:
+                    // - The beam's CENTERLINE goes to floorIntersection
+                    // - But the CONE EDGES at the floor end are at different heights
+                    // - To make ALL edges touch floor, beam must extend PAST centerline intersection
+                    // - The downhill edge will go BELOW floor (clipped), uphill edge will just touch
                     //
                     // cos(θ) = |direction.y| (since direction is normalized)
                     const cosTheta = Math.abs(direction.y);
                     const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-                    const tanTheta = cosTheta > 0.01 ? sinTheta / cosTheta : 0;
                     
-                    // Cone half-angle from beam creation (diameterTop=1.5, over typical 7.5m length ≈ 5.7°)
-                    // At floor, radius is 0.75m (half of 1.5m diameter)
-                    const coneRadiusAtFloor = 0.75; // meters
-                    
-                    // Extension needed for uphill edge to reach floor
-                    // This is approximately: coneRadius * tan(tiltAngle) / cos(tiltAngle)
-                    // Simplified: coneRadius * sin(θ) / cos²(θ) = coneRadius * tan(θ) / cos(θ)
-                    const beamExtension = cosTheta > 0.1 ? coneRadiusAtFloor * tanTheta : 0;
+                    // Cone radius at floor (from mesh: diameterTop=1.5 at unit height)
+                    const coneRadiusAtBeamEnd = 0.75; // meters (half of 1.5m)
                     
                     // Base beam length from emission to floor intersection (centerline)
                     const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
-                    // Extended beam length so uphill cone edge reaches floor
-                    // Add extra extension to ensure beam visually touches floor
-                    const beamLength = centerBeamLength + beamExtension + 0.3; // +0.3m extra to reach floor
+                    // When tilted, the uphill edge of the cone needs extra length to reach floor
+                    // At angle θ, with cone radius r, the uphill point is r*sin(θ) above centerline endpoint
+                    // It needs to travel: r*sin(θ) / cos(θ) = r*tan(θ) extra
+                    const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
+                    
+                    // Extension for uphill edge to reach floor
+                    const uphillExtension = coneRadiusAtBeamEnd * tanTheta;
+                    
+                    // FINAL BEAM LENGTH: Centerline + extension for uphill edge
+                    // The downhill edge will go below floor (hidden by floor mesh) - this is correct!
+                    const beamLength = centerBeamLength + uphillExtension;
+                    
+                    // Store beamLength on spot for pool calculations
+                    spot.currentBeamLength = beamLength;
                     
                     // Position beam: Cylinder is centered at its origin
-                    // After rotation, one end will be at emission point, other at floor
+                    // After rotation, one end will be at emission point, other toward floor
                     // 
                     // BABYLON cylinder: local +Y is "top" (diameterTop), local -Y is "bottom" (diameterBottom)
                     // We created: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
-                    // We want: wide end at floor, narrow end at fixture (emission point)
+                    // We want: wide end toward floor, narrow end at fixture (emission point)
                     // So: local +Y should point TOWARD FLOOR (same as direction)
                     //
                     // Cylinder extends from center: -height/2 to +height/2 in local Y
                     // After scaling.y = beamLength: from -beamLength/2 to +beamLength/2
                     // After rotation (local +Y = direction):
-                    //   - Local +Y end (wide) is at: center + direction * beamLength/2 (should be at floor)
+                    //   - Local +Y end (wide) is at: center + direction * beamLength/2 
                     //   - Local -Y end (narrow) is at: center - direction * beamLength/2 (should be at emission)
                     //
                     // So center should be at: emissionPoint + direction * beamLength/2
@@ -6607,7 +6667,15 @@ class VRClub {
                             // Subtle atmospheric shimmer (dust particles in beam)
                             const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;
                             
-                            // === POSITION POOL AT BEAM-FLOOR INTERSECTION ===
+                            // === POSITION POOL AT BEAM CENTERLINE-FLOOR INTERSECTION ===
+                            // The pool represents where the brightest part of the beam hits the floor
+                            // This is the centerline intersection (floorIntersection)
+                            // The beam cone extends around this point, going below floor on downhill side
+                            
+                            // For tilted beams, the visible light patch on the floor is an ellipse
+                            // The CENTER of this ellipse is where the beam centerline hits floor
+                            // But visually, the "hot spot" may appear shifted toward the fixture
+                            // We keep pool at centerline for physical accuracy
                             spot.lightPool.position.set(
                                 floorIntersection.x,
                                 0.004, // Just above floor (prevent z-fighting)
