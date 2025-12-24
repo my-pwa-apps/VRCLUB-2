@@ -176,7 +176,7 @@ class VRClub {
         this.laserSheetActive = false; // Laser sheet effect
         
         // Spotlight pattern and speed controls
-        this.spotlightPattern = 0; // 0=automated/moving (DEFAULT), 1=static down, 2=mirror sweep
+        this.spotlightPattern = 0; // 0=automated/moving, 1=static down, 2=mirror sweep, 3=crossed beams
         this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
         // Add color variations for mirror ball (soft pastels) - reference cached colors
@@ -5056,14 +5056,14 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
-                        this.spotlightPattern = 0; // Automated movement patterns
+                        this.spotlightPattern = 3; // CROSSED BEAMS - dramatic X patterns build tension
                         this.spotlightMode = 0; // Strobe + sweep
-                        this.spotlightSpeed = 1.2;
+                        this.spotlightSpeed = 1.4; // Faster as tension builds
                         this.laserSpeed = 1.0;
                         this.ledWallSpeed = 1.2;
                         this.blinderSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
-                        log.info('⚡ TENSION: Energy building - Lasers join the party');
+                        log.info('⚡ TENSION: Energy building - Crossed beams intensify');
                         break;
                         
                     case 'tension':
@@ -5149,13 +5149,13 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true; // Light haze
                         
-                        this.spotlightPattern = 0; // Automated movement patterns
+                        this.spotlightPattern = 2; // MIRROR SWEEP - converging/diverging for ethereal feel
                         this.spotlightMode = 1; // Sweep only
-                        this.spotlightSpeed = 0.4; // Very slow
+                        this.spotlightSpeed = 0.3; // Very slow, dreamlike
                         this.mirrorBallSpeed = 0.5;
                         this.ledWallSpeed = 0.4;
                         this.currentShowMode = 'mixed';
-                        log.info('✨ ATMOSPHERIC: Dreamy transition - Beams + reflections');
+                        log.info('✨ ATMOSPHERIC: Dreamy transition - Mirrored beams + reflections');
                         break;
                         
                     case 'atmospheric':
@@ -5193,14 +5193,14 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
-                        this.spotlightPattern = 0; // Automated movement patterns
+                        this.spotlightPattern = 3; // CROSSED BEAMS - hypnotic X patterns
                         this.spotlightMode = 1; // Sweep only
-                        this.spotlightSpeed = 0.8;
+                        this.spotlightSpeed = 0.6; // Medium speed for groove
                         this.laserSpeed = 0.6; // Slow lasers
                         this.laserFanAngle = 0.5; // Normal spread
                         this.ledWallSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
-                        log.info('🎵 GROOVE: Finding the pocket - Hypnotic patterns');
+                        log.info('🎵 GROOVE: Finding the pocket - Crossed beam hypnosis');
                         break;
                         
                     case 'groove':
@@ -5217,14 +5217,14 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
-                        this.spotlightPattern = 0;
+                        this.spotlightPattern = 2; // MIRROR SWEEP - synchronized elegance
                         this.spotlightMode = 1; // Sweep only - elegant
-                        this.spotlightSpeed = 1.0;
+                        this.spotlightSpeed = 0.8; // Moderate, flowing
                         this.laserSpeed = 0.8;
                         this.mirrorBallSpeed = 0.6;
                         this.ledWallSpeed = 1.0;
                         this.currentShowMode = 'euphoria';
-                        log.info('💫 EUPHORIA: Pure bliss - Everything harmonizes');
+                        log.info('💫 EUPHORIA: Pure bliss - Synchronized harmony');
                         break;
                         
                     case 'euphoria':
@@ -5752,9 +5752,17 @@ class VRClub {
         // Update spotlights with synchronized movement patterns (AUDIO REACTIVE)
         // ONLY auto-change color when NOT in VJ manual mode
         // Manual mode allows VJ to lock in their chosen color
-        if (!this.vjManualMode && time - this.lastColorChange > 10) {
+        // HYPERREALISTIC: Color change interval varies with energy level
+        // High energy (drops) = rapid color changes (2-4s)
+        // Low energy (ambient) = slow color changes (8-12s)
+        const colorChangeInterval = this.vjDropActive ? 2 : (12 - (this.energyLevel * 8));
+        if (!this.vjManualMode && time - this.lastColorChange > colorChangeInterval) {
             this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
-            this.currentSpotColor = this.spotColorList[this.spotColorIndex];
+            
+            // SMOOTH COLOR TRANSITION: Store previous color for interpolation
+            this.previousSpotColor = this.currentSpotColor ? this.currentSpotColor.clone() : this.spotColorList[0];
+            this.targetSpotColor = this.spotColorList[this.spotColorIndex];
+            this.colorTransitionProgress = 0; // Start transition
             this.lastColorChange = time;
             
             // Broadcast automatic color change to other players
@@ -5762,12 +5770,33 @@ class VRClub {
                 this.networkManager.sendVJControl('spotColorIndex', this.spotColorIndex);
             }
             
-            // Update ALL lights to new color
+            // Update ALL lights to new color target
             if (this.spotlights) {
                 this.spotlights.forEach((spot, i) => {
                     // Update color reference - fixture materials updated in animation loop
-                    spot.color = this.currentSpotColor;
+                    spot.color = this.targetSpotColor;
                 });
+            }
+        }
+        
+        // SMOOTH COLOR INTERPOLATION: Fade between colors over 0.5-1.0 seconds
+        // This creates the smooth, professional color transitions seen in real clubs
+        if (this.colorTransitionProgress !== undefined && this.colorTransitionProgress < 1) {
+            // Transition speed: faster during high energy
+            const transitionSpeed = this.vjDropActive ? 0.04 : 0.02;
+            this.colorTransitionProgress = Math.min(1, this.colorTransitionProgress + transitionSpeed);
+            
+            // Smooth easing for natural feel
+            const t = this.colorTransitionProgress;
+            const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
+            
+            // Interpolate RGB channels
+            if (this.previousSpotColor && this.targetSpotColor) {
+                this.currentSpotColor = new BABYLON.Color3(
+                    this.previousSpotColor.r + (this.targetSpotColor.r - this.previousSpotColor.r) * eased,
+                    this.previousSpotColor.g + (this.targetSpotColor.g - this.previousSpotColor.g) * eased,
+                    this.previousSpotColor.b + (this.targetSpotColor.b - this.previousSpotColor.b) * eased
+                );
             }
         }
         
@@ -5825,7 +5854,7 @@ class VRClub {
             this.spotlights.forEach((spot, i) => {
                 let dirX, dirZ;
                 
-                // VJ PATTERN CONTROL - spotlightPattern: 0=random, 1=static down, 2=synchronized sweep
+                // VJ PATTERN CONTROL - spotlightPattern: 0=random, 1=static down, 2=mirror sweep, 3=crossed beams
                 // Apply speed multiplier to all animated patterns
                 const speedMultiplier = this.spotlightSpeed || 1.0;
                 
@@ -5836,16 +5865,47 @@ class VRClub {
                     
                 } else if (this.spotlightPattern === 2) {
                     // PATTERN 2: MIRROR SWEEP - Left and right sides sweep toward/away from each other
+                    // Creates synchronized converging (toward center) and diverging (away from center) motion
                     const sweepPhase = globalPhase * speedMultiplier;
-                    const sweepValue = Math.sin(sweepPhase * 0.8) * 0.6; // -0.6 to +0.6
+                    const sweepValue = Math.sin(sweepPhase * 0.5) * 0.7; // Slower, wider sweep
                     
-                    // Mirror the sweep based on which side the spotlight is on
-                    // Left side (i=0,1,2): sweep normally (left to right)
-                    // Right side (i=3,4,5): sweep inverted (right to left)
-                    // This creates converging/diverging effect
-                    const isLeftSide = (i < 3); // First 3 are left side
-                    dirX = isLeftSide ? sweepValue : -sweepValue; // Mirror for right side
-                    dirZ = -0.3; // Slight forward angle toward dance floor
+                    // Layout: Left side (i=0,1,2) at x=-8, Right side (i=3,4,5) at x=8
+                    // When sweepValue > 0: both sides point INWARD (converging toward center)
+                    // When sweepValue < 0: both sides point OUTWARD (diverging from center)
+                    const isLeftSide = (i < 3);
+                    // Left side: positive sweepValue = point right (+X toward center)
+                    // Right side: negative sweepValue = point left (-X toward center)
+                    dirX = isLeftSide ? sweepValue : -sweepValue;
+                    
+                    // Also add slight Z oscillation so beams sweep front-to-back together
+                    const zSweep = Math.sin(sweepPhase * 0.3) * 0.25;
+                    dirZ = zSweep;
+                    
+                } else if (this.spotlightPattern === 3) {
+                    // PATTERN 3: CROSSED BEAMS - Outer gobos cross over middle gobo
+                    // Each side has 3 lights: front (0,3), middle (1,4), back (2,5)
+                    // The front and back gobos sweep across, crossing over the middle one
+                    const sweepPhase = globalPhase * speedMultiplier;
+                    const crossSweep = Math.sin(sweepPhase * 0.4) * 0.8; // Wide crossing motion
+                    
+                    const isLeftSide = (i < 3);
+                    const positionInGroup = i % 3; // 0=front, 1=middle, 2=back
+                    
+                    if (positionInGroup === 1) {
+                        // MIDDLE gobo: Points straight down/slightly forward - stationary anchor
+                        dirX = 0;
+                        dirZ = -0.2; // Slight forward angle toward dance floor
+                    } else if (positionInGroup === 0) {
+                        // FRONT gobo: Sweeps from outside to inside and back
+                        // When crossing, it goes PAST the middle gobo position
+                        dirX = isLeftSide ? crossSweep : -crossSweep;
+                        dirZ = -0.35 + Math.abs(crossSweep) * 0.2; // More forward when at extremes
+                    } else {
+                        // BACK gobo: Sweeps opposite to front (counter-phase)
+                        // This creates an X pattern when viewed from above
+                        dirX = isLeftSide ? -crossSweep : crossSweep; // Opposite of front
+                        dirZ = 0.1 - Math.abs(crossSweep) * 0.15; // Slightly back, less when crossing
+                    }
                     
                 } else {
                     // PATTERN 0: RANDOM/AUTOMATED (default) - Complex pattern cycling
@@ -7900,21 +7960,22 @@ class VRClub {
                             this.networkManager.sendVJControl('spotlightMode', this.spotlightMode);
                         }
                     } else if (clickedButton.control === "cyclePattern") {
-                        // Cycle through spotlight patterns: 0=random, 1=static down, 2=sync sweep
-                        this.spotlightPattern = (this.spotlightPattern + 1) % 3;
+                        // Cycle through spotlight patterns: 0=random, 1=static, 2=mirror, 3=crossed
+                        this.spotlightPattern = (this.spotlightPattern + 1) % 4;
                         
                         // Flash button feedback with different colors for each pattern
                         const patternColors = [
                             new BABYLON.Color3(1, 0, 1),    // Pattern 0: Magenta (random)
                             new BABYLON.Color3(0, 1, 1),    // Pattern 1: Cyan (static down)
-                            new BABYLON.Color3(1, 0.5, 1)   // Pattern 2: Pink (sync sweep)
+                            new BABYLON.Color3(1, 0.5, 1),  // Pattern 2: Pink (mirror sweep)
+                            new BABYLON.Color3(1, 0.8, 0)   // Pattern 3: Gold (crossed beams)
                         ];
                         clickedButton.material.emissiveColor = patternColors[this.spotlightPattern];
                         setTimeout(() => {
                             clickedButton.material.emissiveColor = clickedButton.offColor;
                         }, 300);
                         
-                        const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
+                        const patternNames = ["RANDOM", "STATIC DOWN", "MIRROR SWEEP", "CROSSED BEAMS"];
                         log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
                         
                         // Broadcast spotlight pattern change to other players
