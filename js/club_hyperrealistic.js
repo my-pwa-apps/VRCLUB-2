@@ -3905,10 +3905,9 @@ class VRClub {
             
             // FLOOR CLIP PLANE: Hide beam geometry below floor level (y=0)
             // This allows us to extend the beam past the floor to avoid floating edges
-            // The clip plane equation is: y > 0 (or y - 0 > 0)
-            // In Babylon.js clip plane format: (nx, ny, nz, d) where n·p + d > 0 is visible
-            // For y > 0: normal = (0, 1, 0), d = 0
-            beamMat.clipPlane = new BABYLON.Plane(0, 1, 0, 0.02); // Clip at y=0.02 (just above floor)
+            // Clip plane equation: ax + by + cz + d > 0 keeps the fragment
+            // For y > 0.02: we need y - 0.02 > 0, so (0, 1, 0, -0.02)
+            beamMat.clipPlane = new BABYLON.Plane(0, 1, 0, -0.02); // Keep fragments where y > 0.02
             
             beam.material = beamMat;
             beam.visibility = 1.0;
