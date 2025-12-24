@@ -3903,6 +3903,16 @@ class VRClub {
             beamMat.needDepthPrePass = false;
             beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
             
+            // HYPERREALISTIC: Clip plane to hide beam below floor level (y < 0)
+            // This allows beam to extend past floor for tilted angles while hiding the portion below
+            // Plane equation: y >= 0, so normal is (0, 1, 0) and d = 0
+            // Note: Babylon.js clip plane is defined as ax + by + cz + d = 0, clips where < 0
+            // To clip y < 0, we use normal (0, -1, 0) and d = 0, which clips where -y < 0 (i.e. y > 0)
+            // Actually: to keep y >= 0, we want to clip (discard) where y < 0
+            // clipPlane4 on material: clips where dot(normal, pos) + d < 0
+            // For y >= 0: normal = (0, 1, 0), d = 0 → clips where y < 0 ✓
+            beamMat.clipPlane4 = new BABYLON.Plane(0, 1, 0, 0.01); // Clip just below floor level
+            
             beam.material = beamMat;
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
@@ -6488,23 +6498,26 @@ class VRClub {
                     // further to reach the floor. We extend the beam past the floor intersection
                     // so ALL edges of the cone touch the floor.
                     //
-                    // BEAM LENGTH: End exactly at surface intersection (pool location)
-                    // No extension past surface - beam terminates where pool is placed
+                    // HYPERREALISTIC BEAM: Extend past floor so cone edges touch, then clip
+                    // When a cone hits floor at angle, the "uphill" edge needs to travel further
                     //
                     // Base beam length from emission to surface intersection (centerline)
                     const centerBeamLength = centerDistanceToSurface;
                     
-                    // Calculate tilt angle (used for pool ellipse calculation)
+                    // Calculate tilt angle (used for extension and pool ellipse)
                     const cosTheta = Math.abs(direction.y);
                     const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
                     const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
                     
-                    // Cone radius at surface end (from mesh: diameterTop=2.0)
-                    const coneRadius = 1.0; // Half of 2.0m diameter
+                    // Cone radius at surface end (from mesh: diameterTop=1.5, so radius=0.75)
+                    const coneRadius = 0.75;
                     
-                    // BEAM LENGTH: End exactly at surface - no extension
-                    // This ensures beam visually terminates at the same point as the pool
-                    const beamLength = Math.min(18, Math.max(2, centerBeamLength));
+                    // Extension needed for uphill edge to reach floor: r * tan(θ)
+                    // Only for floor hits - walls don't need this geometry trick
+                    const uphillExtension = (hitSurface === 'floor') ? coneRadius * tanTheta : 0;
+                    
+                    // BEAM LENGTH: Extend past floor so all cone edges visually touch
+                    const beamLength = Math.min(18, Math.max(2, centerBeamLength + uphillExtension));
                     
                     // Store beamLength on spot for pool calculations
                     spot.currentBeamLength = beamLength;
@@ -6561,6 +6574,24 @@ class VRClub {
                     
                     // UPDATE BEAM LENGTH
                     spot.beam.scaling.y = beamLength;
+                    
+                    // HYPERREALISTIC: Update clip plane based on hit surface
+                    // This hides any part of the beam that extends past the surface
+                    if (spot.beamMat) {
+                        if (hitSurface === 'floor') {
+                            // Clip below floor: plane normal (0, 1, 0), d = 0.01
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 1, 0, 0.01);
+                        } else if (hitSurface === 'backWall') {
+                            // Clip behind back wall: plane normal (0, 0, 1), d = BACK_WALL_Z
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 0, 1, -BACK_WALL_Z + 0.01);
+                        } else if (hitSurface === 'leftWall') {
+                            // Clip past left wall: plane normal (1, 0, 0), d = -LEFT_WALL_X
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(1, 0, 0, -LEFT_WALL_X + 0.01);
+                        } else if (hitSurface === 'rightWall') {
+                            // Clip past right wall: plane normal (-1, 0, 0), d = RIGHT_WALL_X
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(-1, 0, 0, RIGHT_WALL_X + 0.01);
+                        }
+                    }
                     
                     // ANIMATE SMOKE TEXTURE (Hyperrealism)
                     if (spot.beamMat && spot.beamMat.emissiveTexture) {
