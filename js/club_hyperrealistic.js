@@ -6429,23 +6429,35 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // HYPERREALISTIC BEAM: Beam centerline reaches floor exactly
+                    // HYPERREALISTIC BEAM: Extend beam PAST floor so cone edges touch floor
                     // 
-                    // The cone naturally expands - we position it so the centerline
-                    // touches the floor intersection point. The cone edges will be
-                    // slightly above or below floor depending on tilt angle.
+                    // When a cone is tilted, the "uphill" edge of the cone needs to travel
+                    // further to reach the floor. We extend the beam past the floor intersection
+                    // so ALL edges of the cone touch the floor.
+                    //
+                    // The floor mesh (opaque) will hide the beam portion below floor level
+                    // because the beam uses ALPHA_COMBINE with depth testing enabled.
                     //
                     // Base beam length from emission to floor intersection (centerline)
                     const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
-                    // BEAM LENGTH: Centerline to floor, clamped to reasonable range
-                    const beamLength = Math.min(15, Math.max(2, centerBeamLength));
+                    // Calculate tilt angle for extension
+                    const cosTheta = Math.abs(direction.y);
+                    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+                    const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
+                    
+                    // Cone radius at floor end (from mesh: diameterTop=2.0)
+                    const coneRadius = 1.0; // Half of 2.0m diameter
+                    
+                    // Extension needed: r * tan(θ) for uphill edge to reach floor
+                    const uphillExtension = coneRadius * tanTheta;
+                    
+                    // BEAM LENGTH: Extend past floor so all cone edges touch
+                    // Add buffer to ensure no floating edges at any angle
+                    const beamLength = Math.min(18, Math.max(2, centerBeamLength + uphillExtension + 1.0));
                     
                     // Store beamLength on spot for pool calculations
                     spot.currentBeamLength = beamLength;
-                    
-                    // Calculate cos(theta) for pool physics calculations later
-                    const cosTheta = Math.abs(direction.y);
                     
                     // Position beam: Cylinder is centered at its origin
                     // After rotation, one end will be at emission point, other past floor
