@@ -3903,6 +3903,13 @@ class VRClub {
             beamMat.needDepthPrePass = false;
             beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
             
+            // FLOOR CLIP PLANE: Hide beam geometry below floor level (y=0)
+            // This allows us to extend the beam past the floor to avoid floating edges
+            // The clip plane equation is: y > 0 (or y - 0 > 0)
+            // In Babylon.js clip plane format: (nx, ny, nz, d) where n·p + d > 0 is visible
+            // For y > 0: normal = (0, 1, 0), d = 0
+            beamMat.clipPlane = new BABYLON.Plane(0, 1, 0, 0.02); // Clip at y=0.02 (just above floor)
+            
             beam.material = beamMat;
             beam.visibility = 1.0;
             beam.renderingGroupId = 1; // Render after opaque objects
@@ -6429,34 +6436,42 @@ class VRClub {
                         floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
                     }
                     
-                    // HYPERREALISTIC BEAM: Beam stops AT the floor, never goes through
+                    // HYPERREALISTIC BEAM: Extend beam PAST floor to prevent floating edges
                     // 
-                    // The beam is a cone from fixture (narrow) to floor (wide)
-                    // We calculate the length so the beam's CENTERLINE reaches the floor
-                    // The cone edges will naturally spread around the floor intersection point
-                    //
-                    // CRITICAL: Do NOT extend beam past floor - it will show through!
-                    // The beam mesh uses additive blending which doesn't respect depth
+                    // When a cone is tilted, one edge reaches the floor before the centerline
+                    // To prevent any part of the beam from floating above the floor:
+                    // - Extend the beam past the floor intersection
+                    // - Use a clip plane on the material to hide geometry below floor (y=0)
                     //
                     // cos(θ) = |direction.y| (since direction is normalized)
                     const cosTheta = Math.abs(direction.y);
+                    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
+                    
+                    // Cone radius at floor end (from mesh: diameterTop=1.5)
+                    const coneRadiusAtEnd = 0.75; // meters (half of 1.5m diameter)
                     
                     // Base beam length from emission to floor intersection (centerline)
                     const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
                     
-                    // BEAM LENGTH: Exactly to floor, no extension
-                    // Clamp to reasonable range to prevent visual artifacts
-                    const beamLength = Math.min(15, Math.max(1, centerBeamLength));
+                    // Extension needed for the uphill edge of the tilted cone to reach floor
+                    // At tilt angle θ, the uphill edge is r*sin(θ) above centerline endpoint
+                    // It needs extra length: r*sin(θ)/cos(θ) = r*tan(θ)
+                    const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
+                    const uphillExtension = coneRadiusAtEnd * tanTheta;
+                    
+                    // FINAL BEAM LENGTH: Centerline + extension so ALL cone edges touch floor
+                    // The clip plane on the material will hide any geometry below y=0
+                    const beamLength = Math.min(20, Math.max(1, centerBeamLength + uphillExtension + 0.5));
                     
                     // Store beamLength on spot for pool calculations
                     spot.currentBeamLength = beamLength;
                     
                     // Position beam: Cylinder is centered at its origin
-                    // After rotation, one end will be at emission point, other at floor
+                    // After rotation, one end will be at emission point, other past floor
                     // 
                     // BABYLON cylinder: local +Y is "top" (diameterTop), local -Y is "bottom" (diameterBottom)
                     // We created: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
-                    // We want: wide end at floor, narrow end at fixture (emission point)
+                    // We want: wide end toward/past floor, narrow end at fixture (emission point)
                     // So: local +Y should point TOWARD FLOOR (same as direction)
                     //
                     // Cylinder extends from center: -height/2 to +height/2 in local Y
@@ -6466,7 +6481,6 @@ class VRClub {
                     //   - Local -Y end (narrow) is at: center - direction * beamLength/2 (should be at emission)
                     //
                     // So center should be at: emissionPoint + direction * beamLength/2
-                    // This places: narrow end at emissionPoint, wide end at floor intersection
                     const beamMidpoint = new BABYLON.Vector3(
                         emissionPoint.x + direction.x * (beamLength * 0.5),
                         emissionPoint.y + direction.y * (beamLength * 0.5),
