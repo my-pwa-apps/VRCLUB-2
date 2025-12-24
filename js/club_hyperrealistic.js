@@ -3905,13 +3905,12 @@ class VRClub {
             
             // HYPERREALISTIC: Clip plane to hide beam below floor level (y < 0)
             // This allows beam to extend past floor for tilted angles while hiding the portion below
-            // Plane equation: y >= 0, so normal is (0, 1, 0) and d = 0
-            // Note: Babylon.js clip plane is defined as ax + by + cz + d = 0, clips where < 0
-            // To clip y < 0, we use normal (0, -1, 0) and d = 0, which clips where -y < 0 (i.e. y > 0)
-            // Actually: to keep y >= 0, we want to clip (discard) where y < 0
-            // clipPlane4 on material: clips where dot(normal, pos) + d < 0
-            // For y >= 0: normal = (0, 1, 0), d = 0 → clips where y < 0 ✓
-            beamMat.clipPlane4 = new BABYLON.Plane(0, 1, 0, 0.01); // Clip just below floor level
+            // Babylon.js clips fragments where dot(normal, pos) + d < 0
+            // To clip y < 0 (keep y >= 0): normal = (0, -1, 0), d = 0 → clips where -y < 0 (y > 0)? NO
+            // Actually: normal = (0, 1, 0), d = 0 clips where y + 0 < 0, i.e. y < 0 ✓
+            // But StandardMaterial uses clipPlane differently - it clips where result > 0
+            // So we need normal (0, -1, 0), d = 0 to clip where -y + 0 > 0, i.e. y < 0 ✓
+            beamMat.clipPlane4 = new BABYLON.Plane(0, -1, 0, 0.01); // Clip below floor level
             
             beam.material = beamMat;
             beam.visibility = 1.0;
@@ -6577,19 +6576,24 @@ class VRClub {
                     
                     // HYPERREALISTIC: Update clip plane based on hit surface
                     // This hides any part of the beam that extends past the surface
+                    // StandardMaterial clips where dot(normal, pos) + d > 0
                     if (spot.beamMat) {
                         if (hitSurface === 'floor') {
-                            // Clip below floor: plane normal (0, 1, 0), d = 0.01
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 1, 0, 0.01);
+                            // Clip below floor (y < 0): normal (0, -1, 0), d = 0
+                            // Clips where -y + d > 0, i.e. y < d
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, -1, 0, 0.01);
                         } else if (hitSurface === 'backWall') {
-                            // Clip behind back wall: plane normal (0, 0, 1), d = BACK_WALL_Z
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 0, 1, -BACK_WALL_Z + 0.01);
+                            // Clip behind back wall (z < BACK_WALL_Z): normal (0, 0, -1)
+                            // Clips where -z + d > 0, i.e. z < d = -BACK_WALL_Z
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 0, -1, -BACK_WALL_Z + 0.01);
                         } else if (hitSurface === 'leftWall') {
-                            // Clip past left wall: plane normal (1, 0, 0), d = -LEFT_WALL_X
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(1, 0, 0, -LEFT_WALL_X + 0.01);
+                            // Clip past left wall (x < LEFT_WALL_X): normal (-1, 0, 0)
+                            // Clips where -x + d > 0, i.e. x < d = -LEFT_WALL_X
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(-1, 0, 0, -LEFT_WALL_X + 0.01);
                         } else if (hitSurface === 'rightWall') {
-                            // Clip past right wall: plane normal (-1, 0, 0), d = RIGHT_WALL_X
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(-1, 0, 0, RIGHT_WALL_X + 0.01);
+                            // Clip past right wall (x > RIGHT_WALL_X): normal (1, 0, 0)
+                            // Clips where x + d > 0, i.e. x > -d = -RIGHT_WALL_X
+                            spot.beamMat.clipPlane4 = new BABYLON.Plane(1, 0, 0, -RIGHT_WALL_X + 0.01);
                         }
                     }
                     
