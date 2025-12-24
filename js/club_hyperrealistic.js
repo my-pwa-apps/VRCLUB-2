@@ -6415,19 +6415,72 @@ class VRClub {
                         emissionPoint = spot.basePos.clone();
                     }
                     
-                    // Calculate where beam centerline intersects floor (for pool positioning)
-                    let centerDistanceToFloor;
-                    let floorIntersection;
+                    // Calculate where beam centerline intersects surfaces (floor and walls)
+                    // Use closest intersection for pool positioning
+                    let centerDistanceToSurface;
+                    let surfaceIntersection;
+                    let hitSurface = 'floor'; // 'floor', 'backWall', 'leftWall', 'rightWall'
                     
+                    // Club boundaries
+                    const FLOOR_Y = 0;
+                    const BACK_WALL_Z = -25.8; // LED wall position
+                    const LEFT_WALL_X = -10;
+                    const RIGHT_WALL_X = 10;
+                    
+                    // Calculate distances to each surface (only if beam is heading toward it)
+                    let distToFloor = Infinity;
+                    let distToBackWall = Infinity;
+                    let distToLeftWall = Infinity;
+                    let distToRightWall = Infinity;
+                    
+                    // Floor intersection (beam pointing down)
                     if (direction.y < -0.01) {
-                        // Use emission point (actual light position) instead of static basePos
-                        centerDistanceToFloor = emissionPoint.y / Math.abs(direction.y);
-                        floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
-                        floorIntersection.y = 0; // Clamp to floor
-                    } else {
-                        centerDistanceToFloor = 15;
-                        floorIntersection = emissionPoint.add(direction.scale(centerDistanceToFloor));
+                        distToFloor = emissionPoint.y / Math.abs(direction.y);
                     }
+                    
+                    // Back wall intersection (beam pointing back/negative Z)
+                    if (direction.z < -0.01) {
+                        distToBackWall = (emissionPoint.z - BACK_WALL_Z) / Math.abs(direction.z);
+                    }
+                    
+                    // Left wall intersection (beam pointing left/negative X)
+                    if (direction.x < -0.01) {
+                        distToLeftWall = (emissionPoint.x - LEFT_WALL_X) / Math.abs(direction.x);
+                    }
+                    
+                    // Right wall intersection (beam pointing right/positive X)
+                    if (direction.x > 0.01) {
+                        distToRightWall = (RIGHT_WALL_X - emissionPoint.x) / direction.x;
+                    }
+                    
+                    // Find closest surface hit
+                    centerDistanceToSurface = distToFloor;
+                    hitSurface = 'floor';
+                    
+                    if (distToBackWall < centerDistanceToSurface && distToBackWall > 0) {
+                        centerDistanceToSurface = distToBackWall;
+                        hitSurface = 'backWall';
+                    }
+                    if (distToLeftWall < centerDistanceToSurface && distToLeftWall > 0) {
+                        centerDistanceToSurface = distToLeftWall;
+                        hitSurface = 'leftWall';
+                    }
+                    if (distToRightWall < centerDistanceToSurface && distToRightWall > 0) {
+                        centerDistanceToSurface = distToRightWall;
+                        hitSurface = 'rightWall';
+                    }
+                    
+                    // Cap at reasonable maximum
+                    if (centerDistanceToSurface === Infinity || centerDistanceToSurface > 20) {
+                        centerDistanceToSurface = 15;
+                    }
+                    
+                    // Calculate intersection point
+                    surfaceIntersection = emissionPoint.add(direction.scale(centerDistanceToSurface));
+                    
+                    // Keep references for backward compatibility
+                    let floorIntersection = surfaceIntersection.clone();
+                    let centerDistanceToFloor = centerDistanceToSurface;
                     
                     // HYPERREALISTIC BEAM: Extend beam PAST floor so cone edges touch floor
                     // 
@@ -6435,26 +6488,23 @@ class VRClub {
                     // further to reach the floor. We extend the beam past the floor intersection
                     // so ALL edges of the cone touch the floor.
                     //
-                    // The floor mesh (opaque) will hide the beam portion below floor level
-                    // because the beam uses ALPHA_COMBINE with depth testing enabled.
+                    // BEAM LENGTH: End exactly at surface intersection (pool location)
+                    // No extension past surface - beam terminates where pool is placed
                     //
-                    // Base beam length from emission to floor intersection (centerline)
-                    const centerBeamLength = BABYLON.Vector3.Distance(emissionPoint, floorIntersection);
+                    // Base beam length from emission to surface intersection (centerline)
+                    const centerBeamLength = centerDistanceToSurface;
                     
-                    // Calculate tilt angle for extension
+                    // Calculate tilt angle (used for pool ellipse calculation)
                     const cosTheta = Math.abs(direction.y);
                     const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
                     const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
                     
-                    // Cone radius at floor end (from mesh: diameterTop=2.0)
+                    // Cone radius at surface end (from mesh: diameterTop=2.0)
                     const coneRadius = 1.0; // Half of 2.0m diameter
                     
-                    // Extension needed: r * tan(θ) for uphill edge to reach floor
-                    const uphillExtension = coneRadius * tanTheta;
-                    
-                    // BEAM LENGTH: Extend past floor so all cone edges touch
-                    // Add buffer to ensure no floating edges at any angle
-                    const beamLength = Math.min(18, Math.max(2, centerBeamLength + uphillExtension + 1.0));
+                    // BEAM LENGTH: End exactly at surface - no extension
+                    // This ensures beam visually terminates at the same point as the pool
+                    const beamLength = Math.min(18, Math.max(2, centerBeamLength));
                     
                     // Store beamLength on spot for pool calculations
                     spot.currentBeamLength = beamLength;
@@ -6661,37 +6711,81 @@ class VRClub {
                             // Subtle atmospheric shimmer (dust particles in beam)
                             const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;
                             
-                            // === POSITION POOL AT BEAM CENTERLINE-FLOOR INTERSECTION ===
-                            // The pool represents where the brightest part of the beam hits the floor
-                            // This is the centerline intersection (floorIntersection)
-                            // The beam cone extends around this point, going below floor on downhill side
+                            // === POSITION POOL AT ACTUAL SURFACE INTERSECTION ===
+                            // The pool appears where the beam hits the surface (floor or wall)
+                            // Position and orientation depend on which surface was hit
                             
-                            // For tilted beams, the visible light patch on the floor is an ellipse
-                            // The CENTER of this ellipse is where the beam centerline hits floor
-                            // But visually, the "hot spot" may appear shifted toward the fixture
-                            // We keep pool at centerline for physical accuracy
-                            spot.lightPool.position.set(
-                                floorIntersection.x,
-                                0.004, // Just above floor (prevent z-fighting)
-                                floorIntersection.z
-                            );
+                            // Store hit surface for reference
+                            spot.hitSurface = hitSurface;
                             
-                            // === ELLIPSE ORIENTATION ===
-                            // Rotate pool so major axis aligns with beam tilt direction
-                            if (tiltMagnitude > 0.03) {
-                                const poolRotation = Math.atan2(tiltDirX, tiltDirZ);
-                                spot.lightPool.rotation.y = poolRotation;
-                                // Disc local Y → world Z after X rotation, so scale Y for major axis
-                                spot.lightPool.scaling.set(minorRadius, majorRadius, 1);
-                            } else {
-                                // Nearly vertical - circular pool
-                                spot.lightPool.rotation.y = 0;
-                                spot.lightPool.scaling.set(minorRadius, minorRadius, 1);
+                            if (hitSurface === 'floor') {
+                                // Floor hit - pool lies flat on floor
+                                spot.lightPool.position.set(
+                                    surfaceIntersection.x,
+                                    0.004, // Just above floor (prevent z-fighting)
+                                    surfaceIntersection.z
+                                );
+                                spot.lightPool.rotation.x = Math.PI / 2; // Flat on floor
+                                spot.lightPool.rotation.z = 0;
+                                
+                                // Ellipse orientation for tilted beams on floor
+                                if (tiltMagnitude > 0.03) {
+                                    const poolRotation = Math.atan2(tiltDirX, tiltDirZ);
+                                    spot.lightPool.rotation.y = poolRotation;
+                                    spot.lightPool.scaling.set(minorRadius, majorRadius, 1);
+                                } else {
+                                    spot.lightPool.rotation.y = 0;
+                                    spot.lightPool.scaling.set(minorRadius, minorRadius, 1);
+                                }
+                            } else if (hitSurface === 'backWall') {
+                                // Back wall hit - pool is vertical facing forward (+Z)
+                                spot.lightPool.position.set(
+                                    surfaceIntersection.x,
+                                    surfaceIntersection.y,
+                                    BACK_WALL_Z + 0.01 // Just in front of wall
+                                );
+                                spot.lightPool.rotation.x = 0; // Vertical
+                                spot.lightPool.rotation.y = 0; // Facing forward
+                                spot.lightPool.rotation.z = 0;
+                                
+                                // Ellipse stretches vertically when hitting wall at angle
+                                const wallAngle = Math.acos(Math.abs(direction.z));
+                                const wallStretch = 1.0 / Math.max(0.15, Math.abs(direction.z));
+                                const clampedWallStretch = Math.min(5.0, wallStretch);
+                                spot.lightPool.scaling.set(minorRadius, minorRadius * clampedWallStretch, 1);
+                            } else if (hitSurface === 'leftWall') {
+                                // Left wall hit - pool is vertical facing right (+X)
+                                spot.lightPool.position.set(
+                                    LEFT_WALL_X + 0.01, // Just in front of wall
+                                    surfaceIntersection.y,
+                                    surfaceIntersection.z
+                                );
+                                spot.lightPool.rotation.x = 0;
+                                spot.lightPool.rotation.y = Math.PI / 2; // Facing right
+                                spot.lightPool.rotation.z = 0;
+                                
+                                const wallStretch = 1.0 / Math.max(0.15, Math.abs(direction.x));
+                                const clampedWallStretch = Math.min(5.0, wallStretch);
+                                spot.lightPool.scaling.set(minorRadius, minorRadius * clampedWallStretch, 1);
+                            } else if (hitSurface === 'rightWall') {
+                                // Right wall hit - pool is vertical facing left (-X)
+                                spot.lightPool.position.set(
+                                    RIGHT_WALL_X - 0.01, // Just in front of wall
+                                    surfaceIntersection.y,
+                                    surfaceIntersection.z
+                                );
+                                spot.lightPool.rotation.x = 0;
+                                spot.lightPool.rotation.y = -Math.PI / 2; // Facing left
+                                spot.lightPool.rotation.z = 0;
+                                
+                                const wallStretch = 1.0 / Math.max(0.15, Math.abs(direction.x));
+                                const clampedWallStretch = Math.min(5.0, wallStretch);
+                                spot.lightPool.scaling.set(minorRadius, minorRadius * clampedWallStretch, 1);
                             }
                             spot.lightPool.visibility = 1.0;
                             
                             // === POOL MATERIAL - Physics-based brightness ===
-                            // Make pool clearly visible on the floor
+                            // Make pool clearly visible on the surface
                             const poolBrightness = 2.5 * physicsIntensity * shimmer;
                             if (spot.poolMat) {
                                 spot.poolMat.emissiveColor = spotColor.scale(poolBrightness);
@@ -6700,11 +6794,20 @@ class VRClub {
                             
                             // === POOL LIGHT (if enabled) ===
                             if (spot.poolLight) {
-                                spot.poolLight.position.set(
-                                    floorIntersection.x,
-                                    0.4,
-                                    floorIntersection.z
-                                );
+                                // Position based on hit surface
+                                if (hitSurface === 'floor') {
+                                    spot.poolLight.position.set(
+                                        surfaceIntersection.x,
+                                        0.4,
+                                        surfaceIntersection.z
+                                    );
+                                } else {
+                                    // For walls, offset light slightly in front of surface
+                                    spot.poolLight.position.copyFrom(surfaceIntersection);
+                                    if (hitSurface === 'backWall') spot.poolLight.position.z += 0.5;
+                                    else if (hitSurface === 'leftWall') spot.poolLight.position.x += 0.5;
+                                    else if (hitSurface === 'rightWall') spot.poolLight.position.x -= 0.5;
+                                }
                                 spot.poolLight.diffuse = spotColor.clone();
                                 spot.poolLight.specular = spotColor.scale(0.25);
                                 spot.poolLight.intensity = 3.5 * physicsIntensity * shimmer;
@@ -6717,17 +6820,25 @@ class VRClub {
                                 const glowMinor = minorRadius * 2.2;
                                 const glowMajor = majorRadius * 2.2;
                                 
-                                spot.lightPoolGlow.position.set(
-                                    floorIntersection.x,
-                                    0.002,
-                                    floorIntersection.z
-                                );
+                                // Match pool position for glow
+                                spot.lightPoolGlow.position.copyFrom(spot.lightPool.position);
+                                // Offset slightly toward viewer to prevent z-fighting
+                                if (hitSurface === 'floor') {
+                                    spot.lightPoolGlow.position.y = 0.002;
+                                } else if (hitSurface === 'backWall') {
+                                    spot.lightPoolGlow.position.z += 0.005;
+                                } else if (hitSurface === 'leftWall') {
+                                    spot.lightPoolGlow.position.x += 0.005;
+                                } else if (hitSurface === 'rightWall') {
+                                    spot.lightPoolGlow.position.x -= 0.005;
+                                }
                                 
-                                if (tiltMagnitude > 0.03) {
-                                    spot.lightPoolGlow.rotation.y = spot.lightPool.rotation.y;
+                                // Copy rotation from pool
+                                spot.lightPoolGlow.rotation.copyFrom(spot.lightPool.rotation);
+                                
+                                if (hitSurface === 'floor' && tiltMagnitude > 0.03) {
                                     spot.lightPoolGlow.scaling.set(glowMinor, glowMajor, 1);
                                 } else {
-                                    spot.lightPoolGlow.rotation.y = 0;
                                     spot.lightPoolGlow.scaling.set(glowMinor, glowMinor, 1);
                                 }
                                 spot.lightPoolGlow.visibility = 1.0;
