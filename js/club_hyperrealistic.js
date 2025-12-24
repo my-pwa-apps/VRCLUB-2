@@ -2819,6 +2819,20 @@ class VRClub {
                 onColor: new BABYLON.Color3(0, 1, 0),
                 offColor: new BABYLON.Color3(0, 0.2, 0),
                 row: 3, col: 0 // New row for laser sheet
+            },
+            { 
+                label: "FOG MACHINE", 
+                control: "smokeActive",
+                onColor: new BABYLON.Color3(0.7, 0.7, 1),
+                offColor: new BABYLON.Color3(0.15, 0.15, 0.25),
+                row: 3, col: 1 // Fog machine toggle
+            },
+            { 
+                label: "FOG BURST", 
+                control: "fogBurst",
+                onColor: new BABYLON.Color3(1, 1, 1),
+                offColor: new BABYLON.Color3(0.2, 0.2, 0.3),
+                row: 3, col: 2 // Manual fog burst trigger
             }
         ];
         
@@ -2833,6 +2847,9 @@ class VRClub {
         toggleButtons.forEach((btnDef) => {
             const xPos = startX + (btnDef.col * spacing);
             const yPos = 0.95 - (btnDef.row * rowSpacing);
+            
+            // Check if this control is currently active
+            const isActive = this[btnDef.control] || false;
             
             // Create larger, more visible button
             const toggleBtn = BABYLON.MeshBuilder.CreateBox("toggleBtn_" + btnDef.control, {
@@ -2888,9 +2905,13 @@ class VRClub {
     // createVJStation() method removed - was 310+ lines of duplicate/unused code
 
     createHyperrealisticSmoke() {
-        // 2. Atmospheric Haze: Dispersed particles for light beams
+        // === HYPERREALISTIC FOG MACHINE SYSTEM ===
+        // Two fog machines mounted on trusses that blow fog into the room
+        // Based on professional Martin/MDG haze machines used in real clubs
         
-        // Create a soft particle texture using Canvas (no external assets needed)
+        log.info('💨 Creating hyperrealistic fog machine system...');
+        
+        // Create a soft particle texture using Canvas
         const smokeCanvas = document.createElement('canvas');
         smokeCanvas.width = 128;
         smokeCanvas.height = 128;
@@ -2898,93 +2919,216 @@ class VRClub {
         
         // Create soft radial gradient for smoke puff
         const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');     // Center opaque
-        grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.5)'); // Soft edge
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');     // Transparent fade
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
+        grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.25)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
         
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 128, 128);
         
         const particleTexture = new BABYLON.Texture(smokeCanvas.toDataURL(), this.scene);
         particleTexture.name = "proceduralSmokeTexture";
+        this._fogParticleTexture = particleTexture; // Store for reuse
         
-        // --- 1. FLOOR FOG (Dry Ice) ---
-        // Heavy, low-lying fog that stays near the floor
-        this.floorFog = new BABYLON.ParticleSystem("floorFog", 2000, this.scene);
-        this.floorFog.particleTexture = particleTexture;
-        this.floorFog.emitter = new BABYLON.Vector3(0, 0.1, -12); // Center of dance floor
+        // === FOG MACHINE POSITIONS ===
+        // Mounted on front truss (z=-8) on left and right sides
+        const fogMachinePositions = [
+            { x: -6, y: 7.8, z: -8, rotY: 0.3 },   // Left fog machine, angled toward center
+            { x: 6, y: 7.8, z: -8, rotY: -0.3 }    // Right fog machine, angled toward center
+        ];
         
-        // Emit box (wide area on floor)
-        this.floorFog.minEmitBox = new BABYLON.Vector3(-10, 0, -10);
-        this.floorFog.maxEmitBox = new BABYLON.Vector3(10, 0.5, 10);
+        this.fogMachines = [];
         
-        // Colors (Cold white/blueish for dry ice look)
-        this.floorFog.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.3); // Increased visibility
-        this.floorFog.color2 = new BABYLON.Color4(0.9, 0.9, 1.0, 0.3);
-        this.floorFog.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
+        fogMachinePositions.forEach((pos, i) => {
+            // === CREATE FOG MACHINE 3D MODEL ===
+            // Based on Martin Jem ZR35 industrial fog machine dimensions
+            const machineParent = new BABYLON.TransformNode(`fogMachine${i}_parent`, this.scene);
+            machineParent.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
+            machineParent.rotation.y = pos.rotY;
+            
+            // Main body (rectangular housing)
+            const bodyMat = this.materialFactory.createPBRMaterial(`fogMachineBody${i}`, {
+                baseColor: [0.15, 0.15, 0.15], // Dark gray
+                metallic: 0.6,
+                roughness: 0.4
+            });
+            
+            const body = BABYLON.MeshBuilder.CreateBox(`fogMachineBody${i}`, {
+                width: 0.6,
+                height: 0.35,
+                depth: 0.4
+            }, this.scene);
+            body.position = new BABYLON.Vector3(0, 0, 0);
+            body.parent = machineParent;
+            body.material = bodyMat;
+            
+            // Mounting bracket (attaches to truss)
+            const bracketMat = this.materialFactory.getPreset('barStool');
+            const bracket = BABYLON.MeshBuilder.CreateBox(`fogMachineBracket${i}`, {
+                width: 0.15,
+                height: 0.1,
+                depth: 0.3
+            }, this.scene);
+            bracket.position = new BABYLON.Vector3(0, 0.22, 0);
+            bracket.parent = machineParent;
+            bracket.material = bracketMat;
+            
+            // Nozzle (where fog comes out)
+            const nozzleMat = this.materialFactory.createPBRMaterial(`fogMachineNozzle${i}`, {
+                baseColor: [0.08, 0.08, 0.08],
+                metallic: 0.8,
+                roughness: 0.2
+            });
+            
+            const nozzle = BABYLON.MeshBuilder.CreateCylinder(`fogMachineNozzle${i}`, {
+                diameter: 0.12,
+                height: 0.15,
+                tessellation: 12
+            }, this.scene);
+            nozzle.position = new BABYLON.Vector3(0, -0.25, 0.1);
+            nozzle.rotation.x = Math.PI / 2 + 0.3; // Angled slightly downward
+            nozzle.parent = machineParent;
+            nozzle.material = nozzleMat;
+            
+            // Status LED
+            const ledMat = this.materialFactory.createStandardMaterial(`fogMachineLED${i}`, {
+                emissiveColor: [0, 0.8, 0], // Green when ready
+                disableLighting: true
+            });
+            const led = BABYLON.MeshBuilder.CreateSphere(`fogMachineLED${i}`, {
+                diameter: 0.03,
+                segments: 8
+            }, this.scene);
+            led.position = new BABYLON.Vector3(0.25, 0.1, 0.21);
+            led.parent = machineParent;
+            led.material = ledMat;
+            
+            // === FOG PARTICLE EMITTER ===
+            // Directional burst from nozzle position
+            const fogEmitter = new BABYLON.ParticleSystem(`fogEmitter${i}`, 800, this.scene);
+            fogEmitter.particleTexture = particleTexture;
+            
+            // Get world position of nozzle for emitter
+            const nozzleWorldPos = new BABYLON.Vector3(pos.x, pos.y - 0.25, pos.z + 0.15);
+            fogEmitter.emitter = nozzleWorldPos;
+            
+            // Small emit box at nozzle
+            fogEmitter.minEmitBox = new BABYLON.Vector3(-0.05, -0.05, -0.05);
+            fogEmitter.maxEmitBox = new BABYLON.Vector3(0.05, 0.05, 0.05);
+            
+            // Fog colors (White/gray smoke with slight blue tint)
+            fogEmitter.color1 = new BABYLON.Color4(0.85, 0.85, 0.9, 0.4);
+            fogEmitter.color2 = new BABYLON.Color4(0.9, 0.9, 0.95, 0.35);
+            fogEmitter.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0.0);
+            
+            // Start small, expand as fog disperses
+            fogEmitter.minSize = 0.3;
+            fogEmitter.maxSize = 2.5;
+            fogEmitter.minScaleX = 1.0;
+            fogEmitter.maxScaleX = 2.0;
+            fogEmitter.minScaleY = 1.0;
+            fogEmitter.maxScaleY = 2.0;
+            
+            // Lifetime - fog hangs in the air
+            fogEmitter.minLifeTime = 4.0;
+            fogEmitter.maxLifeTime = 8.0;
+            
+            // Emission rate (VJ controlled)
+            fogEmitter.emitRate = 0; // Start off, controlled by VJ
+            fogEmitter.manualEmitCount = 0;
+            fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+            
+            // Direction - angled downward and toward center of dance floor
+            const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right, right aims left
+            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.2, -0.8, 0.3);
+            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.2, -0.4, 0.6);
+            
+            // Velocity
+            fogEmitter.minEmitPower = 2.0;
+            fogEmitter.maxEmitPower = 4.0;
+            
+            // Physics - fog slowly falls and disperses
+            fogEmitter.gravity = new BABYLON.Vector3(0, -0.3, 0);
+            
+            // Rotation for natural turbulence
+            fogEmitter.minAngularSpeed = -1.0;
+            fogEmitter.maxAngularSpeed = 1.0;
+            
+            // Size growth over lifetime (fog expands)
+            fogEmitter.addSizeGradient(0, 0.3);
+            fogEmitter.addSizeGradient(0.3, 1.2);
+            fogEmitter.addSizeGradient(0.7, 2.0);
+            fogEmitter.addSizeGradient(1.0, 2.5);
+            
+            // Alpha fade over lifetime
+            fogEmitter.addColorGradient(0, new BABYLON.Color4(0.9, 0.9, 0.95, 0.5));
+            fogEmitter.addColorGradient(0.4, new BABYLON.Color4(0.85, 0.85, 0.9, 0.35));
+            fogEmitter.addColorGradient(0.8, new BABYLON.Color4(0.7, 0.7, 0.8, 0.15));
+            fogEmitter.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0.0));
+            
+            fogEmitter.updateSpeed = 0.008;
+            fogEmitter.start();
+            
+            // Store references
+            this.fogMachines.push({
+                parent: machineParent,
+                body: body,
+                nozzle: nozzle,
+                led: led,
+                ledMat: ledMat,
+                emitter: fogEmitter,
+                position: pos,
+                burstTimer: 0,
+                isBursting: false
+            });
+        });
         
-        // Size & Life
-        this.floorFog.minSize = 1.5;
-        this.floorFog.maxSize = 4.0;
-        this.floorFog.minLifeTime = 4.0;
-        this.floorFog.maxLifeTime = 7.0;
-        
-        // Emission
-        this.floorFog.emitRate = 200; // Increased rate
-        this.floorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
-        
-        // Physics (Gravity pulls down slightly to keep it low)
-        this.floorFog.gravity = new BABYLON.Vector3(0, -0.05, 0);
-        this.floorFog.direction1 = new BABYLON.Vector3(-1, 0, -1);
-        this.floorFog.direction2 = new BABYLON.Vector3(1, 0.1, 1);
-        
-        // Rotation
-        this.floorFog.minAngularSpeed = -0.5;
-        this.floorFog.maxAngularSpeed = 0.5;
-        
-        // Speed
-        this.floorFog.minEmitPower = 0.5;
-        this.floorFog.maxEmitPower = 1.0;
-        this.floorFog.updateSpeed = 0.005;
-        
-        // --- 2. ATMOSPHERIC HAZE ---
-        // Light, dispersed particles to make light beams visible
-        this.haze = new BABYLON.ParticleSystem("haze", 1000, this.scene);
+        // === AMBIENT HAZE (residual fog in air) ===
+        // Light dispersed particles from accumulated fog - makes beams visible
+        this.haze = new BABYLON.ParticleSystem("haze", 500, this.scene);
         this.haze.particleTexture = particleTexture;
         
-        // Emitter (Large box covering the room air volume)
+        // Emitter covers dance floor area
         this.haze.emitter = new BABYLON.Vector3(0, 4, -12);
-        this.haze.minEmitBox = new BABYLON.Vector3(-12, -4, -12);
-        this.haze.maxEmitBox = new BABYLON.Vector3(12, 4, 12);
+        this.haze.minEmitBox = new BABYLON.Vector3(-10, -3, -8);
+        this.haze.maxEmitBox = new BABYLON.Vector3(10, 3, 8);
         
-        // Colors (Very faint dust/smoke)
-        this.haze.color1 = new BABYLON.Color4(0.5, 0.5, 0.6, 0.05); // Increased visibility
-        this.haze.color2 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.05);
+        // Very faint ambient haze
+        this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.04);
+        this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.03);
         this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
         
-        // Size & Life
-        this.haze.minSize = 0.2;
-        this.haze.maxSize = 1.5;
-        this.haze.minLifeTime = 3.0;
-        this.haze.maxLifeTime = 6.0;
+        this.haze.minSize = 0.5;
+        this.haze.maxSize = 2.0;
+        this.haze.minLifeTime = 5.0;
+        this.haze.maxLifeTime = 10.0;
         
-        // Emission
-        this.haze.emitRate = 100;
+        this.haze.emitRate = 30; // Low constant rate
         this.haze.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
         
-        // Physics (Float gently)
-        this.haze.gravity = new BABYLON.Vector3(0, 0.01, 0); // Slight rise
-        this.haze.direction1 = new BABYLON.Vector3(-0.5, -0.5, -0.5);
-        this.haze.direction2 = new BABYLON.Vector3(0.5, 0.5, 0.5);
+        this.haze.gravity = new BABYLON.Vector3(0, 0.02, 0);
+        this.haze.direction1 = new BABYLON.Vector3(-0.3, -0.1, -0.3);
+        this.haze.direction2 = new BABYLON.Vector3(0.3, 0.2, 0.3);
         
-        this.haze.minEmitPower = 0.1;
-        this.haze.maxEmitPower = 0.5;
+        this.haze.minEmitPower = 0.05;
+        this.haze.maxEmitPower = 0.2;
         this.haze.updateSpeed = 0.005;
         
-        // Initialize state
-        this.smokeActive = false;
+        // Haze is always running when smoke is active
+        this.haze.start();
         
-        log.info('💨 Hyperrealistic smoke systems created (Floor Fog + Haze)');
+        // Remove old floorFog reference (replaced by fog machines)
+        this.floorFog = null;
+        
+        // Initialize fog machine state
+        this.smokeActive = false;
+        this.fogBurstMode = 'auto'; // 'auto', 'burst', 'continuous'
+        this.fogIntensity = 1.0; // 0.0 to 2.0
+        this.lastFogBurst = 0;
+        this.fogBurstInterval = 8; // Seconds between auto bursts
+        
+        log.info('💨 Hyperrealistic fog machine system created (2 machines on truss)');
     }
 
     createBoothLighting() {
@@ -3501,16 +3645,16 @@ class VRClub {
         
         // === INITIAL TENSION PHASE SETTINGS ===
         // Starting in 'tension' phase means we need to set all the effect states here
-        // (The switch statement only handles transitions, not initial state)
-        this.lightsActive = true;       // Spotlights on
-        this.lasersActive = true;       // Ceiling lasers on
+        // PROFESSIONAL VJ RULE: Never gobos + lasers together - each system has its moment
+        this.lightsActive = true;       // Gobos/spotlights on (LASERS OFF)
+        this.lasersActive = false;      // Ceiling lasers OFF when gobos on
         this.mirrorBallActive = false;
         this.strobesActive = true;      // Strobes ENABLED for immediate impact
         this.blindersActive = true;     // Blinders pulsing
         this.laserSheetActive = false;
         this.smokeActive = true;        // Haze for beam visibility
         
-        this.spotlightPattern = 0;      // Automated movement patterns
+        this.spotlightPattern = 3;      // CROSSED BEAMS for tension
         this.spotlightMode = 0;         // Strobe + sweep
         this.spotlightSpeed = 1.2;
         this.laserSpeed = 1.0;
@@ -3768,31 +3912,41 @@ class VRClub {
             const beamGlowMat = null;
 
             
-            // HYPERREALISTIC LIGHT POOL - Soft radial gradient for realistic light hitting floor
-            // Real spotlight pools have bright centers that fade smoothly to soft edges
+            // HYPERREALISTIC LIGHT POOL - Physics-accurate spotlight floor projection
+            // Based on real optics: inverse-square falloff, Lambert's cosine law, Fresnel scattering
             
-            // Create radial gradient texture for soft falloff (reuse across all pools)
+            // Create physics-accurate radial gradient texture (reuse across all pools)
             if (!this._poolGradientTexture) {
-                const gradientSize = 256; // Higher resolution for smoother gradient
+                const gradientSize = 512; // High resolution for smooth physics-based falloff
                 const gradientCanvas = document.createElement('canvas');
                 gradientCanvas.width = gradientSize;
                 gradientCanvas.height = gradientSize;
                 const ctx = gradientCanvas.getContext('2d');
                 
-                // Create radial gradient: bright center -> transparent edges
-                // HYPERREALISTIC: Use more gradual falloff like real light on floor
+                // PHYSICS-ACCURATE GRADIENT using inverse-square law with Gaussian hot spot
+                // Real spotlight beam profiles have:
+                // 1. Bright central hot spot (Gaussian distribution)
+                // 2. Field angle region (inverse-square falloff)
+                // 3. Soft penumbra edge (Fresnel scattering)
                 const gradient = ctx.createRadialGradient(
-                    gradientSize/2, gradientSize/2, 0,           // Inner circle (center)
-                    gradientSize/2, gradientSize/2, gradientSize/2  // Outer circle (edge)
+                    gradientSize/2, gradientSize/2, 0,
+                    gradientSize/2, gradientSize/2, gradientSize/2
                 );
-                // Realistic inverse-square-ish falloff with soft center hotspot
-                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');    // Bright center hotspot
-                gradient.addColorStop(0.1, 'rgba(255, 255, 255, 0.95)'); // Still very bright
-                gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.7)'); // Starting to fade
-                gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.45)'); // Inverse square region
-                gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.2)');  // Soft falloff
-                gradient.addColorStop(0.8, 'rgba(255, 255, 255, 0.08)'); // Very soft edge
-                gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');  // Fully transparent edge
+                
+                // Physics model: I(r) = I₀ * exp(-r²/σ²) for hot spot + 1/r² falloff
+                // Hot spot (beam angle) typically 10-15% of total, field (flood angle) 50-60%
+                // σ = 0.15 for tight hot spot, with inverse-square beyond
+                const hotSpotSize = 0.12; // 12% of radius is hot spot
+                const fieldSize = 0.55;   // 55% is field angle
+                
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');      // Center peak
+                gradient.addColorStop(hotSpotSize * 0.5, 'rgba(255, 255, 255, 0.98)'); // Gaussian plateau
+                gradient.addColorStop(hotSpotSize, 'rgba(255, 255, 255, 0.85)');  // Hot spot edge
+                gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.55)');  // Field region (1/r² starts)
+                gradient.addColorStop(fieldSize, 'rgba(255, 255, 255, 0.22)');  // Field edge
+                gradient.addColorStop(0.75, 'rgba(255, 255, 255, 0.08)');  // Penumbra (soft scatter)
+                gradient.addColorStop(0.90, 'rgba(255, 255, 255, 0.02)');  // Fresnel edge scatter
+                gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');    // Full transparency
                 
                 ctx.fillStyle = gradient;
                 ctx.fillRect(0, 0, gradientSize, gradientSize);
@@ -4571,14 +4725,77 @@ class VRClub {
         // Get audio data for reactive lighting (needed for laser sheet pulse)
         const audioData = this.getAudioData();
 
-        // SMOKE SYSTEM CONTROL
-        if (this.floorFog && this.haze) {
+        // === FOG MACHINE SYSTEM CONTROL ===
+        if (this.fogMachines && this.fogMachines.length > 0) {
+            const currentTime = time;
+            
             if (this.smokeActive) {
-                if (!this.floorFog.isStarted()) this.floorFog.start();
-                if (!this.haze.isStarted()) this.haze.start();
+                // Ensure haze is running for beam visibility
+                if (this.haze && !this.haze.isStarted()) this.haze.start();
+                
+                // Update each fog machine
+                this.fogMachines.forEach((machine, i) => {
+                    const emitter = machine.emitter;
+                    const led = machine.led;
+                    const ledMat = machine.ledMat;
+                    
+                    // === FOG BURST LOGIC ===
+                    if (this.fogBurstMode === 'auto') {
+                        // Automatic bursts synced to music/phase
+                        const timeSinceLastBurst = currentTime - this.lastFogBurst;
+                        const burstInterval = this.fogBurstInterval / this.fogIntensity;
+                        
+                        if (!machine.isBursting && timeSinceLastBurst > burstInterval) {
+                            // Start a burst
+                            machine.isBursting = true;
+                            machine.burstTimer = 2.5; // 2.5 second burst
+                            emitter.emitRate = 150 * this.fogIntensity;
+                            
+                            // Update LED to red (active)
+                            ledMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0);
+                            
+                            if (i === 0) this.lastFogBurst = currentTime;
+                        }
+                        
+                        if (machine.isBursting) {
+                            machine.burstTimer -= 0.016; // ~60fps decrement
+                            
+                            // Fade out burst over last 0.5 seconds
+                            if (machine.burstTimer < 0.5) {
+                                emitter.emitRate = 150 * this.fogIntensity * (machine.burstTimer / 0.5);
+                            }
+                            
+                            if (machine.burstTimer <= 0) {
+                                machine.isBursting = false;
+                                emitter.emitRate = 0;
+                                ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green (ready)
+                            }
+                        }
+                        
+                    } else if (this.fogBurstMode === 'continuous') {
+                        // Continuous low output
+                        emitter.emitRate = 80 * this.fogIntensity;
+                        ledMat.emissiveColor = new BABYLON.Color3(1, 0.5, 0); // Orange (continuous)
+                        machine.isBursting = false;
+                        
+                    } else if (this.fogBurstMode === 'burst') {
+                        // Manual burst mode - awaiting trigger
+                        if (!machine.isBursting) {
+                            emitter.emitRate = 0;
+                            ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 1); // Blue (standby)
+                        }
+                    }
+                });
+                
             } else {
-                if (this.floorFog.isStarted()) this.floorFog.stop();
-                if (this.haze.isStarted()) this.haze.stop();
+                // Smoke disabled - stop all fog machines
+                this.fogMachines.forEach(machine => {
+                    machine.emitter.emitRate = 0;
+                    machine.isBursting = false;
+                    machine.ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray (off)
+                });
+                
+                if (this.haze && this.haze.isStarted()) this.haze.stop();
             }
         }
 
@@ -5033,6 +5250,11 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = true; // Haze for beam visibility
                         
+                        // === FOG MACHINES: Auto mode with moderate output ===
+                        this.fogIntensity = 0.8;
+                        this.fogBurstMode = 'auto';
+                        this.fogBurstInterval = 12; // Occasional bursts
+                        
                         this.spotlightPattern = 0; // Automated movement patterns
                         this.spotlightMode = 1; // Sweep only (no strobe)
                         this.spotlightSpeed = 0.6; // Slow, hypnotic
@@ -5043,13 +5265,13 @@ class VRClub {
                         break;
                         
                     case 'build':
-                        // BUILD → TENSION: Increase intensity, add lasers
+                        // BUILD → TENSION: Increase intensity with gobos only
                         this.lightingPhase = 'tension';
                         this.targetEnergy = 0.75;
                         
-                        // Add ceiling lasers, faster movement
-                        this.lightsActive = true;
-                        this.lasersActive = true; // Ceiling lasers join
+                        // GOBOS ONLY - fast sweeping, no lasers yet (save for later)
+                        this.lightsActive = true;  // Gobos featured
+                        this.lasersActive = false; // Lasers OFF - save for their moment
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
                         this.blindersActive = true; // Blinders start pulsing
@@ -5063,7 +5285,7 @@ class VRClub {
                         this.ledWallSpeed = 1.2;
                         this.blinderSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
-                        log.info('⚡ TENSION: Energy building - Crossed beams intensify');
+                        log.info('⚡ TENSION: Gobos intensify - Crossed beams building');
                         break;
                         
                     case 'tension':
@@ -5082,13 +5304,25 @@ class VRClub {
                         // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true; // Maximum haze
                         
+                        // === FOG MACHINE BURST ON DROP ===
+                        this.fogIntensity = 2.0; // Maximum fog output
+                        this.fogBurstInterval = 3; // Rapid bursts
+                        // Trigger immediate burst
+                        if (this.fogMachines) {
+                            this.fogMachines.forEach(machine => {
+                                machine.isBursting = true;
+                                machine.burstTimer = 4.0; // Long burst on drop
+                                machine.emitter.emitRate = 250;
+                            });
+                        }
+                        
                         this.spotlightSpeed = 2.5; // FAST
                         this.laserSpeed = 2.0;
                         this.ledWallSpeed = 2.5; // LED wall goes crazy
                         this.strobeSpeed = 2.0; // Rapid strobes
                         this.blinderSpeed = 2.0; // Blinders punching
                         this.currentShowMode = 'laserSheet';
-                        log.info('💥 DROP: MAXIMUM IMPACT - All systems firing!');
+                        log.info('💥 DROP: MAXIMUM IMPACT - Fog machines blast!');
                         break;
                         
                     case 'drop':
@@ -5129,33 +5363,42 @@ class VRClub {
                         this.laserSheetActive = false;
                         this.smokeActive = false; // Clear air for reflections
                         
+                        // === FOG MACHINE OFF for clean mirror ball reflections ===
+                        this.fogIntensity = 0.0;
+                        if (this.fogMachines) {
+                            this.fogMachines.forEach(machine => {
+                                machine.isBursting = false;
+                                machine.emitter.emitRate = 0;
+                            });
+                        }
+                        
                         this.mirrorBallSpeed = 0.4; // Slow, romantic
                         this.ledWallSpeed = 0.3; // LED wall very slow
                         this.currentShowMode = 'mirror';
-                        log.info('🪩 BREAKDOWN: Disco moment - Mirror ball takes over');
+                        log.info('🪩 BREAKDOWN: Disco moment - Clear air for reflections');
                         break;
                         
                     case 'breakdown':
-                        // BREAKDOWN → ATMOSPHERIC: Dreamy transition
+                        // BREAKDOWN → ATMOSPHERIC: Slow gobos only - dreamy
                         this.lightingPhase = 'atmospheric';
                         this.targetEnergy = 0.35;
                         
-                        // Mirror ball + slow spotlights = ethereal
-                        this.lightsActive = true; // Spotlights back
-                        this.lasersActive = false;
-                        this.mirrorBallActive = true; // Keep mirror ball
+                        // GOBOS ONLY - ethereal slow movement after disco moment
+                        this.lightsActive = true;   // Slow ethereal gobos
+                        this.lasersActive = false;  // No lasers
+                        this.mirrorBallActive = false; // Mirror ball had its moment
                         this.strobesActive = false;
                         this.blindersActive = false;
                         this.laserSheetActive = false;
-                        this.smokeActive = true; // Light haze
+                        this.smokeActive = true; // Light haze for beam visibility
                         
-                        this.spotlightPattern = 2; // MIRROR SWEEP - converging/diverging for ethereal feel
+                        this.spotlightPattern = 2; // MIRROR SWEEP - converging/diverging ethereal
                         this.spotlightMode = 1; // Sweep only
                         this.spotlightSpeed = 0.3; // Very slow, dreamlike
                         this.mirrorBallSpeed = 0.5;
                         this.ledWallSpeed = 0.4;
-                        this.currentShowMode = 'mixed';
-                        log.info('✨ ATMOSPHERIC: Dreamy transition - Mirrored beams + reflections');
+                        this.currentShowMode = 'spotlights';
+                        log.info('✨ ATMOSPHERIC: Ethereal gobos - Dreamlike sweeps');
                         break;
                         
                     case 'atmospheric':
@@ -5172,59 +5415,63 @@ class VRClub {
                         // this.laserSheetActive = true; // LASER SHEET DISABLED
                         this.smokeActive = true; // Maximum haze for beam visibility
                         
+                        // === FOG MACHINES: Heavy continuous output for laser tunnel ===
+                        this.fogIntensity = 1.5;
+                        this.fogBurstMode = 'continuous';
+                        
                         this.laserSpeed = 0.3; // Very slow rotation
                         this.laserFanAngle = 0.2; // Narrow fan - beams converge
                         this.ledWallSpeed = 0.5;
                         this.currentShowMode = 'lasers';
-                        log.info('🌀 LASER TUNNEL: Immersive laser cocoon around dancers');
+                        log.info('🌀 LASER TUNNEL: Fog machines continuous for beam visibility');
                         break;
                         
                     case 'laser_tunnel':
-                        // LASER TUNNEL → GROOVE: Transition to hypnotic groove
+                        // LASER TUNNEL → GROOVE: Transition to gobos-only hypnotic groove
                         this.lightingPhase = 'groove';
                         this.targetEnergy = 0.6;
                         
-                        // Spotlights + ceiling lasers = hypnotic groove
-                        this.lightsActive = true;
-                        this.lasersActive = true; // Slow lasers
+                        // GOBOS ONLY for groove - lasers had their moment
+                        this.lightsActive = true;   // Gobos take over
+                        this.lasersActive = false;  // Lasers OFF - contrast after laser tunnel
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
                         this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
-                        this.spotlightPattern = 3; // CROSSED BEAMS - hypnotic X patterns
+                        this.spotlightPattern = 2; // MIRROR SWEEP - hypnotic synchronized movement
                         this.spotlightMode = 1; // Sweep only
                         this.spotlightSpeed = 0.6; // Medium speed for groove
-                        this.laserSpeed = 0.6; // Slow lasers
+                        this.laserSpeed = 0.6;
                         this.laserFanAngle = 0.5; // Normal spread
                         this.ledWallSpeed = 0.8;
                         this.currentShowMode = 'spotlights';
-                        log.info('🎵 GROOVE: Finding the pocket - Crossed beam hypnosis');
+                        log.info('🎵 GROOVE: Gobos-only hypnosis after laser intensity');
                         break;
                         
                     case 'groove':
-                        // GROOVE → EUPHORIA: Pure bliss moment - everything harmonizes
+                        // GROOVE → EUPHORIA: Mirror ball moment - disco glory
                         this.lightingPhase = 'euphoria';
                         this.targetEnergy = 0.85;
                         
-                        // Everything on but gentle - synchronized beauty
-                        this.lightsActive = true;
-                        this.lasersActive = true;
-                        this.mirrorBallActive = true;
+                        // MIRROR BALL FEATURED - solo star with subtle gobos
+                        // This is THE disco moment - mirror ball deserves focus
+                        this.lightsActive = true;   // Slow gobos complement
+                        this.lasersActive = false;  // Lasers OFF - would overpower reflections
+                        this.mirrorBallActive = true; // THE STAR
                         this.strobesActive = false; // No strobes - pure vibes
                         this.blindersActive = false;
                         this.laserSheetActive = false;
-                        this.smokeActive = true;
+                        this.smokeActive = false;   // Clear air for crisp reflections
                         
-                        this.spotlightPattern = 2; // MIRROR SWEEP - synchronized elegance
+                        this.spotlightPattern = 1; // STATIC DOWN - let mirror ball shine
                         this.spotlightMode = 1; // Sweep only - elegant
-                        this.spotlightSpeed = 0.8; // Moderate, flowing
-                        this.laserSpeed = 0.8;
+                        this.spotlightSpeed = 0.3; // Very slow - don't compete
                         this.mirrorBallSpeed = 0.6;
-                        this.ledWallSpeed = 1.0;
-                        this.currentShowMode = 'euphoria';
-                        log.info('💫 EUPHORIA: Pure bliss - Synchronized harmony');
+                        this.ledWallSpeed = 0.4; // Subdued LED wall
+                        this.currentShowMode = 'mirror';
+                        log.info('💫 EUPHORIA: Mirror ball glory - Disco moment');
                         break;
                         
                     case 'euphoria':
@@ -6301,99 +6548,131 @@ class VRClub {
                     
 
                     
-                    // Update HYPERREALISTIC floor light pool - Soft radial gradient for realistic light reflection
+                    // Update HYPERREALISTIC floor light pool - Physics-accurate projection
                     if (spot.lightPool) {
                         if (this.lightsActive && beamVisible) {
-                            // HYPERREALISTIC: Pool is ELLIPTICAL when beam hits floor at angle
-                            // When a circular cone intersects a plane at angle θ, the result is an ellipse
-                            // - Minor axis (perpendicular to tilt): same as cone diameter = 1.5m
-                            // - Major axis (along tilt direction): diameter / cos(θ)
-                            const beamDiameterAtFloor = 1.5; // Matches diameterTop from beam creation
+                            // === PHYSICS-ACCURATE ELLIPTICAL PROJECTION ===
+                            // The beam mesh is a cone with:
+                            //   - diameterTop = 1.5m (at floor end, after scaling)
+                            //   - diameterBottom = 0.2m (at fixture lens)
+                            //   - height = beamLength (scaled dynamically)
+                            // The pool should match the beam's floor intersection exactly
                             
-                            // cosTheta already calculated above for beam extension
-                            // Use the same values for consistency
-                            const ellipseStretch = 1.0 / Math.max(0.25, cosTheta); // How much to stretch along tilt
+                            // Beam half-angle from mesh geometry: atan((0.75 - 0.1) / beamLength)
+                            // For typical 7.3m beam: atan(0.65/7.3) ≈ 5.1°
+                            // But the mesh scales, so floor diameter is always proportional to length
+                            // diameterAtFloor = diameterBottom + (diameterTop - diameterBottom) * 1.0
+                            //                 = 0.2 + (1.5 - 0.2) = 1.5m for unit height
+                            // When scaled by beamLength, the cone expands proportionally
                             
-                            // Pool radius = half diameter, with expansion for soft edge glow
-                            const poolBaseSize = (beamDiameterAtFloor * 0.5) * 1.3; // Base radius with soft edge
+                            // For consistent visuals: use fixed ratio based on mesh geometry
+                            // The beam scales uniformly in Y, so floor diameter scales with length
+                            const meshFloorDiameter = 0.2 + (1.5 - 0.2) * 1.0; // 1.5m at unit height
+                            const beamDiameterAtFloor = meshFloorDiameter; // Fixed for mesh consistency
                             
-                            // Calculate ellipse orientation (stretch in direction of beam tilt)
-                            // Project beam direction onto XZ plane to get stretch direction
+                            // === ELLIPSE GEOMETRY ===
+                            // When beam hits floor at angle θ from vertical:
+                            // Minor axis = beam diameter (perpendicular to tilt)
+                            // Major axis = beam diameter / cos(θ) (along tilt direction)
+                            const incidentAngle = Math.acos(Math.abs(direction.y)); // θ from vertical
+                            const cosIncident = Math.abs(direction.y);
+                            const ellipseStretch = 1.0 / Math.max(0.15, cosIncident);
+                            
+                            // Clamp stretch to prevent extreme ellipses at very shallow angles
+                            const clampedStretch = Math.min(5.0, ellipseStretch);
+                            
+                            // Pool radii: add 15% for soft penumbra edges
+                            const minorRadius = (beamDiameterAtFloor * 0.5) * 1.15;
+                            const majorRadius = minorRadius * clampedStretch;
+                            
+                            // Tilt direction on XZ plane
                             const tiltDirX = direction.x;
                             const tiltDirZ = direction.z;
                             const tiltMagnitude = Math.sqrt(tiltDirX * tiltDirX + tiltDirZ * tiltDirZ);
                             
-                            // Subtle shimmer for realistic light variation
-                            const shimmer = 1.0 + Math.sin(time * 1.5 + i * 0.7) * 0.08;
+                            // === LAMBERT'S COSINE LAW ===
+                            // Irradiance on surface = I₀ * cos(θ)
+                            // Light spreads over larger area at steeper angles → dimmer
+                            const lambertFactor = Math.max(0.2, cosIncident);
                             
-                            // HYPERREALISTIC: Position pool exactly at floor level
-                            // y=0.003 is just enough to prevent z-fighting while looking like it's ON the floor
-                            spot.lightPool.position.x = floorIntersection.x;
-                            spot.lightPool.position.y = 0.003; // Closer to floor for realistic look
-                            spot.lightPool.position.z = floorIntersection.z;
+                            // === INVERSE SQUARE FALLOFF ===
+                            // I = I₀ / d², normalized to reference distance
+                            const refDist = 7.3; // Fixture height in meters
+                            const invSqFalloff = Math.pow(refDist / Math.max(2, centerBeamLength), 2);
+                            const clampedInvSq = Math.min(2.0, Math.max(0.25, invSqFalloff));
                             
-                            // ELLIPTICAL SCALING: stretch in tilt direction
-                            // The disc mesh is in XY plane, rotated 90° around X to lie flat
-                            // So disc's local X = world X (perpendicular to tilt when rotated)
-                            // And disc's local Y = world Z (along tilt direction when rotated)
-                            if (tiltMagnitude > 0.05) {
-                                // Calculate rotation angle around Y to align stretch with tilt direction
+                            // Combined physics-based intensity
+                            const physicsIntensity = lambertFactor * clampedInvSq;
+                            
+                            // Subtle atmospheric shimmer (dust particles in beam)
+                            const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;
+                            
+                            // === POSITION POOL AT BEAM-FLOOR INTERSECTION ===
+                            spot.lightPool.position.set(
+                                floorIntersection.x,
+                                0.004, // Just above floor (prevent z-fighting)
+                                floorIntersection.z
+                            );
+                            
+                            // === ELLIPSE ORIENTATION ===
+                            // Rotate pool so major axis aligns with beam tilt direction
+                            if (tiltMagnitude > 0.03) {
                                 const poolRotation = Math.atan2(tiltDirX, tiltDirZ);
-                                spot.lightPool.rotation.y = poolRotation; // Rotate around Y (vertical axis)
-                                // After Y rotation, local +Z aligns with tilt direction
-                                // Scale: X stays same (minor axis), Z is stretched (major axis along tilt)
-                                spot.lightPool.scaling.set(poolBaseSize, poolBaseSize * ellipseStretch, 1);
+                                spot.lightPool.rotation.y = poolRotation;
+                                // Disc local Y → world Z after X rotation, so scale Y for major axis
+                                spot.lightPool.scaling.set(minorRadius, majorRadius, 1);
                             } else {
                                 // Nearly vertical - circular pool
                                 spot.lightPool.rotation.y = 0;
-                                spot.lightPool.scaling.set(poolBaseSize, poolBaseSize, 1);
+                                spot.lightPool.scaling.set(minorRadius, minorRadius, 1);
                             }
                             spot.lightPool.visibility = 1.0;
                             
-                            // Color intensity falls off with distance (inverse square approximation)
-                            const normalizedDistance = Math.min(1.0, centerBeamLength / 10.0);
-                            const distanceFalloff = Math.max(0.3, 1.0 - (normalizedDistance * 0.5));
-                            const poolIntensity = 1.8 * shimmer * distanceFalloff;
-                            
+                            // === POOL MATERIAL - Physics-based brightness ===
+                            const poolBrightness = 1.8 * physicsIntensity * shimmer;
                             if (spot.poolMat) {
-                                spot.poolMat.emissiveColor = spotColor.scale(poolIntensity);
-                                spot.poolMat.alpha = 0.55 * distanceFalloff;
+                                spot.poolMat.emissiveColor = spotColor.scale(poolBrightness);
+                                spot.poolMat.alpha = 0.55 * Math.min(1.0, physicsIntensity);
                             }
                             
-                            // === HYPERREALISTIC POOL LIGHT UPDATE ===
-                            // Move the actual point light to illuminate surfaces where beam hits
+                            // === POOL LIGHT (if enabled) ===
                             if (spot.poolLight) {
-                                spot.poolLight.position.x = floorIntersection.x;
-                                spot.poolLight.position.y = 0.8; // Slightly above floor for better spread
-                                spot.poolLight.position.z = floorIntersection.z;
+                                spot.poolLight.position.set(
+                                    floorIntersection.x,
+                                    0.4,
+                                    floorIntersection.z
+                                );
                                 spot.poolLight.diffuse = spotColor.clone();
-                                spot.poolLight.specular = spotColor.scale(0.4);
-                                spot.poolLight.intensity = 5.0 * distanceFalloff * shimmer;
-                                spot.poolLight.range = 3.5 + (ellipseStretch * 0.5); // Range matches pool size
+                                spot.poolLight.specular = spotColor.scale(0.25);
+                                spot.poolLight.intensity = 3.5 * physicsIntensity * shimmer;
+                                spot.poolLight.range = majorRadius * 2.0;
                                 spot.poolLight.setEnabled(true);
                             }
                             
-                            // Outer glow - larger, softer ambient light spread (also elliptical)
+                            // === OUTER GLOW (penumbra scatter) ===
                             if (spot.lightPoolGlow) {
-                                const glowBaseSize = poolBaseSize * 2.2; // Much larger for soft ambient spread
-                                spot.lightPoolGlow.position.x = floorIntersection.x;
-                                spot.lightPoolGlow.position.y = 0.002;
-                                spot.lightPoolGlow.position.z = floorIntersection.z;
+                                const glowMinor = minorRadius * 2.2;
+                                const glowMajor = majorRadius * 2.2;
                                 
-                                // Match ellipse shape of main pool (use rotation.y for horizontal rotation)
-                                if (tiltMagnitude > 0.05) {
+                                spot.lightPoolGlow.position.set(
+                                    floorIntersection.x,
+                                    0.002,
+                                    floorIntersection.z
+                                );
+                                
+                                if (tiltMagnitude > 0.03) {
                                     spot.lightPoolGlow.rotation.y = spot.lightPool.rotation.y;
-                                    spot.lightPoolGlow.scaling.set(glowBaseSize, glowBaseSize * ellipseStretch, 1);
+                                    spot.lightPoolGlow.scaling.set(glowMinor, glowMajor, 1);
                                 } else {
                                     spot.lightPoolGlow.rotation.y = 0;
-                                    spot.lightPoolGlow.scaling.set(glowBaseSize, glowBaseSize, 1);
+                                    spot.lightPoolGlow.scaling.set(glowMinor, glowMinor, 1);
                                 }
                                 spot.lightPoolGlow.visibility = 1.0;
                                 
                                 if (spot.poolGlowMat) {
-                                    // Very soft ambient glow
-                                    spot.poolGlowMat.emissiveColor = spotColor.scale(0.5 * shimmer * distanceFalloff);
-                                    spot.poolGlowMat.alpha = 0.25 * distanceFalloff;
+                                    const glowBrightness = 0.35 * physicsIntensity * shimmer;
+                                    spot.poolGlowMat.emissiveColor = spotColor.scale(glowBrightness);
+                                    spot.poolGlowMat.alpha = 0.18 * Math.min(1.0, physicsIntensity);
                                 }
                             }
                             
@@ -8011,6 +8290,26 @@ class VRClub {
                         // Broadcast spotlight pattern change to other players
                         if (this.networkManager && this.networkManager.isConnected()) {
                             this.networkManager.sendVJControl('spotlightPattern', this.spotlightPattern);
+                        }
+                    } else if (clickedButton.control === "fogBurst") {
+                        // === MANUAL FOG BURST TRIGGER ===
+                        // Immediately triggers all fog machines for dramatic effect
+                        if (this.fogMachines) {
+                            this.fogMachines.forEach(machine => {
+                                machine.isBursting = true;
+                                machine.burstTimer = 3.5; // 3.5 second burst
+                                machine.emitter.emitRate = 200 * (this.fogIntensity || 1.0);
+                                machine.ledMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0); // Red LED
+                            });
+                            this.lastFogBurst = performance.now() / 1000;
+                            
+                            // Flash button with bright white
+                            clickedButton.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                            setTimeout(() => {
+                                clickedButton.material.emissiveColor = clickedButton.offColor;
+                            }, 500);
+                            
+                            log.info('💨 FOG BURST triggered!');
                         }
                     } else {
                         // Toggle on/off control
