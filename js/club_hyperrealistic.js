@@ -209,6 +209,16 @@ class VRClub {
         this.spotlightMode = 0;
         this.spotStrobeActive = true; // Simple strobe toggle (true = strobe on)
         
+        // Gobo filter settings (for legacy spotlight system)
+        this.goboEnabled = false;
+        this.goboPatternIndex = 0;
+        this.goboRotationSpeed = 1.0;
+        this.goboRotation = 0;
+        this.goboPatterns = [
+            'circle', 'star', 'triangles', 'squares', 'rings',
+            'spiral', 'dots', 'slats', 'cross', 'flower'
+        ];
+        
         // Independent speed controls per light type (0.1 = 10% speed, 2.0 = 200% speed)
         this.spotlightSpeed = 1.0;  // Spotlight sweep/rotation speed
         this.laserSpeed = 1.0;      // Laser rotation speed
@@ -4023,6 +4033,29 @@ class VRClub {
             const lightPoolCore = null;
             const poolCoreMat = null;
             
+            // === GOBO PROJECTION DISC ===
+            // Creates pattern shapes on floor when gobo is enabled
+            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
+                radius: 1.0,
+                tessellation: 64
+            }, this.scene);
+            goboProjection.rotation.x = Math.PI / 2;
+            goboProjection.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
+            goboProjection.isPickable = false;
+            
+            const goboMat = new BABYLON.StandardMaterial("goboMat" + i, this.scene);
+            goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            goboMat.emissiveColor = this.currentSpotColor.clone();
+            goboMat.alpha = 0.9;
+            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            goboMat.disableLighting = true;
+            goboMat.backFaceCulling = false;
+            goboMat.disableDepthWrite = true;
+            goboProjection.material = goboMat;
+            goboProjection.renderingGroupId = 1;
+            goboProjection.setEnabled(false); // Hidden by default
+            
             // === HYPERREALISTIC POOL LIGHT ===
             // DISABLED: Pool lights (PointLights) caused shader uniform buffer overflow
             // With 6 spotlights + 6 pool lights + ambient + LED = 14+ lights
@@ -4047,6 +4080,9 @@ class VRClub {
                 lightPoolGlow: lightPoolGlow,
                 poolGlowMat: poolGlowMat,
                 goboTexture: goboTexture, // Store for animation updates
+                goboProjection: goboProjection,
+                goboMat: goboMat,
+                goboLocalRotation: i * (Math.PI / 3), // Offset each spotlight's gobo rotation
                 fixture: fixtureData ? fixtureData.fixture : null,
                 head: head,
                 yoke: yoke,
@@ -4720,6 +4756,17 @@ class VRClub {
         const time = performance.now() / 1000;
         this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
         this.frameCounter++;
+        
+        // === GOBO ROTATION UPDATE ===
+        // Continuous 360° rotation for gobo patterns
+        if (this.goboEnabled) {
+            this.goboRotation += 0.02 * (this.goboRotationSpeed || 1.0);
+            if (this.goboRotation > Math.PI * 2) {
+                this.goboRotation -= Math.PI * 2;
+            } else if (this.goboRotation < -Math.PI * 2) {
+                this.goboRotation += Math.PI * 2;
+            }
+        }
         
         // OPTIMIZATION: Pre-calculate frequently used trig values (reduces ~30-40 Math.sin/cos calls per frame)
         const sinTime = Math.sin(time);
@@ -6893,6 +6940,35 @@ class VRClub {
                             if (spot.poolLight) spot.poolLight.setEnabled(false);
                         }
                     }
+                    
+                    // === GOBO PROJECTION UPDATE ===
+                    if (spot.goboProjection) {
+                        const showGobo = this.lightsActive && this.goboEnabled && beamVisible;
+                        spot.goboProjection.setEnabled(showGobo);
+                        
+                        if (showGobo) {
+                            // Sync position with light pool
+                            spot.goboProjection.position.x = spot.lightPool.position.x;
+                            spot.goboProjection.position.z = spot.lightPool.position.z;
+                            spot.goboProjection.position.y = 0.025; // Above floor
+                            
+                            // Sync scale with light pool
+                            spot.goboProjection.scaling.x = spot.lightPool.scaling.x * 1.1;
+                            spot.goboProjection.scaling.y = spot.lightPool.scaling.y * 1.1;
+                            
+                            // Apply 360° rotation with per-spotlight offset
+                            const localOffset = spot.goboLocalRotation || 0;
+                            spot.goboProjection.rotation.z = this.goboRotation + localOffset;
+                            
+                            // Update color to match spotlight
+                            if (spot.goboMat) {
+                                spot.goboMat.emissiveColor = spotColor.scale(1.5);
+                            }
+                            
+                            // Hide regular pool when gobo is on (gobo replaces it)
+                            spot.lightPool.visibility = 0;
+                        }
+                    }
                 }
                 
                 // CRITICAL: Hide beams when lights are off (no beams without light source!)
@@ -9044,6 +9120,331 @@ class VRClub {
                 musicUrlInput.style.borderColor = '';
             }, 2000);
         }
+    }
+    
+    // ========== GOBO FILTER CONTROL METHODS ==========
+    
+    /**
+     * Toggle gobo filters on/off
+     */
+    toggleGobo() {
+        this.goboEnabled = !this.goboEnabled;
+        
+        // Apply or remove gobo textures
+        if (this.spotlights) {
+            this.spotlights.forEach((spot, i) => {
+                if (spot.goboProjection) {
+                    spot.goboProjection.setEnabled(this.goboEnabled && this.lightsActive);
+                    if (this.goboEnabled) {
+                        this._applyGoboTexture(spot, i);
+                    }
+                }
+            });
+        }
+        
+        log.info(`🎭 Gobo filters ${this.goboEnabled ? 'enabled' : 'disabled'}`);
+        return this.goboEnabled;
+    }
+    
+    /**
+     * Set gobo enabled state
+     */
+    setGoboEnabled(enabled) {
+        this.goboEnabled = enabled;
+        
+        if (this.spotlights) {
+            this.spotlights.forEach((spot, i) => {
+                if (spot.goboProjection) {
+                    spot.goboProjection.setEnabled(enabled && this.lightsActive);
+                    if (enabled) {
+                        this._applyGoboTexture(spot, i);
+                    }
+                }
+            });
+        }
+    }
+    
+    /**
+     * Cycle to next gobo pattern
+     */
+    nextGoboPattern() {
+        this.goboPatternIndex = (this.goboPatternIndex + 1) % this.goboPatterns.length;
+        
+        // Regenerate textures for all spotlights
+        if (this.spotlights) {
+            this.spotlights.forEach((spot, i) => {
+                this._applyGoboTexture(spot, i);
+            });
+        }
+        
+        const patternName = this.goboPatterns[this.goboPatternIndex];
+        log.info(`🎭 Gobo pattern: ${patternName}`);
+        return patternName;
+    }
+    
+    /**
+     * Set gobo pattern by index or name
+     */
+    setGoboPattern(pattern) {
+        if (typeof pattern === 'string') {
+            const idx = this.goboPatterns.indexOf(pattern);
+            if (idx >= 0) {
+                this.goboPatternIndex = idx;
+            }
+        } else {
+            this.goboPatternIndex = pattern % this.goboPatterns.length;
+        }
+        
+        // Regenerate textures
+        if (this.spotlights) {
+            this.spotlights.forEach((spot, i) => {
+                this._applyGoboTexture(spot, i);
+            });
+        }
+    }
+    
+    /**
+     * Get current gobo pattern name
+     */
+    getGoboPattern() {
+        return this.goboPatterns[this.goboPatternIndex];
+    }
+    
+    /**
+     * Set gobo rotation speed
+     */
+    setGoboRotationSpeed(speed) {
+        this.goboRotationSpeed = speed;
+    }
+    
+    /**
+     * Apply gobo texture to a spotlight's projection disc
+     */
+    _applyGoboTexture(spot, index) {
+        if (!spot.goboProjection || !spot.goboMat) return;
+        
+        const patternName = this.goboPatterns[this.goboPatternIndex];
+        
+        // Dispose old texture if exists
+        if (spot.goboMat.emissiveTexture) {
+            spot.goboMat.emissiveTexture.dispose();
+            spot.goboMat.emissiveTexture = null;
+        }
+        
+        // Circle pattern = no texture (plain disc)
+        if (patternName === 'circle') {
+            return;
+        }
+        
+        // Create procedural gobo texture
+        const texture = this._createGoboTexture(patternName, index);
+        if (texture) {
+            spot.goboMat.emissiveTexture = texture;
+        }
+    }
+    
+    /**
+     * Create procedural gobo texture
+     */
+    _createGoboTexture(patternName, index) {
+        const size = 256;
+        const texture = new BABYLON.DynamicTexture("goboTex" + index + "_" + patternName, size, this.scene, true);
+        const ctx = texture.getContext();
+        
+        // Clear with black (transparent areas)
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, size, size);
+        
+        const cx = size / 2;
+        const cy = size / 2;
+        const radius = size / 2 - 10;
+        
+        // Circular mask
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.clip();
+        
+        // Draw pattern in white
+        ctx.fillStyle = 'white';
+        ctx.strokeStyle = 'white';
+        
+        switch (patternName) {
+            case 'star':
+                this._drawStar(ctx, cx, cy, radius * 0.9, 6);
+                break;
+            case 'triangles':
+                this._drawTriangles(ctx, cx, cy, radius);
+                break;
+            case 'squares':
+                this._drawSquares(ctx, cx, cy, radius);
+                break;
+            case 'rings':
+                this._drawRings(ctx, cx, cy, radius);
+                break;
+            case 'spiral':
+                this._drawSpiral(ctx, cx, cy, radius);
+                break;
+            case 'dots':
+                this._drawDots(ctx, cx, cy, radius);
+                break;
+            case 'slats':
+                this._drawSlats(ctx, cx, cy, radius);
+                break;
+            case 'cross':
+                this._drawCross(ctx, cx, cy, radius);
+                break;
+            case 'flower':
+                this._drawFlower(ctx, cx, cy, radius);
+                break;
+        }
+        
+        ctx.restore();
+        texture.update();
+        
+        texture.hasAlpha = true;
+        texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        
+        return texture;
+    }
+    
+    // Gobo pattern drawing functions
+    _drawStar(ctx, cx, cy, radius, points) {
+        const innerRadius = radius * 0.4;
+        ctx.beginPath();
+        for (let i = 0; i < points * 2; i++) {
+            const r = i % 2 === 0 ? radius : innerRadius;
+            const angle = (i * Math.PI / points) - Math.PI / 2;
+            const x = cx + r * Math.cos(angle);
+            const y = cy + r * Math.sin(angle);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    _drawTriangles(ctx, cx, cy, radius) {
+        const triangleSize = radius * 0.4;
+        const positions = [
+            [0, -0.5], [-0.4, 0.3], [0.4, 0.3],
+            [-0.3, -0.2], [0.3, -0.2], [0, 0.4]
+        ];
+        positions.forEach(([ox, oy]) => {
+            const x = cx + ox * radius;
+            const y = cy + oy * radius;
+            ctx.beginPath();
+            ctx.moveTo(x, y - triangleSize * 0.5);
+            ctx.lineTo(x - triangleSize * 0.4, y + triangleSize * 0.3);
+            ctx.lineTo(x + triangleSize * 0.4, y + triangleSize * 0.3);
+            ctx.closePath();
+            ctx.fill();
+        });
+    }
+    
+    _drawSquares(ctx, cx, cy, radius) {
+        const gridSize = 5;
+        const cellSize = (radius * 2) / gridSize;
+        const startX = cx - radius;
+        const startY = cy - radius;
+        for (let row = 0; row < gridSize; row++) {
+            for (let col = 0; col < gridSize; col++) {
+                if ((row + col) % 2 === 0) {
+                    ctx.fillRect(startX + col * cellSize + 2, startY + row * cellSize + 2, cellSize - 4, cellSize - 4);
+                }
+            }
+        }
+    }
+    
+    _drawRings(ctx, cx, cy, radius) {
+        const ringCount = 4;
+        const ringWidth = radius / (ringCount * 2);
+        ctx.lineWidth = ringWidth;
+        for (let i = 1; i <= ringCount; i++) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, i * (radius / ringCount) - ringWidth / 2, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+    
+    _drawSpiral(ctx, cx, cy, radius) {
+        const arms = 4;
+        const rotations = 1.5;
+        ctx.lineWidth = radius * 0.15;
+        ctx.lineCap = 'round';
+        for (let arm = 0; arm < arms; arm++) {
+            const startAngle = (arm * Math.PI * 2) / arms;
+            ctx.beginPath();
+            for (let t = 0; t <= 1; t += 0.01) {
+                const angle = startAngle + t * Math.PI * 2 * rotations;
+                const r = t * radius;
+                const x = cx + r * Math.cos(angle);
+                const y = cy + r * Math.sin(angle);
+                if (t === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+    }
+    
+    _drawDots(ctx, cx, cy, radius) {
+        const dotRadius = radius * 0.08;
+        const rings = 3;
+        for (let ring = 1; ring <= rings; ring++) {
+            const ringRadius = (ring / rings) * radius * 0.85;
+            const dotCount = ring * 6;
+            for (let i = 0; i < dotCount; i++) {
+                const angle = (i / dotCount) * Math.PI * 2;
+                const x = cx + ringRadius * Math.cos(angle);
+                const y = cy + ringRadius * Math.sin(angle);
+                ctx.beginPath();
+                ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, dotRadius * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    _drawSlats(ctx, cx, cy, radius) {
+        const slatCount = 7;
+        const slatHeight = radius * 0.12;
+        const gap = (radius * 2) / (slatCount + 1);
+        const startY = cy - radius;
+        for (let i = 1; i <= slatCount; i++) {
+            const y = startY + i * gap;
+            ctx.fillRect(cx - radius, y - slatHeight / 2, radius * 2, slatHeight);
+        }
+    }
+    
+    _drawCross(ctx, cx, cy, radius) {
+        const armWidth = radius * 0.35;
+        const armLength = radius * 0.9;
+        ctx.fillRect(cx - armWidth / 2, cy - armLength, armWidth, armLength * 2);
+        ctx.fillRect(cx - armLength, cy - armWidth / 2, armLength * 2, armWidth);
+    }
+    
+    _drawFlower(ctx, cx, cy, radius) {
+        const petalCount = 8;
+        const petalLength = radius * 0.7;
+        const petalWidth = radius * 0.35;
+        for (let i = 0; i < petalCount; i++) {
+            const angle = (i / petalCount) * Math.PI * 2;
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angle);
+            ctx.beginPath();
+            ctx.ellipse(0, -petalLength / 2, petalWidth / 2, petalLength / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        // Center circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 0.25, 0, Math.PI * 2);
+        ctx.fill();
     }
     
     getAudioData() {
