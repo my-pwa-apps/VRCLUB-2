@@ -16,6 +16,25 @@ class SpotlightSystem {
         this.spotlightPattern = 0;
         this.spotStrobeActive = true;
         
+        // Gobo filter settings
+        this.goboEnabled = false;
+        this.goboPatternIndex = 0;
+        this.goboRotationSpeed = 1.0;  // Rotation speed multiplier
+        this.goboRotation = 0;          // Current rotation angle in radians
+        this.goboTextures = [];         // Cache for gobo textures
+        this.goboPatterns = [
+            'circle',      // 0 - Simple spotlight (no pattern)
+            'star',        // 1 - 6-pointed star
+            'triangles',   // 2 - Triangle breakup
+            'squares',     // 3 - Grid/checkerboard
+            'rings',       // 4 - Concentric rings
+            'spiral',      // 5 - Spiral pattern
+            'dots',        // 6 - Dotted pattern
+            'slats',       // 7 - Venetian blind slats
+            'cross',       // 8 - Cross/plus shape
+            'flower'       // 9 - Flower/petal pattern
+        ];
+        
         // Color management
         this.spotColorIndex = 0;
         this.currentSpotColor = new BABYLON.Color3(1, 0, 0);
@@ -163,6 +182,27 @@ class SpotlightSystem {
         lightPoolGlow.material = poolGlowMat;
         lightPoolGlow.renderingGroupId = 1;
         
+        // Create gobo projection disc (pattern on floor)
+        const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + index, {
+            radius: 0.5,
+            tessellation: 64
+        }, this.scene);
+        goboProjection.rotation.x = Math.PI / 2;
+        goboProjection.position = new BABYLON.Vector3(pos.x, 0.04, pos.z - 5);
+        goboProjection.isPickable = false;
+        
+        const goboMat = new BABYLON.StandardMaterial("goboMat" + index, this.scene);
+        goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        goboMat.emissiveColor = this.currentSpotColor.clone();
+        goboMat.alpha = 0.85;
+        goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+        goboMat.disableLighting = true;
+        goboMat.backFaceCulling = false;
+        goboProjection.material = goboMat;
+        goboProjection.renderingGroupId = 1;
+        goboProjection.setEnabled(false); // Hidden by default until gobo enabled
+        
         return {
             light: spot,
             beam: beam,
@@ -171,6 +211,9 @@ class SpotlightSystem {
             poolMat: poolMat,
             lightPoolGlow: lightPoolGlow,
             poolGlowMat: poolGlowMat,
+            goboProjection: goboProjection,
+            goboMat: goboMat,
+            goboRotation: index * (Math.PI / 3), // Offset each spotlight's gobo rotation
             fixture: fixtureData ? fixtureData.fixture : null,
             head: head,
             yoke: yoke,
@@ -219,6 +262,15 @@ class SpotlightSystem {
         
         // Update colors
         this._updateColors();
+        
+        // Update gobo rotation (continuous 360° spin)
+        if (this.goboEnabled) {
+            this.goboRotation += 0.02 * this.goboRotationSpeed;
+            if (this.goboRotation > Math.PI * 2) {
+                this.goboRotation -= Math.PI * 2;
+            }
+            this._updateGoboProjections(time);
+        }
     }
 
     /**
@@ -468,6 +520,7 @@ class SpotlightSystem {
             spotlight.beam.setEnabled(false);
             spotlight.lightPool.setEnabled(false);
             spotlight.lightPoolGlow.setEnabled(false);
+            if (spotlight.goboProjection) spotlight.goboProjection.setEnabled(false);
             
             if (spotlight.lensMat) spotlight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
             if (spotlight.sourceMat) spotlight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
@@ -519,6 +572,382 @@ class SpotlightSystem {
         this.currentSpotColor = this.spotColorList[this.spotColorIndex];
     }
 
+    // ========== GOBO FILTER METHODS ==========
+
+    /**
+     * Enable/disable gobo filters
+     */
+    setGoboEnabled(enabled) {
+        this.goboEnabled = enabled;
+        
+        this.spotlights.forEach(spotlight => {
+            if (enabled) {
+                // Hide regular light pool, show gobo projection
+                spotlight.lightPool.setEnabled(false);
+                spotlight.lightPoolGlow.setEnabled(false);
+                spotlight.goboProjection.setEnabled(this.lightsActive);
+                this._applyGoboTexture(spotlight);
+            } else {
+                // Show regular light pool, hide gobo projection
+                spotlight.lightPool.setEnabled(this.lightsActive);
+                spotlight.lightPoolGlow.setEnabled(this.lightsActive);
+                spotlight.goboProjection.setEnabled(false);
+            }
+        });
+        
+        this.log.info?.(`🎭 Gobo filters ${enabled ? 'enabled' : 'disabled'}`);
+    }
+
+    /**
+     * Toggle gobo filters on/off
+     */
+    toggleGobo() {
+        this.setGoboEnabled(!this.goboEnabled);
+        return this.goboEnabled;
+    }
+
+    /**
+     * Set gobo rotation speed (can be negative for reverse)
+     */
+    setGoboRotationSpeed(speed) {
+        this.goboRotationSpeed = speed;
+    }
+
+    /**
+     * Cycle to next gobo pattern
+     */
+    nextGoboPattern() {
+        this.goboPatternIndex = (this.goboPatternIndex + 1) % this.goboPatterns.length;
+        this._regenerateGoboTextures();
+        this.log.info?.(`🎭 Gobo pattern: ${this.goboPatterns[this.goboPatternIndex]}`);
+        return this.goboPatterns[this.goboPatternIndex];
+    }
+
+    /**
+     * Set specific gobo pattern by index or name
+     */
+    setGoboPattern(pattern) {
+        if (typeof pattern === 'string') {
+            const idx = this.goboPatterns.indexOf(pattern);
+            if (idx >= 0) {
+                this.goboPatternIndex = idx;
+            }
+        } else {
+            this.goboPatternIndex = pattern % this.goboPatterns.length;
+        }
+        this._regenerateGoboTextures();
+    }
+
+    /**
+     * Get current gobo pattern name
+     */
+    getGoboPattern() {
+        return this.goboPatterns[this.goboPatternIndex];
+    }
+
+    /**
+     * Regenerate gobo textures for all spotlights
+     */
+    _regenerateGoboTextures() {
+        this.spotlights.forEach(spotlight => {
+            this._applyGoboTexture(spotlight);
+        });
+    }
+
+    /**
+     * Apply gobo texture to a spotlight's projection
+     */
+    _applyGoboTexture(spotlight) {
+        const patternName = this.goboPatterns[this.goboPatternIndex];
+        const texture = this._createGoboTexture(patternName, spotlight.index);
+        
+        if (texture) {
+            // Dispose old texture if exists
+            if (spotlight.goboMat.emissiveTexture) {
+                spotlight.goboMat.emissiveTexture.dispose();
+            }
+            spotlight.goboMat.emissiveTexture = texture;
+            spotlight.goboMat.emissiveColor = spotlight.color || this.currentSpotColor;
+        } else {
+            // No pattern (solid circle)
+            if (spotlight.goboMat.emissiveTexture) {
+                spotlight.goboMat.emissiveTexture.dispose();
+                spotlight.goboMat.emissiveTexture = null;
+            }
+        }
+    }
+
+    /**
+     * Create procedural gobo texture
+     */
+    _createGoboTexture(patternName, index) {
+        if (patternName === 'circle') {
+            return null; // No texture needed for plain circle
+        }
+        
+        const size = 256;
+        const texture = new BABYLON.DynamicTexture("goboTex" + index + "_" + patternName, size, this.scene, true);
+        const ctx = texture.getContext();
+        
+        // Clear with transparent black
+        ctx.clearRect(0, 0, size, size);
+        
+        const cx = size / 2;
+        const cy = size / 2;
+        const radius = size / 2 - 10;
+        
+        // Draw circular mask first
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.clip();
+        
+        // Draw pattern in white (will be tinted by emissive color)
+        ctx.fillStyle = 'white';
+        
+        switch (patternName) {
+            case 'star':
+                this._drawStar(ctx, cx, cy, radius * 0.9, 6);
+                break;
+            case 'triangles':
+                this._drawTriangles(ctx, cx, cy, radius);
+                break;
+            case 'squares':
+                this._drawSquares(ctx, cx, cy, radius);
+                break;
+            case 'rings':
+                this._drawRings(ctx, cx, cy, radius);
+                break;
+            case 'spiral':
+                this._drawSpiral(ctx, cx, cy, radius);
+                break;
+            case 'dots':
+                this._drawDots(ctx, cx, cy, radius);
+                break;
+            case 'slats':
+                this._drawSlats(ctx, cx, cy, radius);
+                break;
+            case 'cross':
+                this._drawCross(ctx, cx, cy, radius);
+                break;
+            case 'flower':
+                this._drawFlower(ctx, cx, cy, radius);
+                break;
+        }
+        
+        ctx.restore();
+        texture.update();
+        
+        texture.hasAlpha = true;
+        texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        
+        return texture;
+    }
+
+    // ========== GOBO PATTERN DRAWING FUNCTIONS ==========
+
+    _drawStar(ctx, cx, cy, radius, points) {
+        const innerRadius = radius * 0.4;
+        ctx.beginPath();
+        for (let i = 0; i < points * 2; i++) {
+            const r = i % 2 === 0 ? radius : innerRadius;
+            const angle = (i * Math.PI / points) - Math.PI / 2;
+            const x = cx + r * Math.cos(angle);
+            const y = cy + r * Math.sin(angle);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    _drawTriangles(ctx, cx, cy, radius) {
+        // Multiple triangles in a breakup pattern
+        const triangleSize = radius * 0.4;
+        const positions = [
+            [0, -0.5], [-0.4, 0.3], [0.4, 0.3],
+            [-0.3, -0.2], [0.3, -0.2], [0, 0.4]
+        ];
+        
+        positions.forEach(([ox, oy]) => {
+            const x = cx + ox * radius;
+            const y = cy + oy * radius;
+            ctx.beginPath();
+            ctx.moveTo(x, y - triangleSize * 0.5);
+            ctx.lineTo(x - triangleSize * 0.4, y + triangleSize * 0.3);
+            ctx.lineTo(x + triangleSize * 0.4, y + triangleSize * 0.3);
+            ctx.closePath();
+            ctx.fill();
+        });
+    }
+
+    _drawSquares(ctx, cx, cy, radius) {
+        // Checkerboard pattern
+        const gridSize = 5;
+        const cellSize = (radius * 2) / gridSize;
+        const startX = cx - radius;
+        const startY = cy - radius;
+        
+        for (let row = 0; row < gridSize; row++) {
+            for (let col = 0; col < gridSize; col++) {
+                if ((row + col) % 2 === 0) {
+                    ctx.fillRect(
+                        startX + col * cellSize + 2,
+                        startY + row * cellSize + 2,
+                        cellSize - 4,
+                        cellSize - 4
+                    );
+                }
+            }
+        }
+    }
+
+    _drawRings(ctx, cx, cy, radius) {
+        // Concentric rings
+        const ringCount = 4;
+        const ringWidth = radius / (ringCount * 2);
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = ringWidth;
+        
+        for (let i = 1; i <= ringCount; i++) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, i * (radius / ringCount) - ringWidth / 2, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    _drawSpiral(ctx, cx, cy, radius) {
+        // Spiral arms
+        const arms = 4;
+        const rotations = 1.5;
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = radius * 0.15;
+        ctx.lineCap = 'round';
+        
+        for (let arm = 0; arm < arms; arm++) {
+            const startAngle = (arm * Math.PI * 2) / arms;
+            ctx.beginPath();
+            for (let t = 0; t <= 1; t += 0.01) {
+                const angle = startAngle + t * Math.PI * 2 * rotations;
+                const r = t * radius;
+                const x = cx + r * Math.cos(angle);
+                const y = cy + r * Math.sin(angle);
+                if (t === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+    }
+
+    _drawDots(ctx, cx, cy, radius) {
+        // Scattered dots
+        const dotRadius = radius * 0.08;
+        const rings = 3;
+        
+        for (let ring = 1; ring <= rings; ring++) {
+            const ringRadius = (ring / rings) * radius * 0.85;
+            const dotCount = ring * 6;
+            for (let i = 0; i < dotCount; i++) {
+                const angle = (i / dotCount) * Math.PI * 2;
+                const x = cx + ringRadius * Math.cos(angle);
+                const y = cy + ringRadius * Math.sin(angle);
+                ctx.beginPath();
+                ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(cx, cy, dotRadius * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    _drawSlats(ctx, cx, cy, radius) {
+        // Venetian blind slats
+        const slatCount = 7;
+        const slatHeight = radius * 0.12;
+        const gap = (radius * 2) / (slatCount + 1);
+        const startY = cy - radius;
+        
+        for (let i = 1; i <= slatCount; i++) {
+            const y = startY + i * gap;
+            ctx.fillRect(cx - radius, y - slatHeight / 2, radius * 2, slatHeight);
+        }
+    }
+
+    _drawCross(ctx, cx, cy, radius) {
+        // Bold cross/plus shape
+        const armWidth = radius * 0.35;
+        const armLength = radius * 0.9;
+        
+        // Vertical bar
+        ctx.fillRect(cx - armWidth / 2, cy - armLength, armWidth, armLength * 2);
+        // Horizontal bar
+        ctx.fillRect(cx - armLength, cy - armWidth / 2, armLength * 2, armWidth);
+    }
+
+    _drawFlower(ctx, cx, cy, radius) {
+        // Flower/petal pattern
+        const petalCount = 8;
+        const petalLength = radius * 0.7;
+        const petalWidth = radius * 0.35;
+        
+        for (let i = 0; i < petalCount; i++) {
+            const angle = (i / petalCount) * Math.PI * 2;
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angle);
+            
+            ctx.beginPath();
+            ctx.ellipse(0, -petalLength / 2, petalWidth / 2, petalLength / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        // Center circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    /**
+     * Update gobo projections (rotation, position, color)
+     */
+    _updateGoboProjections(time) {
+        this.spotlights.forEach((spotlight, i) => {
+            if (!spotlight.goboProjection) return;
+            
+            const isVisible = this.lightsActive && this.goboEnabled;
+            spotlight.goboProjection.setEnabled(isVisible);
+            
+            if (!isVisible) return;
+            
+            // Apply 360° rotation - each spotlight has offset phase for variety
+            const rotationOffset = spotlight.goboRotation || 0;
+            spotlight.goboProjection.rotation.z = this.goboRotation + rotationOffset;
+            
+            // Sync position with light pool
+            spotlight.goboProjection.position.x = spotlight.lightPool.position.x;
+            spotlight.goboProjection.position.z = spotlight.lightPool.position.z;
+            
+            // Sync scale with light pool
+            spotlight.goboProjection.scaling.x = spotlight.lightPool.scaling.x * 1.1;
+            spotlight.goboProjection.scaling.y = spotlight.lightPool.scaling.y * 1.1;
+            
+            // Update color to match spotlight
+            const spotColor = spotlight.color || this.currentSpotColor;
+            spotlight.goboMat.emissiveColor = spotColor;
+            
+            // Apply strobe visibility if active
+            const intensity = spotlight.beam.visibility;
+            spotlight.goboProjection.visibility = intensity > 0.5 ? 1.0 : 0;
+        });
+    }
+
     /**
      * Get current color
      */
@@ -535,7 +964,17 @@ class SpotlightSystem {
             spotlight.beam.dispose();
             spotlight.lightPool.dispose();
             spotlight.lightPoolGlow.dispose();
+            if (spotlight.goboProjection) {
+                if (spotlight.goboMat.emissiveTexture) {
+                    spotlight.goboMat.emissiveTexture.dispose();
+                }
+                spotlight.goboProjection.dispose();
+            }
         });
+        
+        // Dispose cached gobo textures
+        this.goboTextures.forEach(tex => tex.dispose());
+        this.goboTextures = [];
         
         this.spotlights = [];
         this.log.info?.('🗑️ Spotlight system disposed');

@@ -31,6 +31,14 @@ class VJControlSystem {
         this.lastBeatTime = 0;
         this.beatInterval = 60 / this.bpm;
         
+        // Auto-mode cycling timers
+        this.lastGoboCycleTime = 0;
+        this.goboCycleInterval = 16;  // Cycle gobo pattern every 16 seconds
+        this.lastColorCycleTime = 0;
+        this.colorCycleInterval = 8;  // Cycle colors every 8 seconds
+        this.lastSpeedChangeTime = 0;
+        this.speedChangeInterval = 24; // Change rotation speed every 24 seconds
+        
         // 3D UI button references
         this.controlButtons = [];
     }
@@ -66,7 +74,10 @@ class VJControlSystem {
                 strobes: true,
                 blinders: false,
                 haze: true,
-                ledPattern: 'vuMeter'
+                ledPattern: 'vuMeter',
+                gobo: true,             // Gobo filters ON
+                goboPattern: 'star',    // Star pattern
+                goboSpeed: 1.0          // Normal rotation speed
             },
             'disco': {
                 lasers: false,          // Ceiling lasers OFF (mirror ball is on)
@@ -77,7 +88,10 @@ class VJControlSystem {
                 strobes: false,
                 blinders: false,
                 haze: true,
-                ledPattern: 'rainbow'
+                ledPattern: 'rainbow',
+                gobo: true,             // Gobo filters ON
+                goboPattern: 'flower',  // Flower pattern for disco vibe
+                goboSpeed: 0.5          // Slower rotation
             },
             'rave': {
                 lasers: false,          // Ceiling lasers OFF (using laser sheet)
@@ -88,7 +102,10 @@ class VJControlSystem {
                 strobes: true,
                 blinders: true,
                 haze: true,
-                ledPattern: 'strobe'
+                ledPattern: 'strobe',
+                gobo: true,             // Gobo filters ON
+                goboPattern: 'spiral',  // Spiral for intense rave effect
+                goboSpeed: 2.0          // Fast rotation
             },
             'chill': {
                 lasers: true,           // Ceiling lasers ON (slow atmospheric)
@@ -99,7 +116,10 @@ class VJControlSystem {
                 strobes: false,
                 blinders: false,
                 haze: true,
-                ledPattern: 'colorWash'
+                ledPattern: 'colorWash',
+                gobo: true,             // Gobo filters ON
+                goboPattern: 'rings',   // Soft rings pattern
+                goboSpeed: 0.3          // Very slow rotation
             },
             'blackout': {
                 lasers: false,
@@ -110,7 +130,10 @@ class VJControlSystem {
                 strobes: false,
                 blinders: false,
                 haze: false,
-                ledPattern: null
+                ledPattern: null,
+                gobo: false,
+                goboPattern: 'circle',
+                goboSpeed: 0
             }
         };
     }
@@ -137,6 +160,16 @@ class VJControlSystem {
         
         if (this.spotlightSystem) {
             this.spotlightSystem.setActive(preset.spotlights);
+            // Apply gobo settings
+            if (preset.gobo !== undefined) {
+                this.spotlightSystem.setGoboEnabled(preset.gobo);
+            }
+            if (preset.goboPattern) {
+                this.spotlightSystem.setGoboPattern(preset.goboPattern);
+            }
+            if (preset.goboSpeed !== undefined) {
+                this.spotlightSystem.setGoboRotationSpeed(preset.goboSpeed);
+            }
         }
         
         if (this.mirrorBallSystem) {
@@ -236,18 +269,61 @@ class VJControlSystem {
      * Auto-mode logic for dynamic show
      */
     _autoModeLogic(time, audioData) {
-        // Change presets based on energy level
+        // ========== GOBO PATTERN CYCLING ==========
+        if (this.spotlightSystem && this.spotlightSystem.goboEnabled) {
+            // Cycle gobo patterns periodically
+            if (time - this.lastGoboCycleTime >= this.goboCycleInterval) {
+                this.lastGoboCycleTime = time;
+                this.spotlightSystem.nextGoboPattern();
+            }
+            
+            // Vary rotation speed based on audio energy or time
+            if (time - this.lastSpeedChangeTime >= this.speedChangeInterval) {
+                this.lastSpeedChangeTime = time;
+                // Random speed variation: 0.3 to 2.5, with occasional reverse
+                const speeds = [0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, -0.5, -1.0];
+                const newSpeed = speeds[Math.floor(Math.random() * speeds.length)];
+                this.spotlightSystem.setGoboRotationSpeed(newSpeed);
+            }
+        }
+        
+        // ========== COLOR CYCLING ==========
+        if (time - this.lastColorCycleTime >= this.colorCycleInterval) {
+            this.lastColorCycleTime = time;
+            // Cycle spotlight colors
+            if (this.spotlightSystem) {
+                this.spotlightSystem.nextColor();
+            }
+            // Cycle laser colors
+            if (this.laserSystem) {
+                this.laserSystem.nextColor();
+            }
+        }
+        
+        // ========== ENERGY-BASED ADJUSTMENTS ==========
         if (audioData) {
             const energy = (audioData.bass + audioData.mid + audioData.high) / 3;
             
-            // High energy -> rave mode
-            if (energy > 0.8 && this.currentPreset !== 'rave') {
-                // Don't switch too frequently
-                // this.applyPreset('rave');
+            // Adjust gobo rotation speed based on audio energy
+            if (this.spotlightSystem && this.spotlightSystem.goboEnabled) {
+                // Higher energy = faster rotation (0.5 to 3.0 range)
+                const dynamicSpeed = 0.5 + (energy * 2.5);
+                // Only apply if not recently changed by timer
+                if (time - this.lastSpeedChangeTime < this.speedChangeInterval * 0.5) {
+                    // Blend current speed with energy-based speed
+                    const currentSpeed = this.spotlightSystem.goboRotationSpeed;
+                    const blendedSpeed = currentSpeed * 0.7 + dynamicSpeed * 0.3;
+                    this.spotlightSystem.setGoboRotationSpeed(blendedSpeed);
+                }
             }
-            // Low energy -> chill mode
-            else if (energy < 0.3 && this.currentPreset !== 'chill') {
-                // this.applyPreset('chill');
+            
+            // High energy -> faster gobo cycling
+            if (energy > 0.7) {
+                this.goboCycleInterval = 8; // Faster pattern changes
+            } else if (energy < 0.3) {
+                this.goboCycleInterval = 24; // Slower, more chill
+            } else {
+                this.goboCycleInterval = 16; // Normal
             }
         }
     }
@@ -383,6 +459,56 @@ class VJControlSystem {
         }
     }
 
+    // ========== GOBO FILTER CONTROLS ==========
+
+    /**
+     * Toggle gobo filters on/off
+     */
+    toggleGobo() {
+        if (this.spotlightSystem) {
+            return this.spotlightSystem.toggleGobo();
+        }
+        return false;
+    }
+
+    /**
+     * Enable/disable gobo filters
+     */
+    setGoboEnabled(enabled) {
+        if (this.spotlightSystem) {
+            this.spotlightSystem.setGoboEnabled(enabled);
+        }
+    }
+
+    /**
+     * Cycle to next gobo pattern
+     */
+    cycleGoboPattern() {
+        if (this.spotlightSystem) {
+            return this.spotlightSystem.nextGoboPattern();
+        }
+        return null;
+    }
+
+    /**
+     * Set gobo rotation speed (positive = clockwise, negative = counter-clockwise)
+     */
+    setGoboRotationSpeed(speed) {
+        if (this.spotlightSystem) {
+            this.spotlightSystem.setGoboRotationSpeed(speed);
+        }
+    }
+
+    /**
+     * Get current gobo pattern name
+     */
+    getGoboPattern() {
+        if (this.spotlightSystem) {
+            return this.spotlightSystem.getGoboPattern();
+        }
+        return null;
+    }
+
     /**
      * Get current state for UI
      */
@@ -394,12 +520,14 @@ class VJControlSystem {
             currentPreset: this.currentPreset,
             effects: {
                 lasers: this.laserSystem?.lasersActive || false,
-                spotlights: this.spotlightSystem?.spotlightsActive || false,
+                spotlights: this.spotlightSystem?.lightsActive || false,
                 mirrorBall: this.mirrorBallSystem?.isActive || false,
                 ledWall: this.ledWallSystem?.ledWallActive || false,
                 strobes: this.strobeSystem?.strobesActive || false,
                 blinders: this.strobeSystem?.blindersActive || false,
-                haze: this.hazeSystem?.hazeActive || false
+                haze: this.hazeSystem?.hazeActive || false,
+                gobo: this.spotlightSystem?.goboEnabled || false,
+                goboPattern: this.spotlightSystem?.getGoboPattern() || 'circle'
             }
         };
     }
