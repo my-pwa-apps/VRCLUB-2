@@ -290,6 +290,61 @@ function initVJMenu() {
                     button.style.background = '';
                 }, 1500);
                 
+            } else if (control === 'goboActive') {
+                // Toggle gobo filters
+                if (vrClubInstance.systems && vrClubInstance.systems.spotlight) {
+                    const isActive = vrClubInstance.systems.spotlight.toggleGobo();
+                    button.classList.toggle('active', isActive);
+                } else if (vrClubInstance.spotlightSystem) {
+                    const isActive = vrClubInstance.spotlightSystem.toggleGobo();
+                    button.classList.toggle('active', isActive);
+                }
+                button.style.transform = 'scale(1.05)';
+                button.style.background = button.classList.contains('active') ? 'rgba(0, 255, 128, 0.8)' : '';
+                setTimeout(() => {
+                    button.style.transform = '';
+                    if (!button.classList.contains('active')) button.style.background = '';
+                }, 300);
+                
+            } else if (control === 'cycleGoboPattern') {
+                // Cycle gobo pattern with ENHANCED feedback
+                let patternName = 'circle';
+                if (vrClubInstance.systems && vrClubInstance.systems.spotlight) {
+                    patternName = vrClubInstance.systems.spotlight.nextGoboPattern();
+                } else if (vrClubInstance.spotlightSystem) {
+                    patternName = vrClubInstance.spotlightSystem.nextGoboPattern();
+                }
+                button.textContent = patternName.toUpperCase();
+                button.style.transform = 'scale(1.1)';
+                button.style.background = 'rgba(255, 0, 255, 0.8)';
+                button.style.boxShadow = '0 0 15px rgba(255, 0, 255, 0.6)';
+                setTimeout(() => {
+                    button.textContent = 'PATTERN';
+                    button.style.transform = '';
+                    button.style.background = '';
+                    button.style.boxShadow = '';
+                }, 1500);
+                
+            } else if (control === 'reverseGoboSpin') {
+                // Reverse gobo rotation direction
+                let system = vrClubInstance.systems?.spotlight || vrClubInstance.spotlightSystem;
+                if (system) {
+                    const currentSpeed = system.goboRotationSpeed || 1.0;
+                    system.setGoboRotationSpeed(-currentSpeed);
+                    
+                    // Update slider if exists
+                    const goboSpeedSlider = document.getElementById('goboSpeed');
+                    const goboSpeedValue = document.getElementById('goboSpeedValue');
+                    if (goboSpeedSlider) goboSpeedSlider.value = -currentSpeed;
+                    if (goboSpeedValue) goboSpeedValue.textContent = `${(-currentSpeed).toFixed(1)}x`;
+                }
+                button.style.transform = 'scale(1.1) rotate(180deg)';
+                button.style.background = 'rgba(0, 200, 255, 0.8)';
+                setTimeout(() => {
+                    button.style.transform = '';
+                    button.style.background = '';
+                }, 400);
+                
             } else {
                 // Toggle on/off control
                 vrClubInstance[control] = !vrClubInstance[control];
@@ -322,14 +377,36 @@ function initVJMenu() {
         });
     }
     
+    // Handle gobo speed slider
+    const goboSpeed = document.getElementById('goboSpeed');
+    const goboSpeedValue = document.getElementById('goboSpeedValue');
+    if (goboSpeed && goboSpeedValue) {
+        goboSpeed.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            let system = vrClubInstance.systems?.spotlight || vrClubInstance.spotlightSystem;
+            if (system) {
+                system.setGoboRotationSpeed(value);
+            }
+            goboSpeedValue.textContent = `${value.toFixed(1)}x`;
+        });
+    }
+    
     // Update button states periodically
     function updateButtonStates() {
         if (!vrClubInstance || vjMenu.classList.contains('hidden')) return;
         
         vjButtons.forEach(button => {
             const control = button.getAttribute('data-control');
-            if (control && !control.includes('change') && !control.includes('cycle')) {
-                if (vrClubInstance[control]) {
+            if (control && !control.includes('change') && !control.includes('cycle') && !control.includes('reverse')) {
+                // Special handling for goboActive
+                if (control === 'goboActive') {
+                    let system = vrClubInstance.systems?.spotlight || vrClubInstance.spotlightSystem;
+                    if (system && system.goboEnabled) {
+                        button.classList.add('active');
+                    } else {
+                        button.classList.remove('active');
+                    }
+                } else if (vrClubInstance[control]) {
                     button.classList.add('active');
                 } else {
                     button.classList.remove('active');
@@ -341,6 +418,15 @@ function initVJMenu() {
         if (spotSpeed && spotSpeedValue) {
             spotSpeed.value = vrClubInstance.spotlightSpeed;
             spotSpeedValue.textContent = `${vrClubInstance.spotlightSpeed.toFixed(1)}x`;
+        }
+        
+        // Update gobo speed slider
+        if (goboSpeed && goboSpeedValue) {
+            let system = vrClubInstance.systems?.spotlight || vrClubInstance.spotlightSystem;
+            if (system) {
+                goboSpeed.value = system.goboRotationSpeed || 1.0;
+                goboSpeedValue.textContent = `${(system.goboRotationSpeed || 1.0).toFixed(1)}x`;
+            }
         }
     }
     
