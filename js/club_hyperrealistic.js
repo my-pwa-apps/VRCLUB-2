@@ -6945,6 +6945,7 @@ class VRClub {
                     if (spot.goboProjection) {
                         const showGobo = this.lightsActive && this.goboEnabled && beamVisible;
                         spot.goboProjection.setEnabled(showGobo);
+                        spot.goboProjection.visibility = showGobo ? 1.0 : 0;
                         
                         if (showGobo) {
                             // Sync position with light pool
@@ -6967,6 +6968,11 @@ class VRClub {
                             
                             // Hide regular pool when gobo is on (gobo replaces it)
                             spot.lightPool.visibility = 0;
+                        } else {
+                            // Gobo is off - ensure regular pool is visible (if lights are on)
+                            if (this.lightsActive && beamVisible && spot.lightPool) {
+                                spot.lightPool.visibility = 1.0;
+                            }
                         }
                     }
                 }
@@ -6978,6 +6984,10 @@ class VRClub {
                     if (spot.beamGlow) spot.beamGlow.visibility = 0;
                     if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                     if (spot.poolLight) spot.poolLight.setEnabled(false);
+                    if (spot.goboProjection) {
+                        spot.goboProjection.setEnabled(false);
+                        spot.goboProjection.visibility = 0;
+                    }
                 }
                 
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
@@ -6996,6 +7006,10 @@ class VRClub {
                 if (spot.lightPool) spot.lightPool.visibility = 0;
                 if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
                 if (spot.poolLight) spot.poolLight.setEnabled(false);
+                if (spot.goboProjection) {
+                    spot.goboProjection.setEnabled(false);
+                    spot.goboProjection.visibility = 0;
+                }
             });
         }
         
@@ -9134,9 +9148,16 @@ class VRClub {
         if (this.spotlights) {
             this.spotlights.forEach((spot, i) => {
                 if (spot.goboProjection) {
-                    spot.goboProjection.setEnabled(this.goboEnabled && this.lightsActive);
+                    const showGobo = this.goboEnabled && this.lightsActive;
+                    spot.goboProjection.setEnabled(showGobo);
+                    spot.goboProjection.visibility = showGobo ? 1.0 : 0;
                     if (this.goboEnabled) {
                         this._applyGoboTexture(spot, i);
+                        // Hide regular pool
+                        if (spot.lightPool) spot.lightPool.visibility = 0;
+                    } else {
+                        // Show regular pool when gobo disabled
+                        if (spot.lightPool && this.lightsActive) spot.lightPool.visibility = 1.0;
                     }
                 }
             });
@@ -9155,9 +9176,16 @@ class VRClub {
         if (this.spotlights) {
             this.spotlights.forEach((spot, i) => {
                 if (spot.goboProjection) {
-                    spot.goboProjection.setEnabled(enabled && this.lightsActive);
+                    const showGobo = enabled && this.lightsActive;
+                    spot.goboProjection.setEnabled(showGobo);
+                    spot.goboProjection.visibility = showGobo ? 1.0 : 0;
                     if (enabled) {
                         this._applyGoboTexture(spot, i);
+                        // Hide regular pool
+                        if (spot.lightPool) spot.lightPool.visibility = 0;
+                    } else {
+                        // Show regular pool when gobo disabled
+                        if (spot.lightPool && this.lightsActive) spot.lightPool.visibility = 1.0;
                     }
                 }
             });
