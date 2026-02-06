@@ -20,6 +20,12 @@ class StrobeSystem {
         
         // Animation
         this.frameCounter = 0;
+        this.disposed = false;
+        
+        // Cached colors to avoid per-frame allocations
+        this._cachedBlack = new BABYLON.Color3(0, 0, 0);
+        this._cachedWhite = new BABYLON.Color3(1, 1, 1);
+        this._scratchColor = new BABYLON.Color3(0, 0, 0);
     }
 
     /**
@@ -212,7 +218,10 @@ class StrobeSystem {
         const intensity = (strobeOn || audioTrigger) ? 1.0 : 0.0;
         
         this.strobeLights.forEach(strobe => {
-            strobe.emitterMat.emissiveColor = new BABYLON.Color3(intensity, intensity, intensity);
+            this._scratchColor.r = intensity;
+            this._scratchColor.g = intensity;
+            this._scratchColor.b = intensity;
+            strobe.emitterMat.emissiveColor.copyFrom(this._scratchColor);
             strobe.light.intensity = intensity * 20;
         });
     }
@@ -222,7 +231,7 @@ class StrobeSystem {
      */
     _disableStrobes() {
         this.strobeLights.forEach(strobe => {
-            strobe.emitterMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            strobe.emitterMat.emissiveColor.copyFrom(this._cachedBlack);
             strobe.light.intensity = 0;
         });
     }
@@ -281,13 +290,13 @@ class StrobeSystem {
      */
     flash() {
         this.strobeLights.forEach(strobe => {
-            strobe.emitterMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+            strobe.emitterMat.emissiveColor.copyFrom(this._cachedWhite);
             strobe.light.intensity = 30;
         });
         
-        // Auto-reset after brief delay
+        // Auto-reset after brief delay (guarded against disposal)
         setTimeout(() => {
-            if (!this.strobesActive) {
+            if (!this.disposed && !this.strobesActive) {
                 this._disableStrobes();
             }
         }, 50);
@@ -303,7 +312,7 @@ class StrobeSystem {
         });
         
         setTimeout(() => {
-            if (!this.blindersActive) {
+            if (!this.disposed && !this.blindersActive) {
                 this._disableBlinders();
             }
         }, 100);
@@ -313,15 +322,21 @@ class StrobeSystem {
      * Dispose all strobe/blinder resources
      */
     dispose() {
+        this.disposed = true;
+        
         this.strobeLights.forEach(strobe => {
             strobe.housing.dispose();
             strobe.emitter.dispose();
+            strobe.emitterMat.dispose();
             strobe.light.dispose();
         });
         
         this.blinders.forEach(blinder => {
             blinder.fixture.dispose();
+            blinder.emitter.dispose();
+            blinder.emitterMat.dispose();
             blinder.flare.dispose();
+            blinder.flareMat.dispose();
         });
         
         this.strobeLights = [];

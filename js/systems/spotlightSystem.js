@@ -53,9 +53,10 @@ class SpotlightSystem {
         // Truss-mounted light references
         this.trussLights = null;
         
-        // Animation state
-        this.lastActivePhase = 0;
-        this.frameCounter = 0;
+        // Cached static objects to avoid per-frame allocations
+        this._cachedBlack = new BABYLON.Color3(0, 0, 0);
+        this._staticDownDirection = new BABYLON.Vector3(0, -1, 0);
+        this._scratchDirection = new BABYLON.Vector3(0, 0, 0);
     }
 
     /**
@@ -236,7 +237,6 @@ class SpotlightSystem {
      * Update spotlight animations each frame
      */
     update(time, audioData = null) {
-        this.frameCounter++;
         const speedMultiplier = this.spotlightSpeed || 1.0;
         
         if (!this.lightsActive) {
@@ -330,11 +330,12 @@ class SpotlightSystem {
             }
             
             // Update light direction
-            const direction = new BABYLON.Vector3(
+            this._scratchDirection.set(
                 Math.sin(panAngle) * Math.sin(tiltAngle),
                 -Math.cos(tiltAngle),
                 Math.cos(panAngle) * Math.sin(tiltAngle)
             );
+            const direction = this._scratchDirection;
             spotlight.light.direction = direction;
             
             // Update beam
@@ -358,11 +359,10 @@ class SpotlightSystem {
             spotlight.lightPool.setEnabled(true);
             spotlight.lightPoolGlow.setEnabled(true);
             
-            const direction = new BABYLON.Vector3(0, -1, 0);
-            spotlight.light.direction = direction;
+            spotlight.light.direction = this._staticDownDirection;
             
-            this._updateBeam(spotlight, direction, 1.0);
-            this._updateFloorPool(spotlight, direction);
+            this._updateBeam(spotlight, this._staticDownDirection, 1.0);
+            this._updateFloorPool(spotlight, this._staticDownDirection);
             this._updateFixtureGlow(spotlight, 1.0);
         });
     }
@@ -381,11 +381,10 @@ class SpotlightSystem {
             spotlight.lightPool.setEnabled(true);
             spotlight.lightPoolGlow.setEnabled(true);
             
-            const direction = new BABYLON.Vector3(0, -1, 0);
-            spotlight.light.direction = direction;
+            spotlight.light.direction = this._staticDownDirection;
             
-            this._updateBeam(spotlight, direction, intensity);
-            this._updateFloorPool(spotlight, direction);
+            this._updateBeam(spotlight, this._staticDownDirection, intensity);
+            this._updateFloorPool(spotlight, this._staticDownDirection);
             this._updateFixtureGlow(spotlight, intensity);
         });
     }
@@ -474,15 +473,14 @@ class SpotlightSystem {
             if (intensity > 0.5) {
                 spotlight.lensMat.emissiveColor = spotColor.scale(3.0 + intensity);
             } else {
-                // Turn off when strobe is off
-                spotlight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                spotlight.lensMat.emissiveColor.copyFrom(this._cachedBlack);
             }
         }
         if (spotlight.sourceMat) {
             if (intensity > 0.5) {
                 spotlight.sourceMat.emissiveColor = spotColor.scale(5.0 + intensity * 2);
             } else {
-                spotlight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                spotlight.sourceMat.emissiveColor.copyFrom(this._cachedBlack);
             }
         }
         if (spotlight.flareMat) {
@@ -490,7 +488,7 @@ class SpotlightSystem {
                 spotlight.flareMat.emissiveColor = spotColor.scale(2.0);
                 spotlight.flareMat.alpha = 0.3 * intensity;
             } else {
-                spotlight.flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                spotlight.flareMat.emissiveColor.copyFrom(this._cachedBlack);
                 spotlight.flareMat.alpha = 0;
             }
         }
@@ -522,8 +520,8 @@ class SpotlightSystem {
             spotlight.lightPoolGlow.setEnabled(false);
             if (spotlight.goboProjection) spotlight.goboProjection.setEnabled(false);
             
-            if (spotlight.lensMat) spotlight.lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-            if (spotlight.sourceMat) spotlight.sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            if (spotlight.lensMat) spotlight.lensMat.emissiveColor.copyFrom(this._cachedBlack);
+            if (spotlight.sourceMat) spotlight.sourceMat.emissiveColor.copyFrom(this._cachedBlack);
             if (spotlight.flareMat) spotlight.flareMat.alpha = 0;
         });
     }
@@ -962,21 +960,27 @@ class SpotlightSystem {
         this.spotlights.forEach(spotlight => {
             spotlight.light.dispose();
             spotlight.beam.dispose();
+            spotlight.beamMat.dispose();
             spotlight.lightPool.dispose();
             spotlight.lightPoolGlow.dispose();
+            spotlight.poolMat.dispose();
+            spotlight.poolGlowMat.dispose();
+            if (spotlight.lensMat) spotlight.lensMat.dispose();
+            if (spotlight.sourceMat) spotlight.sourceMat.dispose();
+            if (spotlight.flareMat) spotlight.flareMat.dispose();
             if (spotlight.goboProjection) {
-                if (spotlight.goboMat.emissiveTexture) {
-                    spotlight.goboMat.emissiveTexture.dispose();
+                if (spotlight.goboMat) {
+                    if (spotlight.goboMat.emissiveTexture) {
+                        spotlight.goboMat.emissiveTexture.dispose();
+                    }
+                    spotlight.goboMat.dispose();
                 }
                 spotlight.goboProjection.dispose();
             }
         });
         
-        // Dispose cached gobo textures
-        this.goboTextures.forEach(tex => tex.dispose());
-        this.goboTextures = [];
-        
         this.spotlights = [];
+        this.goboTextures = [];
         this.log.info?.('🗑️ Spotlight system disposed');
     }
 }

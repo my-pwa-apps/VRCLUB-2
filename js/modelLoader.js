@@ -82,8 +82,6 @@ class ModelLoader {
         this.cache = new ModelCache();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
-        this.instancePool = new Map(); // Pool of master meshes for instancing
-        this.instanceCounts = new Map(); // Track instance counts
     }
 
     getModelConfigs() {
@@ -371,7 +369,6 @@ class ModelLoader {
             // Add lights for PA speakers for better visibility
             if ((modelKey === 'pa_speaker_left' || modelKey === 'pa_speaker_right') && rootMesh) {
                 // Position light near the speaker (slightly in front for hung speakers)
-                const lightOffset = config.hangFromCeiling ? -1 : 2; // In front if hung, above if on floor
                 const speakerLight = new BABYLON.PointLight(
                     'speakerLight_' + modelKey,
                     new BABYLON.Vector3(

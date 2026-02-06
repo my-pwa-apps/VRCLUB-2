@@ -12,7 +12,6 @@ class LEDWallSystem {
         this.ledWallSpeed = 1.0;
         this.ledPattern = 0;
         this.ledColorIndex = 0;
-        this.ledTime = 0;
         
         // LED panel storage
         this.ledPanels = [];
@@ -26,12 +25,6 @@ class LEDWallSystem {
             new BABYLON.Color3(1, 0.5, 0),    // Orange
             new BABYLON.Color3(1, 1, 1)       // White
         ];
-        
-        // Wall dimensions
-        this.wallWidth = 14;
-        this.wallHeight = 5;
-        this.panelsX = 28;
-        this.panelsY = 10;
         
         // Pattern names for UI - 24 immersive patterns
         this.patternNames = [
@@ -69,6 +62,17 @@ class LEDWallSystem {
         this._cachedBlack = new BABYLON.Color3(0, 0, 0);
         this._cachedWhite = new BABYLON.Color3(1, 1, 1);
         this._cachedMatrix = new BABYLON.Color3(0, 1, 0.3);
+        this._cachedHeartRed = new BABYLON.Color3(1, 0.1, 0.2);
+        this._cachedDNAColor1 = new BABYLON.Color3(0, 0.8, 1);
+        this._cachedDNAColor2 = new BABYLON.Color3(1, 0.3, 0.8);
+        this._cachedNeonPink = new BABYLON.Color3(1, 0, 0.5);
+        this._cachedNeonCyan = new BABYLON.Color3(0, 1, 1);
+        this._cachedNeonYellow = new BABYLON.Color3(1, 1, 0);
+        
+        // Reusable scratch Color3 objects to avoid per-frame allocations
+        this._scratchColor = new BABYLON.Color3(0, 0, 0);
+        this._scratchColor2 = new BABYLON.Color3(0, 0, 0);
+        this._scratchColor3 = new BABYLON.Color3(0, 0, 0);
         
         // Frame counter for animation
         this.frameCounter = 0;
@@ -158,7 +162,7 @@ class LEDWallSystem {
         }
         
         // Use performance.now() directly for reliable animation timing
-        const t = performance.now() / 1000;
+        const t = performance.now() / 1000 * this.ledWallSpeed;
         
         // Auto-switch patterns periodically
         if (this.autoSwitch && t - this.lastPatternSwitch > this.patternSwitchInterval) {
@@ -317,8 +321,7 @@ class LEDWallSystem {
             const dist = Math.sqrt(dx * dx + dy * dy);
             
             const brightness = pulse * Math.exp(-dist * dist / 0.2);
-            const color = new BABYLON.Color3(1, 0.1, 0.2); // Heart red
-            this._updatePanel(panel, color, brightness);
+            this._updatePanel(panel, this._cachedHeartRed, brightness);
         });
     }
 
@@ -437,8 +440,7 @@ class LEDWallSystem {
             const rungBrightness = isRung ? 0.5 : 0;
             
             const brightness = Math.max(brightness1, brightness2, rungBrightness) * (0.5 + bass * 0.5);
-            const color = brightness1 > brightness2 ? 
-                new BABYLON.Color3(0, 0.8, 1) : new BABYLON.Color3(1, 0.3, 0.8);
+            const color = brightness1 > brightness2 ? this._cachedDNAColor1 : this._cachedDNAColor2;
             this._updatePanel(panel, color, brightness);
         });
     }
@@ -511,16 +513,16 @@ class LEDWallSystem {
             // Color gradient from green to red
             let color;
             if (panel.normalizedY < 0.5) {
-                color = new BABYLON.Color3(0, 1, 0);
+                this._scratchColor2.r = 0; this._scratchColor2.g = 1; this._scratchColor2.b = 0;
             } else if (panel.normalizedY < 0.75) {
-                const t = (panel.normalizedY - 0.5) / 0.25;
-                color = new BABYLON.Color3(t, 1, 0);
+                const ratio = (panel.normalizedY - 0.5) / 0.25;
+                this._scratchColor2.r = ratio; this._scratchColor2.g = 1; this._scratchColor2.b = 0;
             } else {
-                const t = (panel.normalizedY - 0.75) / 0.25;
-                color = new BABYLON.Color3(1, 1 - t, 0);
+                const ratio = (panel.normalizedY - 0.75) / 0.25;
+                this._scratchColor2.r = 1; this._scratchColor2.g = 1 - ratio; this._scratchColor2.b = 0;
             }
             
-            this._updatePanel(panel, color, brightness);
+            this._updatePanel(panel, this._scratchColor2, brightness);
         });
     }
 
@@ -700,17 +702,16 @@ class LEDWallSystem {
             const flicker = 0.8 + Math.sin(t * 15 + x * 30) * 0.2;
             
             // Fire colors - yellow at bottom, orange, red at top
-            let color;
             if (flame > 0.7) {
-                color = new BABYLON.Color3(1, 1, 0.3); // Yellow
+                this._scratchColor2.r = 1; this._scratchColor2.g = 1; this._scratchColor2.b = 0.3;
             } else if (flame > 0.3) {
-                color = new BABYLON.Color3(1, 0.5, 0); // Orange
+                this._scratchColor2.r = 1; this._scratchColor2.g = 0.5; this._scratchColor2.b = 0;
             } else {
-                color = new BABYLON.Color3(1, 0.1, 0); // Red
+                this._scratchColor2.r = 1; this._scratchColor2.g = 0.1; this._scratchColor2.b = 0;
             }
             
             const brightness = flame * flicker;
-            this._updatePanel(panel, color, brightness);
+            this._updatePanel(panel, this._scratchColor2, brightness);
         });
     }
 
@@ -736,9 +737,13 @@ class LEDWallSystem {
             const blue = isWater ? 0.3 + depth * 0.7 : 0;
             const green = isWater ? 0.1 + depth * 0.3 : 0;
             
-            const color = foam ? this._cachedWhite : new BABYLON.Color3(0, green, blue);
-            const brightness = isWater ? 0.5 + depth * 0.5 : 0.02;
-            this._updatePanel(panel, color, brightness);
+            if (foam) {
+                this._updatePanel(panel, this._cachedWhite, 1.0);
+            } else {
+                this._scratchColor2.r = 0; this._scratchColor2.g = green; this._scratchColor2.b = blue;
+                const brightness = isWater ? 0.5 + depth * 0.5 : 0.02;
+                this._updatePanel(panel, this._scratchColor2, brightness);
+            }
         });
     }
 
@@ -758,33 +763,22 @@ class LEDWallSystem {
             const pulse2 = 0.5 + Math.sin(t * 4 + 2) * 0.5;
             const pulse3 = 0.5 + Math.sin(t * 4 + 4) * 0.5;
             
-            // Different neon colors
-            const color1 = new BABYLON.Color3(1, 0, 0.5); // Pink
-            const color2 = new BABYLON.Color3(0, 1, 1);   // Cyan
-            const color3 = new BABYLON.Color3(1, 1, 0);   // Yellow
-            
             const b1 = tube1 * pulse1 * (0.6 + bass * 0.4);
             const b2 = tube2 * pulse2 * (0.6 + mid * 0.4);
             const b3 = tube3 * pulse3 * (0.6 + high * 0.4);
             
-            // Blend colors
-            const r = color1.r * b1 + color2.r * b2 + color3.r * b3;
-            const g = color1.g * b1 + color2.g * b2 + color3.g * b3;
-            const b = color1.b * b1 + color2.b * b2 + color3.b * b3;
+            // Blend colors using cached neon colors
+            const r = this._cachedNeonPink.r * b1 + this._cachedNeonCyan.r * b2 + this._cachedNeonYellow.r * b3;
+            const g = this._cachedNeonPink.g * b1 + this._cachedNeonCyan.g * b2 + this._cachedNeonYellow.g * b3;
+            const b = this._cachedNeonPink.b * b1 + this._cachedNeonCyan.b * b2 + this._cachedNeonYellow.b * b3;
             
             const brightness = Math.min(1, b1 + b2 + b3);
-            const color = new BABYLON.Color3(
-                Math.min(1, r / Math.max(0.01, brightness)),
-                Math.min(1, g / Math.max(0.01, brightness)),
-                Math.min(1, b / Math.max(0.01, brightness))
-            );
-            this._updatePanel(panel, color, brightness);
+            this._scratchColor2.r = Math.min(1, r / Math.max(0.01, brightness));
+            this._scratchColor2.g = Math.min(1, g / Math.max(0.01, brightness));
+            this._scratchColor2.b = Math.min(1, b / Math.max(0.01, brightness));
+            this._updatePanel(panel, this._scratchColor2, brightness);
         });
     }
-
-    // ============================================================
-    // UTILITY METHODS
-    // ============================================================
 
     // ============================================================
     // UTILITY METHODS
@@ -798,25 +792,28 @@ class LEDWallSystem {
         panel.material.emissiveColor.b = color.b * b;
     }
 
-    /** Convert HSV to RGB (cached for performance) */
+    /** Convert HSV to RGB - reuses scratch Color3 to avoid allocations */
     _hsvToRgb(h, s, v) {
         let r, g, b;
         const i = Math.floor(h * 6);
         const f = h * 6 - i;
         const p = v * (1 - s);
         const q = v * (1 - f * s);
-        const t = v * (1 - (1 - f) * s);
+        const tt = v * (1 - (1 - f) * s);
         
         switch (i % 6) {
-            case 0: r = v; g = t; b = p; break;
+            case 0: r = v; g = tt; b = p; break;
             case 1: r = q; g = v; b = p; break;
-            case 2: r = p; g = v; b = t; break;
+            case 2: r = p; g = v; b = tt; break;
             case 3: r = p; g = q; b = v; break;
-            case 4: r = t; g = p; b = v; break;
+            case 4: r = tt; g = p; b = v; break;
             case 5: r = v; g = p; b = q; break;
         }
         
-        return new BABYLON.Color3(r, g, b);
+        this._scratchColor.r = r;
+        this._scratchColor.g = g;
+        this._scratchColor.b = b;
+        return this._scratchColor;
     }
 
     /** Disable LED wall (all panels off) */

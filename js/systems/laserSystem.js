@@ -34,6 +34,16 @@ class LaserSystem {
         // Parent truss references (set from main club)
         this.sideTrusses = null;
         this.horizontalTrusses = null;
+        
+        // Cached scratch objects to avoid per-frame allocations
+        this._scratchDirection = new BABYLON.Vector3(0, 0, 0);
+        this._scratchRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Down(), 15);
+        this._cachedBlack = new BABYLON.Color3(0, 0, 0);
+        this._cachedAudioColors = [
+            new BABYLON.Color3(0, 1, 0),
+            new BABYLON.Color3(1, 0, 0),
+            new BABYLON.Color3(0, 0, 1)
+        ];
     }
 
     /**
@@ -63,11 +73,7 @@ class LaserSystem {
             this.lasers.push(laser);
         });
         
-        // Initialize lighting mode control
-        this.lightingMode = 'synchronized';
-        this.modeSwitchTime = 0;
-        this.colorSwitchTime = 0;
-        
+        // Initialize laser state (removed unused lightingMode/modeSwitchTime/colorSwitchTime vars)
         this.log.info?.('✅ Laser system created with ' + this.lasers.length + ' units');
     }
 
@@ -434,12 +440,7 @@ class LaserSystem {
      */
     _getAudioReactiveColor(time) {
         const colorCycle = Math.floor(time * 0.5) % 3;
-        switch(colorCycle) {
-            case 0: return new BABYLON.Color3(0, 1, 0);
-            case 1: return new BABYLON.Color3(1, 0, 0);
-            case 2: return new BABYLON.Color3(0, 0, 1);
-            default: return new BABYLON.Color3(0, 1, 0);
-        }
+        return this._cachedAudioColors[colorCycle];
     }
 
     /**
@@ -476,11 +477,15 @@ class LaserSystem {
                 const tiltAmount = 0.3 + Math.sin(laser.tiltPhase + j * 0.5) * 0.2;
                 const dirX = Math.sin(rotatedAngle) * tiltAmount;
                 const dirZ = Math.cos(rotatedAngle) * tiltAmount;
-                const direction = new BABYLON.Vector3(dirX, -1, dirZ).normalize();
+                this._scratchDirection.set(dirX, -1, dirZ);
+                this._scratchDirection.normalize();
+                const direction = this._scratchDirection;
                 
                 // Raycast to find floor intersection
-                const ray = new BABYLON.Ray(originPos, direction, 15);
-                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                this._scratchRay.origin.copyFrom(originPos);
+                this._scratchRay.direction.copyFrom(direction);
+                this._scratchRay.length = 15;
+                const hit = this.scene.pickWithRay(this._scratchRay, (mesh) => {
                     return mesh.name.includes('floor') || mesh.name.includes('Floor');
                 });
                 
@@ -533,8 +538,6 @@ class LaserSystem {
      * Disable all laser visuals
      */
     _disableLasers() {
-        const black = new BABYLON.Color3(0, 0, 0);
-        
         this.lasers.forEach(laser => {
             laser.beams.forEach(beam => {
                 beam.mesh.setEnabled(false);
@@ -545,10 +548,10 @@ class LaserSystem {
             
             // Turn off emitter when lasers are disabled
             if (laser.emitterMat) {
-                laser.emitterMat.emissiveColor = black;
+                laser.emitterMat.emissiveColor.copyFrom(this._cachedBlack);
             }
             if (laser.housingMat) {
-                laser.housingMat.emissiveColor = black;
+                laser.housingMat.emissiveColor.copyFrom(this._cachedBlack);
             }
         });
     }

@@ -103,10 +103,9 @@ class HazeSystem {
     update(time, audioData = null) {
         if (!this.hazeActive) return;
         
-        // Subtle density pulsing
-        const baseDensity = 0.015;
+        // Subtle density pulsing based on configured density
         const pulse = Math.sin(time * 0.5) * 0.003;
-        this.scene.fogDensity = baseDensity + pulse;
+        this.scene.fogDensity = this.hazeDensity + pulse;
         
         // Audio reactive - thicken on bass
         if (audioData && audioData.bass > 0.6) {

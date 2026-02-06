@@ -33,8 +33,8 @@ class MaterialFactory {
             opacityTexture = null
         } = config;
 
-        // Generate cache key for shared materials
-        const cacheKey = shared ? JSON.stringify({baseColor, metallic, roughness, emissiveColor}) : null;
+        // Generate cache key for shared materials (includes all config to prevent collisions)
+        const cacheKey = shared ? JSON.stringify({baseColor, metallic, roughness, emissiveColor, alpha, transparencyMode, backFaceCulling, disableLighting, unlit}) : null;
         
         // Return cached material if available
         if (shared && cacheKey && this.sharedMaterials[cacheKey]) {
@@ -145,6 +145,88 @@ class MaterialFactory {
     }
 
     /**
+     * Create full PBRMaterial with advanced features (clearCoat, sheen, anisotropy)
+     * Use for key surfaces that benefit from multi-layer PBR (polished floors, lacquered surfaces)
+     * @param {string} name - Material name
+     * @param {Object} config - Material configuration including clearCoat/sheen options
+     * @param {boolean} shared - If true, reuses existing material with same config
+     */
+    createFullPBRMaterial(name, config = {}, shared = false) {
+        const {
+            albedoColor = [0.1, 0.1, 0.1],
+            metallic = 0.5,
+            roughness = 0.5,
+            emissiveColor = null,
+            emissiveIntensity = 1.0,
+            alpha = 1.0,
+            backFaceCulling = true,
+            clearCoat = null,        // { intensity, roughness, tintColor? }
+            sheen = null,            // { intensity, color?, roughness? }
+            environmentIntensity = null,
+            directIntensity = null,
+            specularIntensity = null
+        } = config;
+
+        // Generate cache key for shared materials
+        const cacheKey = shared ? JSON.stringify({albedoColor, metallic, roughness, emissiveColor, alpha, clearCoat, sheen}) : null;
+
+        // Return cached material if available
+        if (shared && cacheKey && this.sharedMaterials[cacheKey]) {
+            return this.sharedMaterials[cacheKey];
+        }
+
+        const mat = new BABYLON.PBRMaterial(name, this.scene);
+        mat.albedoColor = new BABYLON.Color3(...albedoColor);
+        mat.metallic = metallic;
+        mat.roughness = roughness;
+        mat.maxSimultaneousLights = this.maxLights;
+
+        if (emissiveColor) {
+            mat.emissiveColor = Array.isArray(emissiveColor)
+                ? new BABYLON.Color3(...emissiveColor)
+                : emissiveColor;
+            mat.emissiveIntensity = emissiveIntensity;
+        }
+
+        if (alpha < 1.0) mat.alpha = alpha;
+        mat.backFaceCulling = backFaceCulling;
+
+        // ClearCoat layer - adds polished/lacquered/wet look on top of base material
+        if (clearCoat) {
+            mat.clearCoat.isEnabled = true;
+            mat.clearCoat.intensity = clearCoat.intensity !== undefined ? clearCoat.intensity : 0.5;
+            mat.clearCoat.roughness = clearCoat.roughness !== undefined ? clearCoat.roughness : 0.1;
+            if (clearCoat.tintColor) {
+                mat.clearCoat.isTintEnabled = true;
+                mat.clearCoat.tintColor = new BABYLON.Color3(...clearCoat.tintColor);
+            }
+        }
+
+        // Sheen layer - adds soft fabric-like sheen (velvet, leather, cloth)
+        if (sheen) {
+            mat.sheen.isEnabled = true;
+            mat.sheen.intensity = sheen.intensity !== undefined ? sheen.intensity : 0.5;
+            if (sheen.roughness !== undefined) mat.sheen.roughness = sheen.roughness;
+            if (sheen.color) {
+                mat.sheen.color = new BABYLON.Color3(...sheen.color);
+            }
+        }
+
+        // Per-material lighting intensity overrides
+        if (environmentIntensity !== null) mat.environmentIntensity = environmentIntensity;
+        if (directIntensity !== null) mat.directIntensity = directIntensity;
+        if (specularIntensity !== null) mat.specularIntensity = specularIntensity;
+
+        // Cache if shared
+        if (shared && cacheKey) {
+            this.sharedMaterials[cacheKey] = mat;
+        }
+
+        mat.freeze();
+        return mat;
+    }
+
+    /**
      * Preset materials for common club objects
      * Phase 2 Enhanced: Boosted metallic/roughness values for hyperrealism
      */
@@ -197,6 +279,21 @@ class MaterialFactory {
             baseColor: [0.25, 0.25, 0.27],
             metallic: 0.0,
             roughness: 0.9
+        }),
+
+        // Polished nightclub floor with clearcoat layer (wet/lacquered look)
+        // Uses full PBRMaterial for advanced multi-layer rendering
+        floorPolished: () => this.createFullPBRMaterial('floorPolishedMat', {
+            albedoColor: [0.12, 0.12, 0.15],  // Dark polished tiles
+            metallic: 0.08,
+            roughness: 0.25,                    // Smooth polished surface
+            clearCoat: {
+                intensity: 0.6,                 // Strong clear lacquer/wet layer
+                roughness: 0.12                 // Very smooth clearcoat for sharp reflections
+            },
+            environmentIntensity: 0.65,         // Strong environment reflections off polished surface
+            directIntensity: 1.1,               // Enhanced direct light response
+            specularIntensity: 0.9              // Strong specular highlights
         }),
 
         wall: () => this.createPBRMaterial('wallMat', {
@@ -408,9 +505,12 @@ class MaterialFactory {
     }
 
     /**
-     * Clear all cached materials
+     * Clear all cached materials (properly disposes them first)
      */
     clearCache() {
+        Object.values(this.sharedMaterials).forEach(mat => {
+            if (mat && mat.dispose) mat.dispose();
+        });
         this.sharedMaterials = {};
     }
 }

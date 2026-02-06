@@ -347,6 +347,12 @@ class TextureLoader {
                 }
                 this.texturePool.delete(poolKey);
                 this.textureUsageCount.delete(poolKey);
+                
+                // Revoke blob URL to free memory
+                if (this.blobUrlPool.has(url)) {
+                    URL.revokeObjectURL(this.blobUrlPool.get(url));
+                    this.blobUrlPool.delete(url);
+                }
             } else {
                 // Decrement usage count
                 this.textureUsageCount.set(poolKey, currentCount - 1);

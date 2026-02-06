@@ -153,8 +153,8 @@ class VJControlSystem {
         // Apply to subsystems (respecting mutual exclusivity)
         if (this.laserSystem) {
             this.laserSystem.setActive(preset.lasers);
-            if (this.laserSystem.setLaserSheetActive) {
-                this.laserSystem.setLaserSheetActive(preset.laserSheet || false);
+            if (this.laserSystem.setSheetActive) {
+                this.laserSystem.setSheetActive(preset.laserSheet || false);
             }
         }
         
@@ -367,16 +367,16 @@ class VJControlSystem {
                     if (newState) {
                         if (this.mirrorBallSystem) this.mirrorBallSystem.setActive(false);
                         // Note: laser sheet is in laserSystem
-                        if (this.laserSystem.setLaserSheetActive) {
-                            this.laserSystem.setLaserSheetActive(false);
+                        if (this.laserSystem.setSheetActive) {
+                            this.laserSystem.setSheetActive(false);
                         }
                     }
                 }
                 break;
             case 'lasersheet':
-                if (this.laserSystem && this.laserSystem.setLaserSheetActive) {
+                if (this.laserSystem && this.laserSystem.setSheetActive) {
                     const newState = active !== null ? active : !this.laserSystem.laserSheetActive;
-                    this.laserSystem.setLaserSheetActive(newState);
+                    this.laserSystem.setSheetActive(newState);
                     // MUTUAL EXCLUSIVITY: If laser sheet turns ON, turn off ceiling lasers and mirror ball
                     if (newState) {
                         this.laserSystem.setActive(false);
@@ -386,20 +386,20 @@ class VJControlSystem {
                 break;
             case 'spotlights':
                 if (this.spotlightSystem) {
-                    const newState = active !== null ? active : !this.spotlightSystem.spotlightsActive;
+                    const newState = active !== null ? active : !this.spotlightSystem.lightsActive;
                     this.spotlightSystem.setActive(newState);
                 }
                 break;
             case 'mirrorball':
                 if (this.mirrorBallSystem) {
-                    const newState = active !== null ? active : !this.mirrorBallSystem.isActive;
+                    const newState = active !== null ? active : !this.mirrorBallSystem.mirrorBallActive;
                     this.mirrorBallSystem.setActive(newState);
                     // MUTUAL EXCLUSIVITY: If mirror ball turns ON, turn off lasers and laser sheet
                     if (newState) {
                         if (this.laserSystem) {
                             this.laserSystem.setActive(false);
-                            if (this.laserSystem.setLaserSheetActive) {
-                                this.laserSystem.setLaserSheetActive(false);
+                            if (this.laserSystem.setSheetActive) {
+                                this.laserSystem.setSheetActive(false);
                             }
                         }
                     }
@@ -521,7 +521,7 @@ class VJControlSystem {
             effects: {
                 lasers: this.laserSystem?.lasersActive || false,
                 spotlights: this.spotlightSystem?.lightsActive || false,
-                mirrorBall: this.mirrorBallSystem?.isActive || false,
+                mirrorBall: this.mirrorBallSystem?.mirrorBallActive || false,
                 ledWall: this.ledWallSystem?.ledWallActive || false,
                 strobes: this.strobeSystem?.strobesActive || false,
                 blinders: this.strobeSystem?.blindersActive || false,

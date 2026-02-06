@@ -58,7 +58,7 @@ class VRClub {
                 bloomScale: 0.4, // Larger bloom spread
                 glowIntensity: 0.8, // Stronger glow
                 ambientIntensity: 0.1, // Lower ambient for more dramatic lighting
-                environmentIntensity: 0.4, // Stronger PBR reflections
+                environmentIntensity: 0.4, // Enhanced PBR reflections for hyperrealism
                 clearColor: new BABYLON.Color3(0.005, 0.005, 0.01), // Almost black background
                 grainEnabled: true, // Enable subtle grain for filmic look on desktop
                 chromaticAberrationEnabled: true, // Enable subtle CA for lens realism
@@ -447,10 +447,27 @@ class VRClub {
             this.renderPipeline.grainEnabled = desktop.grainEnabled;
             this.renderPipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
             
+            // Restore grain settings for cinematic filmic texture
+            if (this.renderPipeline.grain) {
+                this.renderPipeline.grain.intensity = 4;
+                this.renderPipeline.grain.animated = true;
+            }
+            
+            // Restore chromatic aberration settings for lens realism
+            if (this.renderPipeline.chromaticAberration) {
+                this.renderPipeline.chromaticAberration.aberrationAmount = 12;
+                this.renderPipeline.chromaticAberration.radialIntensity = 0.8;
+            }
+            
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = desktop.exposure;
                 this.renderPipeline.imageProcessing.contrast = desktop.contrast;
                 this.renderPipeline.imageProcessing.toneMappingEnabled = desktop.toneMappingEnabled;
+                
+                // Restore cinematic vignette
+                this.renderPipeline.imageProcessing.vignetteEnabled = true;
+                this.renderPipeline.imageProcessing.vignetteWeight = 1.8;
+                this.renderPipeline.imageProcessing.vignetteStretch = 0.5;
             }
             
             if (this.renderPipeline.bloomEnabled) {
@@ -507,8 +524,8 @@ class VRClub {
             this.haze.emitRate = 100; // Full rate for desktop
         }
         
-        // Restore scene fog for desktop
-        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP;
+        // Restore scene fog for desktop (EXP2 matches initial setup for consistent falloff)
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
         this.scene.fogDensity = desktop.fogDensity;
         log.info('🌫️ Restored scene fog and particle rates for desktop');
     }
@@ -638,7 +655,7 @@ class VRClub {
             "https://assets.babylonjs.com/environments/environmentSpecular.env",
             this.scene
         );
-        this.scene.environmentIntensity = 0.3; // Subtle reflections
+        this.scene.environmentIntensity = 0.4; // Enhanced PBR reflections for hyperrealistic surfaces
         
         // Add atmospheric fog for depth and light scattering simulation
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
@@ -708,7 +725,7 @@ class VRClub {
             mainTextureFixedSize: 512, // Reduced from 1024 for better performance
             blurKernelSize: 16  // Reduced from 32 for better performance
         });
-        this.glowLayer.intensity = 0.6; // Reduced from 0.8 for better performance
+        this.glowLayer.intensity = 0.7; // Enhanced glow for dramatic light sources
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -1016,6 +1033,8 @@ class VRClub {
             return;
         }
 
+        const desktop = this.vrSettings.desktop;
+
         // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
         // Pass cameras array in constructor to avoid "reuse" warnings from addCamera()
         const pipeline = new BABYLON.DefaultRenderingPipeline(
@@ -1026,32 +1045,47 @@ class VRClub {
         );
         
         // FXAA anti-aliasing for smooth edges (essential for immersion)
-        pipeline.fxaaEnabled = true;
+        pipeline.fxaaEnabled = desktop.fxaaEnabled;
         
-        // ENHANCED Bloom for dramatic glowing lights - hyperrealistic nightclub atmosphere
+        // ENHANCED Bloom synced with vrSettings.desktop for dramatic glowing lights
         pipeline.bloomEnabled = true;
-        pipeline.bloomThreshold = 0.6; // Optimized threshold from vrSettings
-        pipeline.bloomWeight = 0.22; // Enhanced weight for immersive lighting
+        pipeline.bloomThreshold = desktop.bloomThreshold; // 0.5 - catch more light sources
+        pipeline.bloomWeight = desktop.bloomWeight;       // 0.3 - dramatic neon glow
         pipeline.bloomKernel = 64; // Large kernel for smooth bloom spread
-        pipeline.bloomScale = 0.35; // Enhanced scale for dramatic effect
+        pipeline.bloomScale = desktop.bloomScale;         // 0.4 - wide bloom spread
         
-        // Chromatic aberration DISABLED - causes hazy color fringing
-        pipeline.chromaticAberrationEnabled = false;
+        // Subtle chromatic aberration for realistic lens simulation (desktop only)
+        pipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
+        if (pipeline.chromaticAberration) {
+            pipeline.chromaticAberration.aberrationAmount = 12;    // Subtle color fringing at edges
+            pipeline.chromaticAberration.radialIntensity = 0.8;    // Stronger at edges (lens-like)
+        }
         
-        // Film grain DISABLED - causes overall hazy appearance
-        pipeline.grainEnabled = false;
+        // Subtle film grain for cinematic filmic texture (desktop only)
+        pipeline.grainEnabled = desktop.grainEnabled;
+        if (pipeline.grain) {
+            pipeline.grain.intensity = 4;         // Very subtle grain
+            pipeline.grain.animated = true;       // Animated for film-like feel
+        }
         
         // ENHANCED Sharpen for crystal-clear details (hyperrealism focus)
         pipeline.sharpenEnabled = true;
         pipeline.sharpen.edgeAmount = 0.4; // Crisp edge definition
-        pipeline.sharpen.colorAmount = 0.5; // Enhanced color separation
+        pipeline.sharpen.colorAmount = desktop.sharpenAmount; // Enhanced color separation
         
         // ENHANCED Image processing for cinematic depth
         pipeline.imageProcessingEnabled = true;
-        pipeline.imageProcessing.contrast = 1.4; // Enhanced contrast for depth
-        pipeline.imageProcessing.exposure = 1.05; // Balanced exposure
-        pipeline.imageProcessing.toneMappingEnabled = true;
+        pipeline.imageProcessing.contrast = desktop.contrast;   // 1.5 - enhanced depth
+        pipeline.imageProcessing.exposure = desktop.exposure;   // 1.05 - balanced
+        pipeline.imageProcessing.toneMappingEnabled = desktop.toneMappingEnabled;
         pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES; // Cinematic tone mapping
+        
+        // Cinematic vignette - darkens edges for immersive club atmosphere
+        pipeline.imageProcessing.vignetteEnabled = true;
+        pipeline.imageProcessing.vignetteWeight = 1.8;          // Moderate edge darkening
+        pipeline.imageProcessing.vignetteStretch = 0.5;         // Balanced stretch
+        pipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0, 0);
+        pipeline.imageProcessing.vignetteBlendMode = BABYLON.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
         
         // Optional: Depth of Field for camera focus effect (disabled by default for VR compatibility)
         pipeline.depthOfFieldEnabled = false;
@@ -1089,22 +1123,23 @@ class VRClub {
         this.floorMesh = floor;
         
         // ENHANCED Wooden floor panels with PBR - hyperrealistic nightclub aesthetic
-        const floorMat = this.materialFactory.getPreset('floor');
+        // Uses full PBRMaterial with clearcoat for polished/wet nightclub floor look
+        const floorMat = this.materialFactory.getPreset('floorPolished');
         
         // Apply downloaded wood textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
-            log.info('🎨 Applying ENHANCED floor textures (Polyhaven - Large Floor Tiles)');
+            log.info('🎨 Applying ENHANCED floor textures (Polyhaven - Large Floor Tiles) with clearcoat');
             this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
             // Dark polished tiles for modern nightclub aesthetic
-            floorMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.18); 
+            floorMat.albedoColor = new BABYLON.Color3(0.12, 0.12, 0.15); 
             
             // Override roughness for polished look (wet floor effect)
-            floorMat.roughness = 0.3; 
-            floorMat.metallic = 0.1;
+            floorMat.roughness = 0.25; 
+            floorMat.metallic = 0.08;
             
-            // If roughness map is loaded, reduce its influence to keep it shiny
+            // Reduce roughness map influence to keep polished look
             if (floorMat.metallicTexture) {
-                floorMat.metallicTexture.level = 0.5; // Reduce roughness map strength
+                floorMat.metallicTexture.level = 0.4; // Reduce roughness map strength for shinier surface
             }
         } else {
             // Enhanced fallback to procedural noise texture
@@ -1115,13 +1150,11 @@ class VRClub {
             noiseTexture.animationSpeedFactor = 0; // Static texture
             floorMat.bumpTexture = noiseTexture;
             floorMat.bumpTexture.level = 0.4; // Enhanced bump for realistic surface
-            floorMat.baseColor = new BABYLON.Color3(0.18, 0.18, 0.2); // Dark polished concrete
+            floorMat.albedoColor = new BABYLON.Color3(0.15, 0.15, 0.18); // Dark polished concrete
         }
         
-        // ENHANCED PBR properties for hyperrealistic polished concrete floor
-        floorMat.environmentIntensity = 0.5; // Enhanced reflections from polished surface
-        floorMat.directIntensity = 1.0; // Full direct light response
-        floorMat.specularIntensity = 0.8; // Enhanced specular highlights
+        // ENHANCED PBR properties for hyperrealistic polished floor
+        // (environmentIntensity, directIntensity, specularIntensity set via preset)
         
         floor.material = floorMat;
         floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor
@@ -1137,8 +1170,9 @@ class VRClub {
         if (this.concreteTextures && this.concreteTextures.walls) {
             log.info('🎨 Applying wall textures (Polyhaven - Red Brick)');
             this.textureLoader.applyTexturesToMaterial(wallMat, this.concreteTextures.walls);
-            wallMat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Neutral tint to let brick color show
-            wallMat.roughness = 0.8; // Rough brick
+            wallMat.baseColor = new BABYLON.Color3(0.7, 0.6, 0.55); // Warm tint to let natural brick color show
+            wallMat.roughness = 0.78; // Slightly polished brick (club condensation/moisture)
+            wallMat.environmentIntensity = 0.25; // Subtle reflections for moist brick surface
         }
         
         // Back wall
@@ -1763,8 +1797,9 @@ class VRClub {
             this.textureLoader.applyTexturesToMaterial(ceilingMat, this.concreteTextures.ceiling);
             
             // Adjust for darker, more industrial look
-            ceilingMat.albedoColor = new BABYLON.Color3(0.3, 0.3, 0.3); 
-            ceilingMat.roughness = 0.9;
+            ceilingMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.28); // Darker industrial concrete
+            ceilingMat.roughness = 0.88;
+            ceilingMat.environmentIntensity = 0.15; // Subtle light reflections from below
         }
         
         ceiling.material = ceilingMat;
