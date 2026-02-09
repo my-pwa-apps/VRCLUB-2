@@ -325,10 +325,10 @@ class LightFactory {
             name,
             new BABYLON.Vector3(0, 1, 0),
             {
-                intensity: 0.15,
-                diffuse: [1, 1, 1],
+                intensity: 0.04,
+                diffuse: [0.9, 0.9, 1.0],
                 specular: [0, 0, 0],
-                groundColor: [0.05, 0.05, 0.08]
+                groundColor: [0.03, 0.01, 0.06]
             }
         ),
 

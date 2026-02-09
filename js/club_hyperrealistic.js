@@ -51,39 +51,39 @@ class VRClub {
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {
-                exposure: 1.05,
-                contrast: 1.5, // Increased contrast for deeper blacks
-                bloomWeight: 0.3, // Stronger bloom for neon lights
-                bloomThreshold: 0.5, // Lower threshold to catch more light sources
-                bloomScale: 0.4, // Larger bloom spread
-                glowIntensity: 0.8, // Stronger glow
-                ambientIntensity: 0.1, // Lower ambient for more dramatic lighting
-                environmentIntensity: 0.4, // Enhanced PBR reflections for hyperrealism
-                clearColor: new BABYLON.Color3(0.005, 0.005, 0.01), // Almost black background
-                grainEnabled: true, // Enable subtle grain for filmic look on desktop
-                chromaticAberrationEnabled: true, // Enable subtle CA for lens realism
+                exposure: 1.1,
+                contrast: 1.6, // Deep contrast for dramatic club lighting
+                bloomWeight: 0.35, // Strong bloom for neon/laser glow
+                bloomThreshold: 0.45, // Catch more light sources
+                bloomScale: 0.5, // Wide bloom halo
+                glowIntensity: 0.9, // Pronounced glow on emissive surfaces
+                ambientIntensity: 0.06, // Very low ambient - club should be DARK except for lighting
+                environmentIntensity: 0.5, // Rich PBR reflections for wet/metallic surfaces
+                clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Near-black with subtle blue tint
+                grainEnabled: true, // Filmic grain for cinema feel
+                chromaticAberrationEnabled: true, // Lens realism
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.5, // Sharper details
-                fogDensity: 0.02 // Slightly denser fog for volumetric feel
+                sharpenAmount: 0.5,
+                fogDensity: 0.018 // Subtle haze/smoke density
             },
             vr: {
-                exposure: 0.7, // Slightly brighter for VR visibility
-                contrast: 1.7, // Enhanced contrast for VR depth
-                bloomWeight: 0.12, // Optimized VR bloom
-                bloomThreshold: 0.8, // Balanced threshold for VR
-                bloomScale: 0.25, // Enhanced VR bloom scale
-                glowIntensity: 0.4, // Enhanced VR glow
-                ambientIntensity: 0.08, // Improved VR ambient
-                environmentIntensity: 0.12, // Enhanced VR reflections
+                exposure: 0.85, // Slightly brighter for VR depth
+                contrast: 1.5, // Strong contrast for VR depth perception
+                bloomWeight: 0.15, // Visible bloom in VR for light glow
+                bloomThreshold: 0.75,
+                bloomScale: 0.3,
+                glowIntensity: 0.5, // Visible glow in VR
+                ambientIntensity: 0.05, // Very dark ambient for immersion
+                environmentIntensity: 0.15, // Subtle reflections in VR
                 clearColor: new BABYLON.Color3(0, 0, 0),
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: false,
-                edgeSharpness: 0.7, // Enhanced sharpness for VR clarity
-                colorSharpness: 0.9, // Enhanced color definition
-                fxaaEnabled: true,  // Enable FXAA for smooth edges in VR
-                fogDensity: 0.01 // Reduced fog for VR performance
+                edgeSharpness: 0.7,
+                colorSharpness: 0.9,
+                fxaaEnabled: true,
+                fogDensity: 0.012 // Subtle smoke in VR
             }
         };
         
@@ -121,6 +121,35 @@ class VRClub {
             orange: new BABYLON.Color3(1, 0.5, 0),
             purple: new BABYLON.Color3(0.5, 0, 1),
             warmWhite: new BABYLON.Color3(1, 0.9, 0.7) // Blinder warm white
+        };
+        
+        // PERFORMANCE: Pre-allocated Color3 for LED patterns (eliminates thousands of allocations/frame)
+        this._ledColor = new BABYLON.Color3(0, 0, 0); // Reusable color for LED updates
+        this._ledColor2 = new BABYLON.Color3(0, 0, 0); // Second reusable color
+        
+        // Cached LED pattern colors (avoid per-frame allocations)
+        this.cachedLEDColors = {
+            matrixGreen: new BABYLON.Color3(0, 1, 0.2),
+            auroraTeal: new BABYLON.Color3(0, 1, 1),
+            oceanBlue: new BABYLON.Color3(0, 0.5, 1),
+            heartRed: new BABYLON.Color3(1, 0.1, 0.2),
+            fireOrange: new BABYLON.Color3(1, 0.6, 0),
+        };
+        
+        // Cached laser glow colors (avoid per-frame allocations)
+        this.cachedLaserGlowColors = {
+            redInner: new BABYLON.Color3(1, 0.4, 0.4),
+            redOuter: new BABYLON.Color3(1, 0.25, 0.25),
+            greenInner: new BABYLON.Color3(0.4, 1, 0.4),
+            greenOuter: new BABYLON.Color3(0.25, 1, 0.25),
+            blueInner: new BABYLON.Color3(0.4, 0.4, 1),
+            blueOuter: new BABYLON.Color3(0.25, 0.25, 1),
+            redEmissive: new BABYLON.Color3(0.2, 0, 0),
+            greenEmissive: new BABYLON.Color3(0, 0.2, 0),
+            blueEmissive: new BABYLON.Color3(0, 0, 0.2),
+            redBright: new BABYLON.Color3(3, 0, 0),
+            greenBright: new BABYLON.Color3(0, 3, 0),
+            blueBright: new BABYLON.Color3(0, 0, 3),
         };
         
         // PERFORMANCE: Reusable Vector3 pool for animation calculations (reduces GC pressure)
@@ -275,25 +304,46 @@ class VRClub {
         // Frame-skipping causes different states per eye = epileptic effect
         this.isInVRMode = true;
         
-        // CRITICAL VR PERFORMANCE: Disable ALL post-processing in VR
-        // Post-processing pipelines are extremely expensive in stereoscopic rendering
-        // WebXR layer's native antialias: true handles AA much more efficiently
+        // UPGRADE: Set scene performance priority to Aggressive for VR
+        // This tells Babylon.js to skip frustum checks, reduce draw calls, etc.
+        if (BABYLON.ScenePerformancePriority) {
+            this.scene.performancePriority = BABYLON.ScenePerformancePriority.Aggressive;
+            log.info('⚡ Scene performance priority set to Aggressive for VR');
+        }
+        
+        // UPGRADE: Disable floor reflection probe in VR (one less render target)
+        if (this.floorReflectionProbe) {
+            this.floorReflectionProbe.cubeTexture.refreshRate = 0; // Stop rendering
+            log.info('⚡ Disabled floor reflection probe updates for VR');
+        }
+        
+        // VR POST-PROCESSING: Keep minimal effects for immersion while staying performant
+        // Completely disabling post-processing makes lights look flat and unrealistic in VR
         if (this.renderPipeline) {
             // Remove desktop camera from pipeline
             if (this.camera) {
                 this.renderPipeline.removeCamera(this.camera);
             }
             
-            // DISABLE all post-processing for VR performance
-            // The XR layer's native antialias handles AA efficiently at the hardware level
-            this.renderPipeline.fxaaEnabled = false; // Disable - use XR layer's native AA
-            this.renderPipeline.bloomEnabled = false; // Disable - too expensive in VR
+            // Selective post-processing for VR - keep bloom for light glow, disable expensive effects
+            this.renderPipeline.fxaaEnabled = false; // Use XR layer's native AA instead
+            this.renderPipeline.bloomEnabled = true; // KEEP bloom - essential for light glow in dark club
+            this.renderPipeline.bloomWeight = vr.bloomWeight; // Subtle bloom
+            this.renderPipeline.bloomThreshold = vr.bloomThreshold;
+            this.renderPipeline.bloomKernel = 32; // Smaller kernel for VR performance
+            this.renderPipeline.bloomScale = vr.bloomScale;
             this.renderPipeline.sharpenEnabled = false; // Disable - not needed with native AA
-            this.renderPipeline.imageProcessingEnabled = false; // Disable - saves GPU cycles
+            this.renderPipeline.imageProcessingEnabled = true; // Keep for contrast/exposure
+            if (this.renderPipeline.imageProcessing) {
+                this.renderPipeline.imageProcessing.exposure = vr.exposure;
+                this.renderPipeline.imageProcessing.contrast = vr.contrast;
+                this.renderPipeline.imageProcessing.toneMappingEnabled = false; // Skip tone mapping in VR
+                this.renderPipeline.imageProcessing.vignetteEnabled = false; // No vignette in VR (causes discomfort)
+            }
             this.renderPipeline.grainEnabled = false;
             this.renderPipeline.chromaticAberrationEnabled = false;
             
-            log.info('⚡ Disabled post-processing pipeline for VR performance (using native XR AA)');
+            log.info('⚡ VR post-processing: bloom + contrast enabled, expensive effects disabled');
         }
 
         // OPTIMIZED: Disable SSAO in VR (too expensive)
@@ -307,10 +357,12 @@ class VRClub {
         // #5 OPTIMIZED: Use native resolution for VR (let XR layer handle scaling)
         this.engine.setHardwareScalingLevel(1.0); // Native resolution - XR handles foveated rendering
         
-        // #4 OPTIMIZED: Disable glow layer entirely in VR for performance
+        // #4 OPTIMIZED: Reduce glow layer intensity in VR but keep it ENABLED
+        // Glow is essential for laser beams and LED panels to look like real light sources
         if (this.glowLayer) {
-            this.glowLayer.isEnabled = false; // Completely disable glow for VR performance
-            log.info('⚡ Disabled glow layer for VR performance');
+            this.glowLayer.isEnabled = true;
+            this.glowLayer.intensity = vr.glowIntensity; // Reduced but visible
+            log.info('⚡ Reduced glow layer intensity for VR');
         }
         
         const ambient = this.scene.getLightByName('ambient');
@@ -391,17 +443,18 @@ class VRClub {
         // #8 OPTIMIZED: Reduce particle systems for VR performance
         // Particles are expensive - reduce capacity and emit rates in VR
         if (this.floorFog) {
-            this.floorFog.emitRate = 50; // Reduced from 200 (75% reduction)
+            this.floorFog.emitRate = 20; // Reduced for VR performance
             log.info('⚡ Reduced floor fog emit rate for VR');
         }
         if (this.haze) {
-            this.haze.emitRate = 25; // Reduced from 100 (75% reduction)
+            this.haze.emitRate = 40; // Keep visible for beam visibility
             log.info('⚡ Reduced haze emit rate for VR');
         }
         
-        // #9 OPTIMIZED: Disable scene fog in VR (use particle-based fog instead if needed)
-        this.scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
-        log.info('⚡ Disabled scene fog for VR performance');
+        // Keep subtle scene fog in VR for atmospheric depth (reduced density)
+        this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+        this.scene.fogDensity = vr.fogDensity * 0.5; // Half density in VR
+        log.info('⚡ Reduced scene fog density for VR');
         
         // #10 OPTIMIZED: Enable Fixed Foveated Rendering (FFR) on Quest 3S
         // Quest 3S supports hardware-level foveated rendering which renders peripheral vision
@@ -432,6 +485,12 @@ class VRClub {
     applyDesktopSettings() {
         const desktop = this.vrSettings.desktop;
         
+        // UPGRADE: Restore scene performance priority for desktop
+        if (BABYLON.ScenePerformancePriority) {
+            this.scene.performancePriority = BABYLON.ScenePerformancePriority.BackwardCompatible;
+        }
+        this.isInVRMode = false;
+        
         // Restore post-processing
         if (this.renderPipeline) {
             // Fix: Add desktop camera back
@@ -449,14 +508,14 @@ class VRClub {
             
             // Restore grain settings for cinematic filmic texture
             if (this.renderPipeline.grain) {
-                this.renderPipeline.grain.intensity = 4;
+                this.renderPipeline.grain.intensity = 3;
                 this.renderPipeline.grain.animated = true;
             }
             
             // Restore chromatic aberration settings for lens realism
             if (this.renderPipeline.chromaticAberration) {
-                this.renderPipeline.chromaticAberration.aberrationAmount = 12;
-                this.renderPipeline.chromaticAberration.radialIntensity = 0.8;
+                this.renderPipeline.chromaticAberration.aberrationAmount = 8;
+                this.renderPipeline.chromaticAberration.radialIntensity = 0.6;
             }
             
             if (this.renderPipeline.imageProcessing) {
@@ -466,8 +525,8 @@ class VRClub {
                 
                 // Restore cinematic vignette
                 this.renderPipeline.imageProcessing.vignetteEnabled = true;
-                this.renderPipeline.imageProcessing.vignetteWeight = 1.8;
-                this.renderPipeline.imageProcessing.vignetteStretch = 0.5;
+                this.renderPipeline.imageProcessing.vignetteWeight = 2.2;
+                this.renderPipeline.imageProcessing.vignetteStretch = 0.4;
             }
             
             if (this.renderPipeline.bloomEnabled) {
@@ -518,10 +577,10 @@ class VRClub {
         
         // Restore particle system emit rates for desktop
         if (this.floorFog) {
-            this.floorFog.emitRate = 200; // Full rate for desktop
+            this.floorFog.emitRate = 40; // Full floor fog for desktop
         }
         if (this.haze) {
-            this.haze.emitRate = 100; // Full rate for desktop
+            this.haze.emitRate = 80; // Full haze for desktop
         }
         
         // Restore scene fog for desktop (EXP2 matches initial setup for consistent falloff)
@@ -608,7 +667,7 @@ class VRClub {
     async init() {
         // Create scene with hyperrealistic atmosphere
         this.scene = new BABYLON.Scene(this.engine);
-        this.scene.clearColor = new BABYLON.Color3(0.01, 0.01, 0.02); // Very dark club atmosphere
+        this.scene.clearColor = new BABYLON.Color3(0.003, 0.003, 0.008); // Near-black with subtle blue - real clubs are DARK
         
         // PERFORMANCE OPTIMIZATIONS - Scene-level settings
         this.scene.skipFrustumClipping = false; // Keep frustum culling for VR (important)
@@ -638,12 +697,9 @@ class VRClub {
         // await this.readyPlayerMeLoader.testConnection(); // Check if RPM is available
         this.readyPlayerMeLoader = null;
         
-        // Initialize multiplayer managers (DISABLED - focusing on single-player quality)
-        // this.networkManager = new NetworkManager(this.scene);
-        // this.avatarManager = new AvatarManager(this.scene, this.materialFactory, this.readyPlayerMeLoader);
-        // this.setupNetworkingCallbacks();
-        this.networkManager = null; // Explicitly disable networking
-        this.avatarManager = null; // Disable avatar manager
+        // Multiplayer disabled - single-player only
+        this.networkManager = null;
+        this.avatarManager = null;
         this.isMultiplayer = false;
         
         // NPC avatars for atmosphere
@@ -657,10 +713,11 @@ class VRClub {
         );
         this.scene.environmentIntensity = 0.4; // Enhanced PBR reflections for hyperrealistic surfaces
         
-        // Add atmospheric fog for depth and light scattering simulation
+        // Atmospheric fog for depth and haze machine simulation
+        // Real clubs have warm-gray smoke machine haze that scatters light beams
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
         this.scene.fogDensity = this.vrSettings.desktop.fogDensity;
-        this.scene.fogColor = new BABYLON.Color3(0.02, 0.02, 0.05); // Dark blue-ish fog
+        this.scene.fogColor = new BABYLON.Color3(0.015, 0.012, 0.018); // Warm dark haze (smoke machines)
         
         // Initialize texture loader and load textures from CDN (cached for subsequent loads)
         log.info('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
@@ -720,12 +777,54 @@ class VRClub {
         
         this.scene.activeCamera = this.camera;
         
-        // PERFORMANCE: Reduced glow layer settings for better FPS
+        // Glow layer for dramatic emissive effects (LEDs, lasers, spotlights)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
-            mainTextureFixedSize: 512, // Reduced from 1024 for better performance
-            blurKernelSize: 16  // Reduced from 32 for better performance
+            mainTextureFixedSize: 512,
+            blurKernelSize: 32  // Wider blur for more realistic light halos
         });
-        this.glowLayer.intensity = 0.7; // Enhanced glow for dramatic light sources
+        this.glowLayer.intensity = 0.85; // Pronounced glow for dramatic light sources
+        
+        // Custom glow intensity per mesh type - selective glow for realism
+        // LED panels and strobes get strong glow, lasers get intense glow, structures get none
+        this.glowLayer.customEmissiveColorSelector = (mesh, subMesh, material, result) => {
+            const name = mesh.name || '';
+            if (name.startsWith('ledPanel_') || name.startsWith('strobe')) {
+                // LED panels and strobes: bright emissive glow (visible from across club)
+                result.set(
+                    material.emissiveColor.r * 2.0,
+                    material.emissiveColor.g * 2.0,
+                    material.emissiveColor.b * 2.0,
+                    1.0
+                );
+            } else if (name.startsWith('laser') || name.includes('Emitter')) {
+                // Laser cores: intense glow (lasers should cut through haze)
+                result.set(
+                    material.emissiveColor.r * 3.0,
+                    material.emissiveColor.g * 3.0,
+                    material.emissiveColor.b * 3.0,
+                    1.0
+                );
+            } else if (name.includes('lens') || name.includes('lightSource') || name.includes('Lens')) {
+                // Fixture lenses: visible glow (like real stage lights)
+                result.set(
+                    material.emissiveColor.r * 1.5,
+                    material.emissiveColor.g * 1.5,
+                    material.emissiveColor.b * 1.5,
+                    1.0
+                );
+            } else if (name.includes('exitSign') || name.includes('stepLight') || name.includes('danceFloorLED')) {
+                // Safety and decorative LEDs: subtle glow
+                result.set(
+                    material.emissiveColor.r * 0.8,
+                    material.emissiveColor.g * 0.8,
+                    material.emissiveColor.b * 0.8,
+                    1.0
+                );
+            } else {
+                // Everything else: no glow (prevents unwanted bloom on structural meshes)
+                result.set(0, 0, 0, 0);
+            }
+        };
         
         // Add post-processing for cinematic realism
         this.addPostProcessing();
@@ -831,11 +930,11 @@ class VRClub {
                                     squeeze.onButtonStateChangedObservable.add((component) => {
                                         if (component.pressed) {
                                             if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 6.0; // Sprint
+                                                this.movementFeature.movementSpeed = 4.5; // Fast sprint
                                             }
                                         } else {
                                             if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 3.0; // Normal
+                                                this.movementFeature.movementSpeed = 1.5; // Normal walk speed
                                             }
                                         }
                                     });
@@ -980,6 +1079,7 @@ class VRClub {
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs only
+        this.createBar(); // Bar area with counter, stools, bottles
         
         // Setup UI
         this.setupUI(vrHelper);
@@ -988,6 +1088,10 @@ class VRClub {
         
         // Create dancing NPC avatars on the dancefloor
         await this.createDancingNPCs();
+        
+        // UPGRADE: Create frozen reflection probe for the dance floor
+        // Must be called AFTER all geometry is created so the probe captures everything
+        this.createFloorReflectionProbe();
         
         // Verify scene is ready
         log.info('🎬 Scene initialization complete:');
@@ -1047,44 +1151,44 @@ class VRClub {
         // FXAA anti-aliasing for smooth edges (essential for immersion)
         pipeline.fxaaEnabled = desktop.fxaaEnabled;
         
-        // ENHANCED Bloom synced with vrSettings.desktop for dramatic glowing lights
+        // ENHANCED Bloom for dramatic glowing lights - key to club atmosphere
         pipeline.bloomEnabled = true;
-        pipeline.bloomThreshold = desktop.bloomThreshold; // 0.5 - catch more light sources
-        pipeline.bloomWeight = desktop.bloomWeight;       // 0.3 - dramatic neon glow
-        pipeline.bloomKernel = 64; // Large kernel for smooth bloom spread
-        pipeline.bloomScale = desktop.bloomScale;         // 0.4 - wide bloom spread
+        pipeline.bloomThreshold = desktop.bloomThreshold;
+        pipeline.bloomWeight = desktop.bloomWeight;
+        pipeline.bloomKernel = 128; // Wide kernel for smooth, cinematic bloom halos
+        pipeline.bloomScale = desktop.bloomScale;
         
-        // Subtle chromatic aberration for realistic lens simulation (desktop only)
+        // Chromatic aberration for realistic camera lens simulation (desktop only)
         pipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
         if (pipeline.chromaticAberration) {
-            pipeline.chromaticAberration.aberrationAmount = 12;    // Subtle color fringing at edges
-            pipeline.chromaticAberration.radialIntensity = 0.8;    // Stronger at edges (lens-like)
+            pipeline.chromaticAberration.aberrationAmount = 8;     // Subtle color fringing at edges
+            pipeline.chromaticAberration.radialIntensity = 0.6;    // Concentrated at edges (lens-like)
         }
         
-        // Subtle film grain for cinematic filmic texture (desktop only)
+        // Film grain for cinematic texture (desktop only)
         pipeline.grainEnabled = desktop.grainEnabled;
         if (pipeline.grain) {
-            pipeline.grain.intensity = 4;         // Very subtle grain
+            pipeline.grain.intensity = 3;         // Very subtle grain
             pipeline.grain.animated = true;       // Animated for film-like feel
         }
         
-        // ENHANCED Sharpen for crystal-clear details (hyperrealism focus)
+        // Sharpen for crystal-clear details
         pipeline.sharpenEnabled = true;
-        pipeline.sharpen.edgeAmount = 0.4; // Crisp edge definition
-        pipeline.sharpen.colorAmount = desktop.sharpenAmount; // Enhanced color separation
+        pipeline.sharpen.edgeAmount = 0.35; // Crisp edge definition
+        pipeline.sharpen.colorAmount = desktop.sharpenAmount;
         
         // ENHANCED Image processing for cinematic depth
         pipeline.imageProcessingEnabled = true;
-        pipeline.imageProcessing.contrast = desktop.contrast;   // 1.5 - enhanced depth
-        pipeline.imageProcessing.exposure = desktop.exposure;   // 1.05 - balanced
+        pipeline.imageProcessing.contrast = desktop.contrast;
+        pipeline.imageProcessing.exposure = desktop.exposure;
         pipeline.imageProcessing.toneMappingEnabled = desktop.toneMappingEnabled;
-        pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES; // Cinematic tone mapping
+        pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
         
         // Cinematic vignette - darkens edges for immersive club atmosphere
         pipeline.imageProcessing.vignetteEnabled = true;
-        pipeline.imageProcessing.vignetteWeight = 1.8;          // Moderate edge darkening
-        pipeline.imageProcessing.vignetteStretch = 0.5;         // Balanced stretch
-        pipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0, 0);
+        pipeline.imageProcessing.vignetteWeight = 2.2;          // Stronger edge darkening for club feel
+        pipeline.imageProcessing.vignetteStretch = 0.4;         // Tighter vignette
+        pipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0.02, 0); // Subtle blue-black edge
         pipeline.imageProcessing.vignetteBlendMode = BABYLON.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
         
         // Optional: Depth of Field for camera focus effect (disabled by default for VR compatibility)
@@ -1160,6 +1264,63 @@ class VRClub {
         floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor
         floor.freezeWorldMatrix(); // OPTIMIZATION: Freeze static floor mesh
         floor.doNotSyncBoundingInfo = true; // Skip bounding info updates
+    }
+
+    /**
+     * UPGRADE: Create a frozen ReflectionProbe for realistic floor reflections
+     * Captures the club environment (trusses, LED wall, ceiling, walls) into a cube map
+     * and applies it to the polished floor PBR material.
+     * Uses REFRESHRATE_RENDER_ONCE so it's captured once and never re-rendered (free at runtime).
+     * Call this AFTER all geometry is created so the probe captures everything.
+     */
+    createFloorReflectionProbe() {
+        if (!this.floorMesh || !this.floorMesh.material) {
+            log.warn('⚠️ Cannot create floor reflection probe - floor mesh not found');
+            return;
+        }
+        
+        // Create a low-res cube map probe at dance floor level
+        // 128px per face is sufficient for blurry floor reflections (roughness 0.25)
+        const probe = new BABYLON.ReflectionProbe("floorReflectionProbe", 256, this.scene);
+        probe.position = new BABYLON.Vector3(0, 0.5, -12); // Dance floor center, slightly above floor
+        
+        // CRITICAL: Render only ONCE (frozen probe) - zero runtime cost after first frame
+        probe.refreshRate = BABYLON.RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+        
+        // Add key static meshes to the probe's render list
+        // These are the objects that should appear reflected in the floor
+        const renderList = probe.renderList;
+        this.scene.meshes.forEach(mesh => {
+            if (!mesh.name) return;
+            const n = mesh.name.toLowerCase();
+            // Include structural and decorative elements (skip floor itself, beams, pools, gobos)
+            if (n.includes('wall') || n.includes('ceiling') || n.includes('truss') ||
+                n.includes('brace') || n.includes('pillar') || n.includes('speaker') ||
+                n.includes('djtable') || n.includes('platform') || n.includes('rail') ||
+                n.includes('pipe') || n.includes('led') || n.includes('brick') ||
+                n.includes('mirrorball') || n.includes('fixture') || n.includes('sign')) {
+                renderList.push(mesh);
+            }
+        });
+        
+        // Apply the probe's cube texture to the floor PBR material
+        const floorMat = this.floorMesh.material;
+        
+        // Unfreeze material if needed to apply reflection
+        if (floorMat.unfreeze) floorMat.unfreeze();
+        
+        floorMat.reflectionTexture = probe.cubeTexture;
+        floorMat.reflectionTexture.coordinatesMode = BABYLON.Texture.CUBIC_REFLECTION_MODE;
+        
+        // Moderate reflection level - polished but not mirror-like
+        // The floor already has roughness 0.25 which naturally blurs the reflection
+        floorMat.environmentIntensity = 0.6; // Subtle ambient reflections
+        
+        // Re-freeze material after applying reflection
+        floorMat.freeze();
+        
+        this.floorReflectionProbe = probe;
+        log.info(`🪞 Floor reflection probe created (128px cube, ${renderList.length} meshes, frozen)`);
     }
 
     createWalls() {
@@ -1657,7 +1818,208 @@ class VRClub {
         // OPTIMIZATION: Freeze exit sign material
         if (exitSignMat.freeze) exitSignMat.freeze();
         
-        log.info("✅ Created safety details (exit signs) - frozen for performance");
+        // === NEON WALL SIGNS ===
+        // Decorative neon tube art on walls (club atmosphere)
+        const neonSigns = [
+            { text: 'CLUB', pos: new BABYLON.Vector3(12.4, 4, -10), rot: -Math.PI/2, color: [1, 0, 0.4], w: 2.0, h: 0.5 },
+            { text: 'VR', pos: new BABYLON.Vector3(-12.4, 3.5, -14), rot: Math.PI/2, color: [0, 0.5, 1], w: 1.2, h: 0.5 },
+            { text: 'DANCE', pos: new BABYLON.Vector3(0, 3, 1.7), rot: Math.PI, color: [1, 0.2, 1], w: 2.5, h: 0.5 }
+        ];
+        
+        neonSigns.forEach((sign, i) => {
+            const neonPlane = BABYLON.MeshBuilder.CreatePlane(`neonSign${i}`, {
+                width: sign.w, height: sign.h
+            }, this.scene);
+            neonPlane.position = sign.pos;
+            neonPlane.rotation.y = sign.rot;
+            
+            const neonMat = new BABYLON.StandardMaterial(`neonMat${i}`, this.scene);
+            neonMat.emissiveColor = new BABYLON.Color3(sign.color[0], sign.color[1], sign.color[2]);
+            neonMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            neonMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            neonMat.disableLighting = true;
+            neonMat.alpha = 0.95;
+            neonPlane.material = neonMat;
+            neonPlane.isPickable = false;
+            neonPlane.freezeWorldMatrix();
+            neonPlane.doNotSyncBoundingInfo = true;
+        });
+        
+        // === PLATFORM STEP LIGHTS ===
+        // Small emissive discs along DJ platform edge (safety + atmosphere)
+        const platformEdgeZ = -16; // Front edge of DJ platform
+        for (let x = -2.5; x <= 2.5; x += 1.0) {
+            const stepLight = BABYLON.MeshBuilder.CreateDisc(`stepLight_${x}`, {
+                radius: 0.06, tessellation: 8
+            }, this.scene);
+            stepLight.position = new BABYLON.Vector3(x, 0.52, platformEdgeZ);
+            stepLight.rotation.x = -Math.PI / 2; // Face upward
+            
+            const stepMat = new BABYLON.StandardMaterial(`stepLightMat_${x}`, this.scene);
+            stepMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 1); // Cool blue
+            stepMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            stepMat.disableLighting = true;
+            stepLight.material = stepMat;
+            stepLight.isPickable = false;
+            stepLight.freezeWorldMatrix();
+            stepLight.doNotSyncBoundingInfo = true;
+        }
+        
+        log.info("✅ Created safety details (exit signs, neon signs, step lights) - frozen for performance");
+    }
+
+    createBar() {
+        // === NIGHTCLUB BAR (right wall) ===
+        // Every real club has a bar area with warm lighting contrast
+        log.info('🍹 Creating bar area...');
+        
+        // Bar counter (long L-shaped counter along right wall)
+        const barTop = BABYLON.MeshBuilder.CreateBox("barTop", {
+            width: 0.8, height: 0.05, depth: 8
+        }, this.scene);
+        barTop.position = new BABYLON.Vector3(12, 1.1, -8);
+        const barTopMat = this.materialFactory.createPBRMaterial("barTopMat", {
+            baseColor: [0.08, 0.06, 0.04],
+            metallic: 0.1,
+            roughness: 0.15 // Glossy bar top
+        });
+        barTopMat.clearCoat.isEnabled = true;
+        barTopMat.clearCoat.intensity = 0.8;
+        barTopMat.clearCoat.roughness = 0.1;
+        barTop.material = barTopMat;
+        barTop.receiveShadows = true;
+        barTop.checkCollisions = true;
+        barTop.freezeWorldMatrix();
+        barTop.doNotSyncBoundingInfo = true;
+        
+        // Bar front panel (facing dancefloor)
+        const barFront = BABYLON.MeshBuilder.CreateBox("barFront", {
+            width: 0.08, height: 1.1, depth: 8
+        }, this.scene);
+        barFront.position = new BABYLON.Vector3(11.6, 0.55, -8);
+        const barFrontMat = this.materialFactory.createPBRMaterial("barFrontMat", {
+            baseColor: [0.06, 0.06, 0.08],
+            metallic: 0.05,
+            roughness: 0.6
+        });
+        barFront.material = barFrontMat;
+        barFront.freezeWorldMatrix();
+        barFront.doNotSyncBoundingInfo = true;
+        
+        // LED strip under bar counter (accent lighting)
+        const barLedStrip = BABYLON.MeshBuilder.CreateBox("barLedStrip", {
+            width: 0.6, height: 0.02, depth: 7.8
+        }, this.scene);
+        barLedStrip.position = new BABYLON.Vector3(11.8, 0.05, -8);
+        const barLedMat = new BABYLON.StandardMaterial("barLedMat", this.scene);
+        barLedMat.emissiveColor = new BABYLON.Color3(0.1, 0.3, 0.8); // Cool blue underglow
+        barLedMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        barLedMat.disableLighting = true;
+        barLedMat.alpha = 0.9;
+        barLedStrip.material = barLedMat;
+        barLedStrip.freezeWorldMatrix();
+        barLedStrip.doNotSyncBoundingInfo = true;
+        
+        // Bar stools (simple cylinder + disc)
+        for (let z = -11; z <= -5; z += 1.5) {
+            const stoolLeg = BABYLON.MeshBuilder.CreateCylinder(`barStoolLeg_${z}`, {
+                diameter: 0.08, height: 0.75, tessellation: 8
+            }, this.scene);
+            stoolLeg.position = new BABYLON.Vector3(11.2, 0.375, z);
+            stoolLeg.material = barFrontMat;
+            stoolLeg.freezeWorldMatrix();
+            stoolLeg.doNotSyncBoundingInfo = true;
+            
+            const stoolSeat = BABYLON.MeshBuilder.CreateCylinder(`barStoolSeat_${z}`, {
+                diameter: 0.35, height: 0.06, tessellation: 12
+            }, this.scene);
+            stoolSeat.position = new BABYLON.Vector3(11.2, 0.78, z);
+            stoolSeat.material = barTopMat;
+            stoolSeat.freezeWorldMatrix();
+            stoolSeat.doNotSyncBoundingInfo = true;
+        }
+        
+        // Bottle shelf (backbar with LED backlight)
+        const shelf = BABYLON.MeshBuilder.CreateBox("bottleShelf", {
+            width: 0.3, height: 1.5, depth: 6
+        }, this.scene);
+        shelf.position = new BABYLON.Vector3(12.6, 1.8, -8);
+        shelf.material = barFrontMat;
+        shelf.freezeWorldMatrix();
+        shelf.doNotSyncBoundingInfo = true;
+        
+        // Backlit shelf glow (warm amber behind bottles)
+        const shelfGlow = BABYLON.MeshBuilder.CreatePlane("shelfGlow", {
+            width: 6, height: 1.4
+        }, this.scene);
+        shelfGlow.position = new BABYLON.Vector3(12.75, 1.8, -8);
+        shelfGlow.rotation.y = -Math.PI / 2;
+        const shelfGlowMat = new BABYLON.StandardMaterial("shelfGlowMat", this.scene);
+        shelfGlowMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0.2); // Warm amber
+        shelfGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        shelfGlowMat.disableLighting = true;
+        shelfGlowMat.alpha = 0.4;
+        shelfGlow.material = shelfGlowMat;
+        shelfGlow.freezeWorldMatrix();
+        shelfGlow.doNotSyncBoundingInfo = true;
+        
+        // Bottles on shelf (simple colored cylinders)
+        const bottleColors = [
+            [0.8, 0.2, 0.1], [0.1, 0.6, 0.2], [0.9, 0.7, 0.1],
+            [0.3, 0.2, 0.7], [0.1, 0.4, 0.8], [0.8, 0.4, 0.1],
+            [0.6, 0.1, 0.3], [0.2, 0.7, 0.6]
+        ];
+        bottleColors.forEach((col, i) => {
+            const bottle = BABYLON.MeshBuilder.CreateCylinder(`bottle_${i}`, {
+                diameter: 0.08, height: 0.35, tessellation: 8
+            }, this.scene);
+            bottle.position = new BABYLON.Vector3(12.55, 1.85 + (i % 2) * 0.5, -10.5 + i * 0.9);
+            const bottleMat = new BABYLON.StandardMaterial(`bottleMat_${i}`, this.scene);
+            bottleMat.emissiveColor = new BABYLON.Color3(col[0] * 0.3, col[1] * 0.3, col[2] * 0.3);
+            bottleMat.diffuseColor = new BABYLON.Color3(col[0], col[1], col[2]);
+            bottleMat.alpha = 0.7;
+            bottle.material = bottleMat;
+            bottle.freezeWorldMatrix();
+            bottle.doNotSyncBoundingInfo = true;
+        });
+        
+        // Warm downlights over bar (atmospheric contrast with dark dancefloor)
+        // Using emissive disc spotlights instead of PointLights (no light budget impact)
+        for (let z = -10.5; z <= -5.5; z += 2.5) {
+            const downlight = BABYLON.MeshBuilder.CreateDisc(`barDownlight_${z}`, {
+                radius: 0.15, tessellation: 12
+            }, this.scene);
+            downlight.position = new BABYLON.Vector3(12, 3, z);
+            downlight.rotation.x = Math.PI / 2; // Face downward
+            const downlightMat = new BABYLON.StandardMaterial(`barDownlightMat_${z}`, this.scene);
+            downlightMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0.5); // Warm white
+            downlightMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            downlightMat.disableLighting = true;
+            downlight.material = downlightMat;
+            downlight.isPickable = false;
+            downlight.freezeWorldMatrix();
+            downlight.doNotSyncBoundingInfo = true;
+            
+            // Light cone visual (warm pool of light)
+            const cone = BABYLON.MeshBuilder.CreateCylinder(`barLightCone_${z}`, {
+                diameterTop: 0.1, diameterBottom: 1.2,
+                height: 2.5, tessellation: 12
+            }, this.scene);
+            cone.position = new BABYLON.Vector3(12, 1.75, z);
+            const coneMat = new BABYLON.StandardMaterial(`barConeMat_${z}`, this.scene);
+            coneMat.emissiveColor = new BABYLON.Color3(1, 0.7, 0.3);
+            coneMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            coneMat.disableLighting = true;
+            coneMat.alpha = 0.04; // Very subtle light cone
+            coneMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            coneMat.backFaceCulling = false;
+            cone.material = coneMat;
+            cone.isPickable = false;
+            cone.freezeWorldMatrix();
+            cone.doNotSyncBoundingInfo = true;
+        }
+        
+        log.info('🍹 Bar area created (counter, stools, bottles, lighting)');
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
@@ -2326,7 +2688,7 @@ class VRClub {
             height: 0.02,
             depth: 4
         }, this.scene);
-        platformTop.position = new BABYLON.Vector3(0, 0.51, -21);
+        platformTop.position = new BABYLON.Vector3(0, 0.51, -18);
         
         const topMat = this.materialFactory.getPreset('platformTop');
         platformTop.material = topMat;
@@ -2773,182 +3135,6 @@ class VRClub {
         this.lastBPMUpdate = 0;
     }
 
-    createVJLightingControls() {
-        // === VJ LIGHTING CONTROL CONSOLE (right side of platform) ===
-        // Simple control panel with toggle buttons for easy lighting control
-        // Positioned at x=3, facing DJ (who stands with back to LED wall)
-        
-        const consoleMat = this.materialFactory.createPBRMaterial("vjConsoleMat", {
-            baseColor: [0.05, 0.05, 0.06],
-            metallic: 0.9,
-            roughness: 0.3
-        });
-        
-        // Console base/stand
-        const consoleBase = BABYLON.MeshBuilder.CreateBox("vjConsoleBase", {
-            width: 2.5,
-            height: 0.15,
-            depth: 1.2
-        }, this.scene);
-        consoleBase.position = new BABYLON.Vector3(2.0, 0.8, -24);
-        consoleBase.material = consoleMat;
-        
-        // === 6 TOGGLE BUTTONS FOR LIGHTING CONTROL ===
-        const toggleButtons = [
-            { 
-                label: "SPOTLIGHTS", 
-                control: "lightsActive",
-                onColor: new BABYLON.Color3(1, 0.5, 0),
-                offColor: new BABYLON.Color3(0.2, 0.1, 0),
-                row: 0, col: 0
-            },
-            { 
-                label: "LASERS", 
-                control: "lasersActive",
-                onColor: new BABYLON.Color3(1, 0, 0),
-                offColor: new BABYLON.Color3(0.2, 0, 0),
-                row: 0, col: 1
-            },
-            { 
-                label: "STROBES", 
-                control: "strobesActive",
-                onColor: new BABYLON.Color3(1, 1, 1),
-                offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
-                row: 0, col: 2
-            },
-            { 
-                label: "LED WALL", 
-                control: "ledWallActive",
-                onColor: new BABYLON.Color3(0, 0.5, 1),
-                offColor: new BABYLON.Color3(0, 0.1, 0.2),
-                row: 1, col: 0
-            },
-            { 
-                label: "MIRROR BALL", 
-                control: "mirrorBallActive",
-                onColor: new BABYLON.Color3(1, 1, 0),
-                offColor: new BABYLON.Color3(0.2, 0.2, 0),
-                row: 1, col: 1
-            },
-            { 
-                label: "CHANGE COLOR", 
-                control: "changeColor",
-                onColor: new BABYLON.Color3(0.5, 1, 0.5),
-                offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
-                row: 1, col: 2
-            },
-            { 
-                label: "RANDOM", 
-                control: "patternRandom",
-                onColor: new BABYLON.Color3(1, 0, 1),
-                offColor: new BABYLON.Color3(0.2, 0, 0.2),
-                row: 2, col: 0
-            },
-            { 
-                label: "STATIC DOWN", 
-                control: "patternStatic",
-                onColor: new BABYLON.Color3(0, 1, 1),
-                offColor: new BABYLON.Color3(0, 0.2, 0.2),
-                row: 2, col: 1
-            },
-            { 
-                label: "SWEEP SYNC", 
-                control: "patternSweep",
-                onColor: new BABYLON.Color3(1, 0.5, 1),
-                offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
-                row: 2, col: 2
-            },
-            { 
-                label: "LASER SHEET", 
-                control: "laserSheetActive",
-                onColor: new BABYLON.Color3(0, 1, 0),
-                offColor: new BABYLON.Color3(0, 0.2, 0),
-                row: 3, col: 0 // New row for laser sheet
-            },
-            { 
-                label: "FOG MACHINE", 
-                control: "smokeActive",
-                onColor: new BABYLON.Color3(0.7, 0.7, 1),
-                offColor: new BABYLON.Color3(0.15, 0.15, 0.25),
-                row: 3, col: 1 // Fog machine toggle
-            },
-            { 
-                label: "FOG BURST", 
-                control: "fogBurst",
-                onColor: new BABYLON.Color3(1, 1, 1),
-                offColor: new BABYLON.Color3(0.2, 0.2, 0.3),
-                row: 3, col: 2 // Manual fog burst trigger
-            }
-        ];
-        
-        const buttonWidth = 0.6;
-        const buttonHeight = 0.15;
-        const buttonDepth = 0.4;
-        const spacing = 0.7;
-        const startX = 1.2;
-        const startZ = -23.5;
-        const rowSpacing = 0.5;
-        
-        toggleButtons.forEach((btnDef) => {
-            const xPos = startX + (btnDef.col * spacing);
-            const yPos = 0.95 - (btnDef.row * rowSpacing);
-            
-            // Check if this control is currently active
-            const isActive = this[btnDef.control] || false;
-            
-            // Create larger, more visible button
-            const toggleBtn = BABYLON.MeshBuilder.CreateBox("toggleBtn_" + btnDef.control, {
-                width: buttonWidth,
-                height: buttonHeight,
-                depth: buttonDepth
-            }, this.scene);
-            toggleBtn.position = new BABYLON.Vector3(xPos, yPos, startZ);
-            toggleBtn.isPickable = true;
-            
-            const toggleMat = this.materialFactory.createStandardMaterial("toggleMat_" + btnDef.control, {
-                emissiveColor: isActive ? btnDef.onColor : btnDef.offColor,
-                disableLighting: true
-            });
-            toggleBtn.material = toggleMat;
-            
-            this.vjControlButtons.push({
-                mesh: toggleBtn,
-                control: btnDef.control,
-                material: toggleMat,
-                onColor: btnDef.onColor,
-                offColor: btnDef.offColor,
-                label: btnDef.label
-            });
-            
-            // Create text label using dynamic texture
-            const labelPlane = BABYLON.MeshBuilder.CreatePlane("label_" + btnDef.control, {
-                width: buttonWidth,
-                height: 0.2
-            }, this.scene);
-            labelPlane.position = new BABYLON.Vector3(xPos, yPos + 0.15, startZ);
-            labelPlane.rotation.x = Math.PI / 4; // Tilt for better visibility
-            
-            // Create dynamic texture for text
-            const labelTexture = new BABYLON.DynamicTexture("labelTex_" + btnDef.control, 
-                {width: 512, height: 128}, this.scene, false);
-            labelTexture.hasAlpha = true;
-            labelTexture.drawText(btnDef.label, null, null, 
-                "bold 72px Arial", "white", "transparent", true, true);
-            
-            const labelMat = this.materialFactory.createStandardMaterial("labelMat_" + btnDef.control, {
-                diffuseTexture: labelTexture,
-                emissiveColor: [0.9, 0.9, 0.9],
-                disableLighting: true,
-                opacityTexture: labelTexture
-            });
-            labelPlane.material = labelMat;
-        });
-        
-        log.info("✅ Created VJ lighting control console with 9 intuitive buttons in 3x3 grid");
-    }
-
-    // createVJStation() method removed - was 310+ lines of duplicate/unused code
-
     createHyperrealisticSmoke() {
         // === HYPERREALISTIC FOG MACHINE SYSTEM ===
         // Two fog machines mounted on trusses that blow fog into the room
@@ -2993,11 +3179,12 @@ class VRClub {
             machineParent.rotation.y = pos.rotY;
             
             // Main body (rectangular housing)
-            const bodyMat = this.materialFactory.createPBRMaterial(`fogMachineBody${i}`, {
+            // UPGRADE: Shared material for all fog machine bodies
+            const bodyMat = this.materialFactory.createPBRMaterial('fogMachineBodyShared', {
                 baseColor: [0.15, 0.15, 0.15], // Dark gray
                 metallic: 0.6,
                 roughness: 0.4
-            });
+            }, true); // shared
             
             const body = BABYLON.MeshBuilder.CreateBox(`fogMachineBody${i}`, {
                 width: 0.6,
@@ -3007,6 +3194,9 @@ class VRClub {
             body.position = new BABYLON.Vector3(0, 0, 0);
             body.parent = machineParent;
             body.material = bodyMat;
+            // UPGRADE: Freeze static fog machine hardware
+            body.freezeWorldMatrix();
+            body.doNotSyncBoundingInfo = true;
             
             // Mounting bracket (attaches to truss)
             const bracketMat = this.materialFactory.getPreset('barStool');
@@ -3018,13 +3208,16 @@ class VRClub {
             bracket.position = new BABYLON.Vector3(0, 0.22, 0);
             bracket.parent = machineParent;
             bracket.material = bracketMat;
+            bracket.freezeWorldMatrix();
+            bracket.doNotSyncBoundingInfo = true;
             
             // Nozzle (where fog comes out)
-            const nozzleMat = this.materialFactory.createPBRMaterial(`fogMachineNozzle${i}`, {
+            // UPGRADE: Shared material for all fog machine nozzles
+            const nozzleMat = this.materialFactory.createPBRMaterial('fogMachineNozzleShared', {
                 baseColor: [0.08, 0.08, 0.08],
                 metallic: 0.8,
                 roughness: 0.2
-            });
+            }, true); // shared
             
             const nozzle = BABYLON.MeshBuilder.CreateCylinder(`fogMachineNozzle${i}`, {
                 diameter: 0.12,
@@ -3035,6 +3228,8 @@ class VRClub {
             nozzle.rotation.x = Math.PI / 2 + 0.3; // Angled slightly downward
             nozzle.parent = machineParent;
             nozzle.material = nozzleMat;
+            nozzle.freezeWorldMatrix();
+            nozzle.doNotSyncBoundingInfo = true;
             
             // Status LED
             const ledMat = this.materialFactory.createStandardMaterial(`fogMachineLED${i}`, {
@@ -3048,6 +3243,8 @@ class VRClub {
             led.position = new BABYLON.Vector3(0.25, 0.1, 0.21);
             led.parent = machineParent;
             led.material = ledMat;
+            led.freezeWorldMatrix();
+            led.doNotSyncBoundingInfo = true;
             
             // === FOG PARTICLE EMITTER ===
             // Directional burst from nozzle position
@@ -3080,7 +3277,7 @@ class VRClub {
             fogEmitter.maxLifeTime = 8.0;
             
             // Emission rate (VJ controlled)
-            fogEmitter.emitRate = 0; // Start off, controlled by VJ
+            fogEmitter.emitRate = 30; // Start with active haze (real clubs run fog machines continuously)
             fogEmitter.manualEmitCount = 0;
             fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
             
@@ -3131,7 +3328,7 @@ class VRClub {
         
         // === AMBIENT HAZE (residual fog in air) ===
         // Light dispersed particles from accumulated fog - makes beams visible
-        this.haze = new BABYLON.ParticleSystem("haze", 500, this.scene);
+        this.haze = new BABYLON.ParticleSystem("haze", 1500, this.scene);
         this.haze.particleTexture = particleTexture;
         
         // Emitter covers dance floor area
@@ -3139,17 +3336,17 @@ class VRClub {
         this.haze.minEmitBox = new BABYLON.Vector3(-10, -3, -8);
         this.haze.maxEmitBox = new BABYLON.Vector3(10, 3, 8);
         
-        // Very faint ambient haze
-        this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.04);
-        this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.03);
+        // Visible ambient haze - makes light beams stand out
+        this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.12);
+        this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.10);
         this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
         
-        this.haze.minSize = 0.5;
-        this.haze.maxSize = 2.0;
-        this.haze.minLifeTime = 5.0;
-        this.haze.maxLifeTime = 10.0;
+        this.haze.minSize = 1.0;
+        this.haze.maxSize = 3.5;
+        this.haze.minLifeTime = 8.0;
+        this.haze.maxLifeTime = 15.0;
         
-        this.haze.emitRate = 30; // Low constant rate
+        this.haze.emitRate = 80; // Thick haze for beam visibility
         this.haze.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
         
         this.haze.gravity = new BABYLON.Vector3(0, 0.02, 0);
@@ -3163,15 +3360,60 @@ class VRClub {
         // Haze is always running when smoke is active
         this.haze.start();
         
-        // Remove old floorFog reference (replaced by fog machines)
-        this.floorFog = null;
+        // === LOW-LYING FLOOR FOG (CO2 cryo effect - pools at ankle level) ===
+        this.floorFog = new BABYLON.ParticleSystem("floorFog", 600, this.scene);
+        this.floorFog.particleTexture = particleTexture;
+        
+        // Emit across the dance floor at ankle level
+        this.floorFog.emitter = new BABYLON.Vector3(0, 0.1, -12);
+        this.floorFog.minEmitBox = new BABYLON.Vector3(-12, -0.1, -10);
+        this.floorFog.maxEmitBox = new BABYLON.Vector3(12, 0.2, 10);
+        
+        // Dense white fog that hugs the floor
+        this.floorFog.color1 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.15);
+        this.floorFog.color2 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.12);
+        this.floorFog.colorDead = new BABYLON.Color4(0, 0, 0, 0);
+        
+        this.floorFog.minSize = 1.5;
+        this.floorFog.maxSize = 4.0;
+        this.floorFog.minScaleX = 2.0;
+        this.floorFog.maxScaleX = 3.0;
+        this.floorFog.minLifeTime = 6.0;
+        this.floorFog.maxLifeTime = 12.0;
+        
+        this.floorFog.emitRate = 40;
+        this.floorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+        
+        // Fog stays low - minimal upward movement, slight drift
+        this.floorFog.direction1 = new BABYLON.Vector3(-0.2, -0.05, -0.2);
+        this.floorFog.direction2 = new BABYLON.Vector3(0.2, 0.1, 0.2);
+        this.floorFog.minEmitPower = 0.02;
+        this.floorFog.maxEmitPower = 0.08;
+        this.floorFog.gravity = new BABYLON.Vector3(0, -0.15, 0); // Keeps fog on ground
+        
+        this.floorFog.minAngularSpeed = -0.3;
+        this.floorFog.maxAngularSpeed = 0.3;
+        
+        // Size grows as fog spreads along floor
+        this.floorFog.addSizeGradient(0, 1.0);
+        this.floorFog.addSizeGradient(0.5, 2.5);
+        this.floorFog.addSizeGradient(1.0, 4.0);
+        
+        // Fast fade out so fog doesn't accumulate unnaturally
+        this.floorFog.addColorGradient(0, new BABYLON.Color4(0.8, 0.8, 0.9, 0.15));
+        this.floorFog.addColorGradient(0.3, new BABYLON.Color4(0.7, 0.7, 0.8, 0.12));
+        this.floorFog.addColorGradient(0.7, new BABYLON.Color4(0.5, 0.5, 0.6, 0.05));
+        this.floorFog.addColorGradient(1.0, new BABYLON.Color4(0.3, 0.3, 0.4, 0));
+        
+        this.floorFog.updateSpeed = 0.004;
+        this.floorFog.start();
         
         // Initialize fog machine state
         this.smokeActive = false;
         this.fogBurstMode = 'auto'; // 'auto', 'burst', 'continuous'
         this.fogIntensity = 1.0; // 0.0 to 2.0
         this.lastFogBurst = 0;
-        this.fogBurstInterval = 8; // Seconds between auto bursts
+        this.fogBurstInterval = 4; // Seconds between auto bursts (real hazers cycle frequently)
         
         log.info('💨 Hyperrealistic fog machine system created (2 machines on truss)');
     }
@@ -3234,11 +3476,12 @@ class VRClub {
             
             // === TRUSS MOUNTING HARDWARE (connects fixture to truss above) ===
             // Professional C-clamp that wraps around truss tube
-            const clampMat = this.materialFactory.createPBRMaterial("clampMat" + i, {
+            // UPGRADE: Shared clamp material for all spotlight fixtures (was 6 unique)
+            const clampMat = this.materialFactory.createPBRMaterial("spotClampMatShared", {
                 baseColor: [0.1, 0.1, 0.1], // Dark gray steel
                 metallic: 0.9,
                 roughness: 0.4
-            });
+            }, true); // shared
             
             // C-Clamp body (wraps around truss tube at Y=8)
             const clamp = BABYLON.MeshBuilder.CreateTorus("clamp" + i, {
@@ -3252,6 +3495,9 @@ class VRClub {
             clamp.rotation.x = Math.PI / 2;  // Horizontal orientation
             clamp.rotation.z = Math.PI;  // Open side facing outward
             clamp.material = clampMat;
+            // UPGRADE: Freeze static mounting hardware
+            clamp.freezeWorldMatrix();
+            clamp.doNotSyncBoundingInfo = true;
             
             // Clamp bolt (tightening mechanism)
             const clampBolt = BABYLON.MeshBuilder.CreateCylinder("clampBolt" + i, {
@@ -3263,6 +3509,8 @@ class VRClub {
             clampBolt.position = new BABYLON.Vector3(0.06, 0.2, 0);
             clampBolt.rotation.z = Math.PI / 2;
             clampBolt.material = clampMat;
+            clampBolt.freezeWorldMatrix();
+            clampBolt.doNotSyncBoundingInfo = true;
             
             // Drop pipe (vertical pipe from clamp to fixture base)
             const dropPipe = BABYLON.MeshBuilder.CreateCylinder("dropPipe" + i, {
@@ -3273,6 +3521,8 @@ class VRClub {
             dropPipe.parent = root;
             dropPipe.position.y = 0.1;  // Centered between clamp and base
             dropPipe.material = lightFixtureMat;
+            dropPipe.freezeWorldMatrix();
+            dropPipe.doNotSyncBoundingInfo = true;
             
             // Safety cable (realistic safety loop)
             const safetyCable = BABYLON.MeshBuilder.CreateTorus("safetyCable" + i, {
@@ -3284,6 +3534,8 @@ class VRClub {
             safetyCable.position.y = 0.15;
             safetyCable.rotation.x = Math.PI / 2;
             safetyCable.material = clampMat;
+            safetyCable.freezeWorldMatrix();
+            safetyCable.doNotSyncBoundingInfo = true;
 
             // 1. BASE (Static mount)
             const base = BABYLON.MeshBuilder.CreateBox("fixtureBase" + i, {
@@ -3294,6 +3546,8 @@ class VRClub {
             base.parent = root;
             base.position.y = 0; // At root position
             base.material = lightFixtureMat;
+            base.freezeWorldMatrix();
+            base.doNotSyncBoundingInfo = true;
             
             // 2. YOKE (Pan mechanism - Rotates around Y)
             const yoke = new BABYLON.TransformNode("yoke" + i, this.scene);
@@ -3443,6 +3697,9 @@ class VRClub {
             }, this.scene);
             bracket.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
             bracket.material = strobeMountMat;
+            // UPGRADE: Freeze static mounting hardware
+            bracket.freezeWorldMatrix();
+            bracket.doNotSyncBoundingInfo = true;
             
             // Clamp at top (grips truss)
             const clamp = BABYLON.MeshBuilder.CreateTorus("strobeClamp" + i, {
@@ -3454,6 +3711,8 @@ class VRClub {
             clamp.position = new BABYLON.Vector3(pos.x, 8, pos.z);
             clamp.rotation.x = Math.PI / 2;
             clamp.material = strobeMountMat;
+            clamp.freezeWorldMatrix();
+            clamp.doNotSyncBoundingInfo = true;
             
             const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
                 width: 0.4,
@@ -3482,6 +3741,17 @@ class VRClub {
                 nextFlashTime: Math.random() * 2
             });
         });
+        
+        // === SHARED STROBE FLASH LIGHT ===
+        // Single PointLight high above dance floor that flashes with strobes
+        // Uses 1 light slot instead of 4 (respects GPU uniform limits)
+        this.strobeFlashLight = new BABYLON.PointLight("strobeFlash", 
+            new BABYLON.Vector3(0, 8, -12), this.scene);
+        this.strobeFlashLight.diffuse = new BABYLON.Color3(1, 1, 1);
+        this.strobeFlashLight.specular = new BABYLON.Color3(1, 1, 1);
+        this.strobeFlashLight.intensity = 0;
+        this.strobeFlashLight.range = 35;
+        this.strobeFlashLight.setEnabled(false);
     }
 
     createLasers() {
@@ -3537,13 +3807,11 @@ class VRClub {
             } else {
                 clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
             }
-            const clampMat = this.materialFactory.createPBRMaterial("clampMat" + i, {
+            const clampMat = this.materialFactory.createPBRMaterial("laserClampMat", {
                 baseColor: [0.3, 0.3, 0.3],
                 metallic: 1.0,
                 roughness: 0.4
-            });BABYLON.Color3(0.3, 0.3, 0.3);
-            clampMat.metallic = 1.0;
-            clampMat.roughness = 0.4;
+            }, true); // UPGRADE: shared across all laser clamps
             clamp.material = clampMat;
             
             // Laser housing UNDER truss (hanging from clamp)
@@ -3561,12 +3829,12 @@ class VRClub {
             }
             housing.isPickable = false;
             
-            const housingMat = this.materialFactory.createPBRMaterial("laserHousingMat" + i, {
+            const housingMat = this.materialFactory.createPBRMaterial("laserHousingMat", {
                 baseColor: [0.05, 0.05, 0.05],
                 metallic: 0.8,
                 roughness: 0.3,
                 emissiveColor: [0.05, 0, 0]
-            });
+            }, true); // UPGRADE: shared across all laser housings
             housing.material = housingMat;
             housing.isPickable = false;
             
@@ -3586,10 +3854,10 @@ class VRClub {
             emitter.rotation.x = Math.PI / 2;
             emitter.isPickable = false;
             
-            const emitterMat = this.materialFactory.createStandardMaterial("laserEmitterMat" + i, {
+            const emitterMat = this.materialFactory.createStandardMaterial("laserEmitterMat", {
                 emissiveColor: [1, 0, 0],
                 disableLighting: true
-            });
+            }, true); // UPGRADE: shared across all laser emitters
             emitterMat.backFaceCulling = false;
             emitter.material = emitterMat;
             emitter.renderingGroupId = 2; // Render on top for visibility
@@ -3647,11 +3915,19 @@ class VRClub {
                 rotationSpeed: 0.01,
                 tiltPhase: 0,
                 originPos: actualWorldPos,
-                parentTruss: parentTruss, // Store parent reference
-                localPos: new BABYLON.Vector3(localX, -0.45, localZ), // Store local position
+                parentTruss: parentTruss,
+                localPos: new BABYLON.Vector3(localX, -0.45, localZ),
                 type: pos.type,
                 colorIndex: 0
             });
+            
+            // UPGRADE: Freeze static laser hardware (clamp, housing, emitter don't animate)
+            clamp.freezeWorldMatrix();
+            clamp.doNotSyncBoundingInfo = true;
+            housing.freezeWorldMatrix();
+            housing.doNotSyncBoundingInfo = true;
+            emitter.freezeWorldMatrix();
+            emitter.doNotSyncBoundingInfo = true;
         });
         
         // Initialize lighting mode control
@@ -3721,6 +3997,16 @@ class VRClub {
     
     createLaserBeam(laserIndex, beamIndex, pos) {
         // HYPERREALISTIC LASER BEAM - Physically accurate laser appearance
+        
+        // UPGRADE: Share one noise texture across all laser beam outer glows
+        // Instead of 15 separate NoiseProceduralTextures (one per beam outer glow)
+        if (!this._laserHazeNoiseTexture) {
+            this._laserHazeNoiseTexture = new BABYLON.NoiseProceduralTexture("sharedLaserHazeNoise", 64, this.scene);
+            this._laserHazeNoiseTexture.octaves = 3;
+            this._laserHazeNoiseTexture.persistence = 0.7;
+            this._laserHazeNoiseTexture.animationSpeedFactor = 2.0;
+            this._laserHazeNoiseTexture.brightness = 0.6;
+        }
         // Real lasers: pencil-thin coherent light with atmospheric scatter creating visible beam
         
         // === CORE BEAM - Ultra-thin, razor-sharp coherent light ===
@@ -3776,18 +4062,12 @@ class VRClub {
         outerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
         outerGlow.isPickable = false;
         
-        // Animated noise texture for realistic atmospheric turbulence
-        const hazeNoise = new BABYLON.NoiseProceduralTexture("laserHazeNoise" + laserIndex + "_" + beamIndex, 64, this.scene);
-        hazeNoise.octaves = 3;
-        hazeNoise.persistence = 0.7;
-        hazeNoise.animationSpeedFactor = 2.0; // Faster animation for turbulent haze
-        hazeNoise.brightness = 0.6;
-        
+        // UPGRADE: Use shared noise texture instead of 15 separate GPU textures
         const outerGlowMat = new BABYLON.StandardMaterial("laserOuterGlowMat" + laserIndex + "_" + beamIndex, this.scene);
         outerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         outerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
         outerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2); // Soft color
-        outerGlowMat.opacityTexture = hazeNoise; // Noise creates realistic haze pattern
+        outerGlowMat.opacityTexture = this._laserHazeNoiseTexture; // Shared noise for haze pattern
         outerGlowMat.alpha = 0.15; // Very transparent
         outerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         outerGlowMat.disableLighting = true;
@@ -3879,6 +4159,40 @@ class VRClub {
         this.spotColorIndex = 0;
         this.lastColorChange = 0;
         
+        // UPGRADE: Create shared beam gradient texture for volumetric beam brightness falloff
+        // Simulates realistic light scatter through atmospheric haze:
+        // - Bright mid-section (accumulated haze scattering)
+        // - Softer near floor (smooth termination, hides hard clip plane edge)
+        // - Moderate near fixture (concentrated but less path length)
+        // On cylinder UV: V=0 = bottom (fixture/narrow), V=1 = top (floor/wide)
+        // On canvas: Y=0 = top (maps to V=1 = floor), Y=H = bottom (maps to V=0 = fixture)
+        if (!this._beamGradientTexture) {
+            const gradH = 128;
+            const gradCanvas = document.createElement('canvas');
+            gradCanvas.width = 4;   // Narrow - uniform around circumference
+            gradCanvas.height = gradH;
+            const gCtx = gradCanvas.getContext('2d');
+            
+            const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
+            // Canvas Y=0 → V=1 (floor/wide end): soft termination
+            beamGrad.addColorStop(0.0,  'rgb(77,77,77)');    // V=1.0: 30% - soft fade at floor
+            beamGrad.addColorStop(0.08, 'rgb(128,128,128)'); // V=0.92: 50% - quickening
+            beamGrad.addColorStop(0.25, 'rgb(230,230,230)'); // V=0.75: 90% - entering mid zone
+            beamGrad.addColorStop(0.45, 'rgb(255,255,255)'); // V=0.55: 100% - peak brightness
+            beamGrad.addColorStop(0.65, 'rgb(255,255,255)'); // V=0.35: 100% - sustained peak
+            beamGrad.addColorStop(0.85, 'rgb(217,217,217)'); // V=0.15: 85% - near fixture
+            beamGrad.addColorStop(1.0,  'rgb(179,179,179)'); // V=0.0: 70% - at fixture lens
+            
+            gCtx.fillStyle = beamGrad;
+            gCtx.fillRect(0, 0, 4, gradH);
+            
+            this._beamGradientTexture = new BABYLON.DynamicTexture("beamGradient", gradCanvas, this.scene, false);
+            this._beamGradientTexture.hasAlpha = false; // RGB only, no alpha channel needed
+            this._beamGradientTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            this._beamGradientTexture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            this._beamGradientTexture.update();
+        }
+        
         spotPositions.forEach((pos, i) => {
             // Get fixture data if available
             const fixtureData = this.trussLights ? this.trussLights[i] : null;
@@ -3893,22 +4207,30 @@ class VRClub {
                 5,                                        // Sharper falloff
                 this.scene
             );
-            spot.diffuse = new BABYLON.Color3(0, 0, 0); // No ambient diffuse - light only through beam
+            // UPGRADE: Enable diffuse for projectionTexture gobo patterns on surfaces
+            // Diffuse at 15% intensity provides visible gobo patterns without overwhelming scene
+            spot.diffuse = this.currentSpotColor.scale(0.15);
             spot.specular = this.currentSpotColor; // Specular for floor reflections
             spot.intensity = 12; // Increased for visibility
             spot.range = 25;
+            
+            // UPGRADE: SpotLight.projectionTexture support (physically correct gobo projection)
+            // Near/far define the frustum for texture projection (like shadow mapping)
+            spot.projectionTextureLightNear = 0.5;
+            spot.projectionTextureLightFar = 25;
+            
             spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
             
-            // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor
-            // When cylinder points DOWN, its +Y local axis points toward floor
-            // So: diameterTop (at +Y local) should be WIDE (at floor)
+            // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor/wall
+            // When cylinder points DOWN, its +Y local axis points toward surface
+            // So: diameterTop (at +Y local) should be WIDE (at surface hit)
             //     diameterBottom (at -Y local) should be NARROW (at fixture)
-            // Larger diameter helps cone edges reach floor at tilted angles
+            // Higher tessellation creates smoother cone edges for hyperrealistic look
             const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 2.0,      // Wide end at floor - 2.0m diameter
-                diameterBottom: 0.15,  // Narrow end at fixture - small lens opening
+                diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
+                diameterBottom: 0.12,  // Narrower lens opening for tighter source point
                 height: 1,             // Will be scaled to actual beam length
-                tessellation: 8,       // OPTIMIZED: Reduced from 16 (sufficient for VR)
+                tessellation: 12,      // Higher tessellation for smoother cone (was 8)
                 cap: BABYLON.Mesh.NO_CAP
             }, this.scene);
             
@@ -3927,15 +4249,26 @@ class VRClub {
             beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
             beamMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
             
-            // HYPERREALISM: Add animated noise texture for smoke/dust particles in beam
-            const noiseTexture = new BABYLON.NoiseProceduralTexture("beamNoise" + i, 128, this.scene); // OPTIMIZED: Reduced from 256
-            noiseTexture.animationSpeedFactor = 0.8; // Slow drifting smoke
-            noiseTexture.persistence = 0.3; // Softer noise pattern
-            noiseTexture.brightness = 0.6;
-            noiseTexture.octaves = 3;
-            beamMat.opacityTexture = noiseTexture; // Use noise as opacity for particle effect
+            // UPGRADE: Beam gradient texture for distance-based brightness falloff
+            // On a cylinder, V=0 at bottom (fixture/narrow), V=1 at top (floor/wide)
+            // Canvas Y=0 → V=1 (floor), Canvas Y=height → V=0 (fixture)
+            // This gives realistic light scatter: brighter mid-beam (haze accumulation),
+            // softer at floor (smooth termination instead of hard clip), moderate at fixture
+            if (this._beamGradientTexture) {
+                beamMat.emissiveTexture = this._beamGradientTexture;
+            }
             
-            beamMat.alpha = 0.18; // Slightly higher alpha for COMBINE mode
+            // UPGRADE: Share one noise texture across all spotlight beams (was 6 separate GPU textures)
+            if (!this._spotBeamNoiseTexture) {
+                this._spotBeamNoiseTexture = new BABYLON.NoiseProceduralTexture("sharedBeamNoise", 128, this.scene);
+                this._spotBeamNoiseTexture.animationSpeedFactor = 0.6;
+                this._spotBeamNoiseTexture.persistence = 0.35;
+                this._spotBeamNoiseTexture.brightness = 0.55;
+                this._spotBeamNoiseTexture.octaves = 4;
+            }
+            beamMat.opacityTexture = this._spotBeamNoiseTexture; // Shared noise for smoke particles
+            
+            beamMat.alpha = 0.18; // Base alpha (will be dynamically adjusted in render loop)
             beamMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE; // Standard alpha blending respects depth
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
@@ -4304,6 +4637,9 @@ class VRClub {
         });
         cable.material = cableMat;
         cable.isPickable = false;
+        // UPGRADE: Freeze static cable
+        cable.freezeWorldMatrix();
+        cable.doNotSyncBoundingInfo = true;
         
         // === MULTIPLE SPOTLIGHTS FOR MIRROR BALL (Professional disco ball setup) ===
         // Strategy: Use 1 main spotlight + visual beams from multiple angles
@@ -4311,6 +4647,36 @@ class VRClub {
         this.mirrorBallSpotlights = [];
         this.mirrorBallBeams = [];
         this.mirrorBallHousings = [];
+        
+        // UPGRADE: Create shared gradient texture for all mirror ball beams (was 4 separate 512px textures)
+        if (!this._mirrorBeamGradientTexture) {
+            const mbGradTex = new BABYLON.DynamicTexture("sharedMirrorBeamGradient", { width: 256, height: 256 }, this.scene);
+            const mbCtx = mbGradTex.getContext();
+            const mbGrad = mbCtx.createRadialGradient(128, 128, 25, 128, 128, 128);
+            mbGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+            mbGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
+            mbGrad.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');
+            mbGrad.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)');
+            mbGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            mbCtx.fillStyle = mbGrad;
+            mbCtx.fillRect(0, 0, 256, 256);
+            mbGradTex.update();
+            this._mirrorBeamGradientTexture = mbGradTex;
+        }
+        
+        // UPGRADE: Share housing materials across all 4 mirror ball fixtures
+        const sharedMirrorHousingMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorHousingMat", this.scene);
+        sharedMirrorHousingMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
+        sharedMirrorHousingMat.metallic = 0.85;
+        sharedMirrorHousingMat.roughness = 0.3;
+        sharedMirrorHousingMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+        sharedMirrorHousingMat.maxSimultaneousLights = this.maxLights;
+        
+        const sharedMirrorBezelMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorBezelMat", this.scene);
+        sharedMirrorBezelMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+        sharedMirrorBezelMat.metallic = 0.95;
+        sharedMirrorBezelMat.roughness = 0.15;
+        sharedMirrorBezelMat.maxSimultaneousLights = this.maxLights;
         
         const spotlightConfigs = [
             { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right", isRealLight: true },  // Only this one is a real light
@@ -4368,13 +4734,8 @@ class VRClub {
             housing.position = config.pos.add(housingDirection.scale(0.1)); // Slight offset forward
             housing.rotationQuaternion = targetQuat;
             
-            const housingMat = new BABYLON.PBRMetallicRoughnessMaterial(`mirrorHousingMat${index}`, this.scene);
-            housingMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12); // Dark gunmetal
-            housingMat.metallic = 0.85;
-            housingMat.roughness = 0.3;
-            housingMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
-            housingMat.maxSimultaneousLights = this.maxLights;
-            housing.material = housingMat;
+            // UPGRADE: Use shared housing material instead of per-fixture instances
+            housing.material = sharedMirrorHousingMat;
             housing.isPickable = false;
             
             // Front bezel/rim (chrome ring around lens)
@@ -4383,15 +4744,11 @@ class VRClub {
                 thickness: 0.05,
                 tessellation: 32
             }, this.scene);
-            bezel.position = config.pos.add(housingDirection.scale(0.4)); // At front of housing
+            bezel.position = config.pos.add(housingDirection.scale(0.4));
             bezel.rotationQuaternion = targetQuat;
             
-            const bezelMat = new BABYLON.PBRMetallicRoughnessMaterial(`mirrorBezelMat${index}`, this.scene);
-            bezelMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-            bezelMat.metallic = 0.95;
-            bezelMat.roughness = 0.15; // Shiny chrome
-            bezelMat.maxSimultaneousLights = this.maxLights;
-            bezel.material = bezelMat;
+            // UPGRADE: Use shared bezel material
+            bezel.material = sharedMirrorBezelMat;
             bezel.isPickable = false;
             
             // Lens (glass front element) - Cylindrical lens shape
@@ -4445,7 +4802,7 @@ class VRClub {
             
             this.mirrorBallHousings.push({ 
                 mesh: housing, 
-                material: housingMat,
+                material: sharedMirrorHousingMat,
                 base: base,
                 bezel: bezel,
                 lens: lens,
@@ -4475,21 +4832,8 @@ class VRClub {
             beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
             
             // === ULTRA-REALISTIC VOLUMETRIC BEAM (same quality as truss spotlights) ===
-            // Create radial gradient texture for realistic brightness falloff
-            const beamTexture = new BABYLON.DynamicTexture("mirrorBeamGradient" + index, { width: 512, height: 512 }, this.scene);
-            const ctx = beamTexture.getContext();
-            
-            // Create radial gradient from center (bright) to edge (dim)
-            const gradient = ctx.createRadialGradient(256, 256, 50, 256, 256, 256);
-            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');    // Bright center hotspot
-            gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');  // Still bright
-            gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');  // Dimmer middle
-            gradient.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)'); // Faint edge
-            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');      // Transparent edge
-            
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, 512, 512);
-            beamTexture.update();
+            // UPGRADE: Use shared gradient texture (was 4 separate 512px DynamicTextures)
+            const beamTexture = this._mirrorBeamGradientTexture;
             
             // Use PBR material with gradient texture for professional quality
             const beamMat = new BABYLON.PBRMaterial("mirrorSpotBeamMat" + index, this.scene);
@@ -4528,6 +4872,14 @@ class VRClub {
             beam.setEnabled(false);
             
             this.mirrorBallBeams.push({ mesh: beam, material: beamMat, texture: beamTexture });
+            
+            // UPGRADE: Freeze static fixture hardware (housing, base, bezel don't animate)
+            base.freezeWorldMatrix();
+            base.doNotSyncBoundingInfo = true;
+            housing.freezeWorldMatrix();
+            housing.doNotSyncBoundingInfo = true;
+            bezel.freezeWorldMatrix();
+            bezel.doNotSyncBoundingInfo = true;
         });
         
         // === OUTGOING RAYS FROM MIRROR BALL (Hyperrealistic all-direction light rays) ===
@@ -4576,20 +4928,25 @@ class VRClub {
             // Offset position so ray starts at ball surface, not center
             ray.position = ballPosition.add(dir.scale(rayLength / 2 + 0.6)); // 0.6m = ball radius
             
-            // Ray material - bright, glowing
-            const rayMat = new BABYLON.StandardMaterial(`mirrorRayMat${i}`, this.scene);
-            rayMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-            rayMat.alpha = 0.12 + Math.random() * 0.08; // Varied transparency (0.12-0.20)
-            rayMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            rayMat.disableLighting = true;
-            rayMat.backFaceCulling = false;
-            ray.material = rayMat;
+            // UPGRADE: Share 1 material for all 40 rays (was 40 unique but identical materials)
+            // Per-ray alpha variation handled via mesh.visibility instead of material.alpha
+            if (!this._sharedMirrorRayMat) {
+                this._sharedMirrorRayMat = new BABYLON.StandardMaterial('sharedMirrorRayMat', this.scene);
+                this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                this._sharedMirrorRayMat.alpha = 1.0; // Controlled per-ray via mesh.visibility
+                this._sharedMirrorRayMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+                this._sharedMirrorRayMat.disableLighting = true;
+                this._sharedMirrorRayMat.backFaceCulling = false;
+                this._sharedMirrorRayMat.freeze();
+            }
+            ray.material = this._sharedMirrorRayMat;
+            ray.visibility = 0.12 + Math.random() * 0.08; // Per-ray alpha variation (0.12-0.20)
             ray.isPickable = false;
             ray.setEnabled(false); // Starts disabled
             
             this.mirrorBallOutgoingRays.push({
                 mesh: ray,
-                material: rayMat,
+                material: this._sharedMirrorRayMat,
                 theta: theta,
                 phi: phi,
                 length: rayLength,
@@ -4656,13 +5013,19 @@ class VRClub {
                 // Pivot at top (ball position) so we can scale length easily
                 beam.setPivotPoint(new BABYLON.Vector3(0, 0.5, 0)); 
                 
-                const beamMat = new BABYLON.StandardMaterial(`mirrorBeamMat${spotIndex}`, this.scene);
-                beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                beamMat.alpha = 0.2; // Visible smoke beams
-                beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending
-                beamMat.disableLighting = true;
-                beamMat.backFaceCulling = false;
-                beam.material = beamMat;
+                // UPGRADE: Share 1 beam material for all 100 reflection beams (was 100 unique)
+                // Per-beam alpha handled via mesh.visibility
+                if (!this._sharedMirrorBeamMat) {
+                    this._sharedMirrorBeamMat = new BABYLON.StandardMaterial('sharedMirrorBeamMat', this.scene);
+                    this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                    this._sharedMirrorBeamMat.alpha = 1.0;
+                    this._sharedMirrorBeamMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+                    this._sharedMirrorBeamMat.disableLighting = true;
+                    this._sharedMirrorBeamMat.backFaceCulling = false;
+                    this._sharedMirrorBeamMat.freeze();
+                }
+                beam.material = this._sharedMirrorBeamMat;
+                beam.visibility = 0.2; // Default visibility, updated per-frame
                 beam.isPickable = false;
                 beam.setEnabled(false);
                 
@@ -4715,7 +5078,7 @@ class VRClub {
                     visual: spot,
                     beam: beam, // Store beam reference
                     material: spotMat,
-                    beamMaterial: beamMat,
+                    beamMaterial: this._sharedMirrorBeamMat,
                     surface: surface.name,
                     surfaceNormal: normal,
                     targetPosition: targetPos.clone(),
@@ -5102,13 +5465,17 @@ class VRClub {
                         ray.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
                     }
                     
-                    // Twinkling effect - subtle alpha variation
+                    // Twinkling effect - subtle visibility variation (shared material, per-mesh visibility)
                     const twinkle = 0.8 + 0.2 * Math.sin(time * 5 + i * 0.7);
-                    ray.material.alpha = (0.12 + (i % 5) * 0.02) * twinkle;
-                    
-                    // Update ray color to match current mirror ball color
-                    ray.material.emissiveColor = this.mirrorBallSpotlightColor;
+                    ray.mesh.visibility = (0.12 + (i % 5) * 0.02) * twinkle;
                 });
+                
+                // UPGRADE: Update shared ray material color once (not 40× per frame)
+                if (this._sharedMirrorRayMat) {
+                    this._sharedMirrorRayMat.unfreeze();
+                    this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor;
+                    this._sharedMirrorRayMat.freeze();
+                }
             }
             
             // Animate reflection spots around the room (150 spots covering all surfaces)
@@ -5236,9 +5603,8 @@ class VRClub {
                             spot.beam.scaling.y = beamDist; // Cylinder height is Y axis
                             
                             // HYPERREALISTIC: Brighter beams for all directions
-                            // Beams hitting walls/ceiling should be as visible as floor beams
-                            spot.beamMaterial.alpha = 0.18 * distanceFade; // Increased from 0.08
-                            spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
+                            // UPGRADE: Use mesh.visibility instead of shared material alpha
+                            spot.beam.visibility = 0.18 * distanceFade;
                         }
                         
                         // Mark as visible for this frame
@@ -5269,6 +5635,13 @@ class VRClub {
                         if (spot.beam) spot.beam.setEnabled(false);
                     }
                 });
+                
+                // UPGRADE: Update shared beam material color once per frame (not 100×)
+                if (this._sharedMirrorBeamMat) {
+                    this._sharedMirrorBeamMat.unfreeze();
+                    this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
+                    this._sharedMirrorBeamMat.freeze();
+                }
             } // Close if (this.mirrorReflectionSpots...)
         } else {
             // Mirror ball inactive - disable all mirror ball elements
@@ -5681,7 +6054,6 @@ class VRClub {
                         this.currentShowMode = 'spotlights';
                         log.info('🔄 BUILD: New cycle begins - The journey continues');
                         break;
-                        break;
                         
                     default:
                         // STARTUP: Begin with intro
@@ -5902,11 +6274,6 @@ class VRClub {
         if (!this.vjManualMode && time - this.colorSwitchTime > (8 + Math.random() * 4)) {
             this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
             this.colorSwitchTime = time;
-            
-            // Broadcast automatic laser color change to other players
-            if (this.networkManager && this.networkManager.isConnected()) {
-                this.networkManager.sendVJControl('laserColorIndex', this.currentColorIndex);
-            }
         }
         
         // Update lasers with raycasting and dynamic positioning
@@ -6023,16 +6390,16 @@ class VRClub {
                     let currentColor, innerGlowColor, outerGlowColor;
                     if (this.currentColorIndex === 0) {
                         currentColor = this.cachedColors.red;
-                        innerGlowColor = new BABYLON.Color3(1, 0.4, 0.4);  // Slightly desaturated
-                        outerGlowColor = new BABYLON.Color3(1, 0.25, 0.25); // Even softer
+                        innerGlowColor = this.cachedLaserGlowColors.redInner;
+                        outerGlowColor = this.cachedLaserGlowColors.redOuter;
                     } else if (this.currentColorIndex === 1) {
                         currentColor = this.cachedColors.green;
-                        innerGlowColor = new BABYLON.Color3(0.4, 1, 0.4);
-                        outerGlowColor = new BABYLON.Color3(0.25, 1, 0.25);
+                        innerGlowColor = this.cachedLaserGlowColors.greenInner;
+                        outerGlowColor = this.cachedLaserGlowColors.greenOuter;
                     } else {
                         currentColor = this.cachedColors.blue;
-                        innerGlowColor = new BABYLON.Color3(0.4, 0.4, 1);
-                        outerGlowColor = new BABYLON.Color3(0.25, 0.25, 1);
+                        innerGlowColor = this.cachedLaserGlowColors.blueInner;
+                        outerGlowColor = this.cachedLaserGlowColors.blueOuter;
                     }
                     
                     // Apply color to core beam - pure saturated color
@@ -6063,16 +6430,16 @@ class VRClub {
                 let currentLaserColor, currentEmissiveColor, currentBrightColor;
                 if (this.currentColorIndex === 0) {
                     currentLaserColor = this.cachedColors.red;
-                    currentEmissiveColor = new BABYLON.Color3(0.2, 0, 0);
-                    currentBrightColor = this.cachedColors.red.scale(3.0);
+                    currentEmissiveColor = this.cachedLaserGlowColors.redEmissive;
+                    currentBrightColor = this.cachedLaserGlowColors.redBright;
                 } else if (this.currentColorIndex === 1) {
                     currentLaserColor = this.cachedColors.green;
-                    currentEmissiveColor = new BABYLON.Color3(0, 0.2, 0);
-                    currentBrightColor = this.cachedColors.green.scale(3.0);
+                    currentEmissiveColor = this.cachedLaserGlowColors.greenEmissive;
+                    currentBrightColor = this.cachedLaserGlowColors.greenBright;
                 } else {
                     currentLaserColor = this.cachedColors.blue;
-                    currentEmissiveColor = new BABYLON.Color3(0, 0, 0.2);
-                    currentBrightColor = this.cachedColors.blue.scale(3.0);
+                    currentEmissiveColor = this.cachedLaserGlowColors.blueEmissive;
+                    currentBrightColor = this.cachedLaserGlowColors.blueBright;
                 }
                 
                 // Update light diffuse color (if lights exist - disabled for performance)
@@ -6157,11 +6524,6 @@ class VRClub {
             this.targetSpotColor = this.spotColorList[this.spotColorIndex];
             this.colorTransitionProgress = 0; // Start transition
             this.lastColorChange = time;
-            
-            // Broadcast automatic color change to other players
-            if (this.networkManager && this.networkManager.isConnected()) {
-                this.networkManager.sendVJControl('spotColorIndex', this.spotColorIndex);
-            }
             
             // Update ALL lights to new color target
             if (this.spotlights) {
@@ -6593,11 +6955,23 @@ class VRClub {
                     // Cone radius at surface end (from mesh: diameterTop=1.5, so radius=0.75)
                     const coneRadius = 0.75;
                     
-                    // Extension needed for uphill edge to reach floor: r * tan(θ)
-                    // Only for floor hits - walls don't need this geometry trick
-                    const uphillExtension = (hitSurface === 'floor') ? coneRadius * tanTheta : 0;
+                    // Extension needed for uphill edge to reach surface: r * tan(θ)
+                    // For floor: extends cone past floor so edges touch
+                    // For walls: extend slightly so beam visually connects to wall surface
+                    let uphillExtension;
+                    if (hitSurface === 'floor') {
+                        uphillExtension = coneRadius * tanTheta;
+                    } else {
+                        // Wall hits: extend beam slightly past wall for visual connection
+                        // Use perpendicular angle to the wall for extension calc
+                        let wallCos;
+                        if (hitSurface === 'backWall') wallCos = Math.abs(direction.z);
+                        else wallCos = Math.abs(direction.x); // left/right walls
+                        const wallTan = wallCos > 0.1 ? Math.sqrt(1 - wallCos * wallCos) / wallCos : 0;
+                        uphillExtension = coneRadius * wallTan * 0.5; // Half extension for walls
+                    }
                     
-                    // BEAM LENGTH: Extend past floor so all cone edges visually touch
+                    // BEAM LENGTH: Extend past surface so cone edges visually touch
                     const beamLength = Math.min(18, Math.max(2, centerBeamLength + uphillExtension));
                     
                     // Store beamLength on spot for pool calculations
@@ -6756,7 +7130,7 @@ class VRClub {
                     // CRITICAL: Use this.currentSpotColor (global) as single source of truth
                     // This ensures beam, fixture, and all effects use the EXACT same color
                     const spotColor = this.currentSpotColor;
-                    const baseIntensity = 2.0 + atmosphericNoise; // Increased base intensity (was 0.3)
+                    const baseIntensity = 3.0 + atmosphericNoise; // Boosted to compensate for beam gradient dimming (was 2.0)
                     spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
                     spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
                     
@@ -6764,10 +7138,13 @@ class VRClub {
                     // This ensures fixture uses EXACT same color as beam
                     spot.currentBeamColor = spotColor;
                     
-                    // Very subtle alpha variation - creates "depth" in the beam
-                    spot.beamMat.alpha = 0.1 + Math.abs(atmosphericNoise) * 0.05; // Low alpha base (0.1)
-                    
-
+                    // HYPERREALISTIC: Alpha varies with beam angle and atmospheric density
+                    // Beams become more visible at shallower angles (more particles in path)
+                    // Also factor in distance - longer beams have more particles
+                    const beamPathLength = spot.currentBeamLength || 7.3;
+                    const pathDensity = Math.min(1.0, beamPathLength / 10.0); // Longer = denser
+                    const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
+                    spot.beamMat.alpha = (0.12 + Math.abs(atmosphericNoise) * 0.06) * pathDensity * angleVis;
                     
                     // Update HYPERREALISTIC floor light pool - Physics-accurate projection
                     if (spot.lightPool) {
@@ -6903,10 +7280,14 @@ class VRClub {
                             
                             // === POOL MATERIAL - Physics-based brightness ===
                             // Make pool clearly visible on the surface
-                            const poolBrightness = 2.5 * physicsIntensity * shimmer;
+                            // Wall hits get boosted brightness since wall materials are darker
+                            const surfaceBrightnessBoost = (hitSurface === 'floor') ? 1.0 : 1.6;
+                            const poolBrightness = 2.5 * physicsIntensity * shimmer * surfaceBrightnessBoost;
                             if (spot.poolMat) {
                                 spot.poolMat.emissiveColor = spotColor.scale(poolBrightness);
-                                spot.poolMat.alpha = 0.8 * Math.min(1.0, physicsIntensity);
+                                // Higher alpha on walls for better visibility against dark surfaces
+                                const basePoolAlpha = (hitSurface === 'floor') ? 0.8 : 0.95;
+                                spot.poolMat.alpha = basePoolAlpha * Math.min(1.0, physicsIntensity);
                             }
                             
                             // === POOL LIGHT (if enabled) ===
@@ -6933,9 +7314,12 @@ class VRClub {
                             }
                             
                             // === OUTER GLOW (penumbra scatter) ===
+                            // HYPERREALISTIC: Wall hits produce larger scatter halos (rough surface diffusion)
                             if (spot.lightPoolGlow) {
-                                const glowMinor = minorRadius * 2.2;
-                                const glowMajor = majorRadius * 2.2;
+                                // Wall surfaces scatter light more widely (rough brick/concrete)
+                                const scatterMultiplier = (hitSurface === 'floor') ? 2.2 : 3.0;
+                                const glowMinor = minorRadius * scatterMultiplier;
+                                const glowMajor = majorRadius * scatterMultiplier;
                                 
                                 // Match pool position for glow
                                 spot.lightPoolGlow.position.copyFrom(spot.lightPool.position);
@@ -6943,17 +7327,18 @@ class VRClub {
                                 if (hitSurface === 'floor') {
                                     spot.lightPoolGlow.position.y = 0.002;
                                 } else if (hitSurface === 'backWall') {
-                                    spot.lightPoolGlow.position.z += 0.005;
+                                    spot.lightPoolGlow.position.z += 0.008;
                                 } else if (hitSurface === 'leftWall') {
-                                    spot.lightPoolGlow.position.x += 0.005;
+                                    spot.lightPoolGlow.position.x += 0.008;
                                 } else if (hitSurface === 'rightWall') {
-                                    spot.lightPoolGlow.position.x -= 0.005;
+                                    spot.lightPoolGlow.position.x -= 0.008;
                                 }
                                 
                                 // Copy rotation from pool
                                 spot.lightPoolGlow.rotation.copyFrom(spot.lightPool.rotation);
                                 
-                                if (hitSurface === 'floor' && tiltMagnitude > 0.03) {
+                                // Elliptical glow on all surfaces when beam is tilted
+                                if (tiltMagnitude > 0.03) {
                                     spot.lightPoolGlow.scaling.set(glowMinor, glowMajor, 1);
                                 } else {
                                     spot.lightPoolGlow.scaling.set(glowMinor, glowMinor, 1);
@@ -6961,9 +7346,12 @@ class VRClub {
                                 spot.lightPoolGlow.visibility = 1.0;
                                 
                                 if (spot.poolGlowMat) {
-                                    const glowBrightness = 0.6 * physicsIntensity * shimmer;
+                                    // HYPERREALISTIC: Wall scatter is warmer/brighter (Lambertian diffuse scatter)
+                                    const wallScatterBoost = (hitSurface === 'floor') ? 1.0 : 1.4;
+                                    const glowBrightness = 0.7 * physicsIntensity * shimmer * wallScatterBoost;
                                     spot.poolGlowMat.emissiveColor = spotColor.scale(glowBrightness);
-                                    spot.poolGlowMat.alpha = 0.35 * Math.min(1.0, physicsIntensity);
+                                    const baseGlowAlpha = (hitSurface === 'floor') ? 0.35 : 0.5;
+                                    spot.poolGlowMat.alpha = baseGlowAlpha * Math.min(1.0, physicsIntensity);
                                 }
                             }
                             
@@ -6983,22 +7371,61 @@ class VRClub {
                         spot.goboProjection.visibility = showGobo ? 1.0 : 0;
                         
                         if (showGobo) {
-                            // Sync position with light pool
-                            spot.goboProjection.position.x = spot.lightPool.position.x;
-                            spot.goboProjection.position.z = spot.lightPool.position.z;
-                            spot.goboProjection.position.y = 0.025; // Above floor
+                            // === SURFACE-AWARE GOBO POSITIONING ===
+                            // Gobo must match the lightPool's position and orientation on any surface
+                            const goboLocalOffset = spot.goboLocalRotation || 0;
+                            const goboRotAngle = this.goboRotation + goboLocalOffset;
                             
-                            // Sync scale with light pool
+                            if (hitSurface === 'floor') {
+                                // Floor: flat disc on XZ plane
+                                spot.goboProjection.position.set(
+                                    spot.lightPool.position.x,
+                                    0.025, // Just above floor
+                                    spot.lightPool.position.z
+                                );
+                                spot.goboProjection.rotation.x = Math.PI / 2;
+                                spot.goboProjection.rotation.y = spot.lightPool.rotation.y;
+                                spot.goboProjection.rotation.z = goboRotAngle;
+                            } else if (hitSurface === 'backWall') {
+                                // Back wall: vertical disc facing +Z
+                                spot.goboProjection.position.set(
+                                    spot.lightPool.position.x,
+                                    spot.lightPool.position.y,
+                                    spot.lightPool.position.z + 0.015
+                                );
+                                spot.goboProjection.rotation.x = 0;
+                                spot.goboProjection.rotation.y = 0;
+                                spot.goboProjection.rotation.z = goboRotAngle;
+                            } else if (hitSurface === 'leftWall') {
+                                // Left wall: vertical disc facing +X
+                                spot.goboProjection.position.set(
+                                    spot.lightPool.position.x + 0.015,
+                                    spot.lightPool.position.y,
+                                    spot.lightPool.position.z
+                                );
+                                spot.goboProjection.rotation.x = 0;
+                                spot.goboProjection.rotation.y = Math.PI / 2;
+                                spot.goboProjection.rotation.z = goboRotAngle;
+                            } else if (hitSurface === 'rightWall') {
+                                // Right wall: vertical disc facing -X
+                                spot.goboProjection.position.set(
+                                    spot.lightPool.position.x - 0.015,
+                                    spot.lightPool.position.y,
+                                    spot.lightPool.position.z
+                                );
+                                spot.goboProjection.rotation.x = 0;
+                                spot.goboProjection.rotation.y = -Math.PI / 2;
+                                spot.goboProjection.rotation.z = goboRotAngle;
+                            }
+                            
+                            // Sync scale with light pool (gobo slightly larger for soft edges)
                             spot.goboProjection.scaling.x = spot.lightPool.scaling.x * 1.1;
                             spot.goboProjection.scaling.y = spot.lightPool.scaling.y * 1.1;
                             
-                            // Apply 360° rotation with per-spotlight offset
-                            const localOffset = spot.goboLocalRotation || 0;
-                            spot.goboProjection.rotation.z = this.goboRotation + localOffset;
-                            
-                            // Update color to match spotlight
+                            // Update color to match spotlight with physics-based brightness
                             if (spot.goboMat) {
-                                spot.goboMat.emissiveColor = spotColor.scale(1.5);
+                                const goboBrightness = 1.8 * (physicsIntensity || 1.0);
+                                spot.goboMat.emissiveColor = spotColor.scale(goboBrightness);
                             }
                             
                             // Hide regular pool when gobo is on (gobo replaces it)
@@ -7028,6 +7455,10 @@ class VRClub {
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
                 const baseIntensity = 18; // Professional moving head (300W equivalent)
                 const smoothPulse = Math.sin(time * 2.5) * 3; // Smooth breathing effect
+                
+                // UPGRADE: Keep diffuse in sync with specular color for projectionTexture
+                spot.light.specular = this.currentSpotColor;
+                spot.light.diffuse = this.currentSpotColor.scale(0.15);
                 
                 spot.light.intensity = this.lightsActive ? (baseIntensity + smoothPulse) : 0;
             });
@@ -7209,6 +7640,35 @@ class VRClub {
                     }
                 }
                 });
+                
+                // Drive shared strobe flash light from max strobe intensity
+                if (this.strobeFlashLight) {
+                    let maxIntensity = 0;
+                    this.strobes.forEach(s => {
+                        if (s.flashDuration > 0) {
+                            const burstPhase = Math.floor(s.flashDuration * 40 * strobeSpeedMultiplier) % 2;
+                            if (burstPhase === 0 && s.currentIntensity > maxIntensity) {
+                                maxIntensity = s.currentIntensity;
+                            }
+                        }
+                    });
+                    if (maxIntensity > 0) {
+                        this.strobeFlashLight.intensity = maxIntensity * 3;
+                        this.strobeFlashLight.setEnabled(true);
+                        // Brief bloom spike for blinding strobe effect
+                        if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
+                            this._preStrobeBloom = this._preStrobeBloom || this.renderPipeline.bloomWeight;
+                            this.renderPipeline.bloomWeight = Math.min(1.0, this._preStrobeBloom + maxIntensity * 0.008);
+                        }
+                    } else {
+                        this.strobeFlashLight.intensity = 0;
+                        this.strobeFlashLight.setEnabled(false);
+                        // Restore bloom
+                        if (this._preStrobeBloom !== undefined && this.renderPipeline) {
+                            this.renderPipeline.bloomWeight = this._preStrobeBloom;
+                        }
+                    }
+                }
             } else {
                 // Turn off strobes when disabled
                 this.strobes.forEach((strobe) => {
@@ -7219,12 +7679,36 @@ class VRClub {
                     }
                     strobe.flashDuration = 0;
                 });
+                if (this.strobeFlashLight) {
+                    this.strobeFlashLight.intensity = 0;
+                    this.strobeFlashLight.setEnabled(false);
+                }
             }
         }
         
         // Blinders removed - strobes provide sufficient impact lighting
         
         // Bartender removed - will be replaced with 3D model later
+        
+        // === BASS-REACTIVE SPEAKER CONE PUSH ===
+        // Subwoofer grilles visually pulse with bass for tactile audio feedback
+        if (audioData.bass > 0.1) {
+            const bassExcursion = audioData.bass * 0.015; // Subtle Z-axis push
+            const grillNames = ['subGrill-7', 'subGrill7']; // Left and right PA subs
+            grillNames.forEach(name => {
+                const grill = this.scene.getMeshByName(name);
+                if (grill && !grill._basePosZ) {
+                    grill._basePosZ = grill.position.z; // Store original position
+                    // Unfreeze so position changes take effect
+                    if (grill.isWorldMatrixFrozen) {
+                        grill.unfreezeWorldMatrix();
+                    }
+                }
+                if (grill && grill._basePosZ !== undefined) {
+                    grill.position.z = grill._basePosZ + bassExcursion;
+                }
+            });
+        }
     }
 
     /**
@@ -7389,11 +7873,6 @@ class VRClub {
         if (time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
-            
-            // Broadcast automatic LED pattern change to other players
-            if (this.networkManager && this.networkManager.isConnected()) {
-                this.networkManager.sendVJControl('ledPattern', this.ledPattern);
-            }
         }
         
         // Change color more frequently too
@@ -7406,11 +7885,6 @@ class VRClub {
         if (time - this.lastColorChange > colorChangeTime || this.lastColorChange === -1) {
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
             this.lastColorChange = time;
-            
-            // Broadcast automatic LED color change to other players
-            if (this.networkManager && this.networkManager.isConnected()) {
-                this.networkManager.sendVJControl('ledColorIndex', this.ledColorIndex);
-            }
         }
         
         // Execute current pattern with error handling
@@ -7634,14 +8108,16 @@ class VRClub {
         
         this.ledPanels.forEach(panel => {
             const brightness = panel.row < levels[panel.col] ? 1.0 : 0.0;
-            // Color gradient from green to red
+            // Color gradient from green to red - reuse _ledColor
             const intensity = panel.row / rows;
-            const barColor = new BABYLON.Color3(intensity, 1.0 - intensity, 0);
+            this._ledColor.r = intensity;
+            this._ledColor.g = 1.0 - intensity;
+            this._ledColor.b = 0;
             
             if (brightness > 0) {
-                panel.material.emissiveColor = barColor;
+                panel.material.emissiveColor.copyFrom(this._ledColor);
             } else {
-                panel.material.emissiveColor = this.cachedColors.black;
+                panel.material.emissiveColor.copyFrom(this.cachedColors.black);
             }
         });
     }
@@ -7706,7 +8182,7 @@ class VRClub {
             }
             
             // Matrix green or provided color
-            const rainColor = new BABYLON.Color3(0, 1, 0.2);
+            const rainColor = this.cachedLEDColors.matrixGreen;
             this.updateLEDPanel(panel, rainColor, brightness);
         });
     }
@@ -7780,16 +8256,13 @@ class VRClub {
             const v4 = Math.sin(Math.sqrt(panel.col*panel.col + panel.row*panel.row) * 0.1 + time);
             
             const val = (v1 + v2 + v3 + v4) / 4;
-            const brightness = (val + 1) / 2;
             
-            // Color shift
-            const plasmaColor = new BABYLON.Color3(
-                Math.sin(val * Math.PI) * 0.5 + 0.5,
-                Math.sin(val * Math.PI + 2) * 0.5 + 0.5,
-                Math.sin(val * Math.PI + 4) * 0.5 + 0.5
-            );
+            // Color shift - reuse _ledColor to avoid allocation
+            this._ledColor.r = Math.sin(val * Math.PI) * 0.5 + 0.5;
+            this._ledColor.g = Math.sin(val * Math.PI + 2) * 0.5 + 0.5;
+            this._ledColor.b = Math.sin(val * Math.PI + 4) * 0.5 + 0.5;
             
-            panel.material.emissiveColor = plasmaColor;
+            panel.material.emissiveColor.copyFrom(this._ledColor);
         });
     }
 
@@ -7805,10 +8278,12 @@ class VRClub {
             const dist = Math.abs(y - (4 + wave));
             
             const brightness = Math.max(0, 1.0 - dist / 2);
-            // Aurora colors (Green/Teal/Purple)
-            const auroraColor = new BABYLON.Color3(0, 1.0 - dist/4, 1.0);
+            // Aurora colors (Green/Teal) - reuse cached color
+            this._ledColor.r = 0;
+            this._ledColor.g = Math.max(0, 1.0 - dist / 4);
+            this._ledColor.b = 1.0;
             
-            this.updateLEDPanel(panel, auroraColor, brightness);
+            this.updateLEDPanel(panel, this._ledColor, brightness);
         });
     }
 
@@ -7820,8 +8295,7 @@ class VRClub {
         this.ledPanels.forEach(panel => {
             const waveHeight = Math.sin(panel.col * 0.3 + time * 2) * 2 + rows/2;
             const brightness = panel.row < waveHeight ? 1.0 : 0.0;
-            const oceanColor = new BABYLON.Color3(0, 0.5, 1.0);
-            this.updateLEDPanel(panel, oceanColor, brightness);
+            this.updateLEDPanel(panel, this.cachedLEDColors.oceanBlue, brightness);
         });
     }
 
@@ -7840,13 +8314,17 @@ class VRClub {
             if (dist > 0) brightness = 1.0;
             if (dist > 0 && dist < 1) brightness = dist; // Fade top
             
-            // Fire colors: Red -> Orange -> Yellow
-            const fireColor = new BABYLON.Color3(1.0, panel.row / rows * 0.8, 0);
+            // Fire colors: Red -> Orange -> Yellow - reuse _ledColor
+            this._ledColor.r = 1.0;
+            this._ledColor.g = panel.row / rows * 0.8;
+            this._ledColor.b = 0;
             
             if (brightness > 0) {
-                panel.material.emissiveColor = fireColor.scale(brightness);
+                panel.material.emissiveColor.r = this._ledColor.r * brightness;
+                panel.material.emissiveColor.g = this._ledColor.g * brightness;
+                panel.material.emissiveColor.b = 0;
             } else {
-                panel.material.emissiveColor = this.cachedColors.black;
+                panel.material.emissiveColor.copyFrom(this.cachedColors.black);
             }
         });
     }
@@ -7859,13 +8337,13 @@ class VRClub {
             const on = rand > 0.95;
             
             if (on) {
-                // Random color
-                const r = Math.sin(rand * 100) * 0.5 + 0.5;
-                const g = Math.sin(rand * 200) * 0.5 + 0.5;
-                const b = Math.sin(rand * 300) * 0.5 + 0.5;
-                panel.material.emissiveColor = new BABYLON.Color3(r, g, b);
+                // Random color - reuse _ledColor
+                this._ledColor.r = Math.sin(rand * 100) * 0.5 + 0.5;
+                this._ledColor.g = Math.sin(rand * 200) * 0.5 + 0.5;
+                this._ledColor.b = Math.sin(rand * 300) * 0.5 + 0.5;
+                panel.material.emissiveColor.copyFrom(this._ledColor);
             } else {
-                panel.material.emissiveColor = this.cachedColors.black;
+                panel.material.emissiveColor.copyFrom(this.cachedColors.black);
             }
         });
     }
@@ -7914,19 +8392,18 @@ class VRClub {
         this.ledPanels.forEach(panel => {
             const hue = (panel.col / cols + panel.row / 10 + time) % 1.0;
             
-            // HSV to RGB
+            // HSV to RGB - reuse _ledColor
             const h = hue * 6;
             const c = 1.0;
             const x = c * (1 - Math.abs(h % 2 - 1));
-            let r, g, b;
-            if (h < 1) { r = c; g = x; b = 0; }
-            else if (h < 2) { r = x; g = c; b = 0; }
-            else if (h < 3) { r = 0; g = c; b = x; }
-            else if (h < 4) { r = 0; g = x; b = c; }
-            else if (h < 5) { r = x; g = 0; b = c; }
-            else { r = c; g = 0; b = x; }
+            if (h < 1) { this._ledColor.r = c; this._ledColor.g = x; this._ledColor.b = 0; }
+            else if (h < 2) { this._ledColor.r = x; this._ledColor.g = c; this._ledColor.b = 0; }
+            else if (h < 3) { this._ledColor.r = 0; this._ledColor.g = c; this._ledColor.b = x; }
+            else if (h < 4) { this._ledColor.r = 0; this._ledColor.g = x; this._ledColor.b = c; }
+            else if (h < 5) { this._ledColor.r = x; this._ledColor.g = 0; this._ledColor.b = c; }
+            else { this._ledColor.r = c; this._ledColor.g = 0; this._ledColor.b = x; }
             
-            panel.material.emissiveColor = new BABYLON.Color3(r, g, b);
+            panel.material.emissiveColor.copyFrom(this._ledColor);
         });
     }
 
@@ -7970,9 +8447,11 @@ class VRClub {
             
             const brightness = (inHeart || ringMatch) ? pulse : pulse * 0.1;
             
-            // Deep red/pink for heartbeat
-            const heartColor = new BABYLON.Color3(1.0, 0.1 + pulse * 0.2, 0.2 + pulse * 0.1);
-            this.updateLEDPanel(panel, heartColor, brightness);
+            // Deep red/pink for heartbeat - reuse _ledColor
+            this._ledColor.r = 1.0;
+            this._ledColor.g = 0.1 + pulse * 0.2;
+            this._ledColor.b = 0.2 + pulse * 0.1;
+            this.updateLEDPanel(panel, this._ledColor, brightness);
         });
     }
     
@@ -7988,10 +8467,9 @@ class VRClub {
         const breath = Math.pow(breathCycle, 0.7); // Ease in the exhale
         
         // Color shifts from cool (exhale) to warm (inhale)
-        const r = 0.2 + breath * 0.6;
-        const g = 0.1 + breath * 0.3;
-        const b = 0.8 - breath * 0.5;
-        const breathColor = new BABYLON.Color3(r, g, b);
+        this._ledColor2.r = 0.2 + breath * 0.6;
+        this._ledColor2.g = 0.1 + breath * 0.3;
+        this._ledColor2.b = 0.8 - breath * 0.5;
         
         this.ledPanels.forEach(panel => {
             // Gentle radial gradient that expands/contracts with breath
@@ -8004,7 +8482,10 @@ class VRClub {
             const expandRadius = breath * maxDist * 1.5;
             const brightness = Math.max(0, 1.0 - Math.abs(dist - expandRadius * 0.3) / (3 + breath * 5));
             
-            panel.material.emissiveColor = breathColor.scale(brightness * 0.8 + 0.2);
+            const scaleFactor = brightness * 0.8 + 0.2;
+            panel.material.emissiveColor.r = this._ledColor2.r * scaleFactor;
+            panel.material.emissiveColor.g = this._ledColor2.g * scaleFactor;
+            panel.material.emissiveColor.b = this._ledColor2.b * scaleFactor;
         });
     }
     
@@ -8224,160 +8705,6 @@ class VRClub {
             this.updateLEDPanel(panel, cellColor, brightness);
         });
     }
-    
-    // === MULTIPLAYER NETWORKING ===
-    
-    setupNetworkingCallbacks() {
-        // Handle connection
-        this.networkManager.onConnect = (playerId, clubState, players) => {
-            log.info(`🌐 Connected as Player ${playerId}`);
-            this.isMultiplayer = true;
-            
-            // Apply server's club state
-            this.lightsActive = clubState.lightsActive;
-            this.lasersActive = clubState.lasersActive;
-            this.ledWallActive = clubState.ledWallActive;
-            this.strobesActive = clubState.strobesActive;
-            this.mirrorBallActive = clubState.mirrorBallActive;
-            this.spotStrobeActive = clubState.spotStrobeActive !== undefined ? clubState.spotStrobeActive : false;
-            this.spotlightSpeed = clubState.spotlightSpeed;
-            this.spotlightMode = clubState.spotlightMode;
-            this.spotlightPattern = clubState.spotlightPattern;
-            this.spotColorIndex = clubState.spotColorIndex;
-            this.currentSpotColor = this.spotColorList[this.spotColorIndex];
-            this.mirrorBallColorIndex = clubState.mirrorBallColorIndex;
-            this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
-            this.currentColorIndex = clubState.laserColorIndex !== undefined ? clubState.laserColorIndex : 0;
-            this.ledPattern = clubState.ledPattern !== undefined ? clubState.ledPattern : 0;
-            this.ledColorIndex = clubState.ledColorIndex !== undefined ? clubState.ledColorIndex : 0;
-            
-            // Create avatars for existing players
-            players.forEach(player => {
-                if (player.id !== playerId) {
-                    this.avatarManager.createAvatar(player.id, player);
-                }
-            });
-            
-            // Apply audio sync if available
-            if (clubState.audioUrl && clubState.audioPlaying) {
-                this.syncAudio(clubState.audioUrl, clubState.audioTime);
-            }
-        };
-        
-        // Handle player joined
-        this.networkManager.onPlayerJoined = (player) => {
-            log.info(`👤 ${player.username} joined the club`);
-            this.avatarManager.createAvatar(player.id, player);
-        };
-        
-        // Handle player left
-        this.networkManager.onPlayerLeft = (playerId) => {
-            log.info(`👋 Player ${playerId} left the club`);
-            this.avatarManager.removeAvatar(playerId);
-        };
-        
-        // Handle player updates
-        this.networkManager.onPlayerUpdate = (updateData) => {
-            this.avatarManager.updateAvatar(updateData.playerId, updateData);
-        };
-        
-        // Handle VJ control changes from other players
-        this.networkManager.onVJControl = (control, value, fromPlayerId) => {
-            log.info(`🎛️ ${control} changed to ${value} by Player ${fromPlayerId}`);
-            this[control] = value;
-            
-            // Update specific controls
-            if (control === 'spotColorIndex') {
-                this.currentSpotColor = this.spotColorList[value];
-            } else if (control === 'mirrorBallColorIndex') {
-                this.mirrorBallSpotlightColor = this.mirrorBallColors[value];
-            } else if (control === 'laserColorIndex') {
-                this.currentColorIndex = value;
-            } else if (control === 'ledPattern') {
-                this.ledPattern = value;
-            } else if (control === 'ledColorIndex') {
-                this.ledColorIndex = value;
-            }
-        };
-        
-        // Handle audio sync
-        this.networkManager.onAudioSync = (syncData) => {
-            if (syncData.audioUrl) {
-                this.syncAudio(syncData.audioUrl, syncData.audioTime, syncData.audioPlaying);
-            }
-        };
-        
-        // Periodic audio sync to prevent drift (every 5 seconds)
-        /*
-        this.audioSyncInterval = setInterval(() => {
-            if (this.audioElement && !this.audioElement.paused && this.networkManager && this.networkManager.isConnected()) {
-                this.networkManager.sendAudioSync(
-                    this.audioElement.src,
-                    this.audioElement.currentTime,
-                    true
-                );
-                log.info(`🔄 Audio sync: ${this.audioElement.currentTime.toFixed(1)}s`);
-            }
-        }, 5000);
-        */
-    }
-    
-    syncAudio(audioUrl, audioTime, isPlaying = true) {
-        // Handle stop command (null URL or empty URL)
-        if (!audioUrl || audioUrl === '') {
-            if (this.audioElement) {
-                this.audioElement.pause();
-                this.audioElement.currentTime = 0;
-                if (this.audioStreamButton) {
-                    this.audioStreamButton.isPlaying = false;
-                    this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
-                }
-            }
-            log.info('🔇 Audio stopped by remote player');
-            return;
-        }
-        
-        // Create or update audio element
-        if (!this.audioElement) {
-            this.audioElement = new Audio();
-            this.audioElement.crossOrigin = "anonymous";
-            
-            if (!this.audioContext) {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.audioAnalyser = this.audioContext.createAnalyser();
-                this.audioAnalyser.fftSize = 256;
-                this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
-            }
-            
-            const source = this.audioContext.createMediaElementSource(this.audioElement);
-            source.connect(this.audioAnalyser);
-            this.audioAnalyser.connect(this.audioContext.destination);
-        }
-        
-        // Load and sync audio
-        if (this.audioElement.src !== audioUrl) {
-            this.audioElement.src = audioUrl;
-            log.info(`🎵 Remote player started audio: ${audioUrl}`);
-        }
-        
-        this.audioElement.currentTime = audioTime;
-        
-        // Update audio button state
-        if (this.audioStreamButton) {
-            this.audioStreamButton.isPlaying = isPlaying;
-            this.audioStreamButton.material.emissiveColor = isPlaying ? 
-                new BABYLON.Color3(1, 0, 0) : // Red when playing
-                new BABYLON.Color3(0, 0.8, 0); // Green when paused
-        }
-        
-        if (isPlaying) {
-            this.audioElement.play().catch(err => {
-                log.warn('Audio playback requires user interaction:', err);
-            });
-        } else {
-            this.audioElement.pause();
-        }
-    }
 
     setupUI(vrHelper) {
         // VR button (optional - only if element exists)
@@ -8411,11 +8738,8 @@ class VRClub {
             });
         }
         
-        // Help
+        // Debug toggle
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'h' || e.key === 'H') {
-                this.showHelp();
-            }
             if (e.key === 'd' || e.key === 'D') {
                 this.debugMode = !this.debugMode;
             }
@@ -8463,11 +8787,12 @@ class VRClub {
                         this.currentSpotColor = this.spotColorList[this.spotColorIndex];
                         this.lastColorChange = performance.now() / 1000;
                         
-                        // Update ALL light colors immediately (specular for reflections, NO diffuse ambient)
+                        // Update ALL light colors immediately (specular for reflections, diffuse for gobo projection)
                         if (this.spotlights) {
                             this.spotlights.forEach((spot, i) => {
                                 // Update color references - fixture materials updated in animation loop
                                 spot.light.specular = this.currentSpotColor; // Specular for reflections
+                                spot.light.diffuse = this.currentSpotColor.scale(0.15); // Diffuse for projectionTexture
                                 spot.color = this.currentSpotColor;
                             });
                         }
@@ -8479,11 +8804,6 @@ class VRClub {
                         }, 200);
                         
                         log.info(`🎨 Color changed to index ${this.spotColorIndex}`);
-                        
-                        // Broadcast spotlight color change to other players
-                        if (this.networkManager && this.networkManager.isConnected()) {
-                            this.networkManager.sendVJControl('spotColorIndex', this.spotColorIndex);
-                        }
                     } else if (clickedButton.control === "changeMirrorBallColor") {
                         // Change mirror ball spotlight color - cycle through colors
                         this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
@@ -8517,20 +8837,23 @@ class VRClub {
                         // This ensures instant visual sync when VJ changes color
                         if (this.mirrorReflectionSpots) {
                             this.mirrorReflectionSpots.forEach(spot => {
-                                // Immediate color update for spot disc
+                                // Immediate color update for spot disc (individual materials - unique emissive per spot)
                                 spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(spot.baseIntensity || 0.7);
-                                // Immediate color update for volumetric beam
-                                if (spot.beamMaterial) {
-                                    spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
-                                }
                             });
                         }
                         
-                        // Update outgoing rays from mirror ball
-                        if (this.mirrorBallOutgoingRays) {
-                            this.mirrorBallOutgoingRays.forEach(ray => {
-                                ray.material.emissiveColor = this.mirrorBallSpotlightColor;
-                            });
+                        // UPGRADE: Update shared beam material once (not 100× per spot)
+                        if (this._sharedMirrorBeamMat) {
+                            this._sharedMirrorBeamMat.unfreeze();
+                            this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
+                            this._sharedMirrorBeamMat.freeze();
+                        }
+                        
+                        // UPGRADE: Update shared ray material once (not 40× per ray)
+                        if (this._sharedMirrorRayMat) {
+                            this._sharedMirrorRayMat.unfreeze();
+                            this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor;
+                            this._sharedMirrorRayMat.freeze();
                         }
                         
                         // Invalidate cached colors so they get recalculated
@@ -8544,11 +8867,6 @@ class VRClub {
                         
                         const colorNames = ["White", "Red", "Blue", "Green", "Magenta", "Yellow", "Cyan", "Orange", "Purple"];
                         log.info(`🪩 Mirror ball color: ${colorNames[this.mirrorBallColorIndex]}`);
-                        
-                        // Broadcast mirror ball color change to other players
-                        if (this.networkManager && this.networkManager.isConnected()) {
-                            this.networkManager.sendVJControl('mirrorBallColorIndex', this.mirrorBallColorIndex);
-                        }
                     } else if (clickedButton.control === "cycleSpotMode") {
                         // Cycle through spotlight modes: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
                         this.spotlightMode = (this.spotlightMode + 1) % 4;
@@ -8567,11 +8885,6 @@ class VRClub {
                         
                         const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
                         log.info(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
-                        
-                        // Broadcast spotlight mode change to other players
-                        if (this.networkManager && this.networkManager.isConnected()) {
-                            this.networkManager.sendVJControl('spotlightMode', this.spotlightMode);
-                        }
                     } else if (clickedButton.control === "cyclePattern") {
                         // Cycle through spotlight patterns: 0=random, 1=static, 2=mirror, 3=crossed
                         this.spotlightPattern = (this.spotlightPattern + 1) % 4;
@@ -8590,11 +8903,6 @@ class VRClub {
                         
                         const patternNames = ["RANDOM", "STATIC DOWN", "MIRROR SWEEP", "CROSSED BEAMS"];
                         log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
-                        
-                        // Broadcast spotlight pattern change to other players
-                        if (this.networkManager && this.networkManager.isConnected()) {
-                            this.networkManager.sendVJControl('spotlightPattern', this.spotlightPattern);
-                        }
                     } else if (clickedButton.control === "patternRandom" || 
                                clickedButton.control === "patternStatic" || 
                                clickedButton.control === "patternSweep") {
@@ -8620,11 +8928,6 @@ class VRClub {
                         
                         const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
                         log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
-                        
-                        // Broadcast spotlight pattern change to other players
-                        if (this.networkManager && this.networkManager.isConnected()) {
-                            this.networkManager.sendVJControl('spotlightPattern', this.spotlightPattern);
-                        }
                     } else if (clickedButton.control === "fogBurst") {
                         // === MANUAL FOG BURST TRIGGER ===
                         // Immediately triggers all fog machines for dramatic effect
@@ -8681,19 +8984,6 @@ class VRClub {
                             clickedButton.onColor : clickedButton.offColor;
                         
                         log.info(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
-                        
-                        // Broadcast VJ control change to other players
-                        if (this.networkManager && this.networkManager.isConnected()) {
-                            this.networkManager.sendVJControl(clickedButton.control, this[clickedButton.control]);
-                            // Also broadcast the mutual exclusivity changes
-                            if (clickedButton.control === 'mirrorBallActive' || 
-                                clickedButton.control === 'laserSheetActive' || 
-                                clickedButton.control === 'lasersActive') {
-                                this.networkManager.sendVJControl('lasersActive', this.lasersActive);
-                                this.networkManager.sendVJControl('mirrorBallActive', this.mirrorBallActive);
-                                this.networkManager.sendVJControl('laserSheetActive', this.laserSheetActive);
-                            }
-                        }
                     }
                 }
             }
@@ -8705,11 +8995,6 @@ class VRClub {
                 this.speedSlider.isDragging = false;
                 this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Normal cyan
                 log.info(`🎛️ Speed set to: ${this.spotlightSpeed.toFixed(2)}x`);
-                
-                // Broadcast speed change to other players (after drag completes)
-                if (this.networkManager && this.networkManager.isConnected()) {
-                    this.networkManager.sendVJControl('spotlightSpeed', this.spotlightSpeed);
-                }
             }
         };
         
@@ -8753,11 +9038,6 @@ class VRClub {
             this.audioStreamButton.isPlaying = false;
             this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
             log.info("🔇 Audio stream stopped");
-            
-            // Broadcast audio stop to other players
-            if (this.networkManager && this.networkManager.isConnected()) {
-                this.networkManager.sendAudioSync(null, 0, false);
-            }
         } else {
             // Show in-VR UI for stream URL input
             this.showAudioStreamInputUI();
@@ -8988,21 +9268,12 @@ class VRClub {
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
                     log.info("🔊 Audio stream playing automatically!");
                     
-                    // Broadcast audio stream to other players
-                    if (this.networkManager && this.networkManager.isConnected()) {
-                        this.networkManager.sendAudioSync(this.audioElement.src, 0, true);
-                        log.info("📡 Broadcasting audio stream to other players");
-                    }
-                    
                     // Connect to audio analyzer
-                    if (!this.audioContext && window.AudioContext) {
-                        this.audioContext = new AudioContext();
-                        this.audioAnalyser = this.audioContext.createAnalyser();
+                    if (!this.audioSource && window.AudioContext) {
+                        this._ensureAudioContext();
                         this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
                         this.audioSource.connect(this.audioAnalyser);
-                        this.audioAnalyser.connect(this.audioContext.destination);
-                        this.audioAnalyser.fftSize = 256;
-                        log.info("🎚️ Audio analyzer connected");
+                        log.info("🎚️ Audio analyzer connected (stream)");
                     }
                 }).catch(err => {
                     log.error("❌ Failed to play audio:", err);
@@ -9043,14 +9314,11 @@ class VRClub {
                     log.warn("⚠️ Local audio files are not shared in multiplayer (use stream URLs)");
                     
                     // Connect to audio analyzer
-                    if (!this.audioContext && window.AudioContext) {
-                        this.audioContext = new AudioContext();
-                        this.audioAnalyser = this.audioContext.createAnalyser();
+                    if (!this.audioSource && window.AudioContext) {
+                        this._ensureAudioContext();
                         this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
                         this.audioSource.connect(this.audioAnalyser);
-                        this.audioAnalyser.connect(this.audioContext.destination);
-                        this.audioAnalyser.fftSize = 256;
-                        log.info("🎚️ Audio analyzer connected");
+                        log.info("🎚️ Audio analyzer connected (file)");
                     }
                 }).catch(err => {
                     log.error("❌ Failed to play audio file:", err);
@@ -9100,19 +9368,24 @@ class VRClub {
         
         const p = presets[preset];
         if (p) {
+            // Temporarily disable gravity/collisions for smooth camera transition
             this.camera.applyGravity = false;
             this.camera.checkCollisions = false;
             
             this.camera.position = p.pos.clone();
             this.camera.setTarget(p.target);
             
+            // Re-enable collisions after camera settles (short delay for physics)
             setTimeout(() => {
-                this.camera.applyGravity = false;
-                this.camera.checkCollisions = false;
-            }, 100);
+                this.camera.checkCollisions = true;
+                // Only re-enable gravity for ground-level presets
+                if (p.pos.y < 3.0) {
+                    this.camera.applyGravity = false; // Keep false for free camera
+                }
+            }, 300);
             
             this.showCameraTransitionFeedback(preset);
-            }
+        }
     }
 
     showCameraTransitionFeedback(preset) {
@@ -9150,13 +9423,9 @@ class VRClub {
         if (!this.audioElement) {
             this.audioElement = new Audio();
             this.audioElement.crossOrigin = "anonymous";
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this._ensureAudioContext();
             this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-            this.audioAnalyser = this.audioContext.createAnalyser();
-            this.audioAnalyser.fftSize = 256;
-            this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
             this.audioSource.connect(this.audioAnalyser);
-            this.audioAnalyser.connect(this.audioContext.destination);
         }
         
         this.audioElement.src = url;
@@ -9188,9 +9457,14 @@ class VRClub {
                     spot.goboProjection.visibility = showGobo ? 1.0 : 0;
                     if (this.goboEnabled) {
                         this._applyGoboTexture(spot, i);
-                        // Hide regular pool
+                        // Hide regular pool when gobo is on (gobo replaces it)
                         if (spot.lightPool) spot.lightPool.visibility = 0;
                     } else {
+                        // Clear projectionTexture when gobos disabled
+                        if (spot.light.projectionTexture) {
+                            spot.light.projectionTexture.dispose();
+                            spot.light.projectionTexture = null;
+                        }
                         // Show regular pool when gobo disabled
                         if (spot.lightPool && this.lightsActive) spot.lightPool.visibility = 1.0;
                     }
@@ -9219,6 +9493,11 @@ class VRClub {
                         // Hide regular pool
                         if (spot.lightPool) spot.lightPool.visibility = 0;
                     } else {
+                        // Clear projectionTexture when gobos disabled
+                        if (spot.light.projectionTexture) {
+                            spot.light.projectionTexture.dispose();
+                            spot.light.projectionTexture = null;
+                        }
                         // Show regular pool when gobo disabled
                         if (spot.lightPool && this.lightsActive) spot.lightPool.visibility = 1.0;
                     }
@@ -9294,15 +9573,29 @@ class VRClub {
             spot.goboMat.emissiveTexture = null;
         }
         
-        // Circle pattern = no texture (plain disc)
+        // Dispose old projection texture on the SpotLight
+        if (spot.light.projectionTexture) {
+            spot.light.projectionTexture.dispose();
+            spot.light.projectionTexture = null;
+        }
+        
+        // Circle pattern = no texture (plain disc / plain light)
         if (patternName === 'circle') {
             return;
         }
         
-        // Create procedural gobo texture
+        // Create procedural gobo texture for disc mesh overlay
         const texture = this._createGoboTexture(patternName, index);
         if (texture) {
             spot.goboMat.emissiveTexture = texture;
+            
+            // UPGRADE: Create a second gobo texture for SpotLight.projectionTexture
+            // This makes the SpotLight physically project the gobo pattern onto ALL surfaces
+            // (floors, walls, objects, NPCs) with proper PBR lighting math
+            const projTexture = this._createGoboTexture(patternName, index + '_proj');
+            if (projTexture) {
+                spot.light.projectionTexture = projTexture;
+            }
         }
     }
     
@@ -9510,6 +9803,26 @@ class VRClub {
         ctx.fill();
     }
     
+    /**
+     * Centralized audio context initialization - prevents multiple AudioContext creation
+     * Call this before connecting any audio source to the analyser
+     */
+    _ensureAudioContext() {
+        if (!this.audioContext) {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.audioAnalyser = this.audioContext.createAnalyser();
+            this.audioAnalyser.fftSize = 256;
+            this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
+            this.audioAnalyser.connect(this.audioContext.destination);
+            log.info('🎚️ Audio context initialized');
+        }
+        // Resume if suspended (browser autoplay policy)
+        if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+        return this.audioContext;
+    }
+    
     getAudioData() {
         if (!this.audioAnalyser || !this.audioDataArray) {
             return {
@@ -9683,151 +9996,6 @@ class VRClub {
         log.info(`✅ Loaded ${this.npcAvatars.length} dancing avatars on dancefloor`);
     }
     
-    getRandomSkinTone() {
-        // Variety of human skin tones
-        const skinTones = [
-            new BABYLON.Color3(0.95, 0.76, 0.65), // Light skin
-            new BABYLON.Color3(0.88, 0.70, 0.58), // Fair skin
-            new BABYLON.Color3(0.80, 0.62, 0.50), // Medium skin
-            new BABYLON.Color3(0.72, 0.55, 0.42), // Olive skin
-            new BABYLON.Color3(0.60, 0.45, 0.35), // Tan skin
-            new BABYLON.Color3(0.50, 0.37, 0.28), // Brown skin
-            new BABYLON.Color3(0.40, 0.28, 0.20), // Dark brown skin
-            new BABYLON.Color3(0.30, 0.20, 0.15)  // Deep brown skin
-        ];
-        return skinTones[Math.floor(Math.random() * skinTones.length)];
-    }
-    
-    getRandomOutfitColor() {
-        // Varied clothing/outfit colors (club-appropriate)
-        const outfitColors = [
-            // Vibrant club colors
-            new BABYLON.Color3(0.2, 0.4, 0.8),  // Blue
-            new BABYLON.Color3(0.8, 0.2, 0.4),  // Pink/Red
-            new BABYLON.Color3(0.4, 0.2, 0.7),  // Purple
-            new BABYLON.Color3(0.2, 0.7, 0.5),  // Teal
-            new BABYLON.Color3(0.9, 0.6, 0.2),  // Orange
-            new BABYLON.Color3(0.3, 0.8, 0.3),  // Green
-            // Neutral colors
-            new BABYLON.Color3(0.2, 0.2, 0.2),  // Black
-            new BABYLON.Color3(0.9, 0.9, 0.9),  // White
-            new BABYLON.Color3(0.4, 0.4, 0.5),  // Gray
-            // Metallic/shimmer effects
-            new BABYLON.Color3(0.8, 0.8, 0.9),  // Silver
-            new BABYLON.Color3(0.9, 0.8, 0.5)   // Gold
-        ];
-        return outfitColors[Math.floor(Math.random() * outfitColors.length)];
-    }
-    
-    customizeNPCAvatar(npcId, customization) {
-        // Skip if avatar manager is disabled
-        if (!this.avatarManager) return;
-        
-        const avatar = this.avatarManager.avatars.get(npcId);
-        if (!avatar) return;
-        
-        // Apply height variation
-        if (avatar.root) {
-            avatar.root.scaling.y = customization.heightMultiplier;
-        }
-        
-        // Apply body customization (desktop avatars)
-        if (avatar.body) {
-            // Scale body width
-            avatar.body.scaling.x = customization.bodyScale;
-            avatar.body.scaling.z = customization.bodyScale;
-            
-            // Apply outfit color to body
-            const bodyMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcBody_${npcId}`, this.scene);
-            bodyMat.baseColor = customization.outfitColor;
-            bodyMat.metallic = 0.1 + Math.random() * 0.3; // Some shimmer variation
-            bodyMat.roughness = 0.6 + Math.random() * 0.3;
-            bodyMat.emissiveColor = customization.outfitColor.scale(0.1); // Slight glow
-            avatar.body.material = bodyMat;
-        }
-        
-        // Apply head customization
-        if (avatar.head) {
-            // Scale head
-            avatar.head.scaling.set(
-                customization.headScale,
-                customization.headScale,
-                customization.headScale
-            );
-            
-            // Apply skin tone to all head/neck parts
-            const headMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcHead_${npcId}`, this.scene);
-            headMat.baseColor = customization.skinTone;
-            headMat.metallic = 0.0;
-            headMat.roughness = 0.7;
-            
-            // Apply to head, neck, ears, nose
-            avatar.head.getChildMeshes().forEach(mesh => {
-                if (mesh.name.includes('head') || mesh.name.includes('neck') || 
-                    mesh.name.includes('Ear') || mesh.name.includes('nose')) {
-                    mesh.material = headMat;
-                }
-            });
-        }
-        
-        // Apply hand customization (VR avatars) - skin tone to hands and fingers
-        if (avatar.leftHand && avatar.rightHand) {
-            const handMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcHands_${npcId}`, this.scene);
-            handMat.baseColor = customization.skinTone;
-            handMat.metallic = 0.0;
-            handMat.roughness = 0.7;
-            
-            // Apply to palm and fingers
-            avatar.leftHand.getChildMeshes().forEach(mesh => {
-                if (mesh.name.includes('palm') || mesh.name.includes('finger') || 
-                    mesh.name.includes('thumb') || mesh.name.includes('pinky') || 
-                    mesh.name.includes('ring') || mesh.name.includes('middle') || 
-                    mesh.name.includes('index')) {
-                    mesh.material = handMat;
-                }
-            });
-            
-            avatar.rightHand.getChildMeshes().forEach(mesh => {
-                if (mesh.name.includes('palm') || mesh.name.includes('finger') || 
-                    mesh.name.includes('thumb') || mesh.name.includes('pinky') || 
-                    mesh.name.includes('ring') || mesh.name.includes('middle') || 
-                    mesh.name.includes('index')) {
-                    mesh.material = handMat;
-                }
-            });
-        }
-        
-        // Apply outfit customization to body parts (Desktop avatars)
-        if (avatar.body) {
-            const bodyMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcBody_${npcId}`, this.scene);
-            bodyMat.baseColor = customization.outfitColor;
-            bodyMat.metallic = 0.1 + Math.random() * 0.3;
-            bodyMat.roughness = 0.6 + Math.random() * 0.3;
-            bodyMat.emissiveColor = customization.outfitColor.scale(0.1);
-            
-            // Apply to torso, hips, arms, legs (not skin parts)
-            avatar.body.getChildMeshes().forEach(mesh => {
-                if (mesh.name.includes('torso') || mesh.name.includes('hips') || 
-                    mesh.name.includes('Thigh') || mesh.name.includes('Calf') || 
-                    mesh.name.includes('Foot') || mesh.name.includes('Arm')) {
-                    mesh.material = bodyMat;
-                }
-            });
-            
-            // Apply skin tone to exposed hands
-            const skinMat = new BABYLON.PBRMetallicRoughnessMaterial(`npcSkin_${npcId}`, this.scene);
-            skinMat.baseColor = customization.skinTone;
-            skinMat.metallic = 0.0;
-            skinMat.roughness = 0.7;
-            
-            avatar.body.getChildMeshes().forEach(mesh => {
-                if (mesh.name.includes('Hand')) {
-                    mesh.material = skinMat;
-                }
-            });
-        }
-    }
-    
     updateDancingNPCs(time) {
         // GLB avatars with built-in animations play automatically via animation groups
         // This function can be used for any additional effects (e.g., lighting response)
@@ -9882,25 +10050,6 @@ class VRClub {
         }
     }
 
-    showHelp() {
-        alert(`🎮 CONTROLS:
-        
-MOVEMENT:
-  W/A/S/D - Move around
-  E/Q - Fly up/down
-  Mouse - Look around
-  
-CAMERA PRESETS:
-  Click buttons to jump to preset views
-  
-DEBUG:
-  D - Toggle debug mode (show position)
-  H - Show this help
-  
-VR:
-  Click "Enter VR" button
-  Requires Quest 3S via Link/Air Link`);
-    }
 }
 
 // Initialize when page loads - DISABLED for splash screen

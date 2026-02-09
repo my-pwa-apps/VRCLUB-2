@@ -424,7 +424,12 @@ class SpotlightSystem {
         // Update beam visibility based on intensity (binary on/off for strobe)
         const beamVisible = intensity > 0.5;
         spotlight.beam.visibility = beamVisible ? 1.0 : 0;
-        spotlight.beamMat.alpha = beamVisible ? 0.08 : 0;
+        
+        // HYPERREALISTIC: Alpha varies with beam length and tilt angle
+        // More particles visible at longer/steeper angles
+        const pathDensity = Math.min(1.0, beamLength / 10.0);
+        const angleVis = 1.0 + (1.0 - verticalComponent) * 0.4;
+        spotlight.beamMat.alpha = beamVisible ? (0.10 * pathDensity * angleVis) : 0;
         
         // Also update floor pool visibility
         spotlight.lightPool.visibility = beamVisible ? 1.0 : 0;
@@ -436,30 +441,83 @@ class SpotlightSystem {
     }
 
     /**
-     * Update floor light pool position
+     * Update surface light pool position (floor and walls)
      */
     _updateFloorPool(spotlight, direction) {
-        // Calculate where beam hits floor
         const originY = spotlight.basePos.y;
-        const t = originY / Math.abs(direction.y);
+        
+        // Club boundaries
+        const FLOOR_Y = 0;
+        const BACK_WALL_Z = -25.8;
+        const LEFT_WALL_X = -10;
+        const RIGHT_WALL_X = 10;
+        
+        // Calculate distances to each surface
+        let distToFloor = Infinity, distToBackWall = Infinity;
+        let distToLeftWall = Infinity, distToRightWall = Infinity;
+        
+        if (direction.y < -0.01) distToFloor = originY / Math.abs(direction.y);
+        if (direction.z < -0.01) distToBackWall = (spotlight.basePos.z - BACK_WALL_Z) / Math.abs(direction.z);
+        if (direction.x < -0.01) distToLeftWall = (spotlight.basePos.x - LEFT_WALL_X) / Math.abs(direction.x);
+        if (direction.x > 0.01) distToRightWall = (RIGHT_WALL_X - spotlight.basePos.x) / direction.x;
+        
+        // Find closest surface hit
+        let t = distToFloor;
+        let hitSurface = 'floor';
+        if (distToBackWall < t && distToBackWall > 0) { t = distToBackWall; hitSurface = 'backWall'; }
+        if (distToLeftWall < t && distToLeftWall > 0) { t = distToLeftWall; hitSurface = 'leftWall'; }
+        if (distToRightWall < t && distToRightWall > 0) { t = distToRightWall; hitSurface = 'rightWall'; }
+        
+        if (t === Infinity || t > 20) t = 15;
         
         const hitX = spotlight.basePos.x + direction.x * t;
+        const hitY = spotlight.basePos.y + direction.y * t;
         const hitZ = spotlight.basePos.z + direction.z * t;
         
-        spotlight.lightPool.position.x = hitX;
-        spotlight.lightPool.position.z = hitZ;
-        spotlight.lightPoolGlow.position.x = hitX;
-        spotlight.lightPoolGlow.position.z = hitZ;
+        // Store hit surface for gobo projection
+        spotlight.hitSurface = hitSurface;
         
-        // Scale pool based on beam spread at floor
-        const beamAngle = Math.PI / 6; // Match spotlight cone
+        // Scale pool based on beam spread at surface
+        const beamAngle = Math.PI / 6;
         const poolRadius = Math.tan(beamAngle / 2) * t;
         const scale = Math.max(1, poolRadius * 2);
         
+        // Position and orient based on surface hit
+        if (hitSurface === 'floor') {
+            spotlight.lightPool.position.set(hitX, 0.004, hitZ);
+            spotlight.lightPool.rotation.set(Math.PI / 2, 0, 0);
+            spotlight.lightPoolGlow.position.set(hitX, 0.002, hitZ);
+            spotlight.lightPoolGlow.rotation.set(Math.PI / 2, 0, 0);
+        } else if (hitSurface === 'backWall') {
+            spotlight.lightPool.position.set(hitX, hitY, BACK_WALL_Z + 0.01);
+            spotlight.lightPool.rotation.set(0, 0, 0);
+            spotlight.lightPoolGlow.position.set(hitX, hitY, BACK_WALL_Z + 0.015);
+            spotlight.lightPoolGlow.rotation.set(0, 0, 0);
+        } else if (hitSurface === 'leftWall') {
+            spotlight.lightPool.position.set(LEFT_WALL_X + 0.01, hitY, hitZ);
+            spotlight.lightPool.rotation.set(0, Math.PI / 2, 0);
+            spotlight.lightPoolGlow.position.set(LEFT_WALL_X + 0.015, hitY, hitZ);
+            spotlight.lightPoolGlow.rotation.set(0, Math.PI / 2, 0);
+        } else if (hitSurface === 'rightWall') {
+            spotlight.lightPool.position.set(RIGHT_WALL_X - 0.01, hitY, hitZ);
+            spotlight.lightPool.rotation.set(0, -Math.PI / 2, 0);
+            spotlight.lightPoolGlow.position.set(RIGHT_WALL_X - 0.015, hitY, hitZ);
+            spotlight.lightPoolGlow.rotation.set(0, -Math.PI / 2, 0);
+        }
+        
         spotlight.lightPool.scaling.x = scale;
         spotlight.lightPool.scaling.y = scale;
-        spotlight.lightPoolGlow.scaling.x = scale * 1.3;
-        spotlight.lightPoolGlow.scaling.y = scale * 1.3;
+        // Wall surfaces scatter light more widely
+        const glowMultiplier = (hitSurface === 'floor') ? 1.3 : 1.8;
+        spotlight.lightPoolGlow.scaling.x = scale * glowMultiplier;
+        spotlight.lightPoolGlow.scaling.y = scale * glowMultiplier;
+        
+        // Boost brightness for wall hits (dark surfaces)
+        if (spotlight.poolGlowMat) {
+            const wallBoost = (hitSurface === 'floor') ? 0.8 : 1.2;
+            const spotColor = spotlight.color || this.currentSpotColor;
+            spotlight.poolGlowMat.emissiveColor = spotColor.scale(wallBoost);
+        }
     }
 
     /**
@@ -926,19 +984,49 @@ class SpotlightSystem {
             
             // Apply 360° rotation - each spotlight has offset phase for variety
             const rotationOffset = spotlight.goboRotation || 0;
-            spotlight.goboProjection.rotation.z = this.goboRotation + rotationOffset;
+            const goboRotAngle = this.goboRotation + rotationOffset;
+            const hitSurface = spotlight.hitSurface || 'floor';
             
-            // Sync position with light pool
-            spotlight.goboProjection.position.x = spotlight.lightPool.position.x;
-            spotlight.goboProjection.position.z = spotlight.lightPool.position.z;
+            // === SURFACE-AWARE GOBO POSITIONING ===
+            if (hitSurface === 'floor') {
+                spotlight.goboProjection.position.set(
+                    spotlight.lightPool.position.x,
+                    0.025,
+                    spotlight.lightPool.position.z
+                );
+                spotlight.goboProjection.rotation.x = Math.PI / 2;
+                spotlight.goboProjection.rotation.y = spotlight.lightPool.rotation.y;
+                spotlight.goboProjection.rotation.z = goboRotAngle;
+            } else if (hitSurface === 'backWall') {
+                spotlight.goboProjection.position.set(
+                    spotlight.lightPool.position.x,
+                    spotlight.lightPool.position.y,
+                    spotlight.lightPool.position.z + 0.015
+                );
+                spotlight.goboProjection.rotation.set(0, 0, goboRotAngle);
+            } else if (hitSurface === 'leftWall') {
+                spotlight.goboProjection.position.set(
+                    spotlight.lightPool.position.x + 0.015,
+                    spotlight.lightPool.position.y,
+                    spotlight.lightPool.position.z
+                );
+                spotlight.goboProjection.rotation.set(0, Math.PI / 2, goboRotAngle);
+            } else if (hitSurface === 'rightWall') {
+                spotlight.goboProjection.position.set(
+                    spotlight.lightPool.position.x - 0.015,
+                    spotlight.lightPool.position.y,
+                    spotlight.lightPool.position.z
+                );
+                spotlight.goboProjection.rotation.set(0, -Math.PI / 2, goboRotAngle);
+            }
             
             // Sync scale with light pool
             spotlight.goboProjection.scaling.x = spotlight.lightPool.scaling.x * 1.1;
             spotlight.goboProjection.scaling.y = spotlight.lightPool.scaling.y * 1.1;
             
-            // Update color to match spotlight
+            // Update color to match spotlight with physics-based brightness
             const spotColor = spotlight.color || this.currentSpotColor;
-            spotlight.goboMat.emissiveColor = spotColor;
+            spotlight.goboMat.emissiveColor = spotColor.scale(1.5);
             
             // Apply strobe visibility if active
             const intensity = spotlight.beam.visibility;
