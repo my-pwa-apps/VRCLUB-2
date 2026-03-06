@@ -11,6 +11,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.babylonjs.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: https: http:; connect-src 'self' https://cdn.babylonjs.com https://dl.polyhaven.org https://assets.babylonjs.com https://immersive-web.github.io blob:; font-src 'self'; worker-src 'self' blob:;">
+    
     <!-- Performance Hints -->
     <link rel="preconnect" href="https://cdn.babylonjs.com" crossorigin>
     <link rel="dns-prefetch" href="https://cdn.babylonjs.com">
@@ -21,6 +24,14 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+    <noscript>
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#000;color:#fff;font-family:sans-serif;text-align:center;padding:20px;">
+            <div>
+                <h1>VR Club</h1>
+                <p>This application requires JavaScript to run. Please enable JavaScript in your browser settings.</p>
+            </div>
+        </div>
+    </noscript>
     <!-- Splash Screen -->
     <div id="splashScreen">
         
@@ -50,7 +61,7 @@
     <canvas id="canvas" class="hidden"></canvas>
     
     <!-- VJ Toggle Button -->
-    <button id="vjToggle" title="VJ Controls">🎛️</button>
+    <button id="vjToggle" title="VJ Controls" aria-label="Toggle VJ Controls">🎛️</button>
     
     <!-- VJ Control Menu -->
     <div id="vjMenu" class="hidden">
@@ -74,7 +85,6 @@
                     <button class="vj-button" data-control="lasersActive">LASERS</button>
                     <button class="vj-button active" data-control="ledWallActive">LED WALL</button>
                     <button class="vj-button active" data-control="strobesActive">STROBES</button>
-                    <button class="vj-button active" data-control="blindersActive">BLINDERS</button>
                     <button class="vj-button" data-control="mirrorBallActive">MIRROR BALL</button>
                     <button class="vj-button" data-control="laserSheetActive">LASER SHEET</button>
                     <button class="vj-button" data-control="smokeActive">SMOKE</button>
@@ -124,7 +134,7 @@
     </div>
     
     <!-- Settings Toggle Button -->
-    <button id="settingsToggle" title="Settings">⚙️</button>
+    <button id="settingsToggle" title="Settings" aria-label="Toggle Settings Panel">⚙️</button>
     
     <!-- Settings Panel (hidden by default) -->
     <div id="settingsPanel">
@@ -136,7 +146,7 @@
     </div>
     
     <!-- Audio Toggle Button -->
-    <button id="audioToggle" title="Audio Stream">🎵</button>
+    <button id="audioToggle" title="Audio Stream" aria-label="Toggle Audio Stream Menu">🎵</button>
     
     <!-- Audio Upload Menu -->
     <div id="audioMenu" class="hidden">
@@ -182,7 +192,6 @@
     <!-- Camera Controls -->
     <div id="cameraControls">
         <div class="preset-grid">
-            <button data-camera-preset="exterior" title="Outside the club - exterior entrance view with neon sign">🌃 Outside</button>
             <button data-camera-preset="entrance" title="Front entrance view looking into club">🚪 Entry</button>
             <button data-camera-preset="danceFloor" title="Dance floor center, facing DJ booth">💃 Floor</button>
             <button data-camera-preset="djBooth" title="Behind DJ console, facing crowd">🎧 DJ</button>
@@ -191,7 +200,6 @@
             <button data-camera-preset="speakers" title="PA speaker stacks flanking LED wall">🔊 Speakers</button>
             <button data-camera-preset="truss" title="Lighting truss with moving heads">💡 Truss</button>
             <button data-camera-preset="mirrorBall" title="Disco mirror ball spotlight view">🪩 Ball</button>
-            <button data-camera-preset="overview" title="Isometric view of entire club">🏢 Full</button>
             <button data-camera-preset="ceiling" title="Ceiling lasers and lighting">✨ Top</button>
         </div>
     </div>
@@ -211,7 +219,11 @@
         </div>
     </div>
     
-    <!-- Babylon.js Core - Critical Path -->
+    <!-- Babylon.js Core - Critical Path
+         NOTE: These CDN URLs serve the latest version. For production, pin to a specific
+         version and add SRI integrity hashes. Example with jsDelivr:
+         <script src="https://cdn.jsdelivr.net/npm/babylonjs@7.x.x/babylon.js" integrity="sha384-..." crossorigin="anonymous"></script>
+    -->
     <script src="https://cdn.babylonjs.com/babylon.js" crossorigin="anonymous"></script>
     <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" crossorigin="anonymous"></script>
     
@@ -230,7 +242,7 @@
     <!-- Light Factory (centralized light creation) -->
     <script src="js/lightFactory.js"></script>
     
-    <!-- Lighting System Modules (DISABLED - using inline implementation in club_hyperrealistic.js)
+    <!-- Lighting System Modules -->
     <script src="js/systems/laserSystem.js"></script>
     <script src="js/systems/spotlightSystem.js"></script>
     <script src="js/systems/mirrorBallSystem.js"></script>
@@ -238,7 +250,6 @@
     <script src="js/systems/strobeSystem.js"></script>
     <script src="js/systems/hazeSystem.js"></script>
     <script src="js/systems/vjControlSystem.js"></script>
-    -->
     
     <!-- VR Club Main Application -->
     <script src="js/club_hyperrealistic.js"></script>

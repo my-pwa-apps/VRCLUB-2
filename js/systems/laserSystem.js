@@ -63,9 +63,9 @@ class LaserSystem {
         // Lasers mounted UNDER the truss (hanging down)
         // ALL LASERS ARE MULTI-BEAM TYPE (5 rotating beams each)
         const laserPositions = [
-            { x: -8, z: -14, trussY: 7.55, type: 'multi' },
-            { x: 0, z: -12, trussY: 7.55, type: 'multi' },
-            { x: 8, z: -14, trussY: 7.55, type: 'multi' }
+            { x: -8, z: -14, trussY: 3.55, type: 'multi' },
+            { x: 0, z: -12, trussY: 3.55, type: 'multi' },
+            { x: 8, z: -14, trussY: 3.55, type: 'multi' }
         ];
         
         laserPositions.forEach((pos, i) => {
@@ -272,6 +272,7 @@ class LaserSystem {
         hitSpot.isPickable = false;
         
         const hitSpotMat = new BABYLON.StandardMaterial("laserHitMat" + laserIndex + "_" + beamIndex, this.scene);
+        
         hitSpotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         hitSpotMat.emissiveColor = new BABYLON.Color3(1, 0, 0);
         hitSpotMat.alpha = 0.9;
@@ -312,6 +313,7 @@ class LaserSystem {
         this.laserAperture.position.z = 0.21;
         
         const apertureMat = new BABYLON.StandardMaterial("apertureMat", this.scene);
+        
         apertureMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
         apertureMat.disableLighting = true;
         this.laserAperture.material = apertureMat;
@@ -343,6 +345,7 @@ class LaserSystem {
         
         // Sheet material with noise texture
         const sheetMat = new BABYLON.StandardMaterial("laserSheetMat", this.scene);
+        
         sheetMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0);

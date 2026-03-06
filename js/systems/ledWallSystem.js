@@ -118,6 +118,7 @@ class LEDWallSystem {
                 
                 // Create material with slight initial glow
                 const panelMat = new BABYLON.StandardMaterial("ledMat_" + row + "_" + col, this.scene);
+        
                 panelMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
                 panelMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
                 panelMat.specularColor = new BABYLON.Color3(0, 0, 0);

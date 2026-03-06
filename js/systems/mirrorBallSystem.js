@@ -65,7 +65,7 @@ class MirrorBallSystem {
      * Create the mirror ball with spotlights and reflection spots
      */
     createMirrorBall() {
-        const ballPosition = new BABYLON.Vector3(0, 6.5, -12);
+        const ballPosition = new BABYLON.Vector3(0, 3.5, -12);
         const trussPosition = new BABYLON.Vector3(0, 8, -12);
         
         // Mirror ball sphere
@@ -103,7 +103,7 @@ class MirrorBallSystem {
             height: 0.15,
             tessellation: 16
         }, this.scene);
-        motorHousing.position = new BABYLON.Vector3(0, 7.85, -12);
+        motorHousing.position = new BABYLON.Vector3(0, 4.2, -12);
         motorHousing.material = chain.material;
         
         // Create spotlights pointing at ball
@@ -127,9 +127,9 @@ class MirrorBallSystem {
         this.mirrorBallHousings = [];
         
         const spotlightConfigs = [
-            { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "mirrorSpot1" },
-            { pos: new BABYLON.Vector3(4, 7.5, -8), name: "mirrorSpot2" },
-            { pos: new BABYLON.Vector3(0, 7.5, -16), name: "mirrorSpot3" }
+            { pos: new BABYLON.Vector3(-4, 3.5, -8), name: "mirrorSpot1" },
+            { pos: new BABYLON.Vector3(4, 3.5, -8), name: "mirrorSpot2" },
+            { pos: new BABYLON.Vector3(0, 3.5, -16), name: "mirrorSpot3" }
         ];
         
         spotlightConfigs.forEach((config, index) => {
@@ -176,6 +176,7 @@ class MirrorBallSystem {
         lens.rotation.x += Math.PI / 2;
         
         const lensMat = new BABYLON.StandardMaterial("mirrorLensMat" + index, this.scene);
+        
         lensMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         lensMat.emissiveColor = this.mirrorBallSpotlightColor.scale(5.0);
         lensMat.alpha = 0.9;
@@ -191,6 +192,7 @@ class MirrorBallSystem {
         lightSource.lookAt(ballPosition);
         
         const sourceMat = new BABYLON.StandardMaterial("mirrorSourceMat" + index, this.scene);
+        
         sourceMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         sourceMat.emissiveColor = this.mirrorBallSpotlightColor.scale(8.0);
         sourceMat.disableLighting = true;
@@ -204,6 +206,7 @@ class MirrorBallSystem {
         flare.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
         
         const flareMat = new BABYLON.StandardMaterial("mirrorFlareMat" + index, this.scene);
+        
         flareMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         flareMat.emissiveColor = this.mirrorBallSpotlightColor.scale(3.0);
         flareMat.alpha = 0.4;
@@ -252,6 +255,7 @@ class MirrorBallSystem {
         beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
         
         const beamMat = new BABYLON.StandardMaterial("mirrorBeamMat" + index, this.scene);
+        
         beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
         beamMat.alpha = 0.15;
@@ -279,7 +283,7 @@ class MirrorBallSystem {
         
         const surfaces = [
             { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02 },
-            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83 },
+            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 4.33 },
             { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73 },
             { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73 },
             { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73 },
@@ -305,6 +309,7 @@ class MirrorBallSystem {
         }, this.scene);
         
         const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${index}`, this.scene);
+        
         spotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         spotMat.specularColor = new BABYLON.Color3(0, 0, 0);
         spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
@@ -326,6 +331,7 @@ class MirrorBallSystem {
         beam.setPivotPoint(new BABYLON.Vector3(0, 0.5, 0));
         
         const beamMat = new BABYLON.StandardMaterial(`mirrorBeamMat${index}`, this.scene);
+        
         beamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
         beamMat.alpha = 0.15;
         beamMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
@@ -350,7 +356,7 @@ class MirrorBallSystem {
         } else if (surface.axis === 'yz') {
             targetPos = new BABYLON.Vector3(
                 surface.value,
-                0.2 + Math.random() * 9.6,
+                0.2 + Math.random() * 4.1,
                 -27 + Math.random() * 29
             );
             normal = surface.name === 'leftWall' ? 
@@ -359,7 +365,7 @@ class MirrorBallSystem {
         } else {
             targetPos = new BABYLON.Vector3(
                 -17 + Math.random() * 34,
-                0.2 + Math.random() * 9.6,
+                0.2 + Math.random() * 4.1,
                 surface.value
             );
             normal = surface.name === 'backWall' ? 

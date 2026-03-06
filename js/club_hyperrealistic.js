@@ -12,9 +12,11 @@ const log = {
 };
 
 // Room dimensions and boundaries
+// UNDERGROUND CLUB REDESIGN: Lower ceiling (4.5m) creates intimate, oppressive atmosphere
+// Inspired by Tresor/Berghain Kantine/Shelter Amsterdam — raw concrete bunker aesthetic
 const ROOM_BOUNDS = {
     x: { min: -12.5, max: 12.5, width: 25 },
-    y: { min: 0, max: 8, height: 8 },
+    y: { min: 0, max: 4.5, height: 4.5 },
     z: { min: -21, max: -5, depth: 16 }
 };
 
@@ -23,7 +25,7 @@ const CLUB_POSITIONS = {
     djBooth: { x: 0, y: 0.95, z: -18 },
     danceFloor: { x: 0, y: 0, z: -12 },
     entrance: { x: 0, y: 0, z: 0 },
-    mirrorBall: { x: 0, y: 6.5, z: -12 },
+    mirrorBall: { x: 0, y: 3.8, z: -12 },
     paSpeakers: {
         left: { x: -7, y: 0, z: -16 },
         right: { x: 7, y: 0, z: -16 }
@@ -49,33 +51,36 @@ class VRClub {
         this.engine.setHardwareScalingLevel(1.0); // 1.0 = native, increase for lower res
         
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
+        // UNDERGROUND CLUB ATMOSPHERE — Designed for techno/house immersion
+        // Philosophy: Total darkness. Fog so thick you taste it. Light cuts like a blade.
+        // References: Tresor Berlin, Berghain Kantine, Shelter Amsterdam, DC-10 Ibiza
         this.vrSettings = {
             desktop: {
-                exposure: 1.1,
-                contrast: 1.6, // Deep contrast for dramatic club lighting
-                bloomWeight: 0.35, // Strong bloom for neon/laser glow
-                bloomThreshold: 0.45, // Catch more light sources
-                bloomScale: 0.5, // Wide bloom halo
-                glowIntensity: 0.9, // Pronounced glow on emissive surfaces
-                ambientIntensity: 0.06, // Very low ambient - club should be DARK except for lighting
-                environmentIntensity: 0.5, // Rich PBR reflections for wet/metallic surfaces
-                clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Near-black with subtle blue tint
-                grainEnabled: true, // Filmic grain for cinema feel
-                chromaticAberrationEnabled: true, // Lens realism
+                exposure: 0.95, // Darker exposure — underground clubs are DARK
+                contrast: 1.8, // Extreme contrast — harsh light vs pitch black
+                bloomWeight: 0.25, // Moderate bloom — focused beams, not stadium wash
+                bloomThreshold: 0.6, // Only catch the brightest sources
+                bloomScale: 0.35, // Tighter bloom halo — surgical precision
+                glowIntensity: 0.7, // Focused glow on emissive surfaces
+                ambientIntensity: 0.025, // EXTREMELY dark — you should barely see walls
+                environmentIntensity: 0.2, // Minimal reflections — raw concrete doesn't reflect
+                clearColor: new BABYLON.Color3(0.001, 0.001, 0.003), // Pure underground black
+                grainEnabled: true, // Film grain adds to the raw/industrial feel
+                chromaticAberrationEnabled: true,
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.5,
-                fogDensity: 0.018 // Subtle haze/smoke density
+                sharpenAmount: 0.6,
+                fogDensity: 0.035 // THICK haze — underground clubs pump the hazer hard
             },
             vr: {
-                exposure: 0.85, // Slightly brighter for VR depth
-                contrast: 1.5, // Strong contrast for VR depth perception
-                bloomWeight: 0.15, // Visible bloom in VR for light glow
-                bloomThreshold: 0.75,
-                bloomScale: 0.3,
-                glowIntensity: 0.5, // Visible glow in VR
-                ambientIntensity: 0.05, // Very dark ambient for immersion
-                environmentIntensity: 0.15, // Subtle reflections in VR
+                exposure: 0.75, // Even darker in VR for true immersion
+                contrast: 1.7, // Strong contrast for VR depth perception
+                bloomWeight: 0.12, // Subtle bloom in VR
+                bloomThreshold: 0.8,
+                bloomScale: 0.25,
+                glowIntensity: 0.4,
+                ambientIntensity: 0.02, // Near-total darkness
+                environmentIntensity: 0.08, // Barely-there reflections
                 clearColor: new BABYLON.Color3(0, 0, 0),
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
@@ -83,7 +88,7 @@ class VRClub {
                 edgeSharpness: 0.7,
                 colorSharpness: 0.9,
                 fxaaEnabled: true,
-                fogDensity: 0.012 // Subtle smoke in VR
+                fogDensity: 0.025 // Thick haze in VR — you're IN the fog
             }
         };
         
@@ -121,6 +126,15 @@ class VRClub {
             orange: new BABYLON.Color3(1, 0.5, 0),
             purple: new BABYLON.Color3(0.5, 0, 1),
             warmWhite: new BABYLON.Color3(1, 0.9, 0.7) // Blinder warm white
+        };
+        
+        // Fog machine LED state colors (pre-allocated to avoid per-frame allocations)
+        this.cachedFogColors = {
+            active: new BABYLON.Color3(1, 0.2, 0),
+            ready: new BABYLON.Color3(0, 0.8, 0),
+            continuous: new BABYLON.Color3(1, 0.5, 0),
+            standby: new BABYLON.Color3(0.3, 0.3, 1),
+            off: new BABYLON.Color3(0.3, 0.3, 0.3)
         };
         
         // PERFORMANCE: Pre-allocated Color3 for LED patterns (eliminates thousands of allocations/frame)
@@ -292,8 +306,8 @@ class VRClub {
             vjControl: null
         };
         // Toggle to use new modular systems vs legacy inline code
-        this.useModularSystems = false; // Disabled - modular spotlights cause too many lights error
-        
+        this.useModularSystems = true; // Enabled - Now using modern systems from js/systems/
+
         this.init();
     }
 
@@ -381,8 +395,10 @@ class VRClub {
                 return; // Skip freezing - these need dynamic emissive color updates
             }
             
-            if (mat.name && !mat.name.includes('beam') && !mat.name.includes('laser') && 
-                !mat.name.includes('spot')) {
+            // Don't freeze dynamic materials (beams, lasers, spots, mirror ball)
+            // Use lowercase comparison for consistent matching
+            if (matName && !matName.includes('beam') && !matName.includes('laser') && 
+                !matName.includes('spot') && !matName.includes('mirror')) {
                 mat.freeze();
             }
         });
@@ -780,16 +796,24 @@ class VRClub {
         // Glow layer for dramatic emissive effects (LEDs, lasers, spotlights)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
             mainTextureFixedSize: 512,
-            blurKernelSize: 32  // Wider blur for more realistic light halos
+            blurKernelSize: 16  // Tighter blur so LED patterns stay crisp
         });
-        this.glowLayer.intensity = 0.85; // Pronounced glow for dramatic light sources
+        this.glowLayer.intensity = 0.7; // Balanced glow - visible halos without washing out LED patterns
         
         // Custom glow intensity per mesh type - selective glow for realism
         // LED panels and strobes get strong glow, lasers get intense glow, structures get none
         this.glowLayer.customEmissiveColorSelector = (mesh, subMesh, material, result) => {
             const name = mesh.name || '';
-            if (name.startsWith('ledPanel_') || name.startsWith('strobe')) {
-                // LED panels and strobes: bright emissive glow (visible from across club)
+            if (name.startsWith('ledPanel_')) {
+                // LED panels: subtle glow so patterns/shapes remain clearly visible
+                result.set(
+                    material.emissiveColor.r * 0.6,
+                    material.emissiveColor.g * 0.6,
+                    material.emissiveColor.b * 0.6,
+                    1.0
+                );
+            } else if (name.startsWith('strobe')) {
+                // Strobes: strong glow for flash impact
                 result.set(
                     material.emissiveColor.r * 2.0,
                     material.emissiveColor.g * 2.0,
@@ -964,7 +988,9 @@ class VRClub {
                                                             // Check for landing (only when falling)
                                                             if (this.jumpState.velocity < 0) {
                                                                 // Raycast down to find ground
-                                                                const ray = new BABYLON.Ray(xrCamera.position, new BABYLON.Vector3(0, -1, 0), 2.5);
+                                                                this.vecPool.rayOrigin.copyFrom(xrCamera.position);
+                                                                this.vecPool.rayDir.set(0, -1, 0);
+                                                                const ray = new BABYLON.Ray(this.vecPool.rayOrigin, this.vecPool.rayDir, 2.5);
                                                                 // Pick meshes that have collisions enabled (floor, platform)
                                                                 const pick = this.scene.pickWithRay(ray, (mesh) => mesh.checkCollisions);
                                                                 
@@ -1053,30 +1079,30 @@ class VRClub {
         this.createPASpeakers();
         
         // Use modular LED wall system
-        if (this.useModularSystems && this.systems.ledWall) {
-            this.systems.ledWall.createLEDWall();
-            log.info('🎨 LED Wall created via LEDWallSystem module');
-        } else {
-            this.createLEDWall(); // Fallback to legacy method
-        }
+        this.systems.ledWall.createLEDWall();
+        log.info('🎨 LED Wall created via LEDWallSystem module');
         
-        this.createLasers();
+        this.systems.laser.createLasers();
         this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
         
-        // Use modular spotlight system if enabled
-        if (this.useModularSystems && this.systems.spotlight) {
-            this.systems.spotlight.setTrussLights(this.trussLights);
-            this.systems.spotlight.createSpotlights();
-            // Store reference for compatibility with VJ controls
-            this.spotlights = this.systems.spotlight.spotlights;
-            log.info('🔦 Spotlights created via SpotlightSystem module');
-        }
+        // Use modular spotlight system
+        this.systems.spotlight.setTrussLights(this.trussLights);
+        this.systems.spotlight.createSpotlights();
+        // Store reference for compatibility with VJ controls
+        this.spotlights = this.systems.spotlight.spotlights;
+        log.info('🔦 Spotlights created via SpotlightSystem module');
         
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
-        // Blinders removed - strobes are sufficient
-        // this.createLaserSheet(); // Laser sheet disabled for now
-        this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
-        this.createMirrorBall(); // Add disco/mirror ball with spotlight
+        
+        // Strobe lights
+        this.systems.strobe.createStrobeLights();
+        
+        // Volumetric smoke/fog
+        this.systems.haze.createHaze();
+        
+        // Disco/mirror ball
+        this.systems.mirrorBall.createMirrorBall();
+        
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs only
         this.createBar(); // Bar area with counter, stools, bottles
@@ -1104,7 +1130,11 @@ class VRClub {
         // Start render loop
         this.engine.runRenderLoop(() => {
             this.scene.render();
-            this.updateAnimations();
+            try {
+                this.updateAnimations();
+            } catch (e) {
+                log.error('Animation error:', e);
+            }
             this.updatePerformanceMonitor();
         });
         
@@ -1324,25 +1354,26 @@ class VRClub {
     }
 
     createWalls() {
-        // PBR material for walls
+        // PBR material for walls — raw bunker concrete
         const wallMat = this.materialFactory.getPreset('wall');
-        
+
         // Apply downloaded concrete wall textures if available
+        // UNDERGROUND REDESIGN: Use concrete texture with dark, cold tint
         if (this.concreteTextures && this.concreteTextures.walls) {
-            log.info('🎨 Applying wall textures (Polyhaven - Red Brick)');
+            log.info('🎨 Applying wall textures (Polyhaven - Raw Concrete)');
             this.textureLoader.applyTexturesToMaterial(wallMat, this.concreteTextures.walls);
-            wallMat.baseColor = new BABYLON.Color3(0.7, 0.6, 0.55); // Warm tint to let natural brick color show
-            wallMat.roughness = 0.78; // Slightly polished brick (club condensation/moisture)
-            wallMat.environmentIntensity = 0.25; // Subtle reflections for moist brick surface
+            wallMat.baseColor = new BABYLON.Color3(0.12, 0.11, 0.10); // Dark, cold concrete — smoke-stained
+            wallMat.roughness = 0.92; // Raw poured concrete — no polish
+            wallMat.environmentIntensity = 0.05; // Concrete barely reflects
         }
-        
-        // Back wall
+
+        // Back wall — UNDERGROUND: 5m height (walls slightly taller than ceiling gap)
         const backWall = BABYLON.MeshBuilder.CreateBox("backWall", {
             width: 25,
-            height: 10,
+            height: 5,
             depth: 0.5
         }, this.scene);
-        backWall.position = new BABYLON.Vector3(0, 5, -21);
+        backWall.position = new BABYLON.Vector3(0, 2.5, -21);
         backWall.material = wallMat;
         backWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         backWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1351,10 +1382,10 @@ class VRClub {
         // Left wall
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
             width: 0.5,
-            height: 10,
+            height: 5,
             depth: 45
         }, this.scene);
-        leftWall.position = new BABYLON.Vector3(-12.5, 5, -10);
+        leftWall.position = new BABYLON.Vector3(-12.5, 2.5, -10);
         leftWall.material = wallMat;
         leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         leftWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1363,10 +1394,10 @@ class VRClub {
         // Right wall
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
             width: 0.5,
-            height: 10,
+            height: 5,
             depth: 45
         }, this.scene);
-        rightWall.position = new BABYLON.Vector3(12.5, 5, -10);
+        rightWall.position = new BABYLON.Vector3(12.5, 2.5, -10);
         rightWall.material = wallMat;
         rightWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         rightWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1375,10 +1406,10 @@ class VRClub {
         // Front wall
         const frontWall = BABYLON.MeshBuilder.CreateBox("frontWall", {
             width: 25,
-            height: 10,
+            height: 5,
             depth: 0.5
         }, this.scene);
-        frontWall.position = new BABYLON.Vector3(0, 5, 0);
+        frontWall.position = new BABYLON.Vector3(0, 2.5, 0);
         frontWall.material = wallMat;
         frontWall.receiveShadows = false; // Optimization: disable shadows on walls
         frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -1389,25 +1420,21 @@ class VRClub {
     }
 
     createIndustrialWallDetails() {
-        // Create exposed brick sections, pipes, conduits, and graffiti for authentic warehouse feel
-        
-        // Exposed brick material - old red brick
+        // UNDERGROUND CLUB: Exposed raw concrete, dark stained brick, industrial pipes
         const brickMat = this.materialFactory.getPreset('brick');
-        
-        // Apply texture to these details too if available
+
+        // Apply texture with very dark, smoke-stained treatment
         if (this.concreteTextures && this.concreteTextures.walls) {
             this.textureLoader.applyTexturesToMaterial(brickMat, this.concreteTextures.walls);
-            // Make these sections slightly darker/dirtier
-            brickMat.baseColor = new BABYLON.Color3(0.4, 0.4, 0.4);
+            brickMat.baseColor = new BABYLON.Color3(0.15, 0.12, 0.1); // Dark smoke-stained brick
         }
-        
+
         // Concrete pillar material
         const pillarMat = this.materialFactory.getPreset('pillar');
-        
-        // Apply concrete texture to pillars if available (using ceiling texture for concrete look)
+
         if (this.concreteTextures && this.concreteTextures.ceiling) {
             this.textureLoader.applyTexturesToMaterial(pillarMat, this.concreteTextures.ceiling);
-            pillarMat.roughness = 0.7;
+            pillarMat.roughness = 0.9;
         }
         
         // Metal pipe material
@@ -1424,10 +1451,10 @@ class VRClub {
         pillarPositions.forEach((pos, i) => {
             const pillar = BABYLON.MeshBuilder.CreateBox("pillar" + i, {
                 width: 0.6,
-                height: 10,
+                height: 4.5,
                 depth: 0.6
             }, this.scene);
-            pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
+            pillar.position = new BABYLON.Vector3(pos.x, 2.25, pos.z);
             pillar.material = pillarMat;
             pillar.receiveShadows = false;
             pillarsToMerge.push(pillar);
@@ -1502,7 +1529,7 @@ class VRClub {
                 height: pipeLength,
                 tessellation: 12
             }, this.scene);
-            pipe.position = new BABYLON.Vector3(run.start.x, 9.5, (run.start.z + run.end.z) / 2);
+            pipe.position = new BABYLON.Vector3(run.start.x, 4.0, (run.start.z + run.end.z) / 2);
             pipe.rotation.x = Math.PI / 2;
             pipe.material = pipeMat;
             pipesToMerge.push(pipe);
@@ -1513,7 +1540,7 @@ class VRClub {
                 height: pipeLength,
                 tessellation: 8
             }, this.scene);
-            conduit.position = new BABYLON.Vector3(run.start.x - 0.25, 9.3, (run.start.z + run.end.z) / 2);
+            conduit.position = new BABYLON.Vector3(run.start.x - 0.25, 3.8, (run.start.z + run.end.z) / 2);
             conduit.rotation.x = Math.PI / 2;
             conduit.material = pipeMat;
             pipesToMerge.push(conduit);
@@ -1834,6 +1861,7 @@ class VRClub {
             neonPlane.rotation.y = sign.rot;
             
             const neonMat = new BABYLON.StandardMaterial(`neonMat${i}`, this.scene);
+        
             neonMat.emissiveColor = new BABYLON.Color3(sign.color[0], sign.color[1], sign.color[2]);
             neonMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             neonMat.specularColor = new BABYLON.Color3(0, 0, 0);
@@ -1856,6 +1884,7 @@ class VRClub {
             stepLight.rotation.x = -Math.PI / 2; // Face upward
             
             const stepMat = new BABYLON.StandardMaterial(`stepLightMat_${x}`, this.scene);
+        
             stepMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 1); // Cool blue
             stepMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             stepMat.disableLighting = true;
@@ -1912,6 +1941,7 @@ class VRClub {
         }, this.scene);
         barLedStrip.position = new BABYLON.Vector3(11.8, 0.05, -8);
         const barLedMat = new BABYLON.StandardMaterial("barLedMat", this.scene);
+        
         barLedMat.emissiveColor = new BABYLON.Color3(0.1, 0.3, 0.8); // Cool blue underglow
         barLedMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         barLedMat.disableLighting = true;
@@ -1955,6 +1985,7 @@ class VRClub {
         shelfGlow.position = new BABYLON.Vector3(12.75, 1.8, -8);
         shelfGlow.rotation.y = -Math.PI / 2;
         const shelfGlowMat = new BABYLON.StandardMaterial("shelfGlowMat", this.scene);
+        
         shelfGlowMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0.2); // Warm amber
         shelfGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         shelfGlowMat.disableLighting = true;
@@ -1975,6 +2006,7 @@ class VRClub {
             }, this.scene);
             bottle.position = new BABYLON.Vector3(12.55, 1.85 + (i % 2) * 0.5, -10.5 + i * 0.9);
             const bottleMat = new BABYLON.StandardMaterial(`bottleMat_${i}`, this.scene);
+        
             bottleMat.emissiveColor = new BABYLON.Color3(col[0] * 0.3, col[1] * 0.3, col[2] * 0.3);
             bottleMat.diffuseColor = new BABYLON.Color3(col[0], col[1], col[2]);
             bottleMat.alpha = 0.7;
@@ -1992,6 +2024,7 @@ class VRClub {
             downlight.position = new BABYLON.Vector3(12, 3, z);
             downlight.rotation.x = Math.PI / 2; // Face downward
             const downlightMat = new BABYLON.StandardMaterial(`barDownlightMat_${z}`, this.scene);
+        
             downlightMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0.5); // Warm white
             downlightMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             downlightMat.disableLighting = true;
@@ -2007,6 +2040,7 @@ class VRClub {
             }, this.scene);
             cone.position = new BABYLON.Vector3(12, 1.75, z);
             const coneMat = new BABYLON.StandardMaterial(`barConeMat_${z}`, this.scene);
+        
             coneMat.emissiveColor = new BABYLON.Color3(1, 0.7, 0.3);
             coneMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             coneMat.disableLighting = true;
@@ -2143,25 +2177,26 @@ class VRClub {
     }
 
     createCeiling() {
+        // UNDERGROUND: Low ceiling at 4.5m — oppressive, intimate
         const ceiling = BABYLON.MeshBuilder.CreateBox("ceiling", {
             width: 35,
             height: 0.3,
             depth: 45
         }, this.scene);
-        ceiling.position = new BABYLON.Vector3(0, 10, -10);
+        ceiling.position = new BABYLON.Vector3(0, 4.5, -10);
         
-        // Industrial concrete/metal ceiling
+        // Raw concrete ceiling — dark, heavy, industrial
         const ceilingMat = this.materialFactory.getPreset('ceiling');
         
         // Apply downloaded concrete ceiling textures if available
         if (this.concreteTextures && this.concreteTextures.ceiling) {
-            log.info('🎨 Applying ceiling textures (Polyhaven - Raw Concrete)');
+            log.info('🎨 Applying ceiling textures (Raw Concrete)');
             this.textureLoader.applyTexturesToMaterial(ceilingMat, this.concreteTextures.ceiling);
             
-            // Adjust for darker, more industrial look
-            ceilingMat.baseColor = new BABYLON.Color3(0.25, 0.25, 0.28); // Darker industrial concrete
-            ceilingMat.roughness = 0.88;
-            ceilingMat.environmentIntensity = 0.15; // Subtle light reflections from below
+            // UNDERGROUND: Ceiling should nearly disappear into darkness
+            ceilingMat.baseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
+            ceilingMat.roughness = 0.95;
+            ceilingMat.environmentIntensity = 0.03;
         }
         
         ceiling.material = ceilingMat;
@@ -2169,41 +2204,41 @@ class VRClub {
         ceiling.freezeWorldMatrix(); // OPTIMIZATION: Freeze static ceiling
         ceiling.doNotSyncBoundingInfo = true;
 
-        // === INDUSTRIAL CEILING DETAILS (PIPES & VENTS) ===
-        // Add some pipes running along the ceiling for hyperrealism
-        const pipeMat = this.materialFactory.getPreset('pipe'); // Ensure 'pipe' preset exists or use 'truss'
+        // === UNDERGROUND CLUB: Exposed ceiling infrastructure ===
+        // Pipes and ducts mounted directly to the low concrete ceiling
+        const pipeMat = this.materialFactory.getPreset('pipe');
         
-        // Main ventilation duct
+        // Main ventilation duct — runs along left wall, just below ceiling
         const ventDuct = BABYLON.MeshBuilder.CreateCylinder("ventDuct", {
-            diameter: 0.8,
+            diameter: 0.6,
             height: 45,
             tessellation: 16
         }, this.scene);
         ventDuct.rotation.x = Math.PI / 2;
-        ventDuct.position = new BABYLON.Vector3(-12, 9.2, -10);
+        ventDuct.position = new BABYLON.Vector3(-11.5, 4.0, -10);
         ventDuct.material = pipeMat;
         ventDuct.freezeWorldMatrix();
         ventDuct.doNotSyncBoundingInfo = true;
 
-        // Smaller water pipes
+        // Smaller water/electrical conduit pipes
         const pipe1 = BABYLON.MeshBuilder.CreateCylinder("ceilingPipe1", {
-            diameter: 0.15,
+            diameter: 0.12,
             height: 45,
             tessellation: 8
         }, this.scene);
         pipe1.rotation.x = Math.PI / 2;
-        pipe1.position = new BABYLON.Vector3(14, 9.5, -10);
+        pipe1.position = new BABYLON.Vector3(11.8, 4.2, -10);
         pipe1.material = pipeMat;
         pipe1.freezeWorldMatrix();
         pipe1.doNotSyncBoundingInfo = true;
 
         const pipe2 = BABYLON.MeshBuilder.CreateCylinder("ceilingPipe2", {
-            diameter: 0.15,
-            height: 35,
+            diameter: 0.1,
+            height: 25,
             tessellation: 8
         }, this.scene);
         pipe2.rotation.z = Math.PI / 2;
-        pipe2.position = new BABYLON.Vector3(0, 9.6, 5);
+        pipe2.position = new BABYLON.Vector3(0, 4.3, -5);
         pipe2.material = pipeMat;
         pipe2.freezeWorldMatrix();
         pipe2.doNotSyncBoundingInfo = true;
@@ -2464,14 +2499,15 @@ class VRClub {
             return parent;
         };
         
-        // Truss 1 - Front (above dance floor front)
-        const truss1 = createBoxTruss("truss1", 24, new BABYLON.Vector3(0, 8, -8));
+        // UNDERGROUND: Truss grid at 3.8m — just below the 4.5m ceiling
+        // Tight spacing creates an oppressive cage of black metal above the dancefloor
+        const truss1 = createBoxTruss("truss1", 24, new BABYLON.Vector3(0, 3.8, -8));
         
         // Truss 2 - Middle (center of dance floor)
-        const truss2 = createBoxTruss("truss2", 24, new BABYLON.Vector3(0, 8, -12));
+        const truss2 = createBoxTruss("truss2", 24, new BABYLON.Vector3(0, 3.8, -12));
         
         // Truss 3 - Back (near LED wall)
-        const truss3 = createBoxTruss("truss3", 24, new BABYLON.Vector3(0, 8, -16));
+        const truss3 = createBoxTruss("truss3", 24, new BABYLON.Vector3(0, 3.8, -16));
         
         // Store horizontal trusses for attachment
         this.horizontalTrusses = [truss1, truss2, truss3];
@@ -2480,11 +2516,11 @@ class VRClub {
         // These run perpendicular to main trusses, connecting them together
         // Length of 10m covers Z=-8 to Z=-18 (connecting trusses 1, 2, and 3)
         this.sideTrusses = {};
-        const leftSideBeam = createBoxTruss("crossBeamLeft", 10, new BABYLON.Vector3(-8, 8, -12));
+        const leftSideBeam = createBoxTruss("crossBeamLeft", 10, new BABYLON.Vector3(-8, 3.8, -12));
         leftSideBeam.rotation.y = Math.PI / 2;
         this.sideTrusses[-8] = leftSideBeam;
         
-        const rightSideBeam = createBoxTruss("crossBeamRight", 10, new BABYLON.Vector3(8, 8, -12));
+        const rightSideBeam = createBoxTruss("crossBeamRight", 10, new BABYLON.Vector3(8, 3.8, -12));
         rightSideBeam.rotation.y = Math.PI / 2;
         this.sideTrusses[8] = rightSideBeam;
         
@@ -2579,7 +2615,7 @@ class VRClub {
         ];
         
         hoistPositions.forEach((pos, i) => {
-            createChainHoist(new BABYLON.Vector3(pos.x, 9, pos.z), "hoist" + i);
+            createChainHoist(new BABYLON.Vector3(pos.x, 4.2, pos.z), "hoist" + i);
         });
         
         // Diagonal support cables/wires from ceiling to truss (safety redundancy) (safety redundancy)
@@ -2613,8 +2649,7 @@ class VRClub {
                 height: 2,
                 tessellation: 8
             }, this.scene);
-            cable.position = new BABYLON.Vector3(pos.x, 9, pos.z);
-            cable.material = cableMat;
+            cable.position = new BABYLON.Vector3(pos.x, 4.2, pos.z);
             cable.isPickable = false;
             
             // Turnbuckle tensioner (middle of cable)
@@ -2623,8 +2658,7 @@ class VRClub {
                 height: 0.12,
                 tessellation: 12
             }, this.scene);
-            turnbuckle.position = new BABYLON.Vector3(pos.x, 9, pos.z);
-            turnbuckle.material = turnbuckleMat;
+            turnbuckle.position = new BABYLON.Vector3(pos.x, 4.2, pos.z);
             turnbuckle.isPickable = false;
             
             // End eye bolts
@@ -2634,7 +2668,7 @@ class VRClub {
                 tessellation: 12
             }, this.scene);
             eyeBolt1.rotation.z = Math.PI / 2;
-            eyeBolt1.position = new BABYLON.Vector3(pos.x, 9.95, pos.z);
+            eyeBolt1.position = new BABYLON.Vector3(pos.x, 4.4, pos.z);
             eyeBolt1.material = turnbuckleMat;
             eyeBolt1.isPickable = false;
             
@@ -2644,7 +2678,7 @@ class VRClub {
                 tessellation: 12
             }, this.scene);
             eyeBolt2.rotation.z = Math.PI / 2;
-            eyeBolt2.position = new BABYLON.Vector3(pos.x, 8.05, pos.z);
+            eyeBolt2.position = new BABYLON.Vector3(pos.x, 4.05, pos.z);
             eyeBolt2.material = turnbuckleMat;
             eyeBolt2.isPickable = false;
             
@@ -3043,410 +3077,400 @@ class VRClub {
         // The ModelLoader will load PA_Speakers.glb for both left and right stacks
     }
 
-    // createPAStack REMOVED - 3D models are used instead via ModelLoader
+    // createPAStack REMOVED - 3D models are used instead via ModelLoader  
 
-    createLEDWall() {
-        // MASSIVE LED WALL - covers entire back wall from FLOOR TO CEILING
-        // Back wall is 25m wide × 10m tall at Z=-27
-        const panelWidth = 1.2;
-        const panelHeight = 1.0; // Slightly smaller for more rows
-        const cols = 21;  // 21 × 1.2 = 25.2m (fills 25m wall completely)
-        const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
-        const wallWidth = cols * panelWidth;
-        const wallHeight = rows * panelHeight;
+    // Blinders removed - strobes provide sufficient impact lighting
+    createLights() {
         
-        this.ledPanels = [];
+        // Ambient light - brighter for better visibility in VR and desktop
+        this.lightFactory.getPreset('ambient', 'ambient');
         
-        for (let row = 0; row < rows; row++) {
-            for (let col = 0; col < cols; col++) {
-                const panel = BABYLON.MeshBuilder.CreatePlane("ledPanel_" + row + "_" + col, {
-                    width: panelWidth - 0.05,
-                    height: panelHeight - 0.05
-                }, this.scene);
-                
-                const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
-                const y = (row * panelHeight) + (panelHeight / 2) + 0.05; // Start just above floor
-                const z = -20; // Behind DJ booth
-                
-                panel.position = new BABYLON.Vector3(x, y, z);
-                // Plane faces -Z by default, which is toward the dance floor - correct!
-                // No rotation needed (was incorrectly rotating to face the wall)
-                
-                // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
-                const panelMat = this.materialFactory.createStandardMaterial("ledMat_" + row + "_" + col, {
-                    emissiveColor: [0.1, 0, 0], // MUCH dimmer for contrast
-                    disableLighting: true
-                });
-                panelMat.backFaceCulling = false; // Ensure visible from both sides
-                panel.material = panelMat;
-                
-                // PERFORMANCE: Freeze static geometry (panel position never changes)
-                panel.freezeWorldMatrix();
-                panel.doNotSyncBoundingInfo = true;
-                panel.isPickable = false;
-                
-                // Remove most backlights - only minimal ambient
-                if (row === 3 && col === 5) {
-                    const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
-                        new BABYLON.Vector3(x, y, z - 0.5), this.scene);
-                    backLight.diffuse = new BABYLON.Color3(0.5, 0, 0);
-                    backLight.intensity = 0.5; // Very subtle
-                    backLight.range = 3;
-                    backLight.setEnabled(false); // Start disabled
-                }
-                
-                this.ledPanels.push({
-                    mesh: panel,
-                    material: panelMat,
-                    row: row,
-                    col: col,
-                    centerX: col - (cols / 2) + 0.5,
-                    centerY: row - (rows / 2) + 0.5
-                });
-            }
+        // Skip inline spotlight creation if using modular system
+        if (this.useModularSystems && this.systems.spotlight) {
+            log.info('⏭️ Skipping inline spotlight creation (using modular SpotlightSystem)');
+            
+            // Initialize color tracking (still needed for VJ controls)
+            const spotColors = [
+                new BABYLON.Color3(1, 0, 0),      // Red
+                new BABYLON.Color3(0, 0, 1),      // Blue
+                new BABYLON.Color3(0, 1, 0),      // Green
+                new BABYLON.Color3(1, 0, 1),      // Magenta
+                new BABYLON.Color3(1, 1, 0),      // Yellow
+                new BABYLON.Color3(0, 1, 1),      // Cyan
+                new BABYLON.Color3(1, 0.5, 0),    // Orange
+                new BABYLON.Color3(0.5, 0, 1),    // Purple
+                new BABYLON.Color3(1, 1, 1)       // White
+            ];
+            this.currentSpotColor = spotColors[0];
+            this.spotColorIndex = 0;
+            this.lastColorChange = 0;
+            this.spotColorList = spotColors;
+            
+            // LED wall backlight
+            const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
+            ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
+            ledLight.intensity = 10;
+            ledLight.range = 25;
+            ledLight.setEnabled(false);
+            
+            return; // Skip rest of inline spotlight creation
         }
         
-        this.ledTime = 0;
-        this.ledPattern = 23;  // Start with Rainbow Rave pattern (always visible)
-        this.ledPatternSwitchTime = 0;
-        this.ledColorIndex = 0;
-        this.lastColorChange = 0;  // Initialize to 0 instead of -1
-        this.lastPatternChange = 0;  // Initialize to 0 instead of -1
-        this.lastExplosionTime = 0;  // Initialize explosion timer
-        
-        // Store LED grid dimensions for pattern calculations
-        this.ledCols = cols;
-        this.ledRows = rows;
-        
-        // Initialize LED panels with a visible color to confirm they work
-        log.info(`🎨 LED Wall created: ${cols}x${rows} = ${this.ledPanels.length} panels`);
-        
-        // Beat detection and BPM tracking
-        this.bpm = 130; // Default 130 BPM
-        this.beatInterval = 60 / this.bpm; // ~0.46 seconds per beat
-        this.lastBeat = 0;
-        this.beatThreshold = 0.15; // Bass threshold for beat detection
-        this.lastBassLevel = 0;
-        
-        // BPM detection from audio
-        this.beatHistory = []; // Track detected beat times
-        this.maxBeatHistory = 8; // Use last 8 beats for BPM calculation
-        this.detectedBPM = 130; // Detected BPM from music
-        this.lastBPMUpdate = 0;
-    }
-
-    createHyperrealisticSmoke() {
-        // === HYPERREALISTIC FOG MACHINE SYSTEM ===
-        // Two fog machines mounted on trusses that blow fog into the room
-        // Based on professional Martin/MDG haze machines used in real clubs
-        
-        log.info('💨 Creating hyperrealistic fog machine system...');
-        
-        // Create a soft particle texture using Canvas
-        const smokeCanvas = document.createElement('canvas');
-        smokeCanvas.width = 128;
-        smokeCanvas.height = 128;
-        const ctx = smokeCanvas.getContext('2d');
-        
-        // Create soft radial gradient for smoke puff
-        const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-        grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
-        grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.25)');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, 128, 128);
-        
-        const particleTexture = new BABYLON.Texture(smokeCanvas.toDataURL(), this.scene);
-        particleTexture.name = "proceduralSmokeTexture";
-        this._fogParticleTexture = particleTexture; // Store for reuse
-        
-        // === FOG MACHINE POSITIONS ===
-        // Mounted on front truss (z=-8) on left and right sides
-        const fogMachinePositions = [
-            { x: -6, y: 7.8, z: -8, rotY: 0.3 },   // Left fog machine, angled toward center
-            { x: 6, y: 7.8, z: -8, rotY: -0.3 }    // Right fog machine, angled toward center
+        // === LEGACY INLINE SPOTLIGHT CREATION (when modular systems disabled) ===
+        // Spotlights mounted on truss (moving heads)
+        this.spotlights = [];
+        // 6 spotlights: 3 on left side, 3 on right side - POSITIONED ON ACTUAL TRUSSES
+        // Main trusses at Z=-8, -12, -16; spotlights at X=±8 (where trusses intersect side beams)
+        const spotPositions = [
+            { x: -8, z: -8 },   // Left on truss1 (front)
+            { x: -8, z: -12 },  // Left on truss2 (middle)
+            { x: -8, z: -16 },  // Left on truss3 (back)
+            { x: 8, z: -8 },    // Right on truss1 (front)
+            { x: 8, z: -12 },   // Right on truss2 (middle)
+            { x: 8, z: -16 }    // Right on truss3 (back)
         ];
         
-        this.fogMachines = [];
+        const spotColors = [
+            new BABYLON.Color3(1, 0, 0),      // Red
+            new BABYLON.Color3(0, 0, 1),      // Blue
+            new BABYLON.Color3(0, 1, 0),      // Green
+            new BABYLON.Color3(1, 0, 1),      // Magenta
+            new BABYLON.Color3(1, 1, 0),      // Yellow
+            new BABYLON.Color3(0, 1, 1),      // Cyan
+            new BABYLON.Color3(1, 0.5, 0),    // Orange
+            new BABYLON.Color3(0.5, 0, 1),    // Purple
+            new BABYLON.Color3(1, 1, 1)       // White
+        ];
         
-        fogMachinePositions.forEach((pos, i) => {
-            // === CREATE FOG MACHINE 3D MODEL ===
-            // Based on Martin Jem ZR35 industrial fog machine dimensions
-            const machineParent = new BABYLON.TransformNode(`fogMachine${i}_parent`, this.scene);
-            machineParent.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
-            machineParent.rotation.y = pos.rotY;
-            
-            // Main body (rectangular housing)
-            // UPGRADE: Shared material for all fog machine bodies
-            const bodyMat = this.materialFactory.createPBRMaterial('fogMachineBodyShared', {
-                baseColor: [0.15, 0.15, 0.15], // Dark gray
-                metallic: 0.6,
-                roughness: 0.4
-            }, true); // shared
-            
-            const body = BABYLON.MeshBuilder.CreateBox(`fogMachineBody${i}`, {
-                width: 0.6,
-                height: 0.35,
-                depth: 0.4
-            }, this.scene);
-            body.position = new BABYLON.Vector3(0, 0, 0);
-            body.parent = machineParent;
-            body.material = bodyMat;
-            // UPGRADE: Freeze static fog machine hardware
-            body.freezeWorldMatrix();
-            body.doNotSyncBoundingInfo = true;
-            
-            // Mounting bracket (attaches to truss)
-            const bracketMat = this.materialFactory.getPreset('barStool');
-            const bracket = BABYLON.MeshBuilder.CreateBox(`fogMachineBracket${i}`, {
-                width: 0.15,
-                height: 0.1,
-                depth: 0.3
-            }, this.scene);
-            bracket.position = new BABYLON.Vector3(0, 0.22, 0);
-            bracket.parent = machineParent;
-            bracket.material = bracketMat;
-            bracket.freezeWorldMatrix();
-            bracket.doNotSyncBoundingInfo = true;
-            
-            // Nozzle (where fog comes out)
-            // UPGRADE: Shared material for all fog machine nozzles
-            const nozzleMat = this.materialFactory.createPBRMaterial('fogMachineNozzleShared', {
-                baseColor: [0.08, 0.08, 0.08],
-                metallic: 0.8,
-                roughness: 0.2
-            }, true); // shared
-            
-            const nozzle = BABYLON.MeshBuilder.CreateCylinder(`fogMachineNozzle${i}`, {
-                diameter: 0.12,
-                height: 0.15,
-                tessellation: 12
-            }, this.scene);
-            nozzle.position = new BABYLON.Vector3(0, -0.25, 0.1);
-            nozzle.rotation.x = Math.PI / 2 + 0.3; // Angled slightly downward
-            nozzle.parent = machineParent;
-            nozzle.material = nozzleMat;
-            nozzle.freezeWorldMatrix();
-            nozzle.doNotSyncBoundingInfo = true;
-            
-            // Status LED
-            const ledMat = this.materialFactory.createStandardMaterial(`fogMachineLED${i}`, {
-                emissiveColor: [0, 0.8, 0], // Green when ready
-                disableLighting: true
-            });
-            const led = BABYLON.MeshBuilder.CreateSphere(`fogMachineLED${i}`, {
-                diameter: 0.03,
-                segments: 8
-            }, this.scene);
-            led.position = new BABYLON.Vector3(0.25, 0.1, 0.21);
-            led.parent = machineParent;
-            led.material = ledMat;
-            led.freezeWorldMatrix();
-            led.doNotSyncBoundingInfo = true;
-            
-            // === FOG PARTICLE EMITTER ===
-            // Directional burst from nozzle position
-            const fogEmitter = new BABYLON.ParticleSystem(`fogEmitter${i}`, 800, this.scene);
-            fogEmitter.particleTexture = particleTexture;
-            
-            // Get world position of nozzle for emitter
-            const nozzleWorldPos = new BABYLON.Vector3(pos.x, pos.y - 0.25, pos.z + 0.15);
-            fogEmitter.emitter = nozzleWorldPos;
-            
-            // Small emit box at nozzle
-            fogEmitter.minEmitBox = new BABYLON.Vector3(-0.05, -0.05, -0.05);
-            fogEmitter.maxEmitBox = new BABYLON.Vector3(0.05, 0.05, 0.05);
-            
-            // Fog colors (White/gray smoke with slight blue tint)
-            fogEmitter.color1 = new BABYLON.Color4(0.85, 0.85, 0.9, 0.4);
-            fogEmitter.color2 = new BABYLON.Color4(0.9, 0.9, 0.95, 0.35);
-            fogEmitter.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0.0);
-            
-            // Start small, expand as fog disperses
-            fogEmitter.minSize = 0.3;
-            fogEmitter.maxSize = 2.5;
-            fogEmitter.minScaleX = 1.0;
-            fogEmitter.maxScaleX = 2.0;
-            fogEmitter.minScaleY = 1.0;
-            fogEmitter.maxScaleY = 2.0;
-            
-            // Lifetime - fog hangs in the air
-            fogEmitter.minLifeTime = 4.0;
-            fogEmitter.maxLifeTime = 8.0;
-            
-            // Emission rate (VJ controlled)
-            fogEmitter.emitRate = 30; // Start with active haze (real clubs run fog machines continuously)
-            fogEmitter.manualEmitCount = 0;
-            fogEmitter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-            
-            // Direction - angled downward and toward center of dance floor
-            const centerDir = i === 0 ? 0.4 : -0.4; // Left machine aims right, right aims left
-            fogEmitter.direction1 = new BABYLON.Vector3(centerDir - 0.2, -0.8, 0.3);
-            fogEmitter.direction2 = new BABYLON.Vector3(centerDir + 0.2, -0.4, 0.6);
-            
-            // Velocity
-            fogEmitter.minEmitPower = 2.0;
-            fogEmitter.maxEmitPower = 4.0;
-            
-            // Physics - fog slowly falls and disperses
-            fogEmitter.gravity = new BABYLON.Vector3(0, -0.3, 0);
-            
-            // Rotation for natural turbulence
-            fogEmitter.minAngularSpeed = -1.0;
-            fogEmitter.maxAngularSpeed = 1.0;
-            
-            // Size growth over lifetime (fog expands)
-            fogEmitter.addSizeGradient(0, 0.3);
-            fogEmitter.addSizeGradient(0.3, 1.2);
-            fogEmitter.addSizeGradient(0.7, 2.0);
-            fogEmitter.addSizeGradient(1.0, 2.5);
-            
-            // Alpha fade over lifetime
-            fogEmitter.addColorGradient(0, new BABYLON.Color4(0.9, 0.9, 0.95, 0.5));
-            fogEmitter.addColorGradient(0.4, new BABYLON.Color4(0.85, 0.85, 0.9, 0.35));
-            fogEmitter.addColorGradient(0.8, new BABYLON.Color4(0.7, 0.7, 0.8, 0.15));
-            fogEmitter.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0.0));
-            
-            fogEmitter.updateSpeed = 0.008;
-            fogEmitter.start();
-            
-            // Store references
-            this.fogMachines.push({
-                parent: machineParent,
-                body: body,
-                nozzle: nozzle,
-                led: led,
-                ledMat: ledMat,
-                emitter: fogEmitter,
-                position: pos,
-                burstTimer: 0,
-                isBursting: false
-            });
-        });
+        // Track current color for all lights (changes periodically)
+        this.currentSpotColor = spotColors[0];
+        this.spotColorIndex = 0;
+        this.lastColorChange = 0;
         
-        // === AMBIENT HAZE (residual fog in air) ===
-        // Light dispersed particles from accumulated fog - makes beams visible
-        this.haze = new BABYLON.ParticleSystem("haze", 1500, this.scene);
-        this.haze.particleTexture = particleTexture;
-        
-        // Emitter covers dance floor area
-        this.haze.emitter = new BABYLON.Vector3(0, 4, -12);
-        this.haze.minEmitBox = new BABYLON.Vector3(-10, -3, -8);
-        this.haze.maxEmitBox = new BABYLON.Vector3(10, 3, 8);
-        
-        // Visible ambient haze - makes light beams stand out
-        this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.12);
-        this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.10);
-        this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
-        
-        this.haze.minSize = 1.0;
-        this.haze.maxSize = 3.5;
-        this.haze.minLifeTime = 8.0;
-        this.haze.maxLifeTime = 15.0;
-        
-        this.haze.emitRate = 80; // Thick haze for beam visibility
-        this.haze.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
-        
-        this.haze.gravity = new BABYLON.Vector3(0, 0.02, 0);
-        this.haze.direction1 = new BABYLON.Vector3(-0.3, -0.1, -0.3);
-        this.haze.direction2 = new BABYLON.Vector3(0.3, 0.2, 0.3);
-        
-        this.haze.minEmitPower = 0.05;
-        this.haze.maxEmitPower = 0.2;
-        this.haze.updateSpeed = 0.005;
-        
-        // Haze is always running when smoke is active
-        this.haze.start();
-        
-        // === LOW-LYING FLOOR FOG (CO2 cryo effect - pools at ankle level) ===
-        this.floorFog = new BABYLON.ParticleSystem("floorFog", 600, this.scene);
-        this.floorFog.particleTexture = particleTexture;
-        
-        // Emit across the dance floor at ankle level
-        this.floorFog.emitter = new BABYLON.Vector3(0, 0.1, -12);
-        this.floorFog.minEmitBox = new BABYLON.Vector3(-12, -0.1, -10);
-        this.floorFog.maxEmitBox = new BABYLON.Vector3(12, 0.2, 10);
-        
-        // Dense white fog that hugs the floor
-        this.floorFog.color1 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.15);
-        this.floorFog.color2 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.12);
-        this.floorFog.colorDead = new BABYLON.Color4(0, 0, 0, 0);
-        
-        this.floorFog.minSize = 1.5;
-        this.floorFog.maxSize = 4.0;
-        this.floorFog.minScaleX = 2.0;
-        this.floorFog.maxScaleX = 3.0;
-        this.floorFog.minLifeTime = 6.0;
-        this.floorFog.maxLifeTime = 12.0;
-        
-        this.floorFog.emitRate = 40;
-        this.floorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        
-        // Fog stays low - minimal upward movement, slight drift
-        this.floorFog.direction1 = new BABYLON.Vector3(-0.2, -0.05, -0.2);
-        this.floorFog.direction2 = new BABYLON.Vector3(0.2, 0.1, 0.2);
-        this.floorFog.minEmitPower = 0.02;
-        this.floorFog.maxEmitPower = 0.08;
-        this.floorFog.gravity = new BABYLON.Vector3(0, -0.15, 0); // Keeps fog on ground
-        
-        this.floorFog.minAngularSpeed = -0.3;
-        this.floorFog.maxAngularSpeed = 0.3;
-        
-        // Size grows as fog spreads along floor
-        this.floorFog.addSizeGradient(0, 1.0);
-        this.floorFog.addSizeGradient(0.5, 2.5);
-        this.floorFog.addSizeGradient(1.0, 4.0);
-        
-        // Fast fade out so fog doesn't accumulate unnaturally
-        this.floorFog.addColorGradient(0, new BABYLON.Color4(0.8, 0.8, 0.9, 0.15));
-        this.floorFog.addColorGradient(0.3, new BABYLON.Color4(0.7, 0.7, 0.8, 0.12));
-        this.floorFog.addColorGradient(0.7, new BABYLON.Color4(0.5, 0.5, 0.6, 0.05));
-        this.floorFog.addColorGradient(1.0, new BABYLON.Color4(0.3, 0.3, 0.4, 0));
-        
-        this.floorFog.updateSpeed = 0.004;
-        this.floorFog.start();
-        
-        // Initialize fog machine state
-        this.smokeActive = false;
-        this.fogBurstMode = 'auto'; // 'auto', 'burst', 'continuous'
-        this.fogIntensity = 1.0; // 0.0 to 2.0
-        this.lastFogBurst = 0;
-        this.fogBurstInterval = 4; // Seconds between auto bursts (real hazers cycle frequently)
-        
-        log.info('💨 Hyperrealistic fog machine system created (2 machines on truss)');
-    }
-
-    createBoothLighting() {
-        // LED strip under platform (accent lighting)
-        const stripMat = this.materialFactory.createStandardMaterial("ledStripMat", {
-            emissiveColor: [0, 0.5, 1],
-            disableLighting: true,
-            alpha: 0.8
-        });
-        
-        for (let side of [-4.2, 4.2]) {
-            const strip = BABYLON.MeshBuilder.CreateBox("ledStrip", {
-                width: 8,
-                height: 0.05,
-                depth: 0.1
-            }, this.scene);
-            strip.position = new BABYLON.Vector3(0, 0.15, -24 + side);
-            strip.rotation.x = Math.PI / 2;
-            strip.material = stripMat;
+        // UPGRADE: Create shared beam gradient texture for volumetric beam brightness falloff
+        // Simulates realistic light scatter through atmospheric haze:
+        // - Bright mid-section (accumulated haze scattering)
+        // - Softer near floor (smooth termination, hides hard clip plane edge)
+        // - Moderate near fixture (concentrated but less path length)
+        // On cylinder UV: V=0 = bottom (fixture/narrow), V=1 = top (floor/wide)
+        // On canvas: Y=0 = top (maps to V=1 = floor), Y=H = bottom (maps to V=0 = fixture)
+        if (!this._beamGradientTexture) {
+            const gradH = 128;
+            const gradCanvas = document.createElement('canvas');
+            gradCanvas.width = 4;   // Narrow - uniform around circumference
+            gradCanvas.height = gradH;
+            const gCtx = gradCanvas.getContext('2d');
             
-            // Point light for LED strip effect
-            const stripLight = new BABYLON.PointLight("stripLight" + side,
-                new BABYLON.Vector3(0, 0.3, -24 + side), this.scene);
-            stripLight.diffuse = new BABYLON.Color3(0, 0.5, 1);
-            stripLight.intensity = 2;
-            stripLight.range = 3;
-            stripLight.setEnabled(false); // Start disabled - floor strips not needed initially
+            const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
+            // Canvas Y=0 → V=1 (floor/wide end): soft termination
+            beamGrad.addColorStop(0.0,  'rgb(77,77,77)');    // V=1.0: 30% - soft fade at floor
+            beamGrad.addColorStop(0.08, 'rgb(128,128,128)'); // V=0.92: 50% - quickening
+            beamGrad.addColorStop(0.25, 'rgb(230,230,230)'); // V=0.75: 90% - entering mid zone
+            beamGrad.addColorStop(0.45, 'rgb(255,255,255)'); // V=0.55: 100% - peak brightness
+            beamGrad.addColorStop(0.65, 'rgb(255,255,255)'); // V=0.35: 100% - sustained peak
+            beamGrad.addColorStop(0.85, 'rgb(217,217,217)'); // V=0.15: 85% - near fixture
+            beamGrad.addColorStop(1.0,  'rgb(179,179,179)'); // V=0.0: 70% - at fixture lens
+            
+            gCtx.fillStyle = beamGrad;
+            gCtx.fillRect(0, 0, 4, gradH);
+            
+            this._beamGradientTexture = new BABYLON.DynamicTexture("beamGradient", gradCanvas, this.scene, false);
+            this._beamGradientTexture.hasAlpha = false; // RGB only, no alpha channel needed
+            this._beamGradientTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            this._beamGradientTexture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            this._beamGradientTexture.update();
         }
-    }
+        
+        spotPositions.forEach((pos, i) => {
+            // Get fixture data if available
+            const fixtureData = this.trussLights ? this.trussLights[i] : null;
+            const head = fixtureData ? fixtureData.head : null;
+            const yoke = fixtureData ? fixtureData.yoke : null;
 
-    // Bar area removed - will be replaced with 3D models later
+            // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
+            const spot = new BABYLON.SpotLight("spot" + i,
+                new BABYLON.Vector3(pos.x, 7.3, pos.z),  // Match fixture lens position
+                new BABYLON.Vector3(0, -1, 0),           // Initial direction
+                Math.PI / 6,                              // Narrower cone for focused beams
+                5,                                        // Sharper falloff
+                this.scene
+            );
+            // UPGRADE: Enable diffuse for projectionTexture gobo patterns on surfaces
+            // Diffuse at 15% intensity provides visible gobo patterns without overwhelming scene
+            spot.diffuse = this.currentSpotColor.scale(0.15);
+            spot.specular = this.currentSpotColor; // Specular for floor reflections
+            spot.intensity = 12; // Increased for visibility
+            spot.range = 25;
+            
+            // UPGRADE: SpotLight.projectionTexture support (physically correct gobo projection)
+            // Near/far define the frustum for texture projection (like shadow mapping)
+            spot.projectionTextureLightNear = 0.5;
+            spot.projectionTextureLightFar = 25;
+            
+            spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
+            
+            // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor/wall
+            // When cylinder points DOWN, its +Y local axis points toward surface
+            // So: diameterTop (at +Y local) should be WIDE (at surface hit)
+            //     diameterBottom (at -Y local) should be NARROW (at fixture)
+            // Higher tessellation creates smoother cone edges for hyperrealistic look
+            const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
+                diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
+                diameterBottom: 0.12,  // Narrower lens opening for tighter source point
+                height: 1,             // Will be scaled to actual beam length
+                tessellation: 12,      // Higher tessellation for smoother cone (was 8)
+                cap: BABYLON.Mesh.NO_CAP
+            }, this.scene);
+            
+            // HYPERREALISTIC: Beam positioned in WORLD SPACE (not parented to head)
+            // This ensures beam visually connects from fixture lens to floor pool
+            // Position will be set dynamically in animation loop
+            beam.position = new BABYLON.Vector3(pos.x, 4, pos.z); // Initial position (will be updated)
+            beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Use quaternion for proper world-space rotation
+            
+            beam.isPickable = false;
+            
+            // HYPERREALISTIC VOLUMETRIC BEAM - Animated smoke/dust particles in light cone
+            // Real light beams show visible particles drifting through the beam
+            const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
+        
+            beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
+            
+            // UPGRADE: Beam gradient texture for distance-based brightness falloff
+            // On a cylinder, V=0 at bottom (fixture/narrow), V=1 at top (floor/wide)
+            // Canvas Y=0 → V=1 (floor), Canvas Y=height → V=0 (fixture)
+            // This gives realistic light scatter: brighter mid-beam (haze accumulation),
+            // softer at floor (smooth termination instead of hard clip), moderate at fixture
+            if (this._beamGradientTexture) {
+                beamMat.emissiveTexture = this._beamGradientTexture;
+            }
+            
+            // UPGRADE: Share one noise texture across all spotlight beams (was 6 separate GPU textures)
+            if (!this._spotBeamNoiseTexture) {
+                this._spotBeamNoiseTexture = new BABYLON.NoiseProceduralTexture("sharedBeamNoise", 128, this.scene);
+                this._spotBeamNoiseTexture.animationSpeedFactor = 0.6;
+                this._spotBeamNoiseTexture.persistence = 0.35;
+                this._spotBeamNoiseTexture.brightness = 0.55;
+                this._spotBeamNoiseTexture.octaves = 4;
+            }
+            beamMat.opacityTexture = this._spotBeamNoiseTexture; // Shared noise for smoke particles
+            
+            beamMat.alpha = 0.18; // Base alpha (will be dynamically adjusted in render loop)
+            beamMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE; // Standard alpha blending respects depth
+            beamMat.backFaceCulling = false; // Visible from all angles
+            beamMat.disableLighting = true; // Self-illuminated
+            beamMat.useAlphaFromDiffuseTexture = false;
+            
+            // CRITICAL: Beam must respect depth buffer to NOT render through NPCs
+            // ALPHA_COMBINE properly discards fragments behind opaque geometry
+            beamMat.disableDepthWrite = true; // Don't write to depth (transparent object)
+            beamMat.separateCullingPass = false;
+            beamMat.needDepthPrePass = false;
+            beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
+            
+            // HYPERREALISTIC: Clip plane to hide beam below floor level (y < 0)
+            // This allows beam to extend past floor for tilted angles while hiding the portion below
+            // Babylon.js clips fragments where dot(normal, pos) + d < 0
+            // To clip y < 0 (keep y >= 0): normal = (0, -1, 0), d = 0 → clips where -y < 0 (y > 0)? NO
+            // Actually: normal = (0, 1, 0), d = 0 clips where y + 0 < 0, i.e. y < 0 ✓
+            // But StandardMaterial uses clipPlane differently - it clips where result > 0
+            // So we need normal (0, -1, 0), d = 0 to clip where -y + 0 > 0, i.e. y < 0 ✓
+            beamMat.clipPlane4 = new BABYLON.Plane(0, -1, 0, 0.01); // Clip below floor level
+            
+            beam.material = beamMat;
+            beam.visibility = 1.0;
+            beam.renderingGroupId = 1; // Render after opaque objects
+            
+            // PERFORMANCE: Removed beamGlow (outer glow cylinder) - caused doubled beam effect
+            const beamGlow = null;
+            const beamGlowMat = null;
+
+            
+            // HYPERREALISTIC LIGHT POOL - Physics-accurate spotlight floor projection
+            // Based on real optics: inverse-square falloff, Lambert's cosine law, Fresnel scattering
+            
+            // Create physics-accurate radial gradient texture (reuse across all pools)
+            if (!this._poolGradientTexture) {
+                const gradientSize = 512; // High resolution for smooth physics-based falloff
+                const gradientCanvas = document.createElement('canvas');
+                gradientCanvas.width = gradientSize;
+                gradientCanvas.height = gradientSize;
+                const ctx = gradientCanvas.getContext('2d');
+                
+                // PHYSICS-ACCURATE GRADIENT using inverse-square law with Gaussian hot spot
+                // Real spotlight beam profiles have:
+                // 1. Bright central hot spot (Gaussian distribution)
+                // 2. Field angle region (inverse-square falloff)
+                // 3. Soft penumbra edge (Fresnel scattering)
+                const gradient = ctx.createRadialGradient(
+                    gradientSize/2, gradientSize/2, 0,
+                    gradientSize/2, gradientSize/2, gradientSize/2
+                );
+                
+                // Physics model: I(r) = I₀ * exp(-r²/σ²) for hot spot + 1/r² falloff
+                // Hot spot (beam angle) typically 10-15% of total, field (flood angle) 50-60%
+                // σ = 0.15 for tight hot spot, with inverse-square beyond
+                const hotSpotSize = 0.12; // 12% of radius is hot spot
+                const fieldSize = 0.55;   // 55% is field angle
+                
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');      // Center peak
+                gradient.addColorStop(hotSpotSize * 0.5, 'rgba(255, 255, 255, 0.98)'); // Gaussian plateau
+                gradient.addColorStop(hotSpotSize, 'rgba(255, 255, 255, 0.85)');  // Hot spot edge
+                gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.55)');  // Field region (1/r² starts)
+                gradient.addColorStop(fieldSize, 'rgba(255, 255, 255, 0.22)');  // Field edge
+                gradient.addColorStop(0.75, 'rgba(255, 255, 255, 0.08)');  // Penumbra (soft scatter)
+                gradient.addColorStop(0.90, 'rgba(255, 255, 255, 0.02)');  // Fresnel edge scatter
+                gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');    // Full transparency
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, gradientSize, gradientSize);
+                
+                this._poolGradientTexture = new BABYLON.DynamicTexture("poolGradient", gradientCanvas, this.scene, false);
+                this._poolGradientTexture.hasAlpha = true;
+                this._poolGradientTexture.update();
+            }
+            
+            // Main light pool with soft gradient
+            const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
+                radius: 1.0, // Larger base radius for better visibility
+                tessellation: 32
+            }, this.scene);
+            lightPool.rotation.x = Math.PI / 2;
+            // HYPERREALISTIC: Position pool at floor level (y=0.01, just above to prevent z-fighting)
+            // The pool should look like it's ON the floor, not floating
+            lightPool.position = new BABYLON.Vector3(pos.x, 0.01, pos.z - 5);
+            lightPool.isPickable = false;
+            
+            // Material with radial gradient for soft edges
+            const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
+        
+            poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            poolMat.emissiveColor = this.currentSpotColor.clone();
+            poolMat.opacityTexture = this._poolGradientTexture; // Use gradient for soft edges
+            poolMat.alpha = 0.9; // High alpha for visible pool
+            poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
+            poolMat.disableLighting = true;
+            poolMat.backFaceCulling = false;
+            // Transparent mesh settings
+            poolMat.disableDepthWrite = true;
+            poolMat.depthFunction = BABYLON.Constants.LEQUAL;
+            lightPool.material = poolMat;
+            // Use default rendering group (0) so pool renders with floor
+            lightPool.renderingGroupId = 0;
+            
+            // Store reference for gobo texture (null - not using procedural texture anymore)
+            const goboTexture = null;
+            
+            // HYPERREALISTIC SOFT OUTER GLOW - Very soft ambient light spread
+            // Creates the "light spill" effect around the main pool
+            const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
+                radius: 1.5, // Larger glow radius
+                tessellation: 32
+            }, this.scene);
+            lightPoolGlow.rotation.x = Math.PI / 2;
+            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.005, pos.z - 5); // Just below main pool
+            lightPoolGlow.isPickable = false;
+            lightPoolGlow.renderingGroupId = 0; // Same group as floor
+            
+            // Very soft glow with same gradient texture
+            const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
+        
+            poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.5);
+            poolGlowMat.opacityTexture = this._poolGradientTexture; // Same soft gradient
+            poolGlowMat.alpha = 0.25; // Very subtle ambient glow
+            poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            poolGlowMat.disableLighting = true;
+            poolGlowMat.backFaceCulling = false;
+            lightPoolGlow.material = poolGlowMat;
+            lightPoolGlow.renderingGroupId = 1;
+            
+            // Core layer removed for performance - using main pool + glow ring only
+            const lightPoolCore = null;
+            const poolCoreMat = null;
+            
+            // === GOBO PROJECTION DISC ===
+            // Creates pattern shapes on floor when gobo is enabled
+            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
+                radius: 1.0,
+                tessellation: 64
+            }, this.scene);
+            goboProjection.rotation.x = Math.PI / 2;
+            goboProjection.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
+            goboProjection.isPickable = false;
+            
+            const goboMat = new BABYLON.StandardMaterial("goboMat" + i, this.scene);
+        
+            goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
+            goboMat.emissiveColor = this.currentSpotColor.clone();
+            goboMat.alpha = 0.9;
+            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            goboMat.disableLighting = true;
+            goboMat.backFaceCulling = false;
+            goboMat.disableDepthWrite = true;
+            goboProjection.material = goboMat;
+            goboProjection.renderingGroupId = 1;
+            goboProjection.setEnabled(false); // Hidden by default
+            
+            // === HYPERREALISTIC POOL LIGHT ===
+            // DISABLED: Pool lights (PointLights) caused shader uniform buffer overflow
+            // With 6 spotlights + 6 pool lights + ambient + LED = 14+ lights
+            // WebGL2 only supports ~12 uniform buffers for PBR materials
+            // The visual pool meshes still create the light pool effect on the floor
+            // Real illumination comes from the SpotLights which are more efficient
+            const poolLight = null; // Disabled for performance - was causing shader compilation errors
+            
+            // PERFORMANCE: Shadows and pool lights disabled for better FPS
+            
+            this.spotlights.push({
+                light: spot,
+                beam: beam,
+                beamMat: beamMat,
+                beamGlow: beamGlow,
+                beamGlowMat: beamGlowMat,
+                lightPool: lightPool,
+                poolMat: poolMat,
+                poolLight: poolLight, // NEW: Actual light for surface illumination
+                lightPoolCore: lightPoolCore,
+                poolCoreMat: poolCoreMat,
+                lightPoolGlow: lightPoolGlow,
+                poolGlowMat: poolGlowMat,
+                goboTexture: goboTexture, // Store for animation updates
+                goboProjection: goboProjection,
+                goboMat: goboMat,
+                goboLocalRotation: i * (Math.PI / 3), // Offset each spotlight's gobo rotation
+                fixture: fixtureData ? fixtureData.fixture : null,
+                head: head,
+                yoke: yoke,
+                lens: fixtureData ? fixtureData.lens : null,
+                lightSource: fixtureData ? fixtureData.lightSource : null,
+                bezel: fixtureData ? fixtureData.bezel : null,
+                flare: fixtureData ? fixtureData.flare : null,
+                lensMat: fixtureData ? fixtureData.lensMat : null,
+                sourceMat: fixtureData ? fixtureData.sourceMat : null,
+                flareMat: fixtureData ? fixtureData.flareMat : null,
+                basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
+                phase: i * (Math.PI * 2 / spotPositions.length),
+                speed: 0.8,
+                color: this.currentSpotColor,
+                index: i
+            });
+        });
+        
+        this.spotColorList = spotColors;
+        
+        // LED wall backlight
+        const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
+        ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
+        ledLight.intensity = 10;
+        ledLight.range = 25;
+        ledLight.setEnabled(false); // Start disabled - LED wall light controlled by ledWallActive
+        
+    }
 
     createTrussMountedLights() {
         // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
@@ -3472,7 +3496,7 @@ class VRClub {
             
             // Root Transform Node (for positioning the whole unit)
             const root = new BABYLON.TransformNode("lightRoot" + i, this.scene);
-            root.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
+            root.position = new BABYLON.Vector3(pos.x, 3.5, pos.z);
             
             // === TRUSS MOUNTING HARDWARE (connects fixture to truss above) ===
             // Professional C-clamp that wraps around truss tube
@@ -3667,4047 +3691,42 @@ class VRClub {
         });
         
         // Strobe lights on truss corners
-        this.createStrobeLights();
-    }
-    
-    createStrobeLights() {
-        const strobePositions = [
-            { x: -10, z: -8 },
-            { x: 10, z: -8 },
-            { x: -10, z: -16 },
-            { x: 10, z: -16 }
-        ];
-        
-        this.strobes = [];
-        
-        // Reuse clamp material for strobe mounts
-        const strobeMountMat = this.materialFactory.createPBRMaterial("strobeMountMat", {
-            baseColor: [0.1, 0.1, 0.1],
-            metallic: 0.9,
-            roughness: 0.4
-        }, true); // shared
-        
-        strobePositions.forEach((pos, i) => {
-            // === STROBE MOUNTING HARDWARE ===
-            // Bracket that connects strobe to truss
-            const bracket = BABYLON.MeshBuilder.CreateBox("strobeBracket" + i, {
-                width: 0.1,
-                height: 0.4,  // Drops from truss (Y=8) to strobe (Y=7.6)
-                depth: 0.1
-            }, this.scene);
-            bracket.position = new BABYLON.Vector3(pos.x, 7.8, pos.z);
-            bracket.material = strobeMountMat;
-            // UPGRADE: Freeze static mounting hardware
-            bracket.freezeWorldMatrix();
-            bracket.doNotSyncBoundingInfo = true;
-            
-            // Clamp at top (grips truss)
-            const clamp = BABYLON.MeshBuilder.CreateTorus("strobeClamp" + i, {
-                diameter: 0.12,
-                thickness: 0.02,
-                tessellation: 12,
-                arc: 0.85
-            }, this.scene);
-            clamp.position = new BABYLON.Vector3(pos.x, 8, pos.z);
-            clamp.rotation.x = Math.PI / 2;
-            clamp.material = strobeMountMat;
-            clamp.freezeWorldMatrix();
-            clamp.doNotSyncBoundingInfo = true;
-            
-            const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
-                width: 0.4,
-                height: 0.3,
-                depth: 0.3
-            }, this.scene);
-            strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
-            const strobeMat = this.materialFactory.createStandardMaterial("strobeMat" + i, {
-                emissiveColor: [0, 0, 0], // Off by default
-                disableLighting: true
-            });
-            
-            strobe.material = strobeMat;
-            
-            // DISABLED: Strobe PointLights caused shader uniform buffer overflow
-            // WebGL2 PBR materials have strict uniform buffer limits (~12)
-            // With 6 spotlights + ambient + LED + strobes = too many lights
-            // Visual strobe effect still works via emissive mesh materials
-            const strobeLight = null; // Disabled - strobe visual only via emissive mesh
-            
-            this.strobes.push({ 
-                mesh: strobe, 
-                material: strobeMat,
-                light: strobeLight, // null - visual-only strobe
-                flashDuration: 0,
-                nextFlashTime: Math.random() * 2
-            });
-        });
-        
-        // === SHARED STROBE FLASH LIGHT ===
-        // Single PointLight high above dance floor that flashes with strobes
-        // Uses 1 light slot instead of 4 (respects GPU uniform limits)
-        this.strobeFlashLight = new BABYLON.PointLight("strobeFlash", 
-            new BABYLON.Vector3(0, 8, -12), this.scene);
-        this.strobeFlashLight.diffuse = new BABYLON.Color3(1, 1, 1);
-        this.strobeFlashLight.specular = new BABYLON.Color3(1, 1, 1);
-        this.strobeFlashLight.intensity = 0;
-        this.strobeFlashLight.range = 35;
-        this.strobeFlashLight.setEnabled(false);
+        // this.createStrobeLights();
     }
 
-    createLasers() {
-        
-        this.lasers = [];
-        
-        // Lasers mounted UNDER the truss (hanging down)
-        // ALL LASERS ARE MULTI-BEAM TYPE (5 rotating beams each)
-        // ALL LASERS ON SAME Z POSITION for consistency (z: -14)
-        const laserPositions = [
-            { x: -8, z: -14, trussY: 7.55, type: 'multi' },   // Multi-beam left (left truss) - CHANGED
-            { x: 0, z: -8, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss) - Moved to farthest truss from DJ
-            { x: 8, z: -14, trussY: 7.55, type: 'multi' }     // Multi-beam right (right truss) - CHANGED
-        ];
-        
-        laserPositions.forEach((pos, i) => {
 
-            
-            // Determine parent truss for each laser
-            let parentTruss = null;
-            let localX = pos.x;
-            let localZ = pos.z;
-            
-            // Side lasers mount to side trusses (x: ±8)
-            if (pos.x < -3 && this.sideTrusses && this.sideTrusses[-8]) {
-                // Left laser mounts to left side truss at x: -8
-                parentTruss = this.sideTrusses[-8];
-                localX = 0; // Center on truss
-                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
-            } else if (pos.x > 3 && this.sideTrusses && this.sideTrusses[8]) {
-                // Right laser mounts to right side truss at x: 8
-                parentTruss = this.sideTrusses[8];
-                localX = 0; // Center on truss
-                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
-            } else if (Math.abs(pos.x) <= 3 && this.horizontalTrusses && this.horizontalTrusses.length > 1) {
-                // CENTER laser mounts to truss2 (Z=-12, index 1)
-                // Laser is at z=-14, truss2 is at z=-12
-                parentTruss = this.horizontalTrusses[1]; // truss2 at Z=-12
-                localX = 0; // Center on truss
-                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
-            }
-            
-            // Mounting clamp connecting to truss
-            const clamp = BABYLON.MeshBuilder.CreateBox("laserClamp" + i, {
-                width: 0.3,
-                height: 0.15,
-                depth: 0.3
-            }, this.scene);
-            
-            if (parentTruss) {
-                clamp.position = new BABYLON.Vector3(localX, -0.2, localZ);
-                clamp.parent = parentTruss;
-            } else {
-                clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
-            }
-            const clampMat = this.materialFactory.createPBRMaterial("laserClampMat", {
-                baseColor: [0.3, 0.3, 0.3],
-                metallic: 1.0,
-                roughness: 0.4
-            }, true); // UPGRADE: shared across all laser clamps
-            clamp.material = clampMat;
-            
-            // Laser housing UNDER truss (hanging from clamp)
-            const housing = BABYLON.MeshBuilder.CreateBox("laserHousing" + i, {
-                width: 0.25,
-                height: 0.2,
-                depth: 0.35
-            }, this.scene);
-            
-            if (parentTruss) {
-                housing.position = new BABYLON.Vector3(localX, -0.45, localZ);
-                housing.parent = parentTruss;
-            } else {
-                housing.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
-            }
-            housing.isPickable = false;
-            
-            const housingMat = this.materialFactory.createPBRMaterial("laserHousingMat", {
-                baseColor: [0.05, 0.05, 0.05],
-                metallic: 0.8,
-                roughness: 0.3,
-                emissiveColor: [0.05, 0, 0]
-            }, true); // UPGRADE: shared across all laser housings
-            housing.material = housingMat;
-            housing.isPickable = false;
-            
-            // BRIGHT LASER EMITTER - Visible light source on housing front
-            const emitter = BABYLON.MeshBuilder.CreateCylinder("laserEmitter" + i, {
-                diameter: 0.12,
-                height: 0.03,
-                tessellation: 16
-            }, this.scene);
-            
-            if (parentTruss) {
-                emitter.position = new BABYLON.Vector3(localX, -0.45, localZ + 0.18);
-                emitter.parent = parentTruss;
-            } else {
-                emitter.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z + 0.18);
-            }
-            emitter.rotation.x = Math.PI / 2;
-            emitter.isPickable = false;
-            
-            const emitterMat = this.materialFactory.createStandardMaterial("laserEmitterMat", {
-                emissiveColor: [1, 0, 0],
-                disableLighting: true
-            }, true); // UPGRADE: shared across all laser emitters
-            emitterMat.backFaceCulling = false;
-            emitter.material = emitterMat;
-            emitter.renderingGroupId = 2; // Render on top for visibility
-            
-            // Create beams based on laser type
-            const beams = [];
-            // DISABLED: Laser SpotLights caused shader uniform buffer overflow
-            // 3 multi-beam lasers × 5 lights each = 15 SpotLights, way over limit
-            // Visual laser beams still work via emissive cylinder meshes
-            const lights = []; // Empty - no actual lights, visual-only beams
-            
-            if (pos.type === 'single') {
-                // Single beam laser
-                const beam = this.createLaserBeam(i, 0, pos);
-                beams.push(beam);
-                // No light - visual beam only
-                
-            } else if (pos.type === 'spread') {
-                // Spread laser (3 beams fanning out)
-                for (let j = -1; j <= 1; j++) {
-                    const beam = this.createLaserBeam(i, j, pos);
-                    beams.push(beam);
-                    // No light - visual beam only
-                }
-                
-            } else if (pos.type === 'multi') {
-                // Multi-beam laser (5 rotating beams in circle)
-                for (let j = 0; j < 5; j++) {
-                    const beam = this.createLaserBeam(i, j, pos);
-                    beams.push(beam);
-                    // No light - visual beam only
-                }
-            }
-            
-            // Calculate actual world position for beam origin
-            let actualWorldPos;
-            if (parentTruss) {
-                // Get world position from parented housing
-                actualWorldPos = housing.getAbsolutePosition().clone();
-                actualWorldPos.y = housing.getAbsolutePosition().y; // Use actual Y
-            } else {
-                // Center laser - use direct position
-                actualWorldPos = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
-            }
-            
-            this.lasers.push({
-                beams: beams,
-                housing: housing,
-                clamp: clamp,
-                housingMat: housingMat,
-                emitter: emitter,
-                emitterMat: emitterMat,
-                lights: lights,
-                rotation: 0,
-                rotationSpeed: 0.01,
-                tiltPhase: 0,
-                originPos: actualWorldPos,
-                parentTruss: parentTruss,
-                localPos: new BABYLON.Vector3(localX, -0.45, localZ),
-                type: pos.type,
-                colorIndex: 0
-            });
-            
-            // UPGRADE: Freeze static laser hardware (clamp, housing, emitter don't animate)
-            clamp.freezeWorldMatrix();
-            clamp.doNotSyncBoundingInfo = true;
-            housing.freezeWorldMatrix();
-            housing.doNotSyncBoundingInfo = true;
-            emitter.freezeWorldMatrix();
-            emitter.doNotSyncBoundingInfo = true;
-        });
-        
-        // Initialize lighting mode control
-        this.lightingMode = 'synchronized'; // or 'random'
-        this.modeSwitchTime = 0;
-        this.currentColorIndex = 0;
-        this.colorSwitchTime = 0;
-        
-        // Lights and lasers control - PROFESSIONAL VJ PATTERN SYSTEM
-        // 8-phase show cycle designed for maximum crowd engagement
-        // Philosophy: Build tension → Release → Create moments → Repeat
-        this.lightModeSwitchTime = 0;
-        this.lightingPhase = 'tension'; // Start with tension phase for immediate action
-        this.currentShowMode = 'spotlights'; // What's currently active
-        
-        // Dynamic phase durations - SHORTENED for faster action and more variety
-        this.phaseDurations = {
-            intro: 6 + Math.random() * 4,         // 6-10s: Quick mood setting
-            build: 10 + Math.random() * 6,        // 10-16s: Building anticipation
-            tension: 8 + Math.random() * 4,       // 8-12s: Maximum tension before drop
-            drop: 4 + Math.random() * 4,          // 4-8s: THE BIG MOMENT (short!)
-            peak: 10 + Math.random() * 6,         // 10-16s: Sustained high energy
-            breakdown: 6 + Math.random() * 4,     // 6-10s: Disco ball moment
-            atmospheric: 8 + Math.random() * 6,   // 8-14s: Dreamy transition
-            groove: 12 + Math.random() * 8,       // 12-20s: Finding the pocket
-            // NEW PHASES for more immersive experience
-            euphoria: 6 + Math.random() * 4,      // 6-10s: Pure bliss moment
-            darkness: 3 + Math.random() * 2,      // 3-5s: Dramatic blackout
-            strobe_attack: 4 + Math.random() * 2, // 4-6s: Intense strobe assault
-            laser_tunnel: 8 + Math.random() * 6   // 8-14s: Laser beam immersion
-        };
-        
-        // Track energy level for smooth transitions (0.0 = ambient, 1.0 = peak)
-        this.energyLevel = 0.7; // Start higher for immediate action
-        this.targetEnergy = 0.75; // Tension phase target
-        
-        // === INITIAL TENSION PHASE SETTINGS ===
-        // Starting in 'tension' phase means we need to set all the effect states here
-        // PROFESSIONAL VJ RULE: Never gobos + lasers together - each system has its moment
-        this.lightsActive = true;       // Gobos/spotlights on (LASERS OFF)
-        this.lasersActive = false;      // Ceiling lasers OFF when gobos on
-        this.mirrorBallActive = false;
-        this.strobesActive = true;      // Strobes ENABLED for immediate impact
-        this.blindersActive = true;     // Blinders pulsing
-        this.laserSheetActive = false;
-        this.smokeActive = true;        // Haze for beam visibility
-        
-        this.spotlightPattern = 3;      // CROSSED BEAMS for tension
-        this.spotlightMode = 0;         // Strobe + sweep
-        this.spotlightSpeed = 1.2;
-        this.laserSpeed = 1.0;
-        this.ledWallSpeed = 1.2;
-        this.blinderSpeed = 0.8;
-        this.strobeSpeed = 1.5;         // Active strobe rate
-        
-        // === IMMERSIVE ANIMATION PARAMETERS ===
-        // Professional VJ timing variables for crowd-focused moments
-        this.crowdFocusIntensity = 0; // 0-1: How much focus on dance floor
-        this.beamConvergencePoint = new BABYLON.Vector3(0, 2, -12); // Center of dance floor
-        this.colorTransitionSpeed = 0.5; // How fast colors morph
-        this.syncedBeatPhase = 0; // All lights pulse together on beat
-        this.dramaticPauseTimer = 0; // For tension builds
-        this.spotlightChaseIndex = 0; // For chase sequences
-        this.laserFanAngle = 0; // For expanding/contracting laser fans
-        
-    }
-    
-    createLaserBeam(laserIndex, beamIndex, pos) {
-        // HYPERREALISTIC LASER BEAM - Physically accurate laser appearance
-        
-        // UPGRADE: Share one noise texture across all laser beam outer glows
-        // Instead of 15 separate NoiseProceduralTextures (one per beam outer glow)
-        if (!this._laserHazeNoiseTexture) {
-            this._laserHazeNoiseTexture = new BABYLON.NoiseProceduralTexture("sharedLaserHazeNoise", 64, this.scene);
-            this._laserHazeNoiseTexture.octaves = 3;
-            this._laserHazeNoiseTexture.persistence = 0.7;
-            this._laserHazeNoiseTexture.animationSpeedFactor = 2.0;
-            this._laserHazeNoiseTexture.brightness = 0.6;
-        }
-        // Real lasers: pencil-thin coherent light with atmospheric scatter creating visible beam
-        
-        // === CORE BEAM - Ultra-thin, razor-sharp coherent light ===
-        // Real show lasers are 2-4mm diameter, we use 5mm for visibility
-        const beam = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_beam" + beamIndex, {
-            diameterTop: 0.004,    // 4mm at source (very tight)
-            diameterBottom: 0.008, // 8mm at end (slight divergence like real laser)
-            height: 1,
-            tessellation: 6        // Low poly - lasers are perfectly round
-        }, this.scene);
-        beam.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        
-        // Core material - BLINDINGLY bright, pure saturated color
-        const beamMat = new BABYLON.StandardMaterial("laserCoreMat" + laserIndex + "_" + beamIndex, this.scene);
-        beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Pure red - will be updated
-        beamMat.disableLighting = true;
-        beamMat.backFaceCulling = false;
-        beam.material = beamMat;
-        beam.renderingGroupId = 2; // Render on top for crisp appearance
-        beam.isPickable = false;
-        
-        // === INNER GLOW - Tight halo simulating light scatter in immediate vicinity ===
-        const innerGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_innerGlow" + beamIndex, {
-            diameterTop: 0.025,    // 2.5cm at source
-            diameterBottom: 0.05,  // 5cm at end (expands with beam)
-            height: 1,
-            tessellation: 8
-        }, this.scene);
-        innerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        innerGlow.isPickable = false;
-        
-        const innerGlowMat = new BABYLON.StandardMaterial("laserInnerGlowMat" + laserIndex + "_" + beamIndex, this.scene);
-        innerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        innerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        innerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.3, 0.3); // Slightly desaturated for glow
-        innerGlowMat.alpha = 0.6; // Semi-transparent
-        innerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for glow
-        innerGlowMat.disableLighting = true;
-        innerGlowMat.backFaceCulling = false;
-        innerGlow.material = innerGlowMat;
-        innerGlow.renderingGroupId = 1;
-        
-        // === OUTER ATMOSPHERIC SCATTER - Wide soft haze from fog/smoke ===
-        // This is what makes laser beams visible in clubs (haze machine effect)
-        const outerGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_outerGlow" + beamIndex, {
-            diameterTop: 0.08,     // 8cm at source
-            diameterBottom: 0.18,  // 18cm at end (wide scatter)
-            height: 1,
-            tessellation: 8
-        }, this.scene);
-        outerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        outerGlow.isPickable = false;
-        
-        // UPGRADE: Use shared noise texture instead of 15 separate GPU textures
-        const outerGlowMat = new BABYLON.StandardMaterial("laserOuterGlowMat" + laserIndex + "_" + beamIndex, this.scene);
-        outerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        outerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        outerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2); // Soft color
-        outerGlowMat.opacityTexture = this._laserHazeNoiseTexture; // Shared noise for haze pattern
-        outerGlowMat.alpha = 0.15; // Very transparent
-        outerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        outerGlowMat.disableLighting = true;
-        outerGlowMat.backFaceCulling = false;
-        outerGlow.material = outerGlowMat;
-        outerGlow.renderingGroupId = 1;
-        
-        // Hit spots removed - cleaner laser look without floor reflections
-        
-        return { 
-            mesh: beam, 
-            material: beamMat,
-            innerGlow: innerGlow,
-            innerGlowMat: innerGlowMat,
-            beamGlow: outerGlow,  // Keep name for compatibility
-            glowMat: outerGlowMat,
-            hitSpot: null,        // No longer created
-            hitSpotMat: null,
-            hitGlow: null,
-            hitGlowMat: null,
-            beamIndex: beamIndex 
-        };
-    }
-
-    createLights() {
-        
-        // Ambient light - brighter for better visibility in VR and desktop
-        this.lightFactory.getPreset('ambient', 'ambient');
-        
-        // Skip inline spotlight creation if using modular system
-        if (this.useModularSystems && this.systems.spotlight) {
-            log.info('⏭️ Skipping inline spotlight creation (using modular SpotlightSystem)');
-            
-            // Initialize color tracking (still needed for VJ controls)
-            const spotColors = [
-                new BABYLON.Color3(1, 0, 0),      // Red
-                new BABYLON.Color3(0, 0, 1),      // Blue
-                new BABYLON.Color3(0, 1, 0),      // Green
-                new BABYLON.Color3(1, 0, 1),      // Magenta
-                new BABYLON.Color3(1, 1, 0),      // Yellow
-                new BABYLON.Color3(0, 1, 1),      // Cyan
-                new BABYLON.Color3(1, 0.5, 0),    // Orange
-                new BABYLON.Color3(0.5, 0, 1),    // Purple
-                new BABYLON.Color3(1, 1, 1)       // White
-            ];
-            this.currentSpotColor = spotColors[0];
-            this.spotColorIndex = 0;
-            this.lastColorChange = 0;
-            this.spotColorList = spotColors;
-            
-            // LED wall backlight
-            const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
-            ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
-            ledLight.intensity = 10;
-            ledLight.range = 25;
-            ledLight.setEnabled(false);
-            
-            return; // Skip rest of inline spotlight creation
-        }
-        
-        // === LEGACY INLINE SPOTLIGHT CREATION (when modular systems disabled) ===
-        // Spotlights mounted on truss (moving heads)
-        this.spotlights = [];
-        // 6 spotlights: 3 on left side, 3 on right side - POSITIONED ON ACTUAL TRUSSES
-        // Main trusses at Z=-8, -12, -16; spotlights at X=±8 (where trusses intersect side beams)
-        const spotPositions = [
-            { x: -8, z: -8 },   // Left on truss1 (front)
-            { x: -8, z: -12 },  // Left on truss2 (middle)
-            { x: -8, z: -16 },  // Left on truss3 (back)
-            { x: 8, z: -8 },    // Right on truss1 (front)
-            { x: 8, z: -12 },   // Right on truss2 (middle)
-            { x: 8, z: -16 }    // Right on truss3 (back)
-        ];
-        
-        const spotColors = [
-            new BABYLON.Color3(1, 0, 0),      // Red
-            new BABYLON.Color3(0, 0, 1),      // Blue
-            new BABYLON.Color3(0, 1, 0),      // Green
-            new BABYLON.Color3(1, 0, 1),      // Magenta
-            new BABYLON.Color3(1, 1, 0),      // Yellow
-            new BABYLON.Color3(0, 1, 1),      // Cyan
-            new BABYLON.Color3(1, 0.5, 0),    // Orange
-            new BABYLON.Color3(0.5, 0, 1),    // Purple
-            new BABYLON.Color3(1, 1, 1)       // White
-        ];
-        
-        // Track current color for all lights (changes periodically)
-        this.currentSpotColor = spotColors[0];
-        this.spotColorIndex = 0;
-        this.lastColorChange = 0;
-        
-        // UPGRADE: Create shared beam gradient texture for volumetric beam brightness falloff
-        // Simulates realistic light scatter through atmospheric haze:
-        // - Bright mid-section (accumulated haze scattering)
-        // - Softer near floor (smooth termination, hides hard clip plane edge)
-        // - Moderate near fixture (concentrated but less path length)
-        // On cylinder UV: V=0 = bottom (fixture/narrow), V=1 = top (floor/wide)
-        // On canvas: Y=0 = top (maps to V=1 = floor), Y=H = bottom (maps to V=0 = fixture)
-        if (!this._beamGradientTexture) {
-            const gradH = 128;
-            const gradCanvas = document.createElement('canvas');
-            gradCanvas.width = 4;   // Narrow - uniform around circumference
-            gradCanvas.height = gradH;
-            const gCtx = gradCanvas.getContext('2d');
-            
-            const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
-            // Canvas Y=0 → V=1 (floor/wide end): soft termination
-            beamGrad.addColorStop(0.0,  'rgb(77,77,77)');    // V=1.0: 30% - soft fade at floor
-            beamGrad.addColorStop(0.08, 'rgb(128,128,128)'); // V=0.92: 50% - quickening
-            beamGrad.addColorStop(0.25, 'rgb(230,230,230)'); // V=0.75: 90% - entering mid zone
-            beamGrad.addColorStop(0.45, 'rgb(255,255,255)'); // V=0.55: 100% - peak brightness
-            beamGrad.addColorStop(0.65, 'rgb(255,255,255)'); // V=0.35: 100% - sustained peak
-            beamGrad.addColorStop(0.85, 'rgb(217,217,217)'); // V=0.15: 85% - near fixture
-            beamGrad.addColorStop(1.0,  'rgb(179,179,179)'); // V=0.0: 70% - at fixture lens
-            
-            gCtx.fillStyle = beamGrad;
-            gCtx.fillRect(0, 0, 4, gradH);
-            
-            this._beamGradientTexture = new BABYLON.DynamicTexture("beamGradient", gradCanvas, this.scene, false);
-            this._beamGradientTexture.hasAlpha = false; // RGB only, no alpha channel needed
-            this._beamGradientTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-            this._beamGradientTexture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-            this._beamGradientTexture.update();
-        }
-        
-        spotPositions.forEach((pos, i) => {
-            // Get fixture data if available
-            const fixtureData = this.trussLights ? this.trussLights[i] : null;
-            const head = fixtureData ? fixtureData.head : null;
-            const yoke = fixtureData ? fixtureData.yoke : null;
-
-            // Spotlight from truss position - MATCH FIXTURE POSITION (y: 7.3)
-            const spot = new BABYLON.SpotLight("spot" + i,
-                new BABYLON.Vector3(pos.x, 7.3, pos.z),  // Match fixture lens position
-                new BABYLON.Vector3(0, -1, 0),           // Initial direction
-                Math.PI / 6,                              // Narrower cone for focused beams
-                5,                                        // Sharper falloff
-                this.scene
-            );
-            // UPGRADE: Enable diffuse for projectionTexture gobo patterns on surfaces
-            // Diffuse at 15% intensity provides visible gobo patterns without overwhelming scene
-            spot.diffuse = this.currentSpotColor.scale(0.15);
-            spot.specular = this.currentSpotColor; // Specular for floor reflections
-            spot.intensity = 12; // Increased for visibility
-            spot.range = 25;
-            
-            // UPGRADE: SpotLight.projectionTexture support (physically correct gobo projection)
-            // Near/far define the frustum for texture projection (like shadow mapping)
-            spot.projectionTextureLightNear = 0.5;
-            spot.projectionTextureLightFar = 25;
-            
-            spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
-            
-            // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor/wall
-            // When cylinder points DOWN, its +Y local axis points toward surface
-            // So: diameterTop (at +Y local) should be WIDE (at surface hit)
-            //     diameterBottom (at -Y local) should be NARROW (at fixture)
-            // Higher tessellation creates smoother cone edges for hyperrealistic look
-            const beam = BABYLON.MeshBuilder.CreateCylinder("spotBeam" + i, {
-                diameterTop: 2.0,      // Wide end at surface - 2.0m diameter
-                diameterBottom: 0.12,  // Narrower lens opening for tighter source point
-                height: 1,             // Will be scaled to actual beam length
-                tessellation: 12,      // Higher tessellation for smoother cone (was 8)
-                cap: BABYLON.Mesh.NO_CAP
-            }, this.scene);
-            
-            // HYPERREALISTIC: Beam positioned in WORLD SPACE (not parented to head)
-            // This ensures beam visually connects from fixture lens to floor pool
-            // Position will be set dynamically in animation loop
-            beam.position = new BABYLON.Vector3(pos.x, 4, pos.z); // Initial position (will be updated)
-            beam.rotationQuaternion = BABYLON.Quaternion.Identity(); // Use quaternion for proper world-space rotation
-            
-            beam.isPickable = false;
-            
-            // HYPERREALISTIC VOLUMETRIC BEAM - Animated smoke/dust particles in light cone
-            // Real light beams show visible particles drifting through the beam
-            const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + i, this.scene);
-            beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.emissiveColor = this.currentSpotColor.clone(); // Will be updated in animation loop
-            
-            // UPGRADE: Beam gradient texture for distance-based brightness falloff
-            // On a cylinder, V=0 at bottom (fixture/narrow), V=1 at top (floor/wide)
-            // Canvas Y=0 → V=1 (floor), Canvas Y=height → V=0 (fixture)
-            // This gives realistic light scatter: brighter mid-beam (haze accumulation),
-            // softer at floor (smooth termination instead of hard clip), moderate at fixture
-            if (this._beamGradientTexture) {
-                beamMat.emissiveTexture = this._beamGradientTexture;
-            }
-            
-            // UPGRADE: Share one noise texture across all spotlight beams (was 6 separate GPU textures)
-            if (!this._spotBeamNoiseTexture) {
-                this._spotBeamNoiseTexture = new BABYLON.NoiseProceduralTexture("sharedBeamNoise", 128, this.scene);
-                this._spotBeamNoiseTexture.animationSpeedFactor = 0.6;
-                this._spotBeamNoiseTexture.persistence = 0.35;
-                this._spotBeamNoiseTexture.brightness = 0.55;
-                this._spotBeamNoiseTexture.octaves = 4;
-            }
-            beamMat.opacityTexture = this._spotBeamNoiseTexture; // Shared noise for smoke particles
-            
-            beamMat.alpha = 0.18; // Base alpha (will be dynamically adjusted in render loop)
-            beamMat.alphaMode = BABYLON.Engine.ALPHA_COMBINE; // Standard alpha blending respects depth
-            beamMat.backFaceCulling = false; // Visible from all angles
-            beamMat.disableLighting = true; // Self-illuminated
-            beamMat.useAlphaFromDiffuseTexture = false;
-            
-            // CRITICAL: Beam must respect depth buffer to NOT render through NPCs
-            // ALPHA_COMBINE properly discards fragments behind opaque geometry
-            beamMat.disableDepthWrite = true; // Don't write to depth (transparent object)
-            beamMat.separateCullingPass = false;
-            beamMat.needDepthPrePass = false;
-            beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
-            
-            // HYPERREALISTIC: Clip plane to hide beam below floor level (y < 0)
-            // This allows beam to extend past floor for tilted angles while hiding the portion below
-            // Babylon.js clips fragments where dot(normal, pos) + d < 0
-            // To clip y < 0 (keep y >= 0): normal = (0, -1, 0), d = 0 → clips where -y < 0 (y > 0)? NO
-            // Actually: normal = (0, 1, 0), d = 0 clips where y + 0 < 0, i.e. y < 0 ✓
-            // But StandardMaterial uses clipPlane differently - it clips where result > 0
-            // So we need normal (0, -1, 0), d = 0 to clip where -y + 0 > 0, i.e. y < 0 ✓
-            beamMat.clipPlane4 = new BABYLON.Plane(0, -1, 0, 0.01); // Clip below floor level
-            
-            beam.material = beamMat;
-            beam.visibility = 1.0;
-            beam.renderingGroupId = 1; // Render after opaque objects
-            
-            // PERFORMANCE: Removed beamGlow (outer glow cylinder) - caused doubled beam effect
-            const beamGlow = null;
-            const beamGlowMat = null;
-
-            
-            // HYPERREALISTIC LIGHT POOL - Physics-accurate spotlight floor projection
-            // Based on real optics: inverse-square falloff, Lambert's cosine law, Fresnel scattering
-            
-            // Create physics-accurate radial gradient texture (reuse across all pools)
-            if (!this._poolGradientTexture) {
-                const gradientSize = 512; // High resolution for smooth physics-based falloff
-                const gradientCanvas = document.createElement('canvas');
-                gradientCanvas.width = gradientSize;
-                gradientCanvas.height = gradientSize;
-                const ctx = gradientCanvas.getContext('2d');
-                
-                // PHYSICS-ACCURATE GRADIENT using inverse-square law with Gaussian hot spot
-                // Real spotlight beam profiles have:
-                // 1. Bright central hot spot (Gaussian distribution)
-                // 2. Field angle region (inverse-square falloff)
-                // 3. Soft penumbra edge (Fresnel scattering)
-                const gradient = ctx.createRadialGradient(
-                    gradientSize/2, gradientSize/2, 0,
-                    gradientSize/2, gradientSize/2, gradientSize/2
-                );
-                
-                // Physics model: I(r) = I₀ * exp(-r²/σ²) for hot spot + 1/r² falloff
-                // Hot spot (beam angle) typically 10-15% of total, field (flood angle) 50-60%
-                // σ = 0.15 for tight hot spot, with inverse-square beyond
-                const hotSpotSize = 0.12; // 12% of radius is hot spot
-                const fieldSize = 0.55;   // 55% is field angle
-                
-                gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');      // Center peak
-                gradient.addColorStop(hotSpotSize * 0.5, 'rgba(255, 255, 255, 0.98)'); // Gaussian plateau
-                gradient.addColorStop(hotSpotSize, 'rgba(255, 255, 255, 0.85)');  // Hot spot edge
-                gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.55)');  // Field region (1/r² starts)
-                gradient.addColorStop(fieldSize, 'rgba(255, 255, 255, 0.22)');  // Field edge
-                gradient.addColorStop(0.75, 'rgba(255, 255, 255, 0.08)');  // Penumbra (soft scatter)
-                gradient.addColorStop(0.90, 'rgba(255, 255, 255, 0.02)');  // Fresnel edge scatter
-                gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');    // Full transparency
-                
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, gradientSize, gradientSize);
-                
-                this._poolGradientTexture = new BABYLON.DynamicTexture("poolGradient", gradientCanvas, this.scene, false);
-                this._poolGradientTexture.hasAlpha = true;
-                this._poolGradientTexture.update();
-            }
-            
-            // Main light pool with soft gradient
-            const lightPool = BABYLON.MeshBuilder.CreateDisc("lightPool" + i, {
-                radius: 1.0, // Larger base radius for better visibility
-                tessellation: 32
-            }, this.scene);
-            lightPool.rotation.x = Math.PI / 2;
-            // HYPERREALISTIC: Position pool at floor level (y=0.01, just above to prevent z-fighting)
-            // The pool should look like it's ON the floor, not floating
-            lightPool.position = new BABYLON.Vector3(pos.x, 0.01, pos.z - 5);
-            lightPool.isPickable = false;
-            
-            // Material with radial gradient for soft edges
-            const poolMat = new BABYLON.StandardMaterial("poolMat" + i, this.scene);
-            poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            poolMat.emissiveColor = this.currentSpotColor.clone();
-            poolMat.opacityTexture = this._poolGradientTexture; // Use gradient for soft edges
-            poolMat.alpha = 0.9; // High alpha for visible pool
-            poolMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light effect
-            poolMat.disableLighting = true;
-            poolMat.backFaceCulling = false;
-            // Transparent mesh settings
-            poolMat.disableDepthWrite = true;
-            poolMat.depthFunction = BABYLON.Constants.LEQUAL;
-            lightPool.material = poolMat;
-            // Use default rendering group (0) so pool renders with floor
-            lightPool.renderingGroupId = 0;
-            
-            // Store reference for gobo texture (null - not using procedural texture anymore)
-            const goboTexture = null;
-            
-            // HYPERREALISTIC SOFT OUTER GLOW - Very soft ambient light spread
-            // Creates the "light spill" effect around the main pool
-            const lightPoolGlow = BABYLON.MeshBuilder.CreateDisc("lightPoolGlow" + i, {
-                radius: 1.5, // Larger glow radius
-                tessellation: 32
-            }, this.scene);
-            lightPoolGlow.rotation.x = Math.PI / 2;
-            lightPoolGlow.position = new BABYLON.Vector3(pos.x, 0.005, pos.z - 5); // Just below main pool
-            lightPoolGlow.isPickable = false;
-            lightPoolGlow.renderingGroupId = 0; // Same group as floor
-            
-            // Very soft glow with same gradient texture
-            const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + i, this.scene);
-            poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.5);
-            poolGlowMat.opacityTexture = this._poolGradientTexture; // Same soft gradient
-            poolGlowMat.alpha = 0.25; // Very subtle ambient glow
-            poolGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            poolGlowMat.disableLighting = true;
-            poolGlowMat.backFaceCulling = false;
-            lightPoolGlow.material = poolGlowMat;
-            lightPoolGlow.renderingGroupId = 1;
-            
-            // Core layer removed for performance - using main pool + glow ring only
-            const lightPoolCore = null;
-            const poolCoreMat = null;
-            
-            // === GOBO PROJECTION DISC ===
-            // Creates pattern shapes on floor when gobo is enabled
-            const goboProjection = BABYLON.MeshBuilder.CreateDisc("goboProjection" + i, {
-                radius: 1.0,
-                tessellation: 64
-            }, this.scene);
-            goboProjection.rotation.x = Math.PI / 2;
-            goboProjection.position = new BABYLON.Vector3(pos.x, 0.02, pos.z - 5);
-            goboProjection.isPickable = false;
-            
-            const goboMat = new BABYLON.StandardMaterial("goboMat" + i, this.scene);
-            goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            goboMat.emissiveColor = this.currentSpotColor.clone();
-            goboMat.alpha = 0.9;
-            goboMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            goboMat.disableLighting = true;
-            goboMat.backFaceCulling = false;
-            goboMat.disableDepthWrite = true;
-            goboProjection.material = goboMat;
-            goboProjection.renderingGroupId = 1;
-            goboProjection.setEnabled(false); // Hidden by default
-            
-            // === HYPERREALISTIC POOL LIGHT ===
-            // DISABLED: Pool lights (PointLights) caused shader uniform buffer overflow
-            // With 6 spotlights + 6 pool lights + ambient + LED = 14+ lights
-            // WebGL2 only supports ~12 uniform buffers for PBR materials
-            // The visual pool meshes still create the light pool effect on the floor
-            // Real illumination comes from the SpotLights which are more efficient
-            const poolLight = null; // Disabled for performance - was causing shader compilation errors
-            
-            // PERFORMANCE: Shadows and pool lights disabled for better FPS
-            
-            this.spotlights.push({
-                light: spot,
-                beam: beam,
-                beamMat: beamMat,
-                beamGlow: beamGlow,
-                beamGlowMat: beamGlowMat,
-                lightPool: lightPool,
-                poolMat: poolMat,
-                poolLight: poolLight, // NEW: Actual light for surface illumination
-                lightPoolCore: lightPoolCore,
-                poolCoreMat: poolCoreMat,
-                lightPoolGlow: lightPoolGlow,
-                poolGlowMat: poolGlowMat,
-                goboTexture: goboTexture, // Store for animation updates
-                goboProjection: goboProjection,
-                goboMat: goboMat,
-                goboLocalRotation: i * (Math.PI / 3), // Offset each spotlight's gobo rotation
-                fixture: fixtureData ? fixtureData.fixture : null,
-                head: head,
-                yoke: yoke,
-                lens: fixtureData ? fixtureData.lens : null,
-                lightSource: fixtureData ? fixtureData.lightSource : null,
-                bezel: fixtureData ? fixtureData.bezel : null,
-                flare: fixtureData ? fixtureData.flare : null,
-                lensMat: fixtureData ? fixtureData.lensMat : null,
-                sourceMat: fixtureData ? fixtureData.sourceMat : null,
-                flareMat: fixtureData ? fixtureData.flareMat : null,
-                basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z), // Match fixture position
-                phase: i * (Math.PI * 2 / spotPositions.length),
-                speed: 0.8,
-                color: this.currentSpotColor,
-                index: i
-            });
-        });
-        
-        this.spotColorList = spotColors;
-        
-        // LED wall backlight
-        const ledLight = new BABYLON.PointLight("ledLight", new BABYLON.Vector3(0, 4, -25), this.scene);
-        ledLight.diffuse = new BABYLON.Color3(0.8, 0.8, 1.0);
-        ledLight.intensity = 10;
-        ledLight.range = 25;
-        ledLight.setEnabled(false); // Start disabled - LED wall light controlled by ledWallActive
-        
-    }
-
-    // Blinders removed - strobes provide sufficient impact lighting
-
-    createLaserSheet() {
-        // === LASER SHEET EFFECT ===
-        // Single source fan from LED wall scanning the room
-        // Hyperrealistic implementation: Triangle fan geometry with smoke texture
-        
-        // 1. Create the Source/Projector Housing
-        // Positioned high on the back LED wall (z=-26), centered
-        // Height 5.5m clears the DJ booth and hits the dancefloor nicely
-        const sourcePos = new BABYLON.Vector3(0, 5.5, -25.8); 
-        
-        this.laserSheetSource = BABYLON.MeshBuilder.CreateBox("laserSheetSource", {
-            width: 0.5, height: 0.2, depth: 0.4
-        }, this.scene);
-        this.laserSheetSource.position = sourcePos;
-        this.laserSheetSource.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
-        
-        // Aperture (Glowing slit)
-        this.laserAperture = BABYLON.MeshBuilder.CreateBox("laserSheetAperture", {
-            width: 0.4, height: 0.05, depth: 0.02
-        }, this.scene);
-        this.laserAperture.parent = this.laserSheetSource;
-        this.laserAperture.position.z = 0.21; // Front face
-        
-        const apertureMat = new BABYLON.StandardMaterial("apertureMat", this.scene);
-        apertureMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
-        apertureMat.disableLighting = true;
-        this.laserAperture.material = apertureMat;
-        
-        // 2. Create the Laser Sheet Geometry (Triangle Fan)
-        // We create a custom mesh for the fan shape
-        const sheet = new BABYLON.Mesh("laserSheet", this.scene);
-        
-        // Fan dimensions
-        const length = 45; // Reach across the room
-        const widthEnd = 35; // Wide spread at the end
-        
-        const positions = [
-            0, 0, 0,              // 0: Source (Tip)
-            -widthEnd/2, 0, length, // 1: Far Left
-            widthEnd/2, 0, length   // 2: Far Right
-        ];
-        
-        const indices = [0, 1, 2, 0, 2, 1]; // Double sided
-        
-        const uvs = [
-            0.5, 0,  // Source
-            0, 1,    // Left
-            1, 1     // Right
-        ];
-        
-        const normals = [];
-        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
-        
-        const vertexData = new BABYLON.VertexData();
-        vertexData.positions = positions;
-        vertexData.indices = indices;
-        vertexData.uvs = uvs;
-        vertexData.normals = normals;
-        vertexData.applyToMesh(sheet);
-        
-        // Parent to source for easy rotation/scanning
-        sheet.parent = this.laserSheetSource;
-        sheet.position = new BABYLON.Vector3(0, 0, 0.25); // Start at aperture
-        
-        // 3. Material & Texture (Hyperrealistic Smoke)
-        const sheetMat = new BABYLON.StandardMaterial("laserSheetMat", this.scene);
-        sheetMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
-        sheetMat.disableLighting = true;
-        sheetMat.alpha = 0.6;
-        sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        sheetMat.backFaceCulling = false;
-        
-        // Procedural noise for smoke movement
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
-        noiseTexture.octaves = 4;
-        noiseTexture.persistence = 0.8; // Smoky detail
-        noiseTexture.animationSpeedFactor = 0.5;
-        noiseTexture.brightness = 0.5;
-        noiseTexture.contrast = 2.0; // Defined smoke wisps
-        
-        sheetMat.opacityTexture = noiseTexture;
-        sheetMat.emissiveTexture = noiseTexture; // Texture the light itself
-        
-        sheet.material = sheetMat;
-        this.laserSheet = sheet;
-        
-        // 4. Light Source (Actual light projection) - DISABLED for performance
-        // DISABLED: Laser sheet SpotLight adds to uniform buffer count
-        // Visual effect from emissive laser sheet mesh is sufficient
-        this.laserLight = null; // Disabled - visual sheet provides the effect
-        
-        // Remove old fan if it exists (cleanup)
-        this.laserFan = null;
-        
-        // Add to glow layer for bloom effect
-        if (this.glowLayer) {
-            this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
-            this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
-        }
-        
-        log.info('✨ Laser sheet effect created with hyperrealistic source');
-    }
-
-    createMirrorBall() {
-        // === DRAMATIC MIRROR/DISCO BALL EFFECT ===
-        // Professional mirror ball suspended from center truss with dedicated spotlight
-        
-        // Position: Center of middle truss (x:0, y:8, z:-12)
-        const ballPosition = new BABYLON.Vector3(0, 6.5, -12); // Hanging 1.5m below truss
-        const trussPosition = new BABYLON.Vector3(0, 8, -12);
-        
-        // === MIRROR BALL SPHERE ===
-        const mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
-            diameter: 1.2, // Professional club-size mirror ball
-            segments: 32   // High detail for reflections
-        }, this.scene);
-        mirrorBall.position = ballPosition;
-        
-        // Highly reflective material with FACETED appearance (like real disco balls)
-        const mirrorBallMat = new BABYLON.PBRMetallicRoughnessMaterial("mirrorBallMat", this.scene);
-        mirrorBallMat.baseColor = new BABYLON.Color3(0.95, 0.95, 0.95); // Bright silver
-        mirrorBallMat.metallic = 1.0;  // Fully metallic
-        mirrorBallMat.roughness = 0.15; // Increased roughness for faceted mirror appearance (was 0.05)
-        mirrorBallMat.reflectivityColor = new BABYLON.Color3(1, 1, 1);
-        mirrorBallMat.maxSimultaneousLights = this.maxLights;
-        
-        // Use environment reflection for realistic mirror effect
-        if (this.scene.environmentTexture) {
-            mirrorBallMat.environmentIntensity = 1.8; // Stronger reflections for more sparkle
-        }
-        
-        // Add bump map for faceted appearance (using vertex normals)
-        // This makes it look like many small square mirrors instead of one smooth sphere
-        mirrorBall.convertToFlatShadedMesh(); // Creates hard edges between faces = disco ball facets!
-        
-        mirrorBall.material = mirrorBallMat;
-        mirrorBall.isPickable = false;
-        
-        // === HANGING CABLE/CHAIN ===
-        const cable = BABYLON.MeshBuilder.CreateCylinder("mirrorBallCable", {
-            diameter: 0.02,
-            height: 1.5, // Distance from truss to ball
-            tessellation: 8
-        }, this.scene);
-        cable.position = new BABYLON.Vector3(0, 7.25, -12); // Midpoint between truss and ball
-        
-        const cableMat = this.materialFactory.createPBRMaterial("cableMat", {
-            baseColor: [0.1, 0.1, 0.1],
-            metallic: 0.7,
-            roughness: 0.4
-        });
-        cable.material = cableMat;
-        cable.isPickable = false;
-        // UPGRADE: Freeze static cable
-        cable.freezeWorldMatrix();
-        cable.doNotSyncBoundingInfo = true;
-        
-        // === MULTIPLE SPOTLIGHTS FOR MIRROR BALL (Professional disco ball setup) ===
-        // Strategy: Use 1 main spotlight + visual beams from multiple angles
-        // Why: GPU uniform buffer limits prevent multiple real SpotLights with PBR materials
-        this.mirrorBallSpotlights = [];
-        this.mirrorBallBeams = [];
-        this.mirrorBallHousings = [];
-        
-        // UPGRADE: Create shared gradient texture for all mirror ball beams (was 4 separate 512px textures)
-        if (!this._mirrorBeamGradientTexture) {
-            const mbGradTex = new BABYLON.DynamicTexture("sharedMirrorBeamGradient", { width: 256, height: 256 }, this.scene);
-            const mbCtx = mbGradTex.getContext();
-            const mbGrad = mbCtx.createRadialGradient(128, 128, 25, 128, 128, 128);
-            mbGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-            mbGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
-            mbGrad.addColorStop(0.6, 'rgba(255, 255, 255, 0.3)');
-            mbGrad.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)');
-            mbGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            mbCtx.fillStyle = mbGrad;
-            mbCtx.fillRect(0, 0, 256, 256);
-            mbGradTex.update();
-            this._mirrorBeamGradientTexture = mbGradTex;
-        }
-        
-        // UPGRADE: Share housing materials across all 4 mirror ball fixtures
-        const sharedMirrorHousingMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorHousingMat", this.scene);
-        sharedMirrorHousingMat.baseColor = new BABYLON.Color3(0.1, 0.1, 0.12);
-        sharedMirrorHousingMat.metallic = 0.85;
-        sharedMirrorHousingMat.roughness = 0.3;
-        sharedMirrorHousingMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-        sharedMirrorHousingMat.maxSimultaneousLights = this.maxLights;
-        
-        const sharedMirrorBezelMat = new BABYLON.PBRMetallicRoughnessMaterial("sharedMirrorBezelMat", this.scene);
-        sharedMirrorBezelMat.baseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        sharedMirrorBezelMat.metallic = 0.95;
-        sharedMirrorBezelMat.roughness = 0.15;
-        sharedMirrorBezelMat.maxSimultaneousLights = this.maxLights;
-        
-        const spotlightConfigs = [
-            { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right", isRealLight: true },  // Only this one is a real light
-            { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "Front-Left", isRealLight: false }, // Visual only
-            { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right", isRealLight: false }, // Visual only - cross pattern
-            { pos: new BABYLON.Vector3(-4, 7.5, -16), name: "Back-Left", isRealLight: false }  // Visual only - cross pattern
-        ];
-        
-        spotlightConfigs.forEach((config, index) => {
-            const direction = ballPosition.subtract(config.pos).normalize();
-            
-            // Create real spotlight only for the main one
-            if (config.isRealLight) {
-                const spotlight = new BABYLON.SpotLight(
-                    `mirrorBallSpotlight${index}`,
-                    config.pos,
-                    direction,
-                    Math.PI / 6,  // Wider beam to cover ball from one angle
-                    8,            // Softer falloff
-                    this.scene
-                );
-                spotlight.diffuse = this.mirrorBallSpotlightColor.clone();
-                spotlight.intensity = 150; // Very bright since it's the only real light
-                spotlight.range = 35;
-                spotlight.setEnabled(false);
-                this.mirrorBallSpotlights.push(spotlight);
-            } else {
-                // Fake spotlight (visual only, no actual light)
-                this.mirrorBallSpotlights.push(null);
-            }
-            
-            // === HYPERREALISTIC MOVING HEAD FIXTURE (Professional Stage Light) ===
-            const housingDirection = ballPosition.subtract(config.pos).normalize();
-            const targetQuat = BABYLON.Quaternion.FromLookDirectionLH(housingDirection, BABYLON.Vector3.Up());
-            
-            // Base/Yoke mount (connects to truss) - Professional design
-            const base = BABYLON.MeshBuilder.CreateBox(`mirrorFixtureBase${index}`, {
-                width: 0.5,
-                height: 0.2,
-                depth: 0.4
-            }, this.scene);
-            base.position = config.pos.clone();
-            base.rotationQuaternion = targetQuat;
-            
-            const baseMat = this.materialFactory.getPreset('lightFixture');
-            base.material = baseMat;
-            base.isPickable = false;
-            
-            // Main fixture body (cylindrical housing) - Professional moving head
-            const housing = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotHousing${index}`, {
-                diameter: 0.5,
-                height: 0.7,
-                tessellation: 24
-            }, this.scene);
-            housing.position = config.pos.add(housingDirection.scale(0.1)); // Slight offset forward
-            housing.rotationQuaternion = targetQuat;
-            
-            // UPGRADE: Use shared housing material instead of per-fixture instances
-            housing.material = sharedMirrorHousingMat;
-            housing.isPickable = false;
-            
-            // Front bezel/rim (chrome ring around lens)
-            const bezel = BABYLON.MeshBuilder.CreateTorus(`mirrorBezel${index}`, {
-                diameter: 0.45,
-                thickness: 0.05,
-                tessellation: 32
-            }, this.scene);
-            bezel.position = config.pos.add(housingDirection.scale(0.4));
-            bezel.rotationQuaternion = targetQuat;
-            
-            // UPGRADE: Use shared bezel material
-            bezel.material = sharedMirrorBezelMat;
-            bezel.isPickable = false;
-            
-            // Lens (glass front element) - Cylindrical lens shape
-            const lens = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotLens${index}`, {
-                diameter: 0.4,
-                height: 0.1,
-                tessellation: 32
-            }, this.scene);
-            lens.position = config.pos.add(housingDirection.scale(0.38)); // Inside bezel
-            lens.rotationQuaternion = targetQuat;
-            
-            const lensMat = new BABYLON.StandardMaterial(`mirrorLensMat${index}`, this.scene);
-            lensMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow with color when active
-            lensMat.disableLighting = true;
-            lensMat.backFaceCulling = false;
-            lens.material = lensMat;
-            lens.renderingGroupId = 2;
-            lens.isPickable = false;
-            
-            // Bright light source (visible bulb/LED)
-            const lightSource = BABYLON.MeshBuilder.CreateSphere(`mirrorLightSource${index}`, {
-                diameter: 0.35,
-                segments: 16
-            }, this.scene);
-            lightSource.position = config.pos.add(housingDirection.scale(0.38));
-            
-            const sourceMat = new BABYLON.StandardMaterial(`mirrorSourceMat${index}`, this.scene);
-            sourceMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow bright when active
-            sourceMat.disableLighting = true;
-            sourceMat.backFaceCulling = false;
-            lightSource.material = sourceMat;
-            lightSource.renderingGroupId = 2;
-            lightSource.isPickable = false;
-            
-            // Lens flare (glass reflection effect)
-            const flare = BABYLON.MeshBuilder.CreateDisc(`mirrorFlare${index}`, {
-                radius: 0.25,
-                tessellation: 32
-            }, this.scene);
-            flare.position = config.pos.add(housingDirection.scale(0.42)); // Slightly in front
-            flare.rotationQuaternion = targetQuat;
-            
-            const flareMat = new BABYLON.StandardMaterial(`mirrorFlareMat${index}`, this.scene);
-            flareMat.emissiveColor = new BABYLON.Color3(0, 0, 0); // Will glow when active
-            flareMat.alpha = 0.4;
-            flareMat.disableLighting = true;
-            flareMat.backFaceCulling = false;
-            flare.material = flareMat;
-            flare.renderingGroupId = 2;
-            flare.isPickable = false;
-            
-            this.mirrorBallHousings.push({ 
-                mesh: housing, 
-                material: sharedMirrorHousingMat,
-                base: base,
-                bezel: bezel,
-                lens: lens,
-                lensMaterial: lensMat,
-                lightSource: lightSource,
-                sourceMaterial: sourceMat,
-                flare: flare,
-                flareMaterial: flareMat
-            });
-            
-            // Visible volumetric beam from all positions (dramatic effect with HIGH-QUALITY rendering)
-            const beamLength = BABYLON.Vector3.Distance(config.pos, ballPosition);
-            const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotBeam${index}`, {
-                diameterTop: 1.4,     // Wide at ball
-                diameterBottom: 0.3,  // Narrow at source
-                height: beamLength,
-                tessellation: 16,
-                cap: BABYLON.Mesh.NO_CAP
-            }, this.scene);
-            
-            // Position and rotate beam
-            const beamMidpoint = BABYLON.Vector3.Center(config.pos, ballPosition);
-            beam.position = beamMidpoint;
-            
-            const beamRotationAxis = BABYLON.Vector3.Cross(BABYLON.Vector3.Up(), direction);
-            const beamRotationAngle = Math.acos(BABYLON.Vector3.Dot(BABYLON.Vector3.Up(), direction));
-            beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(beamRotationAxis, beamRotationAngle);
-            
-            // === ULTRA-REALISTIC VOLUMETRIC BEAM (same quality as truss spotlights) ===
-            // UPGRADE: Use shared gradient texture (was 4 separate 512px DynamicTextures)
-            const beamTexture = this._mirrorBeamGradientTexture;
-            
-            // Use PBR material with gradient texture for professional quality
-            const beamMat = new BABYLON.PBRMaterial("mirrorSpotBeamMat" + index, this.scene);
-            
-            // No base color - pure emission and transparency
-            beamMat.albedoColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.metallic = 0;
-            beamMat.roughness = 1;
-            
-            // Apply gradient texture to emissive channel
-            beamMat.emissiveTexture = beamTexture;
-            beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
-            beamMat.emissiveIntensity = 3.5;
-            
-            // Use gradient as alpha mask for realistic edge softness
-            beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.15; // Slightly more visible than truss spots for drama
-            beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
-            
-            // Fresnel effect - more visible from the side
-            beamMat.opacityFresnel = new BABYLON.FresnelParameters();
-            beamMat.opacityFresnel.leftColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-            beamMat.opacityFresnel.rightColor = new BABYLON.Color3(0, 0, 0);
-            beamMat.opacityFresnel.bias = 0.2;
-            beamMat.opacityFresnel.power = 2;
-            
-            // Important settings for realism
-            beamMat.backFaceCulling = false;
-            beamMat.disableLighting = true;
-            beamMat.unlit = true;
-            
-            beam.material = beamMat;
-            beam.isPickable = false;
-            beam.visibility = 1.0;
-            beam.renderingGroupId = 1;
-            beam.setEnabled(false);
-            
-            this.mirrorBallBeams.push({ mesh: beam, material: beamMat, texture: beamTexture });
-            
-            // UPGRADE: Freeze static fixture hardware (housing, base, bezel don't animate)
-            base.freezeWorldMatrix();
-            base.doNotSyncBoundingInfo = true;
-            housing.freezeWorldMatrix();
-            housing.doNotSyncBoundingInfo = true;
-            bezel.freezeWorldMatrix();
-            bezel.doNotSyncBoundingInfo = true;
-        });
-        
-        // === OUTGOING RAYS FROM MIRROR BALL (Hyperrealistic all-direction light rays) ===
-        // These are the visible light rays emanating FROM the ball in all directions
-        // Real disco balls reflect light to ceiling, walls, floor - creating a sphere of rays
-        this.mirrorBallOutgoingRays = [];
-        const numRays = 40; // Reduced from 80 for VR performance
-        
-        for (let i = 0; i < numRays; i++) {
-            // Distribute rays evenly using golden angle spiral on a sphere
-            const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5 degrees
-            const theta = goldenAngle * i;
-            const phi = Math.acos(1 - 2 * (i + 0.5) / numRays); // Uniform sphere distribution
-            
-            // Calculate ray direction in spherical coordinates
-            const dirX = Math.sin(phi) * Math.cos(theta);
-            const dirY = Math.cos(phi); // Goes up AND down
-            const dirZ = Math.sin(phi) * Math.sin(theta);
-            
-            // Vary ray length (6-15m) for natural look
-            const rayLength = 6 + Math.random() * 9;
-            
-            // Create ray cylinder from ball position
-            const ray = BABYLON.MeshBuilder.CreateCylinder(`mirrorOutgoingRay${i}`, {
-                diameterTop: 0.015,   // Very thin at ball (light source point)
-                diameterBottom: 0.08, // Slightly wider at end (light spread)
-                height: rayLength,
-                tessellation: 4
-            }, this.scene);
-            
-            // Position at ball and orient along direction
-            ray.position = ballPosition.clone();
-            
-            // Calculate rotation to point along direction
-            // Cylinder default is Y-up, so we need to rotate it to point along our direction
-            const up = new BABYLON.Vector3(0, 1, 0);
-            const dir = new BABYLON.Vector3(dirX, dirY, dirZ);
-            
-            // Create rotation from default up to desired direction
-            const angle = Math.acos(BABYLON.Vector3.Dot(up, dir));
-            const axis = BABYLON.Vector3.Cross(up, dir);
-            if (axis.length() > 0.001) {
-                ray.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
-            }
-            
-            // Offset position so ray starts at ball surface, not center
-            ray.position = ballPosition.add(dir.scale(rayLength / 2 + 0.6)); // 0.6m = ball radius
-            
-            // UPGRADE: Share 1 material for all 40 rays (was 40 unique but identical materials)
-            // Per-ray alpha variation handled via mesh.visibility instead of material.alpha
-            if (!this._sharedMirrorRayMat) {
-                this._sharedMirrorRayMat = new BABYLON.StandardMaterial('sharedMirrorRayMat', this.scene);
-                this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                this._sharedMirrorRayMat.alpha = 1.0; // Controlled per-ray via mesh.visibility
-                this._sharedMirrorRayMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-                this._sharedMirrorRayMat.disableLighting = true;
-                this._sharedMirrorRayMat.backFaceCulling = false;
-                this._sharedMirrorRayMat.freeze();
-            }
-            ray.material = this._sharedMirrorRayMat;
-            ray.visibility = 0.12 + Math.random() * 0.08; // Per-ray alpha variation (0.12-0.20)
-            ray.isPickable = false;
-            ray.setEnabled(false); // Starts disabled
-            
-            this.mirrorBallOutgoingRays.push({
-                mesh: ray,
-                material: this._sharedMirrorRayMat,
-                theta: theta,
-                phi: phi,
-                length: rayLength,
-                direction: dir.clone(),
-                rotationSpeed: 0.3 + Math.random() * 0.4 // Individual rotation speeds
-            });
-        }
-        
-        log.info(`✨ Created ${numRays} outgoing rays from mirror ball (all directions)`);
-        
-        // === REFLECTION SPOTS (Simulated light spots from mirror facets) ===
-        // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
-        // These are purely emissive meshes that create the illusion of reflections
-        this.mirrorReflectionSpots = [];
-        const numSpots = 100; // Reduced from 300 for VR performance
-        
-        // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
-        // Weight distribution to emphasize walls and ceiling (more visible in VR)
-        const floorSpots = Math.floor(numSpots * 0.20);     // 20% on floor
-        const ceilingSpots = Math.floor(numSpots * 0.20);   // 20% on ceiling
-        const wallSpots = Math.floor(numSpots * 0.15);      // 15% per wall (4 walls = 60%)
-        let spotIndex = 0;
-        
-        // No shared texture - using simple colored discs for performance and correct color updates
-        
-        const surfaces = [
-            { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02, count: floorSpots },
-            { name: 'ceiling', axis: 'xz', fixed: 'y', value: 9.83, count: ceilingSpots },
-            { name: 'leftWall', axis: 'yz', fixed: 'x', value: -16.73, count: wallSpots },
-            { name: 'rightWall', axis: 'yz', fixed: 'x', value: 16.73, count: wallSpots },
-            { name: 'backWall', axis: 'xy', fixed: 'z', value: -26.73, count: wallSpots },
-            { name: 'frontWall', axis: 'xy', fixed: 'z', value: 1.77, count: wallSpots }
-        ];
-        
-        surfaces.forEach(surface => {
-            for (let i = 0; i < surface.count; i++, spotIndex++) {
-                // Visual spot (emissive disc - looks like light reflection)
-                const spot = BABYLON.MeshBuilder.CreateDisc(`mirrorSpot${spotIndex}`, {
-                    radius: 0.12 + Math.random() * 0.12, // Size: 0.12-0.24m 
-                    tessellation: 8
-                }, this.scene);
-                
-                const spotMat = new BABYLON.StandardMaterial(`mirrorSpotMat${spotIndex}`, this.scene);
-                spotMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-                spotMat.specularColor = new BABYLON.Color3(0, 0, 0);
-                spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone(); // Initial color - updated every frame in animation loop
-                spotMat.alpha = 0.85; // High visibility
-                spotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
-                spotMat.disableLighting = true;
-                spotMat.backFaceCulling = false; // Visible from both sides
-                spot.material = spotMat;
-                spot.isPickable = false;
-                spot.setEnabled(false);
-                
-                // Create VOLUMETRIC BEAM for this spot (light cutting through smoke)
-                // Thin cylinder stretching from ball to spot - HYPERREALISTIC light rays
-                const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorBeam${spotIndex}`, {
-                    diameterTop: 0.03,    // Thin at ball (light source)
-                    diameterBottom: 0.25, // Wider at spot (light spread)
-                    height: 1.0,          // Initial height (will be scaled)
-                    tessellation: 4       // Low poly for performance (hundreds of beams)
-                }, this.scene);
-                
-                // Pivot at top (ball position) so we can scale length easily
-                beam.setPivotPoint(new BABYLON.Vector3(0, 0.5, 0)); 
-                
-                // UPGRADE: Share 1 beam material for all 100 reflection beams (was 100 unique)
-                // Per-beam alpha handled via mesh.visibility
-                if (!this._sharedMirrorBeamMat) {
-                    this._sharedMirrorBeamMat = new BABYLON.StandardMaterial('sharedMirrorBeamMat', this.scene);
-                    this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                    this._sharedMirrorBeamMat.alpha = 1.0;
-                    this._sharedMirrorBeamMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-                    this._sharedMirrorBeamMat.disableLighting = true;
-                    this._sharedMirrorBeamMat.backFaceCulling = false;
-                    this._sharedMirrorBeamMat.freeze();
-                }
-                beam.material = this._sharedMirrorBeamMat;
-                beam.visibility = 0.2; // Default visibility, updated per-frame
-                beam.isPickable = false;
-                beam.setEnabled(false);
-                
-                // Generate random position on this surface
-                let targetPos, normal;
-                
-                if (surface.axis === 'xz') { // Floor or ceiling
-                    targetPos = new BABYLON.Vector3(
-                        -17 + Math.random() * 34,  // x: -17 to +17 (full room width)
-                        surface.value,
-                        -27 + Math.random() * 29   // z: -27 to +2 (full room depth)
-                    );
-                    normal = surface.name === 'floor' ? 
-                        new BABYLON.Vector3(0, 1, 0) : 
-                        new BABYLON.Vector3(0, -1, 0);
-                        
-                } else if (surface.axis === 'yz') { // Left or right wall
-                    targetPos = new BABYLON.Vector3(
-                        surface.value,
-                        0.2 + Math.random() * 9.6,  // y: 0.2 to 9.8 (full wall height)
-                        -27 + Math.random() * 29    // z: -27 to +2 (full wall depth)
-                    );
-                    normal = surface.name === 'leftWall' ? 
-                        new BABYLON.Vector3(1, 0, 0) : 
-                        new BABYLON.Vector3(-1, 0, 0);
-                        
-                } else { // Back or front wall (xy)
-                    targetPos = new BABYLON.Vector3(
-                        -17 + Math.random() * 34,  // x: -17 to +17 (full wall width)
-                        0.2 + Math.random() * 9.6,  // y: 0.2 to 9.8 (full wall height)
-                        surface.value
-                    );
-                    normal = surface.name === 'backWall' ? 
-                        new BABYLON.Vector3(0, 0, 1) : 
-                        new BABYLON.Vector3(0, 0, -1);
-                }
-                
-                spot.position = targetPos;
-                
-                // Calculate direction from ball to spot (for animation)
-                const ballPos = new BABYLON.Vector3(0, 6.5, -12);
-                const directionFromBall = targetPos.subtract(ballPos).normalize();
-                
-                // Convert to spherical coordinates for rotation
-                const distance = BABYLON.Vector3.Distance(targetPos, ballPos);
-                let theta = Math.atan2(directionFromBall.z, directionFromBall.x);
-                let phi = Math.acos(directionFromBall.y);
-                
-                this.mirrorReflectionSpots.push({
-                    visual: spot,
-                    beam: beam, // Store beam reference
-                    material: spotMat,
-                    beamMaterial: this._sharedMirrorBeamMat,
-                    surface: surface.name,
-                    surfaceNormal: normal,
-                    targetPosition: targetPos.clone(),
-                    theta: theta,
-                    phi: phi,
-                    distance: distance,
-                    thetaSpeed: (Math.random() - 0.5) * 0.8,  // Rotation speed
-                    phiSpeed: (Math.random() - 0.5) * 0.5,
-                    baseIntensity: 0.5 + Math.random() * 0.7,
-                    twinkleSpeed: 2 + Math.random() * 4,
-                    twinklePhase: Math.random() * Math.PI * 2,
-                    previousPosition: targetPos.clone(), // Track previous position for smooth interpolation
-                    previousHitMesh: null // Track which mesh was hit last frame
-                });
-            }
-        });
-        
-        log.info(`✨ Created ${this.mirrorReflectionSpots.length} reflection spots across 6 surfaces (floor, ceiling, 4 walls)`);
-        
-        // Store references for animation and color updates
-        this.mirrorBall = mirrorBall;
-        this.mirrorBallRotation = 0; // Track rotation for animation
-        this.spotUpdateFrameCounter = 0; // Frame counter for synchronized updates
-        
-        // PERFORMANCE: Cache ray picking predicate (avoid creating new function every ray cast)
-        // CRITICAL: Only accept REAL ROOM SURFACES - floor, walls, ceiling, pillars, truss
-        // Reject everything else to prevent reflection spots floating in mid-air
-        this.mirrorBallRayPredicate = (mesh) => {
-            if (!mesh.isPickable || !mesh.isEnabled()) return false;
-            if (!mesh.isVisible) return false;
-            
-            const name = mesh.name.toLowerCase();
-            
-            // WHITELIST APPROACH: Only accept known room surfaces
-            // This prevents spots appearing on invisible/transparent objects
-            const validSurfaces = [
-                'floor', 'ground', 'dancefloor',
-                'wall', 'backwall', 'sidewall', 'frontwall',
-                'ceiling',
-                'pillar', 'column',
-                'truss', 'beam',  // Structural beams, not light beams
-                'stage', 'platform', 'booth',
-                'bar', 'counter',
-                'brick', 'concrete'
-            ];
-            
-            // Check if mesh name contains any valid surface keyword
-            for (const surface of validSurfaces) {
-                if (name.includes(surface)) {
-                    // Double-check it's not a light beam or effect
-                    if (name.includes('light') || name.includes('spot') || 
-                        name.includes('laser') || name.includes('glow') ||
-                        name.includes('led') || name.includes('pool')) {
-                        return false;
-                    }
-                    return true;
-                }
-            }
-            
-            // Reject everything else (avatars, NPCs, effects, UI, etc.)
-            return false;
-        };
-        
-        // PERFORMANCE: Pre-create reusable Ray object (avoid allocating new Ray every frame)
-        // Initialize with mirror ball position (0, 6.5, -12)
-        const mirrorBallPos = new BABYLON.Vector3(0, 6.5, -12);
-        this.mirrorBallRay = new BABYLON.Ray(mirrorBallPos, new BABYLON.Vector3(0, 0, 1), 30);
-        
-        log.info('✨ Mirror ball created with 3 dramatic spotlights from multiple angles');
-    }
-    
-    updateAnimations() {
-        const time = performance.now() / 1000;
-        this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
+updateAnimations() {       const time = performance.now() / 1000;
+        const deltaTime = this.engine.getDeltaTime() / 1000;
         this.frameCounter++;
-        
-        // === GOBO ROTATION UPDATE ===
-        // Continuous 360° rotation for gobo patterns
-        if (this.goboEnabled) {
-            this.goboRotation += 0.02 * (this.goboRotationSpeed || 1.0);
-            if (this.goboRotation > Math.PI * 2) {
-                this.goboRotation -= Math.PI * 2;
-            } else if (this.goboRotation < -Math.PI * 2) {
-                this.goboRotation += Math.PI * 2;
-            }
-        }
-        
-        // OPTIMIZATION: Pre-calculate frequently used trig values (reduces ~30-40 Math.sin/cos calls per frame)
-        const sinTime = Math.sin(time);
-        const cosTime = Math.cos(time);
-        const sinTime2 = Math.sin(time * 2);
-        const sinTime3 = Math.sin(time * 3);
-        const sinTime8 = Math.sin(time * 8);
-        const sinTimeThird = Math.sin(time * 0.3);
-        
-        // PERFORMANCE: Cache expensive calculations
-        const speedMultiplierSpot = this.spotlightSpeed || 1.0;
-        const speedMultiplierLaser = this.laserSpeed || 1.0;
-        
-        // Get audio data for reactive lighting (needed for laser sheet pulse)
-        const audioData = this.getAudioData();
 
-        // === FOG MACHINE SYSTEM CONTROL ===
-        if (this.fogMachines && this.fogMachines.length > 0) {
-            const currentTime = time;
-            
-            if (this.smokeActive) {
-                // Ensure haze is running for beam visibility
-                if (this.haze && !this.haze.isStarted()) this.haze.start();
-                
-                // Update each fog machine
-                this.fogMachines.forEach((machine, i) => {
-                    const emitter = machine.emitter;
-                    const led = machine.led;
-                    const ledMat = machine.ledMat;
-                    
-                    // === FOG BURST LOGIC ===
-                    if (this.fogBurstMode === 'auto') {
-                        // Automatic bursts synced to music/phase
-                        const timeSinceLastBurst = currentTime - this.lastFogBurst;
-                        const burstInterval = this.fogBurstInterval / this.fogIntensity;
-                        
-                        if (!machine.isBursting && timeSinceLastBurst > burstInterval) {
-                            // Start a burst
-                            machine.isBursting = true;
-                            machine.burstTimer = 2.5; // 2.5 second burst
-                            emitter.emitRate = 150 * this.fogIntensity;
-                            
-                            // Update LED to red (active)
-                            ledMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0);
-                            
-                            if (i === 0) this.lastFogBurst = currentTime;
-                        }
-                        
-                        if (machine.isBursting) {
-                            machine.burstTimer -= 0.016; // ~60fps decrement
-                            
-                            // Fade out burst over last 0.5 seconds
-                            if (machine.burstTimer < 0.5) {
-                                emitter.emitRate = 150 * this.fogIntensity * (machine.burstTimer / 0.5);
-                            }
-                            
-                            if (machine.burstTimer <= 0) {
-                                machine.isBursting = false;
-                                emitter.emitRate = 0;
-                                ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green (ready)
-                            }
-                        }
-                        
-                    } else if (this.fogBurstMode === 'continuous') {
-                        // Continuous low output
-                        emitter.emitRate = 80 * this.fogIntensity;
-                        ledMat.emissiveColor = new BABYLON.Color3(1, 0.5, 0); // Orange (continuous)
-                        machine.isBursting = false;
-                        
-                    } else if (this.fogBurstMode === 'burst') {
-                        // Manual burst mode - awaiting trigger
-                        if (!machine.isBursting) {
-                            emitter.emitRate = 0;
-                            ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 1); // Blue (standby)
-                        }
-                    }
-                });
-                
-            } else {
-                // Smoke disabled - stop all fog machines
-                this.fogMachines.forEach(machine => {
-                    machine.emitter.emitRate = 0;
-                    machine.isBursting = false;
-                    machine.ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray (off)
-                });
-                
-                if (this.haze && this.haze.isStarted()) this.haze.stop();
+        const audioData = this.getAudioData() || { baseEnergy: 0, low: 0, mid: 0, high: 0 };
+
+        // Modular System Master Update
+        if (this.useModularSystems && this.systems.vjControl) {
+            // Sync toggles and settings to the VJ console state
+            if (this.systems.laser) this.systems.laser.setActive(this.lasersActive);
+            // Sync spot color changes
+            if (this.systems.spotlight && this.currentSpotColor) {
+               this.systems.spotlight.currentSpotColor = this.currentSpotColor;
             }
+            if (this.systems.spotlight) {
+                this.systems.spotlight.setActive(this.lightsActive);
+                this.systems.spotlight.spotlightSpeed = this.spotlightSpeed || 1.0;
+                this.systems.spotlight.spotlightMode = this.spotlightMode;
+                this.systems.spotlight.spotlightPattern = this.spotlightPattern;
+                this.systems.spotlight.spotStrobeActive = this.spotStrobeActive;
+            }
+            if (this.systems.mirrorBall) this.systems.mirrorBall.setActive(this.mirrorBallActive);
+            if (this.systems.ledWall) this.systems.ledWall.setActive(this.ledWallActive);
+            if (this.systems.strobe) this.systems.strobe.setActive(this.strobesActive);
+            if (this.systems.haze) this.systems.haze.setActive(this.smokeActive);
+
+            this.systems.vjControl.update(time, audioData);
         }
 
-        // ANIMATE LASER SHEET (Hyperrealism)
-        if (this.laserSheet && this.laserSheetActive) {
-            // SCANNING MOTION (Tilt up and down)
-            // Source is at y=5.5. Target z range is 0 to 40.
-            // Angle 0 = Horizontal. Angle + = Down.
-            
-            const scanSpeed = 0.2 * speedMultiplierLaser;
-            // Scan range: -0.1 (slightly up) to +0.4 (down to floor)
-            const scanAngle = 0.15 + Math.sin(time * scanSpeed) * 0.25; 
-            
-            // Rotate the SOURCE (parent), sheet follows
-            if (this.laserSheetSource) {
-                this.laserSheetSource.rotation.x = scanAngle;
-            }
-            
-            // Animate smoke texture flowing OUTWARD from source
-            if (this.laserSheet.material && this.laserSheet.material.opacityTexture) {
-                // Move V offset to flow from 0 (source) to 1 (end)
-                this.laserSheet.material.opacityTexture.vOffset -= 0.008 * speedMultiplierLaser;
-                // Slight side drift
-                this.laserSheet.material.opacityTexture.uOffset += 0.001 * Math.sin(time * 0.5);
-            }
-            
-            // Pulse intensity with audio
-            const pulse = 0.5 + (audioData.average || 0) * 0.5;
-            this.laserSheet.material.alpha = 0.5 * pulse;
-            
-            // Color sync
-            if (this.laserEmissiveColors) {
-                let sheetColor;
-                if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
-                else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
-                else sheetColor = this.cachedColors.blue;
-                
-                this.laserSheet.material.emissiveColor = sheetColor;
-                if (this.laserAperture) this.laserAperture.material.emissiveColor = sheetColor;
-                if (this.laserLight) {
-                    this.laserLight.diffuse = sheetColor;
-                    this.laserLight.intensity = 2.0 * pulse;
-                }
-            }
-            
-            this.laserSheet.isVisible = true;
-            if (this.laserSheetSource) this.laserSheetSource.isVisible = true;
-        } else if (this.laserSheet) {
-            this.laserSheet.isVisible = false;
-            if (this.laserSheetSource) this.laserSheetSource.isVisible = false;
-            if (this.laserLight) this.laserLight.intensity = 0;
-        }
-
-        // Update dancing NPC avatars
+        // Update NPCs
         if (this.npcAvatars && this.npcAvatars.length > 0) {
             this.updateDancingNPCs(time);
-        }
-        
-        // === MIRROR BALL EFFECT ===
-        if (this.mirrorBallActive) {
-            // Mirror ball is now INDEPENDENT - doesn't disable other lights
-            // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
-            // VJ has full control to enable any combination
-            
-            // Enable all mirror ball spotlights and beams
-            if (this.mirrorBallSpotlights) {
-                this.mirrorBallSpotlights.forEach(light => {
-                    if (light) light.setEnabled(true); // Only enable real lights (not nulls)
-                });
-            }
-            if (this.mirrorBallBeams) {
-                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
-            }
-            if (this.mirrorBallHousings) {
-                // PERFORMANCE: Cache scaled colors for mirror ball housings (avoid creating Color3 objects every frame)
-                if (!this.mirrorBallCachedColors || this.mirrorBallCachedColorSource !== this.mirrorBallSpotlightColor) {
-                    this.mirrorBallCachedColors = {
-                        housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                        lensBright: this.mirrorBallSpotlightColor.scale(5.0),
-                        sourceVeryBright: this.mirrorBallSpotlightColor.scale(8.0),
-                        flareMedium: this.mirrorBallSpotlightColor.scale(3.0)
-                    };
-                    this.mirrorBallCachedColorSource = this.mirrorBallSpotlightColor;
-                }
-                
-                this.mirrorBallHousings.forEach(housing => {
-                    // Make all fixture components glow with current color (professional moving head)
-                    housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
-                    housing.lensMaterial.emissiveColor = this.mirrorBallCachedColors.lensBright;
-                    housing.sourceMaterial.emissiveColor = this.mirrorBallCachedColors.sourceVeryBright;
-                    housing.flareMaterial.emissiveColor = this.mirrorBallCachedColors.flareMedium;
-                });
-            };
-            
-            // Rotate mirror ball faster so you can see it spinning (classic disco ball rotation)
-            // Apply speed multiplier for VJ control
-            if (this.mirrorBall) {
-                const speedMultiplier = this.mirrorBallSpeed || 1.0;
-                this.mirrorBallRotation -= 0.003 * speedMultiplier; // Negative rotation - spots now move in same visual direction
-                this.mirrorBall.rotation.y = this.mirrorBallRotation;
-                
-                // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set)
-                // Cycle colors every 3 seconds for dynamic club atmosphere
-                if (!this.vjManualMode && this.frameCounter % 180 === 0) { // Every ~3 seconds at 60fps
-                    this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
-                    this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
-                    
-                    // Update spotlight diffuse colors (the actual lights pointing at the ball)
-                    if (this.mirrorBallSpotlights) {
-                        this.mirrorBallSpotlights.forEach(light => {
-                            if (light) light.diffuse = this.mirrorBallSpotlightColor.clone();
-                        });
-                    }
-                    
-                    // Update beam colors (visual beams from fixtures to ball)
-                    if (this.mirrorBallBeams) {
-                        this.mirrorBallBeams.forEach(beam => {
-                            beam.material.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                        });
-                    }
-                    
-                    // Update housing colors immediately
-                    if (this.mirrorBallHousings) {
-                        // Update cached colors
-                        this.mirrorBallCachedColors = {
-                            housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                            lensBright: this.mirrorBallSpotlightColor.scale(5.0),
-                            sourceVeryBright: this.mirrorBallSpotlightColor.scale(8.0),
-                            flareMedium: this.mirrorBallSpotlightColor.scale(3.0)
-                        };
-                        
-                        this.mirrorBallHousings.forEach(housing => {
-                            housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;
-                            housing.lensMaterial.emissiveColor = this.mirrorBallCachedColors.lensBright;
-                            housing.sourceMaterial.emissiveColor = this.mirrorBallCachedColors.sourceVeryBright;
-                            housing.flareMaterial.emissiveColor = this.mirrorBallCachedColors.flareMedium;
-                        });
-                    }
-                }
-            }
-            
-            // === ANIMATE OUTGOING RAYS FROM MIRROR BALL ===
-            // These rays rotate WITH the ball and raycast to surfaces for realistic termination
-            if (this.mirrorBallOutgoingRays && this.mirrorBallOutgoingRays.length > 0) {
-                const ballPos = this.mirrorBall.position;
-                const speedMultiplier = this.mirrorBallSpeed || 1.0;
-                
-                // Reuse ray object for performance
-                if (!this.mirrorOutgoingRay) {
-                    this.mirrorOutgoingRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 40);
-                    this.mirrorOutgoingRayPredicate = (mesh) => {
-                        return mesh.isPickable && 
-                               !mesh.name.includes('mirror') && 
-                               !mesh.name.includes('Ray') &&
-                               !mesh.name.includes('spot') &&
-                               !mesh.name.includes('laser');
-                    };
-                }
-                
-                // Only update ray lengths every 6th frame on desktop (expensive raycasts)
-                // In VR update every 2nd frame for better sync
-                const shouldUpdateRayLengths = this.isInVRMode ? 
-                    (this.frameCounter % 2 === 0) : 
-                    (this.frameCounter % 6 === 0);
-                
-                this.mirrorBallOutgoingRays.forEach((ray, i) => {
-                    ray.mesh.setEnabled(true);
-                    
-                    // Rotate ray direction with the mirror ball (around Y axis)
-                    const rotatedTheta = ray.theta + this.mirrorBallRotation;
-                    
-                    // Calculate new direction based on rotated angle
-                    const sinPhi = Math.sin(ray.phi);
-                    const dirX = sinPhi * Math.cos(rotatedTheta);
-                    const dirY = Math.cos(ray.phi);
-                    const dirZ = sinPhi * Math.sin(rotatedTheta);
-                    const dir = new BABYLON.Vector3(dirX, dirY, dirZ);
-                    
-                    // Raycast to find actual surface hit (staggered for performance)
-                    let actualLength = ray.length; // Default to stored length
-                    if (shouldUpdateRayLengths && (i % 8 === this.frameCounter % 8)) {
-                        // Raycast from ball surface outward
-                        const rayStart = ballPos.add(dir.scale(0.6)); // Start at ball surface
-                        this.mirrorOutgoingRay.origin.copyFrom(rayStart);
-                        this.mirrorOutgoingRay.direction.copyFrom(dir);
-                        
-                        const hit = this.scene.pickWithRay(this.mirrorOutgoingRay, this.mirrorOutgoingRayPredicate);
-                        if (hit && hit.hit && hit.pickedPoint) {
-                            actualLength = hit.distance;
-                            ray.currentLength = actualLength; // Cache for smooth interpolation
-                        }
-                    }
-                    
-                    // Use cached length with smooth interpolation
-                    const targetLength = ray.currentLength || ray.length;
-                    ray.displayLength = ray.displayLength || ray.length;
-                    ray.displayLength += (targetLength - ray.displayLength) * 0.1; // Smooth
-                    
-                    // Update mesh scale to match actual ray length
-                    const scaleRatio = ray.displayLength / ray.length;
-                    ray.mesh.scaling.y = scaleRatio;
-                    
-                    // Position ray starting from ball surface
-                    ray.mesh.position = ballPos.add(dir.scale(ray.displayLength / 2 + 0.6));
-                    
-                    // Rotate ray to point along direction
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(up, dir));
-                    const axis = BABYLON.Vector3.Cross(up, dir);
-                    if (axis.length() > 0.001) {
-                        ray.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
-                    }
-                    
-                    // Twinkling effect - subtle visibility variation (shared material, per-mesh visibility)
-                    const twinkle = 0.8 + 0.2 * Math.sin(time * 5 + i * 0.7);
-                    ray.mesh.visibility = (0.12 + (i % 5) * 0.02) * twinkle;
-                });
-                
-                // UPGRADE: Update shared ray material color once (not 40× per frame)
-                if (this._sharedMirrorRayMat) {
-                    this._sharedMirrorRayMat.unfreeze();
-                    this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor;
-                    this._sharedMirrorRayMat.freeze();
-                }
-            }
-            
-            // Animate reflection spots around the room (150 spots covering all surfaces)
-            // SYNCHRONIZED FRAME-SKIP OPTIMIZATION: Update ALL spots every 3 frames
-            // This eliminates "catch-up" effect while maintaining 60fps performance
-            if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
-                const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
-                
-                // FRAME-SKIP STRATEGY: Update every frame in VR (stereo sync), every 3rd frame on desktop
-                // Frame-skipping in VR causes different states per eye = epileptic effect
-                this.spotUpdateFrameCounter = (this.spotUpdateFrameCounter || 0) + 1;
-                const shouldUpdate = this.isInVRMode ? true : (this.spotUpdateFrameCounter % 3 === 0);
-                
-                if (shouldUpdate) {
-                    // Update ALL spots synchronously
-                    for (let i = 0; i < this.mirrorReflectionSpots.length; i++) {
-                    const spot = this.mirrorReflectionSpots[i];
-                    // Enable visual spot (no actual light - just emissive mesh)
-                    spot.visual.setEnabled(true);
-                    
-                    // REALISTIC RAY CASTING: Calculate direction from mirror ball based on rotation
-                    // Each spot represents a mirror facet at a specific angle (theta, phi)
-                    // As ball rotates, the facet direction rotates with it in a realistic manner
-                    // The ball rotates on Y-axis, so horizontal angle (theta) changes, vertical (phi) stays fixed
-                    // SYNC FIX: Use same rotation direction as outgoing rays (+ not -)
-                    const rotatedTheta = spot.theta + this.mirrorBallRotation; // Match outgoing ray rotation direction
-                    
-                    // OPTIMIZED: Cache cos/sin calculations for reuse
-                    const cosTheta = Math.cos(rotatedTheta);
-                    const sinTheta = Math.sin(rotatedTheta);
-                    
-                    // Calculate ray direction from ball in spherical coordinates (standard physics)
-                    const sinPhi = Math.sin(spot.phi);
-                    const dirX = sinPhi * cosTheta;
-                    const dirY = Math.cos(spot.phi);
-                    const dirZ = sinPhi * sinTheta;
-                    
-                    // Ray cast from ball position to find which surface it hits
-                    // ULTRA-OPTIMIZED: Reuse cached Ray object instead of creating new ones (massive allocation savings)
-                    this.mirrorBallRay.origin.copyFrom(ballPos);
-                    this.mirrorBallRay.direction.set(dirX, dirY, dirZ);
-                    this.mirrorBallRay.length = 30; // Max 30m range
-                    
-                    // Pick meshes using cached predicate and cached ray (MAXIMUM PERFORMANCE)
-                    const pickResult = this.scene.pickWithRay(this.mirrorBallRay, this.mirrorBallRayPredicate);
-                    
-                    let hitPos = null;
-                    let hitNormal = null;
-                    let hitDistance = Infinity;
-                    let hitMesh = null;
-                    
-                    if (pickResult.hit && pickResult.pickedPoint) {
-                        hitPos = pickResult.pickedPoint;
-                        hitNormal = pickResult.getNormal(true); // Get normalized surface normal
-                        hitDistance = pickResult.distance;
-                        hitMesh = pickResult.pickedMesh;
-                        
-                        // Offset slightly from surface to prevent z-fighting
-                        if (hitNormal) {
-                            hitPos = hitPos.add(hitNormal.scale(0.02));
-                        } else {
-                            // Fallback if normal calculation fails - use reverse ray direction
-                            hitNormal = this.mirrorBallRay.direction.scale(-1);
-                        }
-                    }
-                    
-                    // Position spot at ray intersection point with REALISTIC SMOOTH INTERPOLATION
-                    if (hitPos) {
-                        // IMPROVED: Calculate realistic movement based on ball rotation speed
-                        const distanceMoved = BABYLON.Vector3.Distance(spot.visual.position, hitPos);
-                        const isSameMesh = (spot.previousHitMesh === hitMesh);
-                        
-                        // REALISTIC interpolation: mirror ball reflections move based on physics
-                        // Real disco balls create smooth, continuous movement patterns
-                        let lerpFactor;
-                        
-                        if (!isSameMesh && distanceMoved > 5.0) {
-                            // Surface transition (e.g., wall to floor) - instant snap for realism
-                            // Real disco ball reflections jump between surfaces, not slide
-                            lerpFactor = 1.0;
-                        } else if (distanceMoved > 1.5) {
-                            // Significant movement - moderate tracking speed
-                            // Prevents unrealistic sliding while maintaining smooth motion
-                            lerpFactor = 0.7;
-                        } else if (distanceMoved < 0.1) {
-                            // Micro-movements - very smooth to eliminate jitter
-                            // Stabilizes spots that are nearly stationary
-                            lerpFactor = 0.9;
-                        } else {
-                            // Normal movement - balanced tracking
-                            // Natural speed that matches ball rotation
-                            lerpFactor = 0.75;
-                        }
-                        
-                        // Smoothly interpolate position (prevents jarring jumps)
-                        spot.visual.position.x += (hitPos.x - spot.visual.position.x) * lerpFactor;
-                        spot.visual.position.y += (hitPos.y - spot.visual.position.y) * lerpFactor;
-                        spot.visual.position.z += (hitPos.z - spot.visual.position.z) * lerpFactor;
-                        
-                        // Orient perpendicular to surface
-                        spot.visual.lookAt(spot.visual.position.add(hitNormal));
-                        
-                        // Update tracking for next frame
-                        spot.previousPosition.copyFrom(spot.visual.position);
-                        spot.previousHitMesh = hitMesh;
-                        
-                        // Distance fade and twinkling - REDUCED BRIGHTNESS
-                        const distanceFade = Math.max(0.3, 1 - (hitDistance / 30)); // Dimmer with distance
-                        const twinkle = 0.7 + 0.3 * Math.sin(time * spot.twinkleSpeed + spot.twinklePhase); // Gentle twinkling
-                        const brightness = spot.baseIntensity * distanceFade * twinkle * 0.6; // 40% dimmer overall
-                        
-                        // DIMMER emissive color
-                        spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.5, brightness));
-                        spot.material.alpha = 0.9; // More visible spot
-
-                        // UPDATE VOLUMETRIC BEAM - Position at ball, point at spot
-                        if (spot.beam) {
-                            spot.beam.setEnabled(true);
-                            // CRITICAL: Set beam position at the mirror ball
-                            spot.beam.position.copyFrom(ballPos);
-                            // Point beam at spot position
-                            spot.beam.lookAt(spot.visual.position);
-                            // Scale length to reach spot
-                            const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
-                            spot.beam.scaling.y = beamDist; // Cylinder height is Y axis
-                            
-                            // HYPERREALISTIC: Brighter beams for all directions
-                            // UPGRADE: Use mesh.visibility instead of shared material alpha
-                            spot.beam.visibility = 0.18 * distanceFade;
-                        }
-                        
-                        // Mark as visible for this frame
-                        spot.isVisible = true;
-
-                    } else {
-                        // Ray didn't hit any surface - HIDE IMMEDIATELY
-                        // Spots shouldn't float in mid-air
-                        spot.visual.setEnabled(false);
-                        if (spot.beam) spot.beam.setEnabled(false);
-                        spot.isVisible = false;
-                        spot.previousHitMesh = null;
-                    }
-                }
-                } // Close if (shouldUpdate)
-                
-                // Update visibility based on tracking state
-                this.mirrorReflectionSpots.forEach(spot => {
-                    // Only enable if it was marked visible during the last update
-                    // AND if the mirror ball is active
-                    if (spot.isVisible) {
-                        spot.visual.setEnabled(true);
-                        if (spot.beam && spot.material.alpha > 0.01) {
-                            spot.beam.setEnabled(true);
-                        }
-                    } else {
-                        spot.visual.setEnabled(false);
-                        if (spot.beam) spot.beam.setEnabled(false);
-                    }
-                });
-                
-                // UPGRADE: Update shared beam material color once per frame (not 100×)
-                if (this._sharedMirrorBeamMat) {
-                    this._sharedMirrorBeamMat.unfreeze();
-                    this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
-                    this._sharedMirrorBeamMat.freeze();
-                }
-            } // Close if (this.mirrorReflectionSpots...)
-        } else {
-            // Mirror ball inactive - disable all mirror ball elements
-            if (this.mirrorBallSpotlights) {
-                this.mirrorBallSpotlights.forEach(light => {
-                    if (light) light.setEnabled(false); // Check for null (fake lights)
-                });
-            }
-            if (this.mirrorBallBeams) {
-                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(false));
-            }
-            if (this.mirrorBallOutgoingRays) {
-                this.mirrorBallOutgoingRays.forEach(ray => ray.mesh.setEnabled(false));
-            }
-            if (this.mirrorBallHousings) {
-                // PERFORMANCE: Use cached black color instead of creating new Color3 objects
-                this.mirrorBallHousings.forEach(housing => {
-                    housing.material.emissiveColor = this.cachedColors.black;
-                    housing.lensMaterial.emissiveColor = this.cachedColors.black;
-                });
-            }
-            if (this.mirrorReflectionSpots) {
-                this.mirrorReflectionSpots.forEach(spot => {
-                    spot.visual.setEnabled(false);
-                    if (spot.beam) spot.beam.setEnabled(false);
-                });
-            }
-        }
-        
-        // PROFESSIONAL VJ AUTOMATIC PATTERN SYSTEM
-        // Designed by a world-class VJ with experience at Berghain, Fabric, Amnesia, and Output
-        // Philosophy: Build tension → Release → Create moments → Repeat
-        // Each phase tells a story with the lights
-        if (!this.vjManualMode) {
-            const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
-            
-            // Smoothly interpolate energy level toward target
-            const energySpeed = 0.005; // Faster for more dynamic feel
-            this.energyLevel += (this.targetEnergy - this.energyLevel) * energySpeed;
-            
-            // === IMMERSIVE BEAT-SYNCED MICRO-DYNAMICS ===
-            // Real VJ: constant subtle adjustments, never static
-            const bpm = this.bpm || 128;
-            const beatTime = 60 / bpm;
-            this.syncedBeatPhase = (time % beatTime) / beatTime; // 0-1 per beat
-            
-            // Breathing effect synced to 4-beat bars
-            const barPhase = (time % (beatTime * 4)) / (beatTime * 4);
-            const microPulse = Math.sin(barPhase * Math.PI * 2) * 0.15;
-            
-            // Sharp beat pulse (peaks on each beat)
-            const beatPulse = Math.pow(1 - this.syncedBeatPhase, 3) * 0.2;
-            
-            // Crowd focus: spotlights occasionally converge on dance floor center
-            this.crowdFocusIntensity = Math.sin(time * 0.1) * 0.5 + 0.5;
-            
-            if (time - this.lightModeSwitchTime > currentPhaseDuration) {
-                // === IMMERSIVE 12-PHASE SHOW CYCLE ===
-                // Professional animation sequence designed for maximum crowd immersion
-                switch(this.lightingPhase) {
-                    case 'intro':
-                        // INTRO → BUILD: Tease the crowd, slow reveal
-                        this.lightingPhase = 'build';
-                        this.targetEnergy = 0.5;
-                        
-                        // Moving heads sweep slowly, creating anticipation
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true; // Haze for beam visibility
-                        
-                        // === FOG MACHINES: Auto mode with moderate output ===
-                        this.fogIntensity = 0.8;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 12; // Occasional bursts
-                        
-                        this.spotlightPattern = 0; // Automated movement patterns
-                        this.spotlightMode = 1; // Sweep only (no strobe)
-                        this.spotlightSpeed = 0.6; // Slow, hypnotic
-                        this.laserSpeed = 0.5;
-                        this.ledWallSpeed = 0.7;
-                        this.currentShowMode = 'spotlights';
-                        log.info('🎭 BUILD: Tension rising - Slow sweeping beams');
-                        break;
-                        
-                    case 'build':
-                        // BUILD → TENSION: Increase intensity with gobos only
-                        this.lightingPhase = 'tension';
-                        this.targetEnergy = 0.75;
-                        
-                        // GOBOS ONLY - fast sweeping, no lasers yet (save for later)
-                        this.lightsActive = true;  // Gobos featured
-                        this.lasersActive = false; // Lasers OFF - save for their moment
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = true; // Blinders start pulsing
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        this.spotlightPattern = 3; // CROSSED BEAMS - dramatic X patterns build tension
-                        this.spotlightMode = 0; // Strobe + sweep
-                        this.spotlightSpeed = 1.4; // Faster as tension builds
-                        this.laserSpeed = 1.0;
-                        this.ledWallSpeed = 1.2;
-                        this.blinderSpeed = 0.8;
-                        
-                        // === FOG: Building intensity ===
-                        this.fogIntensity = 1.2;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 6;
-                        
-                        this.currentShowMode = 'spotlights';
-                        log.info('⚡ TENSION: Gobos intensify - Crossed beams building');
-                        break;
-                        
-                    case 'tension':
-                        // TENSION → DROP: THE BIG MOMENT - Everything explodes!
-                        this.lightingPhase = 'drop';
-                        this.targetEnergy = 1.0;
-                        this.vjDropActive = true; // Trigger drop effects
-                        this.vjDropTimer = time;
-                        
-                        // MAXIMUM CHAOS - Laser sheet + strobes + blinders
-                        this.lightsActive = false; // Gobos off for laser sheet
-                        this.lasersActive = false; // Ceiling lasers off
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true; // STROBES FIRE
-                        this.blindersActive = true; // BLINDERS FIRE
-                        // this.laserSheetActive = true; // LASER SHEET DISABLED
-                        this.smokeActive = true; // Maximum haze
-                        
-                        // === FOG MACHINE BURST ON DROP ===
-                        this.fogIntensity = 2.0; // Maximum fog output
-                        this.fogBurstInterval = 3; // Rapid bursts
-                        // Trigger immediate burst
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(machine => {
-                                machine.isBursting = true;
-                                machine.burstTimer = 4.0; // Long burst on drop
-                                machine.emitter.emitRate = 250;
-                            });
-                        }
-                        
-                        this.spotlightSpeed = 2.5; // FAST
-                        this.laserSpeed = 2.0;
-                        this.ledWallSpeed = 2.5; // LED wall goes crazy
-                        this.strobeSpeed = 2.0; // Rapid strobes
-                        this.blinderSpeed = 2.0; // Blinders punching
-                        this.currentShowMode = 'laserSheet';
-                        log.info('💥 DROP: MAXIMUM IMPACT - Fog machines blast!');
-                        break;
-                        
-                    case 'drop':
-                        // DROP → PEAK: Sustain the energy, controlled chaos
-                        this.lightingPhase = 'peak';
-                        this.targetEnergy = 0.95;
-                        this.vjDropActive = false;
-                        
-                        // High energy but slightly more controlled
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true; // Keep strobes
-                        this.blindersActive = true; // Keep blinders
-                        // this.laserSheetActive = true; // LASER SHEET DISABLED
-                        this.smokeActive = true;
-                        
-                        this.spotlightSpeed = 1.8;
-                        this.laserSpeed = 1.5;
-                        this.ledWallSpeed = 1.8;
-                        this.strobeSpeed = 1.5;
-                        this.blinderSpeed = 1.2;
-                        
-                        // === FOG: Sustained high output ===
-                        this.fogIntensity = 1.5;
-                        this.fogBurstMode = 'continuous';
-                        
-                        this.currentShowMode = 'laserSheet';
-                        log.info('🔥 PEAK: Riding the wave - Sustained high energy');
-                        break;
-                        
-                    case 'peak':
-                        // PEAK → BREAKDOWN: Sudden cut - create contrast
-                        this.lightingPhase = 'breakdown';
-                        this.targetEnergy = 0.2; // DRAMATIC DROP in energy
-                        
-                        // EVERYTHING OFF except mirror ball - disco moment!
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = true; // THE DISCO BALL MOMENT
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = false; // Clear air for reflections
-                        
-                        // === FOG MACHINE OFF for clean mirror ball reflections ===
-                        this.fogIntensity = 0.0;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(machine => {
-                                machine.isBursting = false;
-                                machine.emitter.emitRate = 0;
-                            });
-                        }
-                        
-                        this.mirrorBallSpeed = 0.4; // Slow, romantic
-                        this.ledWallSpeed = 0.3; // LED wall very slow
-                        this.currentShowMode = 'mirror';
-                        log.info('🪩 BREAKDOWN: Disco moment - Clear air for reflections');
-                        break;
-                        
-                    case 'breakdown':
-                        // BREAKDOWN → ATMOSPHERIC: Slow gobos only - dreamy
-                        this.lightingPhase = 'atmospheric';
-                        this.targetEnergy = 0.35;
-                        
-                        // GOBOS ONLY - ethereal slow movement after disco moment
-                        this.lightsActive = true;   // Slow ethereal gobos
-                        this.lasersActive = false;  // No lasers
-                        this.mirrorBallActive = false; // Mirror ball had its moment
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true; // Light haze for beam visibility
-                        
-                        this.spotlightPattern = 2; // MIRROR SWEEP - converging/diverging ethereal
-                        this.spotlightMode = 1; // Sweep only
-                        this.spotlightSpeed = 0.3; // Very slow, dreamlike
-                        this.mirrorBallSpeed = 0.5;
-                        this.ledWallSpeed = 0.4;
-                        
-                        // === FOG: Light haze for ethereal beams ===
-                        this.fogIntensity = 0.6;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 20;
-                        
-                        this.currentShowMode = 'spotlights';
-                        log.info('✨ ATMOSPHERIC: Ethereal gobos - Dreamlike sweeps');
-                        break;
-                        
-                    case 'atmospheric':
-                        // ATMOSPHERIC → LASER TUNNEL: Immersive laser experience
-                        this.lightingPhase = 'laser_tunnel';
-                        this.targetEnergy = 0.7;
-                        
-                        // ALL lasers converge toward dance floor - tunnel effect
-                        this.lightsActive = false;
-                        this.lasersActive = true;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        // this.laserSheetActive = true; // LASER SHEET DISABLED
-                        this.smokeActive = true; // Maximum haze for beam visibility
-                        
-                        // === FOG MACHINES: Heavy continuous output for laser tunnel ===
-                        this.fogIntensity = 1.5;
-                        this.fogBurstMode = 'continuous';
-                        
-                        this.laserSpeed = 0.3; // Very slow rotation
-                        this.laserFanAngle = 0.2; // Narrow fan - beams converge
-                        this.ledWallSpeed = 0.5;
-                        this.currentShowMode = 'lasers';
-                        log.info('🌀 LASER TUNNEL: Fog machines continuous for beam visibility');
-                        break;
-                        
-                    case 'laser_tunnel':
-                        // LASER TUNNEL → GROOVE: Transition to gobos-only hypnotic groove
-                        this.lightingPhase = 'groove';
-                        this.targetEnergy = 0.6;
-                        
-                        // GOBOS ONLY for groove - lasers had their moment
-                        this.lightsActive = true;   // Gobos take over
-                        this.lasersActive = false;  // Lasers OFF - contrast after laser tunnel
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        this.spotlightPattern = 2; // MIRROR SWEEP - hypnotic synchronized movement
-                        this.spotlightMode = 1; // Sweep only
-                        this.spotlightSpeed = 0.6; // Medium speed for groove
-                        this.laserSpeed = 0.6;
-                        this.laserFanAngle = 0.5; // Normal spread
-                        this.ledWallSpeed = 0.8;
-                        
-                        // === FOG: Light haze for groove ===
-                        this.fogIntensity = 0.7;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 15;
-                        
-                        this.currentShowMode = 'spotlights';
-                        log.info('🎵 GROOVE: Gobos-only hypnosis after laser intensity');
-                        break;
-                        
-                    case 'groove':
-                        // GROOVE → EUPHORIA: Mirror ball moment - disco glory
-                        this.lightingPhase = 'euphoria';
-                        this.targetEnergy = 0.85;
-                        
-                        // MIRROR BALL FEATURED - solo star with subtle gobos
-                        // This is THE disco moment - mirror ball deserves focus
-                        this.lightsActive = true;   // Slow gobos complement
-                        this.lasersActive = false;  // Lasers OFF - would overpower reflections
-                        this.mirrorBallActive = true; // THE STAR
-                        this.strobesActive = false; // No strobes - pure vibes
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = false;   // Clear air for crisp reflections
-                        
-                        this.spotlightPattern = 1; // STATIC DOWN - let mirror ball shine
-                        this.spotlightMode = 1; // Sweep only - elegant
-                        this.spotlightSpeed = 0.3; // Very slow - don't compete
-                        this.mirrorBallSpeed = 0.6;
-                        this.ledWallSpeed = 0.4; // Subdued LED wall
-                        
-                        // === FOG OFF - clear air for mirror ball reflections ===
-                        this.fogIntensity = 0;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(m => { m.isBursting = false; m.emitter.emitRate = 0; });
-                        }
-                        
-                        this.currentShowMode = 'mirror';
-                        log.info('💫 EUPHORIA: Mirror ball glory - Disco moment');
-                        break;
-                        
-                    case 'euphoria':
-                        // EUPHORIA → DARKNESS: Dramatic blackout for contrast
-                        this.lightingPhase = 'darkness';
-                        this.targetEnergy = 0.05; // Near-blackout
-                        
-                        // EVERYTHING OFF - total darkness except minimal LED
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = false;
-                        
-                        // === FOG OFF - pure darkness ===
-                        this.fogIntensity = 0;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(m => { m.isBursting = false; m.emitter.emitRate = 0; });
-                        }
-                        
-                        this.ledWallSpeed = 0.1; // LED wall very dim, slow pulse
-                        this.currentShowMode = 'darkness';
-                        log.info('🌑 DARKNESS: Dramatic blackout - fog cleared');
-                        break;
-                        
-                    case 'darkness':
-                        // DARKNESS → STROBE ATTACK: Explosive return!
-                        this.lightingPhase = 'strobe_attack';
-                        this.targetEnergy = 1.0; // MAXIMUM
-                        
-                        // STROBES + BLINDERS - sensory overload
-                        this.lightsActive = false;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = true; // FULL STROBES
-                        this.blindersActive = true; // BLINDERS PUNCH
-                        // this.laserSheetActive = true; // LASER SHEET DISABLED
-                        this.smokeActive = true;
-                        
-                        // === FOG BURST on strobe attack ===
-                        this.fogIntensity = 1.8;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 4;
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(m => {
-                                m.isBursting = true;
-                                m.burstTimer = 3.0;
-                                m.emitter.emitRate = 180;
-                            });
-                        }
-                        
-                        this.strobeSpeed = 3.0; // VERY FAST
-                        this.blinderSpeed = 2.5;
-                        this.ledWallSpeed = 3.0; // LED goes crazy
-                        this.currentShowMode = 'strobe_attack';
-                        log.info('⚡ STROBE ATTACK: Fog blast with strobes!');
-                        break;
-                        
-                    case 'strobe_attack':
-                        // STROBE ATTACK → BUILD: Reset cycle with high energy start
-                        this.lightingPhase = 'build';
-                        this.targetEnergy = 0.55;
-                        
-                        // Transition back to building phase
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        // === FOG: moderate auto mode for new cycle ===
-                        this.fogIntensity = 1.0;
-                        this.fogBurstMode = 'auto';
-                        this.fogBurstInterval = 10;
-                        
-                        this.spotlightPattern = 0;
-                        this.spotlightMode = 1;
-                        this.spotlightSpeed = 0.7;
-                        this.ledWallSpeed = 0.8;
-                        this.currentShowMode = 'spotlights';
-                        log.info('🔄 BUILD: New cycle begins - The journey continues');
-                        break;
-                        
-                    default:
-                        // STARTUP: Begin with intro
-                        this.lightingPhase = 'intro';
-                        this.targetEnergy = 0.3;
-                        
-                        this.lightsActive = true;
-                        this.lasersActive = false;
-                        this.mirrorBallActive = false;
-                        this.strobesActive = false;
-                        this.blindersActive = false;
-                        this.laserSheetActive = false;
-                        this.smokeActive = true;
-                        
-                        this.spotlightPattern = 0; // Automated movement patterns
-                        this.spotlightMode = 1;
-                        this.spotlightSpeed = 0.4;
-                        this.ledWallSpeed = 0.5;
-                        this.currentShowMode = 'spotlights';
-                        log.info('🌅 INTRO: Show begins - Setting the mood');
-                        break;
-                }
-                
-                this.lightModeSwitchTime = time;
-                
-                // DYNAMIC PHASE DURATIONS - Randomized for natural feel
-                const phaseName = this.lightingPhase;
-                if (phaseName === 'intro') {
-                    this.phaseDurations.intro = 12 + Math.random() * 8;
-                } else if (phaseName === 'build') {
-                    this.phaseDurations.build = 20 + Math.random() * 12;
-                } else if (phaseName === 'tension') {
-                    this.phaseDurations.tension = 12 + Math.random() * 8;
-                } else if (phaseName === 'drop') {
-                    this.phaseDurations.drop = 6 + Math.random() * 6; // SHORT for impact!
-                } else if (phaseName === 'peak') {
-                    this.phaseDurations.peak = 16 + Math.random() * 12;
-                } else if (phaseName === 'breakdown') {
-                    this.phaseDurations.breakdown = 10 + Math.random() * 6;
-                } else if (phaseName === 'atmospheric') {
-                    this.phaseDurations.atmospheric = 14 + Math.random() * 10;
-                } else if (phaseName === 'groove') {
-                    this.phaseDurations.groove = 20 + Math.random() * 12;
-                } else if (phaseName === 'euphoria') {
-                    this.phaseDurations.euphoria = 8 + Math.random() * 6;
-                } else if (phaseName === 'darkness') {
-                    this.phaseDurations.darkness = 4 + Math.random() * 4; // Very short!
-                } else if (phaseName === 'strobe_attack') {
-                    this.phaseDurations.strobe_attack = 5 + Math.random() * 3;
-                } else if (phaseName === 'laser_tunnel') {
-                    this.phaseDurations.laser_tunnel = 12 + Math.random() * 8;
-                }
-                
-                // Update VJ control button visuals to reflect state
-                if (this.vjControlButtons) {
-                    this.vjControlButtons.forEach(btn => {
-                        if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
-                            btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
-                            btn.control === 'ledWallActive' ||
-                            btn.control === 'smokeActive') {
-                            btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
-                        }
-                    });
-                }
-            }
-            
-            // === IMMERSIVE MICRO-DYNAMICS: Real-time crowd-focused animations ===
-            // Professional VJ technique: constant subtle adjustments create "living" show
-            
-            // Speed variations based on energy (things accelerate as energy rises)
-            const energySpeedBoost = 0.7 + this.energyLevel * 0.6; // 0.7x to 1.3x
-            
-            // === SPOTLIGHT CROWD FOCUS ===
-            // Occasionally converge spotlights on dance floor center for dramatic effect
-            if (this.lightsActive && this.spotlights) {
-                const convergeFactor = this.crowdFocusIntensity * 0.3; // 0-0.3 convergence
-                
-                this.spotlights.forEach((spot, i) => {
-                    if (spot.light) {
-                        // Intensity breathes with energy + beat sync
-                        const baseIntensity = 8 + this.energyLevel * 15; // 8-23
-                        const beatBoost = beatPulse * 2; // Punch on beats
-                        spot.light.intensity = baseIntensity * (1 + microPulse + beatBoost);
-                        
-                        // Color temperature shifts with phase
-                        if (this.lightingPhase === 'euphoria') {
-                            // Warm, golden tones during euphoria
-                            spot.light.diffuse.r = Math.min(1, spot.light.diffuse.r + 0.1);
-                            spot.light.diffuse.g = Math.min(1, spot.light.diffuse.g + 0.05);
-                        } else if (this.lightingPhase === 'tension') {
-                            // Cooler, bluer tones during tension
-                            spot.light.diffuse.b = Math.min(1, spot.light.diffuse.b + 0.1);
-                        }
-                    }
-                });
-            }
-            
-            // === LASER DYNAMICS ===
-            // Lasers respond to energy and create immersive patterns
-            if (this.lasersActive && this.lasers) {
-                const fanAngle = this.laserFanAngle || 0.5;
-                
-                this.lasers.forEach((laser, i) => {
-                    // Rotation speed tied to energy
-                    laser.rotationSpeed = (0.008 + this.energyLevel * 0.03) * energySpeedBoost;
-                    
-                    // During laser_tunnel phase, lasers converge
-                    if (this.lightingPhase === 'laser_tunnel') {
-                        laser.convergenceTarget = this.beamConvergencePoint;
-                        laser.fanSpread = fanAngle; // Narrow spread
-                    } else {
-                        laser.convergenceTarget = null;
-                        laser.fanSpread = 0.5; // Normal spread
-                    }
-                });
-            }
-            
-            // === MIRROR BALL IMMERSIVE DYNAMICS ===
-            // OPTIMIZATION: Skip mirror ball updates in VR if performance is critical
-            if (this.mirrorBallActive && this.mirrorBall && (!this.isInVRMode || this.frameCounter % 2 === 0)) {
-                if (this.lightingPhase === 'breakdown') {
-                    // Romantic slow rotation with breathing
-                    const romancePulse = Math.sin(time * 0.3) * 0.15;
-                    this.mirrorBallSpeed = 0.35 + romancePulse;
-                } else if (this.lightingPhase === 'euphoria') {
-                    // Faster, joyful rotation
-                    this.mirrorBallSpeed = 0.6 + Math.sin(time * 0.5) * 0.1;
-                } else {
-                    // Normal rotation
-                    this.mirrorBallSpeed = 0.5;
-                }
-            }
-            
-            // === STROBE INTENSITY CONTROL ===
-            if (this.strobesActive && this.lightingPhase === 'strobe_attack') {
-                // Maximum intensity during strobe attack
-                this.strobeSpeed = 2.5 + Math.random() * 0.5; // Vary speed slightly
-            }
-            
-        } else {
-            // In manual mode: update lightModeSwitchTime to prevent immediate cycling when mode expires
-            this.lightModeSwitchTime = time;
-        }
-        
-        // Update LED wall animations
-        // CRITICAL FIX: Handle both modular and legacy systems
-        if (this.useModularSystems && this.systems.ledWall) {
-            this.systems.ledWall.setActive(this.ledWallActive);
-            this.systems.ledWall.update(time, audioData);
-        } else if (this.ledWallActive) {
-            // Legacy update method
-            this.updateLEDWall(time, audioData);
-        } else if (this.ledPanels && this.ledPanels.length > 0) {
-            // LED Wall is OFF - turn all panels black (not just paused)
-            const blackColor = this.cachedColors.black;
-            this.ledPanels.forEach(panel => {
-                panel.material.emissiveColor = blackColor;
-            });
-        }
-        
-        // === IMMERSIVE DANCE FLOOR EDGE LED ANIMATION ===
-        // Creates a "breathing" floor that responds to the music and phase
-        if (this.danceFloorLEDs && this.danceFloorLEDs.length > 0) {
-            const bassLevel = audioData ? audioData.bass / 255 : 0.5;
-            const midLevel = audioData ? audioData.mid / 255 : 0.5;
-            const phase = this.lightingPhase;
-            
-            this.danceFloorLEDs.forEach((led, i) => {
-                let r, g, b, intensity;
-                
-                // Phase-specific floor colors for immersion
-                if (phase === 'darkness') {
-                    // Minimal glow during blackout - just enough to see
-                    r = 0.1; g = 0.1; b = 0.2;
-                    intensity = 0.2 + Math.sin(time * 0.5) * 0.1;
-                } else if (phase === 'strobe_attack') {
-                    // White strobe sync with floor
-                    const strobe = Math.sin(time * 20) > 0 ? 1 : 0;
-                    r = g = b = strobe;
-                    intensity = 1.0;
-                } else if (phase === 'euphoria') {
-                    // Warm golden pulse
-                    const warmPhase = time * 1.2 + i * 0.5;
-                    r = 1.0;
-                    g = 0.7 + Math.sin(warmPhase) * 0.2;
-                    b = 0.3;
-                    intensity = 0.7 + bassLevel * 0.3;
-                } else if (phase === 'laser_tunnel') {
-                    // Match laser colors (cycling RGB)
-                    const laserPhase = time * 0.5;
-                    r = Math.sin(laserPhase) * 0.5 + 0.5;
-                    g = Math.sin(laserPhase + 2.1) * 0.5 + 0.5;
-                    b = Math.sin(laserPhase + 4.2) * 0.5 + 0.5;
-                    intensity = 0.5 + midLevel * 0.5;
-                } else if (phase === 'breakdown') {
-                    // Soft purple/pink for romantic moment
-                    r = 0.8; g = 0.3; b = 0.9;
-                    intensity = 0.4 + Math.sin(time * 0.4) * 0.2;
-                } else {
-                    // Default: Color cycling with phase offset
-                    const colorPhase = time * 0.8 + i * Math.PI / 2;
-                    r = Math.sin(colorPhase) * 0.5 + 0.5;
-                    g = Math.sin(colorPhase + Math.PI * 2 / 3) * 0.5 + 0.5;
-                    b = Math.sin(colorPhase + Math.PI * 4 / 3) * 0.5 + 0.5;
-                    intensity = 0.5 + bassLevel * 0.5;
-                }
-                
-                led.material.emissiveColor.set(r * intensity, g * intensity, b * intensity);
-            });
-        }
-        
-        // ALWAYS SYNCHRONIZED MODE - no random mode
-        // Spotlights always move together in coordinated patterns
-        this.lightingMode = 'synchronized';
-        
-        // LASER COLOR SWITCHING: Only change automatically in AUTOMATED mode
-        // In MANUAL mode: colors only change via VJ control button
-        if (!this.vjManualMode && time - this.colorSwitchTime > (8 + Math.random() * 4)) {
-            this.currentColorIndex = (this.currentColorIndex + 1) % 3; // RGB cycle
-            this.colorSwitchTime = time;
-        }
-        
-        // Update lasers with raycasting and dynamic positioning
-        if (this.lasers && this.lasersActive) {
-            this.lasers.forEach((laser, i) => {
-                // Update origin position for ALL lasers (parented and non-parented)
-                if (laser.parentTruss) {
-                    // Parented lasers: get world position from housing
-                    laser.originPos = laser.housing.getAbsolutePosition().clone();
-                } else {
-                    // Non-parented lasers: ensure originPos is set (should be from initial setup)
-                    if (!laser.originPos) {
-                        // Fallback if originPos wasn't set during creation
-                        laser.originPos = laser.housing.getAbsolutePosition().clone();
-                    }
-                }
-                
-                // Movement depends on mode (apply laser speed multiplier)
-                const speedMultiplier = this.laserSpeed || 1.0;
-                if (this.lightingMode === 'synchronized') {
-                    laser.rotation += 0.015 * speedMultiplier;
-                    laser.tiltPhase += 0.02 * speedMultiplier;
-                } else {
-                    laser.rotation += laser.rotationSpeed * speedMultiplier;
-                    laser.tiltPhase += (0.015 + Math.sin(time + i) * 0.01) * speedMultiplier;
-                }
-                // Mark laser as spinning
-                laser.isSpinning = true;
-                
-                // === LASER HOUSING STAYS STATIC ===
-                // The housing/emitter fixture stays fixed - only the beam meshes animate
-                // This prevents the visible "spinning box" effect
-                // Real laser projectors have stationary housings with internal galvo mirrors
-                
-                // Clamp is static - housing stays fixed, beams animate independently
-                
-                // Update each beam in the laser
-                laser.beams.forEach((beam, beamIdx) => {
-                    let direction;
-                    
-                    if (laser.type === 'single') {
-                        // Single beam pointing down with movement
-                        const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
-                        const dirX = Math.sin(laser.rotation) * Math.sin(tilt);
-                        const dirY = -Math.cos(tilt);
-                        const dirZ = Math.cos(laser.rotation) * Math.sin(tilt);
-                        direction = new BABYLON.Vector3(dirX, dirY, dirZ);
-                        
-                    } else if (laser.type === 'spread') {
-                        // Spread laser (3 beams fanning out)
-                        const spreadAngle = (beam.beamIndex - 1) * 0.4; // -0.4, 0, 0.4
-                        const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.2;
-                        const dirX = Math.sin(laser.rotation + spreadAngle) * Math.sin(tilt);
-                        const dirY = -Math.cos(tilt);
-                        const dirZ = Math.cos(laser.rotation + spreadAngle) * Math.sin(tilt);
-                        direction = new BABYLON.Vector3(dirX, dirY, dirZ);
-                        
-                    } else if (laser.type === 'multi') {
-                        // Multi-beam (5 beams rotating in circle)
-                        const baseAngle = (beam.beamIndex / 5) * Math.PI * 2;
-                        const rotatingAngle = baseAngle + laser.rotation * 2;
-                        const tilt = Math.PI / 5;
-                        const dirX = Math.sin(rotatingAngle) * Math.sin(tilt);
-                        const dirY = -Math.cos(tilt);
-                        const dirZ = Math.cos(rotatingAngle) * Math.sin(tilt);
-                        direction = new BABYLON.Vector3(dirX, dirY, dirZ);
-                    }
-                    
-                    // SIMPLIFIED: Always calculate floor intersection directly
-                    // This is more reliable than raycasting, especially in VR
-                    // Raycasting can fail due to timing issues between eyes
-                    
-                    let beamLength = 50; // Default max length
-                    
-                    // Calculate floor intersection mathematically (always works, VR-safe)
-                    if (direction.y < -0.01) {
-                        // Laser pointing downward - calculate floor intersection
-                        const distanceToFloor = laser.originPos.y / Math.abs(direction.y);
-                        beamLength = Math.min(distanceToFloor, 50); // Cap at 50
-                    }
-                    
-                    // Update beam geometry
-                    beam.mesh.scaling.y = beamLength;
-                    beam.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
-                    
-                    // Orient beam - PERFORMANCE: Reuse cached vectors
-                    this.vecPool.up.set(0, 1, 0);
-                    const rotAxis = BABYLON.Vector3.Cross(this.vecPool.up, direction);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(this.vecPool.up, direction.normalize()));
-                    
-                    if (rotAxis.length() > 0.001) {
-                        beam.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
-                    } else {
-                        beam.mesh.rotationQuaternion = BABYLON.Vector3.Dot(up, direction) > 0 ?
-                            BABYLON.Quaternion.Identity() :
-                            BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
-                    }
-                    
-                    // UPDATE GLOW BEAMS - Same position/rotation/scale as core
-                    if (beam.innerGlow) {
-                        beam.innerGlow.scaling.y = beamLength;
-                        beam.innerGlow.position.copyFrom(beam.mesh.position);
-                        beam.innerGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
-                    }
-                    if (beam.beamGlow) {
-                        beam.beamGlow.scaling.y = beamLength;
-                        beam.beamGlow.position.copyFrom(beam.mesh.position);
-                        beam.beamGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
-                    }
-                    
-                    // Hit spots removed - no floor reflections needed
-                    
-                    // Color all beam elements with current color - HYPERREALISTIC color grading
-                    let currentColor, innerGlowColor, outerGlowColor;
-                    if (this.currentColorIndex === 0) {
-                        currentColor = this.cachedColors.red;
-                        innerGlowColor = this.cachedLaserGlowColors.redInner;
-                        outerGlowColor = this.cachedLaserGlowColors.redOuter;
-                    } else if (this.currentColorIndex === 1) {
-                        currentColor = this.cachedColors.green;
-                        innerGlowColor = this.cachedLaserGlowColors.greenInner;
-                        outerGlowColor = this.cachedLaserGlowColors.greenOuter;
-                    } else {
-                        currentColor = this.cachedColors.blue;
-                        innerGlowColor = this.cachedLaserGlowColors.blueInner;
-                        outerGlowColor = this.cachedLaserGlowColors.blueOuter;
-                    }
-                    
-                    // Apply color to core beam - pure saturated color
-                    beam.material.emissiveColor = currentColor;
-                    beam.mesh.visibility = 1.0;
-                    
-                    // Apply inner glow color (tight halo)
-                    if (beam.innerGlowMat) {
-                        beam.innerGlowMat.emissiveColor = innerGlowColor;
-                    }
-                    if (beam.innerGlow) {
-                        beam.innerGlow.visibility = 1.0;
-                    }
-                    
-                    // Apply outer glow color (atmospheric scatter)
-                    if (beam.glowMat) {
-                        beam.glowMat.emissiveColor = outerGlowColor;
-                    }
-                    if (beam.beamGlow) {
-                        beam.beamGlow.visibility = 1.0;
-                    }
-                    
-                    // Hit spot materials no longer updated (spots are hidden)
-                });
-                
-                // Update lights and emitter color - Now updates every frame for sync with beams
-                // Get current color based on color index
-                let currentLaserColor, currentEmissiveColor, currentBrightColor;
-                if (this.currentColorIndex === 0) {
-                    currentLaserColor = this.cachedColors.red;
-                    currentEmissiveColor = this.cachedLaserGlowColors.redEmissive;
-                    currentBrightColor = this.cachedLaserGlowColors.redBright;
-                } else if (this.currentColorIndex === 1) {
-                    currentLaserColor = this.cachedColors.green;
-                    currentEmissiveColor = this.cachedLaserGlowColors.greenEmissive;
-                    currentBrightColor = this.cachedLaserGlowColors.greenBright;
-                } else {
-                    currentLaserColor = this.cachedColors.blue;
-                    currentEmissiveColor = this.cachedLaserGlowColors.blueEmissive;
-                    currentBrightColor = this.cachedLaserGlowColors.blueBright;
-                }
-                
-                // Update light diffuse color (if lights exist - disabled for performance)
-                laser.lights.forEach((light) => {
-                    if (light) {
-                        light.diffuse = currentLaserColor;
-                        light.intensity = this.lasersActive ? 5 : 0;
-                    }
-                });
-                
-                // Update housing glow with current color
-                if (laser.housingMat) {
-                    laser.housingMat.emissiveColor = this.lasersActive ? currentEmissiveColor : this.cachedColors.black;
-                }
-                
-                // Update emitter to match beam color - this is the visible light source
-                if (laser.emitterMat) {
-                    laser.emitterMat.emissiveColor = this.lasersActive ? currentBrightColor : this.cachedColors.black;
-                }
-            });
-        } else if (this.lasers) {
-            // Turn off lasers when not active (e.g., when laser sheet is on)
-            this.lasers.forEach(laser => {
-                laser.lights.forEach(light => {
-                    if (light) light.intensity = 0;
-                });
-                laser.beams.forEach(beam => {
-                    beam.mesh.visibility = 0;
-                    beam.material.alpha = 0;
-                    if (beam.innerGlow) beam.innerGlow.visibility = 0;
-                    if (beam.beamGlow) beam.beamGlow.visibility = 0;
-                    if (beam.hitSpot) beam.hitSpot.visibility = 0;
-                    if (beam.hitGlow) beam.hitGlow.visibility = 0;
-                });
-                // Also turn off emitter when lasers are off
-                if (laser.emitterMat) {
-                    laser.emitterMat.emissiveColor = this.cachedColors.black;
-                }
-                if (laser.housingMat) {
-                    laser.housingMat.emissiveColor = this.cachedColors.black;
-                }
-            });
-        }
-        
-        // Make laser beams visible only when spinning AND lasers are active
-        if (this.lasers) {
-            this.lasers.forEach(laser => {
-                laser.beams.forEach(beam => {
-                    // Only show beams if laser is actively spinning AND lasersActive is true
-                    if (laser.isSpinning && this.lasersActive) {
-                        beam.mesh.visibility = 1;
-                        beam.material.alpha = 0.6;
-                        if (beam.innerGlow) beam.innerGlow.visibility = 1;
-                        if (beam.beamGlow) beam.beamGlow.visibility = 1;
-                    } else {
-                        // Turn off ALL beam components when not spinning or lasers disabled
-                        beam.mesh.visibility = 0;
-                        beam.material.alpha = 0;
-                        if (beam.innerGlow) beam.innerGlow.visibility = 0;
-                        if (beam.beamGlow) beam.beamGlow.visibility = 0;
-                        if (beam.hitSpot) beam.hitSpot.visibility = 0;
-                        if (beam.hitGlow) beam.hitGlow.visibility = 0;
-                    }
-                });
-                // Reset spinning flag for next frame
-                laser.isSpinning = false;
-            });
-        }
-        
-        // Update spotlights with synchronized movement patterns (AUDIO REACTIVE)
-        // ONLY auto-change color when NOT in VJ manual mode
-        // Manual mode allows VJ to lock in their chosen color
-        // HYPERREALISTIC: Color change interval varies with energy level
-        // High energy (drops) = rapid color changes (2-4s)
-        // Low energy (ambient) = slow color changes (8-12s)
-        const colorChangeInterval = this.vjDropActive ? 2 : (12 - (this.energyLevel * 8));
-        if (!this.vjManualMode && time - this.lastColorChange > colorChangeInterval) {
-            this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
-            
-            // SMOOTH COLOR TRANSITION: Store previous color for interpolation
-            this.previousSpotColor = this.currentSpotColor ? this.currentSpotColor.clone() : this.spotColorList[0];
-            this.targetSpotColor = this.spotColorList[this.spotColorIndex];
-            this.colorTransitionProgress = 0; // Start transition
-            this.lastColorChange = time;
-            
-            // Update ALL lights to new color target
-            if (this.spotlights) {
-                this.spotlights.forEach((spot, i) => {
-                    // Update color reference - fixture materials updated in animation loop
-                    spot.color = this.targetSpotColor;
-                });
-            }
-        }
-        
-        // SMOOTH COLOR INTERPOLATION: Fade between colors over 0.5-1.0 seconds
-        // This creates the smooth, professional color transitions seen in real clubs
-        if (this.colorTransitionProgress !== undefined && this.colorTransitionProgress < 1) {
-            // Transition speed: faster during high energy
-            const transitionSpeed = this.vjDropActive ? 0.04 : 0.02;
-            this.colorTransitionProgress = Math.min(1, this.colorTransitionProgress + transitionSpeed);
-            
-            // Smooth easing for natural feel
-            const t = this.colorTransitionProgress;
-            const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
-            
-            // Interpolate RGB channels
-            if (this.previousSpotColor && this.targetSpotColor) {
-                this.currentSpotColor = new BABYLON.Color3(
-                    this.previousSpotColor.r + (this.targetSpotColor.r - this.previousSpotColor.r) * eased,
-                    this.previousSpotColor.g + (this.targetSpotColor.g - this.previousSpotColor.g) * eased,
-                    this.previousSpotColor.b + (this.targetSpotColor.b - this.previousSpotColor.b) * eased
-                );
-            }
-        }
-        
-        // Check if VJ manual mode should expire (60 seconds of no interaction)
-        if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
-            this.vjManualMode = false;
-            this.spotlightPattern = 0; // Switch to automated pattern
-            log.info("🤖 Automated patterns resumed - no VJ interaction for 60 seconds");
-        }
-        
-        // === MODULAR SPOTLIGHT SYSTEM UPDATE ===
-        // When useModularSystems is enabled, delegate to SpotlightSystem module
-        if (this.useModularSystems && this.systems.spotlight) {
-            // Sync state from VJ controls to modular system
-            this.systems.spotlight.lightsActive = this.lightsActive;
-            this.systems.spotlight.spotlightSpeed = this.spotlightSpeed || 1.0;
-            this.systems.spotlight.spotlightMode = this.spotlightMode;
-            this.systems.spotlight.spotlightPattern = this.spotlightPattern;
-            this.systems.spotlight.spotStrobeActive = this.spotStrobeActive;
-            
-            // Sync color changes
-            if (this.currentSpotColor) {
-                this.systems.spotlight.currentSpotColor = this.currentSpotColor;
-            }
-            
-            // Update modular system
-            this.systems.spotlight.update(time, audioData);
-            
-            // Sync spotlights reference back for compatibility
-            this.spotlights = this.systems.spotlight.spotlights;
-        } else {
-            // === LEGACY INLINE SPOTLIGHT ANIMATION ===
-            // Calculate global phase for spotlight patterns (used in multiple places)
-            // Phase ALWAYS advances when lights are active (for sweep animations)
-            // VJ manual mode only affects Pattern 0's auto-cycling between sub-patterns
-            if (this.lightsActive) {
-                this.lastActivePhase = time * 0.8; // Always update when lights on
-            }
-            const globalPhase = this.lastActivePhase || 0;
-        
-        // Audio speed multiplier: only apply when actual audio is playing
-        // When no audio: use default 1.0x speed for consistent automated patterns
-        const audioSpeedMultiplier = audioData.hasAudio 
-            ? 1.0 + (audioData.average * 0.5) // 1.0x to 1.5x based on audio energy
-            : 1.0; // No audio = consistent timing
-        
-        // Auto-cycling control for Pattern 0 (random mode)
-        const allowAutomatedPatterns = this.lightsActive && !this.vjManualMode;
-        
-        if (this.spotlights && this.lightsActive) {
-            
-            // SYNCHRONIZED SWEEPING - recreate iconic club vibe
-            // All lights move together, sweeping their beams across the dance floor
-            
-            this.spotlights.forEach((spot, i) => {
-                let dirX, dirZ;
-                
-                // VJ PATTERN CONTROL - spotlightPattern: 0=random, 1=static down, 2=mirror sweep, 3=crossed beams
-                // Apply speed multiplier to all animated patterns
-                const speedMultiplier = this.spotlightSpeed || 1.0;
-                
-                if (this.spotlightPattern === 1) {
-                    // PATTERN 1: STATIC DOWN - All lights point straight down
-                    dirX = 0;
-                    dirZ = 0;
-                    
-                } else if (this.spotlightPattern === 2) {
-                    // PATTERN 2: MIRROR SWEEP - Left and right sides sweep toward/away from each other
-                    // Creates synchronized converging (toward center) and diverging (away from center) motion
-                    const sweepPhase = globalPhase * speedMultiplier;
-                    const sweepValue = Math.sin(sweepPhase * 0.5) * 0.7; // Slower, wider sweep
-                    
-                    // Layout: Left side (i=0,1,2) at x=-8, Right side (i=3,4,5) at x=8
-                    // When sweepValue > 0: both sides point INWARD (converging toward center)
-                    // When sweepValue < 0: both sides point OUTWARD (diverging from center)
-                    const isLeftSide = (i < 3);
-                    // Left side: positive sweepValue = point right (+X toward center)
-                    // Right side: negative sweepValue = point left (-X toward center)
-                    dirX = isLeftSide ? sweepValue : -sweepValue;
-                    
-                    // Also add slight Z oscillation so beams sweep front-to-back together
-                    const zSweep = Math.sin(sweepPhase * 0.3) * 0.25;
-                    dirZ = zSweep;
-                    
-                } else if (this.spotlightPattern === 3) {
-                    // PATTERN 3: CROSSED BEAMS - Outer gobos cross over middle gobo
-                    // Each side has 3 lights: front (0,3), middle (1,4), back (2,5)
-                    // The front and back gobos sweep across, crossing over the middle one
-                    const sweepPhase = globalPhase * speedMultiplier;
-                    const crossSweep = Math.sin(sweepPhase * 0.4) * 0.8; // Wide crossing motion
-                    
-                    const isLeftSide = (i < 3);
-                    const positionInGroup = i % 3; // 0=front, 1=middle, 2=back
-                    
-                    if (positionInGroup === 1) {
-                        // MIDDLE gobo: Points straight down/slightly forward - stationary anchor
-                        dirX = 0;
-                        dirZ = -0.2; // Slight forward angle toward dance floor
-                    } else if (positionInGroup === 0) {
-                        // FRONT gobo: Sweeps from outside to inside and back
-                        // When crossing, it goes PAST the middle gobo position
-                        dirX = isLeftSide ? crossSweep : -crossSweep;
-                        dirZ = -0.35 + Math.abs(crossSweep) * 0.2; // More forward when at extremes
-                    } else {
-                        // BACK gobo: Sweeps opposite to front (counter-phase)
-                        // This creates an X pattern when viewed from above
-                        dirX = isLeftSide ? -crossSweep : crossSweep; // Opposite of front
-                        dirZ = 0.1 - Math.abs(crossSweep) * 0.15; // Slightly back, less when crossing
-                    }
-                    
-                } else {
-                    // PATTERN 0: RANDOM/AUTOMATED (default) - Complex pattern cycling
-                    
-                    // SPOTLIGHT MODE CONTROL
-                    // Mode 0: strobe+sweep, Mode 1: sweep only, Mode 2: strobe static, Mode 3: static
-                    const isSweepMode = (this.spotlightMode === 0 || this.spotlightMode === 1);
-                    const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
-                    
-                    // SYNCHRONIZED SWEEPING: All lights sweep together continuously
-                    // SMOOTH pattern transitions - patterns blend into each other naturally
-                    const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier;
-                    
-                    // Slow pattern selector that cycles through patterns smoothly
-                    // Each pattern lasts ~10 seconds with smooth transitions
-                    const patternCycle = (sweepPhase / 10) % 7; // 0-7, smoothly increasing
-                    const currentPattern = Math.floor(patternCycle);
-                    const nextPattern = (currentPattern + 1) % 7;
-                    const blendFactor = patternCycle - currentPattern; // 0-1 smooth blend
-                    
-                    // MAX 45 DEGREES = tan(45°) ≈ 1.0, so dirX and dirZ should be ≤ 0.6 for smooth angles
-                    // Calculate current and next pattern positions, then blend
-                    
-                    let dirX1 = 0, dirZ1 = 0; // Current pattern
-                    let dirX2 = 0, dirZ2 = 0; // Next pattern
-                    
-                    // Static positions for non-sweep modes (centered on dance floor)
-                    const staticPositions = [
-                        { x: -0.3, z: -0.3 },  // Spotlight 0: front-left
-                        { x: 0.3, z: -0.3 },   // Spotlight 1: front-right
-                        { x: -0.3, z: 0.3 },   // Spotlight 2: back-left
-                        { x: 0.3, z: 0.3 }     // Spotlight 3: back-right
-                    ];
-                    
-                    if (!isSweepMode) {
-                        // Static mode: use fixed positions based on spotlight index
-                        const staticPos = staticPositions[i % staticPositions.length];
-                        dirX = staticPos.x;
-                        dirZ = staticPos.z;
-                    } else {
-                        // Sweep mode: calculate animated pattern positions
-                        // Calculate CURRENT pattern position - SLOWER for IMMERSIVE feel
-                        if (currentPattern === 0) {
-                        // Linear sweep left to right - SMOOTH
-                        dirX1 = Math.sin(sweepPhase * 0.6) * 0.6; // Slower (1.6 → 0.6)
-                        dirZ1 = -0.3;
-                } else if (currentPattern === 1) {
-                    // Circular sweep - ELEGANT
-                    dirX1 = Math.sin(sweepPhase * 0.5) * 0.5; // Slower (1.2 → 0.5)
-                    dirZ1 = Math.cos(sweepPhase * 0.5) * 0.5;
-                } else if (currentPattern === 2) {
-                    // Fan sweep - GENTLE
-                    const fanPhase = Math.sin(sweepPhase * 0.4); // Slower (1.0 → 0.4)
-                    dirX1 = fanPhase * 0.6;
-                    dirZ1 = -0.2;
-                } else if (currentPattern === 3) {
-                    // Cross sweep - FLOWING
-                    dirX1 = Math.sin(sweepPhase * 0.6) * 0.5; // Slower (1.4 → 0.6)
-                    dirZ1 = Math.cos(sweepPhase * 0.6) * 0.5;
-                } else if (currentPattern === 4) {
-                    // Figure-8 sweep - HYPNOTIC
-                    dirX1 = Math.sin(sweepPhase * 0.4) * 0.6; // Slower (1.0 → 0.4)
-                    dirZ1 = Math.sin(sweepPhase * 0.8) * 0.4; // Slower (2.0 → 0.8)
-                } else if (currentPattern === 5) {
-                    // Pulse sweep - BREATHING
-                    const pulsePhase = Math.sin(sweepPhase * 0.3); // Slower (0.8 → 0.3)
-                    const angle = sweepPhase * 0.2; // Slower (0.6 → 0.2)
-                    dirX1 = pulsePhase * Math.cos(angle) * 0.6;
-                    dirZ1 = pulsePhase * Math.sin(angle) * 0.6;
-                } else {
-                    // STROBE FLASHING - static center position
-                    dirX1 = 0;
-                    dirZ1 = 0;
-                }
-                
-                // Calculate NEXT pattern position - SLOWER for IMMERSIVE feel
-                if (nextPattern === 0) {
-                    dirX2 = Math.sin(sweepPhase * 0.6) * 0.6; // Slower
-                    dirZ2 = -0.3;
-                } else if (nextPattern === 1) {
-                    dirX2 = Math.sin(sweepPhase * 0.5) * 0.5; // Slower
-                    dirZ2 = Math.cos(sweepPhase * 0.5) * 0.5;
-                } else if (nextPattern === 2) {
-                    const fanPhase = Math.sin(sweepPhase * 0.4); // Slower
-                    dirX2 = fanPhase * 0.6;
-                    dirZ2 = -0.2;
-                } else if (nextPattern === 3) {
-                    dirX2 = Math.sin(sweepPhase * 0.6) * 0.5; // Slower
-                    dirZ2 = Math.cos(sweepPhase * 0.6) * 0.5;
-                } else if (nextPattern === 4) {
-                    dirX2 = Math.sin(sweepPhase * 0.4) * 0.6; // Slower
-                    dirZ2 = Math.sin(sweepPhase * 0.8) * 0.4; // Slower
-                } else if (nextPattern === 5) {
-                    const pulsePhase = Math.sin(sweepPhase * 0.3); // Slower
-                    const angle = sweepPhase * 0.2; // Slower
-                    dirX2 = pulsePhase * Math.cos(angle) * 0.6;
-                    dirZ2 = pulsePhase * Math.sin(angle) * 0.6;
-                } else {
-                    dirX2 = 0;
-                    dirZ2 = 0;
-                }
-                
-                        // SMOOTH BLEND between patterns - no jumps!
-                        dirX = dirX1 * (1 - blendFactor) + dirX2 * blendFactor;
-                        dirZ = dirZ1 * (1 - blendFactor) + dirZ2 * blendFactor;
-                    } // End sweep mode else block
-                } // End pattern 0 (random/automated) else block
-                
-                // Set direction (pointing from truss DOWN to dance floor)
-                // Direction should always have strong downward component (negative Y)
-                // PERFORMANCE: Reuse Vector3 from pool instead of creating new one
-                this.vecPool.direction.set(dirX, -1.5, dirZ).normalize();
-                spot.light.direction.copyFrom(this.vecPool.direction);
-                
-                // Local reference for moving head animation (avoid repeated property access)
-                const direction = this.vecPool.direction;
-                
-                // Dynamic beam angle (simulates zoom adjustment) - subtle variation
-                const baseAngle = Math.PI / 6; // 30 degrees base
-                const angleVariation = Math.sin(time * 0.3 + i * 0.5) * 0.1; // ±6 degrees
-                spot.light.angle = baseAngle + angleVariation;
-                
-                // === HYPERREALISTIC MOVING HEAD ANIMATION ===
-                // Professional moving heads have pan (Y-axis) and tilt (X/Z-axis) motors
-                // We rotate the Yoke (Pan) and Head (Tilt) separately for mechanical realism
-                // Using smooth interpolation to simulate realistic servo motor movement
-                
-                if (spot.yoke && spot.head) {
-                    // 1. PAN (Yoke Rotation around Y)
-                    // Calculate target angle on XZ plane. atan2(x, z) gives angle from Z axis.
-                    const targetPanAngle = Math.atan2(direction.x, direction.z);
-                    
-                    // SMOOTH INTERPOLATION: Simulate realistic servo motor speed (~60°/s)
-                    // This prevents jarring instant movements and adds mechanical realism
-                    const panLerpSpeed = 0.15; // Smooth but responsive (professional moving head speed)
-                    
-                    // Handle angle wrapping for smooth pan rotation
-                    let panDiff = targetPanAngle - spot.yoke.rotation.y;
-                    if (panDiff > Math.PI) panDiff -= Math.PI * 2;
-                    if (panDiff < -Math.PI) panDiff += Math.PI * 2;
-                    
-                    spot.yoke.rotation.y += panDiff * panLerpSpeed;
-
-                    // 2. TILT (Head Rotation around X)
-                    // Calculate target angle from vertical (down).
-                    // acos(-direction.y) gives 0 when pointing down (-1), PI/2 when horizontal (0).
-                    // We use negative angle because positive rotation moves -Y to -Z (Back),
-                    // but we want to move -Y to +Z (Forward) relative to the Yoke.
-                    const targetTiltAngle = -Math.acos(-direction.y);
-                    
-                    // SMOOTH INTERPOLATION for tilt (same realistic servo simulation)
-                    const tiltLerpSpeed = 0.12; // Slightly slower tilt for mechanical weight feel
-                    spot.head.rotation.x += (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
-                    
-                    // Note: Lens/bezel/flare/beam are children of the head and move automatically!
-                    
-                    // === HYPERREALISTIC FLARE RESPONSE ===
-                    // Update flare intensity based on viewing angle AND movement speed
-                    // Moving heads create more light scatter/flare when sweeping quickly
-                    if (spot.flareMat && this.camera) {
-                        const cameraDir = this.camera.position.subtract(spot.basePos).normalize();
-                        const lightDir = direction.scale(-1); // Light points opposite of beam direction
-                        const dot = BABYLON.Vector3.Dot(cameraDir, lightDir);
-                        const viewBrightness = Math.max(0, dot); // 0 to 1 based on viewing angle
-                        
-                        // Calculate movement speed for dynamic flare (brighter when moving)
-                        // Store previous direction for speed calculation
-                        if (!spot.prevDirection) spot.prevDirection = direction.clone();
-                        const movementSpeed = BABYLON.Vector3.Distance(direction, spot.prevDirection);
-                        spot.prevDirection.copyFrom(direction);
-                        
-                        // Dynamic flare: base visibility + viewing angle + movement boost
-                        const movementBoost = Math.min(0.15, movementSpeed * 2); // Cap at 0.15 extra
-                        spot.flareMat.alpha = 0.2 + (viewBrightness * 0.3) + movementBoost;
-                        
-                        // Movement glow boost is now handled in main fixture update loop
-                        // Store movement speed for fixture update to use
-                        spot.movementSpeed = movementSpeed;
-                    }
-                } else if (spot.fixture) {
-                    // Fallback for legacy fixtures (if any)
-                    const targetPoint = spot.basePos.add(direction.scale(8));
-                    spot.fixture.lookAt(targetPoint);
-                }
-                
-                // PROFESSIONAL VOLUMETRIC BEAM - Hyperrealistic light cone
-                // The beam must VISUALLY CONNECT to the floor light pool for realism
-                if (spot.beam) {
-                    // Get the actual world position of the light emission point (lens position)
-                    // This correctly accounts for head tilt and rotation
-                    let emissionPoint;
-                    if (spot.lens) {
-                        // Use lens mesh's actual world position (correct for any tilt angle)
-                        emissionPoint = spot.lens.getAbsolutePosition().clone();
-                    } else if (spot.head) {
-                        // Fallback: Get head's world position and transform lens offset by rotation
-                        const headPos = spot.head.getAbsolutePosition();
-                        // Local lens offset
-                        const localLensOffset = new BABYLON.Vector3(0, -0.28, 0);
-                        // Transform offset by head's world rotation matrix
-                        const headWorldMatrix = spot.head.getWorldMatrix();
-                        const transformedOffset = BABYLON.Vector3.TransformNormal(localLensOffset, headWorldMatrix);
-                        emissionPoint = headPos.add(transformedOffset);
-                    } else {
-                        emissionPoint = spot.basePos.clone();
-                    }
-                    
-                    // Calculate where beam centerline intersects surfaces (floor and walls)
-                    // Use closest intersection for pool positioning
-                    let centerDistanceToSurface;
-                    let surfaceIntersection;
-                    let hitSurface = 'floor'; // 'floor', 'backWall', 'leftWall', 'rightWall'
-                    
-                    // Club boundaries
-                    const FLOOR_Y = 0;
-                    const BACK_WALL_Z = -25.8; // LED wall position
-                    const LEFT_WALL_X = -10;
-                    const RIGHT_WALL_X = 10;
-                    
-                    // Calculate distances to each surface (only if beam is heading toward it)
-                    let distToFloor = Infinity;
-                    let distToBackWall = Infinity;
-                    let distToLeftWall = Infinity;
-                    let distToRightWall = Infinity;
-                    
-                    // Floor intersection (beam pointing down)
-                    if (direction.y < -0.01) {
-                        distToFloor = emissionPoint.y / Math.abs(direction.y);
-                    }
-                    
-                    // Back wall intersection (beam pointing back/negative Z)
-                    if (direction.z < -0.01) {
-                        distToBackWall = (emissionPoint.z - BACK_WALL_Z) / Math.abs(direction.z);
-                    }
-                    
-                    // Left wall intersection (beam pointing left/negative X)
-                    if (direction.x < -0.01) {
-                        distToLeftWall = (emissionPoint.x - LEFT_WALL_X) / Math.abs(direction.x);
-                    }
-                    
-                    // Right wall intersection (beam pointing right/positive X)
-                    if (direction.x > 0.01) {
-                        distToRightWall = (RIGHT_WALL_X - emissionPoint.x) / direction.x;
-                    }
-                    
-                    // Find closest surface hit
-                    centerDistanceToSurface = distToFloor;
-                    hitSurface = 'floor';
-                    
-                    if (distToBackWall < centerDistanceToSurface && distToBackWall > 0) {
-                        centerDistanceToSurface = distToBackWall;
-                        hitSurface = 'backWall';
-                    }
-                    if (distToLeftWall < centerDistanceToSurface && distToLeftWall > 0) {
-                        centerDistanceToSurface = distToLeftWall;
-                        hitSurface = 'leftWall';
-                    }
-                    if (distToRightWall < centerDistanceToSurface && distToRightWall > 0) {
-                        centerDistanceToSurface = distToRightWall;
-                        hitSurface = 'rightWall';
-                    }
-                    
-                    // Cap at reasonable maximum
-                    if (centerDistanceToSurface === Infinity || centerDistanceToSurface > 20) {
-                        centerDistanceToSurface = 15;
-                    }
-                    
-                    // Calculate intersection point
-                    surfaceIntersection = emissionPoint.add(direction.scale(centerDistanceToSurface));
-                    
-                    // Keep references for backward compatibility
-                    let floorIntersection = surfaceIntersection.clone();
-                    let centerDistanceToFloor = centerDistanceToSurface;
-                    
-                    // HYPERREALISTIC BEAM: Extend beam PAST floor so cone edges touch floor
-                    // 
-                    // When a cone is tilted, the "uphill" edge of the cone needs to travel
-                    // further to reach the floor. We extend the beam past the floor intersection
-                    // so ALL edges of the cone touch the floor.
-                    //
-                    // HYPERREALISTIC BEAM: Extend past floor so cone edges touch, then clip
-                    // When a cone hits floor at angle, the "uphill" edge needs to travel further
-                    //
-                    // Base beam length from emission to surface intersection (centerline)
-                    const centerBeamLength = centerDistanceToSurface;
-                    
-                    // Calculate tilt angle (used for extension and pool ellipse)
-                    const cosTheta = Math.abs(direction.y);
-                    const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-                    const tanTheta = cosTheta > 0.1 ? sinTheta / cosTheta : 0;
-                    
-                    // Cone radius at surface end (from mesh: diameterTop=1.5, so radius=0.75)
-                    const coneRadius = 0.75;
-                    
-                    // Extension needed for uphill edge to reach surface: r * tan(θ)
-                    // For floor: extends cone past floor so edges touch
-                    // For walls: extend slightly so beam visually connects to wall surface
-                    let uphillExtension;
-                    if (hitSurface === 'floor') {
-                        uphillExtension = coneRadius * tanTheta;
-                    } else {
-                        // Wall hits: extend beam slightly past wall for visual connection
-                        // Use perpendicular angle to the wall for extension calc
-                        let wallCos;
-                        if (hitSurface === 'backWall') wallCos = Math.abs(direction.z);
-                        else wallCos = Math.abs(direction.x); // left/right walls
-                        const wallTan = wallCos > 0.1 ? Math.sqrt(1 - wallCos * wallCos) / wallCos : 0;
-                        uphillExtension = coneRadius * wallTan * 0.5; // Half extension for walls
-                    }
-                    
-                    // BEAM LENGTH: Extend past surface so cone edges visually touch
-                    const beamLength = Math.min(18, Math.max(2, centerBeamLength + uphillExtension));
-                    
-                    // Store beamLength on spot for pool calculations
-                    spot.currentBeamLength = beamLength;
-                    
-                    // Position beam: Cylinder is centered at its origin
-                    // After rotation, one end will be at emission point, other past floor
-                    // 
-                    // BABYLON cylinder: local +Y is "top" (diameterTop), local -Y is "bottom" (diameterBottom)
-                    // We created: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
-                    // We want: wide end toward/past floor, narrow end at fixture (emission point)
-                    // So: local +Y should point TOWARD FLOOR (same as direction)
-                    //
-                    // Cylinder extends from center: -height/2 to +height/2 in local Y
-                    // After scaling.y = beamLength: from -beamLength/2 to +beamLength/2
-                    // After rotation (local +Y = direction):
-                    //   - Local +Y end (wide) is at: center + direction * beamLength/2 
-                    //   - Local -Y end (narrow) is at: center - direction * beamLength/2 (should be at emission)
-                    //
-                    // So center should be at: emissionPoint + direction * beamLength/2
-                    const beamMidpoint = new BABYLON.Vector3(
-                        emissionPoint.x + direction.x * (beamLength * 0.5),
-                        emissionPoint.y + direction.y * (beamLength * 0.5),
-                        emissionPoint.z + direction.z * (beamLength * 0.5)
-                    );
-                    
-                    // Position beam at calculated midpoint
-                    spot.beam.position.copyFrom(beamMidpoint);
-                    
-                    // Orient beam to point from emission toward floor
-                    // The cylinder's local +Y points "up". We rotate it so +Y aligns with our direction.
-                    // But we want narrow end (diameterBottom) at emission, wide end (diameterTop) at floor.
-                    // Cylinder is created with diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
-                    // Default: +Y is top (wide). We need +Y to point TOWARD floor (where wide end should be).
-                    // direction points FROM emission TOWARD floor - that's exactly what we want for +Y!
-                    
-                    // Use lookAt toward floor intersection, then rotate 90° to align cylinder axis
-                    // Actually, easier: compute rotation directly from direction vector
-                    // Cylinder: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
-                    // We want WIDE end at FLOOR, NARROW end at fixture
-                    // So cylinder +Y (diameterTop) should point TOWARD floor (same as direction)
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(direction, up));
-                    const axis = BABYLON.Vector3.Cross(up, direction).normalize();
-                    
-                    if (axis.length() > 0.001) {
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis, angle);
-                    } else if (direction.y > 0) {
-                        // Pointing up (away from floor) - no flip needed (narrow end up is correct)
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
-                    } else {
-                        // Pointing straight down - FLIP 180° so wide end (diameterTop) goes to floor
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
-                    }
-                    
-                    // UPDATE BEAM LENGTH
-                    spot.beam.scaling.y = beamLength;
-                    
-                    // HYPERREALISTIC: Update clip plane based on hit surface
-                    // This hides any part of the beam that extends past the surface
-                    // StandardMaterial clips where dot(normal, pos) + d > 0
-                    if (spot.beamMat) {
-                        if (hitSurface === 'floor') {
-                            // Clip below floor (y < 0): normal (0, -1, 0), d = 0
-                            // Clips where -y + d > 0, i.e. y < d
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, -1, 0, 0.01);
-                        } else if (hitSurface === 'backWall') {
-                            // Clip behind back wall (z < BACK_WALL_Z): normal (0, 0, -1)
-                            // Clips where -z + d > 0, i.e. z < d = -BACK_WALL_Z
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 0, -1, -BACK_WALL_Z + 0.01);
-                        } else if (hitSurface === 'leftWall') {
-                            // Clip past left wall (x < LEFT_WALL_X): normal (-1, 0, 0)
-                            // Clips where -x + d > 0, i.e. x < d = -LEFT_WALL_X
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(-1, 0, 0, -LEFT_WALL_X + 0.01);
-                        } else if (hitSurface === 'rightWall') {
-                            // Clip past right wall (x > RIGHT_WALL_X): normal (1, 0, 0)
-                            // Clips where x + d > 0, i.e. x > -d = -RIGHT_WALL_X
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(1, 0, 0, -RIGHT_WALL_X + 0.01);
-                        }
-                    }
-                    
-                    // ANIMATE SMOKE TEXTURE (Hyperrealism)
-                    if (spot.beamMat && spot.beamMat.emissiveTexture) {
-                        // Much slower animation for realistic drifting haze (was 0.02)
-                        spot.beamMat.emissiveTexture.vOffset -= 0.002 * speedMultiplier; 
-                        // Slight horizontal drift for turbulence
-                        spot.beamMat.emissiveTexture.uOffset += 0.0005 * Math.sin(time * 0.5 + i);
-                    }
-
-                    // ANIMATE GOBO ROTATION (Hyperrealism)
-                    if (spot.lightPool) {
-                        spot.lightPool.rotation.z += 0.01 * speedMultiplier; // Faster rotation
-                    }
-                    
-                    // REMOVED: Old local positioning code (now using world space)
-                    // Beam is positioned at beamMidpoint with quaternion rotation above
-                    
-                    // HYPERREALISTIC: Stretch beam cone when hitting floor at angle
-                    // The cone's base (diameterTop) expands into an ellipse on the floor
-                    // We approximate this by scaling the cylinder wider in the tilt direction
-                    // Note: cosTheta already calculated above for beam extension
-                    const tiltStretch = 1.0 / Math.max(0.4, cosTheta); // How much to stretch due to angle
-                    
-                    // Scale beam: X/Z control diameter, Y controls length
-                    // When tilted, the cone appears wider in the tilt direction
-                    const baseScale = 1.0;
-                    spot.beam.scaling.x = baseScale;
-                    spot.beam.scaling.z = baseScale * Math.min(1.3, tiltStretch); // Subtle stretch in Z (forward/back)
-                    
-                    // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
-                    // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
-                    // Strobe is controlled by both toggle button AND spotlight mode
-                    const sweepPhase = globalPhase * audioSpeedMultiplier;
-                    
-                    // Strobe is active when: button is on AND mode includes strobe (0 or 2)
-                    const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
-                    const isStrobeEnabled = this.spotStrobeActive && isStrobeMode;
-                    
-                    let beamVisible = this.lightsActive;
-                    if (isStrobeEnabled) {
-                        // STROBE: Rapid on/off flashing at 8Hz (8 flashes per second)
-                        const flashPhase = sweepPhase * 2.5;
-                        const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
-                        beamVisible = beamVisible && flashOn;
-                    }
-                    
-                    // Store beamVisible on spot for fixture sync
-                    spot.beamVisible = beamVisible;
-                    
-                    spot.beam.visibility = beamVisible ? 1.0 : 0;
-                    
-                    // Update beamGlow - Match main beam world-space positioning
-                    if (spot.beamGlow) {
-                        // Unparent if needed
-                        if (spot.beamGlow.parent) {
-                            spot.beamGlow.setParent(null);
-                        }
-                        // Match main beam position and rotation exactly
-                        spot.beamGlow.position.copyFrom(beamMidpoint);
-                        spot.beamGlow.rotationQuaternion = spot.beam.rotationQuaternion.clone();
-                        spot.beamGlow.scaling.y = beamLength;
-                        spot.beamGlow.scaling.x = baseScale;
-                        spot.beamGlow.scaling.z = baseScale * Math.min(1.3, tiltStretch);
-                        
-                        // CRITICAL: Sync glow visibility with strobe/beam visibility
-                        spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
-                        // Use global color for perfect sync
-                        spot.beamGlowMat.emissiveColor = this.currentSpotColor.scale(0.15);
-                    }
-                    spot.light.intensity = beamVisible ? 12 : 0; // Also control light intensity
-                    
-                    // Subtle atmospheric variation - simulates particles moving through beam
-                    const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
-                    
-                    // Update emissive color with variation (audio disabled)
-                    // CRITICAL: Use this.currentSpotColor (global) as single source of truth
-                    // This ensures beam, fixture, and all effects use the EXACT same color
-                    const spotColor = this.currentSpotColor;
-                    const baseIntensity = 3.0 + atmosphericNoise; // Boosted to compensate for beam gradient dimming (was 2.0)
-                    spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
-                    spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
-                    
-                    // CRITICAL: Store the actual beam color for fixture sync (BASE color, not scaled)
-                    // This ensures fixture uses EXACT same color as beam
-                    spot.currentBeamColor = spotColor;
-                    
-                    // HYPERREALISTIC: Alpha varies with beam angle and atmospheric density
-                    // Beams become more visible at shallower angles (more particles in path)
-                    // Also factor in distance - longer beams have more particles
-                    const beamPathLength = spot.currentBeamLength || 7.3;
-                    const pathDensity = Math.min(1.0, beamPathLength / 10.0); // Longer = denser
-                    const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
-                    spot.beamMat.alpha = (0.12 + Math.abs(atmosphericNoise) * 0.06) * pathDensity * angleVis;
-                    
-                    // Update HYPERREALISTIC floor light pool - Physics-accurate projection
-                    if (spot.lightPool) {
-                        if (this.lightsActive && beamVisible) {
-                            // === PHYSICS-ACCURATE ELLIPTICAL PROJECTION ===
-                            // The beam mesh is a cone with:
-                            //   - diameterTop = 1.5m (at floor end, after scaling)
-                            //   - diameterBottom = 0.2m (at fixture lens)
-                            //   - height = beamLength (scaled dynamically)
-                            // The pool should match the beam's floor intersection exactly
-                            
-                            // Beam half-angle from mesh geometry: atan((0.75 - 0.1) / beamLength)
-                            // For typical 7.3m beam: atan(0.65/7.3) ≈ 5.1°
-                            // But the mesh scales, so floor diameter is always proportional to length
-                            // diameterAtFloor = diameterBottom + (diameterTop - diameterBottom) * 1.0
-                            //                 = 0.2 + (1.5 - 0.2) = 1.5m for unit height
-                            // When scaled by beamLength, the cone expands proportionally
-                            
-                            // For consistent visuals: use fixed ratio based on mesh geometry
-                            // The beam scales uniformly in Y, so floor diameter scales with length
-                            const meshFloorDiameter = 0.2 + (1.5 - 0.2) * 1.0; // 1.5m at unit height
-                            const beamDiameterAtFloor = meshFloorDiameter; // Fixed for mesh consistency
-                            
-                            // === ELLIPSE GEOMETRY ===
-                            // When beam hits floor at angle θ from vertical:
-                            // Minor axis = beam diameter (perpendicular to tilt)
-                            // Major axis = beam diameter / cos(θ) (along tilt direction)
-                            const incidentAngle = Math.acos(Math.abs(direction.y)); // θ from vertical
-                            const cosIncident = Math.abs(direction.y);
-                            const ellipseStretch = 1.0 / Math.max(0.15, cosIncident);
-                            
-                            // Clamp stretch to prevent extreme ellipses at very shallow angles
-                            const clampedStretch = Math.min(5.0, ellipseStretch);
-                            
-                            // Pool radii: add 15% for soft penumbra edges
-                            const minorRadius = (beamDiameterAtFloor * 0.5) * 1.15;
-                            const majorRadius = minorRadius * clampedStretch;
-                            
-                            // Tilt direction on XZ plane
-                            const tiltDirX = direction.x;
-                            const tiltDirZ = direction.z;
-                            const tiltMagnitude = Math.sqrt(tiltDirX * tiltDirX + tiltDirZ * tiltDirZ);
-                            
-                            // === LAMBERT'S COSINE LAW ===
-                            // Irradiance on surface = I₀ * cos(θ)
-                            // Light spreads over larger area at steeper angles → dimmer
-                            const lambertFactor = Math.max(0.2, cosIncident);
-                            
-                            // === INVERSE SQUARE FALLOFF ===
-                            // I = I₀ / d², normalized to reference distance
-                            const refDist = 7.3; // Fixture height in meters
-                            const invSqFalloff = Math.pow(refDist / Math.max(2, centerBeamLength), 2);
-                            const clampedInvSq = Math.min(2.0, Math.max(0.25, invSqFalloff));
-                            
-                            // Combined physics-based intensity
-                            const physicsIntensity = lambertFactor * clampedInvSq;
-                            
-                            // Subtle atmospheric shimmer (dust particles in beam)
-                            const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;
-                            
-                            // === POSITION POOL AT ACTUAL SURFACE INTERSECTION ===
-                            // The pool appears where the beam hits the surface (floor or wall)
-                            // Position and orientation depend on which surface was hit
-                            
-                            // Store hit surface for reference
-                            spot.hitSurface = hitSurface;
-                            
-                            if (hitSurface === 'floor') {
-                                // Floor hit - pool lies flat on floor
-                                spot.lightPool.position.set(
-                                    surfaceIntersection.x,
-                                    0.004, // Just above floor (prevent z-fighting)
-                                    surfaceIntersection.z
-                                );
-                                spot.lightPool.rotation.x = Math.PI / 2; // Flat on floor
-                                spot.lightPool.rotation.z = 0;
-                                
-                                // Ellipse orientation for tilted beams on floor
-                                if (tiltMagnitude > 0.03) {
-                                    const poolRotation = Math.atan2(tiltDirX, tiltDirZ);
-                                    spot.lightPool.rotation.y = poolRotation;
-                                    spot.lightPool.scaling.set(minorRadius, majorRadius, 1);
-                                } else {
-                                    spot.lightPool.rotation.y = 0;
-                                    spot.lightPool.scaling.set(minorRadius, minorRadius, 1);
-                                }
-                            } else if (hitSurface === 'backWall') {
-                                // Back wall hit - pool is vertical facing forward (+Z)
-                                spot.lightPool.position.set(
-                                    surfaceIntersection.x,
-                                    surfaceIntersection.y,
-                                    BACK_WALL_Z + 0.01 // Just in front of wall
-                                );
-                                spot.lightPool.rotation.x = 0; // Vertical
-                                spot.lightPool.rotation.y = 0; // Facing forward
-                                spot.lightPool.rotation.z = 0;
-                                
-                                // Ellipse stretches vertically when hitting wall at angle
-                                const wallAngle = Math.acos(Math.abs(direction.z));
-                                const wallStretch = 1.0 / Math.max(0.15, Math.abs(direction.z));
-                                const clampedWallStretch = Math.min(5.0, wallStretch);
-                                spot.lightPool.scaling.set(minorRadius, minorRadius * clampedWallStretch, 1);
-                            } else if (hitSurface === 'leftWall') {
-                                // Left wall hit - pool is vertical facing right (+X)
-                                spot.lightPool.position.set(
-                                    LEFT_WALL_X + 0.01, // Just in front of wall
-                                    surfaceIntersection.y,
-                                    surfaceIntersection.z
-                                );
-                                spot.lightPool.rotation.x = 0;
-                                spot.lightPool.rotation.y = Math.PI / 2; // Facing right
-                                spot.lightPool.rotation.z = 0;
-                                
-                                const wallStretch = 1.0 / Math.max(0.15, Math.abs(direction.x));
-                                const clampedWallStretch = Math.min(5.0, wallStretch);
-                                spot.lightPool.scaling.set(minorRadius, minorRadius * clampedWallStretch, 1);
-                            } else if (hitSurface === 'rightWall') {
-                                // Right wall hit - pool is vertical facing left (-X)
-                                spot.lightPool.position.set(
-                                    RIGHT_WALL_X - 0.01, // Just in front of wall
-                                    surfaceIntersection.y,
-                                    surfaceIntersection.z
-                                );
-                                spot.lightPool.rotation.x = 0;
-                                spot.lightPool.rotation.y = -Math.PI / 2; // Facing left
-                                spot.lightPool.rotation.z = 0;
-                                
-                                const wallStretch = 1.0 / Math.max(0.15, Math.abs(direction.x));
-                                const clampedWallStretch = Math.min(5.0, wallStretch);
-                                spot.lightPool.scaling.set(minorRadius, minorRadius * clampedWallStretch, 1);
-                            }
-                            spot.lightPool.visibility = 1.0;
-                            
-                            // === POOL MATERIAL - Physics-based brightness ===
-                            // Make pool clearly visible on the surface
-                            // Wall hits get boosted brightness since wall materials are darker
-                            const surfaceBrightnessBoost = (hitSurface === 'floor') ? 1.0 : 1.6;
-                            const poolBrightness = 2.5 * physicsIntensity * shimmer * surfaceBrightnessBoost;
-                            if (spot.poolMat) {
-                                spot.poolMat.emissiveColor = spotColor.scale(poolBrightness);
-                                // Higher alpha on walls for better visibility against dark surfaces
-                                const basePoolAlpha = (hitSurface === 'floor') ? 0.8 : 0.95;
-                                spot.poolMat.alpha = basePoolAlpha * Math.min(1.0, physicsIntensity);
-                            }
-                            
-                            // === POOL LIGHT (if enabled) ===
-                            if (spot.poolLight) {
-                                // Position based on hit surface
-                                if (hitSurface === 'floor') {
-                                    spot.poolLight.position.set(
-                                        surfaceIntersection.x,
-                                        0.4,
-                                        surfaceIntersection.z
-                                    );
-                                } else {
-                                    // For walls, offset light slightly in front of surface
-                                    spot.poolLight.position.copyFrom(surfaceIntersection);
-                                    if (hitSurface === 'backWall') spot.poolLight.position.z += 0.5;
-                                    else if (hitSurface === 'leftWall') spot.poolLight.position.x += 0.5;
-                                    else if (hitSurface === 'rightWall') spot.poolLight.position.x -= 0.5;
-                                }
-                                spot.poolLight.diffuse = spotColor.clone();
-                                spot.poolLight.specular = spotColor.scale(0.25);
-                                spot.poolLight.intensity = 3.5 * physicsIntensity * shimmer;
-                                spot.poolLight.range = majorRadius * 2.0;
-                                spot.poolLight.setEnabled(true);
-                            }
-                            
-                            // === OUTER GLOW (penumbra scatter) ===
-                            // HYPERREALISTIC: Wall hits produce larger scatter halos (rough surface diffusion)
-                            if (spot.lightPoolGlow) {
-                                // Wall surfaces scatter light more widely (rough brick/concrete)
-                                const scatterMultiplier = (hitSurface === 'floor') ? 2.2 : 3.0;
-                                const glowMinor = minorRadius * scatterMultiplier;
-                                const glowMajor = majorRadius * scatterMultiplier;
-                                
-                                // Match pool position for glow
-                                spot.lightPoolGlow.position.copyFrom(spot.lightPool.position);
-                                // Offset slightly toward viewer to prevent z-fighting
-                                if (hitSurface === 'floor') {
-                                    spot.lightPoolGlow.position.y = 0.002;
-                                } else if (hitSurface === 'backWall') {
-                                    spot.lightPoolGlow.position.z += 0.008;
-                                } else if (hitSurface === 'leftWall') {
-                                    spot.lightPoolGlow.position.x += 0.008;
-                                } else if (hitSurface === 'rightWall') {
-                                    spot.lightPoolGlow.position.x -= 0.008;
-                                }
-                                
-                                // Copy rotation from pool
-                                spot.lightPoolGlow.rotation.copyFrom(spot.lightPool.rotation);
-                                
-                                // Elliptical glow on all surfaces when beam is tilted
-                                if (tiltMagnitude > 0.03) {
-                                    spot.lightPoolGlow.scaling.set(glowMinor, glowMajor, 1);
-                                } else {
-                                    spot.lightPoolGlow.scaling.set(glowMinor, glowMinor, 1);
-                                }
-                                spot.lightPoolGlow.visibility = 1.0;
-                                
-                                if (spot.poolGlowMat) {
-                                    // HYPERREALISTIC: Wall scatter is warmer/brighter (Lambertian diffuse scatter)
-                                    const wallScatterBoost = (hitSurface === 'floor') ? 1.0 : 1.4;
-                                    const glowBrightness = 0.7 * physicsIntensity * shimmer * wallScatterBoost;
-                                    spot.poolGlowMat.emissiveColor = spotColor.scale(glowBrightness);
-                                    const baseGlowAlpha = (hitSurface === 'floor') ? 0.35 : 0.5;
-                                    spot.poolGlowMat.alpha = baseGlowAlpha * Math.min(1.0, physicsIntensity);
-                                }
-                            }
-                            
-                        } else {
-                            // CRITICAL: Hide floor pools immediately when lights turn off or flashing off
-                            spot.lightPool.visibility = 0;
-                            if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
-                            // Disable pool light when beam is off
-                            if (spot.poolLight) spot.poolLight.setEnabled(false);
-                        }
-                    }
-                    
-                    // === GOBO PROJECTION UPDATE ===
-                    if (spot.goboProjection) {
-                        const showGobo = this.lightsActive && this.goboEnabled && beamVisible;
-                        spot.goboProjection.setEnabled(showGobo);
-                        spot.goboProjection.visibility = showGobo ? 1.0 : 0;
-                        
-                        if (showGobo) {
-                            // === SURFACE-AWARE GOBO POSITIONING ===
-                            // Gobo must match the lightPool's position and orientation on any surface
-                            const goboLocalOffset = spot.goboLocalRotation || 0;
-                            const goboRotAngle = this.goboRotation + goboLocalOffset;
-                            
-                            if (hitSurface === 'floor') {
-                                // Floor: flat disc on XZ plane
-                                spot.goboProjection.position.set(
-                                    spot.lightPool.position.x,
-                                    0.025, // Just above floor
-                                    spot.lightPool.position.z
-                                );
-                                spot.goboProjection.rotation.x = Math.PI / 2;
-                                spot.goboProjection.rotation.y = spot.lightPool.rotation.y;
-                                spot.goboProjection.rotation.z = goboRotAngle;
-                            } else if (hitSurface === 'backWall') {
-                                // Back wall: vertical disc facing +Z
-                                spot.goboProjection.position.set(
-                                    spot.lightPool.position.x,
-                                    spot.lightPool.position.y,
-                                    spot.lightPool.position.z + 0.015
-                                );
-                                spot.goboProjection.rotation.x = 0;
-                                spot.goboProjection.rotation.y = 0;
-                                spot.goboProjection.rotation.z = goboRotAngle;
-                            } else if (hitSurface === 'leftWall') {
-                                // Left wall: vertical disc facing +X
-                                spot.goboProjection.position.set(
-                                    spot.lightPool.position.x + 0.015,
-                                    spot.lightPool.position.y,
-                                    spot.lightPool.position.z
-                                );
-                                spot.goboProjection.rotation.x = 0;
-                                spot.goboProjection.rotation.y = Math.PI / 2;
-                                spot.goboProjection.rotation.z = goboRotAngle;
-                            } else if (hitSurface === 'rightWall') {
-                                // Right wall: vertical disc facing -X
-                                spot.goboProjection.position.set(
-                                    spot.lightPool.position.x - 0.015,
-                                    spot.lightPool.position.y,
-                                    spot.lightPool.position.z
-                                );
-                                spot.goboProjection.rotation.x = 0;
-                                spot.goboProjection.rotation.y = -Math.PI / 2;
-                                spot.goboProjection.rotation.z = goboRotAngle;
-                            }
-                            
-                            // Sync scale with light pool (gobo slightly larger for soft edges)
-                            spot.goboProjection.scaling.x = spot.lightPool.scaling.x * 1.1;
-                            spot.goboProjection.scaling.y = spot.lightPool.scaling.y * 1.1;
-                            
-                            // Update color to match spotlight with physics-based brightness
-                            if (spot.goboMat) {
-                                const goboBrightness = 1.8 * (physicsIntensity || 1.0);
-                                spot.goboMat.emissiveColor = spotColor.scale(goboBrightness);
-                            }
-                            
-                            // Hide regular pool when gobo is on (gobo replaces it)
-                            spot.lightPool.visibility = 0;
-                        } else {
-                            // Gobo is off - ensure regular pool is visible (if lights are on)
-                            if (this.lightsActive && beamVisible && spot.lightPool) {
-                                spot.lightPool.visibility = 1.0;
-                            }
-                        }
-                    }
-                }
-                
-                // CRITICAL: Hide beams when lights are off (no beams without light source!)
-                if (!this.lightsActive) {
-                    spot.beamVisible = false; // CRITICAL: Update beamVisible for fixture sync
-                    if (spot.beam) spot.beam.visibility = 0;
-                    if (spot.beamGlow) spot.beamGlow.visibility = 0;
-                    if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
-                    if (spot.poolLight) spot.poolLight.setEnabled(false);
-                    if (spot.goboProjection) {
-                        spot.goboProjection.setEnabled(false);
-                        spot.goboProjection.visibility = 0;
-                    }
-                }
-                
-                // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
-                const baseIntensity = 18; // Professional moving head (300W equivalent)
-                const smoothPulse = Math.sin(time * 2.5) * 3; // Smooth breathing effect
-                
-                // UPGRADE: Keep diffuse in sync with specular color for projectionTexture
-                spot.light.specular = this.currentSpotColor;
-                spot.light.diffuse = this.currentSpotColor.scale(0.15);
-                
-                spot.light.intensity = this.lightsActive ? (baseIntensity + smoothPulse) : 0;
-            });
-        } else if (this.spotlights) {
-            // Turn off spotlights completely when not active
-            this.spotlights.forEach(spot => {
-                spot.light.intensity = 0;
-                if (spot.beam) spot.beam.visibility = 0;
-                if (spot.beamGlow) spot.beamGlow.visibility = 0;
-                if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
-                if (spot.lightPool) spot.lightPool.visibility = 0;
-                if (spot.lightPoolGlow) spot.lightPoolGlow.visibility = 0;
-                if (spot.poolLight) spot.poolLight.setEnabled(false);
-                if (spot.goboProjection) {
-                    spot.goboProjection.setEnabled(false);
-                    spot.goboProjection.visibility = 0;
-                }
-            });
-        }
-        
-        // Laser curtain show removed (was broken)
-
-        // Update truss-mounted light fixtures so they EXACTLY match their beams
-        // Rule: fixture stays lit with current color when lightsActive=true (beam strobe doesn't affect fixture)
-        if (this.spotlights && this.spotlights.length > 0) {
-            // Use the GLOBAL currentSpotColor for ALL fixtures - they must all match
-            const targetColor = this.currentSpotColor;
-            const lensIntensity = 1.8;
-            const sourceIntensity = 3.0;
-            
-            for (let i = 0; i < this.spotlights.length; i++) {
-                const spot = this.spotlights[i];
-                if (!spot) continue;
-
-                // Fixture should be lit when lights are active
-                const fixtureVisible = this.lightsActive;
-
-                // Lookup meshes by name (guaranteed unique per fixture)
-                const lens = this.scene.getMeshByName("lens" + i);
-                const lightSource = this.scene.getMeshByName("lightSource" + i);
-
-                // Update lens color
-                if (lens && lens.material) {
-                    const mat = lens.material;
-                    // Unfreeze material to allow dynamic updates (factory freezes by default)
-                    mat.unfreeze();
-                    if (!mat.emissiveColor) {
-                        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                    }
-                    if (fixtureVisible) {
-                        mat.emissiveColor.copyFromFloats(
-                            targetColor.r * lensIntensity,
-                            targetColor.g * lensIntensity,
-                            targetColor.b * lensIntensity
-                        );
-                    } else {
-                        mat.emissiveColor.copyFromFloats(0, 0, 0);
-                    }
-                }
-
-                // Update light source (inner bulb) color
-                if (lightSource && lightSource.material) {
-                    const mat = lightSource.material;
-                    // Unfreeze material to allow dynamic updates (factory freezes by default)
-                    mat.unfreeze();
-                    if (!mat.emissiveColor) {
-                        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                    }
-                    if (fixtureVisible) {
-                        mat.emissiveColor.copyFromFloats(
-                            targetColor.r * sourceIntensity,
-                            targetColor.g * sourceIntensity,
-                            targetColor.b * sourceIntensity
-                        );
-                    } else {
-                        mat.emissiveColor.copyFromFloats(0, 0, 0);
-                    }
-                }
-            }
-        }
-        } // End of legacy inline spotlight animation else block
-        
-        // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
-        // with the new 26-pattern system including creative blackout shapes
-        // Apply speed multiplier for VJ control
-        if (this.ledPanels && this.ledPanels.length > 0) {
-            const speedMultiplier = this.spotlightSpeed || 1.0;
-            this.ledTime += 0.016 * speedMultiplier;
-        }
-        
-        // Update strobes - respects strobesActive control
-        // Strobe lights animation (with speed multiplier)
-        // === PROFESSIONAL VJ STROBE SYSTEM ===
-        // Synchronized with drops, builds, and bass for maximum impact
-        const strobeSpeedMultiplier = this.strobeSpeed || 1.0;
-        if (this.strobes && this.strobes.length > 0) {
-            if (this.strobesActive) {
-                // Get audio data for reactive strobing
-                const bass = audioData.bass || 0;
-                const treble = audioData.treble || 0;
-                
-                // VJ AUTO-MODE: Enhanced strobing during drops
-                const inDropMode = this.vjDropActive;
-                const inBuildMode = this.vjBuildIntensity > 0.7;
-                
-                this.strobes.forEach((strobe, i) => {
-                    // Handle ongoing flash
-                    if (strobe.flashDuration > 0) {
-                        strobe.flashDuration -= 0.016 * strobeSpeedMultiplier;
-                    
-                    // Variable intensity - SUPER BRIGHT strobes
-                    // BOOST during drops for maximum crowd impact
-                    let intensityVariation = strobe.currentIntensity || 80;
-                    if (inDropMode) {
-                        intensityVariation *= 1.5; // 50% brighter during drops
-                    }
-                    
-                    const burstPhase = Math.floor(strobe.flashDuration * 40 * strobeSpeedMultiplier) % 2;
-                    const intensity = burstPhase === 0 ? intensityVariation : 0;
-                    
-                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5);
-                    // Strobe lights disabled for performance - visual effect only via emissive material
-                    if (strobe.light) {
-                        strobe.light.intensity = intensity * 200;
-                        strobe.light.range = 80 + (intensityVariation * 0.8);
-                        strobe.light.setEnabled(intensity > 0);
-                    }
-                    
-                    if (strobe.flashDuration <= 0) {
-                        strobe.material.emissiveColor = this.cachedColors.black;
-                        if (strobe.light) {
-                            strobe.light.intensity = 0;
-                            strobe.light.setEnabled(false);
-                        }
-                        
-                        // VJ AUTO-MODE: Faster strobing during drops and builds
-                        let flashInterval;
-                        if (inDropMode) {
-                            // RAPID FIRE during drops (0.05-0.15s)
-                            flashInterval = (0.05 + Math.random() * 0.1) / strobeSpeedMultiplier;
-                        } else if (inBuildMode) {
-                            // Increasing frequency during build (0.1-0.3s)
-                            const buildFactor = 1 - (this.vjBuildIntensity - 0.7) / 0.3;
-                            flashInterval = (0.1 + Math.random() * 0.2 * buildFactor) / strobeSpeedMultiplier;
-                        } else {
-                            // Normal operation (0.1-1.0s)
-                            flashInterval = (0.1 + Math.random() * 0.9) / strobeSpeedMultiplier;
-                        }
-                        strobe.nextFlashTime = time + flashInterval;
-                    }
-                } else {
-                    // Check if it's time for next flash
-                    if (time >= strobe.nextFlashTime) {
-                        // VJ AUTO-MODE: Brighter strobes during drops
-                        let intensityBase = Math.random() > 0.6 ? 
-                            (60 + Math.random() * 20) : 
-                            (80 + Math.random() * 20);
-                        
-                        // BASS REACTIVE: Boost on bass hits
-                        if (bass > 0.6) {
-                            intensityBase *= 1 + (bass - 0.6) * 0.5;
-                        }
-                        
-                        // DROP BOOST: Maximum power during drops
-                        if (inDropMode) {
-                            intensityBase = 100; // Full power
-                        }
-                        
-                        strobe.currentIntensity = Math.min(100, intensityBase);
-                        
-                        // Flash duration varies with mode
-                        let flashDuration;
-                        if (inDropMode) {
-                            flashDuration = (0.08 + Math.random() * 0.12) / strobeSpeedMultiplier;
-                        } else {
-                            flashDuration = (0.15 + Math.random() * 0.2) / strobeSpeedMultiplier;
-                        }
-                        strobe.flashDuration = flashDuration;
-                    }
-                }
-                });
-                
-                // Drive shared strobe flash light from max strobe intensity
-                if (this.strobeFlashLight) {
-                    let maxIntensity = 0;
-                    this.strobes.forEach(s => {
-                        if (s.flashDuration > 0) {
-                            const burstPhase = Math.floor(s.flashDuration * 40 * strobeSpeedMultiplier) % 2;
-                            if (burstPhase === 0 && s.currentIntensity > maxIntensity) {
-                                maxIntensity = s.currentIntensity;
-                            }
-                        }
-                    });
-                    if (maxIntensity > 0) {
-                        this.strobeFlashLight.intensity = maxIntensity * 3;
-                        this.strobeFlashLight.setEnabled(true);
-                        // Brief bloom spike for blinding strobe effect
-                        if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
-                            this._preStrobeBloom = this._preStrobeBloom || this.renderPipeline.bloomWeight;
-                            this.renderPipeline.bloomWeight = Math.min(1.0, this._preStrobeBloom + maxIntensity * 0.008);
-                        }
-                    } else {
-                        this.strobeFlashLight.intensity = 0;
-                        this.strobeFlashLight.setEnabled(false);
-                        // Restore bloom
-                        if (this._preStrobeBloom !== undefined && this.renderPipeline) {
-                            this.renderPipeline.bloomWeight = this._preStrobeBloom;
-                        }
-                    }
-                }
-            } else {
-                // Turn off strobes when disabled
-                this.strobes.forEach((strobe) => {
-                    strobe.material.emissiveColor = this.cachedColors.black;
-                    if (strobe.light) {
-                        strobe.light.intensity = 0;
-                        strobe.light.setEnabled(false);
-                    }
-                    strobe.flashDuration = 0;
-                });
-                if (this.strobeFlashLight) {
-                    this.strobeFlashLight.intensity = 0;
-                    this.strobeFlashLight.setEnabled(false);
-                }
-            }
-        }
-        
-        // Blinders removed - strobes provide sufficient impact lighting
-        
-        // Bartender removed - will be replaced with 3D model later
-        
-        // === BASS-REACTIVE SPEAKER CONE PUSH ===
-        // Subwoofer grilles visually pulse with bass for tactile audio feedback
-        if (audioData.bass > 0.1) {
-            const bassExcursion = audioData.bass * 0.015; // Subtle Z-axis push
-            const grillNames = ['subGrill-7', 'subGrill7']; // Left and right PA subs
-            grillNames.forEach(name => {
-                const grill = this.scene.getMeshByName(name);
-                if (grill && !grill._basePosZ) {
-                    grill._basePosZ = grill.position.z; // Store original position
-                    // Unfreeze so position changes take effect
-                    if (grill.isWorldMatrixFrozen) {
-                        grill.unfreezeWorldMatrix();
-                    }
-                }
-                if (grill && grill._basePosZ !== undefined) {
-                    grill.position.z = grill._basePosZ + bassExcursion;
-                }
-            });
         }
     }
 
@@ -7923,8 +3942,9 @@ class VRClub {
             // Avoid scale() call for full brightness
             panel.material.emissiveColor = color;
         } else {
-            // For partial brightness, use scale() but cache commonly used values
-            panel.material.emissiveColor = color.scale(brightness);
+            // Use scaleToRef with reusable color to avoid per-call allocation
+            color.scaleToRef(brightness, this._ledColor);
+            panel.material.emissiveColor = this._ledColor;
         }
     }
 
@@ -8696,13 +4716,13 @@ class VRClub {
             const brightness = Math.min(1.0, totalInfluence);
             
             // Shift color based on brightness for organic feel
-            const cellColor = new BABYLON.Color3(
+            this._ledColor2.set(
                 color.r * (0.7 + brightness * 0.3),
                 color.g * (0.5 + brightness * 0.5),
                 color.b * (0.8 + brightness * 0.2)
             );
             
-            this.updateLEDPanel(panel, cellColor, brightness);
+            this.updateLEDPanel(panel, this._ledColor2, brightness);
         });
     }
 
@@ -9079,30 +5099,53 @@ class VRClub {
             box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
         `;
         
-        inputDiv.innerHTML = `
-            <h2 style="color: #00ff88; margin: 0 0 20px 0; font-size: 24px;">🎵 Audio Stream</h2>
-            <input type="text" id="audioUrlInput" placeholder="Paste URL or drop audio file here" 
-                style="width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; 
-                background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 10px;">
-            <div style="margin: 10px 0;">
-                <button id="audioFileBrowseBtn" style="padding: 8px 20px; font-size: 14px; 
-                    background: #0088ff; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                    📁 Browse File
-                </button>
-                <input type="file" id="audioFileInput" accept="audio/*" style="display: none;">
-            </div>
-            <div style="margin-top: 15px;">
-                <button id="audioPlayBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
-                    background: #00ff88; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                    ▶️ PLAY
-                </button>
-                <button id="audioCancelBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
-                    background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                    ✖️ CANCEL
-                </button>
-            </div>
-            <p style="color: #888; font-size: 14px; margin-top: 15px;">Stream URL, local file, or drag & drop</p>
-        `;
+        // Build UI with DOM API (avoids innerHTML for CSP compliance)
+        const heading = document.createElement('h2');
+        heading.textContent = '🎵 Audio Stream';
+        heading.style.cssText = 'color: #00ff88; margin: 0 0 20px 0; font-size: 24px;';
+        
+        const audioUrlField = document.createElement('input');
+        audioUrlField.type = 'text';
+        audioUrlField.id = 'audioUrlInput';
+        audioUrlField.placeholder = 'Paste URL or drop audio file here';
+        audioUrlField.style.cssText = 'width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 10px;';
+        
+        const browseDiv = document.createElement('div');
+        browseDiv.style.cssText = 'margin: 10px 0;';
+        const browseBtn = document.createElement('button');
+        browseBtn.id = 'audioFileBrowseBtn';
+        browseBtn.textContent = '📁 Browse File';
+        browseBtn.style.cssText = 'padding: 8px 20px; font-size: 14px; background: #0088ff; color: white; border: none; border-radius: 5px; cursor: pointer;';
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.id = 'audioFileInput';
+        fileInput.accept = 'audio/*';
+        fileInput.style.display = 'none';
+        browseDiv.appendChild(browseBtn);
+        browseDiv.appendChild(fileInput);
+        
+        const btnDiv = document.createElement('div');
+        btnDiv.style.cssText = 'margin-top: 15px;';
+        const playBtn = document.createElement('button');
+        playBtn.id = 'audioPlayBtn';
+        playBtn.textContent = '▶️ PLAY';
+        playBtn.style.cssText = 'padding: 12px 30px; font-size: 16px; margin: 0 10px; background: #00ff88; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.id = 'audioCancelBtn';
+        cancelBtn.textContent = '✖️ CANCEL';
+        cancelBtn.style.cssText = 'padding: 12px 30px; font-size: 16px; margin: 0 10px; background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;';
+        btnDiv.appendChild(playBtn);
+        btnDiv.appendChild(cancelBtn);
+        
+        const hint = document.createElement('p');
+        hint.textContent = 'Stream URL, local file, or drag & drop';
+        hint.style.cssText = 'color: #888; font-size: 14px; margin-top: 15px;';
+        
+        inputDiv.appendChild(heading);
+        inputDiv.appendChild(audioUrlField);
+        inputDiv.appendChild(browseDiv);
+        inputDiv.appendChild(btnDiv);
+        inputDiv.appendChild(hint);
         
         document.body.appendChild(inputDiv);
         
@@ -9246,14 +5289,25 @@ class VRClub {
             return;
         }
         
-        // Set source
+        // Validate URL - must be empty or use http/https protocol
         if (url === "") {
-            this.audioElement.src = "https://stream.example.com/radio"; // Replace with actual demo
-            log.info("🎵 Using demo audio stream");
-        } else {
-            this.audioElement.src = url;
-            log.info(`🎵 Loading audio stream: ${url}`);
+            this.showErrorMessage("Please enter a stream URL or select a file.");
+            return;
         }
+        
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+                this.showErrorMessage("Invalid URL protocol. Use https:// or http://");
+                return;
+            }
+        } catch (e) {
+            this.showErrorMessage("Invalid URL format. Please enter a valid stream URL.");
+            return;
+        }
+        
+        this.audioElement.src = url;
+        log.info(`🎵 Loading audio stream: ${url}`);
         
         // Force load
         this.audioElement.load();
@@ -9353,17 +5407,18 @@ class VRClub {
 
     moveCameraToPreset(preset) {
         const presets = {
+            // UNDERGROUND CLUB: All camera heights fit within 4.5m ceiling
             exterior: { pos: new BABYLON.Vector3(0, 1.7, 10), target: new BABYLON.Vector3(0, 2, 0) },
             entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
-            danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -18) },
+            danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 2.5, -18) },
             djBooth: { pos: new BABYLON.Vector3(0, 2.0, -18.5), target: new BABYLON.Vector3(0, 1.7, -10) },
             djSide: { pos: new BABYLON.Vector3(-5, 2.0, -17), target: new BABYLON.Vector3(0, 1.5, -17.5) },
-            ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -19) },
+            ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 2.5, -19) },
             speakers: { pos: new BABYLON.Vector3(-4, 1.7, -14), target: new BABYLON.Vector3(-7, 2.5, -19) },
-            truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
-            mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
-            overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },
-            ceiling: { pos: new BABYLON.Vector3(0, 8.5, -12), target: new BABYLON.Vector3(0, 0, -15) }
+            truss: { pos: new BABYLON.Vector3(0, 2.5, -8), target: new BABYLON.Vector3(0, 3.5, -12) },
+            mirrorBall: { pos: new BABYLON.Vector3(3, 3.0, -12), target: new BABYLON.Vector3(0, 3.8, -12) },
+            overview: { pos: new BABYLON.Vector3(-12, 3.5, -5), target: new BABYLON.Vector3(0, 1.5, -15) },
+            ceiling: { pos: new BABYLON.Vector3(0, 4.0, -12), target: new BABYLON.Vector3(0, 0, -15) }
         };
         
         const p = presets[preset];
@@ -9414,9 +5469,21 @@ class VRClub {
         const musicUrlInput = document.getElementById('musicUrl');
         if (!musicUrlInput) return; // No music input available
         
-        const url = musicUrlInput.value;
+        const url = musicUrlInput.value.trim();
         if (!url) {
             alert('Please enter a music stream URL');
+            return;
+        }
+        
+        // Validate URL protocol
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+                alert('Invalid URL protocol. Use https:// or http://');
+                return;
+            }
+        } catch (e) {
+            alert('Invalid URL format.');
             return;
         }
         
@@ -9961,10 +6028,12 @@ class VRClub {
                     // NPCs must render BEFORE beams (group 0) with depth write enabled
                     // This ensures beams are depth-tested against NPC geometry
                     mesh.renderingGroupId = 0; // Opaque objects group
-                    
+
                     // Ensure mesh writes to depth buffer
-                    mesh.material.disableDepthWrite = false;
-                    mesh.material.forceDepthWrite = true;
+                    if (mesh.material) {
+                        mesh.material.disableDepthWrite = false;
+                        mesh.material.forceDepthWrite = true;
+                    }
                 });
                 
                 // Play all animation groups from the GLB
@@ -10057,3 +6126,4 @@ class VRClub {
 // window.addEventListener('DOMContentLoaded', () => {
 //     window.vrClub = new VRClub();
 // });
+    

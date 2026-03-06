@@ -249,11 +249,11 @@ class MaterialFactory {
             roughness: 0.15 // Reduced from 0.2
         }, true),
 
-        // Structural - Enhanced realism
+        // Structural - Underground club: black steel with anti-slip finish
         platform: () => this.createPBRMaterial('platformMat', {
-            baseColor: [0.02, 0.02, 0.03],
-            metallic: 0.98, // Increased from 0.95
-            roughness: 0.1 // Reduced from 0.15
+            baseColor: [0.015, 0.015, 0.02],
+            metallic: 0.7,
+            roughness: 0.4
         }, true),
 
         platformTop: () => this.createPBRMaterial('platformTopMat', {
@@ -275,77 +275,83 @@ class MaterialFactory {
         }, true),
 
         // Walls and Floors
+        // UNDERGROUND CLUB: Raw poured concrete floor — cold, industrial, slightly damp
         floor: () => this.createPBRMaterial('floorMat', {
-            baseColor: [0.25, 0.25, 0.27],
+            baseColor: [0.08, 0.08, 0.09], // Dark raw concrete
             metallic: 0.0,
-            roughness: 0.9
+            roughness: 0.85 // Rough poured concrete
         }),
 
-        // Polished nightclub floor with clearcoat layer (wet/lacquered look)
-        // Uses full PBRMaterial for advanced multi-layer rendering
+        // Underground club floor: raw concrete with moisture sheen
+        // Condensation from body heat + fog machine creates a subtle wet layer
         floorPolished: () => this.createFullPBRMaterial('floorPolishedMat', {
-            albedoColor: [0.12, 0.12, 0.15],  // Dark polished tiles
-            metallic: 0.08,
-            roughness: 0.25,                    // Smooth polished surface
+            albedoColor: [0.06, 0.06, 0.07], // Near-black concrete — years of boot prints
+            metallic: 0.02, // Concrete is not metallic
+            roughness: 0.65, // Slightly smoothed by moisture/traffic
             clearCoat: {
-                intensity: 0.6,                 // Strong clear lacquer/wet layer
-                roughness: 0.12                 // Very smooth clearcoat for sharp reflections
+                intensity: 0.25, // Subtle moisture sheen, not polished
+                roughness: 0.4  // Diffuse wet reflection, not mirror-sharp
             },
-            environmentIntensity: 0.65,         // Strong environment reflections off polished surface
-            directIntensity: 1.1,               // Enhanced direct light response
-            specularIntensity: 0.9              // Strong specular highlights
+            environmentIntensity: 0.2, // Faint reflection of overhead lights
+            directIntensity: 0.8,
+            specularIntensity: 0.3 // Minimal specular — concrete absorbs light
         }),
 
+        // UNDERGROUND: Raw bunker concrete walls — stained, cold, brutal
         wall: () => this.createPBRMaterial('wallMat', {
-            baseColor: [0.05, 0.05, 0.08],
-            metallic: 0.1,
-            roughness: 0.9
+            baseColor: [0.04, 0.04, 0.045], // Near-black concrete with cold grey undertone
+            metallic: 0.0, // Concrete has zero metallic response
+            roughness: 0.95 // Extremely rough — raw poured concrete
         }),
 
+        // UNDERGROUND: Exposed raw concrete ceiling at low height (4.5m)
+        // Dark, oppressive, industrial — you should feel the weight above you
         ceiling: () => this.createPBRMaterial('ceilingMat', {
-            baseColor: [0.15, 0.15, 0.17],
-            metallic: 0.2,
-            roughness: 0.8
+            baseColor: [0.03, 0.03, 0.035], // Almost black — disappears into darkness
+            metallic: 0.0,
+            roughness: 0.95 // Raw concrete
         }),
 
-        // Lighting/Truss - Enhanced metallic sheen (brushed aluminum)
+        // Lighting/Truss — UNDERGROUND: Matte black painted truss
+        // Real underground clubs paint ALL rigging matte black so it disappears
+        // The rig should be invisible — only the light matters
         truss: () => this.createPBRMaterial('trussMat', {
-            baseColor: [0.72, 0.72, 0.75], // Brighter aluminum
-            metallic: 1.0,
-            roughness: 0.18 // Brushed finish
+            baseColor: [0.02, 0.02, 0.02], // Near-black matte paint
+            metallic: 0.3, // Some metallic under the paint
+            roughness: 0.85 // Matte powder coat finish
         }, true),
 
-        // Truss connector plates (galvanized steel)
+        // Truss connector plates (painted black)
         trussConnector: () => this.createPBRMaterial('trussConnectorMat', {
-            baseColor: [0.5, 0.5, 0.52],
-            metallic: 0.95,
-            roughness: 0.3
+            baseColor: [0.03, 0.03, 0.03],
+            metallic: 0.4,
+            roughness: 0.75
         }, true),
 
-        // Weld material (darker at joints)
+        // Weld material (slightly visible under black paint)
         trussWeld: () => this.createPBRMaterial('trussWeldMat', {
-            baseColor: [0.35, 0.35, 0.38],
-            metallic: 0.85,
+            baseColor: [0.05, 0.05, 0.05],
+            metallic: 0.5,
+            roughness: 0.6
+        }, true),
+
+        // Chain hoist material (black anodized steel)
+        chainHoist: () => this.createPBRMaterial('chainHoistMat', {
+            baseColor: [0.05, 0.05, 0.06],
+            metallic: 0.7,
             roughness: 0.5
         }, true),
 
-        // Chain hoist material (steel chain)
-        chainHoist: () => this.createPBRMaterial('chainHoistMat', {
-            baseColor: [0.25, 0.25, 0.28],
-            metallic: 0.9,
-            roughness: 0.4
-        }, true),
-
         brace: () => this.createPBRMaterial('braceMat', {
-            baseColor: [0.5, 0.5, 0.55],
-            metallic: 1.0,
-            roughness: 0.35 // Reduced from 0.4
+            baseColor: [0.03, 0.03, 0.04], // Black painted brace
+            metallic: 0.4,
+            roughness: 0.8
         }, true),
 
         lightFixture: () => this.createPBRMaterial('lightFixtureMat', {
-            baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.95, // Increased from 0.9
-            roughness: 0.15 // Reduced from 0.2
+            baseColor: [0.02, 0.02, 0.02], // Black housing
+            metallic: 0.6,
+            roughness: 0.3
         }, true),
 
         // Speakers - Enhanced realism with clear visual differentiation
@@ -391,23 +397,24 @@ class MaterialFactory {
             emissiveColor: [0.015, 0.015, 0.015]
         }, true),
 
-        // Industrial Details
+        // Industrial Details — Dark, stained concrete brick
         brick: () => this.createPBRMaterial('brickMat', {
-            baseColor: [0.4, 0.15, 0.1],
+            baseColor: [0.12, 0.06, 0.04], // Dark, smoke-stained brick
             metallic: 0,
             roughness: 1
         }, true),
 
         pillar: () => this.createPBRMaterial('pillarMat', {
-            baseColor: [0.3, 0.3, 0.32],
-            metallic: 0,
-            roughness: 0.95
+            baseColor: [0.06, 0.06, 0.065], // Dark raw concrete pillars
+            metallic: 0.0,
+            roughness: 0.9
         }, true),
 
+        // Pipe material — black painted industrial pipes
         pipe: () => this.createPBRMaterial('pipeMat', {
-            baseColor: [0.2, 0.2, 0.22],
-            metallic: 0.8,
-            roughness: 0.6
+            baseColor: [0.04, 0.04, 0.045],
+            metallic: 0.5,
+            roughness: 0.7
         }, true),
 
         // Laser/Effects - Enhanced emissive

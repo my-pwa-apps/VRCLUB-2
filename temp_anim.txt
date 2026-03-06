@@ -1,0 +1,204 @@
+
+> js\club_hyperrealistic.js:1129:                this.updateAnimations();
+  js\club_hyperrealistic.js:1130:            } catch (e) {
+  js\club_hyperrealistic.js:1131:                log.error('Animation error:', e);
+  js\club_hyperrealistic.js:1132:            }
+  js\club_hyperrealistic.js:1133:            this.updatePerformanceMonitor();
+  js\club_hyperrealistic.js:1134:        });
+  js\club_hyperrealistic.js:1135:        
+  js\club_hyperrealistic.js:1136:        window.addEventListener('resize', () => {
+  js\club_hyperrealistic.js:1137:            this.engine.resize();
+  js\club_hyperrealistic.js:1138:        });
+  js\club_hyperrealistic.js:1139:        
+  js\club_hyperrealistic.js:1140:        // Prevent default drag and drop behavior on the page (except in our audio UI)
+  js\club_hyperrealistic.js:1141:        window.addEventListener('dragover', (e) => {
+  js\club_hyperrealistic.js:1142:            // Only prevent if not in our audio input
+  js\club_hyperrealistic.js:1143:            if (!e.target.id || e.target.id !== 'audioUrlInput') {
+  js\club_hyperrealistic.js:1144:                e.preventDefault();
+  js\club_hyperrealistic.js:1145:                e.dataTransfer.effectAllowed = 'none';
+  js\club_hyperrealistic.js:1146:                e.dataTransfer.dropEffect = 'none';
+  js\club_hyperrealistic.js:1147:            }
+  js\club_hyperrealistic.js:1148:        }, false);
+  js\club_hyperrealistic.js:1149:        
+  js\club_hyperrealistic.js:1150:        window.addEventListener('drop', (e) => {
+  js\club_hyperrealistic.js:1151:            // Only prevent if not in our audio input
+  js\club_hyperrealistic.js:1152:            if (!e.target.id || e.target.id !== 'audioUrlInput') {
+  js\club_hyperrealistic.js:1153:                e.preventDefault();
+  js\club_hyperrealistic.js:1154:                e.stopPropagation();
+  js\club_hyperrealistic.js:1155:            }
+  js\club_hyperrealistic.js:1156:        }, false);
+  js\club_hyperrealistic.js:1157:    }
+  js\club_hyperrealistic.js:1158:
+  js\club_hyperrealistic.js:1159:    addPostProcessing() {
+  js\club_hyperrealistic.js:1160:        // Prevent duplicate pipelines
+  js\club_hyperrealistic.js:1161:        if (this.renderPipeline) {
+  js\club_hyperrealistic.js:1162:            return;
+  js\club_hyperrealistic.js:1163:        }
+  js\club_hyperrealistic.js:1164:
+  js\club_hyperrealistic.js:1165:        const desktop = this.vrSettings.desktop;
+  js\club_hyperrealistic.js:1166:
+  js\club_hyperrealistic.js:1167:        // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
+  js\club_hyperrealistic.js:1168:        // Pass cameras array in constructor to avoid "reuse" warnings from addCamera()
+  js\club_hyperrealistic.js:1169:        const pipeline = new BABYLON.DefaultRenderingPipeline(
+  js\club_hyperrealistic.js:1170:            "defaultPipeline",
+  js\club_hyperrealistic.js:1171:            true, // HDR enabled for better color range
+  js\club_hyperrealistic.js:1172:            this.scene,
+  js\club_hyperrealistic.js:1173:            this.camera ? [this.camera] : [] // Pass camera array directly
+  js\club_hyperrealistic.js:1174:        );
+  js\club_hyperrealistic.js:1175:        
+  js\club_hyperrealistic.js:1176:        // FXAA anti-aliasing for smooth edges (essential for immersion)
+  js\club_hyperrealistic.js:1177:        pipeline.fxaaEnabled = desktop.fxaaEnabled;
+  js\club_hyperrealistic.js:1178:        
+  js\club_hyperrealistic.js:1179:        // ENHANCED Bloom for dramatic glowing lights - key to club atmosphere
+  js\club_hyperrealistic.js:1180:        pipeline.bloomEnabled = true;
+  js\club_hyperrealistic.js:1181:        pipeline.bloomThreshold = desktop.bloomThreshold;
+  js\club_hyperrealistic.js:1182:        pipeline.bloomWeight = desktop.bloomWeight;
+  js\club_hyperrealistic.js:1183:        pipeline.bloomKernel = 128; // Wide kernel for smooth, cinematic bloom halos
+  js\club_hyperrealistic.js:1184:        pipeline.bloomScale = desktop.bloomScale;
+  js\club_hyperrealistic.js:1185:        
+  js\club_hyperrealistic.js:1186:        // Chromatic aberration for realistic camera lens simulation (desktop only)
+  js\club_hyperrealistic.js:1187:        pipeline.chromaticAberrationEnabled = desktop.chromaticAberrationEnabled;
+  js\club_hyperrealistic.js:1188:        if (pipeline.chromaticAberration) {
+  js\club_hyperrealistic.js:1189:            pipeline.chromaticAberration.aberrationAmount = 8;     // Subtle color fringing at edges
+  js\club_hyperrealistic.js:1190:            pipeline.chromaticAberration.radialIntensity = 0.6;    // Concentrated at edges (lens-like)
+  js\club_hyperrealistic.js:1191:        }
+  js\club_hyperrealistic.js:1192:        
+  js\club_hyperrealistic.js:1193:        // Film grain for cinematic texture (desktop only)
+  js\club_hyperrealistic.js:1194:        pipeline.grainEnabled = desktop.grainEnabled;
+  js\club_hyperrealistic.js:1195:        if (pipeline.grain) {
+  js\club_hyperrealistic.js:1196:            pipeline.grain.intensity = 3;         // Very subtle grain
+  js\club_hyperrealistic.js:1197:            pipeline.grain.animated = true;       // Animated for film-like feel
+  js\club_hyperrealistic.js:1198:        }
+  js\club_hyperrealistic.js:1199:        
+  js\club_hyperrealistic.js:1200:        // Sharpen for crystal-clear details
+  js\club_hyperrealistic.js:1201:        pipeline.sharpenEnabled = true;
+  js\club_hyperrealistic.js:1202:        pipeline.sharpen.edgeAmount = 0.35; // Crisp edge definition
+  js\club_hyperrealistic.js:1203:        pipeline.sharpen.colorAmount = desktop.sharpenAmount;
+  js\club_hyperrealistic.js:1204:        
+  js\club_hyperrealistic.js:1205:        // ENHANCED Image processing for cinematic depth
+  js\club_hyperrealistic.js:1206:        pipeline.imageProcessingEnabled = true;
+  js\club_hyperrealistic.js:1207:        pipeline.imageProcessing.contrast = desktop.contrast;
+  js\club_hyperrealistic.js:1208:        pipeline.imageProcessing.exposure = desktop.exposure;
+  js\club_hyperrealistic.js:1209:        pipeline.imageProcessing.toneMappingEnabled = desktop.toneMappingEnabled;
+  js\club_hyperrealistic.js:1210:        pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+  js\club_hyperrealistic.js:1211:        
+  js\club_hyperrealistic.js:1212:        // Cinematic vignette - darkens edges for immersive club atmosphere
+  js\club_hyperrealistic.js:1213:        pipeline.imageProcessing.vignetteEnabled = true;
+  js\club_hyperrealistic.js:1214:        pipeline.imageProcessing.vignetteWeight = 2.2;          // Stronger edge darkening for club feel
+  js\club_hyperrealistic.js:1215:        pipeline.imageProcessing.vignetteStretch = 0.4;         // Tighter vignette
+  js\club_hyperrealistic.js:1216:        pipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0.02, 0); // Subtle blue-black edge
+  js\club_hyperrealistic.js:1217:        pipeline.imageProcessing.vignetteBlendMode = BABYLON.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+  js\club_hyperrealistic.js:1218:        
+  js\club_hyperrealistic.js:1219:        // Optional: Depth of Field for camera focus effect (disabled by default for VR compatibility)
+  js\club_hyperrealistic.js:1220:        pipeline.depthOfFieldEnabled = false;
+  js\club_hyperrealistic.js:1221:        
+  js\club_hyperrealistic.js:1222:        // Store pipeline for VR/desktop switching
+  js\club_hyperrealistic.js:1223:        this.renderPipeline = pipeline;
+  js\club_hyperrealistic.js:1224:
+  js\club_hyperrealistic.js:1225:        // SSAO 2 Pipeline (Screen Space Ambient Occlusion) - Adds realistic contact shadows
+  js\club_hyperrealistic.js:1226:        // ONLY for desktop mode (too expensive for standalone VR)
+  js\club_hyperrealistic.js:1227:        // Adds depth to corners and contact points for hyperrealism
+  js\club_hyperrealistic.js:1228:        // Note: Pass camera in constructor - don't call attachCamerasToRenderPipeline again (causes reuse warnings)
+  js\club_hyperrealistic.js:1229:        this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, this.camera ? [this.camera] : []);
+> js\club_hyperrealistic.js:3078:    updateAnimations() {
+  js\club_hyperrealistic.js:3079:        const time = performance.now() / 1000;
+  js\club_hyperrealistic.js:3080:        const deltaTime = this.engine.getDeltaTime() / 1000; // Actual frame delta in seconds
+  js\club_hyperrealistic.js:3081:        this.ledTime += deltaTime * (this.ledWallSpeed || 1.0);
+  js\club_hyperrealistic.js:3082:        this.frameCounter++;
+  js\club_hyperrealistic.js:3083:        
+  js\club_hyperrealistic.js:3084:        // === GOBO ROTATION UPDATE ===
+  js\club_hyperrealistic.js:3085:        // Continuous 360° rotation for gobo patterns
+  js\club_hyperrealistic.js:3086:        if (this.goboEnabled) {
+  js\club_hyperrealistic.js:3087:            this.goboRotation += 0.02 * (this.goboRotationSpeed || 1.0);
+  js\club_hyperrealistic.js:3088:            if (this.goboRotation > Math.PI * 2) {
+  js\club_hyperrealistic.js:3089:                this.goboRotation -= Math.PI * 2;
+  js\club_hyperrealistic.js:3090:            } else if (this.goboRotation < -Math.PI * 2) {
+  js\club_hyperrealistic.js:3091:                this.goboRotation += Math.PI * 2;
+  js\club_hyperrealistic.js:3092:            }
+  js\club_hyperrealistic.js:3093:        }
+  js\club_hyperrealistic.js:3094:        
+  js\club_hyperrealistic.js:3095:        // OPTIMIZATION: Pre-calculate frequently used trig values (reduces ~30-40 Math.sin/cos calls per frame)
+  js\club_hyperrealistic.js:3096:        const sinTime = Math.sin(time);
+  js\club_hyperrealistic.js:3097:        const cosTime = Math.cos(time);
+  js\club_hyperrealistic.js:3098:        const sinTime2 = Math.sin(time * 2);
+  js\club_hyperrealistic.js:3099:        const sinTime3 = Math.sin(time * 3);
+  js\club_hyperrealistic.js:3100:        const sinTime8 = Math.sin(time * 8);
+  js\club_hyperrealistic.js:3101:        const sinTimeThird = Math.sin(time * 0.3);
+  js\club_hyperrealistic.js:3102:        
+  js\club_hyperrealistic.js:3103:        // PERFORMANCE: Cache expensive calculations
+  js\club_hyperrealistic.js:3104:        const speedMultiplierSpot = this.spotlightSpeed || 1.0;
+  js\club_hyperrealistic.js:3105:        const speedMultiplierLaser = this.laserSpeed || 1.0;
+  js\club_hyperrealistic.js:3106:        
+  js\club_hyperrealistic.js:3107:        // Get audio data for reactive lighting (needed for laser sheet pulse)
+  js\club_hyperrealistic.js:3108:        const audioData = this.getAudioData();
+  js\club_hyperrealistic.js:3109:
+  js\club_hyperrealistic.js:3110:        // === FOG MACHINE SYSTEM CONTROL ===
+  js\club_hyperrealistic.js:3111:        if (this.fogMachines && this.fogMachines.length > 0) {
+  js\club_hyperrealistic.js:3112:            const currentTime = time;
+  js\club_hyperrealistic.js:3113:            
+  js\club_hyperrealistic.js:3114:            if (this.smokeActive) {
+  js\club_hyperrealistic.js:3115:                // Ensure haze is running for beam visibility
+  js\club_hyperrealistic.js:3116:                if (this.haze && !this.haze.isStarted()) this.haze.start();
+  js\club_hyperrealistic.js:3117:                
+  js\club_hyperrealistic.js:3118:                // Update each fog machine
+  js\club_hyperrealistic.js:3119:                this.fogMachines.forEach((machine, i) => {
+  js\club_hyperrealistic.js:3120:                    const emitter = machine.emitter;
+  js\club_hyperrealistic.js:3121:                    const led = machine.led;
+  js\club_hyperrealistic.js:3122:                    const ledMat = machine.ledMat;
+  js\club_hyperrealistic.js:3123:                    
+  js\club_hyperrealistic.js:3124:                    // === FOG BURST LOGIC ===
+  js\club_hyperrealistic.js:3125:                    if (this.fogBurstMode === 'auto') {
+  js\club_hyperrealistic.js:3126:                        // Automatic bursts synced to music/phase
+  js\club_hyperrealistic.js:3127:                        const timeSinceLastBurst = currentTime - this.lastFogBurst;
+  js\club_hyperrealistic.js:3128:                        const burstInterval = this.fogBurstInterval / this.fogIntensity;
+  js\club_hyperrealistic.js:3129:                        
+  js\club_hyperrealistic.js:3130:                        if (!machine.isBursting && timeSinceLastBurst > burstInterval) {
+  js\club_hyperrealistic.js:3131:                            // Start a burst
+  js\club_hyperrealistic.js:3132:                            machine.isBursting = true;
+  js\club_hyperrealistic.js:3133:                            machine.burstTimer = 2.5; // 2.5 second burst
+  js\club_hyperrealistic.js:3134:                            emitter.emitRate = 150 * this.fogIntensity;
+  js\club_hyperrealistic.js:3135:                            
+  js\club_hyperrealistic.js:3136:                            // Update LED to red (active)
+  js\club_hyperrealistic.js:3137:                            ledMat.emissiveColor = this.cachedFogColors.active;
+  js\club_hyperrealistic.js:3138:                            
+  js\club_hyperrealistic.js:3139:                            if (i === 0) this.lastFogBurst = currentTime;
+  js\club_hyperrealistic.js:3140:                        }
+  js\club_hyperrealistic.js:3141:                        
+  js\club_hyperrealistic.js:3142:                        if (machine.isBursting) {
+  js\club_hyperrealistic.js:3143:                            machine.burstTimer -= deltaTime;
+  js\club_hyperrealistic.js:3144:                            
+  js\club_hyperrealistic.js:3145:                            // Fade out burst over last 0.5 seconds
+  js\club_hyperrealistic.js:3146:                            if (machine.burstTimer < 0.5) {
+  js\club_hyperrealistic.js:3147:                                emitter.emitRate = 150 * this.fogIntensity * (machine.burstTimer / 0.5);
+  js\club_hyperrealistic.js:3148:                            }
+  js\club_hyperrealistic.js:3149:                            
+  js\club_hyperrealistic.js:3150:                            if (machine.burstTimer <= 0) {
+  js\club_hyperrealistic.js:3151:                                machine.isBursting = false;
+  js\club_hyperrealistic.js:3152:                                emitter.emitRate = 0;
+  js\club_hyperrealistic.js:3153:                                ledMat.emissiveColor = this.cachedFogColors.ready;
+  js\club_hyperrealistic.js:3154:                            }
+  js\club_hyperrealistic.js:3155:                        }
+  js\club_hyperrealistic.js:3156:                        
+  js\club_hyperrealistic.js:3157:                    } else if (this.fogBurstMode === 'continuous') {
+  js\club_hyperrealistic.js:3158:                        // Continuous low output
+  js\club_hyperrealistic.js:3159:                        emitter.emitRate = 80 * this.fogIntensity;
+  js\club_hyperrealistic.js:3160:                        ledMat.emissiveColor = this.cachedFogColors.continuous;
+  js\club_hyperrealistic.js:3161:                        machine.isBursting = false;
+  js\club_hyperrealistic.js:3162:                        
+  js\club_hyperrealistic.js:3163:                    } else if (this.fogBurstMode === 'burst') {
+  js\club_hyperrealistic.js:3164:                        // Manual burst mode - awaiting trigger
+  js\club_hyperrealistic.js:3165:                        if (!machine.isBursting) {
+  js\club_hyperrealistic.js:3166:                            emitter.emitRate = 0;
+  js\club_hyperrealistic.js:3167:                            ledMat.emissiveColor = this.cachedFogColors.standby;
+  js\club_hyperrealistic.js:3168:                        }
+  js\club_hyperrealistic.js:3169:                    }
+  js\club_hyperrealistic.js:3170:                });
+  js\club_hyperrealistic.js:3171:                
+  js\club_hyperrealistic.js:3172:            } else {
+  js\club_hyperrealistic.js:3173:                // Smoke disabled - stop all fog machines
+  js\club_hyperrealistic.js:3174:                this.fogMachines.forEach(machine => {
+  js\club_hyperrealistic.js:3175:                    machine.emitter.emitRate = 0;
+  js\club_hyperrealistic.js:3176:                    machine.isBursting = false;
+  js\club_hyperrealistic.js:3177:                    machine.ledMat.emissiveColor = this.cachedFogColors.off;
+  js\club_hyperrealistic.js:3178:                });
+

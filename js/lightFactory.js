@@ -320,15 +320,16 @@ class LightFactory {
      * Preset light configurations for common club scenarios
      */
     presets = {
-        // Ambient fill light
+        // Ambient fill light — UNDERGROUND: Cold blue-grey industrial undertone
+        // Minimal ambient — the club should feel like a cave lit only by the rig
         ambient: (name = 'ambient') => this.createHemisphericLight(
             name,
             new BABYLON.Vector3(0, 1, 0),
             {
-                intensity: 0.04,
-                diffuse: [0.9, 0.9, 1.0],
+                intensity: 0.02, // Near-zero — total darkness is the goal
+                diffuse: [0.6, 0.6, 0.8], // Cold blue-grey — fluorescent industrial feel
                 specular: [0, 0, 0],
-                groundColor: [0.03, 0.01, 0.06]
+                groundColor: [0.01, 0.005, 0.02] // Faint purple floor bounce from haze
             }
         ),
 

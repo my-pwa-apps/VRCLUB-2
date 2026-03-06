@@ -230,26 +230,46 @@ function initVJMenu() {
                 }, 400);
                 
             } else if (control === 'changeMirrorBallColor') {
-                // Change mirror ball color with ENHANCED visual feedback
+                // Change mirror ball color - update the color reference and invalidate caches
+                // The animation loop will pick up the new color and propagate it to all components
                 vrClubInstance.mirrorBallColorIndex = (vrClubInstance.mirrorBallColorIndex + 1) % vrClubInstance.mirrorBallColors.length;
                 vrClubInstance.mirrorBallSpotlightColor = vrClubInstance.mirrorBallColors[vrClubInstance.mirrorBallColorIndex];
                 
+                // Invalidate cached colors so animation loop rebuilds them
+                vrClubInstance.mirrorBallCachedColors = null;
+                
+                // Block auto-cycling so manual color sticks
+                vrClubInstance.lastVJInteraction = performance.now() / 1000;
+                vrClubInstance.vjManualMode = true;
+                
+                // Immediately update source spotlights (the lights aimed at the ball)
                 if (vrClubInstance.mirrorBallSpotlights) {
                     vrClubInstance.mirrorBallSpotlights.forEach(light => {
                         if (light) light.diffuse = vrClubInstance.mirrorBallSpotlightColor.clone();
                     });
                 }
+                
+                // Immediately update source beams (fixture → ball)
                 if (vrClubInstance.mirrorBallBeams) {
                     vrClubInstance.mirrorBallBeams.forEach(beam => {
-                        beam.material.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.clone();
+                        beam.material.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(0.6);
                     });
                 }
-                if (vrClubInstance.mirrorBallHousings) {
-                    vrClubInstance.mirrorBallHousings.forEach(housing => {
-                        housing.material.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(0.2);
-                        housing.lensMaterial.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(5.0);
-                        housing.sourceMaterial.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(8.0);
-                        housing.flareMaterial.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(3.0);
+                
+                // Immediately update reflection beam shared material (ball → spots)
+                if (vrClubInstance._sharedMirrorBeamMat) {
+                    vrClubInstance._sharedMirrorBeamMat.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(0.8);
+                }
+                
+                // Immediately update outgoing ray shared material
+                if (vrClubInstance._sharedMirrorRayMat) {
+                    vrClubInstance._sharedMirrorRayMat.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.clone();
+                }
+                
+                // Immediately update all reflection spot colors on walls/floor
+                if (vrClubInstance.mirrorReflectionSpots) {
+                    vrClubInstance.mirrorReflectionSpots.forEach(spot => {
+                        spot.material.emissiveColor = vrClubInstance.mirrorBallSpotlightColor.scale(spot.baseIntensity || 0.7);
                     });
                 }
                 
@@ -525,6 +545,18 @@ function initAudioMenu() {
             const url = streamUrl.value.trim();
             if (!url) {
                 showStatus('Please enter a stream URL', 'error');
+                return;
+            }
+            
+            // Validate URL protocol
+            try {
+                const parsed = new URL(url);
+                if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+                    showStatus('Invalid URL protocol. Use https:// or http://', 'error');
+                    return;
+                }
+            } catch (e) {
+                showStatus('Invalid URL format', 'error');
                 return;
             }
             

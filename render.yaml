@@ -1,13 +1,13 @@
 services:
   - type: web
-    name: vrclub-multiplayer-server
+    name: vrclub
     runtime: node
     repo: https://github.com/my-pwa-apps/VRCLUB-2
     branch: main
     region: oregon
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: echo "No build step needed"
+    startCommand: node server/server.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

@@ -103,7 +103,7 @@ class SpotlightSystem {
         
         // SpotLight
         const spot = new BABYLON.SpotLight("spot" + index,
-            new BABYLON.Vector3(pos.x, 7.3, pos.z),
+            new BABYLON.Vector3(pos.x, 3.3, pos.z),
             new BABYLON.Vector3(0, -1, 0),
             Math.PI / 6,
             5,
@@ -129,12 +129,13 @@ class SpotlightSystem {
             beam.rotation.x = Math.PI;
             beam.position = new BABYLON.Vector3(0, -0.5, 0);
         } else {
-            beam.position = new BABYLON.Vector3(pos.x, 7.3, pos.z);
+            beam.position = new BABYLON.Vector3(pos.x, 3.3, pos.z);
         }
         beam.isPickable = false;
         
         // Simple beam material (no animated texture)
         const beamMat = new BABYLON.StandardMaterial("spotBeamMat" + index, this.scene);
+        
         beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
         beamMat.emissiveColor = this.currentSpotColor.clone();
@@ -156,6 +157,7 @@ class SpotlightSystem {
         lightPool.isPickable = false;
         
         const poolMat = new BABYLON.StandardMaterial("poolMat" + index, this.scene);
+        
         poolMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         poolMat.specularColor = new BABYLON.Color3(0, 0, 0);
         poolMat.emissiveColor = this.currentSpotColor.clone();
@@ -175,6 +177,7 @@ class SpotlightSystem {
         lightPoolGlow.isPickable = false;
         
         const poolGlowMat = new BABYLON.StandardMaterial("poolGlowMat" + index, this.scene);
+        
         poolGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         poolGlowMat.emissiveColor = this.currentSpotColor.scale(0.8);
         poolGlowMat.alpha = 0.4;
@@ -193,6 +196,7 @@ class SpotlightSystem {
         goboProjection.isPickable = false;
         
         const goboMat = new BABYLON.StandardMaterial("goboMat" + index, this.scene);
+        
         goboMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         goboMat.specularColor = new BABYLON.Color3(0, 0, 0);
         goboMat.emissiveColor = this.currentSpotColor.clone();
@@ -225,7 +229,7 @@ class SpotlightSystem {
             lensMat: fixtureData ? fixtureData.lensMat : null,
             sourceMat: fixtureData ? fixtureData.sourceMat : null,
             flareMat: fixtureData ? fixtureData.flareMat : null,
-            basePos: new BABYLON.Vector3(pos.x, 7.3, pos.z),
+            basePos: new BABYLON.Vector3(pos.x, 3.3, pos.z),
             phase: index * (Math.PI * 2 / 6),
             speed: 0.8,
             color: this.currentSpotColor,
@@ -281,7 +285,7 @@ class SpotlightSystem {
         
         this.spotlights.forEach((spotlight, i) => {
             // Enable light and beam
-            spotlight.light.setEnabled(true);
+            // spotlight.light.setEnabled(true); // DISABLED: Prevents too many PBR lights crash
             spotlight.beam.setEnabled(true);
             spotlight.lightPool.setEnabled(true);
             spotlight.lightPoolGlow.setEnabled(true);
@@ -338,6 +342,13 @@ class SpotlightSystem {
             const direction = this._scratchDirection;
             spotlight.light.direction = direction;
             
+            // Sync light position to head world position for accurate illumination
+            if (spotlight.head) {
+                const worldMatrix = spotlight.head.getWorldMatrix();
+                const worldPos = BABYLON.Vector3.TransformCoordinates(BABYLON.Vector3.Zero(), worldMatrix);
+                spotlight.light.position.copyFrom(worldPos);
+            }
+            
             // Update beam
             this._updateBeam(spotlight, direction, intensity);
             
@@ -354,7 +365,7 @@ class SpotlightSystem {
      */
     _updateStatic() {
         this.spotlights.forEach(spotlight => {
-            spotlight.light.setEnabled(true);
+            // spotlight.light.setEnabled(true); // DISABLED: Prevents too many PBR lights crash
             spotlight.beam.setEnabled(true);
             spotlight.lightPool.setEnabled(true);
             spotlight.lightPoolGlow.setEnabled(true);
@@ -376,7 +387,7 @@ class SpotlightSystem {
         this.spotlights.forEach((spotlight, i) => {
             const intensity = Math.sin(time * strobeSpeed + i * 0.5) > 0.7 ? 1.0 : 0.3;
             
-            spotlight.light.setEnabled(true);
+            // spotlight.light.setEnabled(true); // DISABLED: Prevents too many PBR lights crash
             spotlight.beam.setEnabled(true);
             spotlight.lightPool.setEnabled(true);
             spotlight.lightPoolGlow.setEnabled(true);
@@ -442,9 +453,23 @@ class SpotlightSystem {
 
     /**
      * Update surface light pool position (floor and walls)
+     * Uses the actual world position of the spotlight head (not the static mount point)
+     * so the pool tracks precisely where the beam lands
      */
     _updateFloorPool(spotlight, direction) {
-        const originY = spotlight.basePos.y;
+        // Get actual beam origin from the head's world position if available
+        // This ensures the floor pool stays aligned with the visible beam cone
+        let originX = spotlight.basePos.x;
+        let originY = spotlight.basePos.y;
+        let originZ = spotlight.basePos.z;
+        
+        if (spotlight.head) {
+            const worldMatrix = spotlight.head.getWorldMatrix();
+            const worldPos = BABYLON.Vector3.TransformCoordinates(BABYLON.Vector3.Zero(), worldMatrix);
+            originX = worldPos.x;
+            originY = worldPos.y;
+            originZ = worldPos.z;
+        }
         
         // Club boundaries
         const FLOOR_Y = 0;
@@ -457,9 +482,9 @@ class SpotlightSystem {
         let distToLeftWall = Infinity, distToRightWall = Infinity;
         
         if (direction.y < -0.01) distToFloor = originY / Math.abs(direction.y);
-        if (direction.z < -0.01) distToBackWall = (spotlight.basePos.z - BACK_WALL_Z) / Math.abs(direction.z);
-        if (direction.x < -0.01) distToLeftWall = (spotlight.basePos.x - LEFT_WALL_X) / Math.abs(direction.x);
-        if (direction.x > 0.01) distToRightWall = (RIGHT_WALL_X - spotlight.basePos.x) / direction.x;
+        if (direction.z < -0.01) distToBackWall = (originZ - BACK_WALL_Z) / Math.abs(direction.z);
+        if (direction.x < -0.01) distToLeftWall = (originX - LEFT_WALL_X) / Math.abs(direction.x);
+        if (direction.x > 0.01) distToRightWall = (RIGHT_WALL_X - originX) / direction.x;
         
         // Find closest surface hit
         let t = distToFloor;
@@ -470,9 +495,9 @@ class SpotlightSystem {
         
         if (t === Infinity || t > 20) t = 15;
         
-        const hitX = spotlight.basePos.x + direction.x * t;
-        const hitY = spotlight.basePos.y + direction.y * t;
-        const hitZ = spotlight.basePos.z + direction.z * t;
+        const hitX = originX + direction.x * t;
+        const hitY = originY + direction.y * t;
+        const hitZ = originZ + direction.z * t;
         
         // Store hit surface for gobo projection
         spotlight.hitSurface = hitSurface;

@@ -36,11 +36,11 @@ class StrobeSystem {
         
         // Strobe positions - distributed on trusses
         const strobePositions = [
-            { x: -6, y: 7.8, z: -8 },
-            { x: 6, y: 7.8, z: -8 },
-            { x: -6, y: 7.8, z: -16 },
-            { x: 6, y: 7.8, z: -16 },
-            { x: 0, y: 7.8, z: -12 }
+            { x: -6, y: 3.6, z: -8 },
+            { x: 6, y: 3.6, z: -8 },
+            { x: -6, y: 3.6, z: -16 },
+            { x: 6, y: 3.6, z: -16 },
+            { x: 0, y: 3.6, z: -12 }
         ];
         
         strobePositions.forEach((pos, i) => {
@@ -79,6 +79,7 @@ class StrobeSystem {
         emitter.rotation.x = Math.PI / 2;
         
         const emitterMat = new BABYLON.StandardMaterial("strobeEmitterMat" + index, this.scene);
+        
         emitterMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         emitterMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
         emitterMat.disableLighting = true;
@@ -109,10 +110,10 @@ class StrobeSystem {
         this.blinders = [];
         
         const blinderPositions = [
-            { x: -6, y: 7.5, z: -8 },
-            { x: -2, y: 7.5, z: -8 },
-            { x: 2, y: 7.5, z: -8 },
-            { x: 6, y: 7.5, z: -8 }
+            { x: -6, y: 3.5, z: -8 },
+            { x: -2, y: 3.5, z: -8 },
+            { x: 2, y: 3.5, z: -8 },
+            { x: 6, y: 3.5, z: -8 }
         ];
         
         blinderPositions.forEach((pos, i) => {
@@ -163,6 +164,7 @@ class StrobeSystem {
         flare.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
         
         const flareMat = new BABYLON.StandardMaterial("blinderFlareMat" + index, this.scene);
+        
         flareMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         flareMat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.7);
         flareMat.alpha = 0;
@@ -267,6 +269,10 @@ class StrobeSystem {
     /**
      * Set strobe active state
      */
+    setActive(active) {
+        this.strobesActive = active;
+    }
+
     setStrobesActive(active) {
         this.strobesActive = active;
     }
