@@ -205,8 +205,9 @@ class VRClub {
         this.laserSheetActive = false; // Laser sheet effect
         
         // Spotlight pattern and speed controls
+        // (Per-light-type speed multipliers — including a unified spotlightSpeed —
+        // are initialised in a single block below.)
         this.spotlightPattern = 0; // 0=automated/moving, 1=static down, 2=mirror sweep, 3=crossed beams
-        this.spotlightSpeed = 1.0; // Speed multiplier (0.5x to 3.0x)
         
         // Add color variations for mirror ball (soft pastels) - reference cached colors
         this.cachedColors.whiteSpot = new BABYLON.Color3(1, 1, 1); // Full white for mirror ball
@@ -278,22 +279,14 @@ class VRClub {
         
         // Animation phase tracking for smooth spotlight animations
         this.lastActivePhase = 0; // Initialize phase counter
-        
-        // === MODULAR LIGHTING SYSTEMS ===
-        // These are the new refactored system classes that can replace inline code
-        // Set to null here, initialized in init() after scene creation
-        this.systems = {
-            laser: null,
-            spotlight: null,
-            mirrorBall: null,
-            ledWall: null,
-            strobe: null,
-            haze: null,
-            vjControl: null
-        };
-        // Toggle to use new modular systems vs legacy inline code
-        this.useModularSystems = false; // Disabled - modular spotlights cause too many lights error
-        
+
+        // NOTE: A modular `js/systems/*` lighting layer existed historically but
+        // was removed (see QC review). These two fields remain as inert stubs so
+        // any leftover `if (this.useModularSystems && this.systems.x)` guards in
+        // legacy code paths short-circuit cleanly to the inline implementation.
+        this.useModularSystems = false;
+        this.systems = {};
+
         this.init();
     }
 
@@ -611,59 +604,6 @@ class VRClub {
         }
     }
 
-    /**
-     * Initialize modular lighting systems (new architecture)
-     * These systems encapsulate lighting logic into separate, maintainable classes
-     */
-    _initModularSystems() {
-        const systemOptions = { logger: log };
-        
-        // Only initialize if the classes are available (loaded via script tags)
-        if (typeof LaserSystem !== 'undefined') {
-            this.systems.laser = new LaserSystem(this.scene, this.materialFactory, systemOptions);
-            log.info('✅ LaserSystem module loaded');
-        }
-        
-        if (typeof SpotlightSystem !== 'undefined') {
-            this.systems.spotlight = new SpotlightSystem(this.scene, this.materialFactory, systemOptions);
-            log.info('✅ SpotlightSystem module loaded');
-        }
-        
-        if (typeof MirrorBallSystem !== 'undefined') {
-            this.systems.mirrorBall = new MirrorBallSystem(this.scene, this.materialFactory, systemOptions);
-            log.info('✅ MirrorBallSystem module loaded');
-        }
-        
-        if (typeof LEDWallSystem !== 'undefined') {
-            this.systems.ledWall = new LEDWallSystem(this.scene, this.materialFactory, systemOptions);
-            log.info('✅ LEDWallSystem module loaded');
-        }
-        
-        if (typeof StrobeSystem !== 'undefined') {
-            this.systems.strobe = new StrobeSystem(this.scene, this.materialFactory, systemOptions);
-            log.info('✅ StrobeSystem module loaded');
-        }
-        
-        if (typeof HazeSystem !== 'undefined') {
-            this.systems.haze = new HazeSystem(this.scene, systemOptions);
-            log.info('✅ HazeSystem module loaded');
-        }
-        
-        if (typeof VJControlSystem !== 'undefined') {
-            this.systems.vjControl = new VJControlSystem(this.scene, systemOptions);
-            // Register all systems with VJ controller
-            if (this.systems.laser) this.systems.vjControl.registerSystem('laser', this.systems.laser);
-            if (this.systems.spotlight) this.systems.vjControl.registerSystem('spotlight', this.systems.spotlight);
-            if (this.systems.mirrorBall) this.systems.vjControl.registerSystem('mirrorball', this.systems.mirrorBall);
-            if (this.systems.ledWall) this.systems.vjControl.registerSystem('ledwall', this.systems.ledWall);
-            if (this.systems.strobe) this.systems.vjControl.registerSystem('strobe', this.systems.strobe);
-            if (this.systems.haze) this.systems.vjControl.registerSystem('haze', this.systems.haze);
-            log.info('✅ VJControlSystem module loaded and systems registered');
-        }
-        
-        log.info('🎛️ Modular lighting systems initialized (useModularSystems=' + this.useModularSystems + ')');
-    }
-
     async init() {
         // Create scene with hyperrealistic atmosphere
         this.scene = new BABYLON.Scene(this.engine);
@@ -688,9 +628,6 @@ class VRClub {
         
         // Initialize light factory
         this.lightFactory = new LightFactory(this.scene, log);
-        
-        // Initialize modular lighting systems (new architecture)
-        this._initModularSystems();
         
         // Initialize Ready Player Me loader (optional, with fallback)
         // this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
@@ -941,55 +878,47 @@ class VRClub {
                                 }
 
                                 // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump
+                                // Lazy-init the per-frame physics observer ONCE per VRClub instance
+                                // (previous bug: a new observer was added every first jump and never removed,
+                                // accumulating across XR sessions and continuing to raycast every frame.)
+                                if (!this.jumpState) {
+                                    this.jumpState = { active: false, velocity: 0 };
+                                    this._jumpRayDir = new BABYLON.Vector3(0, -1, 0);
+                                    this._jumpRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), this._jumpRayDir, 2.5);
+                                    const meshHasCollisions = (mesh) => mesh.checkCollisions;
+                                    this._jumpObserver = this.scene.onBeforeRenderObservable.add(() => {
+                                        if (!this.jumpState.active || !xrCamera) return;
+                                        // Apply velocity & gravity
+                                        xrCamera.position.y += this.jumpState.velocity;
+                                        this.jumpState.velocity -= 0.006;
+                                        if (this.jumpState.velocity >= 0) return;
+                                        // Falling: raycast down to find ground (reuse cached Ray/Vector3)
+                                        this._jumpRay.origin.copyFrom(xrCamera.position);
+                                        this._jumpRay.direction.copyFrom(this._jumpRayDir);
+                                        this._jumpRay.length = 2.5;
+                                        const pick = this.scene.pickWithRay(this._jumpRay, meshHasCollisions);
+                                        if (pick && pick.hit && pick.distance <= 1.75) {
+                                            this.jumpState.active = false;
+                                            xrCamera.applyGravity = true;
+                                            xrCamera.position.y = pick.pickedPoint.y + 1.7;
+                                        } else if (xrCamera.position.y < 1.7) {
+                                            // Fallback for infinite fall
+                                            this.jumpState.active = false;
+                                            xrCamera.applyGravity = true;
+                                            xrCamera.position.y = 1.7;
+                                        }
+                                    });
+                                }
                                 const jumpBtnIds = ["a-button", "x-button"];
                                 jumpBtnIds.forEach(id => {
                                     const btn = motionController.getComponent(id);
                                     if (btn) {
                                         btn.onButtonStateChangedObservable.add((c) => {
-                                            if (c.pressed && (!this.jumpState || !this.jumpState.active)) {
+                                            if (c.pressed && !this.jumpState.active) {
                                                 log.info('🦘 VR Jump activated');
-                                                
-                                                // Initialize jump state if needed
-                                                if (!this.jumpState) {
-                                                    this.jumpState = { active: false, velocity: 0 };
-                                                    
-                                                    // Add physics observer for jump arc
-                                                    this.scene.onBeforeRenderObservable.add(() => {
-                                                        if (this.jumpState.active && xrCamera) {
-                                                            // Apply velocity
-                                                            xrCamera.position.y += this.jumpState.velocity;
-                                                            // Apply gravity to velocity
-                                                            this.jumpState.velocity -= 0.006; // Gravity
-                                                            
-                                                            // Check for landing (only when falling)
-                                                            if (this.jumpState.velocity < 0) {
-                                                                // Raycast down to find ground
-                                                                const ray = new BABYLON.Ray(xrCamera.position, new BABYLON.Vector3(0, -1, 0), 2.5);
-                                                                // Pick meshes that have collisions enabled (floor, platform)
-                                                                const pick = this.scene.pickWithRay(ray, (mesh) => mesh.checkCollisions);
-                                                                
-                                                                // If ground is within standing height (1.7m) + tolerance
-                                                                if (pick && pick.hit && pick.distance <= 1.75) {
-                                                                    this.jumpState.active = false;
-                                                                    xrCamera.applyGravity = true; // Re-enable Babylon gravity
-                                                                    // Smooth landing
-                                                                    xrCamera.position.y = pick.pickedPoint.y + 1.7;
-                                                                }
-                                                                // Fallback for infinite fall (reset to floor)
-                                                                else if (xrCamera.position.y < 1.7) {
-                                                                    this.jumpState.active = false;
-                                                                    xrCamera.applyGravity = true;
-                                                                    xrCamera.position.y = 1.7;
-                                                                }
-                                                            }
-                                                        }
-                                                    });
-                                                }
-                                                
-                                                // Trigger jump
                                                 this.jumpState.active = true;
-                                                this.jumpState.velocity = 0.12; // Jump force
-                                                xrCamera.applyGravity = false; // Disable Babylon gravity during jump
+                                                this.jumpState.velocity = 0.12;
+                                                xrCamera.applyGravity = false;
                                             }
                                         });
                                     }
@@ -1035,6 +964,13 @@ class VRClub {
                     if (this.vrYLockObserver) {
                         this.scene.onBeforeRenderObservable.remove(this.vrYLockObserver);
                         this.vrYLockObserver = null;
+                    }
+
+                    // Remove the per-frame VR jump physics observer (captures stale xrCamera otherwise)
+                    if (this._jumpObserver) {
+                        this.scene.onBeforeRenderObservable.remove(this._jumpObserver);
+                        this._jumpObserver = null;
+                        this.jumpState = null;
                     }
                     
                     // Restore desktop settings
@@ -9185,16 +9121,25 @@ class VRClub {
             }
         };
         
+        // Global Escape handler — declared first so cleanup() can detach it.
+        // Without this removal, opening the dialog repeatedly accumulates listeners.
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                cleanup();
+            }
+        };
+
         // Cleanup function
         const cleanup = () => {
             const div = document.getElementById('vrAudioInput');
             if (div && div.parentNode) {
-                document.body.removeChild(div);
+                div.parentNode.removeChild(div);
             }
             // Re-attach camera control
             if (camera && camera.attachControl) {
                 camera.attachControl(this.canvas, true);
             }
+            document.removeEventListener('keydown', escHandler);
         };
         
         // Handle play button
@@ -9228,14 +9173,7 @@ class VRClub {
                 cleanup();
             }
         };
-        
-        // Handle Escape key globally
-        const escHandler = (e) => {
-            if (e.key === 'Escape') {
-                cleanup();
-                document.removeEventListener('keydown', escHandler);
-            }
-        };
+
         document.addEventListener('keydown', escHandler);
     }
 
@@ -9245,14 +9183,18 @@ class VRClub {
             log.error("❌ Audio element not created! This shouldn't happen.");
             return;
         }
-        
-        // Set source
+
+        // Set source (validate user-supplied URL to block javascript:/data: schemes)
         if (url === "") {
-            this.audioElement.src = "https://stream.example.com/radio"; // Replace with actual demo
+            this._setAudioSrc("https://stream.example.com/radio"); // Replace with actual demo
             log.info("🎵 Using demo audio stream");
-        } else {
-            this.audioElement.src = url;
+        } else if (this._isSafeAudioUrl(url)) {
+            this._setAudioSrc(url);
             log.info(`🎵 Loading audio stream: ${url}`);
+        } else {
+            log.warn(`🎵 Rejected unsafe audio URL: ${url}`);
+            this.showErrorMessage('Invalid audio URL. Use http://, https:// or blob: only.');
+            return;
         }
         
         // Force load
@@ -9267,14 +9209,7 @@ class VRClub {
                     this.audioStreamButton.isPlaying = true;
                     this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0); // Red when playing
                     log.info("🔊 Audio stream playing automatically!");
-                    
-                    // Connect to audio analyzer
-                    if (!this.audioSource && window.AudioContext) {
-                        this._ensureAudioContext();
-                        this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                        this.audioSource.connect(this.audioAnalyser);
-                        log.info("🎚️ Audio analyzer connected (stream)");
-                    }
+                    this._connectAudioSourceOnce();
                 }).catch(err => {
                     log.error("❌ Failed to play audio:", err);
                     this.showErrorMessage("Audio loaded. Click play on the audio button to start.");
@@ -9292,9 +9227,9 @@ class VRClub {
             return;
         }
         
-        // Create object URL from file
+        // Create object URL from file (previous blob, if any, is revoked by _setAudioSrc)
         const fileUrl = URL.createObjectURL(file);
-        this.audioElement.src = fileUrl;
+        this._setAudioSrc(fileUrl);
         
         // Force load
         this.audioElement.load();
@@ -9312,14 +9247,7 @@ class VRClub {
                     // Note: Local files use blob URLs which can't be shared across network
                     // Only the local user will hear the file. Use streaming URLs for multiplayer.
                     log.warn("⚠️ Local audio files are not shared in multiplayer (use stream URLs)");
-                    
-                    // Connect to audio analyzer
-                    if (!this.audioSource && window.AudioContext) {
-                        this._ensureAudioContext();
-                        this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-                        this.audioSource.connect(this.audioAnalyser);
-                        log.info("🎚️ Audio analyzer connected (file)");
-                    }
+                    this._connectAudioSourceOnce();
                 }).catch(err => {
                     log.error("❌ Failed to play audio file:", err);
                     this.showErrorMessage(`Audio loaded. Click play on the audio button to start.`);
@@ -9419,17 +9347,21 @@ class VRClub {
             alert('Please enter a music stream URL');
             return;
         }
-        
+        if (!this._isSafeAudioUrl(url)) {
+            alert('Invalid audio URL. Use http://, https:// or blob: only.');
+            return;
+        }
+
+        // Reuse the single audio element / source created elsewhere (or lazy-create here).
+        // createMediaElementSource may only be called ONCE per element, so route through
+        // _connectAudioSourceOnce instead of building a parallel graph.
         if (!this.audioElement) {
             this.audioElement = new Audio();
-            this.audioElement.crossOrigin = "anonymous";
-            this._ensureAudioContext();
-            this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
-            this.audioSource.connect(this.audioAnalyser);
+            this.audioElement.crossOrigin = 'anonymous';
         }
-        
-        this.audioElement.src = url;
-        this.audioElement.play();
+        this._setAudioSrc(url);
+        this._connectAudioSourceOnce();
+        this.audioElement.play().catch(err => log.warn('🎵 playMusic() play() rejected:', err));
         
         // Show success message (if element exists)
         if (musicUrlInput) {
@@ -9816,15 +9748,61 @@ class VRClub {
             this.audioAnalyser.connect(this.audioContext.destination);
             log.info('🎚️ Audio context initialized');
         }
-        // Resume if suspended (browser autoplay policy)
+        // Resume if suspended (browser autoplay policy). Awaited via .catch() so
+        // we surface failures instead of silently leaving the context suspended.
         if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
+            this.audioContext.resume().catch(err => log.warn('🎚️ AudioContext resume failed:', err));
         }
         return this.audioContext;
     }
+
+    /**
+     * Validate that a user-supplied audio URL uses a safe scheme.
+     * Rejects javascript:, data:, file: etc. which could be used for XSS / SSRF.
+     */
+    _isSafeAudioUrl(url) {
+        if (typeof url !== 'string' || !url.trim()) return false;
+        try {
+            const parsed = new URL(url, window.location.href);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'blob:';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Connect the (single) audio element to the analyser ONCE.
+     * createMediaElementSource throws InvalidStateError if called twice for the
+     * same element, so this guard is the source of truth for all audio entry points.
+     */
+    _connectAudioSourceOnce() {
+        if (this.audioSource || !this.audioElement || !window.AudioContext) return;
+        this._ensureAudioContext();
+        try {
+            this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+            this.audioSource.connect(this.audioAnalyser);
+            log.info('🎚️ Audio analyser connected');
+        } catch (err) {
+            log.warn('🎚️ Could not connect audio source:', err);
+        }
+    }
+
+    /**
+     * Swap the audio element src safely, revoking any previous blob URL to
+     * avoid unbounded memory growth across file selections.
+     */
+    _setAudioSrc(newSrc) {
+        if (!this.audioElement) return;
+        const prev = this.audioElement.src;
+        if (prev && prev.startsWith('blob:')) {
+            try { URL.revokeObjectURL(prev); } catch (_) { /* ignore */ }
+        }
+        this.audioElement.src = newSrc;
+    }
     
     getAudioData() {
-        if (!this.audioAnalyser || !this.audioDataArray) {
+        if (!this.audioAnalyser || !this.audioDataArray ||
+            !this.audioContext || this.audioContext.state !== 'running') {
             return {
                 bass: 0,
                 mid: 0,

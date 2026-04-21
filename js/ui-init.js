@@ -134,11 +134,19 @@ if (enterClubBtn) {
 
 let vrClubInstance = null;
 
-// Initialize VJ menu once VRClub is created (called from Enter Club button)
+// Initialize VJ menu once VRClub is created (called from Enter Club button).
+// `window.vrClub` is constructed synchronously in the click handler, so we
+// only need a single fallback poll for the rare case where ordering changes.
 function waitForVRClubInstance() {
+    if (window.vrClub) {
+        vrClubInstance = window.vrClub;
+        initVJMenu();
+        initAudioMenu();
+        uiLog.info('VJ/Audio menus initialized');
+        return;
+    }
     let waitAttempts = 0;
-    const maxWaitAttempts = 50; // 5 seconds timeout (shorter since it should exist immediately)
-    
+    const maxWaitAttempts = 50; // 5s safety net
     const checkInterval = setInterval(() => {
         waitAttempts++;
         if (window.vrClub) {
@@ -432,7 +440,9 @@ function initVJMenu() {
     }
     
     // Update button states every 2 seconds (reduced frequency for VR performance)
-    setInterval(updateButtonStates, 2000);
+    // Stored on window so a future destroy() can cancel it.
+    if (window.__vjButtonStateInterval) clearInterval(window.__vjButtonStateInterval);
+    window.__vjButtonStateInterval = setInterval(updateButtonStates, 2000);
     
     // Hide VJ menu in VR mode (wait for scene to be ready)
     if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
@@ -465,10 +475,6 @@ function initAudioMenu() {
     const audioStatus = document.getElementById('audioStatus');
     
     if (!audioToggle || !audioMenu) return;
-    
-    let audioElement = null;
-    let audioContext = null;
-    let audioSource = null;
     
     // Toggle audio menu
     audioToggle.addEventListener('click', () => {
@@ -503,22 +509,23 @@ function initAudioMenu() {
             audioStatus.style.display = 'none';
         }, 3000);
     }
-    
-    // Initialize audio context
-    function initAudioContext() {
-        if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
-            if (vrClubInstance) {
-                vrClubInstance.audioContext = audioContext;
-                vrClubInstance.audioAnalyser = audioContext.createAnalyser();
-                vrClubInstance.audioAnalyser.fftSize = 256;
-                vrClubInstance.audioDataArray = new Uint8Array(vrClubInstance.audioAnalyser.frequencyBinCount);
-            }
+
+    // Single audio element shared with VRClub. createMediaElementSource may only
+    // be called ONCE per HTMLMediaElement, so we route everything through
+    // VRClub's _connectAudioSourceOnce / _setAudioSrc helpers.
+    function ensureAudioElement() {
+        if (!vrClubInstance) return null;
+        if (!vrClubInstance.audioElement) {
+            const el = document.createElement('audio');
+            el.crossOrigin = 'anonymous';
+            el.preload = 'auto';
+            el.style.display = 'none';
+            document.body.appendChild(el);
+            vrClubInstance.audioElement = el;
         }
-        return audioContext;
+        return vrClubInstance.audioElement;
     }
-    
+
     // Play stream URL
     if (playStreamBtn && streamUrl) {
         playStreamBtn.addEventListener('click', () => {
@@ -527,25 +534,17 @@ function initAudioMenu() {
                 showStatus('Please enter a stream URL', 'error');
                 return;
             }
-            
+            if (vrClubInstance && typeof vrClubInstance._isSafeAudioUrl === 'function'
+                && !vrClubInstance._isSafeAudioUrl(url)) {
+                showStatus('Invalid URL. Use http://, https:// or blob:', 'error');
+                return;
+            }
             try {
-                const ctx = initAudioContext();
-                
-                if (!audioElement) {
-                    audioElement = new Audio();
-                    audioElement.crossOrigin = "anonymous";
-                    audioSource = ctx.createMediaElementSource(audioElement);
-                    
-                    if (vrClubInstance && vrClubInstance.audioAnalyser) {
-                        audioSource.connect(vrClubInstance.audioAnalyser);
-                        vrClubInstance.audioAnalyser.connect(ctx.destination);
-                    } else {
-                        audioSource.connect(ctx.destination);
-                    }
-                }
-                
-                audioElement.src = url;
-                audioElement.play()
+                const el = ensureAudioElement();
+                if (!el) { showStatus('Audio not ready', 'error'); return; }
+                vrClubInstance._setAudioSrc(url);
+                vrClubInstance._connectAudioSourceOnce();
+                el.play()
                     .then(() => {
                         showStatus('🎵 Stream playing!', 'success');
                         playStreamBtn.textContent = '⏸️ Pause';
@@ -553,7 +552,6 @@ function initAudioMenu() {
                     .catch(err => {
                         showStatus(`Error: ${err.message}`, 'error');
                     });
-                    
             } catch (err) {
                 showStatus(`Error: ${err.message}`, 'error');
             }
@@ -569,30 +567,18 @@ function initAudioMenu() {
             audioFileName.textContent = `📄 ${file.name}`;
             
             try {
-                const ctx = initAudioContext();
+                const el = ensureAudioElement();
+                if (!el) { showStatus('Audio not ready', 'error'); return; }
                 const url = URL.createObjectURL(file);
-                
-                if (!audioElement) {
-                    audioElement = new Audio();
-                    audioSource = ctx.createMediaElementSource(audioElement);
-                    
-                    if (vrClubInstance && vrClubInstance.audioAnalyser) {
-                        audioSource.connect(vrClubInstance.audioAnalyser);
-                        vrClubInstance.audioAnalyser.connect(ctx.destination);
-                    } else {
-                        audioSource.connect(ctx.destination);
-                    }
-                }
-                
-                audioElement.src = url;
-                audioElement.play()
+                vrClubInstance._setAudioSrc(url);
+                vrClubInstance._connectAudioSourceOnce();
+                el.play()
                     .then(() => {
                         showStatus(`🎵 Playing: ${file.name}`, 'success');
                     })
                     .catch(err => {
                         showStatus(`Error: ${err.message}`, 'error');
                     });
-                    
             } catch (err) {
                 showStatus(`Error: ${err.message}`, 'error');
             }

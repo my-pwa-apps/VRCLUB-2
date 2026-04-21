@@ -56,10 +56,10 @@ class MaterialFactory {
 
         if (alpha < 1.0) {
             mat.alpha = alpha;
-            if (transparencyMode) {
+            if (transparencyMode != null) {
                 mat.transparencyMode = transparencyMode;
             }
-        } else if (transparencyMode) {
+        } else if (transparencyMode != null) {
              mat.transparencyMode = transparencyMode;
         }
 
@@ -81,8 +81,16 @@ class MaterialFactory {
             this.sharedMaterials[cacheKey] = mat;
         }
 
-        // Freeze material to prevent shader recompilation
-        mat.freeze();
+        // Freeze material to prevent shader recompilation.
+        // Skip freeze for materials whose emissiveColor / albedoColor is mutated
+        // at runtime (lens, source, flare, beam, gobo, strobe, LED, blinder, ...);
+        // freezing those would silently no-op the mutations.
+        const nameLower = name.toLowerCase();
+        const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
+                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror'];
+        if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
+            mat.freeze();
+        }
 
         return mat;
     }
@@ -134,10 +142,12 @@ class MaterialFactory {
         if (emissiveTexture) mat.emissiveTexture = emissiveTexture;
         if (opacityTexture) mat.opacityTexture = opacityTexture;
 
-        // Freeze material to prevent shader recompilation
-        // CRITICAL: Don't freeze LED or strobe materials - they need dynamic emissive color updates
+        // Freeze material to prevent shader recompilation.
+        // Skip freeze for materials mutated at runtime (emissiveColor / diffuseColor swaps).
         const nameLower = name.toLowerCase();
-        if (!nameLower.includes('led') && !nameLower.includes('strobe')) {
+        const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
+                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror'];
+        if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
             mat.freeze();
         }
 
@@ -222,7 +232,13 @@ class MaterialFactory {
             this.sharedMaterials[cacheKey] = mat;
         }
 
-        mat.freeze();
+        // Freeze (skip for runtime-mutated materials)
+        const nameLower = name.toLowerCase();
+        const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
+                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror'];
+        if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
+            mat.freeze();
+        }
         return mat;
     }
 

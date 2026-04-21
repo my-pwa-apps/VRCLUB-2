@@ -915,93 +915,80 @@ class ModelLoader {
     }
 
     /**
-     * Apply external PBR textures to PA speaker meshes
-     * Textures: Albedo, Normal, Metallic, Roughness, AO
+     * Apply external PBR textures to PA speaker meshes.
+     * One shared material is created per (texture-set, model) and reused across
+     * every mesh of the speaker — the previous version built an entire PBR
+     * material + 5 texture loads PER MESH (~10 meshes × 2 speakers = ~100
+     * texture downloads of the same files).
+     *
+     * Also: we now use PBRMetallicRoughnessMaterial.metallicRoughnessTexture
+     * (instead of PBRMaterial.microSurfaceTexture, which expects smoothness =
+     * 1 - roughness and was producing inverted glossiness on the speakers).
      */
     applyPASpeakerTextures(mesh, textureBasePath) {
         if (!mesh || mesh.name === '__root__') return;
-        
-        const meshName = mesh.name.toLowerCase();
-        this.log.info(`   🎨 Applying PBR textures to ${mesh.name}`);
-        
-        // Create a new PBR material for each mesh
-        const mat = new BABYLON.PBRMaterial(`paSpeakerMat_${mesh.name}`, this.scene);
-        
-        // CRITICAL: Set base color to WHITE so texture colors show through
-        mat.albedoColor = new BABYLON.Color3(1, 1, 1);
-        
-        // Use the provided small_speaker textures for all parts
-        // Corrected extensions to match actual files (.jpg instead of .jpeg)
-        const albedoPath = textureBasePath + 'small_speaker_1_1001_albedo.jpg';
-        const normalPath = textureBasePath + 'small_speaker_1_1001_normal.png';
-        const metallicPath = textureBasePath + 'small_speaker_1_1001_metallic.jpg';
-        const roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpg';
-        const aoPath = textureBasePath + 'small_speaker_1_1001_AO.jpg';
-        
-        // Load albedo (base color) texture with proper error handling
-        // CRITICAL: invertY=false for GLTF models (UVs match GLTF standard)
-        const albedoTexture = new BABYLON.Texture(albedoPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE, 
-            () => { this.log.info(`   ✅ Loaded albedo: ${albedoPath}`); },
-            (message, exception) => { 
-                this.log.warn(`   ⚠️ Failed to load albedo: ${albedoPath} - ${message}`);
-                // Set to MAGENTA to make error obvious
-                mat.albedoColor = new BABYLON.Color3(1, 0, 1); 
-            }
-        );
-        mat.albedoTexture = albedoTexture;
-        mat.albedoTexture.hasAlpha = false;
-        
-        // Load normal map
-        const normalTexture = new BABYLON.Texture(normalPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
-            () => { this.log.info(`   ✅ Loaded normal: ${normalPath}`); },
-            (message, exception) => { this.log.warn(`   ⚠️ Failed to load normal: ${normalPath}`); }
-        );
-        mat.bumpTexture = normalTexture;
-        mat.bumpTexture.level = 1.0;
-        
-        // Load metallic texture
-        const metallicTexture = new BABYLON.Texture(metallicPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
-            () => { this.log.info(`   ✅ Loaded metallic: ${metallicPath}`); },
-            (message, exception) => { 
-                this.log.warn(`   ⚠️ Failed to load metallic: ${metallicPath}`);
-                mat.metallic = 0.1; // Fallback
-            }
-        );
-        mat.metallicTexture = metallicTexture;
-        
-        // Load roughness texture
-        const roughnessTexture = new BABYLON.Texture(roughnessPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
-            () => { this.log.info(`   ✅ Loaded roughness: ${roughnessPath}`); },
-            (message, exception) => { 
-                this.log.warn(`   ⚠️ Failed to load roughness: ${roughnessPath}`);
-                mat.roughness = 0.6; // Fallback
-            }
-        );
-        mat.microSurfaceTexture = roughnessTexture;
-        
-        // Load AO texture
-        const aoTexture = new BABYLON.Texture(aoPath, this.scene, false, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
-            () => { this.log.info(`   ✅ Loaded AO: ${aoPath}`); },
-            (message, exception) => { this.log.warn(`   ⚠️ Failed to load AO: ${aoPath}`); }
-        );
-        mat.ambientTexture = aoTexture;
-        mat.ambientTextureStrength = 1.0;
-        
-        // PBR material settings for realistic appearance
-        mat.metallic = 0.1; // Default to plastic/matte if texture fails
-        mat.roughness = 0.7; // Default to rough if texture fails
-        const maxLights = this.materialFactory ? this.materialFactory.maxLights : 3;
-        mat.maxSimultaneousLights = maxLights;
-        
-        // Ensure fully opaque for VR
-        mat.alpha = 1.0;
-        mat.transparencyMode = 0; // BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE
-        mat.backFaceCulling = true;
-        mat.disableDepthWrite = false;
-        mat.separateCullingPass = false;
-        mat.forceDepthWrite = true; // Force depth writing
-        
-        // Apply material to mesh
+
+        // Cache shared material per texture base path so all speaker meshes reuse it.
+        this._paSpeakerMatCache = this._paSpeakerMatCache || new Map();
+        let mat = this._paSpeakerMatCache.get(textureBasePath);
+
+        if (!mat) {
+            this.log.info(`   🎨 Building shared PBR material for PA speakers (${textureBasePath})`);
+
+            const albedoPath    = textureBasePath + 'small_speaker_1_1001_albedo.jpg';
+            const normalPath    = textureBasePath + 'small_speaker_1_1001_normal.png';
+            const metallicPath  = textureBasePath + 'small_speaker_1_1001_metallic.jpg';
+            const roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpg';
+            const aoPath        = textureBasePath + 'small_speaker_1_1001_AO.jpg';
+
+            // Use PBRMetallicRoughnessMaterial: roughness map plugs in directly without
+            // the inverted-smoothness pitfall of the legacy PBRMaterial.microSurfaceTexture.
+            mat = new BABYLON.PBRMetallicRoughnessMaterial('paSpeakerSharedMat', this.scene);
+            mat.baseColor = new BABYLON.Color3(1, 1, 1);
+            mat.metallic = 0.1;
+            mat.roughness = 0.7;
+
+            const sampling = BABYLON.Texture.TRILINEAR_SAMPLINGMODE;
+            // invertY=false for GLTF UVs.
+            mat.baseTexture = new BABYLON.Texture(albedoPath, this.scene, false, false, sampling,
+                () => this.log.info(`   ✅ Loaded albedo: ${albedoPath}`),
+                (m) => { this.log.warn(`   ⚠️ Failed to load albedo: ${albedoPath} - ${m}`); mat.baseColor = new BABYLON.Color3(1, 0, 1); }
+            );
+            mat.baseTexture.hasAlpha = false;
+
+            mat.normalTexture = new BABYLON.Texture(normalPath, this.scene, false, false, sampling,
+                () => this.log.info(`   ✅ Loaded normal: ${normalPath}`),
+                (m) => this.log.warn(`   ⚠️ Failed to load normal: ${normalPath} - ${m}`)
+            );
+
+            // metallicRoughnessTexture: metallic in B, roughness in G (GLTF spec).
+            // Texture file in this asset already encodes roughness in G channel.
+            mat.metallicRoughnessTexture = new BABYLON.Texture(roughnessPath, this.scene, false, false, sampling,
+                () => this.log.info(`   ✅ Loaded metallic/roughness: ${roughnessPath}`),
+                (m) => this.log.warn(`   ⚠️ Failed to load metallic/roughness: ${roughnessPath} - ${m}`)
+            );
+
+            mat.occlusionTexture = new BABYLON.Texture(aoPath, this.scene, false, false, sampling,
+                () => this.log.info(`   ✅ Loaded AO: ${aoPath}`),
+                (m) => this.log.warn(`   ⚠️ Failed to load AO: ${aoPath} - ${m}`)
+            );
+
+            const maxLights = this.materialFactory ? this.materialFactory.maxLights : 3;
+            mat.maxSimultaneousLights = maxLights;
+            mat.alpha = 1.0;
+            mat.transparencyMode = BABYLON.PBRBaseMaterial.PBRMATERIAL_OPAQUE !== undefined
+                ? BABYLON.PBRBaseMaterial.PBRMATERIAL_OPAQUE
+                : 0;
+            mat.backFaceCulling = true;
+            mat.disableDepthWrite = false;
+            mat.separateCullingPass = false;
+            // Note: metallicPath is intentionally unused — the metallic channel lives in the
+            // metallicRoughness texture per GLTF convention. Keep the variable for clarity.
+            void metallicPath;
+
+            this._paSpeakerMatCache.set(textureBasePath, mat);
+        }
+
         mesh.material = mat;
     }
 

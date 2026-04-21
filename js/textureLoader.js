@@ -208,9 +208,23 @@ class TextureLoader {
                     const texture = new BABYLON.Texture(blobUrl, this.scene);
                     texture.uScale = config.scale.u;
                     texture.vScale = config.scale.v;
-                    
-                    // Note: Textures don't have a freeze() method in Babylon.js
-                    // They are automatically optimized after upload to GPU
+
+                    // Revoke the blob URL once Babylon has uploaded the bitmap to GPU.
+                    // The pool keeps blob URLs alive forever otherwise (one per cached
+                    // texture per page load), and we never need to re-create the
+                    // BABYLON.Texture from the same blob.
+                    const revoke = () => {
+                        if (this.blobUrlPool.has(url)) {
+                            try { URL.revokeObjectURL(this.blobUrlPool.get(url)); } catch (_) { /* ignore */ }
+                            this.blobUrlPool.delete(url);
+                        }
+                    };
+                    if (texture.onLoadObservable) {
+                        texture.onLoadObservable.addOnce(revoke);
+                    } else {
+                        // Fallback: revoke on next tick
+                        setTimeout(revoke, 0);
+                    }
                     
                     // Add to pool for reuse
                     this.texturePool.set(poolKey, texture);
