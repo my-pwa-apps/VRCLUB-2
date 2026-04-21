@@ -38,6 +38,8 @@ class VJControlSystem {
         this.colorCycleInterval = 8;  // Cycle colors every 8 seconds
         this.lastSpeedChangeTime = 0;
         this.speedChangeInterval = 24; // Change rotation speed every 24 seconds
+        this.lastStrobeCycleTime = 0;
+        this.strobeCycleInterval = 12; // Cycle strobe pattern every 12 seconds
         
         // 3D UI button references
         this.controlButtons = [];
@@ -286,7 +288,15 @@ class VJControlSystem {
                 this.spotlightSystem.setGoboRotationSpeed(newSpeed);
             }
         }
-        
+
+        // ========== STROBE PATTERN CYCLING ==========
+        if (this.strobeSystem && this.strobeSystem.strobesActive) {
+            if (time - this.lastStrobeCycleTime >= this.strobeCycleInterval) {
+                this.lastStrobeCycleTime = time;
+                this.strobeSystem.nextPattern();
+            }
+        }
+
         // ========== COLOR CYCLING ==========
         if (time - this.lastColorCycleTime >= this.colorCycleInterval) {
             this.lastColorCycleTime = time;

@@ -56,39 +56,39 @@ class VRClub {
         // References: Tresor Berlin, Berghain Kantine, Shelter Amsterdam, DC-10 Ibiza
         this.vrSettings = {
             desktop: {
-                exposure: 0.95, // Darker exposure — underground clubs are DARK
-                contrast: 1.8, // Extreme contrast — harsh light vs pitch black
-                bloomWeight: 0.25, // Moderate bloom — focused beams, not stadium wash
-                bloomThreshold: 0.6, // Only catch the brightest sources
-                bloomScale: 0.35, // Tighter bloom halo — surgical precision
-                glowIntensity: 0.7, // Focused glow on emissive surfaces
-                ambientIntensity: 0.025, // EXTREMELY dark — you should barely see walls
-                environmentIntensity: 0.2, // Minimal reflections — raw concrete doesn't reflect
-                clearColor: new BABYLON.Color3(0.001, 0.001, 0.003), // Pure underground black
+                exposure: 0.95, // Darker exposure
+                contrast: 1.6, // Adjusted contrast
+                bloomWeight: 0.25, 
+                bloomThreshold: 0.6, 
+                bloomScale: 0.35, 
+                glowIntensity: 0.7, 
+                ambientIntensity: 0.05, // Dark, but you can see walls now
+                environmentIntensity: 0.35, // More reflections
+                clearColor: new BABYLON.Color3(0.005, 0.005, 0.008),
                 grainEnabled: true, // Film grain adds to the raw/industrial feel
                 chromaticAberrationEnabled: true,
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
                 sharpenAmount: 0.6,
-                fogDensity: 0.035 // THICK haze — underground clubs pump the hazer hard
+                fogDensity: 0.08 // EXTREME haze — thick techno club fog
             },
             vr: {
-                exposure: 0.75, // Even darker in VR for true immersion
-                contrast: 1.7, // Strong contrast for VR depth perception
-                bloomWeight: 0.12, // Subtle bloom in VR
+                exposure: 0.85, // Balanced exposure
+                contrast: 1.5, // Better contrast for options
+                bloomWeight: 0.15, // Subtle bloom in VR
                 bloomThreshold: 0.8,
                 bloomScale: 0.25,
-                glowIntensity: 0.4,
-                ambientIntensity: 0.02, // Near-total darkness
-                environmentIntensity: 0.08, // Barely-there reflections
-                clearColor: new BABYLON.Color3(0, 0, 0),
+                glowIntensity: 0.5,
+                ambientIntensity: 0.04, // Easier to navigate
+                environmentIntensity: 0.15, // Noticeable reflections
+                clearColor: new BABYLON.Color3(0.005, 0.005, 0.005),
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: false,
                 edgeSharpness: 0.7,
                 colorSharpness: 0.9,
                 fxaaEnabled: true,
-                fogDensity: 0.025 // Thick haze in VR — you're IN the fog
+                fogDensity: 0.05 // Extreme thick haze in VR
             }
         };
         

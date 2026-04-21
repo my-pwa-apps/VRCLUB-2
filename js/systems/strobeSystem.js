@@ -10,6 +10,7 @@ class StrobeSystem {
         // Strobe state
         this.strobesActive = false;
         this.strobeSpeed = 1.0;
+        this.strobePattern = 0; // 0=All, 1=Alternating, 2=Chase, 3=Random
         
         // Blinder state
         this.blindersActive = false;
@@ -208,24 +209,49 @@ class StrobeSystem {
      * Update strobe light animation
      */
     _updateStrobes(time, speedMultiplier, audioData) {
-        const strobeFreq = 10 * speedMultiplier;
-        const strobeOn = Math.sin(time * strobeFreq) > 0.9;
+        const baseFreq = 10 * speedMultiplier;
         
         // Audio reactivity - flash on bass hits
         let audioTrigger = false;
         if (audioData && audioData.bass > 0.8) {
             audioTrigger = true;
         }
-        
-        const intensity = (strobeOn || audioTrigger) ? 1.0 : 0.0;
-        
-        this.strobeLights.forEach(strobe => {
+
+        this.strobeLights.forEach((strobe, i) => {
+            let strobeOn = false;
+            
+            switch (this.strobePattern) {
+                case 0: // All together
+                    strobeOn = Math.sin(time * baseFreq) > 0.9;
+                    break;
+                case 1: // Alternating (odds/evens)
+                    strobeOn = Math.sin(time * baseFreq + (i % 2 === 0 ? 0 : Math.PI)) > 0.9;
+                    break;
+                case 2: // Chase
+                    const phase = (time * baseFreq * 0.5 + (i * 1.5)) % (Math.PI * 2);
+                    strobeOn = phase < 0.5; // Short burst
+                    break;
+                case 3: // Random twitch
+                    strobeOn = Math.random() > 0.95 && Math.sin(time * baseFreq) > 0;
+                    break;
+            }
+            
+            const intensity = (strobeOn || audioTrigger) ? 1.0 : 0.0;
+            
             this._scratchColor.r = intensity;
             this._scratchColor.g = intensity;
             this._scratchColor.b = intensity;
             strobe.emitterMat.emissiveColor.copyFrom(this._scratchColor);
             strobe.light.intensity = intensity * 20;
         });
+    }
+
+    /**
+     * Next Strobe Pattern
+     */
+    nextPattern() {
+        this.strobePattern = (this.strobePattern + 1) % 4;
+        this.log.info?.('⚡ Strobe pattern changed to: ' + this.strobePattern);
     }
 
     /**

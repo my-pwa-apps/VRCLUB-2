@@ -8,8 +8,8 @@ class HazeSystem {
         
         // Haze configuration
         this.hazeActive = true;
-        this.hazeDensity = options.density || 0.015;
-        this.hazeColor = options.color || new BABYLON.Color3(0.1, 0.1, 0.15);
+        this.hazeDensity = options.density || scene.fogDensity || 0.05;
+        this.hazeColor = options.color || new BABYLON.Color3(0.015, 0.012, 0.018); // Dark atmospheric color
         
         // Fog mode
         this.fogMode = BABYLON.Scene.FOGMODE_EXP;
@@ -70,8 +70,8 @@ class HazeSystem {
         particleSystem.maxEmitBox = new BABYLON.Vector3(10, 4, 5);
         
         // Particle behavior
-        particleSystem.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.02);
-        particleSystem.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.015);
+        particleSystem.color1 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.08); // Increased opacity
+        particleSystem.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.05); // Increased opacity
         particleSystem.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0);
         
         particleSystem.minSize = 2.0;

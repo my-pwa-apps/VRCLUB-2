@@ -237,31 +237,6 @@ class LaserSystem {
         beam.material = beamMat;
         beam.renderingGroupId = 1;
         
-        // Volumetric glow
-        const beamGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_glow" + beamIndex, {
-            diameter: 0.12,
-            height: 1,
-            tessellation: 8
-        }, this.scene);
-        beamGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        beamGlow.isPickable = false;
-        beamGlow.rotationQuaternion = BABYLON.Quaternion.Identity();
-        
-        const beamGlowMat = this.materialFactory.createPBRMaterial("laserGlowMat" + laserIndex + "_" + beamIndex, {
-            baseColor: [0, 0, 0],
-            metallic: 0,
-            roughness: 1,
-            emissiveColor: [1, 0, 0],
-            emissiveIntensity: 2.0,
-            alpha: 0.2,
-            transparencyMode: BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND,
-            backFaceCulling: false,
-            disableLighting: true,
-            unlit: true
-        });
-        beamGlow.material = beamGlowMat;
-        beamGlow.renderingGroupId = 1;
-        
         // Floor hit spot
         const hitSpot = BABYLON.MeshBuilder.CreateDisc("laserHit" + laserIndex + "_" + beamIndex, {
             radius: 0.04,
@@ -284,8 +259,6 @@ class LaserSystem {
         return { 
             mesh: beam, 
             material: beamMat, 
-            beamGlow: beamGlow,
-            glowMat: beamGlowMat,
             hitSpot: hitSpot,
             hitSpotMat: hitSpotMat,
             beamIndex: beamIndex 
@@ -507,14 +480,6 @@ class LaserSystem {
                 beam.mesh.lookAt(hitPoint);
                 beam.mesh.rotation.x += Math.PI / 2;
                 
-                // Update glow
-                if (beam.beamGlow) {
-                    beam.beamGlow.position = midPoint;
-                    beam.beamGlow.scaling.y = beamLength;
-                    beam.beamGlow.lookAt(hitPoint);
-                    beam.beamGlow.rotation.x += Math.PI / 2;
-                }
-                
                 // Update hit spot
                 if (beam.hitSpot) {
                     beam.hitSpot.position = hitPoint.clone();
@@ -523,12 +488,10 @@ class LaserSystem {
                 
                 // Update colors
                 beam.material.emissiveColor = currentColor;
-                if (beam.glowMat) beam.glowMat.emissiveColor = currentColor;
                 if (beam.hitSpotMat) beam.hitSpotMat.emissiveColor = currentColor;
                 
                 // Enable meshes
                 beam.mesh.setEnabled(true);
-                if (beam.beamGlow) beam.beamGlow.setEnabled(true);
                 if (beam.hitSpot) beam.hitSpot.setEnabled(true);
             });
             
@@ -544,7 +507,6 @@ class LaserSystem {
         this.lasers.forEach(laser => {
             laser.beams.forEach(beam => {
                 beam.mesh.setEnabled(false);
-                if (beam.beamGlow) beam.beamGlow.setEnabled(false);
                 if (beam.hitSpot) beam.hitSpot.setEnabled(false);
             });
             laser.lights.forEach(light => light.setEnabled(false));
@@ -608,7 +570,6 @@ class LaserSystem {
         this.lasers.forEach(laser => {
             laser.beams.forEach(beam => {
                 beam.mesh.dispose();
-                if (beam.beamGlow) beam.beamGlow.dispose();
                 if (beam.hitSpot) beam.hitSpot.dispose();
             });
             laser.housing.dispose();

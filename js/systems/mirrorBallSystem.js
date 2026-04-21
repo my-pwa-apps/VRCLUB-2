@@ -46,6 +46,11 @@ class MirrorBallSystem {
         this.mirrorBallRayPredicate = null;
         this.spotUpdateFrameCounter = 0;
         
+        // Scratch vectors for beam orientation (avoid per-frame allocations)
+        this._scratchDir = new BABYLON.Vector3(0, 0, 0);
+        this._scratchAxis = new BABYLON.Vector3(0, 0, 0);
+        this._upVector = new BABYLON.Vector3(0, 1, 0);
+        
         // Animation
         this.frameCounter = 0;
         this.vjManualMode = false;
@@ -65,12 +70,12 @@ class MirrorBallSystem {
      * Create the mirror ball with spotlights and reflection spots
      */
     createMirrorBall() {
-        const ballPosition = new BABYLON.Vector3(0, 3.5, -12);
+        const ballPosition = new BABYLON.Vector3(0, 4.5, -12);
         const trussPosition = new BABYLON.Vector3(0, 8, -12);
         
         // Mirror ball sphere
         this.mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
-            diameter: 1.2,
+            diameter: 0.6,
             segments: 32
         }, this.scene);
         this.mirrorBall.position = ballPosition;
@@ -127,9 +132,9 @@ class MirrorBallSystem {
         this.mirrorBallHousings = [];
         
         const spotlightConfigs = [
-            { pos: new BABYLON.Vector3(-4, 3.5, -8), name: "mirrorSpot1" },
-            { pos: new BABYLON.Vector3(4, 3.5, -8), name: "mirrorSpot2" },
-            { pos: new BABYLON.Vector3(0, 3.5, -16), name: "mirrorSpot3" }
+            { pos: new BABYLON.Vector3(-4, 4.5, -8), name: "mirrorSpot1" },
+            { pos: new BABYLON.Vector3(4, 4.5, -8), name: "mirrorSpot2" },
+            { pos: new BABYLON.Vector3(0, 4.5, -16), name: "mirrorSpot3" }
         ];
         
         spotlightConfigs.forEach((config, index) => {
@@ -277,7 +282,7 @@ class MirrorBallSystem {
      */
     _createReflectionSpots(ballPosition) {
         this.mirrorReflectionSpots = [];
-        const numSpots = 250;
+        const numSpots = 150;
         const spotsPerSurface = Math.floor(numSpots / 6);
         let spotIndex = 0;
         
@@ -329,6 +334,7 @@ class MirrorBallSystem {
             tessellation: 4
         }, this.scene);
         beam.setPivotPoint(new BABYLON.Vector3(0, 0.5, 0));
+        beam.rotationQuaternion = BABYLON.Quaternion.Identity();
         
         const beamMat = new BABYLON.StandardMaterial(`mirrorBeamMat${index}`, this.scene);
         
@@ -556,15 +562,24 @@ class MirrorBallSystem {
                 spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(Math.max(0.4, brightness));
                 spot.material.alpha = 0.85;
                 
-                // Update beam
+                // Update beam - align cylinder Y axis from ball toward spot
                 if (spot.beam) {
                     spot.beam.setEnabled(true);
-                    // CRITICAL: Position beam at the mirror ball
                     spot.beam.position.copyFrom(ballPos);
-                    // Point beam at spot position
-                    spot.beam.lookAt(spot.visual.position);
                     const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
                     spot.beam.scaling.y = beamDist;
+                    
+                    // Properly orient cylinder Y axis toward the spot
+                    spot.visual.position.subtractToRef(ballPos, this._scratchDir);
+                    this._scratchDir.normalize();
+                    BABYLON.Vector3.CrossToRef(this._upVector, this._scratchDir, this._scratchAxis);
+                    const axisLen = this._scratchAxis.length();
+                    if (axisLen > 0.001) {
+                        this._scratchAxis.scaleInPlace(1 / axisLen);
+                        const angle = Math.acos(Math.max(-1, Math.min(1, BABYLON.Vector3.Dot(this._upVector, this._scratchDir))));
+                        BABYLON.Quaternion.RotationAxisToRef(this._scratchAxis, angle, spot.beam.rotationQuaternion);
+                    }
+                    
                     spot.beamMaterial.alpha = 0.08 * distanceFade;
                     spot.beamMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
                 }
