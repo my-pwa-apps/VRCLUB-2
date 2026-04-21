@@ -402,7 +402,30 @@ function initVJMenu() {
             goboSpeedValue.textContent = `${value.toFixed(1)}x`;
         });
     }
-    
+
+    // === ACCESSIBILITY: Photosensitive Safe Mode + Bass Haptics ===
+    const safeModeBtn = document.getElementById('vjSafeModeBtn');
+    const bassHapticsBtn = document.getElementById('vjBassHapticsBtn');
+    if (safeModeBtn) {
+        // Sync initial state from persisted VRClub flag
+        if (vrClubInstance.photosensitiveSafeMode) safeModeBtn.classList.add('active');
+        else safeModeBtn.classList.remove('active');
+        safeModeBtn.addEventListener('click', () => {
+            const next = !vrClubInstance.photosensitiveSafeMode;
+            vrClubInstance.setPhotosensitiveSafeMode(next);
+            safeModeBtn.classList.toggle('active', next);
+        });
+    }
+    if (bassHapticsBtn) {
+        if (vrClubInstance.bassHapticsEnabled) bassHapticsBtn.classList.add('active');
+        else bassHapticsBtn.classList.remove('active');
+        bassHapticsBtn.addEventListener('click', () => {
+            const next = !vrClubInstance.bassHapticsEnabled;
+            vrClubInstance.setBassHapticsEnabled(next);
+            bassHapticsBtn.classList.toggle('active', next);
+        });
+    }
+
     // Update button states periodically
     function updateButtonStates() {
         if (!vrClubInstance || vjMenu.classList.contains('hidden')) return;

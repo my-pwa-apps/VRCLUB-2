@@ -53,8 +53,8 @@ class VRClub {
             desktop: {
                 exposure: 1.1,
                 contrast: 1.6, // Deep contrast for dramatic club lighting
-                bloomWeight: 0.35, // Strong bloom for neon/laser glow
-                bloomThreshold: 0.45, // Catch more light sources
+                bloomWeight: 0.55, // Strong bloom for neon/laser glow (clubs are LUMINOUS)
+                bloomThreshold: 0.35, // Catch more light sources (lower = more things glow)
                 bloomScale: 0.5, // Wide bloom halo
                 glowIntensity: 0.9, // Pronounced glow on emissive surfaces
                 ambientIntensity: 0.06, // Very low ambient - club should be DARK except for lighting
@@ -65,13 +65,13 @@ class VRClub {
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
                 sharpenAmount: 0.5,
-                fogDensity: 0.018 // Subtle haze/smoke density
+                fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
                 exposure: 0.85, // Slightly brighter for VR depth
                 contrast: 1.5, // Strong contrast for VR depth perception
-                bloomWeight: 0.15, // Visible bloom in VR for light glow
-                bloomThreshold: 0.75,
+                bloomWeight: 0.30, // Visible bloom in VR — lights need to glow to feel alive
+                bloomThreshold: 0.55,
                 bloomScale: 0.3,
                 glowIntensity: 0.5, // Visible glow in VR
                 ambientIntensity: 0.05, // Very dark ambient for immersion
@@ -83,7 +83,7 @@ class VRClub {
                 edgeSharpness: 0.7,
                 colorSharpness: 0.9,
                 fxaaEnabled: true,
-                fogDensity: 0.012 // Subtle smoke in VR
+                fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
         };
         
@@ -105,6 +105,26 @@ class VRClub {
         this.audioAnalyser = null;
         this.audioSource = null;
         this.audioElement = null;
+        this.audioMasterGain = null;     // Master gain node (post-analyser, pre-destination)
+        this.audioCompressor = null;     // Mastering compressor for "loud club" feel without clipping
+
+        // === ACCESSIBILITY ===
+        // Photosensitive Safe Mode: globally disables all strobe lights and sharp flashes.
+        // Persists across sessions so a returning user with photosensitive epilepsy
+        // never sees a strobe by accident. Honored at the single strobe render gate
+        // and at the bloom-spike branch.
+        this.photosensitiveSafeMode = (() => {
+            try { return localStorage.getItem('vrclub.safeMode') === '1'; } catch (_) { return false; }
+        })();
+
+        // === HAPTICS ===
+        // Bass-driven controller rumble. Off by default to respect battery /
+        // user preference; toggle in the VJ menu. Persists across sessions.
+        this.bassHapticsEnabled = (() => {
+            try { return localStorage.getItem('vrclub.bassHaptics') !== '0'; } catch (_) { return true; }
+        })();
+        this._lastHapticPulseAt = 0;     // ms timestamp guard (prevents rumble spam)
+        this._xrControllers = [];        // Tracked controllers for haptic dispatch
         
         this.vuMeters = [];
         
@@ -843,6 +863,14 @@ class VRClub {
                         
                         // SPRINT FEATURE: Press thumbstick or Grip button to run
                         vrHelper.input.onControllerAddedObservable.add((controller) => {
+                            // Track for haptic dispatch (bass-pulse rumble)
+                            if (this._xrControllers.indexOf(controller) === -1) {
+                                this._xrControllers.push(controller);
+                            }
+                            controller.onDisposeObservable.add(() => {
+                                const idx = this._xrControllers.indexOf(controller);
+                                if (idx >= 0) this._xrControllers.splice(idx, 1);
+                            });
                             controller.onMotionControllerInitObservable.add((motionController) => {
                                 // 1. Thumbstick Press (Click)
                                 const thumbstick = motionController.getComponent("xr-standard-thumbstick");
@@ -5117,6 +5145,9 @@ class VRClub {
         // Get audio data for reactive lighting (needed for laser sheet pulse)
         const audioData = this.getAudioData();
 
+        // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
+        this._updateBassHaptics(audioData);
+
         // === FOG MACHINE SYSTEM CONTROL ===
         if (this.fogMachines && this.fogMachines.length > 0) {
             const currentTime = time;
@@ -7491,7 +7522,8 @@ class VRClub {
         // Synchronized with drops, builds, and bass for maximum impact
         const strobeSpeedMultiplier = this.strobeSpeed || 1.0;
         if (this.strobes && this.strobes.length > 0) {
-            if (this.strobesActive) {
+            // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
+            if (this.strobesActive && !this.photosensitiveSafeMode) {
                 // Get audio data for reactive strobing
                 const bass = audioData.bass || 0;
                 const treble = audioData.treble || 0;
@@ -9745,8 +9777,33 @@ class VRClub {
             this.audioAnalyser = this.audioContext.createAnalyser();
             this.audioAnalyser.fftSize = 256;
             this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
-            this.audioAnalyser.connect(this.audioContext.destination);
-            log.info('🎚️ Audio context initialized');
+
+            // === CLUB MASTERING CHAIN ===
+            // Real club PAs run a hard limiter + master gain so the room stays loud
+            // without painful peaks. Routing the analyser through a DynamicsCompressor
+            // gives that "wall of sound" feel and protects the user's hearing.
+            try {
+                this.audioCompressor = this.audioContext.createDynamicsCompressor();
+                this.audioCompressor.threshold.value = -18;   // dB
+                this.audioCompressor.knee.value = 24;
+                this.audioCompressor.ratio.value = 6;         // Glue, not crush
+                this.audioCompressor.attack.value = 0.003;
+                this.audioCompressor.release.value = 0.18;
+
+                this.audioMasterGain = this.audioContext.createGain();
+                this.audioMasterGain.gain.value = 1.15;       // Slight push for "loud"
+
+                // Source (added later) -> analyser -> compressor -> masterGain -> destination
+                this.audioAnalyser.connect(this.audioCompressor);
+                this.audioCompressor.connect(this.audioMasterGain);
+                this.audioMasterGain.connect(this.audioContext.destination);
+            } catch (err) {
+                // Graceful fallback if compressor is unavailable
+                log.warn('🎚️ Mastering chain unavailable, using direct routing:', err);
+                this.audioAnalyser.connect(this.audioContext.destination);
+            }
+
+            log.info('🎚️ Audio context initialized (with mastering chain)');
         }
         // Resume if suspended (browser autoplay policy). Awaited via .catch() so
         // we surface failures instead of silently leaving the context suspended.
@@ -9839,6 +9896,87 @@ class VRClub {
         const hasAudio = average > 0.01;
         
         return { bass, mid, treble, average, hasAudio };
+    }
+
+    /**
+     * Pulse VR controllers in time with bass hits.
+     * Massive immersion gain — gives the user a physical "thump" on each kick drum,
+     * substituting for the chest-rattling sub-bass of a real club PA.
+     *
+     * Throttled so we don't spam the haptic bus (which causes the actuator to
+     * desync from audio). Honors `bassHapticsEnabled` so the user can opt out.
+     */
+    _updateBassHaptics(audioData) {
+        if (!this.bassHapticsEnabled) return;
+        if (!this._xrControllers || this._xrControllers.length === 0) return;
+        if (!audioData || !audioData.hasAudio) return;
+
+        const bass = audioData.bass || 0;
+        if (bass < 0.55) return; // Only fire on real kicks, not ambient rumble
+
+        const now = performance.now();
+        // 4 Hz cap — matches typical kick-drum cadence (~140 BPM eighths)
+        if (now - this._lastHapticPulseAt < 140) return;
+        this._lastHapticPulseAt = now;
+
+        const intensity = Math.min(1.0, (bass - 0.55) * 2.2); // 0..1
+        const duration = 60 + Math.floor(intensity * 80);     // 60..140 ms
+
+        for (let i = 0; i < this._xrControllers.length; i++) {
+            const ctrl = this._xrControllers[i];
+            try {
+                const inputSource = ctrl && ctrl.inputSource;
+                const gp = inputSource && inputSource.gamepad;
+                if (!gp) continue;
+                // Standards-compliant path (Quest browser supports this on WebXR gamepads)
+                if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
+                    gp.hapticActuators[0].pulse(intensity, duration);
+                } else if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
+                    gp.vibrationActuator.playEffect('dual-rumble', {
+                        duration: duration,
+                        strongMagnitude: intensity,
+                        weakMagnitude: intensity * 0.6
+                    });
+                }
+            } catch (_) { /* Per-controller failures must never break the audio loop */ }
+        }
+    }
+
+    /**
+     * Toggle photosensitive Safe Mode. Disables strobes and bloom flashes
+     * for users with photosensitive epilepsy or migraine sensitivity.
+     * Persists across sessions.
+     */
+    setPhotosensitiveSafeMode(enabled) {
+        this.photosensitiveSafeMode = !!enabled;
+        try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        // Immediately quiet any in-flight strobe state
+        if (this.photosensitiveSafeMode && this.strobes) {
+            this.strobes.forEach((strobe) => {
+                strobe.material.emissiveColor = this.cachedColors.black;
+                if (strobe.light) {
+                    strobe.light.intensity = 0;
+                    strobe.light.setEnabled(false);
+                }
+                strobe.flashDuration = 0;
+            });
+            if (this.strobeFlashLight) {
+                this.strobeFlashLight.intensity = 0;
+                this.strobeFlashLight.setEnabled(false);
+            }
+        }
+        log.info(`♿ Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'ON (strobes disabled)' : 'OFF'}`);
+        return this.photosensitiveSafeMode;
+    }
+
+    /**
+     * Toggle bass-driven controller haptics. Persists across sessions.
+     */
+    setBassHapticsEnabled(enabled) {
+        this.bassHapticsEnabled = !!enabled;
+        try { localStorage.setItem('vrclub.bassHaptics', this.bassHapticsEnabled ? '1' : '0'); } catch (_) {}
+        log.info(`📳 Bass haptics: ${this.bassHapticsEnabled ? 'ON' : 'OFF'}`);
+        return this.bassHapticsEnabled;
     }
 
     async createDancingNPCs() {
