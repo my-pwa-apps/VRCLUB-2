@@ -1052,6 +1052,15 @@ class VRClub {
         
         // Create dancing NPC avatars on the dancefloor
         await this.createDancingNPCs();
+
+        // === VJ DIRECTOR ===
+        // Beat-locked palette engine + macros. Conducts the existing rig like
+        // a touring VJ would. Reads audioData, writes to existing color/state
+        // vars (spotColorIndex, currentSpotColor, vjDropActive, etc.) so the
+        // existing render code keeps working unchanged.
+        if (typeof VJDirector !== 'undefined') {
+            this.vjDirector = new VJDirector(this);
+        }
         
         // UPGRADE: Create frozen reflection probe for the dance floor
         // Must be called AFTER all geometry is created so the probe captures everything
@@ -5145,6 +5154,14 @@ class VRClub {
         // Get audio data for reactive lighting (needed for laser sheet pulse)
         const audioData = this.getAudioData();
 
+        // === VJ DIRECTOR per-frame tick ===
+        // Drives master palette, beat envelope, BPM tracking, scene transitions.
+        // Writes back to this.beatEnvelope / this.masterIntensity / this.barPhase
+        // which downstream render code multiplies into intensities.
+        if (this.vjDirector) {
+            this.vjDirector.update(time, audioData);
+        }
+
         // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
         this._updateBassHaptics(audioData);
 
@@ -6170,10 +6187,11 @@ class VRClub {
         if (this.useModularSystems && this.systems.ledWall) {
             this.systems.ledWall.setActive(this.ledWallActive);
             this.systems.ledWall.update(time, audioData);
-        } else if (this.ledWallActive) {
-            // Legacy update method
+        } else if (this.ledWallActive && (this.masterIntensity == null || this.masterIntensity > 0.02)) {
+            // Legacy update method (skipped during VJ Director BLACKOUT)
             this.updateLEDWall(time, audioData);
-        } else if (this.ledPanels && this.ledPanels.length > 0) {
+        } else if (this.ledPanels && this.ledPanels.length > 0 &&
+                   (!this.ledWallActive || (this.masterIntensity != null && this.masterIntensity <= 0.02))) {
             // LED Wall is OFF - turn all panels black (not just paused)
             const blackColor = this.cachedColors.black;
             this.ledPanels.forEach(panel => {
@@ -7543,6 +7561,8 @@ class VRClub {
                     if (inDropMode) {
                         intensityVariation *= 1.5; // 50% brighter during drops
                     }
+                    // VJ Director master fader (1.0 = full, 0 = blackout). Cheap multiply.
+                    intensityVariation *= (this.masterIntensity != null ? this.masterIntensity : 1.0);
                     
                     const burstPhase = Math.floor(strobe.flashDuration * 40 * strobeSpeedMultiplier) % 2;
                     const intensity = burstPhase === 0 ? intensityVariation : 0;

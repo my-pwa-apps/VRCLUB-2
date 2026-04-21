@@ -403,6 +403,67 @@ function initVJMenu() {
         });
     }
 
+    // === VJ DIRECTOR: Live Macros (DROP / BLACKOUT / LOCK / TAP / Master / BPM) ===
+    const vjDir = () => vrClubInstance && vrClubInstance.vjDirector;
+    const dropBtn = document.getElementById('vjDropBtn');
+    const blackoutBtn = document.getElementById('vjBlackoutBtn');
+    const lockBtn = document.getElementById('vjLockBtn');
+    const tapBtn = document.getElementById('vjTapBtn');
+    const masterSlider = document.getElementById('vjMasterSlider');
+    const masterValue = document.getElementById('vjMasterValue');
+    const bpmReadout = document.getElementById('vjBpmReadout');
+
+    const flashBtn = (btn) => {
+        if (!btn) return;
+        btn.classList.add('active');
+        setTimeout(() => btn.classList.remove('active'), 250);
+    };
+
+    if (dropBtn) {
+        dropBtn.addEventListener('click', () => {
+            const d = vjDir();
+            if (d) { d.triggerDrop(); flashBtn(dropBtn); }
+        });
+    }
+    if (blackoutBtn) {
+        blackoutBtn.addEventListener('click', () => {
+            const d = vjDir();
+            if (d) { d.blackout(800); flashBtn(blackoutBtn); }
+        });
+    }
+    if (lockBtn) {
+        lockBtn.addEventListener('click', () => {
+            const d = vjDir();
+            if (d) { d.lockToCenter(4000); flashBtn(lockBtn); }
+        });
+    }
+    if (tapBtn) {
+        tapBtn.addEventListener('click', () => {
+            const d = vjDir();
+            if (d) {
+                const newBpm = d.tapTempo();
+                flashBtn(tapBtn);
+                if (newBpm && bpmReadout) bpmReadout.textContent = newBpm.toFixed(0);
+            }
+        });
+    }
+    if (masterSlider) {
+        masterSlider.addEventListener('input', (e) => {
+            const v = parseFloat(e.target.value);
+            const d = vjDir();
+            if (d) d.setMasterIntensity(v);
+            if (masterValue) masterValue.textContent = `${Math.round(v * 100)}%`;
+        });
+    }
+    // Refresh BPM readout from director's auto-detection (every 1 s)
+    if (bpmReadout) {
+        if (window.__vjBpmInterval) clearInterval(window.__vjBpmInterval);
+        window.__vjBpmInterval = setInterval(() => {
+            const d = vjDir();
+            if (d) bpmReadout.textContent = d.bpm.toFixed(0);
+        }, 1000);
+    }
+
     // === ACCESSIBILITY: Photosensitive Safe Mode + Bass Haptics ===
     const safeModeBtn = document.getElementById('vjSafeModeBtn');
     const bassHapticsBtn = document.getElementById('vjBassHapticsBtn');

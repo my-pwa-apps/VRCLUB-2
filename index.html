@@ -121,6 +121,28 @@
                 <button class="vj-button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
             </div>
 
+            <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎬 Live Macros</div>
+                <div class="vj-button-grid">
+                    <button class="vj-button" id="vjDropBtn" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams).">DROP</button>
+                    <button class="vj-button" id="vjBlackoutBtn" title="Kill all lights for one bar — perfect tension before a drop.">BLACKOUT</button>
+                    <button class="vj-button" id="vjLockBtn" title="Snap all moving heads straight down at the dance floor center.">LOCK</button>
+                    <button class="vj-button" id="vjTapBtn" title="Tap on each beat to set the BPM. 4+ taps for accuracy.">TAP TEMPO</button>
+                </div>
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="vjMasterSlider" min="0" max="1" step="0.01" value="1" title="Master intensity — fader for the whole rig (one knob).">
+                    <div class="vj-slider-label">
+                        <span>Master</span>
+                        <span id="vjMasterValue">100%</span>
+                    </div>
+                </div>
+                <div class="vj-slider-label" style="margin-top:6px; opacity:0.85;">
+                    <span>BPM (auto)</span>
+                    <span id="vjBpmReadout">128</span>
+                </div>
+            </div>
+
             <!-- Accessibility & Comfort -->
             <div class="vj-section">
                 <div class="vj-section-title">♿ Accessibility & Comfort</div>
@@ -238,6 +260,9 @@
     
     <!-- Light Factory (centralized light creation) -->
     <script src="js/lightFactory.js"></script>
+
+    <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
+    <script src="js/vjDirector.js"></script>
     
     <!-- VR Club Main Application -->
     <script src="js/club_hyperrealistic.js"></script>
