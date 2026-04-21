@@ -70,8 +70,9 @@ class VRClub {
             vr: {
                 exposure: 0.85, // Slightly brighter for VR depth
                 contrast: 1.5, // Strong contrast for VR depth perception
-                bloomWeight: 0.30, // Visible bloom in VR — lights need to glow to feel alive
-                bloomThreshold: 0.55,
+                bloomWeight: 0.22, // VR — lower weight so emissives don't smear across pixels
+                bloomThreshold: 0.85, // Only the brightest highlights bloom (laser/spot cores at scale 6-10)
+                                      // — LED panels (emissive ~1.0) stop blooming so tile gaps stay visible
                 bloomScale: 0.3,
                 glowIntensity: 0.5, // Visible glow in VR
                 ambientIntensity: 0.05, // Very dark ambient for immersion
@@ -3033,8 +3034,9 @@ class VRClub {
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
                 const panel = BABYLON.MeshBuilder.CreatePlane("ledPanel_" + row + "_" + col, {
-                    width: panelWidth - 0.05,
-                    height: panelHeight - 0.05
+                    width: panelWidth - 0.12,   // Larger physical gap (was -0.05) so VR bloom can't bridge tiles
+                    height: panelHeight - 0.12  // Real LED video walls have ~6–10 mm bezels per 60cm tile —
+                                                // proportionally we now show a clear ~6cm dark seam
                 }, this.scene);
                 
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
@@ -4582,10 +4584,19 @@ class VRClub {
         mirrorBallMat.roughness = 0.15; // Increased roughness for faceted mirror appearance (was 0.05)
         mirrorBallMat.reflectivityColor = new BABYLON.Color3(1, 1, 1);
         mirrorBallMat.maxSimultaneousLights = this.maxLights;
-        
+
+        // VR FIX: a pure-metallic surface only renders via environment reflection,
+        // and VR drops scene.environmentIntensity to 0.15 (vs 0.5 desktop), making
+        // the ball nearly invisible. We give it a faint silver emissive floor so
+        // the geometry always has presence, plus we boost the material-level env
+        // intensity to compensate for the dimmer scene-level multiplier.
+        mirrorBallMat.emissiveColor = new BABYLON.Color3(0.06, 0.06, 0.07);
+        mirrorBallMat.environmentIntensity = 6.0; // was 1.8 — compensates for VR's dim scene env
+
         // Use environment reflection for realistic mirror effect
         if (this.scene.environmentTexture) {
-            mirrorBallMat.environmentIntensity = 1.8; // Stronger reflections for more sparkle
+            // (intensity already set above; kept for clarity if env texture loads later)
+            mirrorBallMat.environmentIntensity = 6.0;
         }
         
         // Add bump map for faceted appearance (using vertex normals)
@@ -7016,26 +7027,30 @@ class VRClub {
                     spot.beam.scaling.y = beamLength;
                     
                     // HYPERREALISTIC: Update clip plane based on hit surface
-                    // This hides any part of the beam that extends past the surface
-                    // StandardMaterial clips where dot(normal, pos) + d > 0
+                    // This hides any part of the beam that extends past the surface.
+                    //
+                    // Convention (StandardMaterial clipPlane4): a fragment is DISCARDED where
+                    //   N·worldPos + d > 0
+                    // So for each surface we pick (N, d) such that the half-space we want to
+                    // hide (the side past the surface) evaluates positive.
+                    //
+                    // BUG HISTORY: previous version used `-WALL + 0.01` for d which only
+                    // produces a sane plane when WALL is positive (right wall). For walls
+                    // at negative coordinates (left wall, back wall) the sign flipped and
+                    // the entire beam got clipped — visible as left-side beams disappearing
+                    // when aimed at the side wall.
                     if (spot.beamMat) {
-                        if (hitSurface === 'floor') {
-                            // Clip below floor (y < 0): normal (0, -1, 0), d = 0
-                            // Clips where -y + d > 0, i.e. y < d
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, -1, 0, 0.01);
-                        } else if (hitSurface === 'backWall') {
-                            // Clip behind back wall (z < BACK_WALL_Z): normal (0, 0, -1)
-                            // Clips where -z + d > 0, i.e. z < d = -BACK_WALL_Z
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(0, 0, -1, -BACK_WALL_Z + 0.01);
-                        } else if (hitSurface === 'leftWall') {
-                            // Clip past left wall (x < LEFT_WALL_X): normal (-1, 0, 0)
-                            // Clips where -x + d > 0, i.e. x < d = -LEFT_WALL_X
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(-1, 0, 0, -LEFT_WALL_X + 0.01);
-                        } else if (hitSurface === 'rightWall') {
-                            // Clip past right wall (x > RIGHT_WALL_X): normal (1, 0, 0)
-                            // Clips where x + d > 0, i.e. x > -d = -RIGHT_WALL_X
-                            spot.beamMat.clipPlane4 = new BABYLON.Plane(1, 0, 0, -RIGHT_WALL_X + 0.01);
+                        const EPS = 0.01;
+                        // Lazy-init per-spot cached planes (one allocation total instead of one per frame)
+                        if (!spot._clipPlanes) {
+                            spot._clipPlanes = {
+                                floor:     new BABYLON.Plane(0, -1, 0, EPS),
+                                backWall:  new BABYLON.Plane(0, 0, -1, BACK_WALL_Z - EPS),
+                                leftWall:  new BABYLON.Plane(-1, 0, 0, LEFT_WALL_X - EPS),
+                                rightWall: new BABYLON.Plane(1, 0, 0, -RIGHT_WALL_X - EPS)
+                            };
                         }
+                        spot.beamMat.clipPlane4 = spot._clipPlanes[hitSurface] || spot._clipPlanes.floor;
                     }
                     
                     // ANIMATE SMOKE TEXTURE (Hyperrealism)
