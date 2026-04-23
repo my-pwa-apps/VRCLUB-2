@@ -141,7 +141,15 @@ class VRClub {
             black: new BABYLON.Color3(0, 0, 0),
             orange: new BABYLON.Color3(1, 0.5, 0),
             purple: new BABYLON.Color3(0.5, 0, 1),
-            warmWhite: new BABYLON.Color3(1, 0.9, 0.7) // Blinder warm white
+            warmWhite: new BABYLON.Color3(1, 0.9, 0.7), // Blinder warm white
+            // QC O3: cached fog-machine indicator colors (used per frame in
+            // the smoke loop — was allocating 5 fresh Color3 objects per fog
+            // machine per frame).
+            fogActive: new BABYLON.Color3(1, 0.2, 0),       // Red — burst firing
+            fogReady: new BABYLON.Color3(0, 0.8, 0),        // Green — ready
+            fogContinuous: new BABYLON.Color3(1, 0.5, 0),   // Orange — continuous
+            fogStandby: new BABYLON.Color3(0.3, 0.3, 1),    // Blue — standby
+            fogOff: new BABYLON.Color3(0.3, 0.3, 0.3)       // Gray — off
         };
         
         // PERFORMANCE: Pre-allocated Color3 for LED patterns (eliminates thousands of allocations/frame)
@@ -180,8 +188,20 @@ class VRClub {
             temp1: new BABYLON.Vector3(0, 0, 0),
             temp2: new BABYLON.Vector3(0, 0, 0),
             rayOrigin: new BABYLON.Vector3(0, 0, 0),
-            rayDir: new BABYLON.Vector3(0, 0, 0)
+            rayDir: new BABYLON.Vector3(0, 0, 0),
+            // QC O5: dedicated rotation-axis scratch vectors so the laser/spot
+            // beam loops can compute Cross + normalize in-place instead of
+            // allocating a new Vector3 per beam per frame (~900 alloc/sec).
+            laserAxis: new BABYLON.Vector3(0, 0, 0),
+            spotAxis: new BABYLON.Vector3(0, 0, 0),
+            xAxis: new BABYLON.Vector3(1, 0, 0)
         };
+        // QC O5: per-beam quaternions live on the beam objects themselves
+        // (lazy-initialised on first use). These shared scratch quats are for
+        // the special-case "straight up / straight down" branches that don't
+        // depend on per-beam state.
+        this._quatIdentity = BABYLON.Quaternion.Identity();
+        this._quatFlipX = BABYLON.Quaternion.RotationAxis(this.vecPool.xAxis, Math.PI);
         
         // PERFORMANCE: Frame counters for staggered updates
         this.frameCounter = 0;
@@ -5202,8 +5222,8 @@ class VRClub {
                             machine.burstTimer = 2.5; // 2.5 second burst
                             emitter.emitRate = 150 * this.fogIntensity;
                             
-                            // Update LED to red (active)
-                            ledMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0);
+                            // Update LED to red (active) — cached, no allocation
+                            ledMat.emissiveColor = this.cachedColors.fogActive;
                             
                             if (i === 0) this.lastFogBurst = currentTime;
                         }
@@ -5219,21 +5239,21 @@ class VRClub {
                             if (machine.burstTimer <= 0) {
                                 machine.isBursting = false;
                                 emitter.emitRate = 0;
-                                ledMat.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green (ready)
+                                ledMat.emissiveColor = this.cachedColors.fogReady; // Green (ready)
                             }
                         }
                         
                     } else if (this.fogBurstMode === 'continuous') {
                         // Continuous low output
                         emitter.emitRate = 80 * this.fogIntensity;
-                        ledMat.emissiveColor = new BABYLON.Color3(1, 0.5, 0); // Orange (continuous)
+                        ledMat.emissiveColor = this.cachedColors.fogContinuous; // Orange (continuous)
                         machine.isBursting = false;
                         
                     } else if (this.fogBurstMode === 'burst') {
                         // Manual burst mode - awaiting trigger
                         if (!machine.isBursting) {
                             emitter.emitRate = 0;
-                            ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 1); // Blue (standby)
+                            ledMat.emissiveColor = this.cachedColors.fogStandby; // Blue (standby)
                         }
                     }
                 });
@@ -5243,7 +5263,7 @@ class VRClub {
                 this.fogMachines.forEach(machine => {
                     machine.emitter.emitRate = 0;
                     machine.isBursting = false;
-                    machine.ledMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray (off)
+                    machine.ledMat.emissiveColor = this.cachedColors.fogOff; // Gray (off)
                 });
                 
                 if (this.haze && this.haze.isStarted()) this.haze.stop();
@@ -5670,7 +5690,17 @@ class VRClub {
         // Designed by a world-class VJ with experience at Berghain, Fabric, Amnesia, and Output
         // Philosophy: Build tension → Release → Create moments → Repeat
         // Each phase tells a story with the lights
-        if (!this.vjManualMode) {
+        //
+        // QC O1: VJ Director macros (DROP / BLACKOUT / LOCK / forceScene) write the
+        // SAME state vars this legacy cycler writes (lightingPhase, vjDropActive,
+        // spotlightPattern, vjBuildIntensity). When a user fires a macro the
+        // director sets `manualSceneUntil` to a future timestamp; while that
+        // hold is active we MUST NOT let the legacy cycler trample those
+        // decisions, or the macro flickers back to whatever phase the timer
+        // happened to be in. Single source of truth during a manual hold.
+        const directorHoldingMacro = !!(this.vjDirector &&
+            this.vjDirector.manualSceneUntil > performance.now());
+        if (!this.vjManualMode && !directorHoldingMacro) {
             const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
             
             // Smoothly interpolate energy level toward target
@@ -6355,29 +6385,40 @@ class VRClub {
                     beam.mesh.scaling.y = beamLength;
                     beam.mesh.position = laser.originPos.add(direction.scale(beamLength * 0.5));
                     
-                    // Orient beam - PERFORMANCE: Reuse cached vectors
+                    // Orient beam — QC O5: pool quaternion on the beam object so
+                    // we don't allocate (3 lasers × 5 beams × 60 fps ≈ 900/sec).
                     this.vecPool.up.set(0, 1, 0);
-                    const rotAxis = BABYLON.Vector3.Cross(this.vecPool.up, direction);
+                    BABYLON.Vector3.CrossToRef(this.vecPool.up, direction, this.vecPool.laserAxis);
                     const angle = Math.acos(BABYLON.Vector3.Dot(this.vecPool.up, direction.normalize()));
-                    
-                    if (rotAxis.length() > 0.001) {
-                        beam.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotAxis.normalize(), angle);
+
+                    if (!beam._rotQuat) beam._rotQuat = new BABYLON.Quaternion();
+                    if (this.vecPool.laserAxis.length() > 0.001) {
+                        this.vecPool.laserAxis.normalize();
+                        BABYLON.Quaternion.RotationAxisToRef(this.vecPool.laserAxis, angle, beam._rotQuat);
+                        beam.mesh.rotationQuaternion = beam._rotQuat;
                     } else {
-                        beam.mesh.rotationQuaternion = BABYLON.Vector3.Dot(up, direction) > 0 ?
-                            BABYLON.Quaternion.Identity() :
-                            BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                        // Straight up or straight down — use shared static quaternions
+                        beam.mesh.rotationQuaternion =
+                            (BABYLON.Vector3.Dot(this.vecPool.up, direction) > 0)
+                                ? this._quatIdentity
+                                : this._quatFlipX;
                     }
                     
                     // UPDATE GLOW BEAMS - Same position/rotation/scale as core
+                    // QC O5: pool each glow mesh's quaternion + copyFrom (no allocation per frame).
                     if (beam.innerGlow) {
                         beam.innerGlow.scaling.y = beamLength;
                         beam.innerGlow.position.copyFrom(beam.mesh.position);
-                        beam.innerGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
+                        if (!beam._innerGlowQuat) beam._innerGlowQuat = new BABYLON.Quaternion();
+                        beam._innerGlowQuat.copyFrom(beam.mesh.rotationQuaternion);
+                        beam.innerGlow.rotationQuaternion = beam._innerGlowQuat;
                     }
                     if (beam.beamGlow) {
                         beam.beamGlow.scaling.y = beamLength;
                         beam.beamGlow.position.copyFrom(beam.mesh.position);
-                        beam.beamGlow.rotationQuaternion = beam.mesh.rotationQuaternion.clone();
+                        if (!beam._beamGlowQuat) beam._beamGlowQuat = new BABYLON.Quaternion();
+                        beam._beamGlowQuat.copyFrom(beam.mesh.rotationQuaternion);
+                        beam.beamGlow.rotationQuaternion = beam._beamGlowQuat;
                     }
                     
                     // Hit spots removed - no floor reflections needed
@@ -7009,18 +7050,24 @@ class VRClub {
                     // Cylinder: diameterTop=1.5 (wide), diameterBottom=0.2 (narrow)
                     // We want WIDE end at FLOOR, NARROW end at fixture
                     // So cylinder +Y (diameterTop) should point TOWARD floor (same as direction)
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(direction, up));
-                    const axis = BABYLON.Vector3.Cross(up, direction).normalize();
-                    
-                    if (axis.length() > 0.001) {
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis, angle);
+                    // QC O5: pool the rotation axis + per-spot rotation quaternion so we
+                    // don't allocate ~480 objects/sec across the 6 spotlights.
+                    this.vecPool.up.set(0, 1, 0);
+                    const angle = Math.acos(BABYLON.Vector3.Dot(direction, this.vecPool.up));
+                    BABYLON.Vector3.CrossToRef(this.vecPool.up, direction, this.vecPool.spotAxis);
+                    const axisLen = this.vecPool.spotAxis.length();
+
+                    if (axisLen > 0.001) {
+                        this.vecPool.spotAxis.scaleInPlace(1 / axisLen); // normalize in place
+                        if (!spot._rotQuat) spot._rotQuat = new BABYLON.Quaternion();
+                        BABYLON.Quaternion.RotationAxisToRef(this.vecPool.spotAxis, angle, spot._rotQuat);
+                        spot.beam.rotationQuaternion = spot._rotQuat;
                     } else if (direction.y > 0) {
                         // Pointing up (away from floor) - no flip needed (narrow end up is correct)
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+                        spot.beam.rotationQuaternion = this._quatIdentity;
                     } else {
                         // Pointing straight down - FLIP 180° so wide end (diameterTop) goes to floor
-                        spot.beam.rotationQuaternion = BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), Math.PI);
+                        spot.beam.rotationQuaternion = this._quatFlipX;
                     }
                     
                     // UPDATE BEAM LENGTH
@@ -7111,7 +7158,10 @@ class VRClub {
                         }
                         // Match main beam position and rotation exactly
                         spot.beamGlow.position.copyFrom(beamMidpoint);
-                        spot.beamGlow.rotationQuaternion = spot.beam.rotationQuaternion.clone();
+                        // QC O5: pooled quat + copyFrom instead of clone() per frame
+                        if (!spot._beamGlowQuat) spot._beamGlowQuat = new BABYLON.Quaternion();
+                        spot._beamGlowQuat.copyFrom(spot.beam.rotationQuaternion);
+                        spot.beamGlow.rotationQuaternion = spot._beamGlowQuat;
                         spot.beamGlow.scaling.y = beamLength;
                         spot.beamGlow.scaling.x = baseScale;
                         spot.beamGlow.scaling.z = baseScale * Math.min(1.3, tiltStretch);
@@ -7496,9 +7546,12 @@ class VRClub {
                 // Fixture should be lit when lights are active
                 const fixtureVisible = this.lightsActive;
 
-                // Lookup meshes by name (guaranteed unique per fixture)
-                const lens = this.scene.getMeshByName("lens" + i);
-                const lightSource = this.scene.getMeshByName("lightSource" + i);
+                // QC O2: use cached refs on the spot object instead of two
+                // scene.getMeshByName() calls per spot per frame (~720 hash
+                // lookups/sec for 6 spotlights). The references were captured
+                // at fixture-creation time in createTrussMountedLights().
+                const lens = spot.lens;
+                const lightSource = spot.lightSource;
 
                 // Update lens color
                 if (lens && lens.material) {
@@ -7697,20 +7750,25 @@ class VRClub {
         // Subwoofer grilles visually pulse with bass for tactile audio feedback
         if (audioData.bass > 0.1) {
             const bassExcursion = audioData.bass * 0.015; // Subtle Z-axis push
-            const grillNames = ['subGrill-7', 'subGrill7']; // Left and right PA subs
-            grillNames.forEach(name => {
-                const grill = this.scene.getMeshByName(name);
-                if (grill && !grill._basePosZ) {
+            // QC O2: cache grill mesh refs once instead of two getMeshByName()
+            // calls every audio-active frame. Resolved on first use.
+            if (!this._subGrillRefs) {
+                this._subGrillRefs = [
+                    this.scene.getMeshByName('subGrill-7'),
+                    this.scene.getMeshByName('subGrill7')
+                ];
+            }
+            for (let g = 0; g < this._subGrillRefs.length; g++) {
+                const grill = this._subGrillRefs[g];
+                if (!grill) continue;
+                if (grill._basePosZ === undefined) {
                     grill._basePosZ = grill.position.z; // Store original position
-                    // Unfreeze so position changes take effect
                     if (grill.isWorldMatrixFrozen) {
                         grill.unfreezeWorldMatrix();
                     }
                 }
-                if (grill && grill._basePosZ !== undefined) {
-                    grill.position.z = grill._basePosZ + bassExcursion;
-                }
-            });
+                grill.position.z = grill._basePosZ + bassExcursion;
+            }
         }
     }
 

@@ -162,7 +162,10 @@
         <div class="setting-label">🎮 VR Mode</div>
         <button id="vrButton">🥽 Enter VR</button>
         <div class="setting-label">🎵 Audio Stream</div>
-        <input type="text" id="musicUrl" placeholder="Enter stream URL (https://...)">
+        <label for="musicUrl" class="setting-label">Stream URL</label>
+        <input type="url" id="musicUrl" placeholder="Enter stream URL (https://...)"
+               pattern="https?://.*" inputmode="url" autocomplete="off"
+               aria-label="Audio stream URL">
         <button id="playMusicBtn">▶️ Play Music</button>
     </div>
     
@@ -186,7 +189,9 @@
             <!-- Stream URL -->
             <div class="audio-section">
                 <div class="audio-input-group">
-                    <input type="text" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)">
+                    <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
+                           pattern="https?://.*" inputmode="url" autocomplete="off"
+                           aria-label="Audio stream URL">
                     <button class="audio-button" id="playStreamBtn">
                         <span>▶️</span>
                         <span>Play</span>
@@ -243,11 +248,18 @@
     </div>
     
     <!-- Babylon.js Core - Critical Path -->
-    <script src="https://cdn.babylonjs.com/babylon.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" crossorigin="anonymous"></script>
-    
+    <!--
+        QC O4: Pinned to v8.30.5 to eliminate "always-latest" supply-chain drift.
+        Before public deploy, also add Subresource Integrity (SRI) hashes:
+            curl -s https://cdn.babylonjs.com/v8.30.5/babylon.js | openssl dgst -sha384 -binary | openssl base64 -A
+        then add: integrity="sha384-<hash>"  to each <script> tag below.
+        (Skipped here because hashes must be computed against the actual served bytes.)
+    -->
+    <script src="https://cdn.babylonjs.com/v8.30.5/babylon.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.babylonjs.com/v8.30.5/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     
     <!-- Texture Loader (loads before club script) -->
     <script src="js/textureLoader.js"></script>
