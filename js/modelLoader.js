@@ -296,13 +296,19 @@ class ModelLoader {
                     mesh.material.maxSimultaneousLights = maxLights;
                     this.log.info(`   🔧 Limited lights on ${mesh.name} to ${maxLights}`);
                     
-                    // Add subtle ambient brightness - reduced to avoid washed-out VR appearance
-                    if (mesh.material.emissiveColor !== undefined) {
-                        mesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Minimal glow
-                    }
-                    // Moderate ambient for visibility without washing out
-                    if (mesh.material.ambientColor !== undefined) {
-                        mesh.material.ambientColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Reduced
+                    // Externally-textured PBR materials (e.g. PA speakers) are already
+                    // tuned by applyPASpeakerTextures(). Adding a uniform emissive/ambient
+                    // here would flatten the texture detail and produce a hazy washed-out
+                    // single-color appearance under bloom. Skip the cosmetic override.
+                    if (!mesh.material._isExternallyTextured) {
+                        // Add subtle ambient brightness - reduced to avoid washed-out VR appearance
+                        if (mesh.material.emissiveColor !== undefined) {
+                            mesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Minimal glow
+                        }
+                        // Moderate ambient for visibility without washing out
+                        if (mesh.material.ambientColor !== undefined) {
+                            mesh.material.ambientColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Reduced
+                        }
                     }
                     
                     // CRITICAL: Ensure materials are fully opaque in VR
@@ -985,6 +991,13 @@ class ModelLoader {
             // Note: metallicPath is intentionally unused — the metallic channel lives in the
             // metallicRoughness texture per GLTF convention. Keep the variable for clarity.
             void metallicPath;
+
+            // Mark this material so the generic per-mesh override loop in loadModel()
+            // knows NOT to stomp emissive/ambient on it. Adding a uniform 0.1 emissive
+            // to a properly-textured PBR surface flattens all the texture detail and
+            // makes edges bloom out — the surface ends up looking like a hazy single
+            // color in VR. The textures + scene lighting already provide the look.
+            mat._isExternallyTextured = true;
 
             this._paSpeakerMatCache.set(textureBasePath, mat);
         }
