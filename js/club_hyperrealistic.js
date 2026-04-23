@@ -7814,8 +7814,12 @@ class VRClub {
         }
         
         const patterns = [
-            // === FLAGSHIP HYPNOTIC VISUAL ===
-            this.patternHypnoticSpiral,     // Counter-rotating rainbow vortex (immersive tunnel)
+            // === FLAGSHIP HYPNOTIC VISUALS (long dwell, continuously expanding) ===
+            this.patternHypnoticSpiral,     // [0] Counter-rotating rainbow vortex
+            this.patternConcentricRings,    // [1] Endless rings rippling outward
+            this.patternNestedSquares,      // [2] Square outlines blooming from center
+            this.patternMandalaBloom,       // [3] Geometric flower opening over and over
+            this.patternRippleRain,         // [4] Multiple ripples on a virtual pond
 
             // === IMMERSIVE DANCE CLUB PATTERNS ===
             // Energy Bursts
@@ -7927,12 +7931,18 @@ class VRClub {
         
         this.lastBassLevel = audioData.bass;
         
-        // Change pattern more frequently - especially without audio for energy
-        // With audio: every 4 beats (~1.8s), Without audio: every 2 seconds
-        const beatsPerPattern = audioData.hasAudio ? 4 : 4; // Reduced from 8 to 4
-        const patternChangeTime = audioData.hasAudio 
-            ? this.beatInterval * beatsPerPattern 
-            : 2.0; // Fast 2-second changes without audio
+        // Pattern dwell time. Hypnotic / continuously-evolving patterns (the
+        // first 5 in the list) need MUCH longer onscreen to actually trance-out
+        // the viewer — short cuts break the spell. Other patterns rotate fast.
+        const HYPNOTIC_PATTERN_COUNT = 5; // indices 0..4
+        const isHypnotic = this.ledPattern < HYPNOTIC_PATTERN_COUNT;
+        const beatsPerPattern = isHypnotic
+            ? 32       // ~14.7s @ 130 BPM — long enough to lock the eye in
+            : 4;       // fast cycling for high-energy patterns
+        const fallbackSeconds = isHypnotic ? 16.0 : 2.0;
+        const patternChangeTime = audioData.hasAudio
+            ? this.beatInterval * beatsPerPattern
+            : fallbackSeconds;
         
         if (time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
@@ -8099,6 +8109,323 @@ class VRClub {
             const safeIdx = hueIdx < 0 ? hueIdx + PALETTE_N : hueIdx;
             this.updateLEDPanel(panel, this._spiralPalette[safeIdx], intensity);
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Shared helper for the "shapes growing outward" hypnotic family.
+    // Maintains a small ring-buffer of expanding "shapes" with staggered
+    // birth times so a new one is always being born while older ones are
+    // still expanding & fading. Result: an endless, perfectly looping pulse
+    // that the eye can lock onto for minutes.
+    //
+    //   key       — unique string per pattern (separate state per pattern)
+    //   time      — current time
+    //   spawnRate — seconds between births
+    //   maxAge    — seconds a shape lives before it's recycled
+    //   slots     — how many concurrent shapes
+    //   onSpawn   — optional fn(shape) to assign extra props (e.g. position)
+    // Returns the array of {birth, age, life, hue} entries (sorted oldest→newest).
+    // ──────────────────────────────────────────────────────────────────────
+    _ensureExpandingShapes(key, time, spawnRate, maxAge, slots, onSpawn) {
+        if (!this._expandingShapes) this._expandingShapes = {};
+        let state = this._expandingShapes[key];
+        if (!state) {
+            state = { shapes: [], lastSpawn: -spawnRate, hueCursor: 0 };
+            // Pre-stagger initial births so we don't start with an empty wall
+            for (let i = 0; i < slots; i++) {
+                const shape = {
+                    birth: time - (i * spawnRate),
+                    life: maxAge,
+                    hue: (i * (360 / slots)) % 360,
+                    x: 0, y: 0
+                };
+                if (onSpawn) onSpawn(shape, i);
+                state.shapes.push(shape);
+            }
+            state.lastSpawn = time - spawnRate * 0.5;
+            this._expandingShapes[key] = state;
+        }
+        // Spawn new shapes when due, recycling the oldest slot
+        while (time - state.lastSpawn >= spawnRate) {
+            state.lastSpawn += spawnRate;
+            // Find oldest shape (smallest birth)
+            let oldestIdx = 0;
+            for (let i = 1; i < state.shapes.length; i++) {
+                if (state.shapes[i].birth < state.shapes[oldestIdx].birth) oldestIdx = i;
+            }
+            const shape = state.shapes[oldestIdx];
+            shape.birth = state.lastSpawn;
+            shape.life = maxAge;
+            state.hueCursor = (state.hueCursor + 47) % 360; // pleasant non-repeating hue walk
+            shape.hue = state.hueCursor;
+            if (onSpawn) onSpawn(shape, oldestIdx);
+        }
+        // Update ages
+        for (let i = 0; i < state.shapes.length; i++) {
+            state.shapes[i].age = time - state.shapes[i].birth;
+        }
+        return state.shapes;
+    }
+
+    /**
+     * patternConcentricRings — endless rings rippling outward from center.
+     * Multiple rings live at once at different radii, spawning at a steady
+     * cadence so the wall never goes empty. Each ring has its own hue and
+     * fades as it grows, classic pond-ripple hypnosis.
+     */
+    patternConcentricRings(color, time, audioData) {
+        const cols = this.ledCols || 21;
+        const rows = this.ledRows || 10;
+        const centerX = (cols - 1) / 2;
+        const centerY = (rows - 1) / 2;
+        const aspect = cols / rows;
+
+        const bass = (audioData && audioData.hasAudio) ? audioData.bass : 0;
+        // Bass speeds up the ripple expansion slightly
+        const expandSpeed = 4.0 + bass * 3.0; // grid units / sec
+
+        const shapes = this._ensureExpandingShapes('rings', time, 0.55, 3.2, 6);
+
+        const BLACK = this.cachedColors.black;
+        const ringWidth = 0.9; // band thickness
+        const palette = this._getOrBuildHuePalette('rings', 64);
+
+        for (let p = 0; p < this.ledPanels.length; p++) {
+            const panel = this.ledPanels[p];
+            const dx = panel.col - centerX;
+            const dy = (panel.row - centerY) * aspect;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            let r = 0, g = 0, b = 0;
+            for (let i = 0; i < shapes.length; i++) {
+                const s = shapes[i];
+                if (s.age < 0 || s.age > s.life) continue;
+                const radius = s.age * expandSpeed;
+                const offset = Math.abs(dist - radius);
+                if (offset > ringWidth) continue;
+                // Soft band, fade with age (life remaining)
+                const band = Math.pow(1.0 - offset / ringWidth, 2);
+                const lifeFade = 1.0 - (s.age / s.life);
+                const intensity = band * lifeFade;
+                if (intensity < 0.02) continue;
+                const c = palette[((s.hue / 360) * palette.length) | 0];
+                r += c.r * intensity;
+                g += c.g * intensity;
+                b += c.b * intensity;
+            }
+
+            if (r < 0.02 && g < 0.02 && b < 0.02) {
+                panel.material.emissiveColor = BLACK;
+            } else {
+                // Reuse a per-panel scratch color to avoid allocs
+                if (!panel._scratchColor) panel._scratchColor = new BABYLON.Color3();
+                panel._scratchColor.r = Math.min(1, r);
+                panel._scratchColor.g = Math.min(1, g);
+                panel._scratchColor.b = Math.min(1, b);
+                panel.material.emissiveColor = panel._scratchColor;
+            }
+        }
+    }
+
+    /**
+     * patternNestedSquares — square outlines blooming outward forever.
+     * Same lifecycle as rings but uses Chebyshev distance (max of |dx|, |dy|)
+     * so the expanding shape is a square frame instead of a circle.
+     */
+    patternNestedSquares(color, time, audioData) {
+        const cols = this.ledCols || 21;
+        const rows = this.ledRows || 10;
+        const centerX = (cols - 1) / 2;
+        const centerY = (rows - 1) / 2;
+        const aspect = cols / rows;
+
+        const bass = (audioData && audioData.hasAudio) ? audioData.bass : 0;
+        const expandSpeed = 3.5 + bass * 2.5;
+
+        const shapes = this._ensureExpandingShapes('squares', time, 0.7, 3.5, 5);
+        const palette = this._getOrBuildHuePalette('squares', 64);
+        const BLACK = this.cachedColors.black;
+        const lineWidth = 0.85;
+
+        for (let p = 0; p < this.ledPanels.length; p++) {
+            const panel = this.ledPanels[p];
+            const dx = Math.abs(panel.col - centerX);
+            const dy = Math.abs(panel.row - centerY) * aspect;
+            const dist = Math.max(dx, dy); // Chebyshev → square iso-contours
+
+            let r = 0, g = 0, b = 0;
+            for (let i = 0; i < shapes.length; i++) {
+                const s = shapes[i];
+                if (s.age < 0 || s.age > s.life) continue;
+                const radius = s.age * expandSpeed;
+                const offset = Math.abs(dist - radius);
+                if (offset > lineWidth) continue;
+                const band = Math.pow(1.0 - offset / lineWidth, 2);
+                const lifeFade = 1.0 - (s.age / s.life);
+                const intensity = band * lifeFade;
+                if (intensity < 0.02) continue;
+                const c = palette[((s.hue / 360) * palette.length) | 0];
+                r += c.r * intensity;
+                g += c.g * intensity;
+                b += c.b * intensity;
+            }
+
+            if (r < 0.02 && g < 0.02 && b < 0.02) {
+                panel.material.emissiveColor = BLACK;
+            } else {
+                if (!panel._scratchColor) panel._scratchColor = new BABYLON.Color3();
+                panel._scratchColor.r = Math.min(1, r);
+                panel._scratchColor.g = Math.min(1, g);
+                panel._scratchColor.b = Math.min(1, b);
+                panel.material.emissiveColor = panel._scratchColor;
+            }
+        }
+    }
+
+    /**
+     * patternMandalaBloom — radial petals that grow and fade like a flower
+     * opening, then another, then another. Combines an angular sin(N·θ)
+     * petal mask with the same expanding-radius lifecycle so each "bloom"
+     * literally opens outward from the center.
+     */
+    patternMandalaBloom(color, time, audioData) {
+        const cols = this.ledCols || 21;
+        const rows = this.ledRows || 10;
+        const centerX = (cols - 1) / 2;
+        const centerY = (rows - 1) / 2;
+        const aspect = cols / rows;
+
+        const bass = (audioData && audioData.hasAudio) ? audioData.bass : 0;
+
+        // Slower spawn — we want each flower fully readable
+        const shapes = this._ensureExpandingShapes('mandala', time, 1.6, 4.5, 3, (s, i) => {
+            // Vary petal count per bloom: 5, 6, 8 — all visually pleasing
+            s.petals = [5, 6, 8][i % 3];
+            s.spin = (i % 2 === 0 ? 1 : -1) * (0.3 + Math.random() * 0.4);
+        });
+        const palette = this._getOrBuildHuePalette('mandala', 64);
+        const BLACK = this.cachedColors.black;
+
+        const expandSpeed = 1.6 + bass * 1.2;
+        const maxR = Math.sqrt(cols * cols + (rows * aspect) * (rows * aspect)) / 2;
+
+        for (let p = 0; p < this.ledPanels.length; p++) {
+            const panel = this.ledPanels[p];
+            const dx = panel.col - centerX;
+            const dy = (panel.row - centerY) * aspect;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const theta = Math.atan2(dy, dx);
+
+            let r = 0, g = 0, b = 0;
+            for (let i = 0; i < shapes.length; i++) {
+                const s = shapes[i];
+                if (s.age < 0 || s.age > s.life) continue;
+                const radius = s.age * expandSpeed;
+                if (dist > radius + 0.5) continue; // outside this bloom
+
+                // Petal mask: sin(petals·θ + spin·t) gives N alternating lobes
+                const petalRaw = Math.sin(s.petals * theta + s.spin * time);
+                const petal = Math.pow(Math.max(0, petalRaw), 2);
+
+                // Radial envelope: bright at the bloom's leading edge, fades inside
+                const radialEdge = Math.exp(-Math.abs(dist - radius * 0.7) * 0.6);
+
+                const lifeFade = 1.0 - (s.age / s.life);
+                const intensity = petal * radialEdge * lifeFade *
+                                  Math.min(1, radius / maxR + 0.3);
+                if (intensity < 0.02) continue;
+                const c = palette[((s.hue / 360) * palette.length) | 0];
+                r += c.r * intensity;
+                g += c.g * intensity;
+                b += c.b * intensity;
+            }
+
+            if (r < 0.02 && g < 0.02 && b < 0.02) {
+                panel.material.emissiveColor = BLACK;
+            } else {
+                if (!panel._scratchColor) panel._scratchColor = new BABYLON.Color3();
+                panel._scratchColor.r = Math.min(1, r);
+                panel._scratchColor.g = Math.min(1, g);
+                panel._scratchColor.b = Math.min(1, b);
+                panel.material.emissiveColor = panel._scratchColor;
+            }
+        }
+    }
+
+    /**
+     * patternRippleRain — multiple ripple sources at varied positions across
+     * the wall. Each ripple spawns small at a random spot and expands until
+     * it dies, while new ones continuously appear elsewhere. Creates a calm
+     * but mesmerizing "rain on water" feel that loops indefinitely.
+     */
+    patternRippleRain(color, time, audioData) {
+        const cols = this.ledCols || 21;
+        const rows = this.ledRows || 10;
+        const aspect = cols / rows;
+
+        const shapes = this._ensureExpandingShapes('rain', time, 0.4, 2.4, 8, (s) => {
+            // Random source position anywhere on the wall
+            s.x = Math.random() * cols;
+            s.y = Math.random() * rows;
+        });
+        const palette = this._getOrBuildHuePalette('rain', 64);
+        const BLACK = this.cachedColors.black;
+
+        const bass = (audioData && audioData.hasAudio) ? audioData.bass : 0;
+        const expandSpeed = 5.5 + bass * 3.5;
+        const ringWidth = 0.7;
+
+        for (let p = 0; p < this.ledPanels.length; p++) {
+            const panel = this.ledPanels[p];
+
+            let r = 0, g = 0, b = 0;
+            for (let i = 0; i < shapes.length; i++) {
+                const s = shapes[i];
+                if (s.age < 0 || s.age > s.life) continue;
+                const dx = panel.col - s.x;
+                const dy = (panel.row - s.y) * aspect;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const radius = s.age * expandSpeed;
+                const offset = Math.abs(dist - radius);
+                if (offset > ringWidth) continue;
+                const band = Math.pow(1.0 - offset / ringWidth, 2);
+                const lifeFade = 1.0 - (s.age / s.life);
+                const intensity = band * lifeFade;
+                if (intensity < 0.02) continue;
+                const c = palette[((s.hue / 360) * palette.length) | 0];
+                r += c.r * intensity;
+                g += c.g * intensity;
+                b += c.b * intensity;
+            }
+
+            if (r < 0.02 && g < 0.02 && b < 0.02) {
+                panel.material.emissiveColor = BLACK;
+            } else {
+                if (!panel._scratchColor) panel._scratchColor = new BABYLON.Color3();
+                panel._scratchColor.r = Math.min(1, r);
+                panel._scratchColor.g = Math.min(1, g);
+                panel._scratchColor.b = Math.min(1, b);
+                panel.material.emissiveColor = panel._scratchColor;
+            }
+        }
+    }
+
+    // Slow-cycling hue palette shared by the expanding-shape patterns.
+    // Rebuilds every ~150ms (cheap) so the colors drift over time.
+    _getOrBuildHuePalette(key, n) {
+        if (!this._huePalettes) this._huePalettes = {};
+        let entry = this._huePalettes[key];
+        const now = performance.now();
+        if (!entry || now - entry.builtAt > 150) {
+            const palette = entry ? entry.palette : new Array(n);
+            const hueBase = (now * 0.02) % 360; // slow drift
+            for (let i = 0; i < n; i++) {
+                palette[i] = BABYLON.Color3.FromHSV((hueBase + (i / n) * 360) % 360, 1.0, 1.0);
+            }
+            this._huePalettes[key] = { palette, builtAt: now };
+            return palette;
+        }
+        return entry.palette;
     }
 
     patternBassExplosion(color, time, audioData) {
