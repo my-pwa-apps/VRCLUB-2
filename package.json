@@ -1,19 +1,17 @@
 {
   "name": "vrclub",
   "version": "1.0.0",
-  "description": "Hyperrealistic WebXR VR Club with music streaming and multiplayer support for Quest 3S",
+  "description": "Hyperrealistic Babylon.js WebXR VR Club with music streaming for Meta Quest 3S",
   "scripts": {
-    "start": "node server/server.js",
-    "dev": "npx http-server -p 8000 -o",
+    "start": "http-server -p 8000 -c-1",
+    "dev": "http-server -p 8000 -c-1 -o",
     "serve": "python -m http.server 8000",
-    "server": "node server/server.js"
+    "check": "node --check js/textureLoader.js && node --check js/modelLoader.js && node --check js/materialFactory.js && node --check js/lightFactory.js && node --check js/vjDirector.js && node --check js/club_hyperrealistic.js && node --check js/ui-init.js"
   },
   "keywords": [
     "webxr",
     "vr",
-    "aframe",
     "quest",
-    "multiplayer",
     "music",
     "club",
     "nightclub",
@@ -25,10 +23,10 @@
     "type": "git",
     "url": "https://github.com/my-pwa-apps/VRCLUB-2"
   },
-  "dependencies": {
-    "ws": "^8.14.2"
+  "dependencies": {},
+  "devDependencies": {
+    "http-server": "^14.1.1"
   },
-  "devDependencies": {},
   "engines": {
     "node": ">=18.0.0"
   }

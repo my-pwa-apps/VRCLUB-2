@@ -18,7 +18,7 @@
     <title>VR Club - Virtual Nightclub Experience</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/styles.css?v=20260424-qc2">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -247,39 +247,32 @@
         </div>
     </div>
     
-    <!-- Babylon.js Core - Critical Path -->
-    <!--
-        QC O4: Pinned to v8.30.5 to eliminate "always-latest" supply-chain drift.
-        Before public deploy, also add Subresource Integrity (SRI) hashes:
-            curl -s https://cdn.babylonjs.com/v8.30.5/babylon.js | openssl dgst -sha384 -binary | openssl base64 -A
-        then add: integrity="sha384-<hash>"  to each <script> tag below.
-        (Skipped here because hashes must be computed against the actual served bytes.)
-    -->
-    <script src="https://cdn.babylonjs.com/v8.30.5/babylon.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdn.babylonjs.com/v8.30.5/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Babylon.js Core - Critical Path (pinned + SRI for public deploy safety) -->
+    <script src="https://cdn.babylonjs.com/v8.30.5/babylon.js" integrity="sha384-Kxab4BZmBEE10FDD1UeQ4bSI+PBgQrW8EiClwr8JO43k8OmK8lTLXn8sgt0RizQF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.babylonjs.com/v8.30.5/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" integrity="sha384-0e9259x/mTgaVTUPl7qzeUhG49D9PtcTzoAGsh/l6OUnms7mzjey/pXyVKJ2SOZn" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js" integrity="sha384-08lzOJD9h7SvlsNvZVYdhN6WvmK1TgUQOGcWdpCIBM86wOvyGJo7vy8PJiJcRs7e" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js"></script>
+    <script src="js/textureLoader.js?v=20260424-qc2"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js"></script>
+    <script src="js/modelLoader.js?v=20260424-qc2"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js"></script>
+    <script src="js/materialFactory.js?v=20260424-qc2"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js"></script>
+    <script src="js/lightFactory.js?v=20260424-qc2"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js"></script>
+    <script src="js/vjDirector.js?v=20260424-qc2"></script>
     
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js"></script>
+    <script src="js/club_hyperrealistic.js?v=20260424-qc2"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js"></script>
+    <script src="js/ui-init.js?v=20260424-qc2"></script>
 </body>
 </html>

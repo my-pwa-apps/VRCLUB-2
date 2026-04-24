@@ -774,12 +774,12 @@ class VRClub {
                     material.emissiveColor.b * 2.0,
                     1.0
                 );
-            } else if (name.startsWith('laser') || name.includes('Emitter')) {
-                // Laser cores: intense glow (lasers should cut through haze)
+            } else if (name.includes('Emitter')) {
+                // Fixture emitters: visible source glow without blooming laser beams across the LED wall
                 result.set(
-                    material.emissiveColor.r * 3.0,
-                    material.emissiveColor.g * 3.0,
-                    material.emissiveColor.b * 3.0,
+                    material.emissiveColor.r * 1.2,
+                    material.emissiveColor.g * 1.2,
+                    material.emissiveColor.b * 1.2,
                     1.0
                 );
             } else if (name.includes('lens') || name.includes('lightSource') || name.includes('Lens')) {
@@ -3991,17 +3991,8 @@ class VRClub {
     }
     
     createLaserBeam(laserIndex, beamIndex, pos) {
-        // HYPERREALISTIC LASER BEAM - Physically accurate laser appearance
-        
-        // UPGRADE: Share one noise texture across all laser beam outer glows
-        // Instead of 15 separate NoiseProceduralTextures (one per beam outer glow)
-        if (!this._laserHazeNoiseTexture) {
-            this._laserHazeNoiseTexture = new BABYLON.NoiseProceduralTexture("sharedLaserHazeNoise", 64, this.scene);
-            this._laserHazeNoiseTexture.octaves = 3;
-            this._laserHazeNoiseTexture.persistence = 0.7;
-            this._laserHazeNoiseTexture.animationSpeedFactor = 2.0;
-            this._laserHazeNoiseTexture.brightness = 0.6;
-        }
+        // Crisp laser beam. Keep only the pencil-thin core so beams crossing
+        // the LED wall do not create a large additive glow wash.
         // Real lasers: pencil-thin coherent light with atmospheric scatter creating visible beam
         
         // === CORE BEAM - Ultra-thin, razor-sharp coherent light ===
@@ -4025,60 +4016,15 @@ class VRClub {
         beam.renderingGroupId = 2; // Render on top for crisp appearance
         beam.isPickable = false;
         
-        // === INNER GLOW - Tight halo simulating light scatter in immediate vicinity ===
-        const innerGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_innerGlow" + beamIndex, {
-            diameterTop: 0.025,    // 2.5cm at source
-            diameterBottom: 0.05,  // 5cm at end (expands with beam)
-            height: 1,
-            tessellation: 8
-        }, this.scene);
-        innerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        innerGlow.isPickable = false;
-        
-        const innerGlowMat = new BABYLON.StandardMaterial("laserInnerGlowMat" + laserIndex + "_" + beamIndex, this.scene);
-        innerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        innerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        innerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.3, 0.3); // Slightly desaturated for glow
-        innerGlowMat.alpha = 0.6; // Semi-transparent
-        innerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for glow
-        innerGlowMat.disableLighting = true;
-        innerGlowMat.backFaceCulling = false;
-        innerGlow.material = innerGlowMat;
-        innerGlow.renderingGroupId = 1;
-        
-        // === OUTER ATMOSPHERIC SCATTER - Wide soft haze from fog/smoke ===
-        // This is what makes laser beams visible in clubs (haze machine effect)
-        const outerGlow = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_outerGlow" + beamIndex, {
-            diameterTop: 0.08,     // 8cm at source
-            diameterBottom: 0.18,  // 18cm at end (wide scatter)
-            height: 1,
-            tessellation: 8
-        }, this.scene);
-        outerGlow.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        outerGlow.isPickable = false;
-        
-        // UPGRADE: Use shared noise texture instead of 15 separate GPU textures
-        const outerGlowMat = new BABYLON.StandardMaterial("laserOuterGlowMat" + laserIndex + "_" + beamIndex, this.scene);
-        outerGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        outerGlowMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        outerGlowMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2); // Soft color
-        outerGlowMat.opacityTexture = this._laserHazeNoiseTexture; // Shared noise for haze pattern
-        outerGlowMat.alpha = 0.15; // Very transparent
-        outerGlowMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        outerGlowMat.disableLighting = true;
-        outerGlowMat.backFaceCulling = false;
-        outerGlow.material = outerGlowMat;
-        outerGlow.renderingGroupId = 1;
-        
         // Hit spots removed - cleaner laser look without floor reflections
         
         return { 
             mesh: beam, 
             material: beamMat,
-            innerGlow: innerGlow,
-            innerGlowMat: innerGlowMat,
-            beamGlow: outerGlow,  // Keep name for compatibility
-            glowMat: outerGlowMat,
+            innerGlow: null,
+            innerGlowMat: null,
+            beamGlow: null,
+            glowMat: null,
             hitSpot: null,        // No longer created
             hitSpotMat: null,
             hitGlow: null,
@@ -7814,58 +7760,28 @@ class VRClub {
         }
         
         const patterns = [
-            // === FLAGSHIP HYPNOTIC VISUALS (long dwell, continuously expanding) ===
+            // === CURATED IMMERSIVE LED WALL SHOW ===
+            // Removed short utility effects such as strobes, scanners, EQ bars,
+            // confetti, fire, and simple geometric flashes. The remaining set
+            // keeps variation through vortex, expansion, organic flow, symmetry,
+            // and slow breathing motion while staying hypnotic and continuous.
             this.patternHypnoticSpiral,     // [0] Counter-rotating rainbow vortex
             this.patternConcentricRings,    // [1] Endless rings rippling outward
             this.patternNestedSquares,      // [2] Square outlines blooming from center
             this.patternMandalaBloom,       // [3] Geometric flower opening over and over
             this.patternRippleRain,         // [4] Multiple ripples on a virtual pond
-
-            // === IMMERSIVE DANCE CLUB PATTERNS ===
-            // Energy Bursts
-            this.patternBassExplosion,      // Explosive burst from center on bass
-            this.patternEnergyWave,         // Powerful wave sweeping across
-            this.patternStrobe,             // Club strobe effect
-            this.patternLaserScan,          // Scanning laser lines
-            
-            // === PULSATING/BREATHING PATTERNS (NEW) ===
-            this.patternHeartbeat,          // Rhythmic heartbeat pulse
             this.patternBreathing,          // Slow inhale/exhale glow
             this.patternShockwave,          // Concentric rings expanding
             this.patternPulseStar,          // Star shape pulsing outward
-            this.patternCrossBeam,          // Crossing beams pulsating
             this.patternRadialPulse,        // Radial rays pulsing from center
             this.patternWaveCollide,        // Waves colliding at center
             this.patternCellularPulse,      // Organic cell-like pulsation
-            
-            // Hypnotic Patterns
             this.patternTunnel,             // Tunnel/vortex effect
             this.patternKaleidoscope,       // Rotating kaleidoscope
             this.patternDNAHelix,           // Double helix spinning
             this.patternInfinityLoop,       // Flowing infinity symbol
-            
-            // Club Classics
-            this.patternVUMeter,            // Audio reactive VU bars
-            this.patternEqualizerBars,      // Bouncing EQ columns
-            this.patternBeatGrid,           // Pulsing grid on beat
-            this.patternPixelRain,          // Digital rain effect
-            
-            // Geometric Shapes
-            this.patternTriangleWave,       // Triangles flowing
-            this.patternHexagonPulse,       // Hexagonal ripples
-            this.patternDiamondSpin,        // Spinning diamond patterns
-            this.patternCubeRotate,         // 3D cube illusion
-            
-            // Flow Patterns
             this.patternPlasma,             // Organic plasma flow
             this.patternAurora,             // Northern lights effect
-            this.patternOceanWave,          // Deep ocean waves
-            this.patternFire,               // Rising fire columns
-            
-            // Party Vibes
-            this.patternConfetti,           // Scattered confetti
-            this.patternSpotlightSweep,     // Moving spotlights
-            this.patternNeonPulse,          // Neon sign pulsing
             this.patternRainbowRave         // Full spectrum rave
         ];
         
@@ -7931,15 +7847,15 @@ class VRClub {
         
         this.lastBassLevel = audioData.bass;
         
-        // Pattern dwell time. Hypnotic / continuously-evolving patterns (the
-        // first 5 in the list) need MUCH longer onscreen to actually trance-out
-        // the viewer — short cuts break the spell. Other patterns rotate fast.
+        // Pattern dwell time. The active playlist is now all immersive and
+        // continuous, so even the higher-energy visuals need enough time to
+        // settle into a trance instead of flashing by like one-shot effects.
         const HYPNOTIC_PATTERN_COUNT = 5; // indices 0..4
         const isHypnotic = this.ledPattern < HYPNOTIC_PATTERN_COUNT;
         const beatsPerPattern = isHypnotic
             ? 32       // ~14.7s @ 130 BPM — long enough to lock the eye in
-            : 4;       // fast cycling for high-energy patterns
-        const fallbackSeconds = isHypnotic ? 16.0 : 2.0;
+            : 16;      // varied but still immersive
+        const fallbackSeconds = isHypnotic ? 16.0 : 8.0;
         const patternChangeTime = audioData.hasAudio
             ? this.beatInterval * beatsPerPattern
             : fallbackSeconds;
@@ -9587,7 +9503,7 @@ class VRClub {
                     background: #0088ff; color: white; border: none; border-radius: 5px; cursor: pointer;">
                     📁 Browse File
                 </button>
-                <input type="file" id="audioFileInput" accept="audio/*" style="display: none;">
+                <input type="file" id="vrAudioFileInput" accept="audio/*" style="display: none;">
             </div>
             <div style="margin-top: 15px;">
                 <button id="audioPlayBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
@@ -9620,13 +9536,15 @@ class VRClub {
         }, 100);
         
         // File browse button handler
+        const overlayFileInput = inputDiv.querySelector('#vrAudioFileInput');
+
         document.getElementById('audioFileBrowseBtn').onclick = (e) => {
             e.preventDefault();
-            document.getElementById('audioFileInput').click();
+            overlayFileInput.click();
         };
         
         // File input handler
-        document.getElementById('audioFileInput').onchange = (e) => {
+        overlayFileInput.onchange = (e) => {
             const file = e.target.files[0];
             if (file && file.type.startsWith('audio/')) {
                 selectedFile = file;
@@ -10608,9 +10526,11 @@ class VRClub {
                     // This ensures beams are depth-tested against NPC geometry
                     mesh.renderingGroupId = 0; // Opaque objects group
                     
-                    // Ensure mesh writes to depth buffer
-                    mesh.material.disableDepthWrite = false;
-                    mesh.material.forceDepthWrite = true;
+                    // Ensure mesh writes to depth buffer when it has a material.
+                    if (mesh.material) {
+                        mesh.material.disableDepthWrite = false;
+                        mesh.material.forceDepthWrite = true;
+                    }
                 });
                 
                 // Play all animation groups from the GLB
