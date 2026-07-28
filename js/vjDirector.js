@@ -150,8 +150,14 @@ class VJDirector {
             this.masterIntensity += (this.targetMasterIntensity - this.masterIntensity) * 0.12;
         }
 
-        // 5. Auto-scene selection (suppressed during manual macros)
-        if (now > this.manualSceneUntil) {
+        // 5. Auto-scene selection (suppressed during manual macros, and whenever
+        //    the Show Director is driving — it composes looks on musical
+        //    boundaries, whereas this picker fires the moment an energy threshold
+        //    is crossed. Two writers is what produced the incoherent show. Beat
+        //    tracking, BPM and the palette engine below all keep running; only
+        //    the LOOK decision is handed over.)
+        const showDriving = !!(this.club.showDirector && this.club.showDirector.isDriving());
+        if (now > this.manualSceneUntil && !showDriving) {
             this._updateAutoScene(audioData, now);
         }
 

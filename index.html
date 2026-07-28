@@ -43,7 +43,7 @@
     <title>VR Club - Virtual Nightclub Experience</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css?v=20260424-gfx3">
+    <link rel="stylesheet" href="css/styles.css?v=20260424-show3">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -150,6 +150,20 @@
             <div class="vj-section">
                 <div class="vj-section-title">🎨 Graphics Quality</div>
                 <button class="vj-button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
+            </div>
+
+            <!-- Show Director: the composed, beat-locked light show -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎭 Light Show</div>
+                <button class="vj-button" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
+                <div class="vj-button-grid">
+                    <button class="vj-button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
+                    <button class="vj-button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
+                </div>
+                <div class="vj-slider-label" style="margin-top:6px; opacity:0.85;">
+                    <span>Now playing</span>
+                    <span id="showMovementReadout">I · ARRIVAL</span>
+                </div>
             </div>
 
             <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
@@ -287,27 +301,32 @@
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260424-gfx3"></script>
+    <script src="js/assetCache.js?v=20260424-show3"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260424-gfx3"></script>
+    <script src="js/textureLoader.js?v=20260424-show3"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260424-gfx3"></script>
+    <script src="js/modelLoader.js?v=20260424-show3"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260424-gfx3"></script>
+    <script src="js/materialFactory.js?v=20260424-show3"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260424-gfx3"></script>
+    <script src="js/lightFactory.js?v=20260424-show3"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260424-gfx3"></script>
+    <script src="js/vjDirector.js?v=20260424-show3"></script>
+
+    <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
+         clock published by VJDirector, so it MUST load after it and before the
+         club script that instantiates both. -->
+    <script src="js/showDirector.js?v=20260424-show3"></script>
     
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260424-gfx3"></script>
+    <script src="js/club_hyperrealistic.js?v=20260424-show3"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260424-gfx3"></script>
+    <script src="js/ui-init.js?v=20260424-show3"></script>
 </body>
 </html>

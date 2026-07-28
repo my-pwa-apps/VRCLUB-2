@@ -191,6 +191,23 @@ function initVJMenu() {
         qualityButton.textContent = `QUALITY: ${vrClubInstance.graphicsTier.toUpperCase()}`;
     }
 
+    // Show Director readout: which movement / set-piece is currently playing.
+    // Declared as a function so the button handlers below can call it before
+    // this point in the file is reached at runtime.
+    const showReadout = document.getElementById('showMovementReadout');
+    function updateShowReadout() {
+        if (!showReadout || !vrClubInstance.showDirector) return;
+        const s = vrClubInstance.showDirector;
+        if (!s.enabled) { showReadout.textContent = 'OFF'; return; }
+        const st = s.getStatus();
+        showReadout.textContent = st.setPiece ? `⚡ ${st.setPiece}` : st.movement;
+    }
+    const showToggleBtn = document.querySelector('.vj-button[data-control="toggleShow"]');
+    if (showToggleBtn && vrClubInstance.showDirector) {
+        showToggleBtn.classList.toggle('active', vrClubInstance.showDirector.enabled);
+    }
+    updateShowReadout();
+
     vjButtons.forEach(button => {
         button.addEventListener('click', () => {
             const control = button.getAttribute('data-control');
@@ -238,6 +255,31 @@ function initVJMenu() {
                 const next = tiers[(tiers.indexOf(vrClubInstance.graphicsTier) + 1) % tiers.length];
                 vrClubInstance.setGraphicsTier(next);
                 button.textContent = `QUALITY: ${next.toUpperCase()}`;
+
+            } else if (control === 'toggleShow') {
+                // Hand the rig between the composed show and the legacy auto-cycler.
+                const show = vrClubInstance.showDirector;
+                if (show) {
+                    const on = show.setEnabled(!show.enabled);
+                    button.textContent = `SHOW: ${on ? 'ON' : 'OFF'}`;
+                    button.classList.toggle('active', on);
+                    updateShowReadout();
+                }
+
+            } else if (control === 'nextMovement') {
+                const show = vrClubInstance.showDirector;
+                if (show && show.isDriving()) {
+                    show.nextMovement();
+                    updateShowReadout();
+                }
+
+            } else if (control === 'showCountdown') {
+                // Fire THE COUNTDOWN: 4 bars of escalation into one beat of black.
+                const show = vrClubInstance.showDirector;
+                if (show && show.isDriving()) {
+                    show.triggerShowDrop();
+                    updateShowReadout();
+                }
 
             } else if (control === 'changeMirrorBallColor') {
                 // Change mirror ball color with ENHANCED visual feedback
@@ -464,6 +506,7 @@ function initVJMenu() {
             if (document.hidden) return;
             const d = vjDir();
             if (d) bpmReadout.textContent = d.bpm.toFixed(0);
+            updateShowReadout();
         }, 1000);
     }
 

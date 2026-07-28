@@ -26,8 +26,9 @@ JS file is a classic `<script>` that publishes its class onto `window`.
 7. `js/materialFactory.js`
 8. `js/lightFactory.js`
 9. `js/vjDirector.js`
-10. `js/club_hyperrealistic.js` — the `VRClub` class
-11. `js/ui-init.js` — splash screen, VJ menu, audio menu; instantiates `new VRClub()`
+10. `js/showDirector.js` — depends on the beat clock published by (9)
+11. `js/club_hyperrealistic.js` — the `VRClub` class
+12. `js/ui-init.js` — splash screen, VJ menu, audio menu; instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
@@ -78,6 +79,39 @@ Key lifecycle members:
 Beat/BPM detection (spectral flux + adaptive median threshold), master colour palette,
 scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes into the
 `VRClub` instance (`beatEnvelope`, `masterIntensity`, `barPhase`, `spotColorIndex`, …).
+
+### `js/showDirector.js` — "NOCTURNE"
+The composed light show, and **the single source of truth for fixture state** whenever
+`showDirector.isDriving()` is true (i.e. the show is enabled and `vjManualMode` is off).
+
+Structure: **14 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
+`afterglow`) → **2 set-pieces** (`countdown`, `cutToBlack`). A look is a flat map of
+`VRClub` fixture properties; a `[from, to]` value is a ramp resolved across the cue's bar
+span. Movements are ordered cue lists; the next movement is chosen from a smoothed audio
+energy EMA, but only on a bar boundary and only after `minBars` have elapsed.
+
+Rules when editing:
+- **All structural decisions happen in `_onBar()`, never mid-bar.** Landing changes off the
+  musical grid is exactly the failure this class exists to fix.
+- Look keys are validated at construction by `_validateLooks()` — a typo warns rather than
+  silently doing nothing. Add new fixture properties to a look, not to a special case.
+- `intensity`, `palette` and `punch` are meta keys (`ShowDirector.META_KEYS`) consumed by
+  the director itself. They must never be written onto the club instance.
+- `photosensitiveSafeMode` **overrides the designer**: `_applyLook()` force-clears
+  `strobesActive`/`blindersActive`, and the `countdown` set-piece drops its strobe ladder
+  and carries the build with intensity and speed alone. Never bypass this.
+- Keep the gobo/laser exclusivity rule — one aerial idea at a time, or the haze turns to soup.
+
+**Three places hand control over. All three must stay gated:**
+
+| Gate | File | Guard |
+|------|------|-------|
+| Legacy 12-phase wall-clock cycler | `club_hyperrealistic.js` `updateAnimations()` | `&& !showDriving` |
+| LED wall private pattern timer | `club_hyperrealistic.js` `updateLEDWall()` | `if (!showOwnsPattern && …)` |
+| Auto-scene energy-threshold picker | `vjDirector.js` `update()` step 5 | `&& !showDriving` |
+
+VJDirector keeps running throughout — beat tracking, BPM and the colour palette are inputs
+to the show, not competitors. Only the *look decision* is handed over.
 
 ## Non-negotiable rendering rules
 

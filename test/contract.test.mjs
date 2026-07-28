@@ -67,9 +67,11 @@ test('script load order honours the dependency contract', () => {
 
     // The main app constructs the factories, the loaders and the VJ director.
     const main = idx('js/club_hyperrealistic.js');
-    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js']) {
+    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js']) {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
+    // ShowDirector reads the beat grid VJDirector publishes.
+    assert.ok(idx('js/vjDirector.js') < idx('js/showDirector.js'), 'vjDirector must precede showDirector');
     // ui-init drives the splash screen and instantiates VRClub.
     assert.ok(idx('js/ui-init.js') > main, 'ui-init.js must load after club_hyperrealistic.js');
 });
@@ -80,7 +82,8 @@ test('every class used across files is exported onto window', () => {
         'js/textureLoader.js': ['TextureLoader'],
         'js/modelLoader.js': ['ModelLoader'],
         'js/materialFactory.js': ['MaterialFactory'],
-        'js/lightFactory.js': ['LightFactory']
+        'js/lightFactory.js': ['LightFactory'],
+        'js/showDirector.js': ['ShowDirector']
     };
     for (const [file, names] of Object.entries(required)) {
         const source = readFileSync(join(ROOT, file), 'utf8');

@@ -233,6 +233,56 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Feature — 2026-07-29 — "NOCTURNE" composed light show
+
+- [x] Three independent processes drove the lighting, none locked to musical structure
+  Priority: High
+  Category: Feature / Design
+  Area: Lighting
+  Detail: The legacy 12-phase wall-clock cycler in `updateAnimations()`, VJDirector's
+    energy-threshold scene machine, and `updateLEDWall()`'s private pattern timer all
+    wrote the same fixture state and overwrote each other. Changes landed on wall-clock
+    timers rather than bars, so nothing ever resolved on a downbeat and no cue could set
+    up an expectation and then pay it off. Two writers to the same variable, with neither
+    owning it, is indistinguishable from randomness at the output.
+  Resolution: Added `js/showDirector.js` — 14 looks, 5 movements, 2 set-pieces, all
+    structural decisions taken in `_onBar()`. The three former writers are now gated on
+    `showDirector.isDriving()`. VJDirector still supplies beat, BPM and palette.
+  Acceptance: 1200-beat simulation reaches all 5 movements, both set-pieces and all 13
+    named looks; `COUNTDOWN` precedes every `IGNITION` entry; no NaN, no exceptions, no
+    meta keys leaked onto the club instance.
+
+- [x] Ramped look values produced `NaN` on `masterIntensity`
+  Priority: Critical
+  Category: Bug
+  Area: Lighting
+  Detail: `_applyContinuous()` read `look.intensity` directly, but a ramped look stores it
+    as `[from, to]`. Arithmetic on an array yields NaN, which propagated to every fixture.
+    The same loop also wrote `intensity`/`palette`/`punch` onto the club as dead properties.
+  Resolution: `ShowDirector.META_KEYS` excludes the three director-owned keys from both the
+    ramp loop and `_applyLook()`; `intensity` ramps are resolved explicitly.
+
+- [x] Set-piece bridges never fired — ignition was unreachable
+  Priority: High
+  Category: Bug
+  Area: Lighting
+  Detail: The energy mix is `bass*0.6 + mid*0.3 + treble*0.1`, whose practical ceiling is
+    ~0.45, but `_pickMovement()` required 0.40 to select `ignition`. The smoothed EMA never
+    got there, so `countdown` and `cutToBlack` fired 0 times in 900 simulated bars.
+  Resolution: Rebanded the thresholds to 0.08 / 0.16 / 0.25 / 0.34, matching VJDirector's
+    own 0.35 drop threshold.
+
+- [x] First cue of a movement was skipped whenever a set-piece handed over to it
+  Priority: Medium
+  Category: Bug
+  Area: Lighting
+  Detail: `_endSetPiece()` enters a fresh movement and resets the cue clock, but control
+    fell through to the advance check, which compared the new cue against the stale
+    `_cueBarsElapsed` computed earlier in the same `_onBar()` call.
+  Resolution: Early `return` after `_endSetPiece()`.
+
+---
+
 ## Review — 2026-07-28
 
 Scope: full-repository review (architecture, code quality, performance, security,

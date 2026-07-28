@@ -1314,6 +1314,15 @@ class VRClub {
         if (typeof VJDirector !== 'undefined') {
             this.vjDirector = new VJDirector(this);
         }
+
+        // "NOCTURNE" — the composed light show. A beat-locked cue engine that
+        // becomes the single source of truth for fixture state, replacing the
+        // legacy wall-clock 12-phase cycler and the director's energy-threshold
+        // scene picker (both of which stand down while showDirector.isDriving()).
+        // Depends on the beat grid VJDirector publishes, so it is created after it.
+        if (typeof ShowDirector !== 'undefined' && this.vjDirector) {
+            this.showDirector = new ShowDirector(this);
+        }
         
         // UPGRADE: Create frozen reflection probe for the dance floor
         // Must be called AFTER all geometry is created so the probe captures everything
@@ -1458,6 +1467,7 @@ class VRClub {
         this.audioSource = null;
 
         if (this.vjDirector) this.vjDirector = null;
+        if (this.showDirector) this.showDirector = null;
 
         if (this.vrHelper && this.vrHelper.baseExperience) {
             try { this.vrHelper.baseExperience.dispose(); } catch (_) { /* ignore */ }
@@ -5796,6 +5806,14 @@ class VRClub {
             this.vjDirector.update(time, audioData);
         }
 
+        // === SHOW DIRECTOR per-frame tick ===
+        // Runs immediately AFTER the VJ director so this frame's beat grid
+        // (beatNumber / beatEnvelope / bpm) is already resolved. Advances the
+        // cue list on bar boundaries and owns masterIntensity while driving.
+        if (this.showDirector) {
+            this.showDirector.update(time, audioData);
+        }
+
         // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
         this._updateBassHaptics(audioData);
 
@@ -6311,7 +6329,12 @@ class VRClub {
         // happened to be in. Single source of truth during a manual hold.
         const directorHoldingMacro = !!(this.vjDirector &&
             this.vjDirector.manualSceneUntil > performance.now());
-        if (!this.vjManualMode && !directorHoldingMacro) {
+        // The Show Director owns the rig when it is driving. Its cues land on
+        // musical bars; this legacy cycler fires on a randomised wall-clock timer.
+        // Running both means whichever wrote last wins, which is exactly why the
+        // old show read as arbitrary. Exactly one writer at a time.
+        const showDriving = !!(this.showDirector && this.showDirector.isDriving());
+        if (!this.vjManualMode && !directorHoldingMacro && !showDriving) {
             const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
             
             // Smoothly interpolate energy level toward target
@@ -8531,7 +8554,11 @@ class VRClub {
             ? this.beatInterval * beatsPerPattern
             : fallbackSeconds;
         
-        if (time - this.ledPatternSwitchTime > patternChangeTime) {
+        // The Show Director picks the LED pattern as part of a composed look, so
+        // this private timer must not also advance it — otherwise the wall drifts
+        // off whatever the current cue chose a few beats after every change.
+        const showOwnsPattern = !!(this.showDirector && this.showDirector.isDriving());
+        if (!showOwnsPattern && time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
         }
