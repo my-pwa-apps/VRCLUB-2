@@ -4,9 +4,11 @@
   "description": "Hyperrealistic Babylon.js WebXR VR Club with music streaming for Meta Quest 3S",
   "scripts": {
     "start": "http-server -p 8000 -c-1",
+    "start:prod": "node scripts/serve.mjs",
     "dev": "http-server -p 8000 -c-1 -o",
     "serve": "python -m http.server 8000",
-    "check": "node --check js/textureLoader.js && node --check js/modelLoader.js && node --check js/materialFactory.js && node --check js/lightFactory.js && node --check js/vjDirector.js && node --check js/club_hyperrealistic.js && node --check js/ui-init.js"
+    "check": "node --check js/assetCache.js && node --check js/textureLoader.js && node --check js/modelLoader.js && node --check js/materialFactory.js && node --check js/lightFactory.js && node --check js/vjDirector.js && node --check js/club_hyperrealistic.js && node --check js/ui-init.js",
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "webxr",

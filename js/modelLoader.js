@@ -1,85 +1,24 @@
 // 3D Model Loader with CDN Download and IndexedDB Caching
 // Downloads DJ equipment and speaker models from CDN on first run
+//
+// Requires js/assetCache.js to be loaded first (IndexedDBAssetCache, InFlightRegistry,
+// fetchWithTimeout). The hand-rolled ModelCache class that used to live here was
+// removed: it silently hung on IndexedDB transaction errors and quota exhaustion.
 
 // Debug mode - set false for production
 const MODEL_DEBUG = false;
-
-class ModelCache {
-    constructor() {
-        this.dbName = 'VRClubModelCache';
-        this.dbVersion = 1;
-        this.storeName = 'models';
-        this.db = null;
-    }
-
-    async init() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.dbVersion);
-            
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => {
-                this.db = request.result;
-                MODEL_DEBUG && console.log('[Model] Cache database initialized');
-                resolve();
-            };
-            
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName, { keyPath: 'url' });
-                    MODEL_DEBUG && console.log('[Model] Created cache store');
-                }
-            };
-        });
-    }
-
-    async getModel(url) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readonly');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.get(url);
-            
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    async saveModel(url, arrayBuffer) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.put({ 
-                url, 
-                data: arrayBuffer,
-                timestamp: Date.now() 
-            });
-            
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    async clearCache() {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.clear();
-            
-            request.onsuccess = () => {
-                MODEL_DEBUG && console.log('[Model] Cache cleared');
-                resolve();
-            };
-            request.onerror = () => reject(request.error);
-        });
-    }
-}
 
 class ModelLoader {
     constructor(scene, materialFactory = null, logger = null) {
         this.scene = scene;
         this.materialFactory = materialFactory;
         this.log = logger || console; // Use provided logger or fallback to console
-        this.cache = new ModelCache();
+        this.cache = new IndexedDBAssetCache({
+            dbName: 'VRClubModelCache',
+            storeName: 'models',
+            logger: this.log
+        });
+        this.inFlight = new InFlightRegistry();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
     }
@@ -136,9 +75,10 @@ class ModelLoader {
     async downloadModel(url) {
         this.log.info(`⬇️ Downloading model: ${url}`);
         try {
-            const response = await fetch(url, {
+            const response = await fetchWithTimeout(url, {
                 mode: 'cors',
-                cache: 'default'
+                cache: 'default',
+                timeoutMs: 60000 // GLBs are large; allow more headroom than textures
             });
             
             if (!response.ok) {
@@ -155,19 +95,22 @@ class ModelLoader {
         }
     }
 
+    /**
+     * Fetch model bytes from cache or network. Concurrent callers for the same
+     * URL share one download — the two PA speakers reference the SAME GLB, so
+     * without this the file was downloaded twice on every cold start.
+     */
     async loadOrDownloadModel(url) {
-        // Check cache first
-        const cached = await this.cache.getModel(url);
-        
-        if (cached) {
-            this.log.info(`💾 Using cached model: ${url.split('/').pop()}`);
-            return cached.data;
-        }
-        
-        // Download and cache
-        const arrayBuffer = await this.downloadModel(url);
-        await this.cache.saveModel(url, arrayBuffer);
-        return arrayBuffer;
+        return this.inFlight.run(url, async () => {
+            const cached = await this.cache.get(url);
+            if (cached) {
+                this.log.info(`💾 Using cached model: ${url.split('/').pop()}`);
+                return cached;
+            }
+            const arrayBuffer = await this.downloadModel(url);
+            await this.cache.put(url, arrayBuffer);
+            return arrayBuffer;
+        });
     }
 
     async loadModel(modelKey) {
@@ -192,17 +135,21 @@ class ModelLoader {
             const blob = new Blob([arrayBuffer], { type: 'model/gltf-binary' });
             const blobUrl = URL.createObjectURL(blob);
             
-            // Load model with Babylon.js
-            const result = await BABYLON.SceneLoader.LoadAssetContainerAsync(
-                '',
-                blobUrl,
-                this.scene,
-                null,
-                '.glb'
-            );
-            
-            // Clean up blob URL
-            URL.revokeObjectURL(blobUrl);
+            // Load model with Babylon.js. The blob URL MUST be revoked even when the
+            // loader throws (corrupt GLB, missing loaders plugin) — otherwise every
+            // failed load permanently pins the whole file in memory.
+            let result;
+            try {
+                result = await BABYLON.SceneLoader.LoadAssetContainerAsync(
+                    '',
+                    blobUrl,
+                    this.scene,
+                    null,
+                    '.glb'
+                );
+            } finally {
+                URL.revokeObjectURL(blobUrl);
+            }
             
             // Add to scene
             result.addAllToScene();
@@ -223,7 +170,14 @@ class ModelLoader {
                     const desiredHeight = config.hangFromCeiling ? 3.0 : 5.5; // Smaller when hung from ceiling
                     
                     if (modelHeight > 0) {
-                        const autoScale = desiredHeight / modelHeight;
+                        // Clamp the derived scale. A degenerate/unit-less GLB (height
+                        // 0.001 m) would otherwise produce a 3000× scale factor and a
+                        // speaker large enough to swallow the whole room.
+                        const rawScale = desiredHeight / modelHeight;
+                        const autoScale = Math.min(100, Math.max(0.01, rawScale));
+                        if (autoScale !== rawScale) {
+                            this.log.warn(`⚠️ PA speaker auto-scale ${rawScale.toFixed(2)} clamped to ${autoScale} (suspicious model height ${modelHeight.toFixed(4)}m)`);
+                        }
                         rootMesh.scaling = new BABYLON.Vector3(autoScale, autoScale, autoScale);
                         this.log.info(`   📏 Auto-scaled PA speaker from ${modelHeight.toFixed(2)}m to ${desiredHeight}m (scale: ${autoScale.toFixed(4)})`);
                         
@@ -1042,7 +996,7 @@ class ModelLoader {
     }
 
     async clearAllCaches() {
-        await this.cache.clearCache();
+        await this.cache.clear();
     }
 }
 

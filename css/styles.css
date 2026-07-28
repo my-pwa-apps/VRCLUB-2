@@ -147,7 +147,7 @@ html, body {
 }
 
 #settingsPanel input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.75);
 }
 
 #settingsPanel button {
@@ -507,7 +507,7 @@ html, body {
 }
 
 .audio-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.75);
 }
 
 .audio-input:focus {
@@ -566,8 +566,27 @@ html, body {
     transform: translateY(-2px);
 }
 
+/* Visually hidden, but still focusable and exposed to assistive tech.
+   `display: none` removed it from the tab order entirely, so the "choose an audio
+   file" control was unreachable by keyboard and screen-reader users. */
 .audio-file-input {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Make the associated label look focused when the hidden input has focus. */
+.audio-file-input:focus-visible + label,
+.audio-file-input:focus-visible ~ .audio-button {
+    outline: 3px solid #7aa2ff;
+    outline-offset: 2px;
 }
 
 .audio-file-name {
@@ -840,8 +859,9 @@ html, body {
     transition: all 0.3s;
 }
 
+/* 0.4 alpha on the dark splash gave roughly 2.1:1 - below the WCAG 1.4.3 4.5:1 floor. */
 .splash-input::placeholder {
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.75);
 }
 
 .splash-input:focus {
@@ -937,4 +957,64 @@ html, body {
 #audioStatus.hidden { display: none; }
 .vj-button[data-control="changeMirrorBallColor"] {
     grid-column: 1 / -1;
+}
+
+/* =============================================================================
+   ACCESSIBILITY BASELINE
+   ============================================================================= */
+
+/* WCAG 2.4.7 Focus Visible.
+   Every interactive control in this app previously relied on the UA default focus
+   ring, which several rules cancelled with `outline: none` - leaving keyboard users
+   with no visible focus indicator at all. This restores a high-contrast ring on
+   keyboard focus only, so mouse/touch interaction stays visually unchanged. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 3px solid #7aa2ff;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Touch/press feedback. Hover states do nothing on a Quest controller or a phone. */
+button:active,
+.vj-button:active,
+.audio-button:active,
+.splash-button:active,
+.preset-grid button:active {
+    transform: scale(0.97);
+}
+
+/* Respect the OS "reduce motion" setting (WCAG 2.3.3 / vestibular safety).
+   This is doubly important here: the splash screen animates continuously and the
+   audience for this app is wearing a head-mounted display. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .splash-particle {
+        display: none;
+    }
+
+    button:active,
+    .vj-button:active,
+    .audio-button:active,
+    .splash-button:active,
+    .preset-grid button:active {
+        transform: none;
+    }
+}
+
+/* Forced-colors / Windows High Contrast: keep panels and buttons distinguishable. */
+@media (forced-colors: active) {
+    .vj-panel,
+    .audio-panel,
+    #settingsPanel,
+    button {
+        border: 1px solid ButtonBorder;
+    }
 }

@@ -1,83 +1,119 @@
-# VR Club - AI Coding Agent Instructions
+# VR Club — AI Coding Agent Instructions
 
-## Architecture Overview
+> **Accuracy contract**: this file describes the code as it exists. If you change the
+> architecture, update this file in the same commit. A previous version of this document
+> described a `js/systems/` module layer and `ModelLoader.createInstance()` APIs that do
+> not exist, which actively misled agents working in the repo.
 
-This is a **WebXR VR nightclub** built with **Babylon.js 8.30.5** for Meta Quest 3S. The architecture uses a **modular loader pattern** with IndexedDB caching for assets.
+## What this is
 
-**Note**: The `backup_aframe/` directory contains an earlier **A-Frame 1.5.0** implementation. The current production version uses Babylon.js for superior PBR materials, post-processing, and lighting control. Don't modify A-Frame files unless explicitly requested.
+A **client-side WebXR nightclub** built with **Babylon.js 8.30.5**, targeting Meta Quest 3S
+and desktop browsers. There is **no backend, no build step, and no module system** — every
+JS file is a classic `<script>` that publishes its class onto `window`.
 
-### Core Components (Load Order Matters!)
-1. **index.html** - Entry point with inline styles, script loader
-2. **js/textureLoader.js** - Polyhaven PBR textures with IndexedDB cache + texture pooling
-3. **js/modelLoader.js** - 3D models (.glb) with IndexedDB cache + geometry instancing
-4. **js/materialFactory.js** - Centralized material creation and reuse
-5. **js/lightFactory.js** - Centralized light creation and group management
-6. **js/systems/*.js** - Modular lighting system classes (NEW)
-7. **js/club_hyperrealistic.js** - Main VRClub class (~7500 lines, delegates to systems)
+`backup_aframe/` holds a superseded A-Frame 1.5.0 implementation. Do not modify it.
 
-**Critical**: Scripts load synchronously in this order. `textureLoader.js` and `modelLoader.js` MUST load before factory classes, which MUST load before system modules, which MUST load before `club_hyperrealistic.js`. MaterialFactory and LightFactory provide consistent creation patterns across the app.
+## Load order is a hard contract
 
-### Modular Lighting System (NEW - 2025-01-17)
-The lighting system has been refactored into modular classes in `js/systems/`:
-- **laserSystem.js** - Laser units and laser sheet scanning effect (~500 lines)
-- **spotlightSystem.js** - Moving head spotlights/gobos with sweep patterns (~450 lines)
-- **mirrorBallSystem.js** - Disco ball with 150 raycast reflection spots (~600 lines)
-- **ledWallSystem.js** - LED video wall with 8 audio-reactive patterns (~400 lines)
-- **strobeSystem.js** - Strobe lights and audience blinders (~300 lines)
-- **hazeSystem.js** - Atmospheric fog and particle haze (~200 lines)
-- **vjControlSystem.js** - Centralized VJ controller with presets (~450 lines)
+`index.html` loads scripts synchronously in this exact order:
 
-**Migration Status**: Systems are initialized but legacy inline code is still active. Set `this.useModularSystems = true` in constructor to enable new architecture.
+1. `https://cdn.babylonjs.com/v8.30.5/babylon.js` — pinned + SRI `integrity` + `crossorigin="anonymous"`
+2. `.../proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js`
+3. `.../loaders/babylonjs.loaders.min.js` — **required** for `.glb`
+4. `js/assetCache.js` — `IndexedDBAssetCache`, `InFlightRegistry`, `fetchWithTimeout`
+5. `js/textureLoader.js` — depends on (4)
+6. `js/modelLoader.js` — depends on (4)
+7. `js/materialFactory.js`
+8. `js/lightFactory.js`
+9. `js/vjDirector.js`
+10. `js/club_hyperrealistic.js` — the `VRClub` class
+11. `js/ui-init.js` — splash screen, VJ menu, audio menu; instantiates `new VRClub()`
 
-### Dual-Rendering Architecture
-The app maintains **separate rendering configurations** for desktop vs VR:
-- `vrSettings.desktop` - Lower bloom, FXAA anti-aliasing, NO grain/chromatic aberration (crisp rendering)
-- `vrSettings.vr` - Minimal bloom, FXAA anti-aliasing, NO tone mapping, higher sharpness
+`npm test` enforces this ordering, plus "every referenced script exists" and "every class
+is exported onto `window`". Run it after touching `index.html` or adding a file.
 
-**Pattern**: All VR/desktop differences live in the `vrSettings` config object (lines 13-45 in club_hyperrealistic.js). Use `applyVRSettings(xrCamera)` and `applyDesktopSettings()` helper methods—never inline settings.
+Every asset URL in `index.html` carries a shared `?v=` cache-busting token. The test suite
+fails if the tokens diverge — bump them all together.
 
-**Important**: Grain and chromatic aberration are disabled on both desktop and VR to prevent hazy appearance. Bloom is kept minimal to avoid visual fog while maintaining light glow effects.
+## Commands
 
-### Asset Loading Pattern
-**Problem**: First-time users download ~50MB of textures/models from CDN.  
-**Solution**: Two-tier caching system:
-1. **IndexedDB** - Persistent browser storage for textures/models
-2. **Procedural fallbacks** - Geometric shapes if models fail to load
-
-**Example** (modelLoader.js lines 82-115):
-```javascript
-dj_console: {
-    url: './js/models/djgear/source/pioneer_DJ_console.glb',
-    useProcedural: false, // Try real model first
-    // Falls back to procedural CDJ boxes if download fails
-}
+```powershell
+npm start        # http-server on :8000 (local dev)
+npm run start:prod  # dependency-free server honouring $PORT (used by Procfile)
+npm run check    # node --check every JS file
+npm test         # contract test suite (test/contract.test.mjs)
 ```
 
-**Pattern**: Check `useProcedural` flag. If true, skip download and create geometric primitives. Always provide fallbacks for VR compatibility.
+HTTPS is not needed locally; the Quest browser allows WebXR over `http://localhost` and
+over your LAN IP.
 
-## Critical Performance Constraints
+## Architecture
 
-### Light Count Limits (Device-Specific)
-**Quest VR**: 6 lights max per PBR material  
-**Desktop**: 4 lights max per PBR material  
-**Mobile**: 4 lights max
+### `js/assetCache.js`
+Shared caching primitives used by both loaders:
+- `IndexedDBAssetCache` — never rejects on init, wires `tx.onerror`/`tx.onabort`/`request.onerror`,
+  TTL-expires entries, and **degrades to download-every-time** on `QuotaExceededError`
+  instead of breaking startup.
+- `InFlightRegistry.run(key, factory)` — de-duplicates concurrent downloads of the same URL.
+- `fetchWithTimeout(url, { timeoutMs, ...init })` — `AbortController`-backed hard deadline.
 
-**Why**: PBR materials exhaust GPU uniform buffers. Exceeding limits causes GL errors and crashes.
+Any new network-backed asset type should reuse these rather than hand-rolling IndexedDB.
 
-**Pattern** (club_hyperrealistic.js lines 177-192):
+### `js/club_hyperrealistic.js`
+One ~10,400-line `VRClub` class. It owns scene construction, all lighting, the LED wall
+patterns, audio, WebXR and UI wiring. `updateAnimations()` is the per-frame hot loop.
+This monolith is known technical debt — see `BACKLOG.md`.
+
+Key lifecycle members:
+- `this.initPromise` — the constructor stores `init()`'s promise; failures surface a retry
+  splash via `_handleFatalInitError()`. **Never** drop this promise.
+- `this.ready` — `true` once `init()` resolves.
+- `dispose()` — stops the render loop, removes listeners, closes the `AudioContext`,
+  revokes blob URLs, tears down the UI timers and disposes scene + engine.
+- `visibilitychange` stops the render loop when the tab is hidden and not in VR.
+- `engine.onContextLostObservable` shows a toast and reloads (the engine runs with
+  `doNotHandleContextLost: true`).
+
+### `js/vjDirector.js`
+Beat/BPM detection (spectral flux + adaptive median threshold), master colour palette,
+scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes into the
+`VRClub` instance (`beatEnvelope`, `masterIntensity`, `barPhase`, `spotColorIndex`, …).
+
+## Non-negotiable rendering rules
+
+### Frame-rate independence
+The render loop runs at 60 Hz on desktop, 72/90/120 Hz on Quest, and lower under thermal
+throttling. `updateAnimations()` computes:
+
 ```javascript
-detectMaxLights() {
-    const isQuest = ua.includes('quest') || ua.includes('oculus');
-    if (isQuest) return 6;
-    return 4; // Conservative for PBR + loaded 3D models
-}
+const frameMs = this.engine.getDeltaTime();
+const dtScale = Math.min(4, Math.max(0.25, frameMs / 16.667));
+const dt = 0.016 * dtScale;
 ```
 
-**Rule**: Set `material.maxSimultaneousLights = this.maxLights` on ALL materials, especially loaded models.
+**Never** hard-code `0.016` or a bare per-frame increment. Multiply rotation/phase steps by
+`dtScale` and decrement timers by `dt`.
 
-### VR-Specific Opacity Issues
-**Problem**: Materials with ANY alpha/transparency settings appear see-through or shimmer in VR.  
-**Solution**: Aggressively enforce opacity on loaded models (modelLoader.js lines 217-250):
+### Never freeze/unfreeze materials per frame
+`Material.freeze()` and `unfreeze()` both call `markDirty()`, which walks **every mesh in
+the scene**. Calling them in the render loop for a handful of fixtures produced hundreds of
+full-scene scans per second. If a material's colour is mutated each frame, unfreeze it
+**once** and leave it unfrozen.
+
+### Light count limits
+PBR materials exhaust GPU uniform buffers past a device-specific light count.
+
+| Device  | Max simultaneous lights |
+|---------|-------------------------|
+| Quest   | 6                       |
+| Desktop | 4                       |
+| Mobile  | 4                       |
+
+Set `material.maxSimultaneousLights = this.maxLights` on **every** material, including the
+materials that arrive inside loaded `.glb` files.
+
+### VR opacity
+VR stereoscopic rendering is hypersensitive to transparency. On every mesh of a loaded model:
 
 ```javascript
 mesh.material.alpha = 1.0;
@@ -86,315 +122,143 @@ mesh.material.needAlphaBlending = () => false;
 mesh.material.disableDepthWrite = false;
 ```
 
-**Pattern**: When loading 3D models, ALWAYS enforce these properties on every mesh material. VR stereoscopic rendering is hypersensitive to transparency.
+### No per-frame allocation
+Reuse `this.cachedColors` and pre-allocated `Vector3`s; prefer `addToRef` / `scaleInPlace`
+over `add` / `scale` inside `updateAnimations()`.
 
-### Procedural Model Conflicts
-**Problem**: Both procedural and real 3D models can render simultaneously, causing z-fighting.  
-**Solution**: Hide procedural meshes when real models load (modelLoader.js lines 259-272):
+### Desktop vs VR settings
+All differences live in the `vrSettings` object at the top of `club_hyperrealistic.js`.
+Change the config and call `applyVRSettings(xrCamera)` / `applyDesktopSettings()` — never
+set pipeline values inline. Grain and chromatic aberration are disabled on both targets
+(they read as haze); bloom is kept minimal.
 
-```javascript
-// Hide procedural CDJs when real model loads
-const leftCDJ = this.scene.getMeshByName('leftCDJ');
-if (leftCDJ) leftCDJ.setEnabled(false);
-```
+### Graphics quality tiers
+`vrSettings` covers *desktop vs VR*. A second, orthogonal axis covers *how strong a GPU
+this is*: `this.qualityTiers` (constructor, next to `vrSettings`) with `ultra` / `high` /
+`balanced`.
 
-**Pattern**: After loading a real 3D model, search for procedural meshes by name and call `setEnabled(false)`. Check PA speakers (sub-7, subGrill-7, etc.) and CDJs.
+- `detectGraphicsTier()` picks the tier from `WEBGL_debug_renderer_info`,
+  `navigator.hardwareConcurrency` and `navigator.deviceMemory`. Quest/mobile always get
+  `balanced`. A `localStorage` override (`vrclub.graphicsTier`) always wins.
+- `this.tierSettings` is a getter for the active tier's config.
+- `setGraphicsTier(tier)` switches at runtime, persists the choice and rebuilds the
+  tier-owned pipelines. Wired to the `cycleGraphicsQuality` VJ button.
 
-## Development Workflow
+Tier-gated features, all **desktop only**:
 
-### Local Testing
-```powershell
-# Node.js (recommended - defined in package.json)
-npm start                 # Runs on http://localhost:8000
+| Feature | Where | Ultra | High | Balanced |
+|---------|-------|-------|------|----------|
+| Render scale (`<1` = supersample) | `init()` + `applyDesktopSettings()` | 0.8 | 1.0 | 1.0 |
+| Pipeline MSAA (`pipeline.samples`) | `addPostProcessing()` | 4 | 4 | 1 |
+| `bloomKernel` | `addPostProcessing()` | 160 | 128 | 96 |
+| SSR (`SSRRenderingPipeline`) | `_createScreenSpaceReflections()` | high | balanced | off |
+| Motion blur | `_createMotionBlur()` | on | off | off |
+| Contact-hardening (PCSS) shadows | `_applyShadowQuality()` | on | on | off |
+| Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
+| Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
+| SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
+| Floor `receiveShadows` | `createFloor()` | on | off | off |
 
-# Alternative: Python
-npm run serve             # Runs Python SimpleHTTPServer on port 8000
+Rules when touching this:
+- **Every new heavy effect must be feature-detected** (`if (BABYLON.X)`) and wrapped in
+  `try/catch` — there is no build step or browser test to catch a missing API.
+- **Every new pipeline must be detached in `applyVRSettings()` and re-attached in
+  `applyDesktopSettings()`**, mirroring the existing SSAO and SSR blocks. VR performance
+  is the hard constraint; nothing tier-gated may run in a headset.
+- **Every new pipeline must be disposed in `dispose()`** — post-process render targets are
+  not always reclaimed by `scene.dispose()`.
+- `applyDesktopSettings()` only runs when *exiting* VR. Anything that must be true on the
+  initial desktop load also has to be set in `init()`.
+- Dithering (`imageProcessing.ditheringEnabled`) is deliberately on. The scene is almost
+  entirely dark gradients, which band badly in 8-bit without it. Do not remove it.
 
-# Alternative: Any HTTP server
-# Simply serve the root directory on any port
-```
+## Factories
 
-**Note**: HTTPS not required for local development. Quest browser supports `http://localhost` WebXR without SSL. Access from Quest via your PC's IP address (e.g., `http://192.168.1.100:8000`).
-
-### Debugging VR Issues
-1. **Desktop preview**: Test rendering in desktop browser FIRST (faster iteration)
-2. **Quest browser console**: Use `chrome://inspect` on PC to view Quest's browser console
-3. **VR state changes**: Look for `🥽 VR mode activated` or `🖥️ Desktop mode restored` logs
-4. **Material errors**: Search console for "Too many lights" or "GL_INVALID_OPERATION"
-
-### Common Patterns
-
-**Color Caching** (avoid creating Color3 objects every frame):
-```javascript
-this.cachedColors = {
-    red: new BABYLON.Color3(1, 0, 0),
-    // Reuse these in animations instead of new Color3()
-};
-```
-
-**Post-Processing Toggle**:
-```javascript
-// Add camera to pipeline only in VR
-this.renderPipeline.addCamera(xrCamera);
-// Remove when exiting VR (happens automatically)
-```
-
-**Model Position Coordinates**:
-- DJ Booth: `z = -23` (back wall)
-- Dance Floor: `z = -12` (center)
-- Entrance: `z = 0` (front)
-- PA Speakers: `x = ±7, z = -25` (flanking DJ booth)
-
-**Camera Presets** (index.html - 6 button UI at bottom):
-```javascript
-// Camera preset system for quick navigation
-entrance: { position: [0, 1.6, 0], target: [0, 1.6, -15] }
-danceFloor: { position: [0, 1.6, -12], target: [0, 1.6, -23] }
-djBooth: { position: [0, 1.8, -18], target: [0, 1.6, -23] }
-ledWallClose: { position: [0, 3, -22], target: [0, 3, -25] }
-overview: { position: [15, 12, 5], target: [0, 2, -15] }
-ceiling: { position: [0, 7.5, -12], target: [0, 0, -12] }
-```
-
-**Pattern**: Use camera presets for testing specific areas. Desktop users click buttons; VR users navigate naturally.
-
-## Project-Specific Conventions
-
-### Material Creation Pattern
-**Never** create materials inline. Use the `MaterialFactory` for consistency and reusability:
+Do not construct materials or lights inline.
 
 ```javascript
-// ❌ Wrong
-const mat = new BABYLON.PBRMetallicRoughnessMaterial("myMat", this.scene);
-mat.baseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-mat.metallic = 0.8;
-mat.roughness = 0.3;
-mat.maxSimultaneousLights = this.maxLights;
-
-// ✅ Correct - Use preset
+// Material
 const mat = this.materialFactory.getPreset('platform');
+const custom = this.materialFactory.createPBRMaterial('customMat',
+    { baseColor: [0.5, 0.5, 0.5], metallic: 0.8, roughness: 0.3 }, /* shared */ true);
 
-// ✅ Correct - Custom material
-const mat = this.materialFactory.createPBRMaterial('customMat', {
-    baseColor: [0.5, 0.5, 0.5],
-    metallic: 0.8,
-    roughness: 0.3
-}, true); // shared=true for reuse
-```
-
-**Available Presets**: `cdjBody`, `jogWheel`, `mixer`, `table`, `platform`, `rail`, `floor`, `wall`, `ceiling`, `truss`, `brace`, `lightFixture`, `speakerBody`, `speakerGrill`, `speakerHorn`, `brick`, `pillar`, `pipe`, `laserHousing`
-
-### Light Creation Pattern
-**Never** create lights inline. Use the `LightFactory` for consistency and group management:
-
-```javascript
-// ❌ Wrong
-const light = new BABYLON.PointLight("myLight", new BABYLON.Vector3(0, 5, 0), this.scene);
-light.intensity = 1.5;
-light.diffuse = new BABYLON.Color3(1, 0, 0);
-
-// ✅ Correct - Use preset
+// Light
 const light = this.lightFactory.getPreset('djLight', 'myLight', new BABYLON.Vector3(0, 5, 0));
-
-// ✅ Correct - Custom light with grouping
-const light = this.lightFactory.createPointLight(
-    'customLight',
-    new BABYLON.Vector3(0, 5, 0),
-    { intensity: 1.5, color: [1, 0, 0], range: 20 },
-    'dj' // Add to 'dj' group for batch control
-);
+this.lightFactory.getGroup('dj').forEach(l => l.setEnabled(false));
 ```
 
-**Available Presets**: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`
+Material presets: `cdjBody`, `jogWheel`, `mixer`, `table`, `platform`, `rail`, `floor`,
+`wall`, `ceiling`, `truss`, `brace`, `lightFixture`, `speakerBody`, `speakerGrill`,
+`speakerHorn`, `brick`, `pillar`, `pipe`, `laserHousing`, and more.
 
-**Group Management**: Use `lightFactory.getGroup('groupName')` to batch-control lights:
-```javascript
-// Disable all DJ lights at once
-this.lightFactory.getGroup('dj').forEach(light => light.setEnabled(false));
+Light presets: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`.
 
-// Adjust all speaker lights intensity
-this.lightFactory.getGroup('speakers').forEach(light => light.intensity *= 0.5);
-```
+Shared materials are keyed by `MaterialFactory._cacheKey()`, which normalises arrays and
+`Color3`s so equivalent configs collide correctly. Materials carrying a texture are never
+shared.
 
-### Texture Pooling Pattern
-TextureLoader now pools textures by URL + scale to prevent duplicate downloads:
+## Assets
 
-```javascript
-// Reusing textures with same URL/scale returns cached instance
-const tex1 = await this.textureLoader.loadTexture('brick_diff', { u: 2, v: 2 });
-const tex2 = await this.textureLoader.loadTexture('brick_diff', { u: 2, v: 2 }); // Same instance!
+- **Textures**: local `./textures/{floor,walls,ceiling}/{diff,normal,roughness,ao}.jpg`
+  (originally sourced from Polyhaven). Not fetched from a CDN.
+- **Models**: local `./js/models/` — `djgear/source/pioneer_DJ_console.glb`,
+  `paspeakers/source/stage_speaker___black.glb`.
+- `ModelLoader` has **no** instancing API. `createInstance()` / `disposeInstance()` do not
+  exist; both PA speakers are separate loads that share one cached download.
+- `TextureLoader` pools textures by `${url}_${scale.u}_${scale.v}`. `releaseTexture(texture)`
+  takes the texture instance, not a URL.
 
-// Different scale = different pool entry
-const tex3 = await this.textureLoader.loadTexture('brick_diff', { u: 4, v: 4 }); // New instance
+### Layout coordinates (`CLUB_POSITIONS` in `club_hyperrealistic.js`)
+- DJ booth: `{ x: 0, y: 0.95, z: -18 }`
+- Dance floor centre: around `z = -12`
+- Entrance: `z = 0`
+- PA speakers: hung from the ceiling at `x = ±6, y = 6.5, z = -19`
 
-// Release when material is disposed
-this.textureLoader.releaseTexture(tex1); // Decrements usage count
-```
+Treat `CLUB_POSITIONS` and `ROOM_BOUNDS` as the source of truth; do not re-derive
+coordinates from documentation.
 
-**Pattern**: Pool key = `${url}_${scale.u}_${scale.v}`. Textures track usage count and auto-dispose when count reaches 0. Use `clearTexturePool()` to manually flush cache.
+## Mesh naming
 
-### Configuration-Driven Settings
-**Never** hardcode rendering values inline. Use the `vrSettings` object:
-```javascript
-// ❌ Wrong
-this.renderPipeline.bloomWeight = 0.15;
+Procedural meshes are found by name for cleanup, so names are load-bearing:
+`leftCDJ`, `rightCDJ`, `mixer`, `sub-7`/`subGrill-7`/`mid-7` (left stack),
+`sub7`/`subGrill7`/`mid7` (right stack), `speakerLED-7`, `ledLight-7`.
 
-// ✅ Correct
-const vr = this.vrSettings.vr;
-this.renderPipeline.bloomWeight = vr.bloomWeight;
-```
+When a real `.glb` loads, hide the conflicting procedural geometry with `setEnabled(false)`
+to avoid z-fighting.
 
-### Mesh Naming Convention
-Procedural meshes use predictable names for cleanup:
-- `leftCDJ`, `rightCDJ`, `mixer` (DJ gear)
-- `sub-7`, `subGrill-7`, `mid-7` (left PA speaker stack)
-- `sub7`, `subGrill7`, `mid7` (right PA speaker stack)
-- `speakerLED-7`, `ledLight-7` (speaker indicators)
+## Audio
 
-**Pattern**: When adding procedural geometry, suffix with position (e.g., `horn7` for right side).
+`<audio crossOrigin="anonymous">` → `MediaElementSource` → `AnalyserNode(fftSize=256)` →
+`DynamicsCompressor` → `GainNode` → destination.
 
-### IndexedDB Schema
-**Texture cache**: `VRClubTextureCache` database, `textures` store, key: `url`  
-**Model cache**: `VRClubModelCache` database, `models` store, key: `url`
+- Bass (0–85 Hz) drives the mirror ball, mids (85–255 Hz) the lasers, highs the LED patterns.
+- URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only
+  when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
+- A stream served without `Access-Control-Allow-Origin` produces an all-zero analyser.
+  `getAudioData()` detects this and surfaces a toast rather than failing silently.
 
-Both store blobs/ArrayBuffers with timestamp. Clear with `cache.clearCache()` if corrupted.
+## Persistence
 
-### VJ Control System
-**Interactive 3D UI** (club_hyperrealistic.js lines 1000-1200):
-VJ controls are 3D meshes in-scene (not HTML overlays) that respond to pointer/gaze interactions:
+| Store | Key |
+|-------|-----|
+| IndexedDB `VRClubTextureCache` / `textures` | asset URL |
+| IndexedDB `VRClubModelCache` / `models` | asset URL |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier` |
 
-```javascript
-// VJ control buttons track state changes
-this.vjControlButtons = []; // Populated during createDJBooth()
-this.lightsActive = true;   // Main lighting toggle
-this.lasersActive = false;  // Laser system toggle
-this.ledWallActive = true;  // LED wall toggle
-this.strobesActive = true;  // Strobe toggle
-this.mirrorBallActive = false; // Mirror ball effect (disables all other lights)
-this.spotlightMode = 0;     // 0=strobe+sweep, 1=sweep, 2=static+strobe, 3=static
-```
+## Debugging
 
-**Pattern**: VJ interactions pause automated patterns. When user toggles lights, set `this.vjManualControl = true` to prevent auto-cycling. Buttons use action managers with `ExecuteCodeAction` on `ActionManager.OnPickTrigger`.
+1. Reproduce on desktop first — iteration is far faster than deploying to the headset.
+2. Inspect the Quest browser via `chrome://inspect` from a PC.
+3. Look for `🥽 VR mode activated` / `🖥️ Desktop mode restored`.
+4. `Too many lights` or `GL_INVALID_OPERATION` means a material exceeded `maxLights`.
+5. `DEBUG_MODE` / `*_DEBUG` constants must be left `false` on commit — `npm test` enforces it.
 
-**Mirror Ball Effect**: When `mirrorBallActive = true`, all other lights (spots, lasers, LED wall) turn OFF. A single spotlight aims at a rotating 1.2m mirror ball suspended from center truss (0, 6.5, -12). 24 reflection spots simulate light reflections moving around the room. Classic disco effect with dramatic lighting.
+## Licensing
 
-### Audio Streaming System
-**Web Audio API integration** (club_hyperrealistic.js lines 3550-3700):
-```javascript
-// Audio context initialized on first user interaction
-this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-this.audioAnalyser = this.audioContext.createAnalyser();
-this.audioAnalyser.fftSize = 256; // Frequency bins for analysis
+Loaded 3D models are **CC BY 4.0**; attribution must remain visible in `#modelCredits`.
 
-// Connect HTML5 audio → analyser → destination
-const source = this.audioContext.createMediaElementSource(audioElement);
-source.connect(this.audioAnalyser);
-this.audioAnalyser.connect(this.audioContext.destination);
-```
+## Known technical debt
 
-**Pattern**: Audio reactivity uses `getByteFrequencyData()` to drive light intensity. Bass (0-85Hz) affects disco ball, mids (85-255Hz) modulate lasers, highs (255Hz+) trigger LED patterns. Always check `audioContext.state === 'running'` before analyzing.
-
-## Integration Points
-
-### Babylon.js CDN Dependencies (index.html)
-```html
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
-<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-```
-
-**Order matters**: Core → Procedural Textures → Loaders → App scripts.
-
-### External CDNs
-- **Polyhaven textures**: `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/`
-- **3D Models**: Local `./js/models/` directory (committed to repo)
-
-### License Attribution
-All loaded 3D models are **CC BY 4.0** licensed. Attribution MUST appear in UI:
-- Pioneer DJ Console by TwoPixels.studio (Sketchfab)
-- PA Speakers (CC BY 4.0)
-
-**Location**: `#modelCredits` div in index.html (bottom-left corner).
-
-## Common Pitfalls
-
-❌ **Don't** create new Color3 objects in render loops (causes GC pressure)  
-✅ **Do** reuse `this.cachedColors`
-
-❌ **Don't** exceed light count limits (causes GL errors)  
-✅ **Do** set `maxSimultaneousLights` on all materials
-
-❌ **Don't** leave transparency settings on VR materials  
-✅ **Do** enforce `alpha=1.0`, `transparencyMode=null`
-
-❌ **Don't** forget to hide procedural meshes when real models load  
-✅ **Do** call `setEnabled(false)` on conflicting geometry
-
-❌ **Don't** modify `vrSettings` directly during runtime  
-✅ **Do** update config object and call `applyVRSettings()` or `applyDesktopSettings()`
-
-### Geometry Instancing Pattern
-ModelLoader supports geometry instancing for repeated model placements:
-
-```javascript
-// Load base model once
-await this.modelLoader.loadModel('dj_console', this.scene, null, this.maxLights);
-
-// Create instances for multiple locations
-const instance1 = this.modelLoader.createInstance('dj_console', 'console_left', 
-    { position: [-5, 0, -23], rotation: [0, 0, 0], scale: [1, 1, 1] });
-const instance2 = this.modelLoader.createInstance('dj_console', 'console_right',
-    { position: [5, 0, -23], rotation: [0, Math.PI, 0], scale: [1, 1, 1] });
-
-// Dispose instances individually
-this.modelLoader.disposeInstance('console_left');
-
-// Or dispose all instances of a model
-this.modelLoader.disposeAllInstances('dj_console');
-```
-
-**Pattern**: Instances share geometry/materials (memory efficient) but have unique transforms. Use for repeated objects like speakers, lights, or decorative elements.
-
-### Using Modular Lighting Systems (NEW)
-When `useModularSystems = true`, access lighting via `this.systems`:
-
-```javascript
-// Laser system
-this.systems.laser.setActive(true);
-this.systems.laser.nextColor(); // Cycle RGB
-this.systems.laser.setSpeed(1.5);
-
-// Spotlight system  
-this.systems.spotlight.setMode(1); // 0=sweep, 1=static, 2=strobe
-this.systems.spotlight.nextMode();
-
-// Mirror ball system
-this.systems.mirrorBall.setActive(true);
-this.systems.mirrorBall.nextColor();
-
-// LED wall system
-this.systems.ledWall.setPattern('rainbow'); // bassExplosion, vuMeter, equalizer, beatGrid, rainbow, strobe, colorWash, matrix
-this.systems.ledWall.nextPattern();
-
-// VJ controller (coordinates all systems)
-this.systems.vjControl.applyPreset('disco'); // clubbing, disco, rave, chill, blackout
-this.systems.vjControl.toggleEffect('lasers');
-this.systems.vjControl.setMasterIntensity(0.8);
-```
-
-**Pattern**: Each system has `createX()`, `update(time, audioData)`, `setActive(bool)`, and effect-specific methods. VJControlSystem coordinates all systems and handles presets.
-
-## Documentation Reference
-
-- **MODULAR_LIGHTING_ARCHITECTURE_2025-01-17.md** - Complete modular system documentation (NEW)
-- **OPTIMIZATION_SUMMARY.md** - Performance metrics, scene statistics
-- **CLEANUP_OPTIMIZATION_2025-10-08.md** - VR settings refactoring details
-- **REFACTORING_2025-10-17.md** - Factory pattern optimizations, texture pooling, geometry instancing
-- **POST_PROCESSING_HAZE_FIX_2025-10-17.md** - Bloom/grain/chromatic aberration removal for crisp rendering
-- **MIRROR_BALL_FEATURE_2025-10-17.md** - Disco ball with spotlight and reflection effects
-- **ANTI_ALIASING_FIX.md** - FXAA configuration for VR
-- **PA_SPEAKER_TRANSPARENCY_FIX.md** - Opacity enforcement patterns
-- **MODEL_INTEGRATION_COMPLETE.md** - 3D model loading architecture
-- **TEXTURE_SYSTEM.md** - Polyhaven texture pipeline
-
-These docs contain specific line numbers, before/after code examples, and troubleshooting steps for common issues.
+See `BACKLOG.md`. The largest items are the size of `club_hyperrealistic.js`, the
+~2,600-line `updateAnimations()` method, the absence of a module system/bundler, and the
+absence of any runtime (as opposed to contract) tests.

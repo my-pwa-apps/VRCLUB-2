@@ -1,7 +1,32 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+
+    <!-- Content Security Policy.
+         There are no inline <script> blocks and no on* handlers in this document, so
+         script-src stays strict (no 'unsafe-inline', no 'unsafe-eval'). Styles do use
+         inline style="" attributes, hence 'unsafe-inline' for style-src only.
+         media-src is deliberately open to https:/blob: because the whole point of the
+         app is that the user pastes an arbitrary internet radio URL or drops a local file.
+
+         frame-ancestors is NOT listed here: browsers ignore it when delivered via <meta>
+         and log a console error for it. It is sent as a real HTTP header by
+         scripts/serve.mjs instead, alongside X-Frame-Options. -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        base-uri 'none';
+        object-src 'none';
+        form-action 'none';
+        script-src 'self' https://cdn.babylonjs.com;
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data: blob: https://assets.babylonjs.com;
+        font-src 'self' data:;
+        media-src 'self' blob: https: http:;
+        connect-src 'self' blob: data: https://cdn.babylonjs.com https://assets.babylonjs.com https://immersive-web.github.io;
+        worker-src 'self' blob:;
+    ">
+    <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="Immersive VR nightclub for Meta Quest 3S with professional lighting, DJ booth, and audio-reactive visuals">
     <meta name="theme-color" content="#000000">
@@ -18,7 +43,7 @@
     <title>VR Club - Virtual Nightclub Experience</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css?v=20260424-qc2">
+    <link rel="stylesheet" href="css/styles.css?v=20260424-gfx3">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -50,7 +75,7 @@
     <canvas id="canvas" class="hidden"></canvas>
     
     <!-- VJ Toggle Button -->
-    <button id="vjToggle" title="VJ Controls">🎛️</button>
+    <button id="vjToggle" type="button" title="VJ Controls" aria-label="Open VJ controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span></button>
     
     <!-- VJ Control Menu -->
     <div id="vjMenu" class="hidden">
@@ -60,8 +85,8 @@
                 <span>VJ Controls</span>
             </div>
             <div class="vj-controls">
-                <button class="vj-btn-icon" id="vjMinimize" title="Minimize">−</button>
-                <button class="vj-btn-icon" id="vjClose" title="Close">×</button>
+                <button class="vj-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel"><span aria-hidden="true">−</span></button>
+                <button class="vj-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
         
@@ -121,6 +146,12 @@
                 <button class="vj-button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
             </div>
 
+            <!-- Graphics Quality -->
+            <div class="vj-section">
+                <div class="vj-section-title">🎨 Graphics Quality</div>
+                <button class="vj-button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
+            </div>
+
             <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
             <div class="vj-section">
                 <div class="vj-section-title">🎬 Live Macros</div>
@@ -155,7 +186,7 @@
     </div>
     
     <!-- Settings Toggle Button -->
-    <button id="settingsToggle" title="Settings">⚙️</button>
+    <button id="settingsToggle" type="button" title="Settings" aria-label="Open settings" aria-expanded="false"><span aria-hidden="true">⚙️</span></button>
     
     <!-- Settings Panel (hidden by default) -->
     <div id="settingsPanel">
@@ -170,7 +201,7 @@
     </div>
     
     <!-- Audio Toggle Button -->
-    <button id="audioToggle" title="Audio Stream">🎵</button>
+    <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span></button>
     
     <!-- Audio Upload Menu -->
     <div id="audioMenu" class="hidden">
@@ -180,8 +211,8 @@
                 <span>Audio Stream</span>
             </div>
             <div class="audio-controls">
-                <button class="audio-btn-icon" id="audioMinimize" title="Minimize">−</button>
-                <button class="audio-btn-icon" id="audioClose" title="Close">×</button>
+                <button class="audio-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel"><span aria-hidden="true">−</span></button>
+                <button class="audio-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
         
@@ -254,25 +285,29 @@
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
     <script src="https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js" integrity="sha384-08lzOJD9h7SvlsNvZVYdhN6WvmK1TgUQOGcWdpCIBM86wOvyGJo7vy8PJiJcRs7e" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     
+    <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
+         MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
+    <script src="js/assetCache.js?v=20260424-gfx3"></script>
+
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260424-qc2"></script>
+    <script src="js/textureLoader.js?v=20260424-gfx3"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260424-qc2"></script>
+    <script src="js/modelLoader.js?v=20260424-gfx3"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260424-qc2"></script>
+    <script src="js/materialFactory.js?v=20260424-gfx3"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260424-qc2"></script>
+    <script src="js/lightFactory.js?v=20260424-gfx3"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260424-qc2"></script>
+    <script src="js/vjDirector.js?v=20260424-gfx3"></script>
     
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260424-qc2"></script>
+    <script src="js/club_hyperrealistic.js?v=20260424-gfx3"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260424-qc2"></script>
+    <script src="js/ui-init.js?v=20260424-gfx3"></script>
 </body>
 </html>

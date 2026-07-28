@@ -65,40 +65,25 @@ const uiLog = {
 // SPLASH SCREEN HANDLER
 // =============================================================================
 
+// Multiplayer was removed from this project; the #enableMultiplayer / #roomCodeGroup /
+// #roomCode elements no longer exist in index.html, so all the wiring that referenced
+// them was permanently inert. Removed rather than left as misleading dead code.
 let splashConfig = {
-    username: 'Guest',
-    enableMultiplayer: false,
-    roomCode: null
+    username: 'Guest'
 };
 
 const splashScreen = document.getElementById('splashScreen');
 const enterClubBtn = document.getElementById('enterClubBtn');
-const enableMultiplayer = document.getElementById('enableMultiplayer');
-const roomCodeGroup = document.getElementById('roomCodeGroup');
 const splashLoading = document.getElementById('splashLoading');
 const canvas = document.getElementById('canvas');
-
-// Show/hide room code input (DISABLED - multiplayer UI is commented out)
-if (enableMultiplayer && roomCodeGroup) {
-    enableMultiplayer.addEventListener('change', function() {
-        if (this.checked) {
-            roomCodeGroup.style.display = 'block';
-        } else {
-            roomCodeGroup.style.display = 'none';
-        }
-    });
-}
 
 // Enter Club Button
 if (enterClubBtn) {
     enterClubBtn.addEventListener('click', function() {
         // Get user configuration
         const usernameInput = document.getElementById('splashUsername');
-        const roomCodeInput = document.getElementById('roomCode');
         
-        splashConfig.username = usernameInput.value.trim() || 'Guest';
-        splashConfig.enableMultiplayer = enableMultiplayer ? enableMultiplayer.checked : false;
-        splashConfig.roomCode = roomCodeInput ? roomCodeInput.value.trim() : null;
+        splashConfig.username = (usernameInput && usernameInput.value.trim()) || 'Guest';
         
         // Show loading state
         enterClubBtn.style.display = 'none';
@@ -198,6 +183,14 @@ function initVJMenu() {
     
     // Handle VJ control buttons
     const vjButtons = document.querySelectorAll('.vj-button[data-control]');
+
+    // Show the auto-detected graphics tier on the quality button so the label never
+    // reads "AUTO" once we actually know what was picked.
+    const qualityButton = document.querySelector('.vj-button[data-control="cycleGraphicsQuality"]');
+    if (qualityButton && vrClubInstance.graphicsTier) {
+        qualityButton.textContent = `QUALITY: ${vrClubInstance.graphicsTier.toUpperCase()}`;
+    }
+
     vjButtons.forEach(button => {
         button.addEventListener('click', () => {
             const control = button.getAttribute('data-control');
@@ -237,6 +230,15 @@ function initVJMenu() {
                     button.style.transform = '';
                 }, 400);
                 
+            } else if (control === 'cycleGraphicsQuality') {
+                // Cycle render quality. Auto-detection is conservative, so this lets a
+                // user on a strong GPU opt into ULTRA (SSR + PCSS + supersampling) or
+                // drop to BALANCED if their frame rate is suffering.
+                const tiers = ['balanced', 'high', 'ultra'];
+                const next = tiers[(tiers.indexOf(vrClubInstance.graphicsTier) + 1) % tiers.length];
+                vrClubInstance.setGraphicsTier(next);
+                button.textContent = `QUALITY: ${next.toUpperCase()}`;
+
             } else if (control === 'changeMirrorBallColor') {
                 // Change mirror ball color with ENHANCED visual feedback
                 vrClubInstance.mirrorBallColorIndex = (vrClubInstance.mirrorBallColorIndex + 1) % vrClubInstance.mirrorBallColors.length;
@@ -459,6 +461,7 @@ function initVJMenu() {
     if (bpmReadout) {
         if (window.__vjBpmInterval) clearInterval(window.__vjBpmInterval);
         window.__vjBpmInterval = setInterval(() => {
+            if (document.hidden) return;
             const d = vjDir();
             if (d) bpmReadout.textContent = d.bpm.toFixed(0);
         }, 1000);
@@ -523,25 +526,58 @@ function initVJMenu() {
         }
     }
     
-    // Update button states every 2 seconds (reduced frequency for VR performance)
-    // Stored on window so a future destroy() can cancel it.
+    // Update button states every 2 seconds (reduced frequency for VR performance).
+    // The interval and the XR observers are all registered with window.__vjUiTeardown
+    // so they can actually be released - previously they ran forever, kept the whole
+    // VRClub instance reachable, and continued polling while the tab was hidden.
     if (window.__vjButtonStateInterval) clearInterval(window.__vjButtonStateInterval);
-    window.__vjButtonStateInterval = setInterval(updateButtonStates, 2000);
+    window.__vjButtonStateInterval = setInterval(() => {
+        if (document.hidden) return; // don't poll a backgrounded tab
+        updateButtonStates();
+    }, 2000);
+
+    const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
+    teardowns.push(() => {
+        clearInterval(window.__vjButtonStateInterval);
+        window.__vjButtonStateInterval = null;
+        clearInterval(window.__vjBpmInterval);
+        window.__vjBpmInterval = null;
+    });
     
     // Hide VJ menu in VR mode (wait for scene to be ready)
     if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
-        vrClubInstance.scene.onXRSessionInit.add(() => {
+        const scene = vrClubInstance.scene;
+        const onInit = scene.onXRSessionInit.add(() => {
             vjMenu.classList.add('hidden');
             vjToggle.style.display = 'none';
         });
         
-        vrClubInstance.scene.onXRSessionEnded.add(() => {
+        const onEnded = scene.onXRSessionEnded.add(() => {
             vjToggle.style.display = 'block';
+        });
+
+        teardowns.push(() => {
+            scene.onXRSessionInit.remove(onInit);
+            scene.onXRSessionEnded.remove(onEnded);
         });
     }
     
     uiLog.info('VJ desktop menu initialized');
 }
+
+/**
+ * Release every timer and observer registered by the UI layer.
+ * Called from VRClub.dispose() and on pagehide.
+ */
+function teardownVJUI() {
+    const teardowns = window.__vjUiTeardown || [];
+    for (const fn of teardowns) {
+        try { fn(); } catch (err) { uiLog.warn('VJ UI teardown step failed:', err); }
+    }
+    window.__vjUiTeardown = [];
+}
+window.teardownVJUI = teardownVJUI;
+window.addEventListener('pagehide', teardownVJUI);
 
 // =============================================================================
 // AUDIO MENU

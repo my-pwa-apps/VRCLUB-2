@@ -265,6 +265,11 @@ class LightFactory {
     disposeLight(name) {
         const light = this.lights.get(name);
         if (light) {
+            // A ShadowGenerator owns a RenderTargetTexture and is NOT disposed by
+            // light.dispose(); leaking it keeps a full shadow map alive on the GPU.
+            if (light.getShadowGenerator && light.getShadowGenerator()) {
+                light.getShadowGenerator().dispose();
+            }
             light.dispose();
             this.lights.delete(name);
             
@@ -297,7 +302,12 @@ class LightFactory {
      * Dispose all lights
      */
     disposeAll() {
-        this.lights.forEach(light => light.dispose());
+        this.lights.forEach(light => {
+            if (light.getShadowGenerator && light.getShadowGenerator()) {
+                light.getShadowGenerator().dispose();
+            }
+            light.dispose();
+        });
         this.lights.clear();
         this.lightGroups.clear();
     }

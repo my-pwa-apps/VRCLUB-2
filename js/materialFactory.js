@@ -12,6 +12,34 @@ class MaterialFactory {
     }
 
     /**
+     * Build a deterministic cache key from a material config.
+     *
+     * JSON.stringify() was used here previously, which produced different keys for
+     * values that are semantically identical: a colour passed as [1, 0, 0] and the
+     * same colour passed as a BABYLON.Color3 serialise as `[1,0,0]` vs
+     * `{"r":1,"g":0,"b":0}`. That caused silent cache misses and duplicate GPU
+     * materials. Key order was also dependent on the destructuring order.
+     *
+     * @param {string} kind Material class discriminator
+     * @param {Object} config Plain config object
+     * @returns {string} Stable key
+     */
+    _cacheKey(kind, config) {
+        const norm = (v) => {
+            if (v === null || v === undefined) return '~';
+            if (Array.isArray(v)) return `[${v.map(norm).join(',')}]`;
+            if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(4);
+            if (typeof v !== 'object') return String(v);
+            // BABYLON.Color3 / Color4 and nested option objects (clearCoat, sheen)
+            if (typeof v.r === 'number' && typeof v.g === 'number' && typeof v.b === 'number') {
+                return `[${norm(v.r)},${norm(v.g)},${norm(v.b)}${typeof v.a === 'number' ? ',' + norm(v.a) : ''}]`;
+            }
+            return `{${Object.keys(v).sort().map(k => `${k}:${norm(v[k])}`).join(',')}}`;
+        };
+        return `${kind}|${Object.keys(config).sort().map(k => `${k}:${norm(config[k])}`).join('|')}`;
+    }
+
+    /**
      * Create or reuse a PBR metallic roughness material
      * @param {string} name - Material name
      * @param {Object} config - Material configuration
@@ -33,11 +61,18 @@ class MaterialFactory {
             opacityTexture = null
         } = config;
 
-        // Generate cache key for shared materials (includes all config to prevent collisions)
-        const cacheKey = shared ? JSON.stringify({baseColor, metallic, roughness, emissiveColor, alpha, transparencyMode, backFaceCulling, disableLighting, unlit}) : null;
+        // Generate cache key for shared materials (includes all config to prevent collisions).
+        // Textures are NOT part of the key and cannot be reliably compared, so a material
+        // carrying one is never shared - otherwise two fixtures with identical colours but
+        // different emissive maps would silently receive the same material.
+        const shareable = shared && !emissiveTexture && !opacityTexture;
+        const cacheKey = shareable ? this._cacheKey('pbrmr', {
+            baseColor, metallic, roughness, emissiveColor, emissiveIntensity,
+            alpha, transparencyMode, backFaceCulling, disableLighting, unlit
+        }) : null;
         
         // Return cached material if available
-        if (shared && cacheKey && this.sharedMaterials[cacheKey]) {
+        if (cacheKey && this.sharedMaterials[cacheKey]) {
             return this.sharedMaterials[cacheKey];
         }
 
@@ -77,7 +112,7 @@ class MaterialFactory {
         if (opacityTexture) mat.opacityTexture = opacityTexture;
 
         // Cache if shared
-        if (shared && cacheKey) {
+        if (cacheKey) {
             this.sharedMaterials[cacheKey] = mat;
         }
 
@@ -132,6 +167,17 @@ class MaterialFactory {
 
         if (disableLighting) {
             mat.disableLighting = true;
+
+            // An unlit material is a pure emitter (LED panels, strobes, laser beams,
+            // signage). A specular highlight on it is physically meaningless, but
+            // StandardMaterial defaults specularColor to white - and the SSR pre-pass
+            // reads specularColor as reflectivity. Left at the default, every emissive
+            // surface is treated as a mirror and gets its colour replaced by a
+            // screen-space reflection that resolves to near-black, which blanks the LED
+            // wall and leaves only the bloom halo around each panel's edge.
+            if (!specularColor) {
+                mat.specularColor = new BABYLON.Color3(0, 0, 0);
+            }
         }
 
         if (alpha < 1.0) {
@@ -178,10 +224,14 @@ class MaterialFactory {
         } = config;
 
         // Generate cache key for shared materials
-        const cacheKey = shared ? JSON.stringify({albedoColor, metallic, roughness, emissiveColor, alpha, clearCoat, sheen}) : null;
+        const cacheKey = shared ? this._cacheKey('pbr', {
+            albedoColor, metallic, roughness, emissiveColor, emissiveIntensity, alpha,
+            backFaceCulling, clearCoat, sheen, environmentIntensity, directIntensity,
+            specularIntensity
+        }) : null;
 
         // Return cached material if available
-        if (shared && cacheKey && this.sharedMaterials[cacheKey]) {
+        if (cacheKey && this.sharedMaterials[cacheKey]) {
             return this.sharedMaterials[cacheKey];
         }
 
@@ -228,7 +278,7 @@ class MaterialFactory {
         if (specularIntensity !== null) mat.specularIntensity = specularIntensity;
 
         // Cache if shared
-        if (shared && cacheKey) {
+        if (cacheKey) {
             this.sharedMaterials[cacheKey] = mat;
         }
 
@@ -530,3 +580,7 @@ class MaterialFactory {
         this.sharedMaterials = {};
     }
 }
+
+// Export for use in main club script (classic script, no module system).
+// Kept consistent with textureLoader.js / modelLoader.js / lightFactory.js.
+window.MaterialFactory = MaterialFactory;

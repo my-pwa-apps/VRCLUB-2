@@ -47,6 +47,68 @@ class VRClub {
         
         // PERFORMANCE: Enable hardware scaling mode (renders at lower resolution, scales up)
         this.engine.setHardwareScalingLevel(1.0); // 1.0 = native, increase for lower res
+
+        // === GRAPHICS QUALITY TIER ===
+        // Hyperrealistic effects (SSR, contact-hardening shadows, supersampling, motion
+        // blur) are expensive and scale badly on weak GPUs. Rather than shipping one
+        // setting that is either too heavy for laptops or too timid for a desktop GPU,
+        // the renderer picks a tier and every heavy effect is gated behind it.
+        // A user override persists so the choice survives a reload.
+        this.graphicsTier = this.detectGraphicsTier();
+        log.info(`🎨 Graphics tier: ${this.graphicsTier}`);
+
+        // Per-tier switches. Nothing here applies in VR — headsets always use the
+        // conservative VR path regardless of tier (see applyVRSettings).
+        this.qualityTiers = {
+            ultra: {
+                renderScale: 0.8,          // <1.0 = supersample, then downsample (huge sharpness win)
+                pipelineSamples: 4,        // MSAA on the pipeline render target
+                bloomKernel: 160,
+                ssr: true,
+                ssrQuality: 'high',
+                motionBlur: true,
+                motionBlurSamples: 24,
+                contactHardeningShadows: true,
+                shadowQuality: 'high',
+                anisotropy: 16,
+                probeResolution: 512,
+                ssaoSamples: 24,
+                ssaoExpensiveBlur: true,
+                floorShadows: true
+            },
+            high: {
+                renderScale: 1.0,
+                pipelineSamples: 4,
+                bloomKernel: 128,
+                ssr: true,
+                ssrQuality: 'balanced',
+                motionBlur: false,
+                motionBlurSamples: 16,
+                contactHardeningShadows: true,
+                shadowQuality: 'medium',
+                anisotropy: 8,
+                probeResolution: 256,
+                ssaoSamples: 16,
+                ssaoExpensiveBlur: true,
+                floorShadows: false
+            },
+            balanced: {
+                renderScale: 1.0,
+                pipelineSamples: 1,
+                bloomKernel: 96,
+                ssr: false,
+                ssrQuality: 'balanced',
+                motionBlur: false,
+                motionBlurSamples: 8,
+                contactHardeningShadows: false,
+                shadowQuality: 'low',
+                anisotropy: 4,
+                probeResolution: 128,
+                ssaoSamples: 8,
+                ssaoExpensiveBlur: false,
+                floorShadows: false
+            }
+        };
         
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
@@ -91,6 +153,10 @@ class VRClub {
         // CRITICAL: Track VR mode to disable frame-skip optimizations
         // Frame-skipping causes different states per eye = epileptic effect
         this.isInVRMode = false;
+
+        // Tier-owned post-process pipelines (created in addPostProcessing()).
+        this.ssrPipeline = null;
+        this.motionBlur = null;
         
         // Detect device capabilities for optimal light count
         this.maxLights = this.detectMaxLights();
@@ -328,7 +394,41 @@ class VRClub {
         this.useModularSystems = false;
         this.systems = {};
 
-        this.init();
+        // `init()` is async. Previously its promise was dropped on the floor, so
+        // ANY failure (WebGL init, IndexedDB blocked in private mode, a CDN 404,
+        // a typo in a create* method) produced nothing but an unhandled rejection
+        // in the console while the splash spinner span forever. Surface it.
+        this.ready = false;
+        this.initPromise = this.init().catch((err) => {
+            log.error('❌ VRClub initialisation failed:', err);
+            this._handleFatalInitError(err);
+            throw err;
+        });
+    }
+
+    /**
+     * Last-resort UI for an unrecoverable startup failure. Without this the user
+     * is left looking at an infinite "Loading club experience…" spinner.
+     */
+    _handleFatalInitError(err) {
+        try {
+            const loading = document.getElementById('splashLoading');
+            if (loading) loading.classList.remove('visible');
+            const splash = document.getElementById('splashScreen');
+            if (splash) {
+                splash.classList.remove('hidden');
+                splash.style.display = '';
+            }
+            const btn = document.getElementById('enterClubBtn');
+            if (btn) {
+                btn.style.display = '';
+                btn.textContent = '↻ RETRY';
+            }
+        } catch (_) { /* DOM may not exist in a test harness */ }
+        this.showErrorMessage(
+            'The club failed to load: ' + (err && err.message ? err.message : 'unknown error') +
+            '. Check your connection and try again.'
+        );
     }
 
     applyVRSettings(xrCamera) {
@@ -386,6 +486,24 @@ class VRClub {
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", this.camera);
             // Also detach XR camera just in case
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
+        }
+
+        // Screen-space reflections are far too expensive for a standalone headset:
+        // the pre-pass renderer plus ray marching runs per eye, so the cost roughly
+        // doubles exactly where the frame budget is tightest.
+        if (this.ssrPipeline) {
+            this.ssrPipeline.isEnabled = false;
+            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssr", this.camera);
+            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssr", xrCamera);
+            log.info('⚡ Screen-space reflections disabled for VR');
+        }
+
+        // Motion blur in a headset is actively unpleasant - the blur is keyed to head
+        // motion, so every glance smears the whole world and induces sim sickness.
+        if (this.motionBlur) {
+            this.motionBlur.dispose();
+            this.motionBlur = null;
+            log.info('⚡ Motion blur disabled for VR');
         }
         
         // #5 OPTIMIZED: Use native resolution for VR (let XR layer handle scaling)
@@ -468,10 +586,21 @@ class VRClub {
             if (light.getShadowGenerator) {
                 const shadowGen = light.getShadowGenerator();
                 if (shadowGen) {
+                    // Contact hardening (PCSS) takes many taps per pixel per eye - the
+                    // one shadow feature a standalone headset genuinely cannot afford.
+                    if ('useContactHardeningShadow' in shadowGen) shadowGen.useContactHardeningShadow = false;
                     shadowGen.usePercentageCloserFiltering = false;
                     shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_LOW;
                 }
             }
+        });
+
+        // Drop anisotropy for VR. 4x still keeps the floor readable into the distance
+        // but costs a fraction of 16x across two eyes.
+        const vrAniso = Math.min(4, this.engine.getCaps().maxAnisotropy || 1);
+        this.scene.textures.forEach(tex => {
+            if (!tex || tex.isCube || tex.isRenderTarget) return;
+            if (tex.anisotropicFilteringLevel > vrAniso) tex.anisotropicFilteringLevel = vrAniso;
         });
         
         // #8 OPTIMIZED: Reduce particle systems for VR performance
@@ -576,9 +705,21 @@ class VRClub {
         if (this.ssaoPipeline) {
             this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", this.camera);
         }
+
+        // Restore the heavy desktop-only realism effects.
+        if (this.ssrPipeline) {
+            this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssr", this.camera);
+            this.ssrPipeline.isEnabled = true;
+        } else {
+            this._createScreenSpaceReflections();
+        }
+        this._createMotionBlur();
         
-        // Restore hardware scaling to native resolution
-        this.engine.setHardwareScalingLevel(1.0);
+        // Restore render scale. Below 1.0 this SUPERSAMPLES: the scene renders above
+        // native resolution and is downsampled on present, which removes shader aliasing
+        // that no post-process AA can reach - specular glints on the trusses, the LED
+        // wall pixel grid, and the hard edges of every light beam.
+        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
         
         // Restore glow layer for desktop
         if (this.glowLayer) {
@@ -598,16 +739,11 @@ class VRClub {
             if (mat.unfreeze) mat.unfreeze();
         });
         
-        // Restore shadow quality for desktop
-        this.scene.lights.forEach(light => {
-            if (light.getShadowGenerator) {
-                const shadowGen = light.getShadowGenerator();
-                if (shadowGen) {
-                    shadowGen.usePercentageCloserFiltering = true;
-                    shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
-                }
-            }
-        });
+        // Restore shadow quality for desktop (contact-hardening on capable tiers)
+        this._applyShadowQuality();
+
+        // Textures may have been downgraded for VR - restore full anisotropy.
+        this._applyAnisotropicFiltering();
         
         // Restore particle system emit rates for desktop
         if (this.floorFog) {
@@ -621,6 +757,102 @@ class VRClub {
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
         this.scene.fogDensity = desktop.fogDensity;
         log.info('🌫️ Restored scene fog and particle rates for desktop');
+    }
+
+    /**
+     * Pick a graphics quality tier for the current device.
+     *
+     * The heavy hyperrealism effects (screen-space reflections, contact-hardening
+     * shadows, supersampling, motion blur) can easily cost more than the entire rest
+     * of the frame on an integrated GPU, so they are gated behind this tier rather
+     * than shipped unconditionally.
+     *
+     * Detection is deliberately conservative: anything we cannot positively identify
+     * as a discrete desktop GPU falls back to 'high', and mobile/XR falls to 'balanced'.
+     * A stored user override always wins.
+     *
+     * @returns {'ultra'|'high'|'balanced'}
+     */
+    detectGraphicsTier() {
+        // 1. Explicit user override wins over any heuristic.
+        try {
+            const stored = localStorage.getItem('vrclub.graphicsTier');
+            if (stored === 'ultra' || stored === 'high' || stored === 'balanced') {
+                log.info(`🎨 Using stored graphics tier override: ${stored}`);
+                return stored;
+            }
+        } catch (_) { /* private browsing - fall through to detection */ }
+
+        const ua = navigator.userAgent.toLowerCase();
+        if (ua.includes('quest') || ua.includes('oculus') || /android|iphone|ipad|mobile/i.test(ua)) {
+            return 'balanced';
+        }
+
+        // 2. WebGL2 is a hard requirement for SSR; without it 'ultra' is pointless.
+        const webGL2 = this.engine.webGLVersion >= 2;
+        if (!webGL2) return 'balanced';
+
+        // 3. Read the unmasked GPU string where the browser exposes it.
+        let renderer = '';
+        try {
+            const gl = this.engine._gl;
+            const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+            if (dbg) renderer = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '').toLowerCase();
+        } catch (_) { /* extension blocked by privacy settings */ }
+
+        const cores = navigator.hardwareConcurrency || 4;
+        const memoryGB = navigator.deviceMemory || 4;
+
+        // Known-weak integrated parts: never promote these to ultra.
+        const isWeakIntegrated = /(intel).*(hd|uhd) graphics|gma|swiftshader|llvmpipe|software/.test(renderer);
+        if (isWeakIntegrated) return 'balanced';
+
+        // Discrete GPU families that comfortably absorb SSR + supersampling.
+        const isDiscrete = /(rtx|geforce|radeon rx|quadro|arc a|apple m[1-9])/.test(renderer);
+
+        if (isDiscrete && cores >= 8 && memoryGB >= 8) return 'ultra';
+        if (cores >= 4) return 'high';
+        return 'balanced';
+    }
+
+    /**
+     * Switch graphics tier at runtime and rebuild the tier-dependent effects.
+     * Persists the choice so it survives a reload.
+     * @param {'ultra'|'high'|'balanced'} tier
+     */
+    setGraphicsTier(tier) {
+        if (!this.qualityTiers[tier]) {
+            log.warn(`⚠️ Unknown graphics tier: ${tier}`);
+            return;
+        }
+        if (tier === this.graphicsTier) return;
+
+        this.graphicsTier = tier;
+        try { localStorage.setItem('vrclub.graphicsTier', tier); } catch (_) { /* ignore */ }
+
+        // Tear down tier-owned pipelines; they are rebuilt with the new settings.
+        if (this.ssrPipeline) { this.ssrPipeline.dispose(); this.ssrPipeline = null; }
+        if (this.motionBlur) { this.motionBlur.dispose(); this.motionBlur = null; }
+
+        this._applyTierToPipeline();
+        this._createScreenSpaceReflections();
+        this._createMotionBlur();
+        this._suppressUnlitSpecular();
+        this._applyAnisotropicFiltering();
+        this._applyShadowQuality();
+        if (this.floorMesh) this.floorMesh.receiveShadows = !!this.tierSettings.floorShadows;
+
+        // Re-run the desktop path so render scale / attachments match the new tier.
+        // In VR the conservative VR path already owns these values, so leave it alone.
+        if (!this.isInVRMode) this.applyDesktopSettings();
+
+        log.info(`🎨 Graphics tier switched to: ${tier}`);
+        this.showErrorMessage(`Graphics quality: ${tier.toUpperCase()}`);
+    }
+
+    /** Current tier's settings object. */
+    get tierSettings() {
+        return this.qualityTiers[this.graphicsTier] || this.qualityTiers.high;
     }
 
     detectMaxLights() {
@@ -1086,6 +1318,27 @@ class VRClub {
         // UPGRADE: Create frozen reflection probe for the dance floor
         // Must be called AFTER all geometry is created so the probe captures everything
         this.createFloorReflectionProbe();
+
+        // Quality passes that must run AFTER all geometry, textures, lights and the
+        // reflection probe exist, because they sweep the finished scene.
+        this._suppressUnlitSpecular();
+        this._applyAnisotropicFiltering();
+        this._applyShadowQuality();
+
+        // Apply the tier's render scale. Below 1.0 this supersamples: the scene renders
+        // above native resolution and is downsampled on present. applyDesktopSettings()
+        // only runs when EXITING VR, so the initial desktop load has to set it here.
+        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
+
+        // The SSR pipeline wants the probe cube map as its miss-fallback. The probe is
+        // only available now, so wire it up (or build SSR if the pipeline was created
+        // before the probe existed).
+        if (this.ssrPipeline && this.floorReflectionProbe) {
+            this.ssrPipeline.environmentTexture = this.floorReflectionProbe.cubeTexture;
+            this.ssrPipeline.environmentTextureIsProbe = true;
+        } else {
+            this._createScreenSpaceReflections();
+        }
         
         // Verify scene is ready
         log.info('🎬 Scene initialization complete:');
@@ -1096,15 +1349,47 @@ class VRClub {
         log.info(`  🎨 Materials: ${this.scene.materials.length}`);
         
         // Start render loop
-        this.engine.runRenderLoop(() => {
+        this._renderLoop = () => {
             this.scene.render();
             this.updateAnimations();
             this.updatePerformanceMonitor();
-        });
-        
-        window.addEventListener('resize', () => {
-            this.engine.resize();
-        });
+        };
+        this.engine.runRenderLoop(this._renderLoop);
+
+        // === LIFECYCLE: pause rendering when the page is hidden ===
+        // On Quest the browser keeps a backgrounded tab's render loop alive, which
+        // burns battery and GPU for content nobody can see. We never pause while an
+        // immersive XR session is active (the headset owns the frame loop there).
+        this._onVisibilityChange = () => {
+            if (document.hidden && !this.isInVRMode) {
+                this.engine.stopRenderLoop(this._renderLoop);
+                if (this.audioContext && this.audioContext.state === 'running') {
+                    // Leave audio running only if something is actually playing so a
+                    // backgrounded club doesn't silently kill the user's music.
+                    log.info('⏸️ Render loop paused (tab hidden)');
+                }
+            } else if (!document.hidden) {
+                this.engine.runRenderLoop(this._renderLoop);
+            }
+        };
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
+
+        // === RELIABILITY: WebGL context loss ===
+        // The engine is constructed with `doNotHandleContextLost: true` for
+        // performance, which means Babylon will NOT rebuild GPU resources itself.
+        // Under memory pressure (common on standalone Quest) the context can be
+        // evicted; without this handler the user is left staring at a frozen black
+        // canvas with no explanation.
+        if (this.engine.onContextLostObservable) {
+            this.engine.onContextLostObservable.add(() => {
+                log.error('❌ WebGL context lost — GPU resources were evicted.');
+                this.showErrorMessage('Graphics context lost. Reloading the club…');
+                setTimeout(() => window.location.reload(), 2000);
+            });
+        }
+
+        this._onResize = () => this.engine.resize();
+        window.addEventListener('resize', this._onResize);
         
         // Prevent default drag and drop behavior on the page (except in our audio UI)
         window.addEventListener('dragover', (e) => {
@@ -1123,6 +1408,93 @@ class VRClub {
                 e.stopPropagation();
             }
         }, false);
+
+        this.ready = true;
+    }
+
+    /**
+     * Tear down every long-lived resource this instance owns.
+     *
+     * Previously there was no teardown path at all: the render loop, the
+     * AudioContext, the WebGL context, the window/document listeners and the
+     * whole Babylon scene graph all leaked for the lifetime of the document.
+     * That is survivable for a single-page demo but makes the club impossible to
+     * embed, hot-reload, or unmount from a SPA route — and it is the #1 reason
+     * "reload the page" is currently the only recovery mechanism.
+     */
+    dispose() {
+        if (this._disposed) return;
+        this._disposed = true;
+
+        try {
+            if (this._renderLoop) this.engine.stopRenderLoop(this._renderLoop);
+        } catch (_) { /* engine may already be gone */ }
+
+        if (this._onVisibilityChange) {
+            document.removeEventListener('visibilitychange', this._onVisibilityChange);
+            this._onVisibilityChange = null;
+        }
+        if (this._onResize) {
+            window.removeEventListener('resize', this._onResize);
+            this._onResize = null;
+        }
+
+        // Audio graph — an unclosed AudioContext keeps an audio thread alive.
+        if (this.audioElement) {
+            try {
+                this.audioElement.pause();
+                const src = this.audioElement.src;
+                if (src && src.startsWith('blob:')) URL.revokeObjectURL(src);
+                this.audioElement.removeAttribute('src');
+                this.audioElement.load();
+            } catch (_) { /* ignore */ }
+            this.audioElement = null;
+        }
+        if (this.audioContext && this.audioContext.state !== 'closed') {
+            this.audioContext.close().catch(() => { /* ignore */ });
+        }
+        this.audioContext = null;
+        this.audioAnalyser = null;
+        this.audioSource = null;
+
+        if (this.vjDirector) this.vjDirector = null;
+
+        if (this.vrHelper && this.vrHelper.baseExperience) {
+            try { this.vrHelper.baseExperience.dispose(); } catch (_) { /* ignore */ }
+        }
+        this.vrHelper = null;
+
+        if (this.textureLoader && this.textureLoader.clearTexturePool) {
+            try { this.textureLoader.clearTexturePool(); } catch (_) { /* ignore */ }
+        }
+
+        // Post-process pipelines hold render targets and GL resources that scene.dispose()
+        // does not always reclaim - release them explicitly.
+        if (this.ssrPipeline) {
+            try { this.ssrPipeline.dispose(); } catch (_) { /* ignore */ }
+            this.ssrPipeline = null;
+        }
+        if (this.motionBlur) {
+            try { this.motionBlur.dispose(); } catch (_) { /* ignore */ }
+            this.motionBlur = null;
+        }
+
+        // Release UI-layer timers and XR observers (ui-init.js).
+        if (typeof window.teardownVJUI === 'function') {
+            try { window.teardownVJUI(); } catch (_) { /* ignore */ }
+        }
+
+        if (this.scene) {
+            try { this.scene.dispose(); } catch (_) { /* ignore */ }
+            this.scene = null;
+        }
+        if (this.engine) {
+            try { this.engine.dispose(); } catch (_) { /* ignore */ }
+            this.engine = null;
+        }
+
+        if (window.vrClub === this) window.vrClub = null;
+        log.info('🧹 VRClub disposed');
     }
 
     addPostProcessing() {
@@ -1132,6 +1504,7 @@ class VRClub {
         }
 
         const desktop = this.vrSettings.desktop;
+        const tier = this.tierSettings;
 
         // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
         // Pass cameras array in constructor to avoid "reuse" warnings from addCamera()
@@ -1144,12 +1517,17 @@ class VRClub {
         
         // FXAA anti-aliasing for smooth edges (essential for immersion)
         pipeline.fxaaEnabled = desktop.fxaaEnabled;
+
+        // MSAA on the pipeline render target. FXAA alone leaves crawling edges on the
+        // thin truss/pipe geometry that fills the ceiling; MSAA resolves the geometric
+        // edges and FXAA then cleans up the shader aliasing on emissive surfaces.
+        pipeline.samples = tier.pipelineSamples;
         
         // ENHANCED Bloom for dramatic glowing lights - key to club atmosphere
         pipeline.bloomEnabled = true;
         pipeline.bloomThreshold = desktop.bloomThreshold;
         pipeline.bloomWeight = desktop.bloomWeight;
-        pipeline.bloomKernel = 128; // Wide kernel for smooth, cinematic bloom halos
+        pipeline.bloomKernel = tier.bloomKernel; // Wide kernel = smooth cinematic halos
         pipeline.bloomScale = desktop.bloomScale;
         
         // Chromatic aberration for realistic camera lens simulation (desktop only)
@@ -1177,6 +1555,16 @@ class VRClub {
         pipeline.imageProcessing.exposure = desktop.exposure;
         pipeline.imageProcessing.toneMappingEnabled = desktop.toneMappingEnabled;
         pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+
+        // DITHERING — the single highest-value fix for a dark scene.
+        // This club is almost entirely smooth gradients falling off into near-black.
+        // In 8-bit output those gradients quantise into visible concentric "contour"
+        // bands around every light pool, which instantly reads as computer graphics.
+        // Dithering adds sub-LSB noise that breaks the banding up completely.
+        if ('ditheringEnabled' in pipeline.imageProcessing) {
+            pipeline.imageProcessing.ditheringEnabled = true;
+            pipeline.imageProcessing.ditheringIntensity = 1.0 / 255.0;
+        }
         
         // Cinematic vignette - darkens edges for immersive club atmosphere
         pipeline.imageProcessing.vignetteEnabled = true;
@@ -1198,11 +1586,261 @@ class VRClub {
         this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, this.camera ? [this.camera] : []);
         this.ssaoPipeline.radius = 3.5;
         this.ssaoPipeline.totalStrength = 1.2;
-        this.ssaoPipeline.expensiveBlur = true;
-        this.ssaoPipeline.samples = 16;
+        this.ssaoPipeline.expensiveBlur = tier.ssaoExpensiveBlur;
+        this.ssaoPipeline.samples = tier.ssaoSamples;
         this.ssaoPipeline.maxZ = 250;
+
+        // Heavy tier-gated effects.
+        this._createScreenSpaceReflections();
+        this._createMotionBlur();
         
-        log.info('✨ Enhanced post-processing pipeline initialized (hyperrealistic mode)');
+        log.info(`✨ Post-processing initialized (hyperrealistic mode, tier: ${this.graphicsTier})`);
+    }
+
+    /**
+     * Re-apply the current tier's values to an already-built pipeline.
+     * Used by setGraphicsTier() so the tier can change without a page reload.
+     */
+    _applyTierToPipeline() {
+        const tier = this.tierSettings;
+        if (this.renderPipeline) {
+            this.renderPipeline.samples = tier.pipelineSamples;
+            this.renderPipeline.bloomKernel = tier.bloomKernel;
+        }
+        if (this.ssaoPipeline) {
+            this.ssaoPipeline.samples = tier.ssaoSamples;
+            this.ssaoPipeline.expensiveBlur = tier.ssaoExpensiveBlur;
+        }
+    }
+
+    /**
+     * Screen-space reflections.
+     *
+     * This is the biggest single realism upgrade available to this scene. A real
+     * nightclub floor is polished and slightly damp, and almost everything you read as
+     * "expensive lighting" in a club photograph is actually the *reflection* of that
+     * lighting in the floor. A static reflection probe (which is what the floor used
+     * before) can only capture the room geometry once — it cannot reflect the moving
+     * spotlight pools, the sweeping lasers, the strobes or the animated LED wall,
+     * which is precisely the content that matters here.
+     *
+     * SSR reflects the live rendered frame, so every moving light shows up in the floor.
+     * Desktop only, and only above the 'balanced' tier — it requires WebGL2 and costs
+     * real milliseconds.
+     */
+    _createScreenSpaceReflections() {
+        if (this.ssrPipeline) return;
+        if (!this.tierSettings.ssr) return;
+        if (!BABYLON.SSRRenderingPipeline) {
+            log.warn('⚠️ SSRRenderingPipeline unavailable in this Babylon build - skipping reflections');
+            return;
+        }
+        if (this.engine.webGLVersion < 2) {
+            log.warn('⚠️ SSR requires WebGL2 - skipping reflections');
+            return;
+        }
+
+        try {
+            // forceGeometryBuffer = false → use the pre-pass renderer (cheaper and more
+            // accurate reflectivity). Per Babylon docs, pre-pass + MSAA can produce
+            // artifacts, so anti-aliasing on the SSR path relies on FXAA, which is
+            // already enabled in the default pipeline.
+            const ssr = new BABYLON.SSRRenderingPipeline(
+                'ssr',
+                this.scene,
+                this.camera ? [this.camera] : [],
+                false,
+                BABYLON.Constants.TEXTURETYPE_UNSIGNED_BYTE
+            );
+
+            const highQuality = this.tierSettings.ssrQuality === 'high';
+
+            // Room is ~35 x 45 x 8 m, so rays never need to travel far. Keeping
+            // maxDistance tight is the cheapest possible optimisation.
+            ssr.maxDistance = 28;
+            ssr.maxSteps = highQuality ? 900 : 500;
+            ssr.step = highQuality ? 2 : 4;
+            ssr.enableSmoothReflections = true;   // Required once step > 1 or reflections stair-step
+            ssr.thickness = 0.4;
+            ssr.selfCollisionNumSkip = 2;         // Avoids the floor reflecting itself as noise
+            ssr.clipToFrustum = true;
+
+            // Blur the reflection by surface roughness. The floor is roughness 0.25 —
+            // polished but not a mirror — so reflections should smear slightly.
+            // Without this the floor looks like glass, which reads as fake.
+            ssr.blurDispersionStrength = 0.035;
+            ssr.blurDownsample = highQuality ? 0 : 1;
+            ssr.ssrDownsample = highQuality ? 0 : 1;
+            ssr.roughnessFactor = 0.18;
+
+            // useFresnel makes grazing angles far more reflective than head-on ones,
+            // which is exactly how a real wet floor behaves: the far end of the room
+            // mirrors brightly while the floor at your feet stays matte.
+            ssr.useFresnel = true;
+            ssr.reflectivityThreshold = 0.02; // Below the floor's 0.08 metallic so it qualifies
+
+            // Soften the inherent SSR failure cases rather than letting them pop.
+            ssr.attenuateScreenBorders = true;
+            ssr.attenuateIntersectionDistance = true;
+            ssr.attenuateIntersectionIterations = true;
+            ssr.attenuateFacingCamera = true;
+            ssr.attenuateBackfaceReflection = true;
+
+            // Where a ray finds nothing, fall back to the floor probe's cube map instead
+            // of the pixel's own colour — otherwise missed rays leave flat bright patches.
+            if (this.floorReflectionProbe) {
+                ssr.environmentTexture = this.floorReflectionProbe.cubeTexture;
+                ssr.environmentTextureIsProbe = true;
+            } else if (this.scene.environmentTexture) {
+                ssr.environmentTexture = this.scene.environmentTexture;
+            }
+
+            ssr.isEnabled = !this.isInVRMode;
+            this.ssrPipeline = ssr;
+            log.info(`🪩 Screen-space reflections enabled (${this.tierSettings.ssrQuality} quality)`);
+        } catch (err) {
+            log.warn('⚠️ Failed to create SSR pipeline, continuing without reflections:', err);
+            this.ssrPipeline = null;
+        }
+    }
+
+    /**
+     * Object-based motion blur.
+     *
+     * Moving heads, the mirror ball and the sweeping laser fans all move fast enough to
+     * strobe against the frame rate. A short blur trail is what a real camera (and,
+     * loosely, the eye) produces, and it is the difference between "3D objects moving"
+     * and "a light show being filmed". Ultra tier only — it needs a velocity buffer.
+     */
+    _createMotionBlur() {
+        if (this.motionBlur) return;
+        if (!this.tierSettings.motionBlur) return;
+        if (!BABYLON.MotionBlurPostProcess || !this.camera) return;
+
+        try {
+            const mb = new BABYLON.MotionBlurPostProcess(
+                'motionBlur',
+                this.scene,
+                1.0,
+                this.camera
+            );
+            // Deliberately restrained. Anything stronger smears the laser beams into
+            // mush and makes the LED wall unreadable.
+            mb.motionStrength = 0.35;
+            mb.motionBlurSamples = this.tierSettings.motionBlurSamples;
+            if ('isObjectBased' in mb) mb.isObjectBased = true;
+            this.motionBlur = mb;
+            log.info('🎞️ Object-based motion blur enabled');
+        } catch (err) {
+            log.warn('⚠️ Failed to create motion blur, continuing without it:', err);
+            this.motionBlur = null;
+        }
+    }
+
+    /**
+     * Zero the specular colour on self-illuminated `StandardMaterial`s.
+     *
+     * `StandardMaterial` defaults `specularColor` to pure white, and the SSR pre-pass
+     * reads `specularColor` as the surface's reflectivity. Left at the default, every
+     * emissive surface in the club — the LED wall tiles, laser beams, light pools,
+     * gobos, strobes, neon — is treated by SSR as a perfect mirror, so its colour is
+     * replaced by a screen-space reflection that resolves to near-black. The visible
+     * symptom is an LED wall where only the panel outlines glow (that is the bloom halo
+     * surviving) while the panel faces go dark.
+     *
+     * A specular highlight on a pure emitter is physically meaningless anyway, so this
+     * is the correct value independent of SSR. Materials built through
+     * `MaterialFactory.createStandardMaterial({ disableLighting: true })` already get
+     * this; the sweep catches the ~20 materials constructed directly in this file.
+     */
+    _suppressUnlitSpecular() {
+        const black = new BABYLON.Color3(0, 0, 0);
+        let fixed = 0;
+
+        this.scene.materials.forEach(mat => {
+            if (!(mat instanceof BABYLON.StandardMaterial)) return;
+            if (!mat.specularColor) return;
+            if (mat.specularColor.r === 0 && mat.specularColor.g === 0 && mat.specularColor.b === 0) return;
+
+            const isUnlit = mat.disableLighting === true;
+            const isAdditive = mat.alphaMode === BABYLON.Engine.ALPHA_ADD;
+            const e = mat.emissiveColor;
+            const isSelfLit = !!e && (e.r + e.g + e.b) > 0.5;
+            if (!isUnlit && !isAdditive && !isSelfLit) return;
+
+            // Frozen materials skip uniform re-evaluation, so unfreeze around the write.
+            const wasFrozen = mat.isFrozen;
+            if (wasFrozen && mat.unfreeze) mat.unfreeze();
+            mat.specularColor = black.clone();
+            if (wasFrozen && mat.freeze) mat.freeze();
+            fixed++;
+        });
+
+        if (fixed) log.info(`💡 Zeroed specular on ${fixed} self-illuminated materials (SSR reflectivity fix)`);
+    }
+
+    /**
+     * Apply anisotropic filtering to every texture in the scene.
+     *
+     * The floor is a 35x45 m plane viewed at a very shallow angle from eye height. With
+     * the default trilinear filtering its tiles blur into grey mush a few metres out,
+     * which is the most obvious "this is a game" tell in the whole room. Anisotropic
+     * filtering keeps the tile grid sharp all the way to the far wall and costs almost
+     * nothing on desktop.
+     */
+    _applyAnisotropicFiltering() {
+        const caps = this.engine.getCaps();
+        const max = caps.maxAnisotropy || 1;
+        const target = Math.min(this.tierSettings.anisotropy, max);
+        if (target <= 1) return;
+
+        let count = 0;
+        this.scene.textures.forEach(tex => {
+            // Cube maps and render targets have no meaningful anisotropy.
+            if (!tex || tex.isCube || tex.isRenderTarget) return;
+            if (tex.anisotropicFilteringLevel !== target) {
+                tex.anisotropicFilteringLevel = target;
+                count++;
+            }
+        });
+        log.info(`🔍 Anisotropic filtering set to ${target}x on ${count} textures`);
+    }
+
+    /**
+     * Upgrade shadow filtering to contact-hardening (PCSS) on capable tiers.
+     *
+     * A club is lit by physically small sources at close range, so its shadows are
+     * sharp where an object touches the floor and rapidly soften with distance. A
+     * uniform-blur shadow map cannot express that, and uniformly-soft shadows are what
+     * make CG interiors look like they are floating.
+     */
+    _applyShadowQuality() {
+        const tier = this.tierSettings;
+        const qualityMap = {
+            high: BABYLON.ShadowGenerator.QUALITY_HIGH,
+            medium: BABYLON.ShadowGenerator.QUALITY_MEDIUM,
+            low: BABYLON.ShadowGenerator.QUALITY_LOW
+        };
+
+        this.scene.lights.forEach(light => {
+            const gen = light.getShadowGenerator && light.getShadowGenerator();
+            if (!gen) return;
+
+            if (tier.contactHardeningShadows && 'useContactHardeningShadow' in gen) {
+                gen.useContactHardeningShadow = true;
+                gen.contactHardeningLightSizeUVRatio = 0.08; // Small source = tight contact shadow
+            } else {
+                if ('useContactHardeningShadow' in gen) gen.useContactHardeningShadow = false;
+                gen.usePercentageCloserFiltering = true;
+            }
+            gen.filteringQuality = qualityMap[tier.shadowQuality] || BABYLON.ShadowGenerator.QUALITY_MEDIUM;
+
+            // Pull the shadow map's depth range in to the actual room size. A default
+            // far plane wastes most of the depth precision on empty space and is the
+            // usual cause of shadow acne and peter-panning.
+            if (light.shadowMinZ === undefined || light.shadowMinZ === 0) light.shadowMinZ = 0.5;
+            if (!light.shadowMaxZ || light.shadowMaxZ > 60) light.shadowMaxZ = 45;
+        });
     }
 
     createFloor() {
@@ -1255,7 +1893,11 @@ class VRClub {
         // (environmentIntensity, directIntensity, specularIntensity set via preset)
         
         floor.material = floorMat;
-        floor.receiveShadows = false; // Optimization Phase 3: Disable shadows on floor
+        // Floor shadow reception is the strongest single cue that objects are actually
+        // standing ON the floor rather than hovering over a painted texture. It is also
+        // expensive (every shadow map is sampled across the full 35x45 m plane), so only
+        // the top tier pays for it.
+        floor.receiveShadows = !!this.tierSettings.floorShadows;
         floor.freezeWorldMatrix(); // OPTIMIZATION: Freeze static floor mesh
         floor.doNotSyncBoundingInfo = true; // Skip bounding info updates
     }
@@ -1273,9 +1915,10 @@ class VRClub {
             return;
         }
         
-        // Create a low-res cube map probe at dance floor level
-        // 128px per face is sufficient for blurry floor reflections (roughness 0.25)
-        const probe = new BABYLON.ReflectionProbe("floorReflectionProbe", 256, this.scene);
+        // Cube map probe at dance floor level. Resolution scales with the graphics tier:
+        // the probe supplies the floor's ambient reflection AND the fallback colour for
+        // rays that SSR fails to resolve, so a sharper probe visibly improves both.
+        const probe = new BABYLON.ReflectionProbe("floorReflectionProbe", this.tierSettings.probeResolution, this.scene);
         probe.position = new BABYLON.Vector3(0, 0.5, -12); // Dance floor center, slightly above floor
         
         // CRITICAL: Render only ONCE (frozen probe) - zero runtime cost after first frame
@@ -5102,13 +5745,27 @@ class VRClub {
     
     updateAnimations() {
         const time = performance.now() / 1000;
-        this.ledTime += 0.016 * (this.ledWallSpeed || 1.0);
+
+        // === FRAME-RATE INDEPENDENCE ===
+        // Quest headsets run at 72/90/120 Hz, desktop at 60/144 Hz, and thermal
+        // throttling can drop any of them to 30 Hz. Every time-accumulator below
+        // used to add a hardcoded 0.016 s ("assume 60 fps"), which made the whole
+        // light show run at a different musical speed per device.
+        // `dtScale` is the ratio of the real frame time to a 60 fps frame, clamped
+        // so a single long frame (tab restore, GC pause, shader compile) cannot
+        // teleport animation state.
+        const frameMs = (this.engine && this.engine.getDeltaTime) ? this.engine.getDeltaTime() : 16.667;
+        const dtScale = Math.min(4, Math.max(0.25, frameMs / 16.667));
+        const dt = 0.016 * dtScale; // seconds, clamped — use in place of the old literal
+        this.dtScale = dtScale;
+
+        this.ledTime += dt * (this.ledWallSpeed || 1.0);
         this.frameCounter++;
         
         // === GOBO ROTATION UPDATE ===
         // Continuous 360° rotation for gobo patterns
         if (this.goboEnabled) {
-            this.goboRotation += 0.02 * (this.goboRotationSpeed || 1.0);
+            this.goboRotation += 0.02 * dtScale * (this.goboRotationSpeed || 1.0);
             if (this.goboRotation > Math.PI * 2) {
                 this.goboRotation -= Math.PI * 2;
             } else if (this.goboRotation < -Math.PI * 2) {
@@ -5175,7 +5832,7 @@ class VRClub {
                         }
                         
                         if (machine.isBursting) {
-                            machine.burstTimer -= 0.016; // ~60fps decrement
+                            machine.burstTimer -= dt; // frame-rate independent
                             
                             // Fade out burst over last 0.5 seconds
                             if (machine.burstTimer < 0.5) {
@@ -5432,10 +6089,12 @@ class VRClub {
                 });
                 
                 // UPGRADE: Update shared ray material color once (not 40× per frame)
+                // QC: this material is written EVERY frame, so it must stay permanently
+                // unfrozen. The old freeze()/unfreeze() pair called Material.markDirty()
+                // twice per frame, and markDirty() walks every mesh in the scene.
                 if (this._sharedMirrorRayMat) {
-                    this._sharedMirrorRayMat.unfreeze();
+                    if (this._sharedMirrorRayMat.isFrozen) this._sharedMirrorRayMat.unfreeze();
                     this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor;
-                    this._sharedMirrorRayMat.freeze();
                 }
             }
             
@@ -5598,10 +6257,16 @@ class VRClub {
                 });
                 
                 // UPGRADE: Update shared beam material color once per frame (not 100×)
+                // QC: permanently unfrozen — see note on _sharedMirrorRayMat above.
                 if (this._sharedMirrorBeamMat) {
-                    this._sharedMirrorBeamMat.unfreeze();
-                    this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
-                    this._sharedMirrorBeamMat.freeze();
+                    if (this._sharedMirrorBeamMat.isFrozen) this._sharedMirrorBeamMat.unfreeze();
+                    if (!this._mirrorBeamEmissive) this._mirrorBeamEmissive = new BABYLON.Color3(0, 0, 0);
+                    this._mirrorBeamEmissive.copyFromFloats(
+                        this.mirrorBallSpotlightColor.r * 0.8,
+                        this.mirrorBallSpotlightColor.g * 0.8,
+                        this.mirrorBallSpotlightColor.b * 0.8
+                    );
+                    this._sharedMirrorBeamMat.emissiveColor = this._mirrorBeamEmissive;
                 }
             } // Close if (this.mirrorReflectionSpots...)
         } else {
@@ -6264,7 +6929,7 @@ class VRClub {
                 }
                 
                 // Movement depends on mode (apply laser speed multiplier)
-                const speedMultiplier = this.laserSpeed || 1.0;
+                const speedMultiplier = (this.laserSpeed || 1.0) * dtScale;
                 if (this.lightingMode === 'synchronized') {
                     laser.rotation += 0.015 * speedMultiplier;
                     laser.tiltPhase += 0.02 * speedMultiplier;
@@ -7093,7 +7758,13 @@ class VRClub {
                     
                     // Store beamVisible on spot for fixture sync
                     spot.beamVisible = beamVisible;
-                    
+
+                    // Physics-based surface brightness (Lambert x inverse-square). Declared
+                    // here rather than inside the light-pool block because the gobo block
+                    // below is a sibling scope and also needs it. Defaults to 1.0 for the
+                    // frames where the beam misses a surface and the value is never computed.
+                    let physicsIntensity = 1.0;
+
                     spot.beam.visibility = beamVisible ? 1.0 : 0;
                     
                     // Update beamGlow - Match main beam world-space positioning
@@ -7196,7 +7867,7 @@ class VRClub {
                             const clampedInvSq = Math.min(2.0, Math.max(0.25, invSqFalloff));
                             
                             // Combined physics-based intensity
-                            const physicsIntensity = lambertFactor * clampedInvSq;
+                            physicsIntensity = lambertFactor * clampedInvSq;
                             
                             // Subtle atmospheric shimmer (dust particles in beam)
                             const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;
@@ -7420,7 +8091,7 @@ class VRClub {
                             
                             // Update color to match spotlight with physics-based brightness
                             if (spot.goboMat) {
-                                const goboBrightness = 1.8 * (physicsIntensity || 1.0);
+                                const goboBrightness = 1.8 * physicsIntensity;
                                 spot.goboMat.emissiveColor = spotColor.scale(goboBrightness);
                             }
                             
@@ -7502,8 +8173,10 @@ class VRClub {
                 // Update lens color
                 if (lens && lens.material) {
                     const mat = lens.material;
-                    // Unfreeze material to allow dynamic updates (factory freezes by default)
-                    mat.unfreeze();
+                    // QC: only unfreeze on the first frame. Calling unfreeze() every
+                    // frame re-runs Material.markDirty(), which walks every mesh in
+                    // the scene (~720 full-scene scans/sec for 6 fixtures at 60 fps).
+                    if (mat.isFrozen) mat.unfreeze();
                     if (!mat.emissiveColor) {
                         mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                     }
@@ -7521,8 +8194,8 @@ class VRClub {
                 // Update light source (inner bulb) color
                 if (lightSource && lightSource.material) {
                     const mat = lightSource.material;
-                    // Unfreeze material to allow dynamic updates (factory freezes by default)
-                    mat.unfreeze();
+                    // QC: only unfreeze on the first frame — see note above.
+                    if (mat.isFrozen) mat.unfreeze();
                     if (!mat.emissiveColor) {
                         mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
                     }
@@ -7540,13 +8213,11 @@ class VRClub {
         }
         } // End of legacy inline spotlight animation else block
         
-        // LED wall is now updated via this.updateLEDWall(time, audioData) which is called separately
-        // with the new 26-pattern system including creative blackout shapes
-        // Apply speed multiplier for VJ control
-        if (this.ledPanels && this.ledPanels.length > 0) {
-            const speedMultiplier = this.spotlightSpeed || 1.0;
-            this.ledTime += 0.016 * speedMultiplier;
-        }
+        // NOTE: `this.ledTime` is advanced exactly ONCE per frame, at the top of
+        // updateAnimations(), using `ledWallSpeed`. A second accumulator used to
+        // live here that advanced it again using `spotlightSpeed` — LED patterns
+        // therefore ran at roughly double speed and were coupled to the spotlight
+        // slider. Removed (QC review).
         
         // Update strobes - respects strobesActive control
         // Strobe lights animation (with speed multiplier)
@@ -7567,7 +8238,7 @@ class VRClub {
                 this.strobes.forEach((strobe, i) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
-                        strobe.flashDuration -= 0.016 * strobeSpeedMultiplier;
+                        strobe.flashDuration -= dt * strobeSpeedMultiplier;
                     
                     // Variable intensity - SUPER BRIGHT strobes
                     // BOOST during drops for maximum crowd impact
@@ -9257,17 +9928,16 @@ class VRClub {
                         }
                         
                         // UPGRADE: Update shared beam material once (not 100× per spot)
+                        // QC: never re-freeze — the render loop writes this every frame.
                         if (this._sharedMirrorBeamMat) {
-                            this._sharedMirrorBeamMat.unfreeze();
+                            if (this._sharedMirrorBeamMat.isFrozen) this._sharedMirrorBeamMat.unfreeze();
                             this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
-                            this._sharedMirrorBeamMat.freeze();
                         }
                         
                         // UPGRADE: Update shared ray material once (not 40× per ray)
                         if (this._sharedMirrorRayMat) {
-                            this._sharedMirrorRayMat.unfreeze();
+                            if (this._sharedMirrorRayMat.isFrozen) this._sharedMirrorRayMat.unfreeze();
                             this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor;
-                            this._sharedMirrorRayMat.freeze();
                         }
                         
                         // Invalidate cached colors so they get recalculated
@@ -9737,26 +10407,36 @@ class VRClub {
     }
 
     showErrorMessage(message) {
+        // QC fixes vs. the previous implementation:
+        //  - `document.body.removeChild(el)` threw NotFoundError if the node had
+        //    already been removed (e.g. two messages fired inside 3 s).
+        //  - Concurrent messages stacked at the exact same fixed position, so only
+        //    the last one was legible.
+        //  - The toast was invisible to assistive technology.
+        if (!this._toastHost) {
+            const host = document.createElement('div');
+            host.id = 'vrclubToasts';
+            host.setAttribute('role', 'alert');
+            host.setAttribute('aria-live', 'assertive');
+            host.style.cssText = [
+                'position:fixed', 'top:50%', 'left:50%', 'transform:translate(-50%,-50%)',
+                'z-index:10000', 'display:flex', 'flex-direction:column', 'gap:8px',
+                'align-items:center', 'pointer-events:none', 'max-width:90vw'
+            ].join(';');
+            document.body.appendChild(host);
+            this._toastHost = host;
+        }
+
         const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(200, 0, 0, 0.9);
-            color: white;
-            padding: 20px 40px;
-            border-radius: 10px;
-            z-index: 10000;
-            font-size: 18px;
-            font-weight: bold;
-        `;
-        errorDiv.textContent = message;
-        document.body.appendChild(errorDiv);
-        
-        setTimeout(() => {
-            document.body.removeChild(errorDiv);
-        }, 3000);
+        errorDiv.style.cssText = [
+            'background:rgba(200,0,0,0.92)', 'color:#fff', 'padding:16px 28px',
+            'border-radius:10px', 'font-size:17px', 'font-weight:700',
+            'text-align:center', 'box-shadow:0 8px 24px rgba(0,0,0,0.5)'
+        ].join(';');
+        errorDiv.textContent = message; // textContent, never innerHTML — message may echo user input
+        this._toastHost.appendChild(errorDiv);
+
+        setTimeout(() => errorDiv.remove(), 4000);
     }
 
     moveCameraToPreset(preset) {
@@ -10262,14 +10942,31 @@ class VRClub {
     }
 
     /**
-     * Validate that a user-supplied audio URL uses a safe scheme.
-     * Rejects javascript:, data:, file: etc. which could be used for XSS / SSRF.
+     * Validate that a user-supplied audio URL is safe to hand to <audio src>.
+     *
+     * Rejects:
+     *  - non-http(s)/blob schemes (javascript:, data:, file:, ws:, …)
+     *  - URLs carrying embedded credentials (https://user:pass@host/…) which leak
+     *    into network logs, referrers and error strings
+     *  - plain http:// while the page itself is served over https, because the
+     *    browser silently blocks the request as mixed content and the user is
+     *    left with a stream that "just doesn't play"
      */
     _isSafeAudioUrl(url) {
         if (typeof url !== 'string' || !url.trim()) return false;
         try {
             const parsed = new URL(url, window.location.href);
-            return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'blob:';
+            if (parsed.username || parsed.password) return false;
+            if (parsed.protocol === 'blob:') return true;
+            if (parsed.protocol === 'https:') return true;
+            if (parsed.protocol === 'http:') {
+                // Allow http only when the page is not secure, or for loopback,
+                // which browsers treat as a trustworthy origin.
+                const host = parsed.hostname;
+                const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+                return window.location.protocol !== 'https:' || isLoopback;
+            }
+            return false;
         } catch (_) {
             return false;
         }
@@ -10342,6 +11039,29 @@ class VRClub {
         
         // Check if audio is actually playing
         const hasAudio = average > 0.01;
+
+        // === CORS-TAINTED STREAM DETECTION ===
+        // A cross-origin stream WITHOUT `Access-Control-Allow-Origin` still plays
+        // through <audio>, but the Web Audio graph receives a tainted (silent)
+        // source, so every FFT bin reads 0 forever. Previously this looked exactly
+        // like "the club just isn't reacting to the music" with nothing in the
+        // console. Detect it and tell the user once.
+        if (!this._corsWarningShown && this.audioElement &&
+            !this.audioElement.paused && this.audioElement.currentTime > 2) {
+            if (average === 0) {
+                this._silentAnalyserFrames = (this._silentAnalyserFrames || 0) + 1;
+                if (this._silentAnalyserFrames > 180) { // ~3 s of audible-but-silent analysis
+                    this._corsWarningShown = true;
+                    log.warn('🎚️ Analyser is receiving silence while audio is playing — the stream is likely blocked by CORS.');
+                    this.showErrorMessage(
+                        'Audio is playing but the visuals cannot react to it. ' +
+                        'The stream server does not send an Access-Control-Allow-Origin header.'
+                    );
+                }
+            } else {
+                this._silentAnalyserFrames = 0;
+            }
+        }
         
         return { bass, mid, treble, average, hasAudio };
     }
@@ -10584,7 +11304,25 @@ class VRClub {
     }
 
     setupPerformanceMonitor() {
+        // index.html has never contained an #fpsCounter element, so this lookup
+        // always returned null and the whole FPS/debug overlay (including the
+        // toggle wired in setupUI) was silently dead. Create the overlay here
+        // instead of depending on markup that does not exist.
         this.fpsElement = document.getElementById('fpsCounter');
+        if (!this.fpsElement) {
+            const el = document.createElement('div');
+            el.id = 'fpsCounter';
+            el.setAttribute('aria-hidden', 'true');
+            el.style.cssText = [
+                'position:fixed', 'top:10px', 'left:10px', 'z-index:9998',
+                'font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace',
+                'color:#0f0', 'background:rgba(0,0,0,0.55)', 'padding:6px 10px',
+                'border-radius:6px', 'white-space:pre', 'pointer-events:none',
+                'display:none'
+            ].join(';');
+            document.body.appendChild(el);
+            this.fpsElement = el;
+        }
         this.lastTime = performance.now();
         this.frames = 0;
         this.fps = 0;
@@ -10602,6 +11340,8 @@ class VRClub {
             
             // Only update if element exists
             if (this.fpsElement) {
+                this.fpsElement.style.display = this.debugMode ? 'block' : 'none';
+                if (!this.debugMode) return;
                 const color = this.fps >= 60 ? '#00ff00' : this.fps >= 30 ? '#ffff00' : '#ff0000';
                 let text = `FPS: ${this.fps}`;
                 

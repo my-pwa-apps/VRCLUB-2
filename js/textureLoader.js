@@ -1,86 +1,29 @@
 // Texture Loader with CDN Download and IndexedDB Caching
 // Downloads industrial concrete textures from Polyhaven CDN on first run
+//
+// Requires js/assetCache.js to be loaded first (IndexedDBAssetCache, InFlightRegistry,
+// fetchWithTimeout). The hand-rolled TextureCache class that used to live here was
+// removed: it silently hung on IndexedDB transaction errors and quota exhaustion.
 
 // Debug mode - set false for production
 const TEX_DEBUG = false;
-
-class TextureCache {
-    constructor() {
-        this.dbName = 'VRClubTextureCache';
-        this.dbVersion = 1;
-        this.storeName = 'textures';
-        this.db = null;
-    }
-
-    async init() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.dbVersion);
-            
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => {
-                this.db = request.result;
-                TEX_DEBUG && console.log('[Texture] Cache database initialized');
-                resolve();
-            };
-            
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName, { keyPath: 'url' });
-                    TEX_DEBUG && console.log('[Texture] Created cache store');
-                }
-            };
-        });
-    }
-
-    async getTexture(url) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readonly');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.get(url);
-            
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    async saveTexture(url, blob) {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.put({ url, blob, timestamp: Date.now() });
-            
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    async clearCache() {
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([this.storeName], 'readwrite');
-            const store = transaction.objectStore(this.storeName);
-            const request = store.clear();
-            
-            request.onsuccess = () => {
-                TEX_DEBUG && console.log('[Texture] Cache cleared');
-                resolve();
-            };
-            request.onerror = () => reject(request.error);
-        });
-    }
-}
 
 class TextureLoader {
     constructor(scene, logger = null) {
         this.scene = scene;
         this.log = logger || console; // Use provided logger or fallback to console
-        this.cache = new TextureCache();
+        this.cache = new IndexedDBAssetCache({
+            dbName: 'VRClubTextureCache',
+            storeName: 'textures',
+            logger: this.log
+        });
+        this.inFlight = new InFlightRegistry();
         this.textureConfigs = this.getTextureConfigs();
         
         // Texture pooling - reuse loaded textures across materials
-        this.texturePool = new Map(); // url -> BABYLON.Texture
+        this.texturePool = new Map(); // poolKey -> BABYLON.Texture
         this.blobUrlPool = new Map(); // url -> blob URL
-        this.textureUsageCount = new Map(); // url -> usage count
+        this.textureUsageCount = new Map(); // poolKey -> usage count
     }
 
     getTextureConfigs() {
@@ -133,9 +76,10 @@ class TextureLoader {
     async downloadTexture(url) {
         this.log.info(`⬇️ Downloading: ${url}`);
         try {
-            const response = await fetch(url, {
+            const response = await fetchWithTimeout(url, {
                 mode: 'cors',
-                cache: 'default'
+                cache: 'default',
+                timeoutMs: 30000
             });
             
             if (!response.ok) {
@@ -151,32 +95,37 @@ class TextureLoader {
         }
     }
 
+    /**
+     * Resolve a texture URL to an object URL, using (in order) the in-memory blob
+     * pool, IndexedDB, then the network. Concurrent callers for the same URL share
+     * a single download via the in-flight registry.
+     */
     async loadOrDownloadTexture(url) {
         // Check texture pool first (in-memory cache)
         if (this.blobUrlPool.has(url)) {
             this.log.info(`♻️ Reusing pooled texture: ${url.split('/').pop()}`);
-            this.textureUsageCount.set(url, (this.textureUsageCount.get(url) || 0) + 1);
             return this.blobUrlPool.get(url);
         }
-        
-        // Check IndexedDB cache
-        const cached = await this.cache.getTexture(url);
-        
-        if (cached) {
-            this.log.info(`💾 Using cached: ${url.split('/').pop()}`);
-            const blobUrl = URL.createObjectURL(cached.blob);
+
+        return this.inFlight.run(url, async () => {
+            // Re-check: another caller may have populated the pool while we queued.
+            if (this.blobUrlPool.has(url)) return this.blobUrlPool.get(url);
+
+            const cached = await this.cache.get(url);
+            if (cached) {
+                this.log.info(`💾 Using cached: ${url.split('/').pop()}`);
+                const blobUrl = URL.createObjectURL(cached);
+                this.blobUrlPool.set(url, blobUrl);
+                return blobUrl;
+            }
+
+            // Download, then persist. A failed persist (quota) is non-fatal.
+            const blob = await this.downloadTexture(url);
+            await this.cache.put(url, blob);
+            const blobUrl = URL.createObjectURL(blob);
             this.blobUrlPool.set(url, blobUrl);
-            this.textureUsageCount.set(url, 1);
             return blobUrl;
-        }
-        
-        // Download and cache
-        const blob = await this.downloadTexture(url);
-        await this.cache.saveTexture(url, blob);
-        const blobUrl = URL.createObjectURL(blob);
-        this.blobUrlPool.set(url, blobUrl);
-        this.textureUsageCount.set(url, 1);
-        return blobUrl;
+        });
     }
 
     async loadTextureSet(type) {
@@ -208,6 +157,15 @@ class TextureLoader {
                     const texture = new BABYLON.Texture(blobUrl, this.scene);
                     texture.uScale = config.scale.u;
                     texture.vScale = config.scale.v;
+
+                    // Anisotropic filtering. These are large tiling surfaces (floor,
+                    // walls, ceiling) viewed at extremely shallow angles from eye
+                    // height, which is the exact case default trilinear filtering
+                    // handles worst - the tiling blurs to grey a few metres out.
+                    // VRClub re-sweeps this per graphics tier, but seeding it here
+                    // means the very first frame is already correct.
+                    const caps = this.scene.getEngine().getCaps();
+                    texture.anisotropicFilteringLevel = Math.min(16, caps.maxAnisotropy || 1);
 
                     // Revoke the blob URL once Babylon has uploaded the bitmap to GPU.
                     // The pool keeps blob URLs alive forever otherwise (one per cached
@@ -344,34 +302,44 @@ class TextureLoader {
     }
 
     /**
-     * Dispose of textures that are no longer needed
-     * Call this when textures are removed from materials
+     * Release one reference to a pooled texture, disposing it when the last
+     * reference goes away.
+     *
+     * NOTE: the previous signature was `releaseTexture(url, scale = {u:1,v:1})`.
+     * That was unusable — the pool is keyed by `${url}_${scale.u}_${scale.v}`
+     * using the scale from the texture CONFIG (e.g. 6/6 for the floor), so the
+     * `{u:1,v:1}` default could never match a real entry and the method silently
+     * did nothing for every caller. It now takes the texture instance, which is
+     * what callers actually hold.
+     *
+     * @param {BABYLON.Texture} texture A texture previously returned by loadTextureSet().
+     * @returns {boolean} true if a pooled reference was released
      */
-    releaseTexture(url, scale = { u: 1, v: 1 }) {
-        const poolKey = `${url}_${scale.u}_${scale.v}`;
-        
-        if (this.textureUsageCount.has(poolKey)) {
-            const currentCount = this.textureUsageCount.get(poolKey);
-            if (currentCount <= 1) {
-                // Last reference - dispose texture
-                const texture = this.texturePool.get(poolKey);
-                if (texture) {
-                    texture.dispose();
-                    this.log.info(`🗑️ Disposed texture: ${url.split('/').pop()}`);
-                }
-                this.texturePool.delete(poolKey);
-                this.textureUsageCount.delete(poolKey);
-                
-                // Revoke blob URL to free memory
-                if (this.blobUrlPool.has(url)) {
-                    URL.revokeObjectURL(this.blobUrlPool.get(url));
-                    this.blobUrlPool.delete(url);
-                }
-            } else {
-                // Decrement usage count
-                this.textureUsageCount.set(poolKey, currentCount - 1);
-            }
+    releaseTexture(texture) {
+        if (!texture) return false;
+
+        let poolKey = null;
+        for (const [key, pooled] of this.texturePool) {
+            if (pooled === texture) { poolKey = key; break; }
         }
+        if (poolKey === null) {
+            this.log.warn('⚠️ releaseTexture called with a texture that is not pooled');
+            return false;
+        }
+
+        const currentCount = this.textureUsageCount.get(poolKey) || 1;
+        if (currentCount > 1) {
+            this.textureUsageCount.set(poolKey, currentCount - 1);
+            return true;
+        }
+
+        // Last reference — dispose. Blob URLs are revoked at upload time in
+        // loadTextureSet(), so there is nothing to revoke here.
+        texture.dispose();
+        this.texturePool.delete(poolKey);
+        this.textureUsageCount.delete(poolKey);
+        this.log.info(`🗑️ Disposed texture: ${poolKey.split('/').pop()}`);
+        return true;
     }
 
     /**
@@ -400,7 +368,7 @@ class TextureLoader {
 
     async clearAllCaches() {
         this.clearTexturePool();
-        await this.cache.clearCache();
+        await this.cache.clear();
     }
 }
 

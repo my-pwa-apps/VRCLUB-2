@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
-package-lock.json
+# NOTE: package-lock.json is intentionally NOT ignored. Committing the lockfile is
+# what makes `npm ci` reproducible across machines and CI; ignoring it meant every
+# install could silently resolve different transitive versions.
 yarn.lock
 
 # OS Files
