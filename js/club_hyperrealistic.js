@@ -20,13 +20,17 @@ const ROOM_BOUNDS = {
 
 // Key positions in the club
 const CLUB_POSITIONS = {
-    djBooth: { x: 0, y: 0.95, z: -18 },
+    // Centre of the DJ deck row; y is the work surface. See the BOOTH LAYOUT
+    // ANCHORS block in createDJBooth() for the full z/y breakdown.
+    djBooth: { x: 0, y: 1.42, z: -18.5 },
     danceFloor: { x: 0, y: 0, z: -12 },
     entrance: { x: 0, y: 0, z: 0 },
     mirrorBall: { x: 0, y: 6.5, z: -12 },
     paSpeakers: {
-        left: { x: -7, y: 0, z: -16 },
-        right: { x: 7, y: 0, z: -16 }
+        // Flown from the rear lighting truss (z=-16), not floor-stacked.
+        // y is the top of the cabinet; see ModelLoader.getModelConfigs().
+        left: { x: -6, y: 7.1, z: -16 },
+        right: { x: 6, y: 7.1, z: -16 }
     }
 };
 
@@ -208,6 +212,14 @@ class VRClub {
             orange: new BABYLON.Color3(1, 0.5, 0),
             purple: new BABYLON.Color3(0.5, 0, 1),
             warmWhite: new BABYLON.Color3(1, 0.9, 0.7), // Blinder warm white
+            // LED wall monochrome palette. `white` above is an over-driven HDR
+            // value for blinders and would clip the whole wall flat, so the
+            // black-and-white looks use these near-neutral tones instead. Three
+            // slightly different whites keep the 8-beat colour rotation alive
+            // without reintroducing hue.
+            ledMonoWhite: new BABYLON.Color3(1, 1, 1),
+            ledMonoCool: new BABYLON.Color3(0.86, 0.92, 1.0),
+            ledMonoWarm: new BABYLON.Color3(1.0, 0.95, 0.86),
             // QC O3: cached fog-machine indicator colors (used per frame in
             // the smoke loop — was allocating 5 fresh Color3 objects per fog
             // machine per frame).
@@ -280,7 +292,7 @@ class VRClub {
             down: BABYLON.Vector3.Down(),
             gravity: new BABYLON.Vector3(0, -9.81, 0),
             danceFloor: new BABYLON.Vector3(0, 0, -12),
-            djBooth: new BABYLON.Vector3(0, 0.95, -23),
+            djBooth: new BABYLON.Vector3(CLUB_POSITIONS.djBooth.x, CLUB_POSITIONS.djBooth.y, CLUB_POSITIONS.djBooth.z),
             mirrorBall: new BABYLON.Vector3(0, 6.5, -12)
         };
         
@@ -307,6 +319,7 @@ class VRClub {
         this.lightsActive = true;
         this.lasersActive = false;
         this.ledWallActive = true;
+        this.ledMonochrome = false; // true = wall renders in black & white only
         this.strobesActive = true;
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
         this.laserSheetActive = false; // Laser sheet effect
@@ -2674,26 +2687,30 @@ class VRClub {
         log.info("🎧 Creating DJ booth accessories...");
         
         // === LAPTOP STAND WITH LAPTOP ===
+        // Right-hand end of the VJ control inlay on the DJ plinth
+        // (inlay top y = 1.45, centred on z = -18.17 - see createDJBooth()).
+        // These used to sit at z ~ -17.6, which after the booth re-layout is
+        // 0.4 m in front of the plinth: the laptop was floating in mid-air.
         const laptopMat = this.materialFactory.getPreset('laptopBody');
         
         // Stand (adjustable laptop stand)
         const standBase = BABYLON.MeshBuilder.CreateBox("laptopStandBase", {
             width: 0.3, height: 0.02, depth: 0.25
         }, this.scene);
-        standBase.position = new BABYLON.Vector3(-0.8, 0.84, -17.6);
+        standBase.position = new BABYLON.Vector3(1.5, 1.45, -18.17);
         standBase.material = this.materialFactory.getPreset('barStool');
         
         const standArm = BABYLON.MeshBuilder.CreateBox("laptopStandArm", {
             width: 0.04, height: 0.15, depth: 0.04
         }, this.scene);
-        standArm.position = new BABYLON.Vector3(-0.8, 0.92, -17.65);
+        standArm.position = new BABYLON.Vector3(1.5, 1.53, -18.22);
         standArm.material = this.materialFactory.getPreset('barStool');
         
         // Laptop base
         const laptopBase = BABYLON.MeshBuilder.CreateBox("laptopBase", {
             width: 0.32, height: 0.015, depth: 0.22
         }, this.scene);
-        laptopBase.position = new BABYLON.Vector3(-0.8, 1.02, -17.55);
+        laptopBase.position = new BABYLON.Vector3(1.5, 1.63, -18.12);
         laptopBase.rotation.x = -0.2; // Tilted toward DJ
         laptopBase.material = laptopMat;
         
@@ -2701,7 +2718,7 @@ class VRClub {
         const laptopScreen = BABYLON.MeshBuilder.CreateBox("laptopScreen", {
             width: 0.3, height: 0.2, depth: 0.008
         }, this.scene);
-        laptopScreen.position = new BABYLON.Vector3(-0.8, 1.18, -17.64);
+        laptopScreen.position = new BABYLON.Vector3(1.5, 1.79, -18.21);
         laptopScreen.rotation.x = -0.5;
         laptopScreen.material = laptopMat;
         
@@ -2709,7 +2726,7 @@ class VRClub {
         const screenDisplay = BABYLON.MeshBuilder.CreatePlane("laptopDisplay", {
             width: 0.28, height: 0.18
         }, this.scene);
-        screenDisplay.position = new BABYLON.Vector3(-0.8, 1.18, -17.635);
+        screenDisplay.position = new BABYLON.Vector3(1.5, 1.79, -18.205);
         screenDisplay.rotation.x = -0.5;
         const screenMat = this.materialFactory.createStandardMaterial("laptopScreenMat", {
             emissiveColor: [0.2, 0.4, 0.8], // Blue waveform display
@@ -2881,13 +2898,27 @@ class VRClub {
         const trussSize = 0.3; // 300mm (12") overall width/height
         const braceSpacing = 0.5; // 500mm diagonal brace spacing
         
-        // Helper function to create hyperrealistic BOX truss section
-        const createBoxTruss = (name, length, position) => {
-            const parent = new BABYLON.TransformNode(name + "_parent", this.scene);
-            parent.position = position;
-            
+        // Prototype cache keyed by truss length. The three 24 m trusses are geometrically
+        // identical to one another, as are the two 10 m cross beams, so each length is
+        // built and merged exactly once and every repeat becomes a GPU instance.
+        const trussPrototypes = new Map();
+
+        // Build one truss worth of geometry at the origin and collapse it into four merged
+        // meshes, one per material.
+        //
+        // PERFORMANCE: each 24 m truss previously emitted ~690 individual meshes
+        // (4 chords + 196 rungs + 384 braces + 96 welds + end plates and bolts). Across the
+        // five trusses that was ~2,650 draw calls of completely static scenery - by far the
+        // largest draw-call consumer in the scene. Merging by material takes a prototype to
+        // 4 meshes, and instancing the repeats takes the entire rig to 8 draw calls.
+        // Triangle count is unchanged, so the rig still looks exactly the same.
+        const buildTrussParts = (protoName, length) => {
             const halfSize = trussSize / 2;
-            
+            const chordParts = [];   // trussMat     - chords + horizontal/vertical rungs
+            const braceParts = [];   // braceMat     - diagonal X-bracing
+            const weldParts = [];    // weldMat      - weld beads + flange bolts
+            const plateParts = [];   // connectorMat - end flanges
+
             // === FOUR MAIN CHORD TUBES (corners of box) ===
             const chordPositions = [
                 { y: halfSize, z: halfSize },   // Top-front
@@ -2897,15 +2928,14 @@ class VRClub {
             ];
             
             chordPositions.forEach((pos, idx) => {
-                const chord = BABYLON.MeshBuilder.CreateCylinder(name + "_chord" + idx, {
+                const chord = BABYLON.MeshBuilder.CreateCylinder(protoName + "_chord" + idx, {
                     diameter: tubeSize,
                     height: length,
                     tessellation: 12
                 }, this.scene);
                 chord.rotation.z = Math.PI / 2;
                 chord.position = new BABYLON.Vector3(0, pos.y, pos.z);
-                chord.parent = parent;
-                chord.material = trussMat;
+                chordParts.push(chord);
             });
             
             // === HORIZONTAL RUNGS (connecting chords at intervals) ===
@@ -2914,46 +2944,42 @@ class VRClub {
                 const xPos = -length / 2 + (i * braceSpacing);
                 
                 // Top horizontal rung (connecting top chords)
-                const topRung = BABYLON.MeshBuilder.CreateCylinder(name + "_topRung" + i, {
+                const topRung = BABYLON.MeshBuilder.CreateCylinder(protoName + "_topRung" + i, {
                     diameter: tubeSize * 0.8,
                     height: trussSize,
                     tessellation: 8
                 }, this.scene);
                 topRung.rotation.x = Math.PI / 2;
                 topRung.position = new BABYLON.Vector3(xPos, halfSize, 0);
-                topRung.parent = parent;
-                topRung.material = trussMat;
+                chordParts.push(topRung);
                 
                 // Bottom horizontal rung
-                const bottomRung = BABYLON.MeshBuilder.CreateCylinder(name + "_bottomRung" + i, {
+                const bottomRung = BABYLON.MeshBuilder.CreateCylinder(protoName + "_bottomRung" + i, {
                     diameter: tubeSize * 0.8,
                     height: trussSize,
                     tessellation: 8
                 }, this.scene);
                 bottomRung.rotation.x = Math.PI / 2;
                 bottomRung.position = new BABYLON.Vector3(xPos, -halfSize, 0);
-                bottomRung.parent = parent;
-                bottomRung.material = trussMat;
+                chordParts.push(bottomRung);
                 
                 // Front vertical rung (connecting front chords)
-                const frontRung = BABYLON.MeshBuilder.CreateCylinder(name + "_frontRung" + i, {
+                const frontRung = BABYLON.MeshBuilder.CreateCylinder(protoName + "_frontRung" + i, {
                     diameter: tubeSize * 0.8,
                     height: trussSize,
                     tessellation: 8
                 }, this.scene);
                 frontRung.position = new BABYLON.Vector3(xPos, 0, halfSize);
-                frontRung.parent = parent;
-                frontRung.material = trussMat;
+                chordParts.push(frontRung);
                 
                 // Back vertical rung
-                const backRung = BABYLON.MeshBuilder.CreateCylinder(name + "_backRung" + i, {
+                const backRung = BABYLON.MeshBuilder.CreateCylinder(protoName + "_backRung" + i, {
                     diameter: tubeSize * 0.8,
                     height: trussSize,
                     tessellation: 8
                 }, this.scene);
                 backRung.position = new BABYLON.Vector3(xPos, 0, -halfSize);
-                backRung.parent = parent;
-                backRung.material = trussMat;
+                chordParts.push(backRung);
             }
             
             // === DIAGONAL X-BRACING (on all 4 faces) ===
@@ -2964,7 +2990,7 @@ class VRClub {
                 const braceAngle = Math.atan2(trussSize, braceSpacing);
                 
                 // === TOP FACE X-BRACING ===
-                const topBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_topBrace1_" + i, {
+                const topBrace1 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_topBrace1_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
@@ -2972,10 +2998,9 @@ class VRClub {
                 topBrace1.rotation.z = Math.PI / 2 - braceAngle;
                 topBrace1.rotation.x = Math.PI / 2;
                 topBrace1.position = new BABYLON.Vector3(xMid, halfSize, 0);
-                topBrace1.parent = parent;
-                topBrace1.material = braceMat;
+                braceParts.push(topBrace1);
                 
-                const topBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_topBrace2_" + i, {
+                const topBrace2 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_topBrace2_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
@@ -2983,11 +3008,10 @@ class VRClub {
                 topBrace2.rotation.z = Math.PI / 2 + braceAngle;
                 topBrace2.rotation.x = Math.PI / 2;
                 topBrace2.position = new BABYLON.Vector3(xMid, halfSize, 0);
-                topBrace2.parent = parent;
-                topBrace2.material = braceMat;
+                braceParts.push(topBrace2);
                 
                 // === BOTTOM FACE X-BRACING ===
-                const bottomBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_bottomBrace1_" + i, {
+                const bottomBrace1 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_bottomBrace1_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
@@ -2995,10 +3019,9 @@ class VRClub {
                 bottomBrace1.rotation.z = Math.PI / 2 - braceAngle;
                 bottomBrace1.rotation.x = Math.PI / 2;
                 bottomBrace1.position = new BABYLON.Vector3(xMid, -halfSize, 0);
-                bottomBrace1.parent = parent;
-                bottomBrace1.material = braceMat;
+                braceParts.push(bottomBrace1);
                 
-                const bottomBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_bottomBrace2_" + i, {
+                const bottomBrace2 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_bottomBrace2_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
@@ -3006,77 +3029,70 @@ class VRClub {
                 bottomBrace2.rotation.z = Math.PI / 2 + braceAngle;
                 bottomBrace2.rotation.x = Math.PI / 2;
                 bottomBrace2.position = new BABYLON.Vector3(xMid, -halfSize, 0);
-                bottomBrace2.parent = parent;
-                bottomBrace2.material = braceMat;
+                braceParts.push(bottomBrace2);
                 
                 // === FRONT FACE X-BRACING ===
-                const frontBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_frontBrace1_" + i, {
+                const frontBrace1 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_frontBrace1_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
                 }, this.scene);
                 frontBrace1.rotation.z = Math.PI / 2 - braceAngle;
                 frontBrace1.position = new BABYLON.Vector3(xMid, 0, halfSize);
-                frontBrace1.parent = parent;
-                frontBrace1.material = braceMat;
+                braceParts.push(frontBrace1);
                 
-                const frontBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_frontBrace2_" + i, {
+                const frontBrace2 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_frontBrace2_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
                 }, this.scene);
                 frontBrace2.rotation.z = Math.PI / 2 + braceAngle;
                 frontBrace2.position = new BABYLON.Vector3(xMid, 0, halfSize);
-                frontBrace2.parent = parent;
-                frontBrace2.material = braceMat;
+                braceParts.push(frontBrace2);
                 
                 // === BACK FACE X-BRACING ===
-                const backBrace1 = BABYLON.MeshBuilder.CreateCylinder(name + "_backBrace1_" + i, {
+                const backBrace1 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_backBrace1_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
                 }, this.scene);
                 backBrace1.rotation.z = Math.PI / 2 - braceAngle;
                 backBrace1.position = new BABYLON.Vector3(xMid, 0, -halfSize);
-                backBrace1.parent = parent;
-                backBrace1.material = braceMat;
+                braceParts.push(backBrace1);
                 
-                const backBrace2 = BABYLON.MeshBuilder.CreateCylinder(name + "_backBrace2_" + i, {
+                const backBrace2 = BABYLON.MeshBuilder.CreateCylinder(protoName + "_backBrace2_" + i, {
                     diameter: tubeSize * 0.5,
                     height: braceLength,
                     tessellation: 6
                 }, this.scene);
                 backBrace2.rotation.z = Math.PI / 2 + braceAngle;
                 backBrace2.position = new BABYLON.Vector3(xMid, 0, -halfSize);
-                backBrace2.parent = parent;
-                backBrace2.material = braceMat;
+                braceParts.push(backBrace2);
                 
                 // === WELD JOINTS at rung connections (every 2nd segment for performance) ===
                 if (i % 2 === 0) {
                     chordPositions.forEach((pos, idx) => {
-                        const weld = BABYLON.MeshBuilder.CreateTorus(name + "_weld" + i + "_" + idx, {
+                        const weld = BABYLON.MeshBuilder.CreateTorus(protoName + "_weld" + i + "_" + idx, {
                             diameter: tubeSize * 1.3,
                             thickness: tubeSize * 0.15,
                             tessellation: 8
                         }, this.scene);
                         weld.rotation.z = Math.PI / 2;
                         weld.position = new BABYLON.Vector3(xStart, pos.y, pos.z);
-                        weld.parent = parent;
-                        weld.material = weldMat;
+                        weldParts.push(weld);
                     });
                 }
             }
             
             // === END PLATES (connector flanges at truss ends) ===
             const createEndPlate = (xPos, isStart) => {
-                const plate = BABYLON.MeshBuilder.CreateBox(name + "_endPlate" + (isStart ? "Start" : "End"), {
+                const plate = BABYLON.MeshBuilder.CreateBox(protoName + "_endPlate" + (isStart ? "Start" : "End"), {
                     width: 0.02,
                     height: trussSize + 0.04,
                     depth: trussSize + 0.04
                 }, this.scene);
                 plate.position = new BABYLON.Vector3(xPos, 0, 0);
-                plate.parent = parent;
-                plate.material = connectorMat;
+                plateParts.push(plate);
                 
                 // Corner bolt holes (visual detail)
                 const boltPositions = [
@@ -3086,28 +3102,72 @@ class VRClub {
                     { y: -halfSize, z: -halfSize }
                 ];
                 boltPositions.forEach((bPos, bIdx) => {
-                    const bolt = BABYLON.MeshBuilder.CreateCylinder(name + "_bolt" + (isStart ? "S" : "E") + bIdx, {
+                    const bolt = BABYLON.MeshBuilder.CreateCylinder(protoName + "_bolt" + (isStart ? "S" : "E") + bIdx, {
                         diameter: tubeSize * 0.6,
                         height: 0.025,
                         tessellation: 8
                     }, this.scene);
                     bolt.rotation.z = Math.PI / 2;
                     bolt.position = new BABYLON.Vector3(xPos + (isStart ? -0.01 : 0.01), bPos.y, bPos.z);
-                    bolt.parent = parent;
-                    bolt.material = weldMat;
+                    weldParts.push(bolt);
                 });
             };
             
             createEndPlate(-length / 2, true);
             createEndPlate(length / 2, false);
             
-            // OPTIMIZATION: Freeze all truss components (static geometry)
-            parent.getChildMeshes().forEach(mesh => {
-                mesh.freezeWorldMatrix();
-                mesh.doNotSyncBoundingInfo = true;
-                mesh.isPickable = false;
-            });
+            // Collapse each material group into a single mesh. MergeMeshes bakes each
+            // source's world matrix, and every part above was built unparented at the
+            // origin, so the merged result is already truss-local.
+            //
+            // allow32BitsIndices must be true: a merged 24 m truss is far past the 65,535
+            // index ceiling and would silently fail to merge otherwise.
+            //
+            // Names keep the "truss" substring because the VR static-freeze sweep in
+            // applyVRSettings() and the reflection probe render list in
+            // createFloorReflectionProbe() both select meshes by name.
+            const mergeGroup = (parts, suffix, material) => {
+                if (!parts.length) return null;
+                const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+                if (!merged) {
+                    this.log.warn(`Truss merge failed for ${protoName}_${suffix}`);
+                    return null;
+                }
+                merged.name = `${protoName}_truss${suffix}`;
+                merged.material = material;
+                merged.isPickable = false;
+                return merged;
+            };
             
+            return [
+                mergeGroup(chordParts, 'Chords', trussMat),
+                mergeGroup(braceParts, 'Braces', braceMat),
+                mergeGroup(weldParts, 'Welds', weldMat),
+                mergeGroup(plateParts, 'Plates', connectorMat)
+            ].filter(Boolean);
+        };
+        
+        // Returns a TransformNode so that fixtures can still be parented to a truss the
+        // way createTrussMountedLights() and the laser rig expect.
+        const createBoxTruss = (name, length, position) => {
+            const parent = new BABYLON.TransformNode(name + "_parent", this.scene);
+            
+            const proto = trussPrototypes.get(length);
+            if (proto) {
+                // Instances of an already-merged prototype render inside the prototype's
+                // own draw call, so a repeated truss is effectively free.
+                proto.forEach((src, idx) => {
+                    const inst = src.createInstance(`${name}_trussPart${idx}`);
+                    inst.isPickable = false;
+                    inst.parent = parent;
+                });
+            } else {
+                const parts = buildTrussParts(name, length);
+                parts.forEach(part => { part.parent = parent; });
+                trussPrototypes.set(length, parts);
+            }
+            
+            parent.position = position;
             return parent;
         };
         
@@ -3134,6 +3194,18 @@ class VRClub {
         const rightSideBeam = createBoxTruss("crossBeamRight", 10, new BABYLON.Vector3(8, 8, -12));
         rightSideBeam.rotation.y = Math.PI / 2;
         this.sideTrusses[8] = rightSideBeam;
+        
+        // OPTIMIZATION: freeze all truss geometry (fully static).
+        // This has to run after the cross beams have been rotated - freezeWorldMatrix()
+        // snapshots the matrix as it stands, so freezing inside createBoxTruss() would
+        // have locked in the pre-rotation transform.
+        [truss1, truss2, truss3, leftSideBeam, rightSideBeam].forEach(node => {
+            node.getChildMeshes().forEach(mesh => {
+                mesh.freezeWorldMatrix();
+                mesh.doNotSyncBoundingInfo = true;
+                mesh.isPickable = false;
+            });
+        });
         
         // === HYPERREALISTIC CHAIN MOTOR HOISTS ===
         // Professional stage rigging with chain hoists at strategic points
@@ -3309,8 +3381,28 @@ class VRClub {
     
     createDJBooth() {
         // === HYPERREALISTIC INTEGRATED DJ/VJ BOOTH ===
-        // Positioned at BACK of club (z=-18)
-        // DJ faces DANCE FLOOR (toward positive z direction)
+        // Positioned at BACK of club. DJ faces the DANCE FLOOR (toward +z).
+        //
+        // === BOOTH LAYOUT ANCHORS ===
+        // Every piece of gear below is placed relative to these four numbers.
+        // The previous hard-coded values had drifted badly:
+        //   - the deck row sat at z -20.75..-19.25, i.e. straight THROUGH the LED
+        //     wall plane at z = -20, with the mixer display entirely behind it;
+        //   - the whole VJ control surface (desk, 12 buttons, speed slider) was
+        //     parked at z -26.7..-28.3 - six to eight metres OUTSIDE the building;
+        //   - the work surface was only 0.34 m above the riser deck, i.e. knee
+        //     height for anyone actually standing in the booth.
+        // The result was that there was nowhere for an operator to stand between
+        // the wall and the gear, and nothing reachable to operate.
+        //
+        //   LED wall plane          z = -20.00   (210 emissive panels - keep clear)
+        //   operator standing zone  z = -20.00 .. -19.00  (1.0 m, on the riser)
+        //   deck row                z = -19.00 .. -18.00
+        //   booth front barrier     z = -18.05 .. -17.55  (collisionWall5)
+        const RISER_TOP_Y = 0.5;    // top face of djPlatform / djPlatformTop
+        const DECK_Z = -18.5;       // centre of the deck row
+        const DECK_DEPTH = 1.0;     // front edge lands on the booth barrier at z = -18
+        const DECK_TOP_Y = 1.42;    // work surface: 0.92 m above the riser deck
         
         log.info("🎛️ Creating integrated DJ/VJ booth...");
         
@@ -3347,21 +3439,28 @@ class VRClub {
         // Front safety rail
         const railMat = this.materialFactory.getPreset('rail');
         
+        // Front edge nosing on the deck plinth. This used to be a free-floating
+        // bar at z = -19, which the re-layout puts inside the standing zone at
+        // shin height; as a nosing it instead marks the plinth's front face,
+        // which is exactly where the invisible booth barrier (collisionWall5) sits.
         const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
-            width: 5,
+            width: 4,
             height: 0.08,
             depth: 0.08
         }, this.scene);
-        frontRail.position = new BABYLON.Vector3(0, 0.8, -19);
+        frontRail.position = new BABYLON.Vector3(0, DECK_TOP_Y - 0.04, DECK_Z + DECK_DEPTH / 2 + 0.04);
         frontRail.material = railMat;
         
-        // === DJ EQUIPMENT TABLE (CENTER) ===
+        // === DJ EQUIPMENT PLINTH (CENTER) ===
+        // A solid box from the riser deck up to the work surface rather than a
+        // floating slab, so the decks have something underneath them and the
+        // booth reads as a real front-of-house fascia from the dance floor.
         const djTable = BABYLON.MeshBuilder.CreateBox("djTable", {
             width: 4,
-            height: 0.08,
-            depth: 1.5
+            height: DECK_TOP_Y - RISER_TOP_Y,
+            depth: DECK_DEPTH
         }, this.scene);
-        djTable.position = new BABYLON.Vector3(0, 0.8, -20);
+        djTable.position = new BABYLON.Vector3(0, (DECK_TOP_Y + RISER_TOP_Y) / 2, DECK_Z);
         
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
@@ -3375,7 +3474,7 @@ class VRClub {
             height: 0.1,
             depth: 1.0
         }, this.scene);
-        leftCDJ.position = new BABYLON.Vector3(-1.5, 0.89, -20);
+        leftCDJ.position = new BABYLON.Vector3(-1.5, DECK_TOP_Y + 0.05, DECK_Z);
         leftCDJ.material = cdjMat;
         
         // Left jog wheel (glowing)
@@ -3383,7 +3482,7 @@ class VRClub {
             diameter: 0.5,
             height: 0.04
         }, this.scene);
-        leftJog.position = new BABYLON.Vector3(-1.5, 0.96, -20);
+        leftJog.position = new BABYLON.Vector3(-1.5, DECK_TOP_Y + 0.12, DECK_Z);
         const jogMat = this.materialFactory.getPreset('jogWheel');
         leftJog.material = jogMat;
         
@@ -3393,7 +3492,7 @@ class VRClub {
             height: 0.1,
             depth: 1.0
         }, this.scene);
-        rightCDJ.position = new BABYLON.Vector3(1.5, 0.89, -20);
+        rightCDJ.position = new BABYLON.Vector3(1.5, DECK_TOP_Y + 0.05, DECK_Z);
         rightCDJ.material = cdjMat;
         
         // Right jog wheel
@@ -3401,7 +3500,7 @@ class VRClub {
             diameter: 0.5,
             height: 0.04
         }, this.scene);
-        rightJog.position = new BABYLON.Vector3(1.5, 0.96, -20);
+        rightJog.position = new BABYLON.Vector3(1.5, DECK_TOP_Y + 0.12, DECK_Z);
         rightJog.material = jogMat.clone("rightJogMat");
         
         // === DJ MIXER (CENTER) ===
@@ -3410,15 +3509,15 @@ class VRClub {
             height: 0.12,
             depth: 0.9
         }, this.scene);
-        mixer.position = new BABYLON.Vector3(0, 0.89, -20);
+        mixer.position = new BABYLON.Vector3(0, DECK_TOP_Y + 0.05, DECK_Z);
         mixer.material = cdjMat; // Reuse CDJ material for mixer body
         
-        // Mixer display (facing DJ)
+        // Mixer display (facing DJ, at the back edge of the plinth)
         const mixerDisplay = BABYLON.MeshBuilder.CreatePlane("mixerDisplay", {
             width: 1.2,
             height: 0.2
         }, this.scene);
-        mixerDisplay.position = new BABYLON.Vector3(0, 0.98, -20.5);
+        mixerDisplay.position = new BABYLON.Vector3(0, DECK_TOP_Y + 0.14, DECK_Z - DECK_DEPTH / 2);
         mixerDisplay.rotation.x = Math.PI / 6;
         const displayMat = this.materialFactory.createStandardMaterial("mixerDisplayMat", {
             emissiveColor: [0, 1, 0.5],
@@ -3432,7 +3531,10 @@ class VRClub {
             height: 0.08,
             depth: 0.25
         }, this.scene);
-        audioBtn.position = new BABYLON.Vector3(0, 0.96, -19.5);
+        // Sits on the VJ control inlay along the front lip of the plinth. Keep it
+        // clear of the DJ console model's footprint (x -0.51..0.51, z -18.89..-18.35)
+        // or the button ends up buried inside the gear and unpickable.
+        audioBtn.position = new BABYLON.Vector3(-0.75, DECK_TOP_Y + 0.07, DECK_Z + 0.33);
         audioBtn.isPickable = true;
         
         const audioBtnMat = this.materialFactory.createStandardMaterial("audioBtnMat", {
@@ -3455,110 +3557,113 @@ class VRClub {
         // The DJ relies on headphones or the main PA system
 
         
-        // === VJ LIGHTING CONTROL CONSOLE (RIGHT SIDE) ===
+        // === VJ CONTROL SURFACE INLAY ===
+        // A shallow raised strip along the front lip of the plinth carrying the
+        // audio transport button and the speed slider. This mesh used to be a
+        // separate 2.5 x 2.0 desk at x = 3.5 / z = -21.4, which put it behind both
+        // the LED wall and the back wall of the building.
         const vjConsole = BABYLON.MeshBuilder.CreateBox("vjConsole", {
-            width: 2.5,
-            height: 0.15,
-            depth: 2.0 // Extended to fit 3 rows
+            width: 4,
+            height: 0.03,
+            depth: 0.34
         }, this.scene);
-        vjConsole.position = new BABYLON.Vector3(3.5, 0.8, -21.4); // Moved back to center
+        vjConsole.position = new BABYLON.Vector3(0, DECK_TOP_Y + 0.015, DECK_Z + 0.33);
         vjConsole.material = tableMat;
         
         // VJ Console label removed - buttons are self-explanatory by color
         
         // === VJ CONTROL BUTTONS ===
+        // Two rows of six flanking the DJ console model (which occupies x -0.51..0.51),
+        // all on the plinth top and all within arm's reach of an operator standing at
+        // z ~ -19.4. Buttons are 0.4 wide x 0.3 deep, so these columns/rows leave a
+        // 0.06 m gutter between neighbours and 0.16 m either side of the console.
+        const VJ_COL_X = [-1.79, -1.33, -0.87, 0.87, 1.33, 1.79];
+        const VJ_ROW_Z = [DECK_Z - 0.32, DECK_Z]; // back row (nearest the DJ), front row
+        
         const toggleButtons = [
             { 
                 label: "SPOTS", 
                 control: "lightsActive",
                 onColor: new BABYLON.Color3(1, 0.5, 0),
                 offColor: new BABYLON.Color3(0.2, 0.1, 0),
-                x: 2.8
+                col: 0, row: 0
             },
             { 
                 label: "LASERS", 
                 control: "lasersActive",
                 onColor: new BABYLON.Color3(1, 0, 0),
                 offColor: new BABYLON.Color3(0.2, 0, 0),
-                x: 3.3
+                col: 1, row: 0
             },
             { 
                 label: "LED WALL", 
                 control: "ledWallActive",
                 onColor: new BABYLON.Color3(0, 0.5, 1),
                 offColor: new BABYLON.Color3(0, 0.1, 0.2),
-                x: 3.8
+                col: 2, row: 0
             },
             { 
                 label: "STROBES", 
                 control: "strobesActive",
                 onColor: new BABYLON.Color3(1, 1, 1),
                 offColor: new BABYLON.Color3(0.2, 0.2, 0.2),
-                x: 4.3
+                col: 3, row: 0
             },
             { 
                 label: "DISCO BALL", 
                 control: "mirrorBallActive",
                 onColor: new BABYLON.Color3(1, 1, 0),
                 offColor: new BABYLON.Color3(0.2, 0.2, 0),
-                x: 2.8,
-                row2: true
+                col: 0, row: 1
             },
             { 
                 label: "BALL COLOR", 
                 control: "changeMirrorBallColor",
                 onColor: new BABYLON.Color3(1, 1, 1), // White - changes to current color
                 offColor: new BABYLON.Color3(0.3, 0.3, 0.3),
-                x: 3.3,
-                row2: true
+                col: 1, row: 1
             },
             { 
                 label: "NEXT COLOR", 
                 control: "changeColor",
                 onColor: new BABYLON.Color3(0.5, 1, 0.5),
                 offColor: new BABYLON.Color3(0.1, 0.3, 0.1),
-                x: 3.8,
-                row2: true
+                col: 2, row: 1
             },
             { 
                 label: "SPOT MODE", 
                 control: "cycleSpotMode",
                 onColor: new BABYLON.Color3(0, 1, 1), // Cyan
                 offColor: new BABYLON.Color3(0, 0.3, 0.3), // Dark cyan
-                x: 4.3,
-                row2: true
+                col: 3, row: 1
             },
             { 
                 label: "SMOKE", 
                 control: "smokeActive",
                 onColor: new BABYLON.Color3(0.8, 0.8, 1.0), // White/Blueish
                 offColor: new BABYLON.Color3(0.2, 0.2, 0.3),
-                x: 1.8,
-                row3: true
+                col: 4, row: 0
             },
             { 
                 label: "LASER SHEET", 
                 control: "laserSheetActive",
                 onColor: new BABYLON.Color3(0, 1, 0), // Green
                 offColor: new BABYLON.Color3(0, 0.2, 0),
-                x: 2.3,
-                row3: true
+                col: 5, row: 0
             },
             { 
                 label: "PATTERN", 
                 control: "cyclePattern",
                 onColor: new BABYLON.Color3(1, 0.5, 1), // Pink - changes per pattern
                 offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
-                x: 2.8,
-                row3: true
+                col: 4, row: 1
             },
             { 
                 label: "STROBE", 
                 control: "spotStrobeActive",
                 onColor: new BABYLON.Color3(1, 1, 0), // Yellow - strobe on
                 offColor: new BABYLON.Color3(0.2, 0.2, 0),
-                x: 3.3,
-                row3: true
+                col: 5, row: 1
             }
         ];
         
@@ -3568,12 +3673,12 @@ class VRClub {
                 height: 0.1,
                 depth: 0.3
             }, this.scene);
-            // Row 1: z=-26.7, Row 2: z=-27.5, Row 3: z=-28.3
-            let zPos = -26.7; // Row 1 (default)
-            if (btnDef.row2) zPos = -27.5; // Row 2
-            if (btnDef.row3) zPos = -28.3; // Row 3
             
-            toggleBtn.position = new BABYLON.Vector3(btnDef.x, 0.95, zPos);
+            toggleBtn.position = new BABYLON.Vector3(
+                VJ_COL_X[btnDef.col],
+                DECK_TOP_Y + 0.05, // half the button height, so it rests on the plinth top
+                VJ_ROW_Z[btnDef.row]
+            );
             toggleBtn.isPickable = true;
             // Determine initial state
             const isActive = this[btnDef.control];
@@ -3597,10 +3702,10 @@ class VRClub {
         });
         
         // === SPEED SLIDER for controlling spotlight sweep speed ===
-        // Position: Row 3, right side (x=3.8 to 4.3)
-        const sliderX = 3.8;
-        const sliderZ = -28.3; // Row 3
-        const sliderY = 0.95;
+        // On the VJ control inlay, right of the audio transport button.
+        const sliderX = 0.35;
+        const sliderZ = DECK_Z + 0.33;
+        const sliderY = DECK_TOP_Y + 0.06;
         
         // Slider track (background rail)
         const sliderTrack = BABYLON.MeshBuilder.CreateBox("speedSliderTrack", {
@@ -3749,7 +3854,17 @@ class VRClub {
                     row: row,
                     col: col,
                     centerX: col - (cols / 2) + 0.5,
-                    centerY: row - (rows / 2) + 0.5
+                    centerY: row - (rows / 2) + 0.5,
+                    // Every colour written to this panel goes through this one
+                    // Color3. Two reasons, both load-bearing:
+                    //  1. Several patterns mutate `material.emissiveColor` in
+                    //     place. If that ever points at a shared cached colour
+                    //     they silently corrupt it — this is exactly how
+                    //     cachedColors.black stopped being black and left the
+                    //     "wall off" looks glowing a dim purple.
+                    //  2. The render loop forbids per-frame allocation, and the
+                    //     old scale() path allocated 210 Color3s every frame.
+                    colorBuffer: new BABYLON.Color3(0, 0, 0)
                 });
             }
         }
@@ -6867,11 +6982,16 @@ class VRClub {
             this.updateLEDWall(time, audioData);
         } else if (this.ledPanels && this.ledPanels.length > 0 &&
                    (!this.ledWallActive || (this.masterIntensity != null && this.masterIntensity <= 0.02))) {
-            // LED Wall is OFF - turn all panels black (not just paused)
-            const blackColor = this.cachedColors.black;
-            this.ledPanels.forEach(panel => {
-                panel.material.emissiveColor = blackColor;
-            });
+            // LED Wall is OFF — drive every panel to true black, not just paused.
+            // Written through each panel's own buffer rather than a shared cached
+            // black, so a pattern that mutates emissiveColor in place on a later
+            // frame cannot poison the one object the whole wall depends on.
+            for (let i = 0; i < this.ledPanels.length; i++) {
+                const panel = this.ledPanels[i];
+                const c = panel.colorBuffer;
+                c.r = 0; c.g = 0; c.b = 0;
+                panel.material.emissiveColor = c;
+            }
         }
         
         // === IMMERSIVE DANCE FLOOR EDGE LED ANIMATION ===
@@ -8479,8 +8599,16 @@ class VRClub {
             this.patternRainbowRave         // Full spectrum rave
         ];
         
-        // Use cached colors instead of creating new ones
-        const colors = [
+        // Palette. In monochrome looks the patterns are handed neutral whites so
+        // anything that respects the colour it is given renders as pure light and
+        // shade — see the desaturation backstop after the pattern call for the
+        // ones that synthesise their own hues.
+        const colors = this.ledMonochrome ? [
+            this.cachedColors.ledMonoWhite,
+            this.cachedColors.ledMonoCool,
+            this.cachedColors.ledMonoWhite,
+            this.cachedColors.ledMonoWarm
+        ] : [
             this.cachedColors.red,
             this.cachedColors.green,
             this.cachedColors.blue,
@@ -8577,15 +8705,16 @@ class VRClub {
         
         // Execute current pattern with error handling
         const currentPattern = patterns[this.ledPattern];
+        const activeColor = colors[this.ledColorIndex % colors.length];
         if (currentPattern && typeof currentPattern === 'function') {
             try {
-                currentPattern.call(this, colors[this.ledColorIndex], time, audioData);
+                currentPattern.call(this, activeColor, time, audioData);
             } catch (err) {
                 log.warn('LED pattern error:', err);
                 // Fallback: simple color pulse
                 const brightness = 0.5 + Math.sin(time * 3) * 0.5;
                 this.ledPanels.forEach(panel => {
-                    panel.material.emissiveColor = colors[this.ledColorIndex].scale(brightness);
+                    this.updateLEDPanel(panel, activeColor, brightness);
                 });
             }
         } else {
@@ -8593,9 +8722,33 @@ class VRClub {
             log.warn(`LED pattern ${this.ledPattern} not found, using fallback`);
             this.ledPanels.forEach(panel => {
                 const wave = Math.sin(time * 2 + panel.col * 0.3);
-                const brightness = 0.5 + wave * 0.5;
-                panel.material.emissiveColor = colors[this.ledColorIndex].scale(brightness);
+                this.updateLEDPanel(panel, activeColor, 0.5 + wave * 0.5);
             });
+        }
+
+        // === MONOCHROME BACKSTOP ===
+        // Several patterns (spiral, plasma, aurora, kaleidoscope, rainbow rave)
+        // synthesise their own hues and ignore the colour they are handed, so
+        // feeding them white is not enough on its own.
+        //
+        // Collapses on the channel MEAN, which is the only one of the three
+        // obvious choices that actually keeps the picture:
+        //   · max(r,g,b) returns ~1.0 for every saturated hue, so a rainbow
+        //     spiral desaturates to a flat white wall with no shape left.
+        //   · Rec.709 luminance renders pure blue at 0.07 and erases anything
+        //     built on blue entirely.
+        //   · the mean maps each hue to a distinct grey (red 0.33, yellow 0.67,
+        //     white 1.0), so hue-carried structure survives as tonal contrast —
+        //     which is the whole point of a black-and-white look.
+        if (this.ledMonochrome) {
+            for (let i = 0; i < this.ledPanels.length; i++) {
+                const panel = this.ledPanels[i];
+                const c = panel.material.emissiveColor;
+                const v = (c.r + c.g + c.b) / 3;
+                const m = panel.colorBuffer;
+                m.r = v; m.g = v; m.b = v;
+                panel.material.emissiveColor = m;
+            }
         }
     }
 
@@ -8605,15 +8758,17 @@ class VRClub {
      * PERFORMANCE: Uses direct color assignment when possible, avoids scale() for common values
      */
     updateLEDPanel(panel, color, brightness) {
+        const c = panel.colorBuffer;
         if (brightness === 0) {
-            panel.material.emissiveColor = this.cachedColors.black;
+            c.r = 0; c.g = 0; c.b = 0;
         } else if (brightness >= 0.99) {
-            // Avoid scale() call for full brightness
-            panel.material.emissiveColor = color;
+            c.r = color.r; c.g = color.g; c.b = color.b;
         } else {
-            // For partial brightness, use scale() but cache commonly used values
-            panel.material.emissiveColor = color.scale(brightness);
+            c.r = color.r * brightness;
+            c.g = color.g * brightness;
+            c.b = color.b * brightness;
         }
+        panel.material.emissiveColor = c;
     }
 
     // === IMMERSIVE DANCE CLUB PATTERNS ===
@@ -10471,10 +10626,12 @@ class VRClub {
             exterior: { pos: new BABYLON.Vector3(0, 1.7, 10), target: new BABYLON.Vector3(0, 2, 0) },
             entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
             danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -18) },
-            djBooth: { pos: new BABYLON.Vector3(0, 2.0, -18.5), target: new BABYLON.Vector3(0, 1.7, -10) },
-            djSide: { pos: new BABYLON.Vector3(-5, 2.0, -17), target: new BABYLON.Vector3(0, 1.5, -17.5) },
+            // Eye height for someone standing on the 0.5 m riser, inside the 1 m
+            // gap between the LED wall (z=-20) and the deck plinth (z=-19), facing out.
+            djBooth: { pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10) },
+            djSide: { pos: new BABYLON.Vector3(-4.2, 2.1, -17.2), target: new BABYLON.Vector3(0, 1.4, -18.6) },
             ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -19) },
-            speakers: { pos: new BABYLON.Vector3(-4, 1.7, -14), target: new BABYLON.Vector3(-7, 2.5, -19) },
+            speakers: { pos: new BABYLON.Vector3(-3, 2.2, -11.5), target: new BABYLON.Vector3(-6, 6.3, -16) },
             truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
             mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
             overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },
@@ -11184,21 +11341,21 @@ class VRClub {
                 url: './js/models/avatars/Hip Hop Dancing.glb',
                 position: new BABYLON.Vector3(-3, 0, -10),
                 rotation: Math.PI * 0.2, // Facing slightly toward DJ
-                scale: 1.0
+                height: 1.83 // Real crowds are not all the same height
             },
             {
                 name: 'HouseDancer',
                 url: './js/models/avatars/house.glb',
                 position: new BABYLON.Vector3(0, 0, -14),
                 rotation: Math.PI, // Facing DJ booth
-                scale: 1.0
+                height: 1.71
             },
             {
                 name: 'RumbaDancer',
                 url: './js/models/avatars/rumba_dancing_female_character.glb',
                 position: new BABYLON.Vector3(3, 0, -10),
                 rotation: Math.PI * -0.2, // Facing slightly toward DJ
-                scale: 1.0
+                height: 1.64
             }
         ];
         
@@ -11218,16 +11375,17 @@ class VRClub {
                 rootMesh.position = avatar.position;
                 rootMesh.rotation.y = avatar.rotation;
                 
-                // Auto-scale to reasonable human height (~1.7m)
+                // Auto-scale to the avatar's real-world height (source GLBs are in
+                // wildly different units - one is ~100x the others)
                 const boundingInfo = rootMesh.getHierarchyBoundingVectors();
                 const currentHeight = boundingInfo.max.y - boundingInfo.min.y;
-                const targetHeight = 1.7; // 1.7 meters
-                const scaleFactor = (targetHeight / currentHeight) * avatar.scale;
+                const scaleFactor = currentHeight > 1e-6 ? (avatar.height / currentHeight) : 1;
                 rootMesh.scaling.setAll(scaleFactor);
                 
-                // Ensure avatar is grounded (feet on floor)
+                // Ensure avatar is grounded (feet on floor). getHierarchyBoundingVectors
+                // already returns WORLD space, so the offset must not be re-scaled.
                 const newBounding = rootMesh.getHierarchyBoundingVectors();
-                rootMesh.position.y = -newBounding.min.y * scaleFactor;
+                rootMesh.position.y += avatar.position.y - newBounding.min.y;
                 
                 // Fix materials for proper rendering in the club
                 // CRITICAL: Enforce fully opaque materials to prevent see-through NPCs

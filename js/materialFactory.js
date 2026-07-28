@@ -9,6 +9,219 @@ class MaterialFactory {
         
         // Cache of shared materials (keyed by material type)
         this.sharedMaterials = {};
+
+        // Cache of procedurally generated surface-detail map sets, keyed by kind.
+        // See _getDetailMaps().
+        this.detailMaps = {};
+    }
+
+    /**
+     * Deterministic PRNG. Math.random() would give a different club on every reload,
+     * which makes visual regressions impossible to eyeball.
+     * @param {number} seed
+     * @returns {() => number} generator in [0, 1)
+     */
+    _seededRandom(seed) {
+        let s = seed >>> 0;
+        return () => {
+            s = (s * 1664525 + 1013904223) >>> 0;
+            return s / 4294967296;
+        };
+    }
+
+    /**
+     * Build (once, then cache) a normal + metallicRoughness map pair for a class of
+     * surface finish.
+     *
+     * Every prop in the club that is not the floor, walls or ceiling was shaded with a
+     * single flat baseColour and a single scalar roughness. A perfectly uniform roughness
+     * is the strongest "this is CG" cue there is: real metal and real road-cased plastic
+     * have directional machining marks, scuffs and grime, so their specular highlight
+     * breaks up as it travels across the surface. These maps reintroduce that break-up
+     * without any download, any licence attribution, or any extra draw call - they are
+     * shared by every material of the same finish.
+     *
+     * Maps are generated tileable: the anisotropic kinds vary per-row and span the full
+     * width, and the isotropic kind is wrapped noise.
+     *
+     * Cached per (kind, scale) pair. DynamicTexture.clone() deliberately does not copy
+     * canvas contents, so a differently-tiled variant has to be regenerated rather than
+     * cloned - at 256x256 that is a sub-millisecond cost paid once per variant.
+     *
+     * @param {'brushedMetal'|'castMetal'|'plastic'} kind
+     * @param {number} scale UV repeats
+     * @returns {{normal: BABYLON.Texture, metallicRoughness: BABYLON.Texture}|null}
+     */
+    _getDetailMaps(kind, scale) {
+        const cacheKey = `${kind}@${scale}`;
+        if (cacheKey in this.detailMaps) return this.detailMaps[cacheKey];
+        if (typeof document === 'undefined' || !BABYLON.DynamicTexture) return null;
+
+        const SIZE = 256;
+        let maps = null;
+
+        try {
+            const makeTexture = (name) => {
+                const tex = new BABYLON.DynamicTexture(name, { width: SIZE, height: SIZE },
+                    this.scene, true);
+                // Normal and metallicRoughness maps carry data, not colour. Decoding them
+                // from sRGB would skew every value.
+                tex.gammaSpace = false;
+                tex.hasAlpha = false;
+                tex.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+                tex.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+                tex.uScale = scale;
+                tex.vScale = scale;
+                return tex;
+            };
+
+            const normalTex = makeTexture(`${kind}NormalDetail_${scale}`);
+            const mrTex = makeTexture(`${kind}MRDetail_${scale}`);
+            const nCtx = normalTex.getContext();
+            const mCtx = mrTex.getContext();
+
+            // Distinct seed per kind so the three finishes do not share a pattern.
+            const seedBase = kind === 'brushedMetal' ? 0x5f356495
+                : kind === 'castMetal' ? 0x27d4eb2f : 0x165667b1;
+            const rand = this._seededRandom(seedBase);
+
+            // A tileable 1D value-noise band used for the anisotropic finishes: one value
+            // per row, smoothed so streaks have believable width instead of reading as
+            // per-pixel static.
+            const smoothBand = (octaves) => {
+                const out = new Float32Array(SIZE);
+                let amplitude = 1;
+                let total = 0;
+                for (let o = 0; o < octaves; o++) {
+                    const period = SIZE >> o;
+                    const controlCount = Math.max(2, Math.floor(SIZE / period * 8) || 2);
+                    const control = new Float32Array(controlCount);
+                    for (let c = 0; c < controlCount; c++) control[c] = rand();
+                    for (let i = 0; i < SIZE; i++) {
+                        const t = (i / SIZE) * controlCount;
+                        const i0 = Math.floor(t) % controlCount;
+                        const i1 = (i0 + 1) % controlCount;
+                        const f = t - Math.floor(t);
+                        // Smoothstep between control points keeps the band C1-continuous
+                        // and, because i1 wraps, seamless top-to-bottom.
+                        const s = f * f * (3 - 2 * f);
+                        out[i] += (control[i0] * (1 - s) + control[i1] * s) * amplitude;
+                    }
+                    total += amplitude;
+                    amplitude *= 0.5;
+                }
+                for (let i = 0; i < SIZE; i++) out[i] /= total;
+                return out;
+            };
+
+            if (kind === 'plastic') {
+                // Isotropic fine grain: textured ABS, road-case vinyl, powder coat.
+                const nImg = nCtx.createImageData(SIZE, SIZE);
+                const mImg = mCtx.createImageData(SIZE, SIZE);
+                // Height field first, so normals can be taken as real gradients rather
+                // than uncorrelated per-channel noise (which reads as coloured fizz).
+                const height = new Float32Array(SIZE * SIZE);
+                for (let i = 0; i < height.length; i++) height[i] = rand();
+                const at = (x, y) => height[((y + SIZE) % SIZE) * SIZE + ((x + SIZE) % SIZE)];
+                for (let y = 0; y < SIZE; y++) {
+                    for (let x = 0; x < SIZE; x++) {
+                        const idx = (y * SIZE + x) * 4;
+                        const dx = (at(x + 1, y) - at(x - 1, y)) * 0.5;
+                        const dy = (at(x, y + 1) - at(x, y - 1)) * 0.5;
+                        // Shallow bump: a grain this fine should perturb the highlight,
+                        // not visibly deform the silhouette shading.
+                        nImg.data[idx] = Math.max(0, Math.min(255, 128 - dx * 70));
+                        nImg.data[idx + 1] = Math.max(0, Math.min(255, 128 - dy * 70));
+                        nImg.data[idx + 2] = 255;
+                        nImg.data[idx + 3] = 255;
+
+                        // Broad blotches of wear on top of the grain.
+                        const blotch = at(x >> 4 << 4, y >> 4 << 4);
+                        const rough = 0.78 + blotch * 0.18 + at(x, y) * 0.04;
+                        mImg.data[idx] = 0;
+                        mImg.data[idx + 1] = Math.round(Math.min(1, rough) * 255); // roughness
+                        mImg.data[idx + 2] = 255;                                  // metallic
+                        mImg.data[idx + 3] = 255;
+                    }
+                }
+                nCtx.putImageData(nImg, 0, 0);
+                mCtx.putImageData(mImg, 0, 0);
+            } else {
+                // Anisotropic linear finish. brushedMetal = tight directional grain
+                // (extruded aluminium truss tube); castMetal = coarser, plus pitting.
+                const tight = kind === 'brushedMetal';
+                const grain = smoothBand(tight ? 5 : 3);
+                const roughBand = smoothBand(3);
+
+                const nImg = nCtx.createImageData(SIZE, SIZE);
+                const mImg = mCtx.createImageData(SIZE, SIZE);
+
+                for (let y = 0; y < SIZE; y++) {
+                    // Gradient of the band across V. Streaks run along U, so all of the
+                    // normal deviation lands in the green channel; drawing full-width
+                    // rows is what keeps the map tileable in U.
+                    const prev = grain[(y - 1 + SIZE) % SIZE];
+                    const next = grain[(y + 1) % SIZE];
+                    const slope = (next - prev) * 0.5;
+                    const g = Math.max(0, Math.min(255,
+                        Math.round(128 - slope * (tight ? 900 : 500))));
+                    const rough = tight
+                        ? 0.72 + roughBand[y] * 0.24
+                        : 0.62 + roughBand[y] * 0.30;
+
+                    for (let x = 0; x < SIZE; x++) {
+                        const idx = (y * SIZE + x) * 4;
+                        nImg.data[idx] = 128;
+                        nImg.data[idx + 1] = g;
+                        nImg.data[idx + 2] = 255;
+                        nImg.data[idx + 3] = 255;
+
+                        let r = rough;
+                        if (!tight) {
+                            // Casting pits: sparse, much rougher, and they must wrap.
+                            const pit = rand();
+                            if (pit > 0.994) r = Math.min(1, r + 0.35);
+                        }
+                        mImg.data[idx] = 0;
+                        mImg.data[idx + 1] = Math.round(Math.min(1, r) * 255);
+                        mImg.data[idx + 2] = 255;
+                        mImg.data[idx + 3] = 255;
+                    }
+                }
+                nCtx.putImageData(nImg, 0, 0);
+                mCtx.putImageData(mImg, 0, 0);
+            }
+
+            // invertY=false: the maps are direction-agnostic noise, and skipping the
+            // flip keeps the generated gradients consistent with the array we wrote.
+            normalTex.update(false);
+            mrTex.update(false);
+
+            maps = { normal: normalTex, metallicRoughness: mrTex };
+            this.detailMaps[cacheKey] = maps;
+        } catch (err) {
+            // No build step and no browser test covers this path - a failure here must
+            // degrade to the previous flat-shaded look, never break scene construction.
+            this.log.warn(`Could not generate "${kind}" detail maps: ${err.message}`);
+            this.detailMaps[cacheKey] = null;
+        }
+
+        return this.detailMaps[cacheKey];
+    }
+
+    /**
+     * Attach a cached detail map set to a material.
+     * @param {BABYLON.PBRMetallicRoughnessMaterial} mat
+     * @param {string} kind
+     * @param {number} scale UV repeats
+     */
+    _applyDetail(mat, kind, scale) {
+        const maps = this._getDetailMaps(kind, scale);
+        if (!maps) return;
+        mat.normalTexture = maps.normal;
+        mat.metallicRoughnessTexture = maps.metallicRoughness;
+        mat.invertNormalMapX = false;
+        mat.invertNormalMapY = false;
     }
 
     /**
@@ -58,17 +271,24 @@ class MaterialFactory {
             disableLighting = false,
             unlit = false,
             emissiveTexture = null,
-            opacityTexture = null
+            opacityTexture = null,
+            // Procedural surface-detail finish: 'brushedMetal' | 'castMetal' | 'plastic'.
+            // Adds a shared normal + metallicRoughness map pair. See _getDetailMaps().
+            detail = null,
+            detailScale = 4
         } = config;
 
         // Generate cache key for shared materials (includes all config to prevent collisions).
         // Textures are NOT part of the key and cannot be reliably compared, so a material
         // carrying one is never shared - otherwise two fixtures with identical colours but
         // different emissive maps would silently receive the same material.
+        // `detail` is exempt: it is a string naming a texture set the factory owns and
+        // caches itself, so two materials with the same detail key provably share pixels.
         const shareable = shared && !emissiveTexture && !opacityTexture;
         const cacheKey = shareable ? this._cacheKey('pbrmr', {
             baseColor, metallic, roughness, emissiveColor, emissiveIntensity,
-            alpha, transparencyMode, backFaceCulling, disableLighting, unlit
+            alpha, transparencyMode, backFaceCulling, disableLighting, unlit,
+            detail, detailScale
         }) : null;
         
         // Return cached material if available
@@ -110,6 +330,9 @@ class MaterialFactory {
 
         if (emissiveTexture) mat.emissiveTexture = emissiveTexture;
         if (opacityTexture) mat.opacityTexture = opacityTexture;
+
+        // Detail maps go on before the freeze below - freezing locks the shader.
+        if (detail) this._applyDetail(mat, detail, detailScale);
 
         // Cache if shared
         if (cacheKey) {
@@ -301,7 +524,9 @@ class MaterialFactory {
         cdjBody: () => this.createPBRMaterial('cdjBodyMat', {
             baseColor: [0.1, 0.1, 0.12],
             metallic: 0.95, // Increased from 0.85
-            roughness: 0.25 // Reduced from 0.3
+            roughness: 0.30, // Brushed alloy top plate
+            detail: 'brushedMetal',
+            detailScale: 3
         }, true),
 
         jogWheel: () => this.createStandardMaterial('jogWheelMat', {
@@ -312,7 +537,9 @@ class MaterialFactory {
         mixer: () => this.createPBRMaterial('mixerMat', {
             baseColor: [0.05, 0.05, 0.06],
             metallic: 0.95, // Increased from 0.9
-            roughness: 0.15 // Reduced from 0.2
+            roughness: 0.18,
+            detail: 'brushedMetal',
+            detailScale: 3
         }, true),
 
         // Structural - Enhanced realism
@@ -325,7 +552,9 @@ class MaterialFactory {
         platformTop: () => this.createPBRMaterial('platformTopMat', {
             baseColor: [0.05, 0.05, 0.05],
             metallic: 0.15, // Increased from 0.1
-            roughness: 0.9 // Reduced from 0.95
+            roughness: 1.0, // Anti-slip stage tread
+            detail: 'plastic',
+            detailScale: 10
         }, true),
 
         rail: () => this.createPBRMaterial('railMat', {
@@ -375,58 +604,78 @@ class MaterialFactory {
         }),
 
         // Lighting/Truss - Enhanced metallic sheen (brushed aluminum)
+        // Roughness scalars on every `detail`-bearing preset below are pre-divided by the
+        // mean of that finish's roughness map (brushedMetal ~0.84, castMetal ~0.77,
+        // plastic ~0.89) because metallicRoughnessTexture multiplies the scalar. The
+        // average look is therefore unchanged; only the variation is new.
         truss: () => this.createPBRMaterial('trussMat', {
             baseColor: [0.72, 0.72, 0.75], // Brighter aluminum
             metallic: 1.0,
-            roughness: 0.18 // Brushed finish
+            roughness: 0.21, // Brushed finish (0.18 pre-compensated for the detail map)
+            detail: 'brushedMetal',
+            detailScale: 6
         }, true),
 
         // Truss connector plates (galvanized steel)
         trussConnector: () => this.createPBRMaterial('trussConnectorMat', {
             baseColor: [0.5, 0.5, 0.52],
             metallic: 0.95,
-            roughness: 0.3
+            roughness: 0.39,
+            detail: 'castMetal',
+            detailScale: 3
         }, true),
 
         // Weld material (darker at joints)
         trussWeld: () => this.createPBRMaterial('trussWeldMat', {
             baseColor: [0.35, 0.35, 0.38],
             metallic: 0.85,
-            roughness: 0.5
+            roughness: 0.65,
+            detail: 'castMetal',
+            detailScale: 4
         }, true),
 
         // Chain hoist material (steel chain)
         chainHoist: () => this.createPBRMaterial('chainHoistMat', {
             baseColor: [0.25, 0.25, 0.28],
             metallic: 0.9,
-            roughness: 0.4
+            roughness: 0.52,
+            detail: 'castMetal',
+            detailScale: 4
         }, true),
 
         brace: () => this.createPBRMaterial('braceMat', {
             baseColor: [0.5, 0.5, 0.55],
             metallic: 1.0,
-            roughness: 0.35 // Reduced from 0.4
+            roughness: 0.42,
+            detail: 'brushedMetal',
+            detailScale: 6
         }, true),
 
         lightFixture: () => this.createPBRMaterial('lightFixtureMat', {
             baseColor: [0.05, 0.05, 0.05],
-            metallic: 0.95, // Increased from 0.9
-            roughness: 0.15 // Reduced from 0.2
+            metallic: 0.95,
+            roughness: 0.20,
+            detail: 'castMetal',
+            detailScale: 5
         }, true),
 
         // Speakers - Enhanced realism with clear visual differentiation
         speakerBody: () => this.createPBRMaterial('speakerBodyMat', {
             baseColor: [0.03, 0.03, 0.03], // Near-black cabinet (tolex/vinyl covering)
             metallic: 0.05, // Matte finish (vinyl wrap)
-            roughness: 0.85, // Textured tolex surface
-            emissiveColor: [0.02, 0.02, 0.02] // Slight visibility in dark
+            roughness: 0.95, // Textured tolex surface
+            emissiveColor: [0.02, 0.02, 0.02], // Slight visibility in dark
+            detail: 'plastic',
+            detailScale: 8
         }, true),
 
         speakerGrill: () => this.createPBRMaterial('speakerGrillMat', {
             baseColor: [0.25, 0.25, 0.28], // Lighter metallic grey - much more visible
             metallic: 0.95, // Highly metallic perforated steel
-            roughness: 0.15, // Polished metal grill
-            emissiveColor: [0.04, 0.04, 0.05] // Visible grill catching light
+            roughness: 0.18, // Polished metal grill
+            emissiveColor: [0.04, 0.04, 0.05], // Visible grill catching light
+            detail: 'brushedMetal',
+            detailScale: 6
         }, true),
 
         speakerHorn: () => this.createPBRMaterial('speakerHornMat', {
@@ -473,15 +722,19 @@ class MaterialFactory {
         pipe: () => this.createPBRMaterial('pipeMat', {
             baseColor: [0.2, 0.2, 0.22],
             metallic: 0.8,
-            roughness: 0.6
+            roughness: 0.78,
+            detail: 'castMetal',
+            detailScale: 3
         }, true),
 
         // Laser/Effects - Enhanced emissive
         laserHousing: () => this.createPBRMaterial('laserHousingMat', {
             baseColor: [0.05, 0.05, 0.05],
             metallic: 0.9, // Increased from 0.8
-            roughness: 0.25, // Reduced from 0.3
-            emissiveColor: [0.08, 0, 0] // Boosted from [0.05, 0, 0]
+            roughness: 0.33,
+            emissiveColor: [0.08, 0, 0], // Boosted from [0.05, 0, 0]
+            detail: 'castMetal',
+            detailScale: 5
         }),
 
         laserEmitter: () => this.createStandardMaterial('laserEmitterMat', {

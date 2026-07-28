@@ -27,23 +27,63 @@ class ModelLoader {
         // Real 3D models from Sketchfab (CC BY license - attribution required)
         // Pioneer DJ Console by TwoPixels.studio: https://sketchfab.com/twopixels.studio
         // PA Speakers: https://sketchfab.com (to be credited)
-        
+        //
+        // === SIZING / PLACEMENT CONTRACT ===
+        // Do NOT hand-tune `scale` and `position` against a rendered frame. Both are
+        // derived at load time by _fitAndPlace() from the `placement` block:
+        //
+        //   fitAxis / fitSize  A real-world dimension (metres) the model is uniformly
+        //                      scaled to, measured on the UNROTATED hierarchy. Measuring
+        //                      the rotated AABB — what this file used to do — normalises
+        //                      a tilted fixture against a box inflated by its own tilt.
+        //   centerX / centerZ  Where the resulting world AABB is centred.
+        //   bottomY | topY     Which face of the world AABB is pinned, and to what.
+        //
+        // `scale` therefore carries mirror SIGNS only (a negative axis unmirrors a model
+        // exported flipped); its magnitude is ignored.
         return {
             dj_console: {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
-                position: new BABYLON.Vector3(-1.0, 0.95, -20.4), // Left side, slightly higher, away from VJ controls
-                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotated 180° to face DJ (was mirrored in original model)
-                scale: new BABYLON.Vector3(-0.025, 0.025, 0.025), // NEGATIVE X to unmirror, reduced size
+                rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotated 180° to face the DJ
+                scale: new BABYLON.Vector3(-1, 1, 1), // Sign only — NEGATIVE X unmirrors the model
+                placement: {
+                    // 2× CDJ-3000 (329 mm) + DJM-900NXS2 (333 mm) side by side is 991 mm;
+                    // 1.02 m leaves a few mm of gap between units. The model's own
+                    // proportions (1 : 0.120 : 0.530) match real gear (1 : 0.119 : 0.457)
+                    // apart from a slightly deeper mounting plate.
+                    fitAxis: 'x',
+                    fitSize: 1.02,
+                    centerX: 0,      // Centred on the 4 m djTable (x -2 .. +2)
+                    // Back half of the deck row (djTable spans z -19 .. -18). This puts the
+                    // console within reach of the operator standing in the 1 m zone between
+                    // the LED wall (z=-20) and the plinth, instead of inside the wall.
+                    centerZ: -18.62,
+                    bottomY: 1.42    // djTable top surface: the gear SITS on the plinth
+                },
                 useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(-6, 6.5, -19), // Hung from ceiling, in front of LED wall (z=-20)
-                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled 30° inward (Y)
-                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
+                // Flipped 180° (the model's geometry sits above its rigging pivot) plus a
+                // 30° down-tilt and 30° inward toe — aimed at the far side of the floor.
+                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0),
+                scale: new BABYLON.Vector3(1, 1, 1), // Sign only — no mirroring needed
+                placement: {
+                    // Cabinet height of a large-format flown club main (Funktion-One Res 4
+                    // class: 1.42 × 0.68 × 0.57 m). Yields 1.45 × 0.60 × 0.61 m here.
+                    fitAxis: 'y',
+                    fitSize: 1.45,
+                    centerX: -6,  // Between the x=-8 movers and the x=-4 mirror spots
+                    centerZ: -16, // Directly under truss3 (chords span z -16.17 .. -15.83)
+                    topY: 7.1     // ~0.7 m of visible rigging up to the truss chord
+                },
+                // Flown from the rear lighting truss, NOT the ceiling. anchorY is the
+                // truss chord centre-line; the chain length is derived from the measured
+                // cabinet, so moving the speaker re-rigs it automatically.
+                rigging: { anchorY: 8.0, yaw: Math.PI / 6 },
                 useProcedural: false, // USE the 3D model
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
@@ -54,9 +94,16 @@ class ModelLoader {
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                position: new BABYLON.Vector3(6, 6.5, -19), // Hung from ceiling, in front of LED wall (z=-20)
-                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0), // Flipped 180° + tilted down 30° (X), angled -30° inward (Y)
-                scale: new BABYLON.Vector3(1, 1, 1), // Will be auto-scaled to 3.5m height (smaller when hung)
+                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: {
+                    fitAxis: 'y',
+                    fitSize: 1.45,
+                    centerX: 6,
+                    centerZ: -16,
+                    topY: 7.1
+                },
+                rigging: { anchorY: 8.0, yaw: -Math.PI / 6 },
                 useProcedural: false, // USE the 3D model
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
@@ -65,6 +112,74 @@ class ModelLoader {
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
         };
+    }
+
+    /**
+     * Size and place a loaded model from real-world dimensions instead of magic numbers.
+     *
+     * Two bugs this exists to prevent:
+     *  1. Scaling against the ROTATED bounding box. A 30°-tilted speaker normalised to a
+     *     "3 m" AABB is really a 2.79 m cabinet, and the real size silently changes every
+     *     time the tilt is edited. The fit is therefore measured with rotation removed.
+     *  2. Treating `position` as if it were the model's centre. glTF pivots are arbitrary
+     *     — this model's geometry sits ~0.4 m above its own origin — so placement is
+     *     resolved against the world AABB *after* rotation and scale are applied.
+     *
+     * @returns {{min: BABYLON.Vector3, max: BABYLON.Vector3, center: BABYLON.Vector3}|null}
+     */
+    _fitAndPlace(rootMesh, config, label) {
+        const p = config.placement;
+        if (!p) return null;
+
+        const sign = v => (v < 0 ? -1 : 1);
+        const sx = config.scale ? sign(config.scale.x) : 1;
+        const sy = config.scale ? sign(config.scale.y) : 1;
+        const sz = config.scale ? sign(config.scale.z) : 1;
+
+        // --- 1. Measure the model's own dimensions, rotation and scale removed ---
+        rootMesh.rotationQuaternion = null; // Euler below would otherwise be ignored
+        rootMesh.position.set(0, 0, 0);
+        rootMesh.rotation.set(0, 0, 0);
+        rootMesh.scaling.set(1, 1, 1);
+        const local = rootMesh.getHierarchyBoundingVectors(true);
+        const localSpan = {
+            x: local.max.x - local.min.x,
+            y: local.max.y - local.min.y,
+            z: local.max.z - local.min.z
+        };
+        const measured = localSpan[p.fitAxis];
+
+        let uniform = 1;
+        if (Number.isFinite(measured) && measured > 1e-6) {
+            uniform = p.fitSize / measured;
+        } else {
+            this.log.warn(`⚠️ ${label}: cannot measure ${p.fitAxis} extent (got ${measured}) — leaving model at unit scale`);
+        }
+
+        // --- 2. Apply the real transform ---
+        rootMesh.scaling.set(sx * uniform, sy * uniform, sz * uniform);
+        rootMesh.rotation = config.rotation ? config.rotation.clone() : BABYLON.Vector3.Zero();
+        rootMesh.position.set(0, 0, 0);
+
+        // --- 3. Offset so the world AABB lands on the requested anchors ---
+        const world = rootMesh.getHierarchyBoundingVectors(true);
+        const offset = new BABYLON.Vector3(0, 0, 0);
+        if (p.centerX !== undefined) offset.x = p.centerX - (world.min.x + world.max.x) / 2;
+        if (p.centerZ !== undefined) offset.z = p.centerZ - (world.min.z + world.max.z) / 2;
+        if (p.bottomY !== undefined) offset.y = p.bottomY - world.min.y;
+        else if (p.topY !== undefined) offset.y = p.topY - world.max.y;
+        else if (p.centerY !== undefined) offset.y = p.centerY - (world.min.y + world.max.y) / 2;
+        rootMesh.position = offset;
+
+        const box = rootMesh.getHierarchyBoundingVectors(true);
+        const f = n => n.toFixed(2);
+        this.log.info(
+            `   📏 ${label}: ${f(localSpan.x * uniform)}×${f(localSpan.y * uniform)}×${f(localSpan.z * uniform)} m ` +
+            `(scale ${uniform.toFixed(5)}) → x[${f(box.min.x)}..${f(box.max.x)}] ` +
+            `y[${f(box.min.y)}..${f(box.max.y)}] z[${f(box.min.z)}..${f(box.max.z)}]`
+        );
+
+        return { min: box.min, max: box.max, center: BABYLON.Vector3.Center(box.min, box.max) };
     }
 
     async init() {
@@ -156,46 +271,31 @@ class ModelLoader {
             
             // Get root mesh
             const rootMesh = result.meshes[0];
+            let placedBox = null;
             if (rootMesh) {
-                rootMesh.position = config.position.clone();
-                rootMesh.rotation = config.rotation.clone();
-                rootMesh.scaling = config.scale.clone();
-                
-                // Auto-scale PA speakers to desired height
-                if (modelKey.startsWith('pa_speaker')) {
-                    // Compute bounding box to get actual model height
-                    rootMesh.refreshBoundingInfo(true);
-                    const boundingInfo = rootMesh.getHierarchyBoundingVectors(true);
-                    const modelHeight = boundingInfo.max.y - boundingInfo.min.y;
-                    const desiredHeight = config.hangFromCeiling ? 3.0 : 5.5; // Smaller when hung from ceiling
-                    
-                    if (modelHeight > 0) {
-                        // Clamp the derived scale. A degenerate/unit-less GLB (height
-                        // 0.001 m) would otherwise produce a 3000× scale factor and a
-                        // speaker large enough to swallow the whole room.
-                        const rawScale = desiredHeight / modelHeight;
-                        const autoScale = Math.min(100, Math.max(0.01, rawScale));
-                        if (autoScale !== rawScale) {
-                            this.log.warn(`⚠️ PA speaker auto-scale ${rawScale.toFixed(2)} clamped to ${autoScale} (suspicious model height ${modelHeight.toFixed(4)}m)`);
-                        }
-                        rootMesh.scaling = new BABYLON.Vector3(autoScale, autoScale, autoScale);
-                        this.log.info(`   📏 Auto-scaled PA speaker from ${modelHeight.toFixed(2)}m to ${desiredHeight}m (scale: ${autoScale.toFixed(4)})`);
-                        
-                        if (config.hangFromCeiling) {
-                            // Hung from ceiling - position is already set, keep rotation for tilt
-                            this.log.info(`   🔗 PA speaker hung from ceiling at y=${config.position.y}`);
-                            
-                            // === CREATE HYPERREALISTIC HANGING HARDWARE ===
-                            // Create rigging chains/cables and mounting bracket
-                            this.createSpeakerHangingHardware(config.position, autoScale, modelKey);
-                        } else {
-                            // Standing on floor - adjust Y position so bottom sits on floor
-                            const scaledMinY = boundingInfo.min.y * autoScale;
-                            rootMesh.position.y = -scaledMinY;
-                        }
-                    }
+                if (config.placement) {
+                    // Size from real-world dimensions and anchor against the measured
+                    // world AABB — see the sizing/placement contract in getModelConfigs().
+                    placedBox = this._fitAndPlace(rootMesh, config, config.name);
+                } else {
+                    rootMesh.position = config.position.clone();
+                    rootMesh.rotation = config.rotation.clone();
+                    rootMesh.scaling = config.scale.clone();
+                }
+
+                // Rig ceiling/truss-flown speakers off the box we just measured, so the
+                // chains always span the real gap instead of a hard-coded guess.
+                if (config.rigging && placedBox) {
+                    this.createSpeakerHangingHardware(modelKey, {
+                        x: config.placement.centerX,
+                        z: config.placement.centerZ,
+                        topY: placedBox.max.y,
+                        anchorY: config.rigging.anchorY,
+                        yaw: config.rigging.yaw || 0
+                    });
                 }
             }
+            const focusPoint = placedBox ? placedBox.center : (config.position || BABYLON.Vector3.Zero());
             
             // CRITICAL: Configure all meshes for optimal VR and desktop visibility
             result.meshes.forEach(mesh => {
@@ -297,9 +397,9 @@ class ModelLoader {
                 const djLight = new BABYLON.PointLight(
                     'djConsoleLight',
                     new BABYLON.Vector3(
-                        config.position.x,
-                        config.position.y + 1.5,
-                        config.position.z
+                        focusPoint.x,
+                        focusPoint.y + 1.5,
+                        focusPoint.z
                     ),
                     this.scene
                 );
@@ -332,9 +432,9 @@ class ModelLoader {
                 const speakerLight = new BABYLON.PointLight(
                     'speakerLight_' + modelKey,
                     new BABYLON.Vector3(
-                        config.position.x,
-                        config.position.y + (config.hangFromCeiling ? 0 : 2),
-                        config.position.z + (config.hangFromCeiling ? 2 : 0) // In front when hung
+                        focusPoint.x,
+                        focusPoint.y + (config.hangFromCeiling ? 0 : 2),
+                        focusPoint.z + (config.hangFromCeiling ? 1.5 : 0) // In front when hung
                     ),
                     this.scene
                 );
@@ -401,9 +501,9 @@ class ModelLoader {
         this.log.info(`📦 Creating enhanced procedural model for ${config.name}`);
         
         const parent = new BABYLON.TransformNode(modelKey, this.scene);
-        parent.position = config.position.clone();
-        parent.rotation = config.rotation.clone();
-        parent.scaling = config.scale.clone();
+        parent.position = (config.position || BABYLON.Vector3.Zero()).clone();
+        parent.rotation = (config.rotation || BABYLON.Vector3.Zero()).clone();
+        parent.scaling = (config.scale || BABYLON.Vector3.One()).clone();
         
         let meshes = [];
         
@@ -741,12 +841,33 @@ class ModelLoader {
     }
 
     /**
-     * Create hyperrealistic hanging hardware for ceiling-mounted PA speakers
-     * Includes chains, shackles, mounting bracket, and truss clamp
+     * Build the rigging that flies a PA speaker from the lighting truss:
+     * truss clamp, drop bracket, two chains, shackles and a flying frame.
+     *
+     * Every dimension is derived from the anchor and the MEASURED cabinet, so the
+     * chain always spans the real gap. The previous version hard-coded a ceiling
+     * height of 8.0 m and a fixed link count, which left the chain running 0.7 m
+     * past the flying frame into empty air while the bracket floated 1.85 m below
+     * the actual ceiling, bolted to nothing.
+     *
+     * @param {string} modelKey
+     * @param {{x: number, z: number, topY: number, anchorY: number, yaw: number}} rig
+     *        anchorY is the truss chord centre-line; topY is the highest point of
+     *        the flown cabinet; yaw matches the speaker's toe-in so the hardware
+     *        lines up with the box.
      */
-    createSpeakerHangingHardware(speakerPos, speakerScale, modelKey) {
-        const ceilingY = 8.0; // Ceiling/truss height
-        const chainLength = ceilingY - speakerPos.y - 0.5; // Distance from ceiling to top of speaker
+    createSpeakerHangingHardware(modelKey, rig) {
+        const CHORD_RADIUS = 0.17;   // Truss chord half-height (chords span y ±0.17)
+        const { x, z, topY, anchorY, yaw } = rig;
+
+        // Local ±offset rotated into world space by the speaker's toe-in angle.
+        const cos = Math.cos(yaw);
+        const sin = Math.sin(yaw);
+        const offsetX = d => x + d * cos;
+        const offsetZ = d => z - d * sin;
+
+        const bracketY = anchorY - CHORD_RADIUS - 0.04; // Hangs directly under the chord
+        const flyBarY = topY + 0.05;                    // Sits just clear of the cabinet
         
         // Material for all metal hardware (black steel rigging)
         const rigMat = this.materialFactory ? 
@@ -757,33 +878,38 @@ class ModelLoader {
             }, true) :
             new BABYLON.StandardMaterial('rigMat_' + modelKey, this.scene);
         
-        // === TRUSS MOUNTING BRACKET (at ceiling) ===
+        // === DROP BRACKET (bolted under the truss chord) ===
         const bracket = BABYLON.MeshBuilder.CreateBox('speakerBracket_' + modelKey, {
             width: 0.4,
             height: 0.08,
             depth: 0.15
         }, this.scene);
-        bracket.position = new BABYLON.Vector3(speakerPos.x, ceilingY - 0.04, speakerPos.z);
+        bracket.position = new BABYLON.Vector3(x, bracketY, z);
+        bracket.rotation.y = yaw;
         bracket.material = rigMat;
         
-        // Truss clamp (U-bolt style)
+        // Truss clamp (U-bolt style) wrapping the chord itself
         const clamp = BABYLON.MeshBuilder.CreateTorus('speakerClamp_' + modelKey, {
             diameter: 0.12,
             thickness: 0.015,
             tessellation: 16,
             arc: 0.75
         }, this.scene);
-        clamp.position = new BABYLON.Vector3(speakerPos.x, ceilingY, speakerPos.z);
+        clamp.position = new BABYLON.Vector3(x, anchorY, z);
         clamp.rotation.x = Math.PI / 2;
         clamp.material = rigMat;
         
         // === CHAIN LINKS (2 parallel chains for stability) ===
-        const chainOffsets = [-0.12, 0.12]; // Two chains, offset from center
-        const linkHeight = 0.06;
-        const linkGap = 0.02;
-        const numLinks = Math.floor(chainLength / (linkHeight + linkGap));
+        const chainOffsets = [-0.12, 0.12]; // Two chains, offset from centre
+        const chainTop = bracketY - 0.06;
+        const chainBottom = flyBarY + 0.08;
+        const chainSpan = Math.max(0, chainTop - chainBottom);
+        // Fit whole links to the gap rather than flooring against a fixed pitch, so
+        // the chain neither falls short of nor overshoots the flying frame.
+        const numLinks = Math.max(2, Math.round(chainSpan / 0.075));
+        const linkStep = chainSpan / (numLinks - 1);
         
-        chainOffsets.forEach((offsetX, chainIdx) => {
+        chainOffsets.forEach((offset, chainIdx) => {
             for (let i = 0; i < numLinks; i++) {
                 // Alternate link orientation for chain appearance
                 const link = BABYLON.MeshBuilder.CreateTorus('chainLink_' + modelKey + '_' + chainIdx + '_' + i, {
@@ -792,26 +918,26 @@ class ModelLoader {
                     tessellation: 8
                 }, this.scene);
                 
-                const linkY = ceilingY - 0.1 - (i * (linkHeight + linkGap));
                 link.position = new BABYLON.Vector3(
-                    speakerPos.x + offsetX,
-                    linkY,
-                    speakerPos.z
+                    offsetX(offset),
+                    chainTop - (i * linkStep),
+                    offsetZ(offset)
                 );
                 
                 // Alternate rotation for interlocking appearance
                 if (i % 2 === 0) {
-                    link.rotation.y = Math.PI / 2;
+                    link.rotation.y = Math.PI / 2 + yaw;
                 } else {
                     link.rotation.x = Math.PI / 2;
+                    link.rotation.y = yaw;
                 }
                 
                 link.material = rigMat;
             }
         });
         
-        // === SHACKLES (connect chains to speaker) ===
-        chainOffsets.forEach((offsetX, shackleIdx) => {
+        // === SHACKLES (connect chains to the flying frame) ===
+        chainOffsets.forEach((offset, shackleIdx) => {
             // D-shackle at bottom of each chain
             const shackle = BABYLON.MeshBuilder.CreateTorus('shackle_' + modelKey + '_' + shackleIdx, {
                 diameter: 0.06,
@@ -820,11 +946,12 @@ class ModelLoader {
                 arc: 0.7
             }, this.scene);
             shackle.position = new BABYLON.Vector3(
-                speakerPos.x + offsetX,
-                speakerPos.y + 1.2, // Just above speaker top
-                speakerPos.z
+                offsetX(offset),
+                flyBarY + 0.045, // Straddles the eye bolt below it
+                offsetZ(offset)
             );
             shackle.rotation.z = Math.PI; // Open side up
+            shackle.rotation.y = yaw;
             shackle.material = rigMat;
             
             // Shackle pin (bolt)
@@ -833,11 +960,12 @@ class ModelLoader {
                 height: 0.08
             }, this.scene);
             pin.position = new BABYLON.Vector3(
-                speakerPos.x + offsetX,
-                speakerPos.y + 1.17,
-                speakerPos.z
+                offsetX(offset),
+                flyBarY + 0.015,
+                offsetZ(offset)
             );
             pin.rotation.z = Math.PI / 2;
+            pin.rotation.y = yaw;
             pin.material = rigMat;
         });
         
@@ -848,30 +976,28 @@ class ModelLoader {
             height: 0.04,
             depth: 0.04
         }, this.scene);
-        flyBar.position = new BABYLON.Vector3(
-            speakerPos.x,
-            speakerPos.y + 1.25,
-            speakerPos.z
-        );
+        flyBar.position = new BABYLON.Vector3(x, flyBarY, z);
+        flyBar.rotation.y = yaw;
         flyBar.material = rigMat;
         
         // Eye bolts on flying frame (where shackles attach)
-        chainOffsets.forEach((offsetX, eyeIdx) => {
+        chainOffsets.forEach((offset, eyeIdx) => {
             const eyeBolt = BABYLON.MeshBuilder.CreateTorus('eyeBolt_' + modelKey + '_' + eyeIdx, {
                 diameter: 0.03,
                 thickness: 0.006,
                 tessellation: 10
             }, this.scene);
             eyeBolt.position = new BABYLON.Vector3(
-                speakerPos.x + offsetX,
-                speakerPos.y + 1.25,
-                speakerPos.z
+                offsetX(offset),
+                flyBarY,
+                offsetZ(offset)
             );
             eyeBolt.rotation.x = Math.PI / 2;
+            eyeBolt.rotation.z = yaw;
             eyeBolt.material = rigMat;
         });
         
-        this.log.info(`   ⛓️ Created hyperrealistic hanging hardware for ${modelKey}`);
+        this.log.info(`   ⛓️ Rigged ${modelKey}: ${numLinks}-link chains spanning ${chainSpan.toFixed(2)}m from truss y=${anchorY} to fly bar y=${flyBarY.toFixed(2)}`);
     }
 
     /**

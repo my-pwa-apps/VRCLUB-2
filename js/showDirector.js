@@ -494,6 +494,14 @@ class ShowDirector {
     //                     5 breathing · 6 shockwave · 7 pulse star · 8 radial
     //                     9 wave collide · 10 cellular · 11 tunnel · 12 kaleidoscope
     //                     13 DNA · 14 infinity · 15 plasma · 16 aurora · 17 rainbow
+    //   ledMonochrome     true = wall renders the same shapes in black & white.
+    //                     Set it EXPLICITLY on every look — looks only write the
+    //                     keys they declare, so an omission silently inherits the
+    //                     previous cue's colour state.
+    //   ledWallActive     false = wall completely dark. Deliberately used as a
+    //                     composition tool, not just an off switch: the wall is
+    //                     the brightest object in the room, so killing it is the
+    //                     only way beams, haze and mirror ball become the subject.
     //   goboPatternIndex  0 circle · 1 star · 2 triangles · 3 squares · 4 rings
     //                     5 spiral · 6 dots · 7 slats · 8 cross · 9 flower
     //   [a, b]            ramps linearly across the cue's whole bar span
@@ -506,27 +514,45 @@ class ShowDirector {
             // ---------------------------------------------------------------
 
             // Pure negative space. One rotating mirror ball in heavy haze and a
-            // slow breathing wall. This look is the reason everything after it
-            // has impact; an audience cannot perceive brightness without a floor.
+            // slow breathing wall, held in black and white so the room has form
+            // but no colour to commit to yet. This look is the reason everything
+            // after it has impact; an audience cannot perceive brightness without
+            // a floor — nor colour without an absence of it.
             deepBlue: {
                 intensity: 0.42, punch: 0.10, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: true, smokeActive: true,
-                ledWallActive: true, ledPattern: 5, ledWallSpeed: 0.35,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 5, ledWallSpeed: 0.35,
                 mirrorBallSpeed: 0.30, fogIntensity: 1.5,
                 goboEnabled: false
             },
 
             // First statement of intent: heads lock down onto the floor and hold.
-            // Static beams in haze — pure architecture, no movement to distract.
+            // Static beams in haze — pure architecture, no movement to distract,
+            // and a white tunnel behind them so the wall reads as structure
+            // rather than as a second light source competing with the beams.
             firstLight: {
                 intensity: 0.60, punch: 0.18, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: true, smokeActive: true,
-                ledWallActive: true, ledPattern: 11, ledWallSpeed: 0.5,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 11, ledWallSpeed: 0.5,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
                 goboEnabled: true, goboPatternIndex: 4, goboRotationSpeed: 0.18,
                 mirrorBallSpeed: 0.4, fogIntensity: 1.3
+            },
+
+            // Wall killed outright. Mirror ball and one slow gobo pool in deep
+            // haze, with nothing lit behind them. Dropped into ARRIVAL and again
+            // into AFTERGLOW as a reset — after a few bars of true darkness the
+            // wall's return reads as an event rather than as wallpaper.
+            eclipse: {
+                intensity: 0.38, punch: 0.12, palette: 'analogous',
+                lightsActive: true, lasersActive: false, strobesActive: false,
+                blindersActive: false, mirrorBallActive: true, smokeActive: true,
+                ledWallActive: false, ledMonochrome: false,
+                spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
+                goboEnabled: true, goboPatternIndex: 0, goboRotationSpeed: 0.10,
+                mirrorBallSpeed: 0.45, fogIntensity: 1.7
             },
 
             // ---------------------------------------------------------------
@@ -540,19 +566,21 @@ class ShowDirector {
                 intensity: 0.82, punch: 0.22, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 0, ledWallSpeed: 0.8,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 0, ledWallSpeed: 0.8,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.55, 0.85],
                 goboEnabled: true, goboPatternIndex: 5, goboRotationSpeed: -0.35,
                 fogIntensity: 1.0
             },
 
             // Lasers take the room. Gobos off (the rule) and heads drop to a slow
-            // lock so the aerial beam work is the only thing moving.
+            // lock so the aerial beam work is the only thing moving. The wall goes
+            // black and white here on purpose: coloured lasers over a coloured
+            // wall is two hues fighting for the same eye, and both lose.
             crossfire: {
                 intensity: 0.88, punch: 0.30, palette: 'complementary',
                 lightsActive: true, lasersActive: true, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 13, ledWallSpeed: 1.0,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 13, ledWallSpeed: 1.0,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.4,
                 goboEnabled: false, laserSpeed: [0.6, 1.1],
                 fogIntensity: 1.2
@@ -564,10 +592,24 @@ class ShowDirector {
                 intensity: 0.85, punch: 0.25, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 12, ledWallSpeed: 1.0,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
                 goboEnabled: true, goboPatternIndex: 2, goboRotationSpeed: 0.5,
                 fogIntensity: 1.0
+            },
+
+            // Aerial only. Wall dark, gobos off, lasers alone in the heaviest haze
+            // in the show. With no lit surface anywhere the room stops being a
+            // room and becomes pure volumetric geometry — and the cue that
+            // follows gets the whole wall back as a hit.
+            beamsOnly: {
+                intensity: 0.90, punch: 0.38, palette: 'complementary',
+                lightsActive: true, lasersActive: true, strobesActive: false,
+                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                ledWallActive: false, ledMonochrome: false,
+                spotlightPattern: 3, spotlightMode: 1, spotlightSpeed: [0.7, 1.3],
+                goboEnabled: false, laserSpeed: [0.9, 1.6],
+                fogIntensity: 1.8
             },
 
             // ---------------------------------------------------------------
@@ -581,7 +623,7 @@ class ShowDirector {
                 intensity: [0.80, 1.0], punch: 0.35, palette: 'complementary',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 6, ledWallSpeed: [0.9, 1.9],
+                ledWallActive: true, ledMonochrome: false, ledPattern: 6, ledWallSpeed: [0.9, 1.9],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.8, 2.0],
                 goboEnabled: true, goboPatternIndex: 1, goboRotationSpeed: [0.4, 1.6],
                 fogIntensity: 1.4
@@ -589,12 +631,14 @@ class ShowDirector {
 
             // Tension plateau. Heads slam to centre and stop dead while the wall
             // keeps accelerating — motion removed from the beams and pushed onto
-            // the surface behind them. Stillness reads as held breath.
+            // the surface behind them. Stillness reads as held breath, and the
+            // wall drops to black and white so the colour that returns at the
+            // drop lands as a change rather than as more of the same.
             heldBreath: {
                 intensity: [0.70, 0.95], punch: 0.45, palette: 'complementary',
                 lightsActive: true, lasersActive: true, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 9, ledWallSpeed: [1.2, 2.0],
+                ledWallActive: true, ledMonochrome: true, ledPattern: 9, ledWallSpeed: [1.2, 2.0],
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
                 goboEnabled: false, laserSpeed: [1.0, 1.8],
                 fogIntensity: 1.6
@@ -611,7 +655,7 @@ class ShowDirector {
                 intensity: 1.0, punch: 0.55, palette: 'triad',
                 lightsActive: true, lasersActive: true, strobesActive: true,
                 blindersActive: true, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 17, ledWallSpeed: 2.0,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 17, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
                 goboEnabled: false, laserSpeed: 1.8,
                 strobeSpeed: 2.2, blinderSpeed: 1.8, fogIntensity: 1.5
@@ -625,7 +669,7 @@ class ShowDirector {
                 intensity: 0.96, punch: 0.40, palette: 'triad',
                 lightsActive: true, lasersActive: true, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 15, ledWallSpeed: 1.8,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 15, ledWallSpeed: 1.8,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1.5,
                 goboEnabled: false, laserSpeed: 2.0, fogIntensity: 1.5
             },
@@ -635,7 +679,7 @@ class ShowDirector {
                 intensity: 1.0, punch: 0.50, palette: 'triad',
                 lightsActive: true, lasersActive: true, strobesActive: true,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 11, ledWallSpeed: 2.0,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 2.0,
                 goboEnabled: false, laserSpeed: 1.6,
                 strobeSpeed: 1.6, fogIntensity: 1.4
@@ -645,13 +689,14 @@ class ShowDirector {
             // V. AFTERGLOW — the comedown. Earns the next build.
             // ---------------------------------------------------------------
 
-            // Near-total collapse. Mirror ball alone, aurora on the wall, deep
-            // haze. Everything the peak had is taken away at once.
+            // Near-total collapse. Mirror ball alone in deep haze, and the wall
+            // stripped to a slow greyscale aurora. Everything the peak had —
+            // beams, lasers, strobes and colour itself — is taken away at once.
             theVoid: {
                 intensity: 0.30, punch: 0.08, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: true, smokeActive: true,
-                ledWallActive: true, ledPattern: 16, ledWallSpeed: 0.4,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 16, ledWallSpeed: 0.4,
                 mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
             },
 
@@ -661,7 +706,7 @@ class ShowDirector {
                 intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: true, smokeActive: true,
-                ledWallActive: true, ledPattern: 4, ledWallSpeed: [0.4, 0.7],
+                ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7],
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
                 goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: 0.15,
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
@@ -672,12 +717,14 @@ class ShowDirector {
             // ---------------------------------------------------------------
 
             // Base state for THE COUNTDOWN. The set-piece escalates strobeSpeed
-            // and intensity on top of this every bar.
+            // and intensity on top of this every bar. Black and white throughout:
+            // a build is about escalating urgency, and stripping the colour out
+            // makes the wall read as clinical countdown rather than as party.
             countdownBase: {
                 intensity: 0.85, punch: 0.30, palette: 'complementary',
                 lightsActive: true, lasersActive: false, strobesActive: true,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledPattern: 6, ledWallSpeed: 1.4,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 6, ledWallSpeed: 1.4,
                 spotlightPattern: 1, spotlightMode: 2, spotlightSpeed: 0.3,
                 goboEnabled: false, strobeSpeed: 0.6, fogIntensity: 1.7
             },
@@ -688,7 +735,7 @@ class ShowDirector {
                 intensity: 0.0, punch: 0.0, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 blindersActive: false, mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, goboEnabled: false, fogIntensity: 1.8
+                ledWallActive: false, ledMonochrome: false, goboEnabled: false, fogIntensity: 1.8
             }
         };
     }
@@ -699,6 +746,12 @@ class ShowDirector {
     //
     // minBars stops the energy picker from abandoning a movement before its
     // internal arc has had time to read.
+    //
+    // Every movement except IGNITION carries at least one dark-wall cue
+    // (`eclipse` / `beamsOnly`). The LED wall is the brightest thing in the room
+    // and the eye goes straight to it, so a wall that is lit for the entire show
+    // flattens everything else into background. The dark windows are short and
+    // sit immediately before a punchIn, which turns the wall's return into a hit.
     // =========================================================================
     static _buildMovements() {
         return {
@@ -706,9 +759,10 @@ class ShowDirector {
                 title: 'I · ARRIVAL',
                 minBars: 16,
                 cues: [
+                    { look: 'eclipse',    bars: 4 },
                     { look: 'deepBlue',   bars: 8 },
                     { look: 'firstLight', bars: 8, punchIn: true },
-                    { look: 'deepBlue',   bars: 4 },
+                    { look: 'eclipse',    bars: 4 },
                     { look: 'firstLight', bars: 8 }
                 ]
             },
@@ -721,7 +775,8 @@ class ShowDirector {
                     { look: 'sideways',  bars: 8, punchIn: true },
                     { look: 'theWave',   bars: 8 },
                     { look: 'crossfire', bars: 8, punchIn: true },
-                    { look: 'sideways',  bars: 8 }
+                    { look: 'beamsOnly', bars: 8 },
+                    { look: 'sideways',  bars: 8, punchIn: true }
                 ]
             },
 
@@ -731,7 +786,8 @@ class ShowDirector {
                 cues: [
                     { look: 'theClimb',   bars: 8 },
                     { look: 'heldBreath', bars: 8 },
-                    { look: 'theClimb',   bars: 8 }
+                    { look: 'beamsOnly',  bars: 4 },
+                    { look: 'theClimb',   bars: 8, punchIn: true }
                 ]
             },
 
@@ -751,6 +807,7 @@ class ShowDirector {
                 minBars: 12,
                 cues: [
                     { look: 'theVoid',   bars: 8 },
+                    { look: 'eclipse',   bars: 4 },
                     { look: 'driftAway', bars: 12 }
                 ]
             }

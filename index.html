@@ -43,7 +43,7 @@
     <title>VR Club - Virtual Nightclub Experience</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css?v=20260424-show3">
+    <link rel="stylesheet" href="css/styles.css?v=20260424-show5">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -98,6 +98,7 @@
                     <button class="vj-button active" data-control="lightsActive">LIGHTS</button>
                     <button class="vj-button" data-control="lasersActive">LASERS</button>
                     <button class="vj-button active" data-control="ledWallActive">LED WALL</button>
+                    <button class="vj-button" data-control="ledMonochrome">B&amp;W WALL</button>
                     <button class="vj-button active" data-control="strobesActive">STROBES</button>
                     <button class="vj-button active" data-control="blindersActive">BLINDERS</button>
                     <button class="vj-button" data-control="mirrorBallActive">MIRROR BALL</button>
@@ -301,32 +302,32 @@
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260424-show3"></script>
+    <script src="js/assetCache.js?v=20260424-show5"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260424-show3"></script>
+    <script src="js/textureLoader.js?v=20260424-show5"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260424-show3"></script>
+    <script src="js/modelLoader.js?v=20260424-show5"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260424-show3"></script>
+    <script src="js/materialFactory.js?v=20260424-show5"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260424-show3"></script>
+    <script src="js/lightFactory.js?v=20260424-show5"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260424-show3"></script>
+    <script src="js/vjDirector.js?v=20260424-show5"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20260424-show3"></script>
+    <script src="js/showDirector.js?v=20260424-show5"></script>
     
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260424-show3"></script>
+    <script src="js/club_hyperrealistic.js?v=20260424-show5"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260424-show3"></script>
+    <script src="js/ui-init.js?v=20260424-show5"></script>
 </body>
 </html>
