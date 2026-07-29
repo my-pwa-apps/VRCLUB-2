@@ -464,6 +464,7 @@ class VRClubLifecycle extends VRClubCore {
 
         // Quality passes that must run AFTER all geometry, textures, lights and the
         // reflection probe exist, because they sweep the finished scene.
+        this._clampMaterialLightBudgets();
         this._suppressUnlitSpecular();
         this._applyAnisotropicFiltering();
         this._applyShadowQuality();

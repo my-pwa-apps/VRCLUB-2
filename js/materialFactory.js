@@ -345,7 +345,8 @@ class MaterialFactory {
         // freezing those would silently no-op the mutations.
         const nameLower = name.toLowerCase();
         const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror'];
+                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
+                             'toggle', 'audiobtn', 'sliderhandle'];
         if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
             mat.freeze();
         }
@@ -369,6 +370,7 @@ class MaterialFactory {
         } = config;
 
         const mat = new BABYLON.StandardMaterial(name, this.scene);
+        mat.maxSimultaneousLights = this.maxLights;
 
         if (diffuseColor) {
             mat.diffuseColor = Array.isArray(diffuseColor)
@@ -415,7 +417,8 @@ class MaterialFactory {
         // Skip freeze for materials mutated at runtime (emissiveColor / diffuseColor swaps).
         const nameLower = name.toLowerCase();
         const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror'];
+                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
+                             'toggle', 'audiobtn', 'sliderhandle'];
         if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
             mat.freeze();
         }
@@ -508,7 +511,8 @@ class MaterialFactory {
         // Freeze (skip for runtime-mutated materials)
         const nameLower = name.toLowerCase();
         const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror'];
+                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
+                             'toggle', 'audiobtn', 'sliderhandle'];
         if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
             mat.freeze();
         }

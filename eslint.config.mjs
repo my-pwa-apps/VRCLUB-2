@@ -63,6 +63,7 @@ const projectGlobals = {
     BABYLON: 'readonly',
     AudioUtils: 'readonly',
     ROOM_BOUNDS: 'readonly',
+    CLUB_POSITIONS: 'readonly',
     VRClubCore: 'readonly',
     VRClubLifecycle: 'readonly',
     VRClubRendering: 'readonly',

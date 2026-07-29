@@ -418,9 +418,9 @@ class VRClubAnimationCore extends VRClubEffects {
             // This eliminates "catch-up" effect while maintaining 60fps performance
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
-                const activeSpotCount = this.isInVRMode
-                    ? this.qualityTiers.balanced.mirrorSpots
-                    : this.tierSettings.mirrorSpots;
+                // Graphics tier controls visual density independently of camera mode.
+                // Entering XR must not remove reflections from the current scene.
+                const activeSpotCount = this.tierSettings.mirrorSpots;
                 
                 // UPDATE-RATE STRATEGY.
                 //

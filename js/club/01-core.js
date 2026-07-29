@@ -171,6 +171,7 @@ class VRClubCore {
         // Tier-owned post-process pipelines (created in addPostProcessing()).
         this.ssrPipeline = null;
         this.motionBlur = null;
+        this._desktopRenderPipeline = null;
         
         // Detect device capabilities for optimal light count
         this.maxLights = this.detectMaxLights();
@@ -519,10 +520,20 @@ class VRClubCore {
         // VR POST-PROCESSING: Keep minimal effects for immersion while staying performant
         // Completely disabling post-processing makes lights look flat and unrealistic in VR
         if (this.renderPipeline) {
-            // Remove desktop camera from pipeline
-            if (this.camera) {
-                this.renderPipeline.removeCamera(this.camera);
+            // Babylon post-process instances are camera-owned and are not reusable.
+            // Keep the desktop pipeline intact and create a small XR-owned chain;
+            // moving one chain between cameras logs reuse errors and drops effects.
+            if (this._desktopRenderPipeline && this.renderPipeline !== this._desktopRenderPipeline) {
+                this.renderPipeline.dispose();
+            } else {
+                this._desktopRenderPipeline = this.renderPipeline;
             }
+            this.renderPipeline = new BABYLON.DefaultRenderingPipeline(
+                'vrPipeline',
+                true,
+                this.scene,
+                [xrCamera]
+            );
             
             // Selective post-processing for VR - keep bloom for light glow, disable expensive effects
             this.renderPipeline.fxaaEnabled = false; // Use XR layer's native AA instead
@@ -531,13 +542,19 @@ class VRClubCore {
             this.renderPipeline.bloomThreshold = vr.bloomThreshold;
             this.renderPipeline.bloomKernel = 32; // Smaller kernel for VR performance
             this.renderPipeline.bloomScale = vr.bloomScale;
+            this.renderPipeline.samples = 1; // XR layer provides its own antialiasing
             this.renderPipeline.sharpenEnabled = false; // Disable - not needed with native AA
             this.renderPipeline.imageProcessingEnabled = true; // Keep for contrast/exposure
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = vr.exposure;
                 this.renderPipeline.imageProcessing.contrast = vr.contrast;
                 this.renderPipeline.imageProcessing.toneMappingEnabled = vr.toneMappingEnabled; // Honor config (now true) so VR matches desktop tonemapping
+                this.renderPipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
                 this.renderPipeline.imageProcessing.vignetteEnabled = false; // No vignette in VR (causes discomfort)
+                if ('ditheringEnabled' in this.renderPipeline.imageProcessing) {
+                    this.renderPipeline.imageProcessing.ditheringEnabled = true;
+                    this.renderPipeline.imageProcessing.ditheringIntensity = 1.0 / 255.0;
+                }
             }
             this.renderPipeline.grainEnabled = false;
             this.renderPipeline.chromaticAberrationEnabled = false;
@@ -547,9 +564,8 @@ class VRClubCore {
 
         // OPTIMIZED: Disable SSAO in VR (too expensive)
         if (this.ssaoPipeline) {
-            // Detach desktop camera to save performance
-            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", this.camera);
-            // Also detach XR camera just in case
+            // SSAO remains owned by the inactive desktop camera. Ensure it is not
+            // accidentally attached to the XR camera.
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", xrCamera);
         }
 
@@ -558,7 +574,6 @@ class VRClubCore {
         // doubles exactly where the frame budget is tightest.
         if (this.ssrPipeline) {
             this.ssrPipeline.isEnabled = false;
-            this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssr", this.camera);
             this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssr", xrCamera);
             log.info('⚡ Screen-space reflections disabled for VR');
         }
@@ -589,20 +604,9 @@ class VRClubCore {
         this.scene.clearColor = vr.clearColor;
         this.scene.fogDensity = vr.fogDensity;
         
-        // #6 OPTIMIZED: Freeze static materials to prevent shader recompilation
-        this.scene.materials.forEach(mat => {
-            // CRITICAL FIX: Explicitly unfreeze LED and strobe materials to ensure animation works in VR
-            const matName = mat.name ? mat.name.toLowerCase() : '';
-            if (matName.includes('led') || matName.includes('strobe')) {
-                mat.unfreeze();
-                return; // Skip freezing - these need dynamic emissive color updates
-            }
-            
-            if (mat.name && !mat.name.includes('beam') && !mat.name.includes('laser') && 
-                !mat.name.includes('spot')) {
-                mat.freeze();
-            }
-        });
+        // Static materials are frozen at their creation sites, where ownership is
+        // known. Do not freeze by name here: fog LEDs, mirror fixtures, gobos and VJ
+        // controls all mutate at runtime and several of their names look static.
         
         // CRITICAL: Force unfreeze ALL LED panel materials (they may have been frozen during creation)
         if (this.ledPanels && this.ledPanels.length > 0) {
@@ -680,10 +684,11 @@ class VRClubCore {
             log.info('⚡ Reduced haze emit rate for VR');
         }
         
-        // Keep subtle scene fog in VR for atmospheric depth (reduced density)
+        // Keep the configured VR haze. Halving this a second time made volumetric
+        // beams and distant fixtures disappear compared with desktop.
         this.scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
-        this.scene.fogDensity = vr.fogDensity * 0.5; // Half density in VR
-        log.info('⚡ Reduced scene fog density for VR');
+        this.scene.fogDensity = vr.fogDensity;
+        log.info('⚡ Applied VR scene fog density');
         
         // #10 OPTIMIZED: Enable Fixed Foveated Rendering (FFR) on Quest 3S
         // Quest 3S supports hardware-level foveated rendering which renders peripheral vision
@@ -713,6 +718,15 @@ class VRClubCore {
     
     applyDesktopSettings() {
         const desktop = this.vrSettings.desktop;
+
+        if (this._desktopRenderPipeline) {
+            const vrPipeline = this.renderPipeline;
+            this.renderPipeline = this._desktopRenderPipeline;
+            this._desktopRenderPipeline = null;
+            if (vrPipeline && vrPipeline !== this.renderPipeline) {
+                vrPipeline.dispose();
+            }
+        }
         
         // UPGRADE: Restore scene performance priority for desktop
         if (BABYLON.ScenePerformancePriority) {
@@ -722,11 +736,6 @@ class VRClubCore {
         
         // Restore post-processing
         if (this.renderPipeline) {
-            // Fix: Add desktop camera back
-            if (this.camera) {
-                this.renderPipeline.addCamera(this.camera);
-            }
-            
             // Re-enable all post-processing effects for desktop
             this.renderPipeline.fxaaEnabled = desktop.fxaaEnabled;
             this.renderPipeline.bloomEnabled = true;
@@ -763,18 +772,18 @@ class VRClubCore {
                 this.renderPipeline.bloomThreshold = desktop.bloomThreshold;
                 this.renderPipeline.bloomScale = desktop.bloomScale;
             }
+
+            this._applyTierToPipeline();
             
             log.info('✨ Re-enabled post-processing pipeline for desktop');
         }
 
         // Enable SSAO in Desktop mode
-        if (this.ssaoPipeline) {
-            this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", this.camera);
-        }
+        // It remains attached to the desktop camera while XR is active, so there is
+        // nothing to reattach here (reattaching non-reusable passes logs errors).
 
         // Restore the heavy desktop-only realism effects.
         if (this.ssrPipeline) {
-            this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssr", this.camera);
             this.ssrPipeline.isEnabled = true;
         } else {
             this._createScreenSpaceReflections();

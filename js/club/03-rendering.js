@@ -308,6 +308,18 @@ class VRClubRendering extends VRClubLifecycle {
         log.info(`🔍 Anisotropic filtering set to ${target}x on ${count} textures`);
     }
 
+    /** Clamp all lit materials after scene construction to avoid WebGL UBO overflow. */
+    _clampMaterialLightBudgets() {
+        let count = 0;
+        this.scene.materials.forEach(material => {
+            if (material.maxSimultaneousLights === undefined ||
+                material.maxSimultaneousLights === this.maxLights) return;
+            material.maxSimultaneousLights = this.maxLights;
+            count++;
+        });
+        log.info(`💡 Clamped ${count} materials to ${this.maxLights} simultaneous lights`);
+    }
+
     /**
      * Upgrade shadow filtering to contact-hardening (PCSS) on capable tiers.
      *

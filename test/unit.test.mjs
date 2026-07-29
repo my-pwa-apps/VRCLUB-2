@@ -117,6 +117,31 @@ test('PA speakers and collision volumes share the rear-truss coordinates', () =>
     assert.match(environmentSource, /CLUB_POSITIONS\.paSpeakers\.right\.z/);
 });
 
+test('VR transition preserves scene content and attaches visual effects to the XR camera', () => {
+    const coreSource = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
+    const animationSource = readFileSync(join(ROOT, 'js/club/07-animation-core.js'), 'utf8');
+    const materialSource = readFileSync(join(ROOT, 'js/materialFactory.js'), 'utf8');
+    const lifecycleSource = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    const vrBlock = coreSource.slice(
+        coreSource.indexOf('applyVRSettings(xrCamera)'),
+        coreSource.indexOf('applyDesktopSettings()')
+    );
+
+    assert.match(vrBlock, /new BABYLON\.DefaultRenderingPipeline\([\s\S]*\[xrCamera\]/);
+    assert.match(coreSource, /this\.renderPipeline = this\._desktopRenderPipeline;/);
+    assert.match(coreSource, /vrPipeline\.dispose\(\)/);
+    assert.doesNotMatch(vrBlock, /this\.scene\.materials\.forEach/);
+    assert.match(vrBlock, /this\.scene\.fogDensity = vr\.fogDensity;/);
+    assert.doesNotMatch(vrBlock, /vr\.fogDensity\s*\*/);
+    assert.match(animationSource, /const activeSpotCount = this\.tierSettings\.mirrorSpots;/);
+    assert.doesNotMatch(animationSource, /qualityTiers\.balanced\.mirrorSpots/);
+    for (const tag of ["'toggle'", "'audiobtn'", "'sliderhandle'"]) {
+        assert.match(materialSource, new RegExp(tag, 'g'));
+    }
+    assert.match(materialSource, /mat\.maxSimultaneousLights = this\.maxLights;/);
+    assert.match(lifecycleSource, /this\._clampMaterialLightBudgets\(\);/);
+});
+
 test('InFlightRegistry de-duplicates concurrent work and clears completed entries', async () => {
     const { window } = loadClassic('js/assetCache.js', {
         AbortController,

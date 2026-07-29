@@ -22,6 +22,9 @@ report can always be tied back to an entry below.
   patterns and core fixture capabilities; Safe Mode now suppresses moving-head flashes.
 - Camera viewpoints now collapse behind a compact camera button and close after selection.
 - Synchronized PA collision volumes and documentation with the existing rear-truss rigging.
+- Restored desktop/VR scene parity: the XR camera now receives bloom and tone
+  mapping, runtime fixture materials remain animated, VR haze uses its configured
+  density, and entering XR no longer removes mirror-ball reflections.
 - Replaced 11 stale and redundant camera presets with four immersive viewpoints
   aligned to the current entrance, dance floor, DJ booth, and lighting rig.
 - Split the VRClub monolith into 11 focused source layers and added a content-hashed esbuild production bundle.
