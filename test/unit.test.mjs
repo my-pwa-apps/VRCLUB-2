@@ -49,6 +49,21 @@ test('audio URL policy accepts supported sources and rejects unsafe inputs', () 
     assert.equal(AudioUtils.isSafeAudioUrl('http://radio.example/live.mp3', 'http://localhost:8000/'), true);
 });
 
+test('default techno stream starts inside the Enter Club user gesture', () => {
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const clickHandler = source.slice(
+        source.indexOf("enterClubBtn.addEventListener('click'"),
+        source.indexOf('function hideSplashWhenReady()')
+    );
+
+    assert.match(source, /https:\/\/stream\.sunshine-live\.de\/techno\/mp3-192\//);
+    assert.ok(clickHandler.indexOf('startAudioStream(DEFAULT_AUDIO_STREAM.url)') >= 0);
+    assert.ok(
+        clickHandler.indexOf('startAudioStream(DEFAULT_AUDIO_STREAM.url)') < clickHandler.indexOf('setTimeout('),
+        'default audio must start before deferred work loses user activation'
+    );
+});
+
 test('InFlightRegistry de-duplicates concurrent work and clears completed entries', async () => {
     const { window } = loadClassic('js/assetCache.js', {
         AbortController,

@@ -10,6 +10,12 @@ report can always be tied back to an entry below.
 
 ## [Unreleased]
 
+### Added
+
+- The official SUNSHINE LIVE Techno radio feed now starts when the guest enters the
+  club, providing audio-reactive music by default while remaining replaceable from
+  the audio panel.
+
 ### Changed
 
 - Split the VRClub monolith into 11 focused source layers and added a content-hashed esbuild production bundle.

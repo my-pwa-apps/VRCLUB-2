@@ -12,6 +12,11 @@ const uiLog = {
     error: (...args) => console.error('[UI]', ...args)
 };
 
+const DEFAULT_AUDIO_STREAM = Object.freeze({
+    name: 'SUNSHINE LIVE - Techno',
+    url: 'https://stream.sunshine-live.de/techno/mp3-192/stream.sunshine-live.de/'
+});
+
 // =============================================================================
 // SPLASH SCREEN PARTICLES
 // =============================================================================
@@ -113,6 +118,23 @@ if (enterClubBtn) {
         const usernameInput = document.getElementById('splashUsername');
         
         splashConfig.username = (usernameInput && usernameInput.value.trim()) || 'Guest';
+
+        // Babylon needs a measurable canvas when the engine is constructed. The
+        // splash remains above it until init resolves.
+        canvas.classList.remove('hidden');
+        canvas.style.display = 'block';
+
+        // Create and start audio directly inside the Enter click. Deferring either
+        // operation loses the browser's transient user activation and audible
+        // playback is then blocked by autoplay policy.
+        if (!window.vrClub) {
+            window.vrClub = new VRClub();
+        }
+        window.vrClub.startAudioStream(DEFAULT_AUDIO_STREAM.url).catch((err) => {
+            // Music is atmosphere, not a startup dependency. The audio panel still
+            // lets the guest retry this feed or choose another source.
+            uiLog.warn(`Default stream unavailable: ${err.message}`);
+        });
         
         // Show loading state
         enterClubBtn.style.display = 'none';
@@ -126,14 +148,6 @@ if (enterClubBtn) {
         
         // Show canvas and initialize VR club
         setTimeout(() => {
-            canvas.classList.remove('hidden'); // Remove hidden class to show canvas
-            canvas.style.display = 'block';
-            
-            // Initialize VRClub instance (club_hyperrealistic.js creates window.vrClub)
-            if (!window.vrClub) {
-                window.vrClub = new VRClub();
-            }
-            
             // Initialize UI menus once VRClub is ready
             waitForVRClubInstance();
 
@@ -735,6 +749,14 @@ function initAudioMenu() {
     const audioTitle = document.getElementById('audioMenuTitle');
     
     if (!audioToggle || !audioMenu) return;
+
+    if (streamUrl && !streamUrl.value) {
+        streamUrl.value = DEFAULT_AUDIO_STREAM.url;
+        streamUrl.title = DEFAULT_AUDIO_STREAM.name;
+    }
+    if (playStreamBtn && vrClubInstance.audioElement && !vrClubInstance.audioElement.paused) {
+        playStreamBtn.textContent = '⏸️ Pause';
+    }
     
     const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
     const closeAudioMenu = (restoreFocus = true) => {
@@ -804,6 +826,16 @@ function initAudioMenu() {
                 showStatus('Invalid URL. Use http://, https:// or blob:', 'error');
                 return;
             }
+
+            const activeAudio = vrClubInstance.audioElement;
+            const requestedUrl = new URL(url, window.location.href).href;
+            if (activeAudio && !activeAudio.paused && activeAudio.src === requestedUrl) {
+                activeAudio.pause();
+                playStreamBtn.textContent = '▶️ Play';
+                showStatus('Stream paused', 'success');
+                return;
+            }
+
             vrClubInstance.startAudioStream(url)
                 .then(() => {
                     showStatus('🎵 Stream playing!', 'success');
