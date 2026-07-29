@@ -611,12 +611,13 @@ class VRClubEnvironment extends VRClubRendering {
             { width: 0.5, height: 2, depth: 2, 
               pos: new BABYLON.Vector3(4.5, 1, -17) }, // Right side
             
-            // PA Speaker protection (left stack)
-            { width: 3, height: 6, depth: 2, 
-              pos: new BABYLON.Vector3(-7, 3, -19) },
-            // PA Speaker protection (right stack)
-            { width: 3, height: 6, depth: 2, 
-              pos: new BABYLON.Vector3(7, 3, -19) }
+                        // Flown PA cabinets under the rear truss
+                        { width: 2, height: 1.8, depth: 2,
+                            pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.left.x,
+                                    CLUB_POSITIONS.paSpeakers.left.y - 0.725, CLUB_POSITIONS.paSpeakers.left.z) },
+                        { width: 2, height: 1.8, depth: 2,
+                            pos: new BABYLON.Vector3(CLUB_POSITIONS.paSpeakers.right.x,
+                                    CLUB_POSITIONS.paSpeakers.right.y - 0.725, CLUB_POSITIONS.paSpeakers.right.z) }
         ];
         
         boundaries.forEach((b, i) => {

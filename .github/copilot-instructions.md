@@ -253,7 +253,7 @@ shared.
 - DJ booth: `{ x: 0, y: 0.95, z: -18 }`
 - Dance floor centre: around `z = -12`
 - Entrance: `z = 0`
-- PA speakers: hung from the ceiling at `x = ±6, y = 6.5, z = -19`
+- PA speakers: flown from the rear truss at `x = ±6`, cabinet top `y = 7.1`, `z = -16`
 
 Treat `CLUB_POSITIONS` and `ROOM_BOUNDS` as the source of truth; do not re-derive
 coordinates from documentation.

@@ -18,12 +18,33 @@ class VRClubUI extends VRClubAnimationFinish {
             });
         }
         
-        // Camera presets - support both old class and new data attribute
+        const cameraControls = document.getElementById('cameraControls');
+        const cameraPresetToggle = document.getElementById('cameraPresetToggle');
+        const cameraPresetGrid = document.getElementById('cameraPresetGrid');
+        const setCameraPresetsOpen = (open) => {
+            if (!cameraPresetToggle || !cameraPresetGrid) return;
+            cameraPresetGrid.hidden = !open;
+            cameraPresetToggle.setAttribute('aria-expanded', String(open));
+            cameraPresetToggle.setAttribute('aria-label', `${open ? 'Hide' : 'Show'} camera viewpoints`);
+            if (cameraControls) cameraControls.classList.toggle('expanded', open);
+        };
+
+        if (cameraPresetToggle) {
+            this._onCameraPresetToggle = () => {
+                setCameraPresetsOpen(cameraPresetToggle.getAttribute('aria-expanded') !== 'true');
+            };
+            cameraPresetToggle.addEventListener('click', this._onCameraPresetToggle);
+        }
+
+        this._cameraPresetHandlers = [];
         document.querySelectorAll('[data-camera-preset]').forEach(btn => {
-            btn.addEventListener('click', () => {
+            const handler = () => {
                 const preset = btn.dataset.cameraPreset;
                 this.moveCameraToPreset(preset);
-            });
+                setCameraPresetsOpen(false);
+            };
+            btn.addEventListener('click', handler);
+            this._cameraPresetHandlers.push({ btn, handler });
         });
         
         // Debug toggle.
@@ -624,19 +645,12 @@ class VRClubUI extends VRClubAnimationFinish {
 
     moveCameraToPreset(preset) {
         const presets = {
-            exterior: { pos: new BABYLON.Vector3(0, 1.7, 10), target: new BABYLON.Vector3(0, 2, 0) },
-            entrance: { pos: new BABYLON.Vector3(0, 1.7, 2), target: new BABYLON.Vector3(0, 1.7, -15) },
-            danceFloor: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -18) },
+            arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, 1.7, -3), target: new BABYLON.Vector3(0, 2.2, -17) },
+            danceFloor: { label: 'Dance Floor', pos: new BABYLON.Vector3(-2.8, 1.7, -9.2), target: new BABYLON.Vector3(0, 2.6, -18.5) },
             // Eye height for someone standing on the 0.5 m riser, inside the 1 m
             // gap between the LED wall (z=-20) and the deck plinth (z=-19), facing out.
-            djBooth: { pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10) },
-            djSide: { pos: new BABYLON.Vector3(-4.2, 2.1, -17.2), target: new BABYLON.Vector3(0, 1.4, -18.6) },
-            ledWallClose: { pos: new BABYLON.Vector3(0, 1.7, -12), target: new BABYLON.Vector3(0, 3, -19) },
-            speakers: { pos: new BABYLON.Vector3(-3, 2.2, -11.5), target: new BABYLON.Vector3(-6, 6.3, -16) },
-            truss: { pos: new BABYLON.Vector3(0, 5, -8), target: new BABYLON.Vector3(0, 6.5, -12) },
-            mirrorBall: { pos: new BABYLON.Vector3(3, 6.5, -12), target: new BABYLON.Vector3(0, 6.5, -12) },
-            overview: { pos: new BABYLON.Vector3(-15, 8, -8), target: new BABYLON.Vector3(0, 2, -15) },
-            ceiling: { pos: new BABYLON.Vector3(0, 8.5, -12), target: new BABYLON.Vector3(0, 0, -15) }
+            djBooth: { label: 'DJ Booth', pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10) },
+            lightingGallery: { label: 'Lighting Gallery', pos: new BABYLON.Vector3(10, 5.2, -6.5), target: new BABYLON.Vector3(0, 2.4, -15.5) }
         };
         
         const p = presets[preset];
@@ -657,11 +671,11 @@ class VRClubUI extends VRClubAnimationFinish {
                 }
             }, 300);
             
-            this.showCameraTransitionFeedback(preset);
+            this.showCameraTransitionFeedback(p.label);
         }
     }
 
-    showCameraTransitionFeedback(preset) {
+    showCameraTransitionFeedback(label) {
         const feedback = document.createElement('div');
         feedback.style.cssText = `
             position: fixed;
@@ -677,7 +691,7 @@ class VRClubUI extends VRClubAnimationFinish {
             z-index: 10000;
             animation: fadeOut 1.5s forwards;
         `;
-        feedback.textContent = `📷 ${preset.toUpperCase()}`;
+        feedback.textContent = `📷 ${label.toUpperCase()}`;
         document.body.appendChild(feedback);
         
         setTimeout(() => feedback.remove(), 1500);

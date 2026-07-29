@@ -40,12 +40,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
-    <link rel="preload" href="js/vendor/babylon.js?v=20260729-7" as="script">
+    <link rel="preload" href="js/vendor/babylon.js?v=20260729-9" as="script">
     
     <title>VR Club - Virtual Nightclub Experience</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css?v=20260729-7">
+    <link rel="stylesheet" href="css/styles.css?v=20260729-9">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -122,6 +122,7 @@
                     <button class="vj-button" data-control="changeColor">COLOR</button>
                     <button class="vj-button" data-control="cycleSpotMode">MODE</button>
                     <button class="vj-button" data-control="cyclePattern">PATTERN</button>
+                    <button class="vj-button" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT FLASH</button>
                 </div>
                 <div class="vj-slider-container">
                     <input type="range" class="vj-slider" id="spotSpeed" min="0.1" max="2.0" step="0.1" value="1.0" title="Adjust animation speed for all lighting effects">
@@ -265,18 +266,14 @@
     
     <!-- Camera Controls -->
     <div id="cameraControls">
-        <div class="preset-grid">
-            <button data-camera-preset="exterior" title="Outside the club - exterior entrance view with neon sign">🌃 Outside</button>
-            <button data-camera-preset="entrance" title="Front entrance view looking into club">🚪 Entry</button>
-            <button data-camera-preset="danceFloor" title="Dance floor center, facing DJ booth">💃 Floor</button>
-            <button data-camera-preset="djBooth" title="Behind DJ console, facing crowd">🎧 DJ</button>
-            <button data-camera-preset="djSide" title="Side view of DJ booth and equipment">🎛️ DJ Side</button>
-            <button data-camera-preset="ledWallClose" title="Close-up of LED wall video panels">🎨 LED</button>
-            <button data-camera-preset="speakers" title="PA speaker stacks flanking LED wall">🔊 Speakers</button>
-            <button data-camera-preset="truss" title="Lighting truss with moving heads">💡 Truss</button>
-            <button data-camera-preset="mirrorBall" title="Disco mirror ball spotlight view">🪩 Ball</button>
-            <button data-camera-preset="overview" title="Isometric view of entire club">🏢 Full</button>
-            <button data-camera-preset="ceiling" title="Ceiling lasers and lighting">✨ Top</button>
+        <button id="cameraPresetToggle" class="camera-controls-toggle" type="button"
+                title="Camera viewpoints" aria-label="Show camera viewpoints"
+                aria-expanded="false" aria-controls="cameraPresetGrid">📷</button>
+        <div class="preset-grid" id="cameraPresetGrid" hidden>
+            <button data-camera-preset="arrival" title="Enter the room with the full club opening ahead">🚪 Arrival</button>
+            <button data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">💃 Floor</button>
+            <button data-camera-preset="djBooth" title="Take the DJ's view across the decks and dance floor">🎧 Booth</button>
+            <button data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">💡 Lights</button>
         </div>
     </div>
     
@@ -300,57 +297,57 @@
          scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
          against the recorded hashes and against the upstream CDN.
          Refresh with: npm run vendor:babylon -- --force -->
-    <script src="js/vendor/babylon.js?v=20260729-7"></script>
-    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260729-7"></script>
+    <script src="js/vendor/babylon.js?v=20260729-9"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260729-9"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="js/vendor/babylonjs.loaders.min.js?v=20260729-7"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20260729-9"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260729-7"></script>
-    <script src="js/audioUtils.js?v=20260729-7"></script>
+    <script src="js/assetCache.js?v=20260729-9"></script>
+    <script src="js/audioUtils.js?v=20260729-9"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260729-7"></script>
+    <script src="js/textureLoader.js?v=20260729-9"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260729-7"></script>
+    <script src="js/modelLoader.js?v=20260729-9"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260729-7"></script>
+    <script src="js/materialFactory.js?v=20260729-9"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260729-7"></script>
+    <script src="js/lightFactory.js?v=20260729-9"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260729-7"></script>
+    <script src="js/vjDirector.js?v=20260729-9"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20260729-7"></script>
+    <script src="js/showDirector.js?v=20260729-9"></script>
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
-    <script src="js/ledPatterns.js?v=20260729-7"></script>
+    <script src="js/ledPatterns.js?v=20260729-9"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
-    <script src="js/club/01-core.js?v=20260729-7"></script>
-    <script src="js/club/02-lifecycle.js?v=20260729-7"></script>
-    <script src="js/club/03-rendering.js?v=20260729-7"></script>
-    <script src="js/club/04-environment.js?v=20260729-7"></script>
-    <script src="js/club/05-fixtures.js?v=20260729-7"></script>
-    <script src="js/club/06-effects.js?v=20260729-7"></script>
-    <script src="js/club/07-animation-core.js?v=20260729-7"></script>
-    <script src="js/club/08-animation-fixtures.js?v=20260729-7"></script>
-    <script src="js/club/09-animation-finish.js?v=20260729-7"></script>
-    <script src="js/club/10-ui.js?v=20260729-7"></script>
-    <script src="js/club/11-audio-crowd.js?v=20260729-7"></script>
+    <script src="js/club/01-core.js?v=20260729-9"></script>
+    <script src="js/club/02-lifecycle.js?v=20260729-9"></script>
+    <script src="js/club/03-rendering.js?v=20260729-9"></script>
+    <script src="js/club/04-environment.js?v=20260729-9"></script>
+    <script src="js/club/05-fixtures.js?v=20260729-9"></script>
+    <script src="js/club/06-effects.js?v=20260729-9"></script>
+    <script src="js/club/07-animation-core.js?v=20260729-9"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20260729-9"></script>
+    <script src="js/club/09-animation-finish.js?v=20260729-9"></script>
+    <script src="js/club/10-ui.js?v=20260729-9"></script>
+    <script src="js/club/11-audio-crowd.js?v=20260729-9"></script>
 
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260729-7"></script>
+    <script src="js/club_hyperrealistic.js?v=20260729-9"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260729-7"></script>
+    <script src="js/ui-init.js?v=20260729-9"></script>
 </body>
 </html>

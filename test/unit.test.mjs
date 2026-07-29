@@ -64,6 +64,59 @@ test('default techno stream starts inside the Enter Club user gesture', () => {
     );
 });
 
+test('camera toolbar exposes only the curated immersive presets', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    const source = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    const buttons = [...html.matchAll(/data-camera-preset="([^"]+)"/g)].map(match => match[1]);
+    const expected = ['arrival', 'danceFloor', 'djBooth', 'lightingGallery'];
+
+    assert.deepEqual(buttons, expected);
+    for (const preset of expected) {
+        assert.match(source, new RegExp(`\\n\\s*${preset}: \\{ label:`));
+    }
+    assert.match(html, /id="cameraPresetToggle"[^>]+aria-expanded="false"/);
+    assert.match(html, /id="cameraPresetGrid" hidden/);
+    assert.match(source, /setCameraPresetsOpen\(false\)/);
+});
+
+test('desktop and DJ-table VJ controls match implemented fixture capabilities', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    const tableSource = readFileSync(join(ROOT, 'js/club/05-fixtures.js'), 'utf8');
+    const desktopSource = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const renderSource = readFileSync(join(ROOT, 'js/club/08-animation-fixtures.js'), 'utf8');
+    const tableBlock = tableSource.slice(
+        tableSource.indexOf('const toggleButtons = ['),
+        tableSource.indexOf('toggleButtons.forEach')
+    );
+    const tableControls = [...tableBlock.matchAll(/control: "([^"]+)"/g)].map(match => match[1]);
+    const expected = [
+        'lightsActive', 'lasersActive', 'ledWallActive', 'strobesActive',
+        'mirrorBallActive', 'ledMonochrome', 'changeColor', 'cycleSpotMode',
+        'smokeActive', 'laserSheetActive', 'cyclePattern', 'blindersActive'
+    ];
+
+    assert.deepEqual(tableControls, expected);
+    for (const control of expected) {
+        assert.match(html, new RegExp(`data-control="${control}"`));
+    }
+    assert.match(html, /data-control="spotStrobeActive"[^>]*>SPOT FLASH<\/button>/);
+    assert.match(desktopSource, /spotlightPattern \+ 1\) % 4/);
+    assert.match(desktopSource, /"CROSSED BEAMS"/);
+    assert.match(renderSource, /!this\.photosensitiveSafeMode && this\.spotStrobeActive/);
+});
+
+test('PA speakers and collision volumes share the rear-truss coordinates', () => {
+    const loaderSource = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    const environmentSource = readFileSync(join(ROOT, 'js/club/04-environment.js'), 'utf8');
+
+    assert.match(loaderSource, /centerX: CLUB_POSITIONS\.paSpeakers\.left\.x/);
+    assert.match(loaderSource, /centerZ: CLUB_POSITIONS\.paSpeakers\.right\.z/);
+    assert.match(loaderSource, /hangFromTruss: true/);
+    assert.doesNotMatch(loaderSource, /hangFromCeiling/);
+    assert.match(environmentSource, /CLUB_POSITIONS\.paSpeakers\.left\.z/);
+    assert.match(environmentSource, /CLUB_POSITIONS\.paSpeakers\.right\.z/);
+});
+
 test('InFlightRegistry de-duplicates concurrent work and clears completed entries', async () => {
     const { window } = loadClassic('js/assetCache.js', {
         AbortController,

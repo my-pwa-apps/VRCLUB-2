@@ -600,6 +600,15 @@ class VRClubLifecycle extends VRClubCore {
             document.removeEventListener('keydown', this._onKeyDown);
             this._onKeyDown = null;
         }
+        if (this._onCameraPresetToggle) {
+            const toggle = document.getElementById('cameraPresetToggle');
+            if (toggle) toggle.removeEventListener('click', this._onCameraPresetToggle);
+            this._onCameraPresetToggle = null;
+        }
+        if (this._cameraPresetHandlers) {
+            this._cameraPresetHandlers.forEach(({ btn, handler }) => btn.removeEventListener('click', handler));
+            this._cameraPresetHandlers = null;
+        }
 
         // Scene pointer callbacks are plain properties holding closures over `this`.
         // Null them before scene.dispose() so nothing can re-enter a torn-down instance

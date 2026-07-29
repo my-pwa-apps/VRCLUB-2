@@ -442,8 +442,8 @@ function initVJMenu() {
                 
             } else if (control === 'cyclePattern') {
                 // Cycle spotlight pattern with ENHANCED feedback
-                vrClubInstance.spotlightPattern = (vrClubInstance.spotlightPattern + 1) % 3;
-                const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
+                vrClubInstance.spotlightPattern = (vrClubInstance.spotlightPattern + 1) % 4;
+                const patternNames = ["RANDOM", "STATIC DOWN", "MIRROR SWEEP", "CROSSED BEAMS"];
                 button.textContent = patternNames[vrClubInstance.spotlightPattern];
                 button.style.transform = 'scale(1.1)';
                 button.style.background = 'rgba(102, 126, 234, 0.9)';

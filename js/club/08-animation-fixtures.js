@@ -964,7 +964,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     
                     // Strobe is active when: button is on AND mode includes strobe (0 or 2)
                     const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
-                    const isStrobeEnabled = this.spotStrobeActive && isStrobeMode;
+                    const isStrobeEnabled = !this.photosensitiveSafeMode && this.spotStrobeActive && isStrobeMode;
                     
                     let beamVisible = this.lightsActive;
                     if (isStrobeEnabled) {

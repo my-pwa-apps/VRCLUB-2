@@ -91,9 +91,9 @@ class ModelLoader {
                     // class: 1.42 × 0.68 × 0.57 m). Yields 1.45 × 0.60 × 0.61 m here.
                     fitAxis: 'y',
                     fitSize: 1.45,
-                    centerX: -6,  // Between the x=-8 movers and the x=-4 mirror spots
-                    centerZ: -16, // Directly under truss3 (chords span z -16.17 .. -15.83)
-                    topY: 7.1     // ~0.7 m of visible rigging up to the truss chord
+                    centerX: CLUB_POSITIONS.paSpeakers.left.x,
+                    centerZ: CLUB_POSITIONS.paSpeakers.left.z,
+                    topY: CLUB_POSITIONS.paSpeakers.left.y
                 },
                 // Flown from the rear lighting truss, NOT the ceiling. anchorY is the
                 // truss chord centre-line; the chain length is derived from the measured
@@ -103,7 +103,7 @@ class ModelLoader {
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
                 textureBasePath: './js/models/paspeakers/source/textures/',
-                hangFromCeiling: true, // Flag for special positioning
+                hangFromTruss: true,
                 attribution: 'Stage Speaker (CC BY 4.0)'
             },
             pa_speaker_right: {
@@ -114,16 +114,16 @@ class ModelLoader {
                 placement: {
                     fitAxis: 'y',
                     fitSize: 1.45,
-                    centerX: 6,
-                    centerZ: -16,
-                    topY: 7.1
+                    centerX: CLUB_POSITIONS.paSpeakers.right.x,
+                    centerZ: CLUB_POSITIONS.paSpeakers.right.z,
+                    topY: CLUB_POSITIONS.paSpeakers.right.y
                 },
                 rigging: { anchorY: 8.0, yaw: -Math.PI / 6 },
                 useProcedural: false, // USE the 3D model
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
                 textureBasePath: './js/models/paspeakers/source/textures/',
-                hangFromCeiling: true, // Flag for special positioning
+                hangFromTruss: true,
                 attribution: 'Stage Speaker (CC BY 4.0)'
             }
         };
@@ -480,15 +480,15 @@ class ModelLoader {
                     'speakerLight_' + modelKey,
                     new BABYLON.Vector3(
                         focusPoint.x,
-                        focusPoint.y + (config.hangFromCeiling ? 0 : 2),
-                        focusPoint.z + (config.hangFromCeiling ? 1.5 : 0) // In front when hung
+                        focusPoint.y + (config.hangFromTruss ? 0 : 2),
+                        focusPoint.z + (config.hangFromTruss ? 1.5 : 0) // In front when flown
                     ),
                     this.scene
                 );
                 speakerLight.intensity = 0.8; // Reduced intensity
                 speakerLight.range = 8; // Wider range for hung speakers
                 speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
-                this.log.info(`   💡 Added light for ${config.name} (${config.hangFromCeiling ? 'ceiling-hung' : 'floor-standing'})`);
+                this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
                 // Also make them BLACK if configured

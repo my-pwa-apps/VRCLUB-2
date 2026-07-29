@@ -237,10 +237,10 @@ class VRClubFixtures extends VRClubEnvironment {
                 col: 0, row: 1
             },
             { 
-                label: "BALL COLOR", 
-                control: "changeMirrorBallColor",
-                onColor: new BABYLON.Color3(1, 1, 1), // White - changes to current color
-                offColor: new BABYLON.Color3(0.3, 0.3, 0.3),
+                label: "B&W WALL",
+                control: "ledMonochrome",
+                onColor: new BABYLON.Color3(1, 1, 1),
+                offColor: new BABYLON.Color3(0.25, 0.25, 0.25),
                 col: 1, row: 1
             },
             { 
@@ -279,10 +279,10 @@ class VRClubFixtures extends VRClubEnvironment {
                 col: 4, row: 1
             },
             { 
-                label: "STROBE", 
-                control: "spotStrobeActive",
-                onColor: new BABYLON.Color3(1, 1, 0), // Yellow - strobe on
-                offColor: new BABYLON.Color3(0.2, 0.2, 0),
+                label: "BLINDERS",
+                control: "blindersActive",
+                onColor: new BABYLON.Color3(1, 0.8, 0.45),
+                offColor: new BABYLON.Color3(0.2, 0.12, 0.04),
                 col: 5, row: 1
             }
         ];
