@@ -144,21 +144,21 @@ class VRClubCore {
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                exposure: 1.05, // Aligned with desktop so metallic PBR (trusses, fixtures) matches
-                contrast: 1.55, // Near-desktop contrast — keep VR/desktop visually consistent
-                bloomWeight: 0.22, // VR — lower weight so emissives don't smear across pixels
-                bloomThreshold: 0.85, // Only the brightest highlights bloom (laser/spot cores at scale 6-10)
+                exposure: 1.0,
+                contrast: 1.65,
+                bloomWeight: 0.12, // Keep LED tile gaps crisp instead of bridging them with bloom
+                bloomThreshold: 1.1, // Reserve bloom for fixture cores, not the LED panel faces
                                       // — LED panels (emissive ~1.0) stop blooming so tile gaps stay visible
                 bloomScale: 0.3,
-                glowIntensity: 0.5, // Visible glow in VR
+                glowIntensity: 0.7, // Preserve beam presence without washing out the LED wall
                 ambientIntensity: 0.06, // Match desktop — keeps shadowed metal readable
                 environmentIntensity: 0.5, // MATCH desktop — metallic trusses/pipes/fixtures rely on env reflections
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Match desktop tint (was pure black)
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true, // ENABLE — same color/luminance response as desktop
-                edgeSharpness: 0.7,
-                colorSharpness: 0.9,
+                edgeSharpness: 0.3,
+                colorSharpness: 0.2,
                 fxaaEnabled: true,
                 fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
@@ -504,13 +504,6 @@ class VRClubCore {
         // Frame-skipping causes different states per eye = epileptic effect
         this.isInVRMode = true;
         
-        // UPGRADE: Set scene performance priority to Aggressive for VR
-        // This tells Babylon.js to skip frustum checks, reduce draw calls, etc.
-        if (BABYLON.ScenePerformancePriority) {
-            this.scene.performancePriority = BABYLON.ScenePerformancePriority.Aggressive;
-            log.info('⚡ Scene performance priority set to Aggressive for VR');
-        }
-        
         // UPGRADE: Disable floor reflection probe in VR (one less render target)
         if (this.floorReflectionProbe) {
             this.floorReflectionProbe.cubeTexture.refreshRate = 0; // Stop rendering
@@ -543,7 +536,9 @@ class VRClubCore {
             this.renderPipeline.bloomKernel = 32; // Smaller kernel for VR performance
             this.renderPipeline.bloomScale = vr.bloomScale;
             this.renderPipeline.samples = 1; // XR layer provides its own antialiasing
-            this.renderPipeline.sharpenEnabled = false; // Disable - not needed with native AA
+            this.renderPipeline.sharpenEnabled = true;
+            this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
+            this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
             this.renderPipeline.imageProcessingEnabled = true; // Keep for contrast/exposure
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = vr.exposure;
@@ -628,28 +623,6 @@ class VRClubCore {
             log.info(`⚡ Unfroze ${this.strobes.length} strobe materials for VR animation`);
         }
         
-        // #11 OPTIMIZED: Aggressively freeze static meshes in VR
-        // Freeze world matrix for objects that never move
-        this.scene.meshes.forEach(mesh => {
-            if (mesh.name && (
-                mesh.name.includes('wall') || 
-                mesh.name.includes('floor') || 
-                mesh.name.includes('ceiling') || 
-                mesh.name.includes('pillar') || 
-                mesh.name.includes('truss') || 
-                mesh.name.includes('speaker') || 
-                mesh.name.includes('djTable') || 
-                mesh.name.includes('platform') ||
-                mesh.name.includes('rail') ||
-                mesh.name.includes('pipe') ||
-                mesh.name.includes('brick')
-            )) {
-                mesh.freezeWorldMatrix();
-                mesh.doNotSyncBoundingInfo = true;
-                mesh.isPickable = false;
-            }
-        });
-        
         // #7 OPTIMIZED: Reduce shadow quality for better VR performance
         this.scene.lights.forEach(light => {
             if (light.getShadowGenerator) {
@@ -694,21 +667,16 @@ class VRClubCore {
         // Quest 3S supports hardware-level foveated rendering which renders peripheral vision
         // at lower resolution, significantly improving GPU performance
         try {
-            // CRITICAL PERFORMANCE FIX: Reduce render resolution slightly for Quest 3S
-            // Native resolution is too high for complex scenes. 1.3x scaling = ~75% resolution
-            // This provides massive FPS boost with minimal visual impact in VR
-            this.engine.setHardwareScalingLevel(1.3);
-            log.info('⚡ Set hardware scaling level to 1.3 for VR performance');
+            this.engine.setHardwareScalingLevel(1.0);
+            log.info('⚡ Kept native XR render scale for fixture and LED-wall clarity');
 
             const session = this.vrHelper?.baseExperience?.sessionManager?.session;
             if (session && 'updateRenderState' in session) {
                 // Check if XR layer supports foveated rendering
                 const xrLayer = session.renderState.baseLayer;
                 if (xrLayer && 'fixedFoveation' in xrLayer) {
-                    // Set high foveation (0 = none, 1 = maximum peripheral reduction)
-                    // 0.75-1.0 is good for performance without noticeable quality loss
-                    xrLayer.fixedFoveation = 1.0; // Maximum foveation for best performance
-                    log.info('⚡ Fixed Foveated Rendering enabled (1.0 max) - hardware accelerated');
+                    xrLayer.fixedFoveation = 0.4;
+                    log.info('⚡ Fixed Foveated Rendering enabled at moderate strength (0.4)');
                 }
             }
         } catch (err) {

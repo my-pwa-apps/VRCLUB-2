@@ -428,7 +428,6 @@ class VRClubLifecycle extends VRClubCore {
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs only
-        this.createBar(); // Bar area with counter, stools, bottles
         this._reportInitProgress(0.72, 'Loading performers...');
         
         // Setup UI

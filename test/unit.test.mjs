@@ -133,6 +133,11 @@ test('VR transition preserves scene content and attaches visual effects to the X
     assert.doesNotMatch(vrBlock, /this\.scene\.materials\.forEach/);
     assert.match(vrBlock, /this\.scene\.fogDensity = vr\.fogDensity;/);
     assert.doesNotMatch(vrBlock, /vr\.fogDensity\s*\*/);
+    assert.doesNotMatch(vrBlock, /ScenePerformancePriority\.Aggressive/);
+    assert.doesNotMatch(vrBlock, /this\.scene\.meshes\.forEach/);
+    assert.match(vrBlock, /this\.engine\.setHardwareScalingLevel\(1\.0\)/);
+    assert.match(vrBlock, /xrLayer\.fixedFoveation = 0\.4/);
+    assert.match(vrBlock, /this\.renderPipeline\.sharpenEnabled = true/);
     assert.match(animationSource, /const activeSpotCount = this\.tierSettings\.mirrorSpots;/);
     assert.doesNotMatch(animationSource, /qualityTiers\.balanced\.mirrorSpots/);
     for (const tag of ["'toggle'", "'audiobtn'", "'sliderhandle'"]) {
@@ -140,6 +145,22 @@ test('VR transition preserves scene content and attaches visual effects to the X
     }
     assert.match(materialSource, /mat\.maxSimultaneousLights = this\.maxLights;/);
     assert.match(lifecycleSource, /this\._clampMaterialLightBudgets\(\);/);
+});
+
+test('club composition does not create the obsolete side bar', () => {
+    const lifecycleSource = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+
+    assert.doesNotMatch(lifecycleSource, /this\.createBar\(\)/);
+});
+
+test('mirror-ball rays can hit non-interactive structure and remain visible in VR', () => {
+    const effectsSource = readFileSync(join(ROOT, 'js/club/06-effects.js'), 'utf8');
+    const animationSource = readFileSync(join(ROOT, 'js/club/07-animation-core.js'), 'utf8');
+
+    assert.doesNotMatch(effectsSource, /if \(!mesh\.isPickable \|\| !mesh\.isEnabled\(\)\) return false/);
+    assert.match(animationSource, /this\.mirrorOutgoingRayPredicate = this\.mirrorBallRayPredicate/);
+    assert.match(animationSource, /this\.isInVRMode \? 0\.18 : 0\.12/);
+    assert.match(animationSource, /this\.isInVRMode \? 0\.22 : 0\.18/);
 });
 
 test('InFlightRegistry de-duplicates concurrent work and clears completed entries', async () => {

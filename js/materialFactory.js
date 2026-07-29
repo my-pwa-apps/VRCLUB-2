@@ -616,6 +616,7 @@ class MaterialFactory {
             baseColor: [0.72, 0.72, 0.75], // Brighter aluminum
             metallic: 1.0,
             roughness: 0.21, // Brushed finish (0.18 pre-compensated for the detail map)
+            emissiveColor: [0.04, 0.04, 0.045],
             detail: 'brushedMetal',
             detailScale: 6
         }, true),
@@ -625,6 +626,7 @@ class MaterialFactory {
             baseColor: [0.5, 0.5, 0.52],
             metallic: 0.95,
             roughness: 0.39,
+            emissiveColor: [0.025, 0.025, 0.028],
             detail: 'castMetal',
             detailScale: 3
         }, true),
@@ -634,6 +636,7 @@ class MaterialFactory {
             baseColor: [0.35, 0.35, 0.38],
             metallic: 0.85,
             roughness: 0.65,
+            emissiveColor: [0.018, 0.018, 0.022],
             detail: 'castMetal',
             detailScale: 4
         }, true),
@@ -651,6 +654,7 @@ class MaterialFactory {
             baseColor: [0.5, 0.5, 0.55],
             metallic: 1.0,
             roughness: 0.42,
+            emissiveColor: [0.025, 0.025, 0.03],
             detail: 'brushedMetal',
             detailScale: 6
         }, true),

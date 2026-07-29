@@ -326,13 +326,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 // Reuse ray object for performance
                 if (!this.mirrorOutgoingRay) {
                     this.mirrorOutgoingRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Zero(), 40);
-                    this.mirrorOutgoingRayPredicate = (mesh) => {
-                        return mesh.isPickable && 
-                               !mesh.name.includes('mirror') && 
-                               !mesh.name.includes('Ray') &&
-                               !mesh.name.includes('spot') &&
-                               !mesh.name.includes('laser');
-                    };
+                    this.mirrorOutgoingRayPredicate = this.mirrorBallRayPredicate;
                 }
                 
                 // Only update ray lengths every 6th frame on desktop (expensive raycasts)
@@ -400,7 +394,8 @@ class VRClubAnimationCore extends VRClubEffects {
                     
                     // Twinkling effect - subtle visibility variation (shared material, per-mesh visibility)
                     const twinkle = 0.8 + 0.2 * Math.sin(time * 5 + i * 0.7);
-                    ray.mesh.visibility = (0.12 + (i % 5) * 0.02) * twinkle;
+                    const rayBaseVisibility = this.isInVRMode ? 0.18 : 0.12;
+                    ray.mesh.visibility = (rayBaseVisibility + (i % 5) * 0.02) * twinkle;
                 });
                 
                 // UPGRADE: Update shared ray material color once (not 40× per frame)
@@ -574,7 +569,7 @@ class VRClubAnimationCore extends VRClubEffects {
                             
                             // HYPERREALISTIC: Brighter beams for all directions
                             // UPGRADE: Use mesh.visibility instead of shared material alpha
-                            spot.beam.visibility = 0.18 * distanceFade;
+                            spot.beam.visibility = (this.isInVRMode ? 0.22 : 0.18) * distanceFade;
                         }
                         
                         // Mark as visible for this frame

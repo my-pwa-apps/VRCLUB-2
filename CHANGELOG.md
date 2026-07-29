@@ -25,6 +25,11 @@ report can always be tied back to an entry below.
 - Restored desktop/VR scene parity: the XR camera now receives bloom and tone
   mapping, runtime fixture materials remain animated, VR haze uses its configured
   density, and entering XR no longer removes mirror-ball reflections.
+- Removed the obsolete right-wall bar that was mostly hidden by desktop camera
+  framing but prominent from the XR dance-floor spawn.
+- Restored overhead rig visibility and LED-wall clarity in XR by keeping native
+  render scale, moderate foveation and normal scene semantics; mirror-ball rays
+  now hit non-interactive structure and use headset-readable beam intensity.
 - Replaced 11 stale and redundant camera presets with four immersive viewpoints
   aligned to the current entrance, dance floor, DJ booth, and lighting rig.
 - Split the VRClub monolith into 11 focused source layers and added a content-hashed esbuild production bundle.

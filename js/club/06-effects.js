@@ -535,7 +535,7 @@ class VRClubEffects extends VRClubFixtures {
         // the ball nearly invisible. We give it a faint silver emissive floor so
         // the geometry always has presence, plus we boost the material-level env
         // intensity to compensate for the dimmer scene-level multiplier.
-        mirrorBallMat.emissiveColor = new BABYLON.Color3(0.06, 0.06, 0.07);
+        mirrorBallMat.emissiveColor = new BABYLON.Color3(0.12, 0.12, 0.14);
         mirrorBallMat.environmentIntensity = 6.0; // was 1.8 — compensates for VR's dim scene env
 
         // Use environment reflection for realistic mirror effect
@@ -779,7 +779,7 @@ class VRClubEffects extends VRClubFixtures {
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.15; // Slightly more visible than truss spots for drama
+            beamMat.alpha = 0.20;
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side
@@ -1036,7 +1036,9 @@ class VRClubEffects extends VRClubFixtures {
         // CRITICAL: Only accept REAL ROOM SURFACES - floor, walls, ceiling, pillars, truss
         // Reject everything else to prevent reflection spots floating in mid-air
         this.mirrorBallRayPredicate = (mesh) => {
-            if (!mesh.isPickable || !mesh.isEnabled()) return false;
+            // Structural scenery is intentionally non-pickable for controller input,
+            // but it must still receive optical ray casts from the mirror ball.
+            if (!mesh.isEnabled()) return false;
             if (!mesh.isVisible) return false;
             
             const name = mesh.name.toLowerCase();
