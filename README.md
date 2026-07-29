@@ -11,35 +11,51 @@ npm start
 
 Open `http://localhost:8000`, click **ENTER CLUB**, then use the on-screen controls or camera presets to inspect the scene. For Quest testing, open the same server from the headset browser using your PC IP address, for example `http://192.168.1.100:8000`.
 
-You can also serve the static files without Node:
+Build and serve the production bundle with content-hashed assets:
 
 ```powershell
-npm run serve
+npm run start:prod
 ```
 
 ## Project Layout
 
-Scripts are plain `<script>` tags with **no build step and no module system** — each file
-publishes its class onto `window`, so the load order in `index.html` is a hard contract.
-They are listed below in that order.
+Development sources remain plain `<script>` files that publish classes onto `window`, so
+their order in `index.html` is a tested contract. `npm run build` feeds those sources to
+esbuild in that same order and emits one minified, content-hashed application bundle plus
+a content-hashed stylesheet under `dist/`.
 
 ```text
 index.html                 Main page and script loader (owns the load order)
 css/styles.css             Splash screen and desktop control styling
+js/vendor/                 Pinned Babylon.js runtime and loader libraries
 js/assetCache.js           IndexedDB cache, in-flight dedup, fetch timeouts (loaders depend on it)
+js/audioUtils.js           Pure, tested audio URL security policy
 js/textureLoader.js        Texture caching and pooling
 js/modelLoader.js          GLB model loading, caching, placement and procedural fallbacks
 js/materialFactory.js      Shared Babylon material presets
 js/lightFactory.js         Shared Babylon light creation helpers
 js/vjDirector.js           Beat/BPM detection, colour palette and VJ macros
 js/showDirector.js         "NOCTURNE" — the composed, beat-locked cue engine
-js/club_hyperrealistic.js  Main Babylon/WebXR scene (the VRClub class)
+js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
+js/club/01-core.js         VRClub constructor, shared state, and device settings
+js/club/02-lifecycle.js    Scene initialization and disposal
+js/club/03-rendering.js    Pipelines, materials, shadows, floor, and walls
+js/club/04-environment.js  Entrance, room, bar, and truss construction
+js/club/05-fixtures.js     DJ booth, speakers, LED wall, smoke, strobes, and lasers
+js/club/06-effects.js      Fixture lights, laser sheet, and mirror ball
+js/club/07-animation-core.js Frame context, fog, mirror ball, and VJ updates
+js/club/08-animation-fixtures.js LED, laser, and spotlight animation
+js/club/09-animation-finish.js Strobe, speaker, and LED wall animation
+js/club/10-ui.js           In-scene controls, audio UI, camera, and gobos
+js/club/11-audio-crowd.js  Audio analysis, accessibility, avatars, and diagnostics
+js/club_hyperrealistic.js  Public VRClub class assembled from the focused layers
 js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring; constructs VRClub
 scripts/serve.mjs          Dependency-free static server honouring $PORT (used by Procfile)
+scripts/build.mjs          Production bundler and static-asset copier
 test/contract.test.mjs     Contract tests — load order, wiring, assets, hygiene
+test/unit.test.mjs         Runtime unit tests for security, caching, materials, and show logic
 textures/                  Local PBR environment textures
 js/models/                 Local GLB models and model textures
-backup_aframe/             Legacy A-Frame implementation, not production
 ```
 
 ## Controls
@@ -54,13 +70,18 @@ backup_aframe/             Legacy A-Frame implementation, not production
 
 ```powershell
 npm run check   # node --check every first-party JS file
-npm test        # contract tests: load order, DOM wiring, assets, hygiene
+npm run lint    # ESLint errors and migration-cleanup warnings
+npm test        # contract and runtime unit tests
+npm run check:sri # verify vendored Babylon files against index.html integrity hashes
+npm run build   # emit the production site under dist/
 ```
 
-`npm test` is the only automated safety net in the project. It fails on a reordered
+The test suite fails on a reordered
 script tag, a renamed element id, a `data-control` nothing handles, a missing texture or
 model, mismatched `?v=` cache tokens, a missing SRI attribute, a leaked global event
-listener, a native `alert()`, debug flags left on, and README drift. Run it before every
+listener, a native `alert()`, debug flags left on, and README drift. Runtime tests cover
+the audio URL security boundary, in-flight request deduplication, material cache-key
+normalization, and ShowDirector ramp and movement behavior. Run all checks before every
 commit.
 
 Recommended manual smoke test before publishing:
@@ -73,7 +94,10 @@ Recommended manual smoke test before publishing:
 
 ## Deployment
 
-This repository is intended for static hosting such as GitHub Pages. The app does not require a Node backend for the current single-player experience. External Babylon.js scripts are pinned to version `8.30.5` and include Subresource Integrity hashes.
+Deploy the generated `dist/` directory to static hosting such as GitHub Pages. The app does
+not require a Node backend. `npm run start:prod` builds and serves that directory while
+honouring the platform's `PORT`. Babylon.js `8.30.5` is vendored locally and verified by
+the SRI tooling.
 
 ## Credits
 

@@ -1,5 +1,7 @@
 # 🎉 Hyperrealistic VR Club - Quick Start Guide
 
+> **Archived:** This is a point-in-time experience guide. Use the root README for current setup and controls.
+
 ## Experience Overview
 You're about to enter a **photorealistic virtual nightclub** designed to fully immerse you in an authentic club environment. Every detail has been crafted for maximum realism.
 

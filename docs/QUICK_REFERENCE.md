@@ -1,5 +1,7 @@
 # 🚀 VR Club - Quick Reference
 
+> **Archived:** Commands and structure in this quick reference may be stale. Use the root README and package scripts.
+
 ## Start Development Server
 
 ```bash

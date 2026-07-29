@@ -8,39 +8,38 @@
 ## What this is
 
 A **client-side WebXR nightclub** built with **Babylon.js 8.30.5**, targeting Meta Quest 3S
-and desktop browsers. There is **no backend, no build step, and no module system** — every
-JS file is a classic `<script>` that publishes its class onto `window`.
-
-`backup_aframe/` holds a superseded A-Frame 1.5.0 implementation. Do not modify it.
+and desktop browsers. There is **no backend**. Development sources are classic `<script>`
+files that publish classes onto `window`; `npm run build` preserves their tested order and
+emits one minified, content-hashed production bundle with esbuild.
 
 ## Load order is a hard contract
 
 `index.html` loads scripts synchronously in this exact order:
 
-1. `https://cdn.babylonjs.com/v8.30.5/babylon.js` — pinned + SRI `integrity` + `crossorigin="anonymous"`
-2. `.../proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js`
-3. `.../loaders/babylonjs.loaders.min.js` — **required** for `.glb`
+1. `js/vendor/babylon.js` — pinned Babylon 8.30.5 runtime
+2. `js/vendor/babylonjs.proceduralTextures.min.js`
+3. `js/vendor/babylonjs.loaders.min.js` — **required** for `.glb`
 4. `js/assetCache.js` — `IndexedDBAssetCache`, `InFlightRegistry`, `fetchWithTimeout`
-5. `js/textureLoader.js` — depends on (4)
-6. `js/modelLoader.js` — depends on (4)
-7. `js/materialFactory.js`
-8. `js/lightFactory.js`
-9. `js/vjDirector.js`
-10. `js/showDirector.js` — depends on the beat clock published by (9)
-11. `js/club_hyperrealistic.js` — the `VRClub` class
-12. `js/ui-init.js` — splash screen, VJ menu, audio menu; instantiates `new VRClub()`
+5. `js/audioUtils.js`
+6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
+7. `js/vjDirector.js`, then `js/showDirector.js`
+8. `js/ledPatterns.js`
+9. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
+10. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
+11. `js/ui-init.js` — instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
 
-Every asset URL in `index.html` carries a shared `?v=` cache-busting token. The test suite
-fails if the tokens diverge — bump them all together.
+Every source asset URL in `index.html` carries a shared `?v=` cache-busting token. The test
+suite fails if the tokens diverge. Production uses content-hashed app and CSS filenames.
 
 ## Commands
 
 ```powershell
 npm start        # http-server on :8000 (local dev)
-npm run start:prod  # dependency-free server honouring $PORT (used by Procfile)
+npm run build    # content-hashed production site under dist/
+npm run start:prod  # build + dependency-free dist server honouring $PORT
 npm run check    # node --check every JS file
 npm test         # contract test suite (test/contract.test.mjs)
 ```
@@ -60,10 +59,11 @@ Shared caching primitives used by both loaders:
 
 Any new network-backed asset type should reuse these rather than hand-rolling IndexedDB.
 
-### `js/club_hyperrealistic.js`
-One ~10,400-line `VRClub` class. It owns scene construction, all lighting, the LED wall
-patterns, audio, WebXR and UI wiring. `updateAnimations()` is the per-frame hot loop.
-This monolith is known technical debt — see `BACKLOG.md`.
+### `js/club/` and `js/club_hyperrealistic.js`
+The VRClub implementation is an 11-layer inheritance chain grouped by lifecycle,
+rendering, environment, fixtures, animation, UI, and audio/crowd responsibilities.
+No layer exceeds 1,500 lines. `club_hyperrealistic.js` defines the final public class and
+mixes `window.LEDPatterns` into its prototype. `updateAnimations()` is a thin orchestrator.
 
 Key lifecycle members:
 - `this.initPromise` — the constructor stores `init()`'s promise; failures surface a retry
@@ -74,6 +74,12 @@ Key lifecycle members:
 - `visibilitychange` stops the render loop when the tab is hidden and not in VR.
 - `engine.onContextLostObservable` shows a toast and reloads (the engine runs with
   `doNotHandleContextLost: true`).
+
+### `js/ledPatterns.js`
+The LED wall's 37 `pattern*` implementations plus `updateLEDPanel()` and the two stateful
+palette/shape helpers. It publishes `window.LEDPatterns`; `club_hyperrealistic.js` mixes
+that map into `VRClub.prototype` after defining the class, preserving the club instance
+as `this` without wrappers or call-site changes.
 
 ### `js/vjDirector.js`
 Beat/BPM detection (spectral flux + adaptive median threshold), master colour palette,
@@ -106,8 +112,8 @@ Rules when editing:
 
 | Gate | File | Guard |
 |------|------|-------|
-| Legacy 12-phase wall-clock cycler | `club_hyperrealistic.js` `updateAnimations()` | `&& !showDriving` |
-| LED wall private pattern timer | `club_hyperrealistic.js` `updateLEDWall()` | `if (!showOwnsPattern && …)` |
+| Legacy 12-phase wall-clock cycler | `js/club/07-animation-core.js` | `&& !showDriving` |
+| LED wall private pattern timer | `js/club/09-animation-finish.js` | `if (!showOwnsPattern && …)` |
 | Auto-scene energy-threshold picker | `vjDirector.js` `update()` step 5 | `&& !showDriving` |
 
 VJDirector keeps running throughout — beat tracking, BPM and the colour palette are inputs
@@ -161,7 +167,7 @@ Reuse `this.cachedColors` and pre-allocated `Vector3`s; prefer `addToRef` / `sca
 over `add` / `scale` inside `updateAnimations()`.
 
 ### Desktop vs VR settings
-All differences live in the `vrSettings` object at the top of `club_hyperrealistic.js`.
+All differences live in the `vrSettings` object in `js/club/01-core.js`.
 Change the config and call `applyVRSettings(xrCamera)` / `applyDesktopSettings()` — never
 set pipeline values inline. Grain and chromatic aberration are disabled on both targets
 (they read as haze); bloom is kept minimal.
@@ -190,6 +196,7 @@ Tier-gated features, all **desktop only**:
 | Contact-hardening (PCSS) shadows | `_applyShadowQuality()` | on | on | off |
 | Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
 | Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
+| Mirror reflection spots | `updateMirrorBall()` | 100 | 60 | 30 |
 | SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
 | Floor `receiveShadows` | `createFloor()` | on | off | off |
 
@@ -242,7 +249,7 @@ shared.
 - `TextureLoader` pools textures by `${url}_${scale.u}_${scale.v}`. `releaseTexture(texture)`
   takes the texture instance, not a URL.
 
-### Layout coordinates (`CLUB_POSITIONS` in `club_hyperrealistic.js`)
+### Layout coordinates (`CLUB_POSITIONS` in `js/club/01-core.js`)
 - DJ booth: `{ x: 0, y: 0.95, z: -18 }`
 - Dance floor centre: around `z = -12`
 - Entrance: `z = 0`
@@ -293,6 +300,6 @@ Loaded 3D models are **CC BY 4.0**; attribution must remain visible in `#modelCr
 
 ## Known technical debt
 
-See `BACKLOG.md`. The largest items are the size of `club_hyperrealistic.js`, the
-~2,600-line `updateAnimations()` method, the absence of a module system/bundler, and the
-absence of any runtime (as opposed to contract) tests.
+See `BACKLOG.md` for the review history and resolved acceptance criteria. The repository
+now has focused VRClub source layers, a production bundle, contract tests, and runtime
+tests; new debt should be recorded there with measurable acceptance criteria.

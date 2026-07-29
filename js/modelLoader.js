@@ -5,14 +5,22 @@
 // fetchWithTimeout). The hand-rolled ModelCache class that used to live here was
 // removed: it silently hung on IndexedDB transaction errors and quota exhaustion.
 
-// Debug mode - set false for production
-const MODEL_DEBUG = false;
-
 class ModelLoader {
-    constructor(scene, materialFactory = null, logger = null) {
+    /**
+     * @param {BABYLON.Scene} scene
+     * @param {MaterialFactory|null} materialFactory
+     * @param {object|null} logger
+     * @param {number|null} maxLights Device light budget. Falls back to the factory's
+     *   value, then to a device-appropriate default - never to a hard-coded number that
+     *   would silently under-light loaded models relative to procedural geometry.
+     */
+    constructor(scene, materialFactory = null, logger = null, maxLights = null) {
         this.scene = scene;
         this.materialFactory = materialFactory;
         this.log = logger || console; // Use provided logger or fallback to console
+        this.maxLights = maxLights
+            ?? (materialFactory ? materialFactory.maxLights : null)
+            ?? ModelLoader.detectDefaultMaxLights();
         this.cache = new IndexedDBAssetCache({
             dbName: 'VRClubModelCache',
             storeName: 'models',
@@ -21,6 +29,13 @@ class ModelLoader {
         this.inFlight = new InFlightRegistry();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
+    }
+
+    /** Mirrors VRClub.detectMaxLights() for the standalone case. */
+    static detectDefaultMaxLights() {
+        const ua = (navigator.userAgent || '').toLowerCase();
+        if (ua.includes('quest') || ua.includes('oculus')) return 4;
+        return 3;
     }
 
     getModelConfigs() {
@@ -184,7 +199,29 @@ class ModelLoader {
 
     async init() {
         this.log.info('🎸 Initializing model loader...');
+        this.gltfPluginAvailable = ModelLoader.isGltfPluginRegistered();
+        if (!this.gltfPluginAvailable) {
+            // Without the loaders bundle Babylon falls back to the .babylon JSON parser
+            // and every .glb produces an "importScene has failed JSON parse" cascade.
+            // Surface one actionable message instead of six parser errors.
+            this.log.error('❌ glTF loader plugin is not registered - .glb models cannot be loaded. ' +
+                'js/vendor/babylonjs.loaders.min.js failed to load; run `npm run vendor:babylon`.');
+        }
         await this.cache.init();
+    }
+
+    /**
+     * True when babylonjs.loaders registered the glTF plugin. Checked once at init
+     * so a missing bundle is reported before any model load is attempted.
+     */
+    static isGltfPluginRegistered() {
+        try {
+            if (BABYLON.GLTFFileLoader) return true;
+            const registry = BABYLON.SceneLoader?._registeredPlugins;
+            return !!(registry && (registry['.glb'] || registry['.gltf']));
+        } catch (_) {
+            return false;
+        }
     }
 
     async downloadModel(url) {
@@ -245,7 +282,11 @@ class ModelLoader {
 
             // Try to load model from URL (for future CDN models)
             const arrayBuffer = await this.loadOrDownloadModel(config.url);
-            
+
+            if (this.gltfPluginAvailable === false) {
+                throw new Error('glTF loader plugin is unavailable - cannot parse .glb');
+            }
+
             // Create blob URL for Babylon.js
             const blob = new Blob([arrayBuffer], { type: 'model/gltf-binary' });
             const blobUrl = URL.createObjectURL(blob);
@@ -268,7 +309,13 @@ class ModelLoader {
             
             // Add to scene
             result.addAllToScene();
-            
+
+            // The glTF loader raises maxSimultaneousLights to scene.lights.length on
+            // *every* material in the scene as its last step, which blows past the
+            // device budget and makes the GPU report "uniform buffer that is too
+            // small" on each draw. Put the whole scene back on budget after the load.
+            this._enforceSceneLightBudget();
+
             // Get root mesh
             const rootMesh = result.meshes[0];
             let placedBox = null;
@@ -346,7 +393,7 @@ class ModelLoader {
                 
                 if (mesh.material) {
                     // Limit lights based on device capability (from MaterialFactory)
-                    const maxLights = this.materialFactory ? this.materialFactory.maxLights : 3;
+                    const maxLights = this.maxLights;
                     mesh.material.maxSimultaneousLights = maxLights;
                     this.log.info(`   🔧 Limited lights on ${mesh.name} to ${maxLights}`);
                     
@@ -494,6 +541,21 @@ class ModelLoader {
             
             // Create enhanced procedural model
             return this.createEnhancedProceduralModel(modelKey, config);
+        }
+    }
+
+    /** Clamps every material in the scene back to the device light budget. */
+    _enforceSceneLightBudget() {
+        if (!this.scene) return;
+        let clamped = 0;
+        for (const mat of this.scene.materials) {
+            if (mat.maxSimultaneousLights === undefined) continue;
+            if (mat.maxSimultaneousLights === this.maxLights) continue;
+            mat.maxSimultaneousLights = this.maxLights;
+            clamped++;
+        }
+        if (clamped > 0) {
+            this.log.info(`   🔧 Re-clamped ${clamped} material(s) to ${this.maxLights} light(s)`);
         }
     }
 
@@ -1023,7 +1085,8 @@ class ModelLoader {
 
             const albedoPath    = textureBasePath + 'small_speaker_1_1001_albedo.jpg';
             const normalPath    = textureBasePath + 'small_speaker_1_1001_normal.png';
-            const metallicPath  = textureBasePath + 'small_speaker_1_1001_metallic.jpg';
+            // No separate metallic map: the metallic channel lives in the
+            // metallicRoughness texture per the glTF convention.
             const roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpg';
             const aoPath        = textureBasePath + 'small_speaker_1_1001_AO.jpg';
 
@@ -1059,7 +1122,7 @@ class ModelLoader {
                 (m) => this.log.warn(`   ⚠️ Failed to load AO: ${aoPath} - ${m}`)
             );
 
-            const maxLights = this.materialFactory ? this.materialFactory.maxLights : 3;
+            const maxLights = this.maxLights;
             mat.maxSimultaneousLights = maxLights;
             mat.alpha = 1.0;
             mat.transparencyMode = BABYLON.PBRBaseMaterial.PBRMATERIAL_OPAQUE !== undefined
@@ -1068,9 +1131,6 @@ class ModelLoader {
             mat.backFaceCulling = true;
             mat.disableDepthWrite = false;
             mat.separateCullingPass = false;
-            // Note: metallicPath is intentionally unused — the metallic channel lives in the
-            // metallicRoughness texture per GLTF convention. Keep the variable for clarity.
-            void metallicPath;
 
             // Mark this material so the generic per-mesh override loop in loadModel()
             // knows NOT to stomp emissive/ambient on it. Adding a uniform 0.1 emissive

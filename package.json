@@ -1,14 +1,20 @@
 {
   "name": "vrclub",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "cacheToken": "20260729-4",
   "description": "Hyperrealistic Babylon.js WebXR VR Club with music streaming for Meta Quest 3S",
   "scripts": {
     "start": "http-server -p 8000 -c-1",
-    "start:prod": "node scripts/serve.mjs",
+    "start:prod": "npm run build && node scripts/serve.mjs --dist",
     "dev": "http-server -p 8000 -c-1 -o",
-    "serve": "python -m http.server 8000",
-    "check": "node --check js/assetCache.js && node --check js/textureLoader.js && node --check js/modelLoader.js && node --check js/materialFactory.js && node --check js/lightFactory.js && node --check js/vjDirector.js && node --check js/showDirector.js && node --check js/club_hyperrealistic.js && node --check js/ui-init.js",
-    "test": "node --test test/*.test.mjs"
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-syntax.mjs",
+    "lint": "eslint .",
+    "test": "node --test test/*.test.mjs",
+    "check:sri": "node scripts/check-sri.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
+    "vendor:babylon": "node scripts/fetch-vendor.mjs",
+    "optimize:avatars": "node scripts/optimize-avatars.mjs"
   },
   "keywords": [
     "webxr",
@@ -25,8 +31,10 @@
     "type": "git",
     "url": "https://github.com/my-pwa-apps/VRCLUB-2"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@gltf-transform/cli": "^4.4.1",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.32.0",
     "http-server": "^14.1.1"
   },
   "engines": {

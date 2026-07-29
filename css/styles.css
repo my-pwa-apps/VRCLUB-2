@@ -15,6 +15,18 @@
 
 .hidden { display: none !important; }
 
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -29,6 +41,13 @@ html, body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+}
+
+/* The canvas sizes itself with height:100%, which only resolves against a parent
+   with a definite height - without this it collapses to the 150px canvas default. */
+#mainExperience {
+    width: 100%;
+    height: 100%;
 }
 
 #canvas {
@@ -253,6 +272,7 @@ html, body {
 }
 
 .vj-title {
+    margin: 0;
     font-size: 16px;
     font-weight: bold;
     display: flex;
@@ -378,6 +398,11 @@ html, body {
     margin-top: 4px;
 }
 
+.vj-slider-label-secondary {
+    margin-top: 6px;
+    opacity: 0.85;
+}
+
 #vjToggle {
     position: absolute;
     top: 20px;
@@ -449,6 +474,7 @@ html, body {
 }
 
 .audio-title {
+    margin: 0;
     font-size: 16px;
     font-weight: bold;
     display: flex;
@@ -898,6 +924,22 @@ html, body {
 
 .splash-loading.visible {
     display: block;
+}
+
+.splash-progress {
+    width: min(280px, 72vw);
+    height: 6px;
+    margin: 12px auto 0;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(0, 255, 255, 0.35);
+}
+
+.splash-progress-bar {
+    width: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #00ffff, #ff00ff);
+    transition: width 240ms ease-out;
 }
 
 @keyframes pulse {

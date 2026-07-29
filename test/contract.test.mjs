@@ -1,8 +1,8 @@
 // Dependency-free contract tests for the VRCLUB static app.
 //
-// This project has no build step and no module system: every JS file is a classic
-// script whose load ORDER is a hard contract, and the UI is wired by string IDs
-// looked up at runtime. Nothing in the toolchain verifies either of those, so a
+// Development sources are classic scripts whose load ORDER is a hard contract,
+// and the UI is wired by string IDs looked up at runtime. The production builder
+// preserves that order in one bundle. A renamed element id or reordered script
 // renamed element id or a reordered <script> tag fails silently in the browser.
 // These tests close that gap without adding a single dependency.
 //
@@ -12,6 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,9 +27,15 @@ const scriptSrcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
 /** Path portion of a script src, minus the ?v= cache-busting token. */
 const srcPath = (src) => src.split('?')[0];
 
-const jsFiles = readdirSync(join(ROOT, 'js'))
-    .filter(f => f.endsWith('.js'))
-    .map(f => join('js', f));
+const collectJs = (dir, relative = '') => readdirSync(dir, { withFileTypes: true })
+    .flatMap(entry => {
+        if (entry.name === 'vendor') return [];
+        const childRelative = join(relative, entry.name);
+        return entry.isDirectory()
+            ? collectJs(join(dir, entry.name), childRelative)
+            : (entry.name.endsWith('.js') ? [join('js', childRelative)] : []);
+    });
+const jsFiles = collectJs(join(ROOT, 'js'));
 
 test('every first-party JS file parses', () => {
     for (const file of jsFiles) {
@@ -64,10 +71,23 @@ test('script load order honours the dependency contract', () => {
     assert.ok(idx('js/assetCache.js') > -1, 'js/assetCache.js is not loaded');
     assert.ok(idx('js/assetCache.js') < idx('js/textureLoader.js'), 'assetCache must precede textureLoader');
     assert.ok(idx('js/assetCache.js') < idx('js/modelLoader.js'), 'assetCache must precede modelLoader');
+    assert.ok(idx('js/audioUtils.js') > -1 && idx('js/audioUtils.js') < idx('js/club_hyperrealistic.js'),
+        'audioUtils must load before club_hyperrealistic.js');
+
+    const clubLayers = Array.from({ length: 11 }, (_, index) =>
+        `js/club/${String(index + 1).padStart(2, '0')}-${[
+            'core', 'lifecycle', 'rendering', 'environment', 'fixtures', 'effects',
+            'animation-core', 'animation-fixtures', 'animation-finish', 'ui', 'audio-crowd'
+        ][index]}.js`);
+    for (let index = 0; index < clubLayers.length; index++) {
+        assert.ok(idx(clubLayers[index]) > -1, `${clubLayers[index]} is not loaded`);
+        if (index > 0) assert.ok(idx(clubLayers[index - 1]) < idx(clubLayers[index]), 'VRClub layers are out of order');
+    }
+    assert.ok(idx(clubLayers.at(-1)) < idx('js/club_hyperrealistic.js'), 'VRClub layers must precede the public class');
 
     // The main app constructs the factories, the loaders and the VJ director.
     const main = idx('js/club_hyperrealistic.js');
-    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js']) {
+    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js']) {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
     // ShowDirector reads the beat grid VJDirector publishes.
@@ -79,11 +99,13 @@ test('script load order honours the dependency contract', () => {
 test('every class used across files is exported onto window', () => {
     const required = {
         'js/assetCache.js': ['IndexedDBAssetCache', 'InFlightRegistry'],
+        'js/audioUtils.js': ['AudioUtils'],
         'js/textureLoader.js': ['TextureLoader'],
         'js/modelLoader.js': ['ModelLoader'],
         'js/materialFactory.js': ['MaterialFactory'],
         'js/lightFactory.js': ['LightFactory'],
-        'js/showDirector.js': ['ShowDirector']
+        'js/showDirector.js': ['ShowDirector'],
+        'js/ledPatterns.js': ['LEDPatterns']
     };
     for (const [file, names] of Object.entries(required)) {
         const source = readFileSync(join(ROOT, file), 'utf8');
@@ -167,14 +189,37 @@ test('cache-busting tokens are consistent across index.html', () => {
     assert.equal(tokens.size, 1, `index.html mixes cache-busting tokens: ${[...tokens].join(', ')}`);
 });
 
-test('pinned CDN scripts carry SRI integrity attributes', () => {
-    const cdnTags = [...html.matchAll(/<script[^>]*\ssrc="(https:\/\/[^"]+)"[^>]*>/g)];
-    assert.ok(cdnTags.length > 0, 'expected pinned CDN script tags');
-    for (const [tag, src] of cdnTags) {
-        assert.match(tag, /integrity="sha\d{3}-/, `CDN script lacks SRI integrity: ${src}`);
-        assert.match(tag, /crossorigin="anonymous"/, `CDN script lacks crossorigin=anonymous: ${src}`);
-        assert.match(src, /\/v\d+\.\d+\.\d+\//, `CDN script is not version-pinned: ${src}`);
+test('the Babylon runtime is vendored, not fetched from a third-party CDN', () => {
+    // A CDN outage was observed live (HTTP 502 on the loaders bundle) and it silently
+    // removed every .glb from the scene. The runtime is now same-origin; the manifest
+    // keeps provenance and integrity hashes auditable.
+    const cdnTags = [...html.matchAll(/<script[^>]*\ssrc="(https?:\/\/[^"]+)"/g)].map(m => m[1]);
+    assert.deepEqual(cdnTags, [], `index.html still loads scripts from a third-party origin: ${cdnTags.join(', ')}`);
+
+    const manifest = JSON.parse(readFileSync(join(ROOT, 'scripts/vendor.manifest.json'), 'utf8'));
+    assert.ok(manifest.files.length > 0, 'vendor manifest lists no files');
+
+    for (const entry of manifest.files) {
+        const p = join(ROOT, 'js/vendor', entry.file);
+        assert.ok(existsSync(p), `vendored bundle missing - run npm run vendor:babylon: ${entry.file}`);
+        assert.match(entry.integrity, /^sha(256|384|512)-[A-Za-z0-9+/=]+$/, `bad integrity for ${entry.file}`);
+        assert.match(entry.url, /\/v\d+\.\d+\.\d+\//, `vendor source is not version-pinned: ${entry.url}`);
+
+        const [algo, expected] = entry.integrity.split('-');
+        const actual = createHash(algo).update(readFileSync(p)).digest('base64');
+        assert.equal(actual, expected, `js/vendor/${entry.file} does not match its recorded ${algo} hash`);
+
+        assert.ok(html.includes(`js/vendor/${entry.file}`), `index.html does not load js/vendor/${entry.file}`);
     }
+});
+
+test('the CSP does not grant script-src to any third-party origin', () => {
+    const csp = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/s)?.[1];
+    assert.ok(csp, 'no meta CSP found');
+    const scriptSrc = csp.match(/script-src([^;]*);/)?.[1] ?? '';
+    assert.ok(!/https?:\/\//.test(scriptSrc), `script-src allows a remote origin: ${scriptSrc.trim()}`);
+    assert.ok(!/unsafe-inline|unsafe-eval/.test(scriptSrc), `script-src is not strict: ${scriptSrc.trim()}`);
+    assert.ok(!/frame-ancestors/.test(csp), 'frame-ancestors is ignored in a meta CSP - send it as an HTTP header');
 });
 
 test('no first-party JS file leaves debug logging switched on', () => {
@@ -237,7 +282,10 @@ test('global event listeners are registered with removable handler references', 
 });
 
 test('every long-lived listener stored on the instance is removed in dispose()', () => {
-    const source = readFileSync(join(ROOT, 'js/club_hyperrealistic.js'), 'utf8');
+    const source = jsFiles
+        .filter(file => file.startsWith(join('js', 'club') + '\\') || file.endsWith('club_hyperrealistic.js'))
+        .map(file => readFileSync(join(ROOT, file), 'utf8'))
+        .join('\n');
     const added = new Set(
         [...source.matchAll(/(?:window|document)\.addEventListener\(\s*['"][^'"]+['"]\s*,\s*(this\.\w+)/g)]
             .map(m => m[1])

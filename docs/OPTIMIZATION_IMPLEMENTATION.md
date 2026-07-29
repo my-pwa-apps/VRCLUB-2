@@ -1,4 +1,6 @@
 # VR Club Optimization - Implementation Log
+
+> **Archived:** This implementation log records an earlier optimization pass and may contain stale line references.
 **Date**: October 19, 2025  
 **Branch**: optimization  
 **Implementing**: Phases 1-3 from OPTIMIZATION_PLAN_2025-10-19.md

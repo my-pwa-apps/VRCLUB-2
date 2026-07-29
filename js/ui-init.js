@@ -45,12 +45,24 @@ const uiLog = {
 (function initSettingsPanel() {
     const settingsToggle = document.getElementById('settingsToggle');
     const settingsPanel = document.getElementById('settingsPanel');
+    const settingsTitle = document.getElementById('settingsPanelTitle');
     
     if (!settingsToggle || !settingsPanel) return;
     
-    // Settings panel toggle
+    const closeSettings = (restoreFocus = true) => {
+        settingsPanel.classList.remove('visible');
+        settingsToggle.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) settingsToggle.focus();
+    };
+    const openSettings = () => {
+        settingsPanel.classList.add('visible');
+        settingsToggle.setAttribute('aria-expanded', 'true');
+        if (settingsTitle) settingsTitle.focus();
+    };
+
     settingsToggle.addEventListener('click', function() {
-        settingsPanel.classList.toggle('visible');
+        if (settingsPanel.classList.contains('visible')) closeSettings();
+        else openSettings();
     });
     
     // Close panel when clicking outside.
@@ -59,13 +71,23 @@ const uiLog = {
     // the panel elements (and anything they reference) alive after teardown.
     const onDocumentClick = function(e) {
         if (!settingsToggle.contains(e.target) && !settingsPanel.contains(e.target)) {
-            settingsPanel.classList.remove('visible');
+            closeSettings(false);
+        }
+    };
+    const onSettingsKeyDown = e => {
+        if (e.key === 'Escape' && settingsPanel.classList.contains('visible')) {
+            e.preventDefault();
+            closeSettings();
         }
     };
     document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onSettingsKeyDown);
 
     const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
-    teardowns.push(() => document.removeEventListener('click', onDocumentClick));
+    teardowns.push(() => {
+        document.removeEventListener('click', onDocumentClick);
+        document.removeEventListener('keydown', onSettingsKeyDown);
+    });
 })();
 
 // =============================================================================
@@ -95,6 +117,12 @@ if (enterClubBtn) {
         // Show loading state
         enterClubBtn.style.display = 'none';
         splashLoading.classList.add('visible');
+        const progressBar = document.getElementById('splashProgressBar');
+        const progressRoot = progressBar && progressBar.parentElement;
+        const progressStage = document.getElementById('splashLoadingStage');
+        if (progressBar) progressBar.style.width = '0%';
+        if (progressRoot) progressRoot.setAttribute('aria-valuenow', '0');
+        if (progressStage) progressStage.textContent = 'Preparing renderer...';
         
         // Show canvas and initialize VR club
         setTimeout(() => {
@@ -206,16 +234,26 @@ function initVJMenu() {
     const vjClose = document.getElementById('vjClose');
     const spotSpeed = document.getElementById('spotSpeed');
     const spotSpeedValue = document.getElementById('spotSpeedValue');
+    const vjTitle = document.getElementById('vjMenuTitle');
     
     if (!vjToggle || !vjMenu) return;
     
-    // Toggle VJ menu visibility
+    const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
+    const closeVJMenu = (restoreFocus = true) => {
+        vjMenu.classList.add('hidden');
+        vjToggle.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) vjToggle.focus();
+    };
+    const openVJMenu = () => {
+        vjMenu.classList.remove('hidden', 'minimized');
+        vjToggle.setAttribute('aria-expanded', 'true');
+        updateButtonStates();
+        if (vjTitle) vjTitle.focus();
+    };
+
     vjToggle.addEventListener('click', () => {
-        vjMenu.classList.toggle('hidden');
-        if (!vjMenu.classList.contains('hidden')) {
-            vjMenu.classList.remove('minimized');
-            updateButtonStates();
-        }
+        if (vjMenu.classList.contains('hidden')) openVJMenu();
+        else closeVJMenu();
     });
     
     // Minimize/maximize VJ menu
@@ -228,10 +266,17 @@ function initVJMenu() {
     
     // Close VJ menu
     if (vjClose) {
-        vjClose.addEventListener('click', () => {
-            vjMenu.classList.add('hidden');
-        });
+        vjClose.addEventListener('click', () => closeVJMenu());
     }
+
+    const onVJKeyDown = e => {
+        if (e.key === 'Escape' && !vjMenu.classList.contains('hidden')) {
+            e.preventDefault();
+            closeVJMenu();
+        }
+    };
+    document.addEventListener('keydown', onVJKeyDown);
+    teardowns.push(() => document.removeEventListener('keydown', onVJKeyDown));
     
     // Handle VJ control buttons
     const vjButtons = document.querySelectorAll('.vj-button[data-control]');
@@ -631,7 +676,6 @@ function initVJMenu() {
         updateButtonStates();
     }, 2000);
 
-    const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
     teardowns.push(() => {
         clearInterval(window.__vjButtonStateInterval);
         window.__vjButtonStateInterval = null;
@@ -643,7 +687,7 @@ function initVJMenu() {
     if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
         const scene = vrClubInstance.scene;
         const onInit = scene.onXRSessionInit.add(() => {
-            vjMenu.classList.add('hidden');
+            closeVJMenu(false);
             vjToggle.style.display = 'none';
         });
         
@@ -688,15 +732,25 @@ function initAudioMenu() {
     const audioFileInput = document.getElementById('audioFileInput');
     const audioFileName = document.getElementById('audioFileName');
     const audioStatus = document.getElementById('audioStatus');
+    const audioTitle = document.getElementById('audioMenuTitle');
     
     if (!audioToggle || !audioMenu) return;
     
-    // Toggle audio menu
+    const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
+    const closeAudioMenu = (restoreFocus = true) => {
+        audioMenu.classList.add('hidden');
+        audioToggle.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) audioToggle.focus();
+    };
+    const openAudioMenu = () => {
+        audioMenu.classList.remove('hidden', 'minimized');
+        audioToggle.setAttribute('aria-expanded', 'true');
+        if (audioTitle) audioTitle.focus();
+    };
+
     audioToggle.addEventListener('click', () => {
-        audioMenu.classList.toggle('hidden');
-        if (!audioMenu.classList.contains('hidden')) {
-            audioMenu.classList.remove('minimized');
-        }
+        if (audioMenu.classList.contains('hidden')) openAudioMenu();
+        else closeAudioMenu();
     });
     
     // Minimize/maximize
@@ -709,10 +763,17 @@ function initAudioMenu() {
     
     // Close
     if (audioClose) {
-        audioClose.addEventListener('click', () => {
-            audioMenu.classList.add('hidden');
-        });
+        audioClose.addEventListener('click', () => closeAudioMenu());
     }
+
+    const onAudioKeyDown = e => {
+        if (e.key === 'Escape' && !audioMenu.classList.contains('hidden')) {
+            e.preventDefault();
+            closeAudioMenu();
+        }
+    };
+    document.addEventListener('keydown', onAudioKeyDown);
+    teardowns.push(() => document.removeEventListener('keydown', onAudioKeyDown));
     
     // Show status message
     function showStatus(message, type = 'success') {
@@ -725,51 +786,30 @@ function initAudioMenu() {
         }, 3000);
     }
 
-    // Single audio element shared with VRClub. createMediaElementSource may only
-    // be called ONCE per HTMLMediaElement, so we route everything through
-    // VRClub's _connectAudioSourceOnce / _setAudioSrc helpers.
-    function ensureAudioElement() {
-        if (!vrClubInstance) return null;
-        if (!vrClubInstance.audioElement) {
-            const el = document.createElement('audio');
-            el.crossOrigin = 'anonymous';
-            el.preload = 'auto';
-            el.style.display = 'none';
-            document.body.appendChild(el);
-            vrClubInstance.audioElement = el;
-        }
-        return vrClubInstance.audioElement;
-    }
-
     // Play stream URL
     if (playStreamBtn && streamUrl) {
         playStreamBtn.addEventListener('click', () => {
             const url = streamUrl.value.trim();
+            streamUrl.setCustomValidity('');
             if (!url) {
+                streamUrl.setCustomValidity('Enter an audio stream URL.');
+                streamUrl.reportValidity();
                 showStatus('Please enter a stream URL', 'error');
                 return;
             }
             if (vrClubInstance && typeof vrClubInstance._isSafeAudioUrl === 'function'
                 && !vrClubInstance._isSafeAudioUrl(url)) {
+                streamUrl.setCustomValidity('Use an http://, https:// or blob: audio URL without embedded credentials.');
+                streamUrl.reportValidity();
                 showStatus('Invalid URL. Use http://, https:// or blob:', 'error');
                 return;
             }
-            try {
-                const el = ensureAudioElement();
-                if (!el) { showStatus('Audio not ready', 'error'); return; }
-                vrClubInstance._setAudioSrc(url);
-                vrClubInstance._connectAudioSourceOnce();
-                el.play()
-                    .then(() => {
-                        showStatus('🎵 Stream playing!', 'success');
-                        playStreamBtn.textContent = '⏸️ Pause';
-                    })
-                    .catch(err => {
-                        showStatus(`Error: ${err.message}`, 'error');
-                    });
-            } catch (err) {
-                showStatus(`Error: ${err.message}`, 'error');
-            }
+            vrClubInstance.startAudioStream(url)
+                .then(() => {
+                    showStatus('🎵 Stream playing!', 'success');
+                    playStreamBtn.textContent = '⏸️ Pause';
+                })
+                .catch(err => showStatus(`Error: ${err.message}`, 'error'));
         });
     }
     
@@ -781,29 +821,16 @@ function initAudioMenu() {
             
             audioFileName.textContent = `📄 ${file.name}`;
             
-            try {
-                const el = ensureAudioElement();
-                if (!el) { showStatus('Audio not ready', 'error'); return; }
-                const url = URL.createObjectURL(file);
-                vrClubInstance._setAudioSrc(url);
-                vrClubInstance._connectAudioSourceOnce();
-                el.play()
-                    .then(() => {
-                        showStatus(`🎵 Playing: ${file.name}`, 'success');
-                    })
-                    .catch(err => {
-                        showStatus(`Error: ${err.message}`, 'error');
-                    });
-            } catch (err) {
-                showStatus(`Error: ${err.message}`, 'error');
-            }
+            vrClubInstance.startAudioFromFile(file)
+                .then(() => showStatus(`🎵 Playing: ${file.name}`, 'success'))
+                .catch(err => showStatus(`Error: ${err.message}`, 'error'));
         });
     }
     
     // Hide in VR mode (wait for scene to be ready)
     if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
         vrClubInstance.scene.onXRSessionInit.add(() => {
-            audioMenu.classList.add('hidden');
+            closeAudioMenu(false);
             audioToggle.style.display = 'none';
         });
         

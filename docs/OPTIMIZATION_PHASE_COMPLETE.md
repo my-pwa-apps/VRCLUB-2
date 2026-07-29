@@ -1,5 +1,7 @@
 # Optimization Phase Complete! 🎉
 
+> **Archived:** This completion report describes an earlier milestone, not the current performance baseline.
+
 ## What's Been Accomplished
 
 ### 🚀 Performance Improvements

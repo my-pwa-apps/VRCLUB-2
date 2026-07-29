@@ -1,5 +1,7 @@
 # VR Club - Project Summary
 
+> **Archived:** This project snapshot is retained for historical context. Use the root README for current architecture.
+
 ## ✅ Modular Structure Complete!
 
 Your VR Club application has been successfully reorganized into a modular architecture:

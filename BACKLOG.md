@@ -167,7 +167,7 @@ they are carried forward and re-prioritised.
   Business value: restores animation whenever gobos are used.
   Technical debt reduction: removes a latent scope error from the hot loop.
 
-- [ ] The scene contains no shadow generators at all, so all shadow work is inert
+- [x] The scene contains no shadow generators at all, so all shadow work is inert
   Priority: High
   Category: Bug / Rendering
   Area: Lighting
@@ -192,7 +192,7 @@ they are carried forward and re-prioritised.
   Business value: high — completes the hyperrealism work already in place.
   Technical debt reduction: makes an existing, currently-dead code path meaningful.
 
-- [ ] Babylon CDN is a single point of failure with no fallback
+- [x] Babylon CDN is a single point of failure with no fallback
   Priority: High
   Category: Reliability
   Area: Asset loading
@@ -214,7 +214,7 @@ they are carried forward and re-prioritised.
   Business value: high — removes a hard external dependency from first load.
   Technical debt reduction: removes an unmanaged runtime dependency.
 
-- [ ] Reflection probe resolution does not update when the graphics tier changes at runtime
+- [x] Reflection probe resolution does not update when the graphics tier changes at runtime
   Priority: Low
   Category: Bug
   Area: Rendering
@@ -675,7 +675,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
 
 ### Open items
 
-- [ ] Decompose `updateAnimations()` into per-system update methods
+- [x] Decompose `updateAnimations()` into per-system update methods
   Priority: High
   Category: Refactor
   Area: Render loop
@@ -688,7 +688,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: High
 
-- [ ] Split `club_hyperrealistic.js` into modules and introduce a build step
+- [x] Split `club_hyperrealistic.js` into modules and introduce a build step
   Priority: High
   Category: Architecture
   Area: Whole application
@@ -700,8 +700,12 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Estimated effort: Large
   Business value: Medium
   Technical debt reduction: High
+  Resolution 2026-07-29: split VRClub into 11 focused inheritance layers under `js/club/`;
+  the largest is 1,467 lines. `club_hyperrealistic.js` is now the public-class bridge.
+  `scripts/build.mjs` emits one content-hashed first-party bundle and hashed CSS with
+  esbuild, and CI validates the production build.
 
-- [ ] Eliminate remaining per-frame allocations in the hot loop
+- [x] Eliminate remaining per-frame allocations in the hot loop
   Priority: High
   Category: Performance
   Area: Render loop
@@ -715,7 +719,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Technical debt reduction: Medium
   Update 2026-07-29: Done for the mirror-ball and spotlight passes (~270 allocations/frame removed). Remaining systems are tracked by "Audit the remaining `updateAnimations()` systems for per-frame allocation" in the 2026-07-29 review.
 
-- [ ] Scale spotlight pan/tilt lerp factors by `dtScale`
+- [x] Scale spotlight pan/tilt lerp factors by `dtScale`
   Priority: Medium
   Category: Bug
   Area: Lighting
@@ -728,7 +732,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: Low
 
-- [ ] Remove duplicated strobe burst-phase computation
+- [x] Remove duplicated strobe burst-phase computation
   Priority: Low
   Category: Refactor
   Area: Lighting
@@ -741,7 +745,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] Consolidate the duplicated audio-stream UI
+- [x] Consolidate the duplicated audio-stream UI
   Priority: Medium
   Category: Refactor
   Area: Audio / UI
@@ -754,7 +758,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: Medium
 
-- [ ] Extract shared playback logic from `startAudioStream()` and `startAudioFromFile()`
+- [x] Extract shared playback logic from `startAudioStream()` and `startAudioFromFile()`
   Priority: Low
   Category: Refactor
   Area: Audio
@@ -767,7 +771,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Add runtime tests for the pure logic layer
+- [x] Add runtime tests for the pure logic layer
   Priority: High
   Category: Testing
   Area: Test suite
@@ -780,7 +784,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: High
 
-- [ ] Add CI
+- [x] Add CI
   Priority: High
   Category: Developer Experience
   Area: Build / tooling
@@ -793,7 +797,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: High
   Technical debt reduction: Medium
 
-- [ ] Add ESLint with a flat config
+- [x] Add ESLint with a flat config
   Priority: Medium
   Category: Developer Experience
   Area: Build / tooling
@@ -806,7 +810,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: Medium
 
-- [ ] Automate the cache-busting token bump
+- [x] Automate the cache-busting token bump
   Priority: Medium
   Category: Developer Experience
   Area: Build / tooling
@@ -819,7 +823,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: Medium
 
-- [ ] Decide the fate of `backup_aframe/`
+- [x] Decide the fate of `backup_aframe/`
   Priority: Low
   Category: Cleanup
   Area: Repository hygiene
@@ -832,7 +836,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Add keyboard dismissal and focus management to the overlay panels
+- [x] Add keyboard dismissal and focus management to the overlay panels
   Priority: Medium
   Category: Accessibility
   Area: UI
@@ -845,7 +849,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: Low
 
-- [ ] Add a `<main>` landmark and a document heading structure
+- [x] Add a `<main>` landmark and a document heading structure
   Priority: Low
   Category: Accessibility
   Area: UI
@@ -858,7 +862,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] Reconcile the audio URL `pattern` attribute with `blob:` support
+- [x] Reconcile the audio URL `pattern` attribute with `blob:` support
   Priority: Low
   Category: Bug
   Area: Audio / UI
@@ -871,7 +875,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] Add a CHANGELOG and adopt real versioning
+- [x] Add a CHANGELOG and adopt real versioning
   Priority: Low
   Category: Documentation
   Area: Repository hygiene
@@ -884,7 +888,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] Expand the README
+- [x] Expand the README
   Priority: Medium
   Category: Documentation
   Area: Onboarding
@@ -897,7 +901,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Medium
   Technical debt reduction: Low
 
-- [ ] Consolidate the `docs/` folder
+- [x] Consolidate the `docs/` folder
   Priority: Low
   Category: Documentation
   Area: Repository hygiene
@@ -910,7 +914,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Fix the `ModelLoader` `maxLights` fallback
+- [x] Fix the `ModelLoader` `maxLights` fallback
   Priority: Low
   Category: Bug
   Area: Asset loading
@@ -923,7 +927,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] Remove remaining dead code markers
+- [x] Remove remaining dead code markers
   Priority: Low
   Category: Cleanup
   Area: Whole application
@@ -936,7 +940,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Add a Subresource Integrity check to CI
+- [x] Add a Subresource Integrity check to CI
   Priority: Low
   Category: Security
   Area: Build / tooling
@@ -1161,11 +1165,11 @@ re-raised.
 
 ### Open items
 
-- [ ] Extract the ~45 LED wall pattern methods into a dedicated module
+- [x] Extract the ~45 LED wall pattern methods into a dedicated module
   Priority: High
   Category: Refactor
   Area: LED wall
-  Affected files: js/club_hyperrealistic.js
+  Affected files: js/club_hyperrealistic.js, js/ledPatterns.js, index.html, test/contract.test.mjs, README.md
   Problem: Roughly 45 `pattern*(color, time, audioData)` methods span about 1,180 contiguous lines. They share one uniform signature, touch only the LED pixel buffer, and have no other coupling to `VRClub`.
   Impact: This is over 10% of the monolith and the most mechanically separable part of it. Its presence inflates the file that every contributor must load to change anything.
   Recommended solution: Move to `js/ledPatterns.js` as a lookup table of pure functions `(ctx, color, time, audioData)`. This is the lowest-risk first slice of the larger decomposition and can land before any bundler work.
@@ -1174,7 +1178,7 @@ re-raised.
   Business value: Medium
   Technical debt reduction: High
 
-- [ ] No runtime tests of any kind
+- [x] No runtime tests of any kind
   Priority: High
   Category: Testing
   Area: Whole application
@@ -1187,7 +1191,7 @@ re-raised.
   Business value: High
   Technical debt reduction: High
 
-- [ ] No progress feedback during a ~35-second cold start
+- [x] No progress feedback during a ~35-second cold start
   Priority: High
   Category: UX
   Area: Startup
@@ -1200,7 +1204,7 @@ re-raised.
   Business value: High
   Technical debt reduction: Low
 
-- [ ] Avatar GLB payload is roughly 120 MB
+- [x] Avatar GLB payload is roughly 120 MB
   Priority: High
   Category: Performance
   Area: Assets
@@ -1213,7 +1217,7 @@ re-raised.
   Business value: High
   Technical debt reduction: Low
 
-- [ ] Audit the remaining `updateAnimations()` systems for per-frame allocation
+- [x] Audit the remaining `updateAnimations()` systems for per-frame allocation
   Priority: Medium
   Category: Performance
   Area: Render loop
@@ -1226,7 +1230,7 @@ re-raised.
   Business value: Medium
   Technical debt reduction: Medium
 
-- [ ] Scene weight: 1,003 meshes, 609 active, 495 materials
+- [x] Scene weight: 1,003 meshes, 609 active, 495 materials
   Priority: Medium
   Category: Performance
   Area: Scene construction
@@ -1239,7 +1243,7 @@ re-raised.
   Business value: Medium
   Technical debt reduction: Low
 
-- [ ] Crowd size is fixed at load and ignores runtime tier changes
+- [x] Crowd size is fixed at load and ignores runtime tier changes
   Priority: Medium
   Category: Bug
   Area: Graphics tiers
@@ -1252,7 +1256,7 @@ re-raised.
   Business value: Medium
   Technical debt reduction: Low
 
-- [ ] Harden `scripts/serve.mjs` against symlink escape
+- [x] Harden `scripts/serve.mjs` against symlink escape
   Priority: Low
   Category: Security
   Area: Hosting
@@ -1265,7 +1269,7 @@ re-raised.
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] No CI, no release process, no CHANGELOG
+- [x] No CI, no release process, no CHANGELOG
   Priority: Medium
   Category: Process
   Area: Build / tooling
@@ -1278,7 +1282,7 @@ re-raised.
   Business value: High
   Technical debt reduction: Medium
 
-- [ ] `docs/` has grown to 11 overlapping, partly historical files
+- [x] `docs/` has grown to 11 overlapping, partly historical files
   Priority: Low
   Category: Documentation
   Area: Onboarding
@@ -1291,7 +1295,7 @@ re-raised.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] `npm run serve` is undocumented drift
+- [x] `npm run serve` is undocumented drift
   Priority: Low
   Category: Cleanup
   Area: Build / tooling
@@ -1304,7 +1308,7 @@ re-raised.
   Business value: Low
   Technical debt reduction: Low
 
-- [ ] `backup_aframe/` remains tracked in the repository
+- [x] `backup_aframe/` remains tracked in the repository
   Priority: Low
   Category: Cleanup
   Area: Repository

@@ -8,11 +8,12 @@
 
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { stat, realpath } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = normalize(join(fileURLToPath(new URL('.', import.meta.url)), '..'));
+const PROJECT_ROOT = normalize(join(fileURLToPath(new URL('.', import.meta.url)), '..'));
+const ROOT = process.argv.includes('--dist') ? join(PROJECT_ROOT, 'dist') : PROJECT_ROOT;
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -52,8 +53,12 @@ function resolveSafe(urlPath) {
     if (decoded.includes('\0')) return null;
     if (decoded === '/' || decoded === '') decoded = '/index.html';
     const resolved = normalize(join(ROOT, decoded));
-    if (resolved !== ROOT && !resolved.startsWith(ROOT + sep)) return null;
+    if (!isInsideRoot(resolved)) return null;
     return resolved;
+}
+
+function isInsideRoot(p) {
+    return p === ROOT || p.startsWith(ROOT + sep);
 }
 
 const server = createServer(async (req, res) => {
@@ -69,12 +74,20 @@ const server = createServer(async (req, res) => {
     }
 
     try {
-        const info = await stat(filePath);
+        // normalize() alone cannot see through a symlink whose target lives outside
+        // ROOT, so re-assert the prefix against the fully resolved real path.
+        const realPath = await realpath(filePath);
+        if (!isInsideRoot(realPath)) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not Found');
+            return;
+        }
+
+        const info = await stat(realPath);
         if (info.isDirectory()) {
             res.writeHead(403).end('Forbidden');
             return;
         }
-        const ext = extname(filePath).toLowerCase();
+        const ext = extname(realPath).toLowerCase();
         // Long-lived caching is safe because index.html references every asset with
         // an explicit ?v= cache-busting token.
         const cacheControl = ext === '.html'
@@ -113,7 +126,7 @@ const server = createServer(async (req, res) => {
 
         res.writeHead(200, headers);
         if (req.method === 'HEAD') { res.end(); return; }
-        createReadStream(filePath).pipe(res);
+        createReadStream(realPath).pipe(res);
     } catch {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not Found');
     }

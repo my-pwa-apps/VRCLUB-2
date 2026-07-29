@@ -1,5 +1,7 @@
 # Hyperrealistic VR Club - Immersive Features
 
+> **Archived:** This feature inventory reflects an earlier implementation milestone and is retained for historical context.
+
 ## Overview
 This VR club has been enhanced with hyperrealistic features designed to create a fully immersive nightclub experience that makes VR users feel like they're in a real-life club environment.
 

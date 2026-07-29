@@ -10,6 +10,10 @@
          media-src is deliberately open to https:/blob: because the whole point of the
          app is that the user pastes an arbitrary internet radio URL or drops a local file.
 
+         script-src is 'self' only: the Babylon.js runtime is vendored under js/vendor/
+         (see scripts/vendor.manifest.json) rather than loaded from a CDN, so there is no
+         third-party origin left in the critical path.
+
          frame-ancestors is NOT listed here: browsers ignore it when delivered via <meta>
          and log a console error for it. It is sent as a real HTTP header by
          scripts/serve.mjs instead, alongside X-Frame-Options. -->
@@ -18,32 +22,30 @@
         base-uri 'none';
         object-src 'none';
         form-action 'none';
-        script-src 'self' https://cdn.babylonjs.com;
+        script-src 'self';
         style-src 'self' 'unsafe-inline';
         img-src 'self' data: blob: https://assets.babylonjs.com;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
-        connect-src 'self' blob: data: https://cdn.babylonjs.com https://assets.babylonjs.com https://immersive-web.github.io;
+        connect-src 'self' blob: data: https://assets.babylonjs.com https://immersive-web.github.io;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Immersive VR nightclub for Meta Quest 3S with professional lighting, DJ booth, and audio-reactive visuals">
-    <meta name="theme-color" content="#000000">
     
     <!-- Quest 3S / WebXR Optimization -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
-    <!-- Performance Hints -->
-    <link rel="preconnect" href="https://cdn.babylonjs.com" crossorigin>
-    <link rel="dns-prefetch" href="https://cdn.babylonjs.com">
+    <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
+    <link rel="preload" href="js/vendor/babylon.js?v=20260729-4" as="script">
     
     <title>VR Club - Virtual Nightclub Experience</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css?v=20260424-review1">
+    <link rel="stylesheet" href="css/styles.css?v=20260729-4">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -67,23 +69,29 @@
             
             <div class="splash-loading" id="splashLoading">
                 <div class="splash-spinner"></div>
-                Loading club experience...
+                <div id="splashLoadingStage" aria-live="polite">Preparing renderer...</div>
+                <div class="splash-progress" role="progressbar" aria-label="Club loading progress"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="splashProgressBar" class="splash-progress-bar"></div>
+                </div>
             </div>
         </div>
     </div>
     
+    <main id="mainExperience">
+    <h1 class="visually-hidden">VR Club virtual nightclub</h1>
     <canvas id="canvas" class="hidden"></canvas>
     
     <!-- VJ Toggle Button -->
     <button id="vjToggle" type="button" title="VJ Controls" aria-label="Open VJ controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span></button>
     
     <!-- VJ Control Menu -->
-    <div id="vjMenu" class="hidden">
+    <div id="vjMenu" class="hidden" role="dialog" aria-modal="false" aria-labelledby="vjMenuTitle">
         <div class="vj-header">
-            <div class="vj-title">
+            <h2 class="vj-title" id="vjMenuTitle" tabindex="-1">
                 <span>🎛️</span>
                 <span>VJ Controls</span>
-            </div>
+            </h2>
             <div class="vj-controls">
                 <button class="vj-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel"><span aria-hidden="true">−</span></button>
                 <button class="vj-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
@@ -161,7 +169,7 @@
                     <button class="vj-button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
                     <button class="vj-button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
                 </div>
-                <div class="vj-slider-label" style="margin-top:6px; opacity:0.85;">
+                <div class="vj-slider-label vj-slider-label-secondary">
                     <span>Now playing</span>
                     <span id="showMovementReadout">I · ARRIVAL</span>
                 </div>
@@ -183,7 +191,7 @@
                         <span id="vjMasterValue">100%</span>
                     </div>
                 </div>
-                <div class="vj-slider-label" style="margin-top:6px; opacity:0.85;">
+                <div class="vj-slider-label vj-slider-label-secondary">
                     <span>BPM (auto)</span>
                     <span id="vjBpmReadout">128</span>
                 </div>
@@ -201,30 +209,24 @@
     </div>
     
     <!-- Settings Toggle Button -->
-    <button id="settingsToggle" type="button" title="Settings" aria-label="Open settings" aria-expanded="false"><span aria-hidden="true">⚙️</span></button>
+    <button id="settingsToggle" type="button" title="Settings" aria-label="Open settings" aria-expanded="false" aria-controls="settingsPanel"><span aria-hidden="true">⚙️</span></button>
     
     <!-- Settings Panel (hidden by default) -->
-    <div id="settingsPanel">
-        <div class="setting-label">🎮 VR Mode</div>
+    <div id="settingsPanel" role="dialog" aria-modal="false" aria-labelledby="settingsPanelTitle">
+        <h2 id="settingsPanelTitle" class="setting-label" tabindex="-1">🎮 VR Mode</h2>
         <button id="vrButton">🥽 Enter VR</button>
-        <div class="setting-label">🎵 Audio Stream</div>
-        <label for="musicUrl" class="setting-label">Stream URL</label>
-        <input type="url" id="musicUrl" placeholder="Enter stream URL (https://...)"
-               pattern="https?://.*" inputmode="url" autocomplete="off"
-               aria-label="Audio stream URL">
-        <button id="playMusicBtn">▶️ Play Music</button>
     </div>
     
     <!-- Audio Toggle Button -->
     <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span></button>
     
     <!-- Audio Upload Menu -->
-    <div id="audioMenu" class="hidden">
+    <div id="audioMenu" class="hidden" role="dialog" aria-modal="false" aria-labelledby="audioMenuTitle">
         <div class="audio-header">
-            <div class="audio-title">
+            <h2 class="audio-title" id="audioMenuTitle" tabindex="-1">
                 <span>🎵</span>
                 <span>Audio Stream</span>
-            </div>
+            </h2>
             <div class="audio-controls">
                 <button class="audio-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel"><span aria-hidden="true">−</span></button>
                 <button class="audio-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
@@ -236,7 +238,7 @@
             <div class="audio-section">
                 <div class="audio-input-group">
                     <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
-                           pattern="https?://.*" inputmode="url" autocomplete="off"
+                              inputmode="url" autocomplete="off"
                            aria-label="Audio stream URL">
                     <button class="audio-button" id="playStreamBtn">
                         <span>▶️</span>
@@ -292,42 +294,63 @@
             • PA Speakers (CC BY 4.0)
         </div>
     </div>
+    </main>
     
-    <!-- Babylon.js Core - Critical Path (pinned + SRI for public deploy safety) -->
-    <script src="https://cdn.babylonjs.com/v8.30.5/babylon.js" integrity="sha384-Kxab4BZmBEE10FDD1UeQ4bSI+PBgQrW8EiClwr8JO43k8OmK8lTLXn8sgt0RizQF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdn.babylonjs.com/v8.30.5/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js" integrity="sha384-0e9259x/mTgaVTUPl7qzeUhG49D9PtcTzoAGsh/l6OUnms7mzjey/pXyVKJ2SOZn" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Babylon.js runtime - vendored, same-origin, version-pinned in
+         scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
+         against the recorded hashes and against the upstream CDN.
+         Refresh with: npm run vendor:babylon -- --force -->
+    <script src="js/vendor/babylon.js?v=20260729-4"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260729-4"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js" integrity="sha384-08lzOJD9h7SvlsNvZVYdhN6WvmK1TgUQOGcWdpCIBM86wOvyGJo7vy8PJiJcRs7e" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20260729-4"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260424-review1"></script>
+    <script src="js/assetCache.js?v=20260729-4"></script>
+    <script src="js/audioUtils.js?v=20260729-4"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260424-review1"></script>
+    <script src="js/textureLoader.js?v=20260729-4"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260424-review1"></script>
+    <script src="js/modelLoader.js?v=20260729-4"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260424-review1"></script>
+    <script src="js/materialFactory.js?v=20260729-4"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260424-review1"></script>
+    <script src="js/lightFactory.js?v=20260729-4"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260424-review1"></script>
+    <script src="js/vjDirector.js?v=20260729-4"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20260424-review1"></script>
-    
+    <script src="js/showDirector.js?v=20260729-4"></script>
+
+    <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
+    <script src="js/ledPatterns.js?v=20260729-4"></script>
+
+    <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
+    <script src="js/club/01-core.js?v=20260729-4"></script>
+    <script src="js/club/02-lifecycle.js?v=20260729-4"></script>
+    <script src="js/club/03-rendering.js?v=20260729-4"></script>
+    <script src="js/club/04-environment.js?v=20260729-4"></script>
+    <script src="js/club/05-fixtures.js?v=20260729-4"></script>
+    <script src="js/club/06-effects.js?v=20260729-4"></script>
+    <script src="js/club/07-animation-core.js?v=20260729-4"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20260729-4"></script>
+    <script src="js/club/09-animation-finish.js?v=20260729-4"></script>
+    <script src="js/club/10-ui.js?v=20260729-4"></script>
+    <script src="js/club/11-audio-crowd.js?v=20260729-4"></script>
+
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260424-review1"></script>
+    <script src="js/club_hyperrealistic.js?v=20260729-4"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260424-review1"></script>
+    <script src="js/ui-init.js?v=20260729-4"></script>
 </body>
 </html>

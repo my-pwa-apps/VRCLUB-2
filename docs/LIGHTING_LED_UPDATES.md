@@ -1,5 +1,7 @@
 # Lighting & LED Wall Updates
 
+> **Archived:** This is a point-in-time change report. Use LED_WALL.md and VJ_CONTROLS_GUIDE.md for current behavior.
+
 ## 1. Ambient Lighting - MAJOR BOOST ✨
 
 ### Intensity Increases

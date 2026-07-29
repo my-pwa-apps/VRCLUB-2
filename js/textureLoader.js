@@ -5,9 +5,6 @@
 // fetchWithTimeout). The hand-rolled TextureCache class that used to live here was
 // removed: it silently hung on IndexedDB transaction errors and quota exhaustion.
 
-// Debug mode - set false for production
-const TEX_DEBUG = false;
-
 class TextureLoader {
     constructor(scene, logger = null) {
         this.scene = scene;
