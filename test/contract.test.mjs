@@ -194,3 +194,70 @@ test('repository contains no empty tracked directories that imply dead features'
         );
     }
 });
+
+test('no blocking native dialogs are used for user feedback', () => {
+    // alert()/confirm()/prompt() block the render loop, cannot be styled, and in a
+    // headset render as a flat 2D browser panel floating over the scene - which is
+    // both jarring and, on some runtimes, un-dismissable without leaving VR.
+    // The app has its own toast (showErrorMessage); everything must route through it.
+    const offenders = [];
+    for (const file of jsFiles) {
+        const source = readFileSync(join(ROOT, file), 'utf8');
+        source.split('\n').forEach((line, i) => {
+            if (line.trim().startsWith('*') || line.trim().startsWith('//')) return;
+            if (/(?<![.\w])(alert|confirm|prompt)\s*\(/.test(line)) {
+                offenders.push(`${file}:${i + 1}  ${line.trim()}`);
+            }
+        });
+    }
+    assert.deepEqual(offenders, [], `use showErrorMessage() instead of a native dialog:\n${offenders.join('\n')}`);
+});
+
+test('global event listeners are registered with removable handler references', () => {
+    // A listener added to `window`/`document` with an inline function literal can
+    // never be removed, and its closure pins the whole VRClub instance - and with it
+    // the Babylon scene graph, the WebGL context and every loaded GLB - in memory
+    // for the lifetime of the document. dispose() then silently does nothing.
+    // Requiring a stored reference (`this._onFoo` / a named const) keeps teardown possible.
+    const pattern = /(?:window|document)\.addEventListener\(\s*(['"][^'"]+['"])\s*,\s*(.{0,24})/g;
+    const offenders = [];
+    for (const file of jsFiles) {
+        const source = readFileSync(join(ROOT, file), 'utf8');
+        for (const m of source.matchAll(pattern)) {
+            const handler = m[2].trim();
+            const isReference = /^(this\.[_A-Za-z]|[A-Za-z_$][\w$]*\s*[,)])/.test(handler);
+            if (!isReference) {
+                const line = source.slice(0, m.index).split('\n').length;
+                offenders.push(`${file}:${line}  addEventListener(${m[1]}, ${handler}...`);
+            }
+        }
+    }
+    assert.deepEqual(offenders, [],
+        `global listeners must use a stored handler reference so they can be removed:\n${offenders.join('\n')}`);
+});
+
+test('every long-lived listener stored on the instance is removed in dispose()', () => {
+    const source = readFileSync(join(ROOT, 'js/club_hyperrealistic.js'), 'utf8');
+    const added = new Set(
+        [...source.matchAll(/(?:window|document)\.addEventListener\(\s*['"][^'"]+['"]\s*,\s*(this\.\w+)/g)]
+            .map(m => m[1])
+    );
+    assert.ok(added.size > 0, 'expected VRClub to register global listeners');
+
+    const disposeStart = source.indexOf('    dispose() {');
+    assert.ok(disposeStart > -1, 'dispose() not found');
+    const disposeBody = source.slice(disposeStart, disposeStart + 6000);
+
+    const leaked = [...added].filter(ref => !disposeBody.includes(`removeEventListener`) || !disposeBody.includes(ref));
+    assert.deepEqual(leaked, [], `dispose() never removes: ${leaked.join(', ')}`);
+});
+
+test('README documents every first-party script', () => {
+    // The load order in index.html is a hard contract; a file that exists but is
+    // undocumented is a file the next contributor will not know to keep in order.
+    const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+    const undocumented = jsFiles
+        .map(f => f.replace(/\\/g, '/'))
+        .filter(f => !readme.includes(f));
+    assert.deepEqual(undocumented, [], `README.md does not mention: ${undocumented.join(', ')}`);
+});

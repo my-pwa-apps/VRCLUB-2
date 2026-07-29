@@ -713,6 +713,7 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Estimated effort: Medium
   Business value: High
   Technical debt reduction: Medium
+  Update 2026-07-29: Done for the mirror-ball and spotlight passes (~270 allocations/frame removed). Remaining systems are tracked by "Audit the remaining `updateAnimations()` systems for per-frame allocation" in the 2026-07-29 review.
 
 - [ ] Scale spotlight pan/tilt lerp factors by `dtScale`
   Priority: Medium
@@ -947,3 +948,378 @@ Items marked `[x]` were fixed during this review. Items marked `[ ]` remain open
   Estimated effort: Small
   Business value: Medium
   Technical debt reduction: Low
+
+---
+
+## Review — 2026-07-29 — Full-repository engineering review
+
+Scope: product, architecture, code quality, performance, security, reliability, testing,
+maintainability and UX. Findings were verified against source before being actioned —
+several automated findings proved false and are recorded at the end so they are not
+re-raised.
+
+### Fixed during this review
+
+- [x] Splash screen hid on a fixed timer while the scene was still loading
+  Priority: Critical
+  Category: Bug / UX
+  Area: Startup
+  Affected files: js/ui-init.js
+  Problem: The ENTER CLUB handler hid the splash with `setTimeout(..., 1000)`, entirely decoupled from `init()`. Measured on a warm local server, `ready` became true at ~35 s, so the user was shown a black canvas for over 30 seconds with no feedback. The timer also raced `_handleFatalInitError()`, which re-shows the splash with a RETRY button — the timer hid the retry UI again, so a fatal startup error left a permanently black page.
+  Impact: The single worst defect in the product. First-run users had no way to distinguish "still loading ~120 MB of avatar GLBs" from "broken", and users hitting an init failure lost the only recovery affordance.
+  Recommended solution: Await `window.vrClub.initPromise`; hide the splash on resolve, leave the retry UI alone on reject, and cap the wait so a wedged init cannot trap the user.
+  Acceptance criteria: Splash remains visible with the loading indicator until `ready === true`; a rejected `initPromise` leaves the RETRY splash on screen.
+  Verified: Browser run held the splash for the full ~35 s load, then hid it cleanly (`splashDisplay: none`, `loadingVisible: false`, `ready: true`, zero page errors).
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] Global `dragover`/`drop`/`keydown` listeners could never be removed
+  Priority: High
+  Category: Bug
+  Area: Lifecycle
+  Affected files: js/club_hyperrealistic.js
+  Problem: Three listeners were registered on `window`/`document` with inline arrow functions. `dispose()` could not remove them, and each closure retained the `VRClub` instance — and with it the entire scene graph, the WebGL context and every loaded GLB.
+  Impact: `dispose()` silently failed to free the largest allocation in the app. Any future navigation or re-init would leak a full scene.
+  Recommended solution: Store handlers as `this._onWindowDragOver` / `this._onWindowDrop` / `this._onKeyDown` and remove them in `dispose()`.
+  Acceptance criteria: Every global listener is removed in `dispose()`; enforced by a contract test.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: High
+
+- [x] Debug overlay toggled while typing in the stream-URL field
+  Priority: Medium
+  Category: Bug / UX
+  Area: Input handling
+  Affected files: js/club_hyperrealistic.js
+  Problem: The `keydown` handler fired on any `d`/`D` with no check of the event target, so typing or pasting any stream URL containing the letter "d" silently toggled the debug overlay — and did so once per occurrence.
+  Impact: Confusing, apparently random UI behaviour during the most common user task.
+  Recommended solution: Ignore the event when the target is an input/textarea/select/contenteditable, or when a modifier key is held.
+  Acceptance criteria: Typing in any text field never changes scene state.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [x] Native `alert()` used for user-facing errors
+  Priority: High
+  Category: UX
+  Area: Error reporting
+  Affected files: js/club_hyperrealistic.js
+  Problem: Three `alert()` calls (VR unavailable, and two audio failures). A native dialog blocks the render loop, cannot be styled, and in a headset renders as a flat 2D browser panel floating over the scene.
+  Impact: Breaks presence in VR and, on some runtimes, is awkward to dismiss without leaving XR. The app already had a toast (`showErrorMessage`) that these sites bypassed.
+  Recommended solution: Route all three through `showErrorMessage()`, and focus the relevant input on validation failure.
+  Acceptance criteria: No `alert`/`confirm`/`prompt` in first-party JS; enforced by a contract test.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] `currentSpotColor` aliased the shared palette instead of copying it
+  Priority: High
+  Category: Bug
+  Area: Lighting
+  Affected files: js/club_hyperrealistic.js
+  Problem: Three initialisation sites assigned `this.currentSpotColor = spotColors[0]`, making the live, mutated colour the same object as entry 0 of the shared palette.
+  Impact: A latent landmine of exactly the class that previously corrupted `cachedColors`. Any future in-place write to `currentSpotColor` would permanently corrupt the palette for every consumer, including VJDirector and ShowDirector, with no obvious cause.
+  Recommended solution: Instance-owned `Color3` buffers initialised with `copyFrom`.
+  Acceptance criteria: The palette array is never reachable through a mutable fixture property.
+  Verified: Live probe confirmed the palette remained pristine through a full colour transition.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: High
+
+- [x] Roughly 270 `Color3`/`Vector3` allocations per frame in the spotlight and mirror-ball passes
+  Priority: High
+  Category: Performance
+  Area: Render loop
+  Affected files: js/club_hyperrealistic.js
+  Problem: The spotlight pass allocated six new `Color3`s per fixture per frame via `.scale()`/`.clone()`; the mirror-ball pass allocated per ray (40) and per reflection spot (100) via `new Vector3`, `.add()`, `.scale()`, `Vector3.Cross()` and `Quaternion.RotationAxis()`.
+  Impact: Thousands of short-lived objects per second. GC pauses read as frame hitches, which is the most noticeable comfort problem in VR.
+  Recommended solution: Pre-allocated per-fixture buffers plus the in-place Babylon APIs (`scaleToRef`, `copyFrom`, `addInPlace`, `CrossToRef`, `RotationAxisToRef`) and four new `vecPool` entries.
+  Acceptance criteria: No allocation inside the per-fixture or per-ray loops.
+  Note: This completes the 2026-07-28 open item "Eliminate remaining per-frame allocations in the hot loop" for the mirror-ball and spotlight systems. Other systems in `updateAnimations()` have not been audited to the same depth — see the open item below.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] Unclamped `Math.acos(Vector3.Dot(...))` could produce NaN geometry
+  Priority: Medium
+  Category: Bug
+  Area: Mirror ball
+  Affected files: js/club_hyperrealistic.js
+  Problem: The mirror-ball ray orientation computed `Math.acos(Vector3.Dot(up, dir))` on normalised vectors. Floating-point error can push the dot product marginally outside [-1, 1], making `acos` return NaN.
+  Impact: A NaN rotation angle yields a NaN quaternion and the ray mesh disappears for the rest of the session, with no error logged.
+  Recommended solution: Clamp the dot product before `acos`.
+  Acceptance criteria: A NaN sweep over all ray transforms returns zero.
+  Verified: `nanCount: 0` across 40 rays and 100 spots in a live probe.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [x] 100 full-scene raycasts every frame in VR, justified by an incorrect premise
+  Priority: High
+  Category: Performance
+  Area: Mirror ball
+  Affected files: js/club_hyperrealistic.js
+  Problem: Reflection spots were throttled to every third frame on desktop but ran every frame in VR. The inline comment justified this with "frame-skipping in VR causes different states per eye = epileptic effect". That is factually wrong: Babylon renders both eyes from a single scene state within one `render()` call, so a skipped update is skipped for both eyes and they cannot disagree.
+  Impact: 100 `pickWithRay` calls per frame at 72 Hz is 7,200 full-scene raycasts per second on the weakest target platform, for no benefit. An incorrect comment also actively deterred anyone from fixing it.
+  Recommended solution: Throttle to every second frame in VR (halving the cost) and replace the comment with the correct explanation. Motion is lerp-smoothed, so the change is imperceptible.
+  Acceptance criteria: VR raycast rate is at most ~3,600/s; reflection spots still track smoothly.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] `getAudioData()` ran twice per frame and halved the CORS-silence threshold
+  Priority: Medium
+  Category: Bug / Performance
+  Area: Audio
+  Affected files: js/club_hyperrealistic.js
+  Problem: `updateAnimations()` and `updateDancingNPCs()` each called `getAudioData()`, so every frame performed two `getByteFrequencyData()` reads plus six passes over the FFT bins. Worse, the duplicate call double-incremented `_silentAnalyserFrames`, so the heuristic meant to detect a CORS-blocked silent stream after ~180 frames (~3 s) fired after ~1.5 s.
+  Impact: Wasted per-frame work, and a user-visible warning toast that could fire spuriously on a stream that was merely quiet at startup.
+  Recommended solution: Compute once per frame and thread the value into `updateDancingNPCs(time, audioData)`, keeping a self-call fallback for other callers.
+  Acceptance criteria: One `getByteFrequencyData()` per frame; the silence heuristic fires at its intended ~3 s.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [x] Dead — and incorrect — spotlight colour-drift block
+  Priority: Medium
+  Category: Cleanup / Bug
+  Area: Lighting
+  Affected files: js/club_hyperrealistic.js
+  Problem: A block in the spotlight micro-dynamics loop cumulatively incremented `spot.light.diffuse` channels during the `euphoria` and `tension` phases. It was dead — `diffuse` is unconditionally reassigned later in the same frame — and also wrong: it mutated in place with no restore path, so had it ever taken effect, a few seconds of `euphoria` would have saturated every spotlight to white permanently.
+  Impact: A correctness trap waiting for anyone who reordered the loop.
+  Recommended solution: Delete it and document why in place.
+  Acceptance criteria: No cumulative unbounded mutation of any light colour.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [x] Untracked global click listener in the settings panel
+  Priority: Medium
+  Category: Bug
+  Area: Lifecycle
+  Affected files: js/ui-init.js
+  Problem: `initSettingsPanel()` registered a `document` click listener with an inline literal, so it was invisible to the existing `teardownVJUI()` mechanism.
+  Impact: Leaked past teardown and kept panel DOM references alive.
+  Recommended solution: Named handler enrolled in the shared `window.__vjUiTeardown` list.
+  Acceptance criteria: Enforced by the new removable-listener contract test.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [x] No HSTS header from the production server
+  Priority: Medium
+  Category: Security
+  Area: Hosting
+  Affected files: scripts/serve.mjs
+  Problem: `scripts/serve.mjs` set a good baseline (CSP, `X-Content-Type-Options`, frame options, referrer policy) but no `Strict-Transport-Security`.
+  Impact: A first or post-expiry request over plain HTTP is downgradeable by a network attacker, who could then serve modified JS.
+  Recommended solution: Emit `max-age=31536000; includeSubDomains` only when the request is genuinely HTTPS — either a TLS socket or `X-Forwarded-Proto: https` from the platform's edge. Sending it over plain HTTP is ignored by browsers and would break local development.
+  Acceptance criteria: HSTS present on HTTPS responses, absent on `http://localhost`.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [x] README documented an architecture that no longer existed
+  Priority: Medium
+  Category: Documentation
+  Area: Onboarding
+  Affected files: README.md
+  Problem: The Project Layout omitted `js/assetCache.js` and `js/showDirector.js` — the shared caching layer and the cue engine that owns all fixture state whenever the show is driving. The Quality Checks section never mentioned `npm test`, the repository's only automated safety net.
+  Impact: A new contributor could not learn from the README that a test suite exists, nor that the file order in `index.html` is a hard contract.
+  Recommended solution: Rewrite both sections; state the load-order contract explicitly and enumerate what `npm test` protects.
+  Acceptance criteria: Every first-party script is named in the README; enforced by a contract test.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [x] Dead commented-out bootstrap block with a misleading comment
+  Priority: Low
+  Category: Cleanup
+  Area: Startup
+  Affected files: js/club_hyperrealistic.js
+  Problem: A commented-out `DOMContentLoaded` initialiser at end of file, whose comment claimed initialisation happens "in index.html". It actually happens in `js/ui-init.js`.
+  Impact: Sends a reader to the wrong file when tracing startup.
+  Recommended solution: Replace with an accurate note explaining that construction is deliberately deferred behind the ENTER CLUB gesture because WebGL, `AudioContext` and large GLB downloads are all user-gesture gated.
+  Acceptance criteria: No commented-out executable code at this site.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Low
+
+- [x] Four new contract tests to prevent regression of the above
+  Priority: High
+  Category: Testing
+  Area: Build / tooling
+  Affected files: test/contract.test.mjs
+  Problem: Every defect fixed above was reintroducible with no signal, because the suite only checked wiring and asset existence, not code hygiene.
+  Impact: Fixes with no test decay.
+  Recommended solution: Add tests for (1) no native dialogs, (2) global listeners registered with a removable reference, (3) every instance-stored listener removed in `dispose()`, (4) README names every first-party script. Suite grew 13 → 17.
+  Acceptance criteria: Each test fails if its defect is reintroduced. Verified — tests 2 and 4 caught two live pre-existing defects on first run.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: High
+
+### Open items
+
+- [ ] Extract the ~45 LED wall pattern methods into a dedicated module
+  Priority: High
+  Category: Refactor
+  Area: LED wall
+  Affected files: js/club_hyperrealistic.js
+  Problem: Roughly 45 `pattern*(color, time, audioData)` methods span about 1,180 contiguous lines. They share one uniform signature, touch only the LED pixel buffer, and have no other coupling to `VRClub`.
+  Impact: This is over 10% of the monolith and the most mechanically separable part of it. Its presence inflates the file that every contributor must load to change anything.
+  Recommended solution: Move to `js/ledPatterns.js` as a lookup table of pure functions `(ctx, color, time, audioData)`. This is the lowest-risk first slice of the larger decomposition and can land before any bundler work.
+  Acceptance criteria: `club_hyperrealistic.js` drops by ~1,100 lines; the pattern registry is data, not a switch; contract tests pass with the new script inserted in load order.
+  Estimated effort: Medium
+  Business value: Medium
+  Technical debt reduction: High
+
+- [ ] No runtime tests of any kind
+  Priority: High
+  Category: Testing
+  Area: Whole application
+  Affected files: test/
+  Problem: All 17 tests are static — they parse files and grep source. Nothing ever constructs a class, calls a method, or asserts a computed value. Pure, dependency-free logic that is entirely untested includes `_isSafeAudioUrl()` (a security boundary), `MaterialFactory._cacheKey()`, `InFlightRegistry.run()`, ShowDirector ramp resolution and movement selection, and VJDirector BPM estimation.
+  Impact: The security-relevant URL validator has no test proving it rejects `javascript:`, embedded credentials or mixed content. A regression there is a real vulnerability, not a cosmetic bug.
+  Recommended solution: Add `test/unit.test.mjs`. These modules need no DOM; where they touch `BABYLON`, a ten-line `Color3`/`Vector3` stub suffices. Start with `_isSafeAudioUrl()` and `_cacheKey()`.
+  Acceptance criteria: Every branch of `_isSafeAudioUrl()` is covered by an assertion.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [ ] No progress feedback during a ~35-second cold start
+  Priority: High
+  Category: UX
+  Area: Startup
+  Affected files: js/ui-init.js, js/club_hyperrealistic.js, css/styles.css
+  Problem: With the splash-timer defect fixed, the splash now correctly stays up until the scene is ready — but it shows only a static "Loading club experience…" for the whole duration. Cold start is dominated by ~120 MB of avatar GLBs.
+  Impact: A 35-second wait with no moving indicator still reads as a hang to many users; on a headset over Wi-Fi it will be longer.
+  Recommended solution: Have `init()` publish coarse stage progress (textures / models / avatars / lighting) via a callback or observable, and render a determinate bar plus the current stage. Separately, evaluate whether the avatar GLBs can be compressed (Draco/meshopt) or loaded lazily after first render.
+  Acceptance criteria: The splash shows a monotonically advancing indicator and a stage label throughout the load.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [ ] Avatar GLB payload is roughly 120 MB
+  Priority: High
+  Category: Performance
+  Area: Assets
+  Affected files: js/models/avatars/, js/modelLoader.js
+  Problem: The crowd and DJ models dominate first-load bytes and are served uncompressed.
+  Impact: Directly causes the long cold start above, and on a metered or slow connection may prevent entry entirely. IndexedDB caching helps only on repeat visits.
+  Recommended solution: Apply Draco or meshopt compression and texture-compress to KTX2/Basis; consider loading the crowd after the first rendered frame so the user is inside the club while it streams in.
+  Acceptance criteria: Avatar payload reduced by at least 60%; first interactive frame no later than 10 s on a warm cache.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [ ] Audit the remaining `updateAnimations()` systems for per-frame allocation
+  Priority: Medium
+  Category: Performance
+  Area: Render loop
+  Affected files: js/club_hyperrealistic.js
+  Problem: The mirror-ball and spotlight passes were converted to in-place maths in this review. The strobe, laser, laser-sheet, fog and LED passes were not audited to the same depth.
+  Impact: Residual GC pressure in VR, the platform least able to absorb it.
+  Recommended solution: Profile a 60-second capture, then apply the same buffer-plus-`*ToRef` pattern to whichever passes still allocate.
+  Acceptance criteria: No sawtooth heap growth attributable to `updateAnimations()`.
+  Estimated effort: Medium
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [ ] Scene weight: 1,003 meshes, 609 active, 495 materials
+  Priority: Medium
+  Category: Performance
+  Area: Scene construction
+  Affected files: js/club_hyperrealistic.js, js/materialFactory.js
+  Problem: 609 active meshes implies a high draw-call count before any post-processing. 495 materials suggests the sharing in `MaterialFactory` is not reaching everything — notably materials arriving inside loaded GLBs, which `instantiateModelsToScene(cloneMaterials: false)` keeps out of `scene.materials` sweeps.
+  Impact: Draw calls and material-state changes are the most likely ceiling on Quest frame rate. This is measurable headroom that has not been measured.
+  Recommended solution: Instrument draw calls per frame; extend merging beyond pillars and bricks to other static geometry; audit which materials are genuinely unique and widen sharing.
+  Acceptance criteria: A documented draw-call baseline plus a measured reduction on the Quest target.
+  Estimated effort: Medium
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [ ] Crowd size is fixed at load and ignores runtime tier changes
+  Priority: Medium
+  Category: Bug
+  Area: Graphics tiers
+  Affected files: js/club_hyperrealistic.js
+  Problem: `setGraphicsTier()` rebuilds the tier-owned pipelines, but the crowd is populated once during `init()` from the tier active at that moment. Downgrading to `balanced` on a struggling machine leaves the full `high`-tier crowd in the scene.
+  Impact: The most direct lever a user has for recovering frame rate does not affect one of the heaviest costs, so the quality control under-delivers exactly when it matters.
+  Recommended solution: Either rebuild the crowd on tier change, or pre-create the maximum count and toggle `setEnabled()` on the surplus (cheaper, no reload).
+  Acceptance criteria: Switching to `balanced` at runtime measurably reduces active mesh count.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [ ] Harden `scripts/serve.mjs` against symlink escape
+  Priority: Low
+  Category: Security
+  Area: Hosting
+  Affected files: scripts/serve.mjs
+  Problem: `resolveSafe()` correctly decodes percent-encoding, rejects NUL bytes, normalises and prefix-checks against the document root — path traversal via `..` is blocked. It does not resolve symlinks, so a symlink inside the root pointing outside it would still be served.
+  Impact: Theoretical today (the repository contains no symlinks) but the server is the production entry point via `Procfile`, and a future asset pipeline could introduce one.
+  Recommended solution: `fs.realpath` the resolved path and re-assert the root prefix before streaming.
+  Acceptance criteria: A symlink inside the root pointing outside it returns 404.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Low
+
+- [ ] No CI, no release process, no CHANGELOG
+  Priority: Medium
+  Category: Process
+  Area: Build / tooling
+  Affected files: .github/workflows/, package.json
+  Problem: `npm run check` and `npm test` exist and are fast, but nothing runs them automatically. There is no version tagging, no changelog, and the deployable artefact is the working tree.
+  Impact: The safety net only works when a contributor remembers to use it — and this review found two defects that the tests catch, proving they had not been run against those changes. There is also no way to identify which build a user is running when they report a bug.
+  Recommended solution: A GitHub Actions workflow running `npm run check` and `npm test` on push and PR. Adopt a version in `package.json` surfaced in the debug overlay, and keep a `CHANGELOG.md`.
+  Acceptance criteria: CI is required to pass before merge; the running build version is visible in-app.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [ ] `docs/` has grown to 11 overlapping, partly historical files
+  Priority: Low
+  Category: Documentation
+  Area: Onboarding
+  Affected files: docs/
+  Problem: Files such as `OPTIMIZATION_PHASE_COMPLETE.md` and `OPTIMIZATION_IMPLEMENTATION.md` are point-in-time status reports, not reference material, and several overlap with `.github/copilot-instructions.md` — which is the only document with an explicit accuracy contract.
+  Impact: A reader cannot tell which document is current. Historical status files age into misinformation, which is worse than no document.
+  Recommended solution: Split into `docs/reference/` (current, maintained) and `docs/history/` (explicitly archival, with a banner). Fold anything normative into `copilot-instructions.md`.
+  Acceptance criteria: Every file in `docs/` is either maintained reference or clearly labelled archival.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] `npm run serve` is undocumented drift
+  Priority: Low
+  Category: Cleanup
+  Area: Build / tooling
+  Affected files: package.json, README.md
+  Problem: `package.json` defines a `serve` script using `python -m http.server`, which is mentioned nowhere and duplicates `npm start`.
+  Impact: A contributor may run it and get subtly different MIME handling and no cache-control headers, then debug a caching problem that does not exist under the supported servers.
+  Recommended solution: Remove it, or document precisely when it is preferable.
+  Acceptance criteria: Every script in `package.json` is documented in the README.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Low
+
+- [ ] `backup_aframe/` remains tracked in the repository
+  Priority: Low
+  Category: Cleanup
+  Area: Repository
+  Affected files: backup_aframe/
+  Problem: A superseded A-Frame implementation is still tracked. Its history is already in git.
+  Impact: Inflates clone size and search results, and every contributor must learn that an entire top-level directory is off-limits.
+  Recommended solution: Delete it and tag the last commit that contained it.
+  Acceptance criteria: The directory is gone and the tag is documented in the README.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+### Verified false — do not re-raise
+
+- `getMeshByName` in the audio path is **not** unguarded. `_subGrillRefs` is populated once behind `if (!this._subGrillRefs)`. An automated scan rated this Critical; reading the source disproved it.
+- `Cross-Origin-Embedder-Policy: require-corp` must **not** be added to `scripts/serve.mjs`. `cdn.babylonjs.com` sends no `Cross-Origin-Resource-Policy`, so COEP would block the pinned Babylon bundles and produce a blank page. The build uses no `SharedArrayBuffer` and no threaded WASM, so it buys nothing. The reasoning is now recorded in the file.
+- Crowd bounding-box "clashes" with `mergedPillars`, `mergedBricks`, `goboProjection*` and `djPlatform` are artefacts of AABB testing against merged meshes and light-projection geometry. Actual pillar positions are `x = ±12.5`; all dancers are within `|x| ≤ 7.4`.
+- Absolute FPS measured in the headless automation browser (12–14) is a property of software rendering, not a regression signal. A/B measurement showed the crowd costs ~2 FPS there.

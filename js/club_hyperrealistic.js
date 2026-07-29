@@ -78,7 +78,8 @@ class VRClub {
                 probeResolution: 512,
                 ssaoSamples: 24,
                 ssaoExpensiveBlur: true,
-                floorShadows: true
+                floorShadows: true,
+                crowdSize: 14              // animated skinned dancers on the floor
             },
             high: {
                 renderScale: 1.0,
@@ -94,7 +95,8 @@ class VRClub {
                 probeResolution: 256,
                 ssaoSamples: 16,
                 ssaoExpensiveBlur: true,
-                floorShadows: false
+                floorShadows: false,
+                crowdSize: 10
             },
             balanced: {
                 renderScale: 1.0,
@@ -110,7 +112,12 @@ class VRClub {
                 probeResolution: 128,
                 ssaoSamples: 8,
                 ssaoExpensiveBlur: false,
-                floorShadows: false
+                floorShadows: false,
+                // Skinned characters are the most expensive per-object thing in the
+                // scene (one skeleton + one animation group evaluation each), so the
+                // headcount is the first thing to give on weak GPUs. Quest is always
+                // `balanced`, so this is the number a headset actually renders.
+                crowdSize: 6
             }
         };
         
@@ -233,6 +240,25 @@ class VRClub {
         // PERFORMANCE: Pre-allocated Color3 for LED patterns (eliminates thousands of allocations/frame)
         this._ledColor = new BABYLON.Color3(0, 0, 0); // Reusable color for LED updates
         this._ledColor2 = new BABYLON.Color3(0, 0, 0); // Second reusable color
+
+        // The live spotlight colour and its fade source.
+        //
+        // These are deliberately instance-OWNED Color3s, never references into
+        // `spotColorList`. Two reasons:
+        //  1. The colour fade runs every frame while a transition is in flight; it
+        //     used to allocate a fresh Color3 per frame plus a .clone() per switch.
+        //     Owning the objects lets it write in place with copyFromFloats().
+        //  2. `currentSpotColor` is handed straight to `light.specular` and read by
+        //     the fixture/beam/pool passes. When it aliased `spotColorList[0]`, any
+        //     in-place write would have silently rewritten the shared palette entry
+        //     for every consumer - the same class of bug that previously corrupted
+        //     `cachedColors` via emissiveColor aliasing.
+        this.currentSpotColor = new BABYLON.Color3(1, 0, 0);
+        this.previousSpotColor = new BABYLON.Color3(1, 0, 0);
+        // Scratch colours for the per-frame spotlight pass (diffuse/pool/glow).
+        this._spotDiffuseScratch = new BABYLON.Color3(0, 0, 0);
+        this._poolColorScratch = new BABYLON.Color3(0, 0, 0);
+        this._poolSpecScratch = new BABYLON.Color3(0, 0, 0);
         
         // Cached LED pattern colors (avoid per-frame allocations)
         this.cachedLEDColors = {
@@ -272,7 +298,15 @@ class VRClub {
             // allocating a new Vector3 per beam per frame (~900 alloc/sec).
             laserAxis: new BABYLON.Vector3(0, 0, 0),
             spotAxis: new BABYLON.Vector3(0, 0, 0),
-            xAxis: new BABYLON.Vector3(1, 0, 0)
+            xAxis: new BABYLON.Vector3(1, 0, 0),
+            // Dedicated scratch for the mirror-ball outgoing-ray loop. That loop ran
+            // 40 rays x ~6 allocations per ray per frame (~14k Vector3/Quaternion per
+            // second) before these existed. Kept separate from temp1/temp2 so the two
+            // loops can never stomp on each other within a frame.
+            mirrorDir: new BABYLON.Vector3(0, 0, 0),
+            mirrorTmp: new BABYLON.Vector3(0, 0, 0),
+            mirrorAxis: new BABYLON.Vector3(0, 0, 0),
+            mirrorLook: new BABYLON.Vector3(0, 0, 0)
         };
         // QC O5: per-beam quaternions live on the beam objects themselves
         // (lazy-initialised on first use). These shared scratch quats are for
@@ -308,7 +342,10 @@ class VRClub {
             this.cachedColors.purple,   // Purple
             this.cachedColors.white     // White (dimmed to 1,1,1 for spotlights)
         ];
-        this.currentSpotColor = this.spotColorList[0]; // Start with RED
+        // copyFrom, NOT assignment - see the note where currentSpotColor is allocated.
+        this.currentSpotColor.copyFrom(this.spotColorList[0]); // Start with RED
+        this.previousSpotColor.copyFrom(this.spotColorList[0]);
+        this.targetSpotColor = this.spotColorList[0];
         this.spotColorIndex = 0;
         this.lastColorChange = 0;
         
@@ -928,6 +965,11 @@ class VRClub {
         // NPC avatars for atmosphere
         this.npcAvatars = [];
         this.npcDancePositions = [];
+        this._npcBeatBoost = 1.0; // last applied crowd tempo multiplier
+        // AssetContainers holding the source avatar GLBs. These are deliberately NOT
+        // added to the scene - every dancer is instantiated from them - so
+        // scene.dispose() will not reclaim them and dispose() has to do it by hand.
+        this._avatarContainers = [];
         
         // Load environment for PBR reflections
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
@@ -1412,24 +1454,30 @@ class VRClub {
 
         this._onResize = () => this.engine.resize();
         window.addEventListener('resize', this._onResize);
-        
-        // Prevent default drag and drop behavior on the page (except in our audio UI)
-        window.addEventListener('dragover', (e) => {
-            // Only prevent if not in our audio input
-            if (!e.target.id || e.target.id !== 'audioUrlInput') {
-                e.preventDefault();
+
+        // Prevent the browser's default "navigate to the dropped file" behaviour
+        // everywhere except our own audio drop target.
+        //
+        // These handlers MUST be stored and removed in dispose(). They are registered
+        // on `window`, so the closure's `this` reference pins the entire VRClub
+        // instance - and therefore the whole Babylon scene graph and its GPU
+        // resources - in memory for the lifetime of the document, even after
+        // dispose() has run.
+        this._onWindowDragOver = (e) => {
+            if (e.target && e.target.id === 'audioUrlInput') return;
+            e.preventDefault();
+            if (e.dataTransfer) {
                 e.dataTransfer.effectAllowed = 'none';
                 e.dataTransfer.dropEffect = 'none';
             }
-        }, false);
-        
-        window.addEventListener('drop', (e) => {
-            // Only prevent if not in our audio input
-            if (!e.target.id || e.target.id !== 'audioUrlInput') {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-        }, false);
+        };
+        this._onWindowDrop = (e) => {
+            if (e.target && e.target.id === 'audioUrlInput') return;
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        window.addEventListener('dragover', this._onWindowDragOver, false);
+        window.addEventListener('drop', this._onWindowDrop, false);
 
         this.ready = true;
     }
@@ -1459,6 +1507,27 @@ class VRClub {
         if (this._onResize) {
             window.removeEventListener('resize', this._onResize);
             this._onResize = null;
+        }
+        if (this._onWindowDragOver) {
+            window.removeEventListener('dragover', this._onWindowDragOver, false);
+            this._onWindowDragOver = null;
+        }
+        if (this._onWindowDrop) {
+            window.removeEventListener('drop', this._onWindowDrop, false);
+            this._onWindowDrop = null;
+        }
+        if (this._onKeyDown) {
+            document.removeEventListener('keydown', this._onKeyDown);
+            this._onKeyDown = null;
+        }
+
+        // Scene pointer callbacks are plain properties holding closures over `this`.
+        // Null them before scene.dispose() so nothing can re-enter a torn-down instance
+        // if a pointer event is already queued.
+        if (this.scene) {
+            this.scene.onPointerDown = null;
+            this.scene.onPointerUp = null;
+            this.scene.onPointerMove = null;
         }
 
         // Audio graph — an unclosed AudioContext keeps an audio thread alive.
@@ -1506,6 +1575,17 @@ class VRClub {
         if (typeof window.teardownVJUI === 'function') {
             try { window.teardownVJUI(); } catch (_) { /* ignore */ }
         }
+
+        // Avatar source containers were never added to the scene (every dancer is a
+        // clone of them), so scene.dispose() below will not touch their geometry,
+        // skeletons or textures. Roughly 120 MB of GPU/CPU buffers if skipped.
+        if (this._avatarContainers) {
+            this._avatarContainers.forEach(container => {
+                try { container.dispose(); } catch (_) { /* ignore */ }
+            });
+            this._avatarContainers = [];
+        }
+        this.npcAvatars = [];
 
         if (this.scene) {
             try { this.scene.dispose(); } catch (_) { /* ignore */ }
@@ -4822,7 +4902,9 @@ class VRClub {
                 new BABYLON.Color3(0.5, 0, 1),    // Purple
                 new BABYLON.Color3(1, 1, 1)       // White
             ];
-            this.currentSpotColor = spotColors[0];
+            this.currentSpotColor.copyFrom(spotColors[0]);
+            this.previousSpotColor.copyFrom(spotColors[0]);
+            this.targetSpotColor = spotColors[0];
             this.spotColorIndex = 0;
             this.lastColorChange = 0;
             this.spotColorList = spotColors;
@@ -4864,7 +4946,9 @@ class VRClub {
         ];
         
         // Track current color for all lights (changes periodically)
-        this.currentSpotColor = spotColors[0];
+        this.currentSpotColor.copyFrom(spotColors[0]);
+        this.previousSpotColor.copyFrom(spotColors[0]);
+        this.targetSpotColor = spotColors[0];
         this.spotColorIndex = 0;
         this.lastColorChange = 0;
         
@@ -6058,7 +6142,7 @@ class VRClub {
 
         // Update dancing NPC avatars
         if (this.npcAvatars && this.npcAvatars.length > 0) {
-            this.updateDancingNPCs(time);
+            this.updateDancingNPCs(time, audioData);
         }
         
         // === MIRROR BALL EFFECT ===
@@ -6174,19 +6258,19 @@ class VRClub {
                     // Rotate ray direction with the mirror ball (around Y axis)
                     const rotatedTheta = ray.theta + this.mirrorBallRotation;
                     
-                    // Calculate new direction based on rotated angle
+                    // Calculate new direction based on rotated angle.
+                    // Written into shared scratch - this loop runs 40x per frame, so a
+                    // `new Vector3` here alone was ~2,400 allocations/sec.
                     const sinPhi = Math.sin(ray.phi);
-                    const dirX = sinPhi * Math.cos(rotatedTheta);
-                    const dirY = Math.cos(ray.phi);
-                    const dirZ = sinPhi * Math.sin(rotatedTheta);
-                    const dir = new BABYLON.Vector3(dirX, dirY, dirZ);
+                    const dir = this.vecPool.mirrorDir;
+                    dir.set(sinPhi * Math.cos(rotatedTheta), Math.cos(ray.phi), sinPhi * Math.sin(rotatedTheta));
                     
                     // Raycast to find actual surface hit (staggered for performance)
                     let actualLength = ray.length; // Default to stored length
                     if (shouldUpdateRayLengths && (i % 8 === this.frameCounter % 8)) {
                         // Raycast from ball surface outward
-                        const rayStart = ballPos.add(dir.scale(0.6)); // Start at ball surface
-                        this.mirrorOutgoingRay.origin.copyFrom(rayStart);
+                        dir.scaleToRef(0.6, this.vecPool.mirrorTmp);
+                        this.mirrorOutgoingRay.origin.copyFrom(ballPos).addInPlace(this.vecPool.mirrorTmp);
                         this.mirrorOutgoingRay.direction.copyFrom(dir);
                         
                         const hit = this.scene.pickWithRay(this.mirrorOutgoingRay, this.mirrorOutgoingRayPredicate);
@@ -6205,15 +6289,24 @@ class VRClub {
                     const scaleRatio = ray.displayLength / ray.length;
                     ray.mesh.scaling.y = scaleRatio;
                     
-                    // Position ray starting from ball surface
-                    ray.mesh.position = ballPos.add(dir.scale(ray.displayLength / 2 + 0.6));
+                    // Position ray starting from ball surface. copyFrom, not assignment:
+                    // replacing mesh.position with a fresh Vector3 every frame churns GC
+                    // and defeats Babylon's internal dirty tracking.
+                    dir.scaleToRef(ray.displayLength / 2 + 0.6, this.vecPool.mirrorTmp);
+                    ray.mesh.position.copyFrom(ballPos).addInPlace(this.vecPool.mirrorTmp);
                     
                     // Rotate ray to point along direction
-                    const up = new BABYLON.Vector3(0, 1, 0);
-                    const angle = Math.acos(BABYLON.Vector3.Dot(up, dir));
-                    const axis = BABYLON.Vector3.Cross(up, dir);
-                    if (axis.length() > 0.001) {
-                        ray.mesh.rotationQuaternion = BABYLON.Quaternion.RotationAxis(axis.normalize(), angle);
+                    const up = this.vecPool.up;
+                    up.set(0, 1, 0);
+                    const angle = Math.acos(Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(up, dir))));
+                    BABYLON.Vector3.CrossToRef(up, dir, this.vecPool.mirrorAxis);
+                    if (this.vecPool.mirrorAxis.length() > 0.001) {
+                        this.vecPool.mirrorAxis.normalize();
+                        // Own the quaternion per ray, then write into it in place.
+                        if (!ray.mesh.rotationQuaternion) {
+                            ray.mesh.rotationQuaternion = BABYLON.Quaternion.Identity();
+                        }
+                        BABYLON.Quaternion.RotationAxisToRef(this.vecPool.mirrorAxis, angle, ray.mesh.rotationQuaternion);
                     }
                     
                     // Twinkling effect - subtle visibility variation (shared material, per-mesh visibility)
@@ -6237,10 +6330,26 @@ class VRClub {
             if (this.mirrorReflectionSpots && this.mirrorReflectionSpots.length > 0) {
                 const ballPos = this.mirrorBall.position; // Ball at (0, 6.5, -12)
                 
-                // FRAME-SKIP STRATEGY: Update every frame in VR (stereo sync), every 3rd frame on desktop
-                // Frame-skipping in VR causes different states per eye = epileptic effect
+                // UPDATE-RATE STRATEGY.
+                //
+                // This loop is the single most expensive thing in the frame: one
+                // scene.pickWithRay() per spot, against every pickable mesh in the room.
+                // With 100 spots that is 100 full scene raycasts per update.
+                //
+                // It previously ran EVERY frame in VR, on the justification that
+                // "frame-skipping in VR causes different states per eye = epileptic
+                // effect". That reasoning is incorrect: Babylon renders both eyes from a
+                // single scene state within one render() call, so an update skipped for a
+                // frame is skipped for BOTH eyes and the two views can never disagree.
+                // The net effect was 3x the raycast cost on the one platform least able
+                // to absorb it (7,200 raycasts/sec at 72 Hz).
+                //
+                // VR now updates every 2nd frame (36-45 Hz effective) and desktop every
+                // 3rd. Spot motion is smoothed by the lerp below, so neither is visible.
                 this.spotUpdateFrameCounter = (this.spotUpdateFrameCounter || 0) + 1;
-                const shouldUpdate = this.isInVRMode ? true : (this.spotUpdateFrameCounter % 3 === 0);
+                const shouldUpdate = this.isInVRMode
+                    ? (this.spotUpdateFrameCounter % 2 === 0)
+                    : (this.spotUpdateFrameCounter % 3 === 0);
                 
                 if (shouldUpdate) {
                     // Update ALL spots synchronously
@@ -6286,12 +6395,16 @@ class VRClub {
                         hitDistance = pickResult.distance;
                         hitMesh = pickResult.pickedMesh;
                         
-                        // Offset slightly from surface to prevent z-fighting
+                        // Offset slightly from surface to prevent z-fighting.
+                        // In place: `hitPos.add(hitNormal.scale(0.02))` allocated two
+                        // Vector3 per spot per update (~200 per update, 4k/sec).
                         if (hitNormal) {
-                            hitPos = hitPos.add(hitNormal.scale(0.02));
+                            hitNormal.scaleToRef(0.02, this.vecPool.mirrorTmp);
+                            hitPos.addInPlace(this.vecPool.mirrorTmp);
                         } else {
                             // Fallback if normal calculation fails - use reverse ray direction
-                            hitNormal = this.mirrorBallRay.direction.scale(-1);
+                            this.mirrorBallRay.direction.scaleToRef(-1, this.vecPool.mirrorAxis);
+                            hitNormal = this.vecPool.mirrorAxis;
                         }
                     }
                     
@@ -6329,7 +6442,10 @@ class VRClub {
                         spot.visual.position.z += (hitPos.z - spot.visual.position.z) * lerpFactor;
                         
                         // Orient perpendicular to surface
-                        spot.visual.lookAt(spot.visual.position.add(hitNormal));
+                        // Orient the spot to lie flat against the surface it landed on.
+                        // `position.add(hitNormal)` allocated a Vector3 per spot per update.
+                        this.vecPool.mirrorLook.copyFrom(spot.visual.position).addInPlace(hitNormal);
+                        spot.visual.lookAt(this.vecPool.mirrorLook);
                         
                         // Update tracking for next frame
                         spot.previousPosition.copyFrom(spot.visual.position);
@@ -6911,16 +7027,19 @@ class VRClub {
                         const baseIntensity = 8 + this.energyLevel * 15; // 8-23
                         const beatBoost = beatPulse * 2; // Punch on beats
                         spot.light.intensity = baseIntensity * (1 + microPulse + beatBoost);
-                        
-                        // Color temperature shifts with phase
-                        if (this.lightingPhase === 'euphoria') {
-                            // Warm, golden tones during euphoria
-                            spot.light.diffuse.r = Math.min(1, spot.light.diffuse.r + 0.1);
-                            spot.light.diffuse.g = Math.min(1, spot.light.diffuse.g + 0.05);
-                        } else if (this.lightingPhase === 'tension') {
-                            // Cooler, bluer tones during tension
-                            spot.light.diffuse.b = Math.min(1, spot.light.diffuse.b + 0.1);
-                        }
+
+                        // NOTE: there used to be a "colour temperature shifts with phase"
+                        // block here that did `spot.light.diffuse.r += 0.1` (clamped to 1)
+                        // every frame during the 'euphoria' and 'tension' phases.
+                        // It was dead AND wrong:
+                        //   - dead, because the spotlight pass later in this same frame
+                        //     unconditionally reassigns `spot.light.diffuse` from
+                        //     `this.currentSpotColor`, discarding the accumulation;
+                        //   - wrong, because it mutated a Color3 in place with no code
+                        //     anywhere to restore it, so had it survived, a few seconds of
+                        //     'euphoria' would have saturated every spotlight to white
+                        //     permanently. Phase colour is the palette's job (VJDirector /
+                        //     ShowDirector), not a per-frame additive nudge.
                     }
                 });
             }
@@ -7310,8 +7429,10 @@ class VRClub {
         if (!this.vjManualMode && time - this.lastColorChange > colorChangeInterval) {
             this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
             
-            // SMOOTH COLOR TRANSITION: Store previous color for interpolation
-            this.previousSpotColor = this.currentSpotColor ? this.currentSpotColor.clone() : this.spotColorList[0];
+            // SMOOTH COLOR TRANSITION: Store previous color for interpolation.
+            // copyFrom into our own buffer - cloning allocated a Color3 per switch and
+            // assigning would alias the shared palette.
+            this.previousSpotColor.copyFrom(this.currentSpotColor);
             this.targetSpotColor = this.spotColorList[this.spotColorIndex];
             this.colorTransitionProgress = 0; // Start transition
             this.lastColorChange = time;
@@ -7336,12 +7457,15 @@ class VRClub {
             const t = this.colorTransitionProgress;
             const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // easeInOutQuad
             
-            // Interpolate RGB channels
+            // Interpolate RGB channels in place - this runs every frame for the whole
+            // duration of a fade, so allocating here cost ~60 Color3/sec of GC churn.
             if (this.previousSpotColor && this.targetSpotColor) {
-                this.currentSpotColor = new BABYLON.Color3(
-                    this.previousSpotColor.r + (this.targetSpotColor.r - this.previousSpotColor.r) * eased,
-                    this.previousSpotColor.g + (this.targetSpotColor.g - this.previousSpotColor.g) * eased,
-                    this.previousSpotColor.b + (this.targetSpotColor.b - this.previousSpotColor.b) * eased
+                const p = this.previousSpotColor;
+                const q = this.targetSpotColor;
+                this.currentSpotColor.copyFromFloats(
+                    p.r + (q.r - p.r) * eased,
+                    p.g + (q.g - p.g) * eased,
+                    p.b + (q.b - p.b) * eased
                 );
             }
         }
@@ -7941,7 +8065,9 @@ class VRClub {
                     // This ensures beam, fixture, and all effects use the EXACT same color
                     const spotColor = this.currentSpotColor;
                     const baseIntensity = 3.0 + atmosphericNoise; // Boosted to compensate for beam gradient dimming (was 2.0)
-                    spot.beamMat.emissiveColor = spotColor.scale(baseIntensity);
+                    if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
+                    spotColor.scaleToRef(baseIntensity, spot._beamEmisBuf);
+                    spot.beamMat.emissiveColor = spot._beamEmisBuf;
                     spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
                     
                     // CRITICAL: Store the actual beam color for fixture sync (BASE color, not scaled)
@@ -8094,7 +8220,9 @@ class VRClub {
                             const surfaceBrightnessBoost = (hitSurface === 'floor') ? 1.0 : 1.6;
                             const poolBrightness = 2.5 * physicsIntensity * shimmer * surfaceBrightnessBoost;
                             if (spot.poolMat) {
-                                spot.poolMat.emissiveColor = spotColor.scale(poolBrightness);
+                                if (!spot._poolEmisBuf) spot._poolEmisBuf = new BABYLON.Color3(0, 0, 0);
+                                spotColor.scaleToRef(poolBrightness, spot._poolEmisBuf);
+                                spot.poolMat.emissiveColor = spot._poolEmisBuf;
                                 // Higher alpha on walls for better visibility against dark surfaces
                                 const basePoolAlpha = (hitSurface === 'floor') ? 0.8 : 0.95;
                                 spot.poolMat.alpha = basePoolAlpha * Math.min(1.0, physicsIntensity);
@@ -8116,8 +8244,16 @@ class VRClub {
                                     else if (hitSurface === 'leftWall') spot.poolLight.position.x += 0.5;
                                     else if (hitSurface === 'rightWall') spot.poolLight.position.x -= 0.5;
                                 }
-                                spot.poolLight.diffuse = spotColor.clone();
-                                spot.poolLight.specular = spotColor.scale(0.25);
+                                // Scale into per-spot buffers. `.clone()` + `.scale()` here
+                                // allocated two Color3 per spotlight per frame (~720/sec).
+                                if (!spot._poolDiffuseBuf) {
+                                    spot._poolDiffuseBuf = new BABYLON.Color3(0, 0, 0);
+                                    spot._poolSpecBuf = new BABYLON.Color3(0, 0, 0);
+                                }
+                                spot._poolDiffuseBuf.copyFrom(spotColor);
+                                spotColor.scaleToRef(0.25, spot._poolSpecBuf);
+                                spot.poolLight.diffuse = spot._poolDiffuseBuf;
+                                spot.poolLight.specular = spot._poolSpecBuf;
                                 spot.poolLight.intensity = 3.5 * physicsIntensity * shimmer;
                                 spot.poolLight.range = majorRadius * 2.0;
                                 spot.poolLight.setEnabled(true);
@@ -8159,7 +8295,9 @@ class VRClub {
                                     // HYPERREALISTIC: Wall scatter is warmer/brighter (Lambertian diffuse scatter)
                                     const wallScatterBoost = (hitSurface === 'floor') ? 1.0 : 1.4;
                                     const glowBrightness = 0.7 * physicsIntensity * shimmer * wallScatterBoost;
-                                    spot.poolGlowMat.emissiveColor = spotColor.scale(glowBrightness);
+                                    if (!spot._poolGlowEmisBuf) spot._poolGlowEmisBuf = new BABYLON.Color3(0, 0, 0);
+                                    spotColor.scaleToRef(glowBrightness, spot._poolGlowEmisBuf);
+                                    spot.poolGlowMat.emissiveColor = spot._poolGlowEmisBuf;
                                     const baseGlowAlpha = (hitSurface === 'floor') ? 0.35 : 0.5;
                                     spot.poolGlowMat.alpha = baseGlowAlpha * Math.min(1.0, physicsIntensity);
                                 }
@@ -8235,7 +8373,9 @@ class VRClub {
                             // Update color to match spotlight with physics-based brightness
                             if (spot.goboMat) {
                                 const goboBrightness = 1.8 * physicsIntensity;
-                                spot.goboMat.emissiveColor = spotColor.scale(goboBrightness);
+                                if (!spot._goboEmisBuf) spot._goboEmisBuf = new BABYLON.Color3(0, 0, 0);
+                                spotColor.scaleToRef(goboBrightness, spot._goboEmisBuf);
+                                spot.goboMat.emissiveColor = spot._goboEmisBuf;
                             }
                             
                             // Hide regular pool when gobo is on (gobo replaces it)
@@ -8266,9 +8406,14 @@ class VRClub {
                 const baseIntensity = 18; // Professional moving head (300W equivalent)
                 const smoothPulse = Math.sin(time * 2.5) * 3; // Smooth breathing effect
                 
-                // UPGRADE: Keep diffuse in sync with specular color for projectionTexture
+                // UPGRADE: Keep diffuse in sync with specular color for projectionTexture.
+                // `specular` may safely alias currentSpotColor (we own it and never let
+                // anyone else mutate it). `diffuse` needs a scaled copy, so scale into a
+                // per-spot buffer rather than allocating a Color3 per spotlight per frame.
                 spot.light.specular = this.currentSpotColor;
-                spot.light.diffuse = this.currentSpotColor.scale(0.15);
+                if (!spot._diffuseBuf) spot._diffuseBuf = new BABYLON.Color3(0, 0, 0);
+                this.currentSpotColor.scaleToRef(0.15, spot._diffuseBuf);
+                spot.light.diffuse = spot._diffuseBuf;
                 
                 spot.light.intensity = this.lightsActive ? (baseIntensity + smoothPulse) : 0;
             });
@@ -9984,7 +10129,10 @@ class VRClub {
                     }
                 } catch (error) {
                     log.error('VR Error:', error);
-                    alert('VR not available. Make sure your Quest 3S is connected via Link/Air Link.');
+                    // A blocking alert() steals focus, cannot be styled, and on Quest
+                    // renders as a flat 2D browser panel over the scene. Use the app's
+                    // own toast so failures look like part of the product.
+                    this.showErrorMessage('VR unavailable. Connect your headset via Link/Air Link, or open this page in the Quest browser.');
                 }
             });
         }
@@ -10004,13 +10152,25 @@ class VRClub {
                 this.playMusic();
             });
         }
-        
-        // Debug toggle
-        document.addEventListener('keydown', (e) => {
+
+        // Debug toggle.
+        //
+        // Two bugs fixed here:
+        //  1. The handler fired on ANY 'd' keypress, including while the user was
+        //     typing into the stream-URL field - so pasting a URL containing "d"
+        //     silently toggled debug mode. Editable targets are now ignored.
+        //  2. It was registered on `document` and never removed, pinning this
+        //     instance in memory after dispose(). It is now tracked.
+        this._onKeyDown = (e) => {
+            const t = e.target;
+            if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
             if (e.key === 'd' || e.key === 'D') {
                 this.debugMode = !this.debugMode;
+                this.showErrorMessage(`Debug overlay ${this.debugMode ? 'on' : 'off'}`);
             }
-        });
+        };
+        document.addEventListener('keydown', this._onKeyDown);
     }
 
     setupVJControlInteraction() {
@@ -10688,11 +10848,13 @@ class VRClub {
         
         const url = musicUrlInput.value;
         if (!url) {
-            alert('Please enter a music stream URL');
+            this.showErrorMessage('Enter a music stream URL first.');
+            musicUrlInput.focus();
             return;
         }
         if (!this._isSafeAudioUrl(url)) {
-            alert('Invalid audio URL. Use http://, https:// or blob: only.');
+            this.showErrorMessage('That URL cannot be played. Use an https:// stream, or drop in a local audio file.');
+            musicUrlInput.focus();
             return;
         }
 
@@ -11331,160 +11493,246 @@ class VRClub {
         return this.bassHapticsEnabled;
     }
 
+    /**
+     * Normalise the materials that arrive inside an avatar GLB.
+     *
+     * Runs ONCE per source file, not once per dancer: every clone shares these
+     * materials, so a single pass covers the whole crowd.
+     */
+    _prepareAvatarMaterials(materials) {
+        const aniso = this.tierSettings.anisotropy;
+
+        materials.forEach(mat => {
+            // Exceeding the device light budget produces "Too many lights" and a
+            // black character, so this applies to imported materials too.
+            mat.maxSimultaneousLights = this.maxLights;
+
+            // VR stereo rendering is hypersensitive to transparency and these GLBs
+            // ship alpha channels they do not actually use - without this the crowd
+            // renders see-through in the headset.
+            mat.alpha = 1.0;
+            mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
+            if (mat.needAlphaBlending) mat.needAlphaBlending = () => false;
+            if (mat.needAlphaTesting) mat.needAlphaTesting = () => false;
+
+            // Depth write is what makes the crowd OCCLUDE the additive light beams
+            // in rendering group 1 instead of letting them shine straight through.
+            mat.disableDepthWrite = false;
+            mat.forceDepthWrite = true;
+            mat.backFaceCulling = true;
+
+            [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
+                if (!tex) return;
+                tex.hasAlpha = false;
+                tex.anisotropicFilteringLevel = aniso;
+            });
+
+            // Frozen once, here. Never inside the render loop - Material.freeze()
+            // calls markDirty(), which walks every mesh in the scene.
+            mat.freeze();
+        });
+    }
+
+    /**
+     * Clone one dancer out of a loaded AssetContainer and drop it into the club.
+     *
+     * @param {BABYLON.AssetContainer} container source GLB
+     * @param {string} name                      unique node name
+     * @param {BABYLON.Vector3} position         x/z placement; y is the floor to stand on
+     * @param {number} facing                    world Y rotation, radians
+     * @param {number} height                    real-world height in metres
+     * @param {number} speedRatio                animation playback rate
+     */
+    _spawnAvatar(container, name, position, facing, height, speedRatio) {
+        // doNotInstantiate: these are skinned meshes, so each dancer needs its own
+        // skeleton and animation group to move independently. cloneMaterials stays
+        // false so the whole crowd still shares one set of materials and textures.
+        const entry = container.instantiateModelsToScene(
+            nodeName => `${name}_${nodeName}`,
+            false,
+            { doNotInstantiate: true }
+        );
+
+        const root = entry.rootNodes[0];
+        if (!root) {
+            log.warn(`  ❌ ${name}: container produced no root node`);
+            return null;
+        }
+
+        root.name = name;
+        root.position.copyFrom(position);
+        root.rotation.y = facing;
+        root.scaling.setAll(1);
+        root.computeWorldMatrix(true);
+
+        // The three source GLBs are authored in wildly different units (one is
+        // ~100x the others), so normalise on real-world height rather than
+        // trusting the file's own scale.
+        let bounds = root.getHierarchyBoundingVectors(true);
+        const rawHeight = bounds.max.y - bounds.min.y;
+        if (rawHeight > 1e-6) root.scaling.setAll(height / rawHeight);
+        root.computeWorldMatrix(true);
+
+        // Plant the feet on the requested surface. getHierarchyBoundingVectors()
+        // already returns WORLD space, so this correction must not be re-scaled.
+        bounds = root.getHierarchyBoundingVectors(true);
+        root.position.y += position.y - bounds.min.y;
+        root.computeWorldMatrix(true);
+
+        entry.rootNodes.forEach(node => {
+            node.getChildMeshes().forEach(mesh => {
+                // Group 0 = opaque. Beams live in group 1 with additive blending and
+                // are depth-tested against whatever group 0 already wrote.
+                mesh.renderingGroupId = 0;
+                mesh.isPickable = false;
+            });
+        });
+
+        entry.animationGroups.forEach(group => {
+            group.start(true);
+            group.speedRatio = speedRatio;
+            // Offset the phase, otherwise every clone of the same clip hits the same
+            // pose on the same frame and the crowd looks like a chorus line.
+            const span = group.to - group.from;
+            if (span > 0) group.goToFrame(group.from + Math.random() * span);
+        });
+
+        this.npcAvatars.push({
+            name,
+            root,
+            animations: entry.animationGroups,
+            baseSpeed: speedRatio
+        });
+
+        return entry;
+    }
+
     async createDancingNPCs() {
-        // Load 3 animated GLB avatars directly onto the dancefloor
-        // These GLB files contain pre-baked dance animations
-        
-        const avatarModels = [
-            {
-                name: 'HipHopDancer',
-                url: './js/models/avatars/Hip Hop Dancing.glb',
-                position: new BABYLON.Vector3(-3, 0, -10),
-                rotation: Math.PI * 0.2, // Facing slightly toward DJ
-                height: 1.83 // Real crowds are not all the same height
-            },
-            {
-                name: 'HouseDancer',
-                url: './js/models/avatars/house.glb',
-                position: new BABYLON.Vector3(0, 0, -14),
-                rotation: Math.PI, // Facing DJ booth
-                height: 1.71
-            },
-            {
-                name: 'RumbaDancer',
-                url: './js/models/avatars/rumba_dancing_female_character.glb',
-                position: new BABYLON.Vector3(3, 0, -10),
-                rotation: Math.PI * -0.2, // Facing slightly toward DJ
-                height: 1.64
-            }
+        // === CROWD + DJ ===
+        // Only three animated avatar GLBs exist, and two of them are ~60 MB, so the
+        // crowd is built by loading each file ONCE into an AssetContainer and then
+        // instantiating it per dancer. That gives every dancer its own skeleton and
+        // animation group (so nobody moves in lockstep) off a single download and a
+        // single set of geometry buffers and materials.
+        const crowdSize = Math.max(0, this.tierSettings.crowdSize | 0);
+
+        const avatarSources = [
+            './js/models/avatars/Hip Hop Dancing.glb',
+            './js/models/avatars/house.glb',
+            './js/models/avatars/rumba_dancing_female_character.glb'
         ];
-        
-        log.info(`🕺 Loading ${avatarModels.length} animated dancing avatars...`);
-        
-        for (const avatar of avatarModels) {
+
+        log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
+
+        const containers = [];
+        for (const url of avatarSources) {
             try {
-                const result = await BABYLON.SceneLoader.ImportMeshAsync(
-                    "",
-                    "",
-                    avatar.url,
-                    this.scene
-                );
-                
-                const rootMesh = result.meshes[0];
-                rootMesh.name = avatar.name;
-                rootMesh.position = avatar.position;
-                rootMesh.rotation.y = avatar.rotation;
-                
-                // Auto-scale to the avatar's real-world height (source GLBs are in
-                // wildly different units - one is ~100x the others)
-                const boundingInfo = rootMesh.getHierarchyBoundingVectors();
-                const currentHeight = boundingInfo.max.y - boundingInfo.min.y;
-                const scaleFactor = currentHeight > 1e-6 ? (avatar.height / currentHeight) : 1;
-                rootMesh.scaling.setAll(scaleFactor);
-                
-                // Ensure avatar is grounded (feet on floor). getHierarchyBoundingVectors
-                // already returns WORLD space, so the offset must not be re-scaled.
-                const newBounding = rootMesh.getHierarchyBoundingVectors();
-                rootMesh.position.y += avatar.position.y - newBounding.min.y;
-                
-                // Fix materials for proper rendering in the club
-                // CRITICAL: Enforce fully opaque materials to prevent see-through NPCs
-                result.meshes.forEach(mesh => {
-                    if (mesh.material) {
-                        const mat = mesh.material;
-                        mat.maxSimultaneousLights = this.maxLights;
-                        
-                        // CRITICAL: Force fully opaque - NPCs should NOT be transparent
-                        mat.alpha = 1.0;
-                        mat.transparencyMode = BABYLON.Material.MATERIAL_OPAQUE;
-                        
-                        // Disable all alpha blending paths
-                        if (mat.needAlphaBlending) {
-                            mat.needAlphaBlending = () => false;
-                        }
-                        if (mat.needAlphaTesting) {
-                            mat.needAlphaTesting = () => false;
-                        }
-                        
-                        // Force depth write for proper occlusion
-                        mat.disableDepthWrite = false;
-                        mat.forceDepthWrite = true;
-                        
-                        // For PBR materials, disable any alpha from textures
-                        if (mat.albedoTexture) {
-                            mat.albedoTexture.hasAlpha = false;
-                        }
-                        if (mat.baseTexture) {
-                            mat.baseTexture.hasAlpha = false;
-                        }
-                        
-                        // Set backface culling for performance
-                        mat.backFaceCulling = true;
-                        
-                        // Freeze material after changes
-                        mat.freeze();
-                    }
-                    
-                    // CRITICAL: Set rendering group so NPCs properly OCCLUDE beams
-                    // Beams use renderingGroupId=1 with additive blending
-                    // NPCs must render BEFORE beams (group 0) with depth write enabled
-                    // This ensures beams are depth-tested against NPC geometry
-                    mesh.renderingGroupId = 0; // Opaque objects group
-                    
-                    // Ensure mesh writes to depth buffer when it has a material.
-                    if (mesh.material) {
-                        mesh.material.disableDepthWrite = false;
-                        mesh.material.forceDepthWrite = true;
-                    }
-                });
-                
-                // Play all animation groups from the GLB
-                if (result.animationGroups && result.animationGroups.length > 0) {
-                    result.animationGroups.forEach(animGroup => {
-                        animGroup.start(true); // Loop the animation
-                        // Vary speed slightly for natural feel
-                        animGroup.speedRatio = 0.9 + Math.random() * 0.2;
-                    });
-                    log.info(`  ✅ ${avatar.name}: ${result.animationGroups.length} animations playing`);
-                } else {
-                    log.info(`  ⚠️ ${avatar.name}: No animations found in GLB`);
-                }
-                
-                // Store reference for potential future use
-                this.npcAvatars.push({
-                    name: avatar.name,
-                    root: rootMesh,
-                    meshes: result.meshes,
-                    animations: result.animationGroups,
-                    position: avatar.position
-                });
-                
+                const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
+                this._prepareAvatarMaterials(container.materials);
+                this._avatarContainers.push(container);
+                containers.push(container);
             } catch (error) {
-                log.warn(`  ❌ Failed to load ${avatar.name}: ${error.message}`);
+                log.warn(`  ❌ Failed to load avatar source ${url}: ${error.message}`);
+                containers.push(null);
             }
         }
-        
-        log.info(`✅ Loaded ${this.npcAvatars.length} dancing avatars on dancefloor`);
+
+        const available = containers.filter(Boolean);
+        if (available.length === 0) {
+            log.warn('⚠️ No avatar sources loaded — the club will be empty');
+            return;
+        }
+        // Fall back to whatever did load so a single missing file does not leave
+        // holes in the crowd.
+        const pick = index => containers[index] || available[index % available.length];
+
+        // Hand-placed rather than randomised: the list is ordered so that the first
+        // N slots are already well spread, which means a `balanced` tier still gets
+        // an even crowd instead of everyone bunched in one corner.
+        // `facing` is an offset from "square on to the DJ booth".
+        // None of these fall inside the DJ platform footprint (x -3..3, z -20..-16).
+        const crowdSlots = [
+            { x: -3.4, z: -13.4, src: 0, height: 1.84, facing:  0.10 },
+            { x:  3.2, z: -13.0, src: 2, height: 1.66, facing: -0.12 },
+            { x:  0.4, z: -10.8, src: 1, height: 1.74, facing:  0.04 },
+            { x: -6.0, z: -11.6, src: 1, height: 1.79, facing:  0.28 },
+            { x:  5.6, z: -11.0, src: 0, height: 1.71, facing: -0.26 },
+            { x: -1.4, z:  -8.6, src: 2, height: 1.62, facing:  0.08 },
+            { x:  2.6, z: -15.0, src: 1, height: 1.88, facing: -0.06 },
+            { x: -4.6, z: -15.2, src: 2, height: 1.69, facing:  0.16 },
+            { x:  6.6, z:  -8.4, src: 1, height: 1.77, facing: -0.34 },
+            { x: -6.8, z:  -8.0, src: 0, height: 1.81, facing:  0.36 },
+            { x:  1.6, z:  -7.4, src: 2, height: 1.60, facing: -0.10 },
+            { x: -7.4, z: -13.8, src: 2, height: 1.73, facing:  0.42 },
+            { x:  7.2, z: -13.6, src: 0, height: 1.86, facing: -0.40 },
+            { x: -0.6, z:  -6.4, src: 1, height: 1.68, facing:  0.02 }
+        ];
+
+        // Rotation.y = PI puts a source model's front toward -z, i.e. toward the booth.
+        const FACING_BOOTH = Math.PI;
+
+        crowdSlots.slice(0, crowdSize).forEach((slot, i) => {
+            const source = pick(slot.src);
+            if (!source) return;
+            this._spawnAvatar(
+                source,
+                `dancer${i}`,
+                new BABYLON.Vector3(slot.x, 0, slot.z),
+                FACING_BOOTH + slot.facing,
+                slot.height,
+                0.85 + (i % 5) * 0.07   // deterministic per-dancer tempo spread
+            );
+        });
+
+        // === THE DJ ===
+        // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
+        // the deck plinth (z=-19), facing the floor. Playback is dialled well down so
+        // they read as working the decks rather than raving in the crowd.
+        const djSource = pick(1);
+        if (djSource) {
+            this._spawnAvatar(
+                djSource,
+                'djPerformer',
+                new BABYLON.Vector3(0, 0.5, -19.4),
+                FACING_BOOTH + Math.PI,   // square on to the crowd
+                1.78,
+                0.55
+            );
+        }
+
+        log.info(`✅ Crowd ready: ${this.npcAvatars.length} animated characters (incl. the DJ)`);
     }
     
-    updateDancingNPCs(time) {
-        // GLB avatars with built-in animations play automatically via animation groups
-        // This function can be used for any additional effects (e.g., lighting response)
-        
+    /**
+     * @param {number} time
+     * @param {object} [audioData] Analyser output for THIS frame, supplied by
+     *   updateAnimations. This used to call getAudioData() itself, which meant two
+     *   full getByteFrequencyData() reads plus two passes over every FFT bin every
+     *   frame - and, more subtly, it incremented the CORS silent-stream frame
+     *   counter twice, so the "~3 s of silence" heuristic actually fired after ~1.5 s.
+     */
+    updateDancingNPCs(time, audioData) {
+        // GLB avatars animate themselves via their animation groups; this only
+        // nudges playback rate so the floor visibly reacts to the low end.
         if (!this.npcAvatars || this.npcAvatars.length === 0) return;
-        
-        // Optional: Sync animation speed to audio
-        const audioData = this.getAudioData();
-        if (audioData.hasAudio && audioData.bass > 0.3) {
-            // Speed up animations slightly with the beat
-            const beatBoost = 1.0 + (audioData.bass - 0.3) * 0.3;
-            this.npcAvatars.forEach(npc => {
-                if (npc.animations) {
-                    npc.animations.forEach(anim => {
-                        anim.speedRatio = (0.9 + Math.random() * 0.2) * beatBoost;
-                    });
-                }
-            });
+
+        if (!audioData) audioData = this.getAudioData();
+        // Previously this rolled a fresh Math.random() per animation per frame, which
+        // made playback rates jitter wildly, and it never restored the base rate once
+        // the bass dropped - the crowd stayed permanently sped up.
+        const beatBoost = (audioData.hasAudio && audioData.bass > 0.3)
+            ? 1.0 + (audioData.bass - 0.3) * 0.3
+            : 1.0;
+
+        if (Math.abs(beatBoost - this._npcBeatBoost) < 0.01) return;
+        this._npcBeatBoost = beatBoost;
+
+        for (let i = 0; i < this.npcAvatars.length; i++) {
+            const npc = this.npcAvatars[i];
+            if (!npc.animations) continue;
+            for (let a = 0; a < npc.animations.length; a++) {
+                npc.animations[a].speedRatio = npc.baseSpeed * beatBoost;
+            }
         }
     }
 
@@ -11543,8 +11791,7 @@ class VRClub {
 
 }
 
-// Initialize when page loads - DISABLED for splash screen
-// Now initialized from splash screen in index.html after user clicks "ENTER CLUB"
-// window.addEventListener('DOMContentLoaded', () => {
-//     window.vrClub = new VRClub();
-// });
+// VRClub is instantiated by js/ui-init.js once the user clicks "ENTER CLUB" on the
+// splash screen - never on DOMContentLoaded. Construction acquires a WebGL context,
+// an AudioContext and ~120 MB of GLB downloads, all of which browsers gate behind a
+// user gesture, so it must stay behind the splash button.

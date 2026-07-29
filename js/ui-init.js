@@ -53,12 +53,19 @@ const uiLog = {
         settingsPanel.classList.toggle('visible');
     });
     
-    // Close panel when clicking outside
-    document.addEventListener('click', function(e) {
+    // Close panel when clicking outside.
+    // Registered with a named reference and enrolled in the shared teardown list:
+    // an inline literal on `document` can never be removed, and its closure keeps
+    // the panel elements (and anything they reference) alive after teardown.
+    const onDocumentClick = function(e) {
         if (!settingsToggle.contains(e.target) && !settingsPanel.contains(e.target)) {
             settingsPanel.classList.remove('visible');
         }
-    });
+    };
+    document.addEventListener('click', onDocumentClick);
+
+    const teardowns = (window.__vjUiTeardown = window.__vjUiTeardown || []);
+    teardowns.push(() => document.removeEventListener('click', onDocumentClick));
 })();
 
 // =============================================================================
@@ -101,15 +108,60 @@ if (enterClubBtn) {
             
             // Initialize UI menus once VRClub is ready
             waitForVRClubInstance();
-            
-            // Hide splash after initialization
-            setTimeout(() => {
-                splashScreen.classList.add('hidden');
-                setTimeout(() => {
-                    splashScreen.style.display = 'none';
-                }, 500);
-            }, 1000);
+
+            // Hide the splash only when init() has actually RESOLVED.
+            //
+            // This used to be a flat `setTimeout(..., 1000)`, which was wrong in both
+            // directions:
+            //  - On success the splash vanished after ~1.5 s while init() was still
+            //    downloading ~120 MB of avatar GLBs plus textures and models, so the
+            //    user stared at a black canvas for 20+ seconds with no indication that
+            //    anything was happening. Most people conclude the app is broken.
+            //  - On failure it fought _handleFatalInitError(), which re-shows the splash
+            //    with a RETRY button - the timer would hide the retry UI again.
+            hideSplashWhenReady();
         }, 500);
+    });
+}
+
+/**
+ * Keep "Loading club experience…" on screen until the scene is genuinely ready.
+ * Falls back to hiding after a hard cap so a wedged init can never trap the user
+ * behind an opaque overlay with no escape.
+ */
+function hideSplashWhenReady() {
+    const HARD_CAP_MS = 120000; // generous: cold cache on a Quest over Wi-Fi is slow
+    let done = false;
+
+    const hide = () => {
+        if (done) return;
+        done = true;
+        splashLoading.classList.remove('visible');
+        splashScreen.classList.add('hidden');
+        setTimeout(() => { splashScreen.style.display = 'none'; }, 500);
+    };
+
+    const capTimer = setTimeout(() => {
+        uiLog.warn('Splash hard cap reached before init() resolved — showing the scene anyway.');
+        hide();
+    }, HARD_CAP_MS);
+
+    const promise = window.vrClub && window.vrClub.initPromise;
+    if (!promise || typeof promise.then !== 'function') {
+        // No promise to await (older instance shape) — fail open rather than hang.
+        clearTimeout(capTimer);
+        setTimeout(hide, 1000);
+        return;
+    }
+
+    promise.then(() => {
+        clearTimeout(capTimer);
+        hide();
+    }).catch(() => {
+        // _handleFatalInitError() has already restored the splash and swapped the
+        // button to RETRY. Leave that UI alone and cancel our own hide.
+        clearTimeout(capTimer);
+        done = true;
     });
 }
 

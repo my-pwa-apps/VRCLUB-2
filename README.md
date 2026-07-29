@@ -19,16 +19,24 @@ npm run serve
 
 ## Project Layout
 
+Scripts are plain `<script>` tags with **no build step and no module system** — each file
+publishes its class onto `window`, so the load order in `index.html` is a hard contract.
+They are listed below in that order.
+
 ```text
-index.html                 Main page and script loader
+index.html                 Main page and script loader (owns the load order)
 css/styles.css             Splash screen and desktop control styling
-js/textureLoader.js        IndexedDB texture cache and texture pooling
-js/modelLoader.js          GLB model loading, caching, and fallbacks
+js/assetCache.js           IndexedDB cache, in-flight dedup, fetch timeouts (loaders depend on it)
+js/textureLoader.js        Texture caching and pooling
+js/modelLoader.js          GLB model loading, caching, placement and procedural fallbacks
 js/materialFactory.js      Shared Babylon material presets
 js/lightFactory.js         Shared Babylon light creation helpers
-js/vjDirector.js           Beat detection and VJ macro controller
-js/club_hyperrealistic.js  Main Babylon/WebXR scene
-js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring
+js/vjDirector.js           Beat/BPM detection, colour palette and VJ macros
+js/showDirector.js         "NOCTURNE" — the composed, beat-locked cue engine
+js/club_hyperrealistic.js  Main Babylon/WebXR scene (the VRClub class)
+js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring; constructs VRClub
+scripts/serve.mjs          Dependency-free static server honouring $PORT (used by Procfile)
+test/contract.test.mjs     Contract tests — load order, wiring, assets, hygiene
 textures/                  Local PBR environment textures
 js/models/                 Local GLB models and model textures
 backup_aframe/             Legacy A-Frame implementation, not production
@@ -40,13 +48,20 @@ backup_aframe/             Legacy A-Frame implementation, not production
 - VR: Enter VR from the settings panel when WebXR is available, then use thumbsticks for locomotion.
 - VJ menu: Toggle lights, lasers, strobes, LED wall, mirror ball, safe mode, haptics, and live macros.
 - Audio menu: Play an HTTP(S) stream URL or select a local audio file.
+- `D` toggles the FPS/debug overlay (ignored while a text field has focus).
 
 ## Quality Checks
 
 ```powershell
-npm run check
-npm start
+npm run check   # node --check every first-party JS file
+npm test        # contract tests: load order, DOM wiring, assets, hygiene
 ```
+
+`npm test` is the only automated safety net in the project. It fails on a reordered
+script tag, a renamed element id, a `data-control` nothing handles, a missing texture or
+model, mismatched `?v=` cache tokens, a missing SRI attribute, a leaked global event
+listener, a native `alert()`, debug flags left on, and README drift. Run it before every
+commit.
 
 Recommended manual smoke test before publishing:
 

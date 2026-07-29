@@ -81,7 +81,7 @@ const server = createServer(async (req, res) => {
             ? 'no-cache'
             : 'public, max-age=31536000, immutable';
 
-        res.writeHead(200, {
+        const headers = {
             'Content-Type': MIME[ext] || 'application/octet-stream',
             'Content-Length': info.size,
             'Cache-Control': cacheControl,
@@ -91,7 +91,27 @@ const server = createServer(async (req, res) => {
             // CSP in index.html. X-Frame-Options is the legacy equivalent.
             'Content-Security-Policy': "frame-ancestors 'none'",
             'X-Frame-Options': 'DENY'
-        });
+        };
+
+        // WebXR is only exposed to secure contexts, so any real deployment of this app
+        // is HTTPS-only. Pin that with HSTS so a first-visit downgrade cannot strip it.
+        // Only sent when the request actually arrived over TLS: emitting HSTS over plain
+        // HTTP is ignored by browsers per RFC 6797, and sending it during local
+        // `http://localhost` development would poison the developer's browser into
+        // refusing plain HTTP on that host.
+        //
+        // Deliberately NOT set: Cross-Origin-Embedder-Policy: require-corp. It would
+        // block the pinned Babylon.js CDN bundles (cdn.babylonjs.com does not send
+        // Cross-Origin-Resource-Policy), breaking the app entirely. It buys nothing
+        // here either - this build uses no SharedArrayBuffer and no threaded WASM.
+        const forwardedProto = req.headers['x-forwarded-proto'];
+        const isHttps = req.socket.encrypted === true ||
+            (typeof forwardedProto === 'string' && forwardedProto.split(',')[0].trim() === 'https');
+        if (isHttps) {
+            headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+        }
+
+        res.writeHead(200, headers);
         if (req.method === 'HEAD') { res.end(); return; }
         createReadStream(filePath).pipe(res);
     } catch {
