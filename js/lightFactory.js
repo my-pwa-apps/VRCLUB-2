@@ -2,11 +2,44 @@
 // Reduces code duplication and provides consistent light configuration
 
 class LightFactory {
-    constructor(scene, logger = null) {
+    constructor(scene, logger = null, maxLights = null) {
         this.scene = scene;
         this.log = logger || console; // Use provided logger or fallback to console
         this.lights = new Map(); // name -> light instance
         this.lightGroups = new Map(); // group name -> array of lights
+        /**
+         * Device PER-MATERIAL simultaneous-light limit, for reference by callers.
+         *
+         * Note this is NOT a scene-wide cap: a scene may hold many more lights than
+         * this as long as each material's `maxSimultaneousLights` stays within it and
+         * lights are scoped with includedOnlyMeshes / excludedMeshes. The club runs
+         * ~11 lights against a per-material budget of 3.
+         */
+        this.maxLights = maxLights;
+    }
+
+    /**
+     * Register a newly created light, warning on a name collision (which would
+     * otherwise make the previous light unreachable through the registry while it
+     * kept rendering and consuming a slot on every material that sees it).
+     */
+    _register(name, light) {
+        if (this.lights.has(name)) {
+            this.log.warn(`Light "${name}" already exists - disposing the previous instance`);
+            this.disposeLight(name);
+        }
+        this.lights.set(name, light);
+    }
+
+    /** Count lights that consume a per-material light slot (hemispheric ambient does not). */
+    countBudgetedLights() {
+        let n = 0;
+        this.scene.lights.forEach(light => {
+            if (!light.isEnabled || !light.isEnabled()) return;
+            if (light.getClassName && light.getClassName() === 'HemisphericLight') return;
+            n++;
+        });
+        return n;
     }
 
     /**
@@ -45,7 +78,7 @@ class LightFactory {
         }
 
         // Add to registry
-        this.lights.set(name, light);
+        this._register(name, light);
         
         // Add to group if specified
         if (group) {
@@ -94,16 +127,18 @@ class LightFactory {
             light.includedOnlyMeshes = includedMeshes;
         }
 
-        // Create shadow generator if requested
+        // Create shadow generator if requested.
+        // The ShadowGenerator constructor registers itself on the light; the retrieval
+        // API is light.getShadowGenerator(). A `light.shadowGenerator = ...` assignment
+        // creates a dead own-property that implies a coupling which does not exist.
         if (shadowGenerator) {
             const shadowGen = new BABYLON.ShadowGenerator(1024, light);
             shadowGen.useBlurExponentialShadowMap = true;
             shadowGen.blurKernel = 32;
-            light.shadowGenerator = shadowGen;
         }
 
         // Add to registry
-        this.lights.set(name, light);
+        this._register(name, light);
         
         // Add to group if specified
         if (group) {
@@ -141,7 +176,7 @@ class LightFactory {
             : groundColor;
 
         // Add to registry
-        this.lights.set(name, light);
+        this._register(name, light);
         
         // Add to group if specified
         if (group) {
@@ -185,16 +220,15 @@ class LightFactory {
             light.includedOnlyMeshes = includedMeshes;
         }
 
-        // Create shadow generator if requested
+        // Create shadow generator if requested. See the note on createPointLight.
         if (shadowGenerator) {
             const shadowGen = new BABYLON.ShadowGenerator(2048, light);
             shadowGen.useBlurExponentialShadowMap = true;
             shadowGen.blurKernel = 64;
-            light.shadowGenerator = shadowGen;
         }
 
         // Add to registry
-        this.lights.set(name, light);
+        this._register(name, light);
         
         // Add to group if specified
         if (group) {
@@ -211,7 +245,10 @@ class LightFactory {
         if (!this.lightGroups.has(groupName)) {
             this.lightGroups.set(groupName, []);
         }
-        this.lightGroups.get(groupName).push(light);
+        const group = this.lightGroups.get(groupName);
+        // Duplicates would make setGroupIntensity write twice and leave a dangling
+        // reference to a disposed light (disposeLight only splices the first match).
+        if (!group.includes(light)) group.push(light);
     }
 
     /**
@@ -274,7 +311,7 @@ class LightFactory {
             this.lights.delete(name);
             
             // Remove from all groups
-            this.lightGroups.forEach((lights, groupName) => {
+            this.lightGroups.forEach((lights) => {
                 const index = lights.indexOf(light);
                 if (index > -1) {
                     lights.splice(index, 1);
@@ -284,16 +321,19 @@ class LightFactory {
     }
 
     /**
-     * Dispose all lights in a group
+     * Dispose all lights in a group.
+     *
+     * The group array is COPIED first: disposeLight() splices the light out of every
+     * group it belongs to, and Array.prototype.forEach does not re-index - so
+     * iterating the live array skipped every other light, and the subsequent
+     * `lightGroups.delete()` destroyed the only handle to the survivors.
      */
     disposeGroup(groupName) {
-        const lights = this.getGroup(groupName);
+        const lights = [...this.getGroup(groupName)];
+        const byLight = new Map(Array.from(this.lights.entries()).map(([n, l]) => [l, n]));
         lights.forEach(light => {
-            const name = Array.from(this.lights.entries())
-                .find(([_, l]) => l === light)?.[0];
-            if (name) {
-                this.disposeLight(name);
-            }
+            const name = byLight.get(light);
+            if (name) this.disposeLight(name);
         });
         this.lightGroups.delete(groupName);
     }
@@ -302,15 +342,13 @@ class LightFactory {
      * Dispose all lights
      */
     disposeAll() {
-        this.lights.forEach(light => {
-            if (light.getShadowGenerator && light.getShadowGenerator()) {
-                light.getShadowGenerator().dispose();
-            }
-            light.dispose();
-        });
+        for (const name of [...this.lights.keys()]) this.disposeLight(name);
         this.lights.clear();
         this.lightGroups.clear();
     }
+
+    /** Alias so every factory in the app exposes the same teardown entry point. */
+    dispose() { this.disposeAll(); }
 
     /**
      * Get statistics about lights
@@ -397,14 +435,25 @@ class LightFactory {
     };
 
     /**
-     * Get a preset light by name
+     * Get a preset light by name.
+     *
+     * Returns a disabled HemisphericLight rather than null for an unknown preset:
+     * every call site immediately writes properties on the result, so `null` turned
+     * a typo into a TypeError instead of a degraded-but-running scene. That is the
+     * opposite of the graceful-degradation philosophy applied everywhere else here
+     * (compare MaterialFactory.getPreset, which returns a fallback material).
      */
     getPreset(presetName, ...args) {
         if (this.presets[presetName]) {
             return this.presets[presetName](...args);
         }
         this.log.warn(`Light preset "${presetName}" not found`);
-        return null;
+        const fallback = new BABYLON.HemisphericLight(
+            `missingPreset_${presetName}`, new BABYLON.Vector3(0, 1, 0), this.scene
+        );
+        fallback.intensity = 0;
+        fallback.setEnabled(false);
+        return fallback;
     }
 }
 

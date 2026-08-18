@@ -7,18 +7,26 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         // === PROFESSIONAL VJ STROBE SYSTEM ===
         // Synchronized with drops, builds, and bass for maximum impact
         const strobeSpeedMultiplier = this.strobeSpeed || 1.0;
+        // Restore any bloom spike from a previous frame UNCONDITIONALLY, before any
+        // branch. Restoration used to live only in the `maxIntensity === 0` else, so
+        // flipping strobesActive off - or, far worse, enabling photosensitive safe
+        // mode - mid-flash left the whole screen permanently brighter than it was
+        // found. A photosensitivity control must never fail in that direction.
+        if (this._preStrobeBloom !== undefined && this.renderPipeline) {
+            this.renderPipeline.bloomWeight = this._preStrobeBloom;
+            this._preStrobeBloom = undefined;
+        }
         if (this.strobes && this.strobes.length > 0) {
             // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
             if (this.strobesActive && !this.photosensitiveSafeMode) {
                 // Get audio data for reactive strobing
                 const bass = audioData.bass || 0;
-                const treble = audioData.treble || 0;
                 
                 // VJ AUTO-MODE: Enhanced strobing during drops
                 const inDropMode = this.vjDropActive;
                 const inBuildMode = this.vjBuildIntensity > 0.7;
                 
-                this.strobes.forEach((strobe, i) => {
+                this.strobes.forEach((strobe) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
                         strobe.flashDuration -= dt * strobeSpeedMultiplier;
@@ -40,7 +48,11 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     strobe._burstOn = burstOn;
                     const intensity = burstOn ? intensityVariation : 0;
                     
-                    strobe.material.emissiveColor = this.cachedColors.white.scale(intensity * 1.5);
+                    // scaleToRef into a per-strobe buffer: Color3.scale() allocates,
+                    // and this runs once per strobe per frame for the whole flash.
+                    if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
+                    this.cachedColors.white.scaleToRef(intensity * 1.5, strobe._emisBuf);
+                    strobe.material.emissiveColor = strobe._emisBuf;
                     // Strobe lights disabled for performance - visual effect only via emissive material
                     if (strobe.light) {
                         strobe.light.intensity = intensity * 200;
@@ -118,18 +130,17 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     if (maxIntensity > 0) {
                         this.strobeFlashLight.intensity = maxIntensity * 3;
                         this.strobeFlashLight.setEnabled(true);
-                        // Brief bloom spike for blinding strobe effect
+                        // Brief bloom spike for blinding strobe effect. Captured per
+                        // burst (cleared at the top of this function), so a pipeline swap
+                        // on VR entry cannot leak a stale desktop bloomWeight into the
+                        // freshly created VR pipeline.
                         if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
-                            this._preStrobeBloom = this._preStrobeBloom || this.renderPipeline.bloomWeight;
+                            this._preStrobeBloom = this.renderPipeline.bloomWeight;
                             this.renderPipeline.bloomWeight = Math.min(1.0, this._preStrobeBloom + maxIntensity * 0.008);
                         }
                     } else {
                         this.strobeFlashLight.intensity = 0;
                         this.strobeFlashLight.setEnabled(false);
-                        // Restore bloom
-                        if (this._preStrobeBloom !== undefined && this.renderPipeline) {
-                            this.renderPipeline.bloomWeight = this._preStrobeBloom;
-                        }
                     }
                 }
             } else {
@@ -157,72 +168,36 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         const { audio: audioData } = ctx;
 
         // === BASS-REACTIVE SPEAKER CONE PUSH ===
-        // Subwoofer grilles visually pulse with bass for tactile audio feedback
-        if (audioData.bass > 0.1) {
-            const bassExcursion = audioData.bass * 0.015; // Subtle Z-axis push
-            // QC O2: cache grill mesh refs once instead of two getMeshByName()
-            // calls every audio-active frame. Resolved on first use.
-            if (!this._subGrillRefs) {
-                this._subGrillRefs = [
-                    this.scene.getMeshByName('subGrill-7'),
-                    this.scene.getMeshByName('subGrill7')
-                ];
-            }
-            for (let g = 0; g < this._subGrillRefs.length; g++) {
-                const grill = this._subGrillRefs[g];
-                if (!grill) continue;
-                if (grill._basePosZ === undefined) {
-                    grill._basePosZ = grill.position.z; // Store original position
-                    if (grill.isWorldMatrixFrozen) {
-                        grill.unfreezeWorldMatrix();
-                    }
-                }
-                grill.position.z = grill._basePosZ + bassExcursion;
-            }
-        }
-    }
+        // Subwoofer grilles visually pulse with bass for tactile audio feedback.
+        // The excursion is written EVERY frame, not only above the threshold: with an
+        // early return the grille froze at its last excursion on every breakdown,
+        // pause and track change and never returned to rest.
+        const bassExcursion = audioData.bass > 0.1 ? audioData.bass * 0.015 : 0;
 
-    /**
-     * Simplified LED Wall animation - reliable patterns that always show
-     */
-    updateLEDWallSimple(time) {
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 10;
-        
-        // Use performance.now() directly to ensure time is always fresh
-        const t = performance.now() / 1000;
-        
-        // Simple animated rainbow wave - always moving
-        this.ledPanels.forEach(panel => {
-            const col = panel.col;
-            const row = panel.row;
-            
-            // Rainbow wave that definitely moves
-            const hue = (col / cols * 0.5 + row / rows * 0.3 + t * 0.3) % 1.0;
-            const h = hue * 6;
-            const x = 1 - Math.abs(h % 2 - 1);
-            let r, g, b;
-            if (h < 1) { r = 1; g = x; b = 0; }
-            else if (h < 2) { r = x; g = 1; b = 0; }
-            else if (h < 3) { r = 0; g = 1; b = x; }
-            else if (h < 4) { r = 0; g = x; b = 1; }
-            else if (h < 5) { r = x; g = 0; b = 1; }
-            else { r = 1; g = 0; b = x; }
-            
-            panel.material.emissiveColor.r = r;
-            panel.material.emissiveColor.g = g;
-            panel.material.emissiveColor.b = b;
-        });
+        // QC O2: cache grill mesh refs once instead of two getMeshByName()
+        // calls every frame. Invalidated when the PA .glb finishes loading
+        // (see modelLoadPromise in 02-lifecycle.js) so we never drive a mesh the
+        // loader has since replaced or disabled.
+        if (!this._subGrillRefs) {
+            this._subGrillRefs = [
+                this.scene.getMeshByName('subGrill-7'),
+                this.scene.getMeshByName('subGrill7')
+            ];
+        }
+        for (let g = 0; g < this._subGrillRefs.length; g++) {
+            const grill = this._subGrillRefs[g];
+            if (!grill) continue;
+            if (grill._basePosZ === undefined) {
+                grill._basePosZ = grill.position.z; // Store original position
+                if (grill.isWorldMatrixFrozen) {
+                    grill.unfreezeWorldMatrix();
+                }
+            }
+            grill.position.z = grill._basePosZ + bassExcursion;
+        }
     }
 
     updateLEDWall(time, audioData) {
-        // Debug: Log first few calls to verify update is running
-        if (this.ledUpdateCount === undefined) this.ledUpdateCount = 0;
-        this.ledUpdateCount++;
-        if (this.ledUpdateCount <= 3) {
-            log.info(`🎨 LED Wall update #${this.ledUpdateCount}, pattern=${this.ledPattern}, panels=${this.ledPanels?.length}`);
-        }
-        
         const patterns = this._ledPatternPlaylist || (this._ledPatternPlaylist = [
             // === CURATED IMMERSIVE LED WALL SHOW ===
             // Removed short utility effects such as strobes, scanners, EQ bars,
@@ -269,54 +244,24 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         ]);
         const colors = this.ledMonochrome ? monochromeColors : colorColors;
         
-        // BEAT DETECTION: Auto-detect BPM from music or use 130 BPM fallback
-        let beatDetected = false;
-        
-        // If music playing: detect beats from bass peaks
-        if (audioData.hasAudio && audioData.bass > this.beatThreshold && audioData.bass > this.lastBassLevel * 1.3) {
-            // Bass spike detected = beat!
-            if (time - this.lastBeat > 0.2) { // Prevent double-triggering (max 300 BPM)
-                beatDetected = true;
-                this.lastBeat = time;
-                
-                // Track beat time for BPM calculation
-                this.beatHistory.push(time);
-                if (this.beatHistory.length > this.maxBeatHistory) {
-                    this.beatHistory.shift(); // Keep only recent beats
-                }
-                
-                // Calculate BPM from beat intervals (every 2 seconds)
-                if (this.beatHistory.length >= 4 && time - this.lastBPMUpdate > 2) {
-                    let intervalSum = 0;
-                    for (let i = 1; i < this.beatHistory.length; i++) {
-                        intervalSum += this.beatHistory[i] - this.beatHistory[i - 1];
-                    }
-                    const avgInterval = intervalSum / (this.beatHistory.length - 1);
-                    this.detectedBPM = Math.round(60 / avgInterval);
-                    
-                    // Clamp to realistic range (60-200 BPM)
-                    this.detectedBPM = Math.max(60, Math.min(200, this.detectedBPM));
-                    this.bpm = this.detectedBPM;
-                    this.beatInterval = 60 / this.bpm;
-                    this.lastBPMUpdate = time;
-                    
-                    log.info(`🎵 Detected BPM: ${this.bpm}`);
-                }
-            }
+        // BEAT GRID.
+        //
+        // VJDirector is the single authority for beat/BPM (spectral flux + adaptive
+        // median threshold) and it runs earlier in the same frame. This function used
+        // to run a SECOND, cruder detector (naive bass-peak ratio) that wrote to the
+        // same `this.bpm` / `this.beatInterval` - two detectors, one output variable.
+        // Now it consumes the director's estimate and only keeps its own beat EDGE,
+        // which is all the pattern/colour timers need.
+        const directorBpm = (this.vjDirector && this.vjDirector.bpm) ? this.vjDirector.bpm : null;
+        if (audioData.hasAudio && directorBpm) {
+            this.bpm = Math.max(60, Math.min(200, Math.round(directorBpm)));
+        } else if (!audioData.hasAudio && this.bpm !== 130) {
+            this.bpm = 130;
         }
-        
-        // Fallback: If no audio or no beats detected, sync to current BPM timing
-        if (!beatDetected && time - this.lastBeat > this.beatInterval) {
-            beatDetected = true;
+        this.beatInterval = 60 / this.bpm;
+
+        if (time - this.lastBeat > this.beatInterval) {
             this.lastBeat = time;
-            
-            // If no audio, reset to 130 BPM
-            if (!audioData.hasAudio && this.bpm !== 130) {
-                this.bpm = 130;
-                this.beatInterval = 60 / 130;
-                this.beatHistory = [];
-                log.info('🎵 No audio - using default 130 BPM');
-            }
         }
         
         this.lastBassLevel = audioData.bass;
@@ -343,16 +288,22 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this.ledPatternSwitchTime = time;
         }
         
-        // Change color more frequently too
-        // With audio: every 8 beats (~3.7s), Without audio: every 4 seconds
-        const beatsPerColor = audioData.hasAudio ? 8 : 8; // Reduced from 16 to 8
+        // Change colour on its own clock.
+        //
+        // This used to share `this.lastColorChange` with the SPOTLIGHT palette cycler
+        // in 08-animation-fixtures.js. Two writers, one property, two different
+        // intervals (2-12 s vs 4 s / 8 beats): whichever fired first reset the other's
+        // clock, so neither ever honoured its configured interval and the spotlight
+        // cycler was starved outright whenever the LED interval was shorter.
+        const beatsPerColor = 8;
         const colorChangeTime = audioData.hasAudio 
             ? this.beatInterval * beatsPerColor 
             : 4.0; // 4-second color changes without audio
         
-        if (time - this.lastColorChange > colorChangeTime || this.lastColorChange === -1) {
+        if (this.ledLastColorChange === undefined) this.ledLastColorChange = -1;
+        if (this.ledLastColorChange === -1 || time - this.ledLastColorChange > colorChangeTime) {
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
-            this.lastColorChange = time;
+            this.ledLastColorChange = time;
         }
         
         // Execute current pattern with error handling

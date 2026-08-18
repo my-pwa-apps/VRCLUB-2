@@ -17,6 +17,7 @@ const ROOM_BOUNDS = {
     y: { min: 0, max: 8, height: 8 },
     z: { min: -21, max: -5, depth: 16 }
 };
+window.ROOM_BOUNDS = ROOM_BOUNDS;
 
 // Key positions in the club
 const CLUB_POSITIONS = {
@@ -33,6 +34,7 @@ const CLUB_POSITIONS = {
         right: { x: 6, y: 7.1, z: -16 }
     }
 };
+window.CLUB_POSITIONS = CLUB_POSITIONS;
 
 class VRClubCore {
     constructor() {
@@ -207,6 +209,34 @@ class VRClubCore {
         })();
         this._lastHapticPulseAt = 0;     // ms timestamp guard (prevents rumble spam)
         this._xrControllers = [];        // Tracked controllers for haptic dispatch
+
+        // === EMBODIMENT ===
+        // Desktop walking head-bob. A camera that glides at a fixed height reads as a
+        // drone, not a person. Never applied in VR: the headset already carries real
+        // head motion and synthetic bob on top of it causes sim sickness.
+        this.headBobEnabled = (() => {
+            try { return !window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+            catch (_) { return true; }
+        })();
+        this._headBobPhase = 0;
+        this._headBobAmount = 0;
+        this._headBobOffset = 0;
+        this._headBobRoll = 0;
+        this._lastCameraX = null;
+        this._lastCameraZ = null;
+
+        // === EYE ADAPTATION ===
+        // Iris response: closes fast against a blinder, opens slowly in the dark.
+        // The asymmetric time constants are what make it read as an eye.
+        this._adaptedExposure = null;
+        
+        // === STRUCTURED DIAGNOSTICS BUFFER ===
+        // Circular buffer storing timestamped runtime events (audio state, WebXR
+        // sessions, WebGL metrics, errors). In-VR users cannot open devtools, so this
+        // makes diagnostics accessible directly in-app or via getDiagnostics().
+        this.diagnosticsBuffer = [];
+        this.maxDiagnosticsEntries = 100;
+        this.recordDiagnostic('init', 'VRClubCore constructed', { tier: this.graphicsTier });
         
         this.vuMeters = [];
         
@@ -503,6 +533,7 @@ class VRClubCore {
         // CRITICAL: Track VR mode to disable frame-skip optimizations
         // Frame-skipping causes different states per eye = epileptic effect
         this.isInVRMode = true;
+        this._adaptedExposure = null; // pipeline is rebuilt below; re-seed the iris
         
         // UPGRADE: Disable floor reflection probe in VR (one less render target)
         if (this.floorReflectionProbe) {
@@ -656,6 +687,9 @@ class VRClubCore {
             this.haze.emitRate = 40; // Keep visible for beam visibility
             log.info('⚡ Reduced haze emit rate for VR');
         }
+        if (this.dustMotes) {
+            this.dustMotes.emitRate = 30; // Motes still glint in the beams, at a third the cost
+        }
         
         // Keep the configured VR haze. Halving this a second time made volumetric
         // beams and distant fixtures disappear compared with desktop.
@@ -701,6 +735,7 @@ class VRClubCore {
             this.scene.performancePriority = BABYLON.ScenePerformancePriority.BackwardCompatible;
         }
         this.isInVRMode = false;
+        this._adaptedExposure = null; // re-seed the iris against the desktop base exposure
         
         // Restore post-processing
         if (this.renderPipeline) {
@@ -794,6 +829,9 @@ class VRClubCore {
         }
         if (this.haze) {
             this.haze.emitRate = 80; // Full haze for desktop
+        }
+        if (this.dustMotes) {
+            this.dustMotes.emitRate = this.dustMotes.getCapacity() / 10;
         }
         
         // Restore scene fog for desktop (EXP2 matches initial setup for consistent falloff)
@@ -910,6 +948,47 @@ class VRClubCore {
         if (bar) bar.style.width = `${percent}%`;
         if (root) root.setAttribute('aria-valuenow', String(percent));
         if (label) label.textContent = stage;
+    }
+
+    /**
+     * Record a structured diagnostic event in the circular telemetry buffer.
+     * @param {string} category Category identifier (e.g. 'audio', 'xr', 'render', 'error')
+     * @param {string} message Human-readable message
+     * @param {any} [data] Optional auxiliary data payload
+     */
+    recordDiagnostic(category, message, data = null) {
+        if (!this.diagnosticsBuffer) this.diagnosticsBuffer = [];
+        const entry = {
+            timestamp: Date.now(),
+            time: Number((performance.now() / 1000).toFixed(2)),
+            category,
+            message,
+            data
+        };
+        this.diagnosticsBuffer.push(entry);
+        if (this.diagnosticsBuffer.length > (this.maxDiagnosticsEntries || 100)) {
+            this.diagnosticsBuffer.shift();
+        }
+    }
+
+    /**
+     * Export complete runtime diagnostics snapshot.
+     */
+    getDiagnostics() {
+        return {
+            timestamp: new Date().toISOString(),
+            tier: this.graphicsTier,
+            isInVR: this.isInVRMode,
+            fps: this.fps || 0,
+            drawCalls: this.drawCallsPerFrame || 0,
+            meshes: this.scene ? this.scene.meshes.length : 0,
+            activeMeshes: this.scene ? this.scene.getActiveMeshes().length : 0,
+            materials: this.scene ? this.scene.materials.length : 0,
+            audioState: this.audioContext ? this.audioContext.state : 'none',
+            safeMode: this.photosensitiveSafeMode,
+            bassHaptics: this.bassHapticsEnabled,
+            recentLogs: this.diagnosticsBuffer ? this.diagnosticsBuffer.slice(-25) : []
+        };
     }
 
     detectMaxLights() {

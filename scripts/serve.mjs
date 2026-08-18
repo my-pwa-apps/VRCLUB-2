@@ -11,9 +11,12 @@ import { createReadStream } from 'node:fs';
 import { stat, realpath } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createBrotliCompress, createGzip, constants as zlibConstants } from 'node:zlib';
+import { pipeline } from 'node:stream';
 
 const PROJECT_ROOT = normalize(join(fileURLToPath(new URL('.', import.meta.url)), '..'));
-const ROOT = process.argv.includes('--dist') ? join(PROJECT_ROOT, 'dist') : PROJECT_ROOT;
+const IS_DIST = process.argv.includes('--dist');
+const ROOT = IS_DIST ? join(PROJECT_ROOT, 'dist') : PROJECT_ROOT;
 const PORT = Number(process.env.PORT) || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -39,6 +42,18 @@ const MIME = {
 };
 
 /**
+ * Paths that must never be served, regardless of ROOT.
+ *
+ * Without `--dist` this server's ROOT is the repository itself, so a forgotten
+ * flag would otherwise expose `.git/config` (remote URLs, sometimes credentials),
+ * `.env`, `node_modules/` and the whole source tree.
+ */
+const DENY = /(^|[\\/])(\.git|\.env|\.github|node_modules|scripts|test|package(-lock)?\.json|backup_aframe)([\\/]|$)/i;
+
+/** Content types worth compressing. Images, GLB and audio are already compressed. */
+const COMPRESSIBLE = /^(text\/|application\/(json|javascript|xml)|image\/svg)/;
+
+/**
  * Resolve a request path to an on-disk path, refusing anything that escapes ROOT.
  * This is the path-traversal guard (OWASP A01) - `GET /../../etc/passwd` and
  * percent-encoded variants must not be servable.
@@ -51,6 +66,7 @@ function resolveSafe(urlPath) {
         return null; // malformed percent-encoding
     }
     if (decoded.includes('\0')) return null;
+    if (DENY.test(decoded)) return null;
     if (decoded === '/' || decoded === '') decoded = '/index.html';
     const resolved = normalize(join(ROOT, decoded));
     if (!isInsideRoot(resolved)) return null;
@@ -88,15 +104,23 @@ const server = createServer(async (req, res) => {
             return;
         }
         const ext = extname(realPath).toLowerCase();
-        // Long-lived caching is safe because index.html references every asset with
-        // an explicit ?v= cache-busting token.
-        const cacheControl = ext === '.html'
+        // Long-lived caching is safe in --dist mode because every asset filename is
+        // content-hashed. In DEV mode it is actively harmful: an edited source file
+        // keeps being served from the browser cache for a year, which looks exactly
+        // like "my change did nothing".
+        //
+        // Service worker scripts are always no-cache. ServiceWorkerRegistration
+        // .updateViaCache defaults to 'imports', so a worker pulled in via
+        // importScripts() is served FROM the HTTP cache - `immutable, max-age=1y`
+        // would pin it for a year and make worker updates impossible to ship.
+        const isWorker = /(^|[\\/])(sw|serviceworker)\.js$/i.test(realPath);
+        const cacheControl = (ext === '.html' || isWorker || !IS_DIST)
             ? 'no-cache'
             : 'public, max-age=31536000, immutable';
 
+        const contentType = MIME[ext] || 'application/octet-stream';
         const headers = {
-            'Content-Type': MIME[ext] || 'application/octet-stream',
-            'Content-Length': info.size,
+            'Content-Type': contentType,
             'Cache-Control': cacheControl,
             'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer',
@@ -113,10 +137,9 @@ const server = createServer(async (req, res) => {
         // `http://localhost` development would poison the developer's browser into
         // refusing plain HTTP on that host.
         //
-        // Deliberately NOT set: Cross-Origin-Embedder-Policy: require-corp. It would
-        // block the pinned Babylon.js CDN bundles (cdn.babylonjs.com does not send
-        // Cross-Origin-Resource-Policy), breaking the app entirely. It buys nothing
-        // here either - this build uses no SharedArrayBuffer and no threaded WASM.
+        // Deliberately NOT set: Cross-Origin-Embedder-Policy: require-corp. It buys
+        // nothing here - this build uses no SharedArrayBuffer and no threaded WASM -
+        // and it would break any future cross-origin resource that omits CORP.
         const forwardedProto = req.headers['x-forwarded-proto'];
         const isHttps = req.socket.encrypted === true ||
             (typeof forwardedProto === 'string' && forwardedProto.split(',')[0].trim() === 'https');
@@ -124,9 +147,34 @@ const server = createServer(async (req, res) => {
             headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
         }
 
+        // Compression. The vendored Babylon runtime alone is 7.4 MB; this server
+        // previously sent every byte of it uncompressed, including on the Procfile
+        // production path.
+        const accept = String(req.headers['accept-encoding'] || '');
+        let encoder = null;
+        if (COMPRESSIBLE.test(contentType) && info.size > 1024) {
+            if (/\bbr\b/.test(accept)) {
+                encoder = createBrotliCompress({
+                    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 }
+                });
+                headers['Content-Encoding'] = 'br';
+            } else if (/\bgzip\b/.test(accept)) {
+                encoder = createGzip({ level: 6 });
+                headers['Content-Encoding'] = 'gzip';
+            }
+        }
+        if (encoder) headers['Vary'] = 'Accept-Encoding';
+        else headers['Content-Length'] = info.size;
+
         res.writeHead(200, headers);
         if (req.method === 'HEAD') { res.end(); return; }
-        createReadStream(realPath).pipe(res);
+
+        const source = createReadStream(realPath);
+        if (encoder) {
+            pipeline(source, encoder, res, () => { /* client disconnects are normal */ });
+        } else {
+            pipeline(source, res, () => { /* client disconnects are normal */ });
+        }
     } catch {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not Found');
     }

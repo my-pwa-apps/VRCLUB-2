@@ -1,23 +1,7 @@
 class VRClubUI extends VRClubAnimationFinish {
     setupUI(vrHelper) {
-        // VR button (optional - only if element exists)
-        const vrButton = document.getElementById('vrButton');
-        if (vrButton) {
-            vrButton.addEventListener('click', async () => {
-                try {
-                    if (vrHelper.baseExperience) {
-                        await vrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
-                    }
-                } catch (error) {
-                    log.error('VR Error:', error);
-                    // A blocking alert() steals focus, cannot be styled, and on Quest
-                    // renders as a flat 2D browser panel over the scene. Use the app's
-                    // own toast so failures look like part of the product.
-                    this.showErrorMessage('VR unavailable. Connect your headset via Link/Air Link, or open this page in the Quest browser.');
-                }
-            });
-        }
-        
+        this._setupVRButton(vrHelper);
+
         const cameraControls = document.getElementById('cameraControls');
         const cameraPresetToggle = document.getElementById('cameraPresetToggle');
         const cameraPresetGrid = document.getElementById('cameraPresetGrid');
@@ -41,6 +25,9 @@ class VRClubUI extends VRClubAnimationFinish {
             const handler = () => {
                 const preset = btn.dataset.cameraPreset;
                 this.moveCameraToPreset(preset);
+                // Move focus back to the trigger BEFORE hiding the grid: hiding the
+                // element that currently holds focus drops the keyboard user to <body>.
+                if (cameraPresetToggle) cameraPresetToggle.focus();
                 setCameraPresetsOpen(false);
             };
             btn.addEventListener('click', handler);
@@ -58,13 +45,303 @@ class VRClubUI extends VRClubAnimationFinish {
         this._onKeyDown = (e) => {
             const t = e.target;
             if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-            if (e.ctrlKey || e.metaKey || e.altKey) return;
-            if (e.key === 'd' || e.key === 'D') {
+            if (e.altKey) return;
+            // Debug is a developer affordance; a bare `D` collided with the WASD-adjacent
+            // keys a user presses constantly while walking around.
+            if ((e.key === 'd' || e.key === 'D') && e.ctrlKey && e.shiftKey) {
+                e.preventDefault();
                 this.debugMode = !this.debugMode;
                 this.showErrorMessage(`Debug overlay ${this.debugMode ? 'on' : 'off'}`);
             }
         };
         document.addEventListener('keydown', this._onKeyDown);
+    }
+
+    /**
+     * Wire the top-level Enter/Exit VR button.
+     *
+     * Feature-detects `immersive-vr` up front rather than offering the app's headline
+     * action at full prominence on machines that cannot honour it and reporting the
+     * failure only after the click.
+     */
+    _setupVRButton(vrHelper) {
+        const vrButton = document.getElementById('vrButton');
+        if (!vrButton) return;
+
+        const setLabel = (text, inSession) => {
+            vrButton.textContent = text;
+            vrButton.classList.toggle('in-session', !!inSession);
+        };
+
+        const supported = navigator.xr && typeof navigator.xr.isSessionSupported === 'function'
+            ? navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
+            : Promise.resolve(false);
+
+        supported.then((ok) => {
+            if (this._disposed) return;
+            if (!ok || !vrHelper || !vrHelper.baseExperience) {
+                vrButton.disabled = true;
+                vrButton.title = 'No VR headset detected. Connect via Link/Air Link, or open this page in the Quest browser.';
+                setLabel('\u{1F97D} VR unavailable', false);
+            }
+        });
+
+        this._onVRButtonClick = async () => {
+            const base = vrHelper && vrHelper.baseExperience;
+            if (!base) {
+                this.showErrorMessage('VR unavailable. Connect your headset via Link/Air Link, or open this page in the Quest browser.');
+                return;
+            }
+            try {
+                if (this.isInVRMode) {
+                    await base.exitXRAsync();
+                } else {
+                    await base.enterXRAsync('immersive-vr', 'local-floor');
+                }
+            } catch (error) {
+                log.error('VR Error:', error);
+                // A blocking alert() steals focus, cannot be styled, and on Quest
+                // renders as a flat 2D browser panel over the scene. Use the app's
+                // own toast so failures look like part of the product.
+                this.showErrorMessage('VR unavailable. Connect your headset via Link/Air Link, or open this page in the Quest browser.');
+            }
+        };
+        vrButton.addEventListener('click', this._onVRButtonClick);
+        this._vrButtonEl = vrButton;
+
+        if (this.scene && this.scene.onXRSessionInit) {
+            this._vrButtonObservers = [
+                this.scene.onXRSessionInit.add(() => setLabel('\u{1F97D} Exit VR', true)),
+                this.scene.onXRSessionEnded.add(() => setLabel('\u{1F97D} Enter VR', false))
+            ];
+        }
+    }
+
+    // =========================================================================
+    // SHARED VJ ACTIONS
+    //
+    // These used to exist twice - once in js/ui-init.js for the DOM panel and once
+    // in the 3D pointer handler below - and the two copies had silently diverged
+    // (only the 3D path updated the mirror-ball reflection spots and shared beam
+    // materials, and only the 3D path applied fixture exclusivity). Both surfaces
+    // now call the same methods, so they cannot drift again.
+    // =========================================================================
+
+    /** Advance the spotlight palette and push the new colour to every consumer. */
+    cycleSpotColor() {
+        this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
+        this.currentSpotColor.copyFrom(this.spotColorList[this.spotColorIndex]);
+        this.lastColorChange = performance.now() / 1000;
+
+        if (this.spotlights) {
+            this.spotlights.forEach((spot, i) => {
+                spot.light.specular = this.currentSpotColor;
+                spot.light.diffuse = this.currentSpotColor.scale(0.15);
+                spot.color = this.currentSpotColor;
+
+                const trussLight = this.trussLights && this.trussLights[i];
+                if (trussLight && this.lightsActive) {
+                    if (trussLight.lensMat) trussLight.lensMat.emissiveColor = this.currentSpotColor.scale(5.0);
+                    if (trussLight.sourceMat) trussLight.sourceMat.emissiveColor = this.currentSpotColor.scale(8.0);
+                }
+            });
+        }
+        return this.currentSpotColor;
+    }
+
+    /** Advance the mirror-ball palette and push it to every dependent surface. */
+    cycleMirrorBallColor() {
+        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
+        const colour = this.mirrorBallColors[this.mirrorBallColorIndex];
+        this.mirrorBallSpotlightColor = colour;
+
+        if (this.mirrorBallSpotlights) {
+            this.mirrorBallSpotlights.forEach(light => { if (light) light.diffuse = colour.clone(); });
+        }
+        if (this.mirrorBallBeams) {
+            this.mirrorBallBeams.forEach(beam => { beam.material.emissiveColor = colour.clone(); });
+        }
+        if (this.mirrorBallHousings) {
+            this.mirrorBallHousings.forEach(housing => {
+                housing.material.emissiveColor = colour.scale(0.2);
+                housing.lensMaterial.emissiveColor = colour.scale(5.0);
+                housing.sourceMaterial.emissiveColor = colour.scale(8.0);
+                housing.flareMaterial.emissiveColor = colour.scale(3.0);
+            });
+        }
+        if (this.mirrorReflectionSpots) {
+            this.mirrorReflectionSpots.forEach(spot => {
+                spot.material.emissiveColor = colour.scale(spot.baseIntensity || 0.7);
+            });
+        }
+        // One write to the shared materials, not 100x / 40x. Never re-freeze: the
+        // render loop writes these every frame.
+        if (this._sharedMirrorBeamMat) {
+            if (this._sharedMirrorBeamMat.isFrozen) this._sharedMirrorBeamMat.unfreeze();
+            this._sharedMirrorBeamMat.emissiveColor = colour.scale(0.8);
+        }
+        if (this._sharedMirrorRayMat) {
+            if (this._sharedMirrorRayMat.isFrozen) this._sharedMirrorRayMat.unfreeze();
+            this._sharedMirrorRayMat.emissiveColor = colour;
+        }
+        this.mirrorBallCachedColors = null;
+        return colour;
+    }
+
+    /**
+     * Apply the "one aerial idea at a time" rule after a fixture toggle.
+     * Returns a human-readable note when other fixtures were changed, so the caller
+     * can tell the user rather than silently discarding their previous choices.
+     * @param {string} control the control that was just toggled on
+     * @returns {string|null}
+     */
+    applyFixtureExclusivity(control) {
+        if (control === 'mirrorBallActive' && this.mirrorBallActive) {
+            this.lasersActive = false;
+            this.laserSheetActive = false;
+            this.lightsActive = false;
+            return 'Mirror ball takes the room \u2014 lasers, laser sheet and gobos off';
+        }
+        if (control === 'laserSheetActive' && this.laserSheetActive) {
+            this.lasersActive = false;
+            this.mirrorBallActive = false;
+            this.lightsActive = false;
+            return 'Laser sheet takes the room \u2014 lasers, mirror ball and gobos off';
+        }
+        if (control === 'lasersActive' && this.lasersActive) {
+            this.mirrorBallActive = false;
+            this.laserSheetActive = false;
+            this.lightsActive = true;
+            return 'Ceiling lasers on \u2014 mirror ball and laser sheet off';
+        }
+        return null;
+    }
+
+    /** Per-mode / per-pattern confirmation colours for the in-world buttons.
+     *  Static so they are allocated once, not per click. */
+    static get SPOT_MODE_COLORS() {
+        if (!this._spotModeColors) {
+            this._spotModeColors = [
+                new BABYLON.Color3(1, 0, 1),    // 0 strobe+sweep
+                new BABYLON.Color3(0, 1, 1),    // 1 sweep only
+                new BABYLON.Color3(1, 1, 0),    // 2 strobe static
+                new BABYLON.Color3(0, 1, 0)     // 3 static
+            ];
+        }
+        return this._spotModeColors;
+    }
+
+    static get SPOT_PATTERN_COLORS() {
+        if (!this._spotPatternColors) {
+            this._spotPatternColors = [
+                new BABYLON.Color3(1, 0, 1),    // 0 random
+                new BABYLON.Color3(0, 1, 1),    // 1 static down
+                new BABYLON.Color3(1, 0.5, 1),  // 2 mirror sweep
+                new BABYLON.Color3(1, 0.8, 0)   // 3 crossed beams
+            ];
+        }
+        return this._spotPatternColors;
+    }
+
+    /**
+     * Flash an in-world VJ button, then restore its resting colour.
+     * The restore is guarded and tracked so a dispose() mid-flash cannot write to a
+     * material that scene.dispose() has already destroyed.
+     */
+    _flashButton3D(button, colour, durationMs) {
+        if (!button || !button.material) return;
+        button.material.emissiveColor = colour;
+        if (!this._pendingTimers) this._pendingTimers = new Set();
+        const id = setTimeout(() => {
+            this._pendingTimers.delete(id);
+            if (this._disposed || !button.material) return;
+            button.material.emissiveColor = button.offColor;
+        }, durationMs);
+        this._pendingTimers.add(id);
+    }
+
+    /** Documented defaults for every VJ-controllable property. */
+    static get VJ_DEFAULTS() {
+        return {
+            lightsActive: true,
+            lasersActive: false,
+            ledWallActive: true,
+            ledMonochrome: false,
+            strobesActive: true,
+            blindersActive: true,
+            mirrorBallActive: false,
+            laserSheetActive: false,
+            smokeActive: false,
+            spotStrobeActive: true,
+            spotlightMode: 0,
+            spotlightPattern: 0,
+            goboPatternIndex: 0,
+            goboRotationSpeed: 1.0,
+            spotlightSpeed: 1.0,
+            laserSpeed: 1.0,
+            mirrorBallSpeed: 1.0,
+            ledWallSpeed: 1.0,
+            strobeSpeed: 1.0,
+            vjManualMode: false
+        };
+    }
+
+    /**
+     * Restore every VJ control to its documented default.
+     * Photosensitive safe mode and the graphics tier are deliberately NOT reset:
+     * they are accessibility/hardware preferences, not part of the light show.
+     */
+    resetVJControls() {
+        Object.assign(this, VRClubUI.VJ_DEFAULTS);
+        if (this.goboEnabled && typeof this.toggleGobo === 'function') this.toggleGobo();
+        if (this.vjDirector && typeof this.vjDirector.setMasterIntensity === 'function') {
+            this.vjDirector.setMasterIntensity(1);
+        }
+        log.info('\u21ba VJ controls reset to defaults');
+    }
+
+    /**
+     * Animate in-world 3D button depression and trigger tactile haptic pulse.
+     * @param {BABYLON.AbstractMesh} mesh
+     */
+    _pressButton3D(mesh) {
+        if (!mesh || mesh._isPressed) return;
+        mesh._isPressed = true;
+        const origY = mesh.position.y;
+        mesh.position.y -= 0.015;
+        this.pulseHaptic(0.85, 35);
+        setTimeout(() => {
+            if (mesh) {
+                mesh.position.y = origY;
+                mesh._isPressed = false;
+            }
+        }, 120);
+    }
+
+    /**
+     * Dispatch a sharp tactile haptic pulse to all active VR controllers.
+     * @param {number} [intensity=0.8] 0.0 .. 1.0
+     * @param {number} [duration=30] ms
+     */
+    pulseHaptic(intensity = 0.8, duration = 30) {
+        if (!this._xrControllers || this._xrControllers.length === 0) return;
+        for (let i = 0; i < this._xrControllers.length; i++) {
+            const ctrl = this._xrControllers[i];
+            try {
+                const inputSource = ctrl && ctrl.inputSource;
+                const gp = inputSource && inputSource.gamepad;
+                if (!gp) continue;
+                if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
+                    gp.hapticActuators[0].pulse(intensity, duration);
+                } else if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
+                    gp.vibrationActuator.playEffect('dual-rumble', {
+                        duration: duration,
+                        strongMagnitude: intensity,
+                        weakMagnitude: intensity * 0.5
+                    });
+                }
+            } catch (_) { /* ignore */ }
+        }
     }
 
     setupVJControlInteraction() {
@@ -75,11 +352,13 @@ class VRClubUI extends VRClubAnimationFinish {
                 if (this.speedSlider && pickResult.pickedMesh === this.speedSlider.handle) {
                     this.speedSlider.isDragging = true;
                     this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 1, 1); // Brighter cyan when dragging
+                    this.pulseHaptic(0.6, 25);
                     return;
                 }
                 
                 // Check if audio stream button was clicked
                 if (this.audioStreamButton && pickResult.pickedMesh === this.audioStreamButton.mesh) {
+                    this._pressButton3D(this.audioStreamButton.mesh);
                     this.toggleAudioStream();
                     return;
                 }
@@ -88,6 +367,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 const clickedButton = this.vjControlButtons.find(btn => btn.mesh === pickResult.pickedMesh);
                 
                 if (clickedButton) {
+                    this._pressButton3D(clickedButton.mesh);
                     log.info(`🎛️ VJ Control: ${clickedButton.label} clicked`);
                     
                     // Track VJ interaction - but DON'T pause patterns for pattern/mode cycling
@@ -103,193 +383,34 @@ class VRClubUI extends VRClubAnimationFinish {
                     }
                     
                     if (clickedButton.control === "changeColor") {
-                        // Change color button - cycle to next color
-                        this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
-                        this.currentSpotColor = this.spotColorList[this.spotColorIndex];
-                        this.lastColorChange = performance.now() / 1000;
-                        
-                        // Update ALL light colors immediately (specular for reflections, diffuse for gobo projection)
-                        if (this.spotlights) {
-                            this.spotlights.forEach((spot, i) => {
-                                // Update color references - fixture materials updated in animation loop
-                                spot.light.specular = this.currentSpotColor; // Specular for reflections
-                                spot.light.diffuse = this.currentSpotColor.scale(0.15); // Diffuse for projectionTexture
-                                spot.color = this.currentSpotColor;
-                            });
-                        }
-                        
-                        // Flash button feedback
-                        clickedButton.material.emissiveColor = clickedButton.onColor;
-                        setTimeout(() => {
-                            clickedButton.material.emissiveColor = clickedButton.offColor;
-                        }, 200);
-                        
+                        this.cycleSpotColor();
+                        this._flashButton3D(clickedButton, clickedButton.onColor, 200);
                         log.info(`🎨 Color changed to index ${this.spotColorIndex}`);
+
                     } else if (clickedButton.control === "changeMirrorBallColor") {
-                        // Change mirror ball spotlight color - cycle through colors
-                        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
-                        this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
-                        
-                        // Update all spotlight colors (only real lights, skip nulls)
-                        if (this.mirrorBallSpotlights) {
-                            this.mirrorBallSpotlights.forEach(light => {
-                                if (light) light.diffuse = this.mirrorBallSpotlightColor.clone();
-                            });
-                        }
-                        
-                        // Update all beam colors
-                        if (this.mirrorBallBeams) {
-                            this.mirrorBallBeams.forEach(beam => {
-                                beam.material.emissiveColor = this.mirrorBallSpotlightColor.clone();
-                            });
-                        }
-                        
-                        // Update housing and lens glow colors (hyperrealistic fixtures)
-                        if (this.mirrorBallHousings) {
-                            this.mirrorBallHousings.forEach(housing => {
-                                housing.material.emissiveColor = this.mirrorBallSpotlightColor.scale(0.2); // Housing subtle glow
-                                housing.lensMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(5.0); // Lens bright
-                                housing.sourceMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(8.0); // Light source very bright
-                                housing.flareMaterial.emissiveColor = this.mirrorBallSpotlightColor.scale(3.0); // Flare medium bright
-                            });
-                        }
-                        
-                        // Update reflection spot colors IMMEDIATELY (don't wait for animation loop)
-                        // This ensures instant visual sync when VJ changes color
-                        if (this.mirrorReflectionSpots) {
-                            this.mirrorReflectionSpots.forEach(spot => {
-                                // Immediate color update for spot disc (individual materials - unique emissive per spot)
-                                spot.material.emissiveColor = this.mirrorBallSpotlightColor.scale(spot.baseIntensity || 0.7);
-                            });
-                        }
-                        
-                        // UPGRADE: Update shared beam material once (not 100× per spot)
-                        // QC: never re-freeze — the render loop writes this every frame.
-                        if (this._sharedMirrorBeamMat) {
-                            if (this._sharedMirrorBeamMat.isFrozen) this._sharedMirrorBeamMat.unfreeze();
-                            this._sharedMirrorBeamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.8);
-                        }
-                        
-                        // UPGRADE: Update shared ray material once (not 40× per ray)
-                        if (this._sharedMirrorRayMat) {
-                            if (this._sharedMirrorRayMat.isFrozen) this._sharedMirrorRayMat.unfreeze();
-                            this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor;
-                        }
-                        
-                        // Invalidate cached colors so they get recalculated
-                        this.mirrorBallCachedColors = null;
-                        
-                        // Flash button with current color
-                        clickedButton.material.emissiveColor = this.mirrorBallSpotlightColor;
-                        setTimeout(() => {
-                            clickedButton.material.emissiveColor = clickedButton.offColor;
-                        }, 300);
-                        
-                        const colorNames = ["White", "Red", "Blue", "Green", "Magenta", "Yellow", "Cyan", "Orange", "Purple"];
-                        log.info(`🪩 Mirror ball color: ${colorNames[this.mirrorBallColorIndex]}`);
+                        const colour = this.cycleMirrorBallColor();
+                        this._flashButton3D(clickedButton, colour, 300);
+                        log.info(`🪩 Mirror ball color index: ${this.mirrorBallColorIndex}`);
+
                     } else if (clickedButton.control === "cycleSpotMode") {
-                        // Cycle through spotlight modes: 0=strobe+sweep, 1=sweep only, 2=strobe static, 3=static
-                        this.spotlightMode = (this.spotlightMode + 1) % 4;
-                        
-                        // Flash button feedback with different colors for each mode
-                        const modeColors = [
-                            new BABYLON.Color3(1, 0, 1),    // Mode 0: Magenta (strobe+sweep)
-                            new BABYLON.Color3(0, 1, 1),    // Mode 1: Cyan (sweep only)
-                            new BABYLON.Color3(1, 1, 0),    // Mode 2: Yellow (strobe static)
-                            new BABYLON.Color3(0, 1, 0)     // Mode 3: Green (static)
-                        ];
-                        clickedButton.material.emissiveColor = modeColors[this.spotlightMode];
-                        setTimeout(() => {
-                            clickedButton.material.emissiveColor = clickedButton.offColor;
-                        }, 300);
-                        
-                        const modeNames = ["STROBE+SWEEP", "SWEEP ONLY", "STROBE STATIC", "STATIC"];
-                        log.info(`💡 Spotlight mode: ${modeNames[this.spotlightMode]}`);
+                        this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_COLORS.length;
+                        this._flashButton3D(clickedButton, VRClubUI.SPOT_MODE_COLORS[this.spotlightMode], 300);
+                        log.info(`💡 Spotlight mode: ${this.spotlightMode}`);
+
                     } else if (clickedButton.control === "cyclePattern") {
-                        // Cycle through spotlight patterns: 0=random, 1=static, 2=mirror, 3=crossed
-                        this.spotlightPattern = (this.spotlightPattern + 1) % 4;
-                        
-                        // Flash button feedback with different colors for each pattern
-                        const patternColors = [
-                            new BABYLON.Color3(1, 0, 1),    // Pattern 0: Magenta (random)
-                            new BABYLON.Color3(0, 1, 1),    // Pattern 1: Cyan (static down)
-                            new BABYLON.Color3(1, 0.5, 1),  // Pattern 2: Pink (mirror sweep)
-                            new BABYLON.Color3(1, 0.8, 0)   // Pattern 3: Gold (crossed beams)
-                        ];
-                        clickedButton.material.emissiveColor = patternColors[this.spotlightPattern];
-                        setTimeout(() => {
-                            clickedButton.material.emissiveColor = clickedButton.offColor;
-                        }, 300);
-                        
-                        const patternNames = ["RANDOM", "STATIC DOWN", "MIRROR SWEEP", "CROSSED BEAMS"];
-                        log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
-                    } else if (clickedButton.control === "patternRandom" || 
-                               clickedButton.control === "patternStatic" || 
-                               clickedButton.control === "patternSweep") {
-                        // Direct pattern selection buttons
-                        if (clickedButton.control === "patternRandom") {
-                            this.spotlightPattern = 0;
-                        } else if (clickedButton.control === "patternStatic") {
-                            this.spotlightPattern = 1;
-                        } else if (clickedButton.control === "patternSweep") {
-                            this.spotlightPattern = 2;
-                        }
-                        
-                        // Update all pattern buttons to show current selection
-                        this.vjControlButtons.forEach(btn => {
-                            if (btn.control === "patternRandom") {
-                                btn.material.emissiveColor = (this.spotlightPattern === 0) ? btn.onColor : btn.offColor;
-                            } else if (btn.control === "patternStatic") {
-                                btn.material.emissiveColor = (this.spotlightPattern === 1) ? btn.onColor : btn.offColor;
-                            } else if (btn.control === "patternSweep") {
-                                btn.material.emissiveColor = (this.spotlightPattern === 2) ? btn.onColor : btn.offColor;
-                            }
-                        });
-                        
-                        const patternNames = ["RANDOM", "STATIC DOWN", "SYNC SWEEP"];
-                        log.info(`🎯 Spotlight pattern: ${patternNames[this.spotlightPattern]}`);
-                    } else if (clickedButton.control === "fogBurst") {
-                        // === MANUAL FOG BURST TRIGGER ===
-                        // Immediately triggers all fog machines for dramatic effect
-                        if (this.fogMachines) {
-                            this.fogMachines.forEach(machine => {
-                                machine.isBursting = true;
-                                machine.burstTimer = 3.5; // 3.5 second burst
-                                machine.emitter.emitRate = 200 * (this.fogIntensity || 1.0);
-                                machine.ledMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0); // Red LED
-                            });
-                            this.lastFogBurst = performance.now() / 1000;
-                            
-                            // Flash button with bright white
-                            clickedButton.material.emissiveColor = new BABYLON.Color3(1, 1, 1);
-                            setTimeout(() => {
-                                clickedButton.material.emissiveColor = clickedButton.offColor;
-                            }, 500);
-                            
-                            log.info('💨 FOG BURST triggered!');
-                        }
+                        this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_COLORS.length;
+                        this._flashButton3D(clickedButton, VRClubUI.SPOT_PATTERN_COLORS[this.spotlightPattern], 300);
+                        log.info(`🎯 Spotlight pattern: ${this.spotlightPattern}`);
+
                     } else {
                         // Toggle on/off control
                         this[clickedButton.control] = !this[clickedButton.control];
-                        
-                        // MUTUAL EXCLUSIVITY: Laser sheet and mirror ball cannot be active with ceiling lasers/gobos
-                        // When mirrorBall or laserSheet turns ON, turn OFF ceiling lasers AND gobos (and vice versa)
-                        if (clickedButton.control === 'mirrorBallActive' && this.mirrorBallActive) {
-                            this.lasersActive = false;
-                            this.laserSheetActive = false; // Mirror ball is solo effect
-                            this.lightsActive = false; // Gobos OFF
-                            log.info('🪩 Mirror ball ON - ceiling lasers, laser sheet & gobos OFF');
-                        } else if (clickedButton.control === 'laserSheetActive' && this.laserSheetActive) {
-                            this.lasersActive = false;
-                            this.mirrorBallActive = false; // Laser sheet excludes mirror ball too
-                            this.lightsActive = false; // Gobos OFF (mutual exclusivity)
-                            log.info('📡 Laser sheet ON - ceiling lasers, mirror ball & gobos OFF');
-                        } else if (clickedButton.control === 'lasersActive' && this.lasersActive) {
-                            this.mirrorBallActive = false;
-                            this.laserSheetActive = false;
-                            this.lightsActive = true; // Gobos ON with ceiling lasers
-                            log.info('🔴 Ceiling lasers ON - mirror ball & laser sheet OFF, gobos ON');
-                        }
+
+                        // One aerial idea at a time - see applyFixtureExclusivity().
+                        // The rule used to live only here, so the DOM panel silently
+                        // behaved differently from the in-world desk.
+                        const note = this.applyFixtureExclusivity(clickedButton.control);
+                        if (note) this.showErrorMessage(note);
                         
                         // Update ALL affected button appearances (including lightsActive/gobos)
                         this.vjControlButtons.forEach(btn => {

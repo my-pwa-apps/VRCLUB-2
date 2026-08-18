@@ -60,29 +60,60 @@ js/models/                 Local GLB models and model textures
 
 ## Controls
 
-- Desktop: WASD or arrow keys to move, mouse to look, camera preset buttons for quick scene checks.
-- VR: Enter VR from the settings panel when WebXR is available, then use thumbsticks for locomotion.
-- VJ menu: Toggle lights, lasers, strobes, LED wall, mirror ball, safe mode, haptics, and live macros.
-- Audio menu: Play an HTTP(S) stream URL or select a local audio file.
-- `D` toggles the FPS/debug overlay (ignored while a text field has focus).
+- **Move**: `W` `A` `S` `D` or the arrow keys; drag with the mouse to look. `Q`/`E` for down/up.
+- **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. In-headset, thumbsticks move and turn; click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump.
+- **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
+- **🎵 Audio menu** (bottom-right): play an HTTP(S) stream URL or a local audio file, plus volume. The last stream you played is remembered.
+- **📷 Camera presets** (bottom-centre): four fixed viewpoints.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / pause audio |
+| `B` | Blackout |
+| `F` | Fire the drop |
+| `1`–`4` | Camera presets (arrival / floor / booth / lights) |
+| `Esc` | Close the focused panel |
+| `Ctrl+Shift+D` | FPS / diagnostics overlay |
+
+All shortcuts are ignored while a text field has focus.
+
+## Accessibility
+
+- **Photosensitive Safe Mode** disables every strobe, blinder and bloom flash. It is offered
+  on the splash screen *before* the scene renders, and defaults to **on** when the OS reports
+  `prefers-reduced-motion: reduce`. The preference persists across sessions.
+- Every control is keyboard reachable, has an accessible name, and exposes its state via
+  `aria-pressed` / `aria-valuetext`. Toggle state is signalled by a marker and border weight,
+  not by colour alone.
+- Panels close with `Esc` and restore focus to their trigger.
 
 ## Quality Checks
 
 ```powershell
-npm run check   # node --check every first-party JS file
-npm run lint    # ESLint errors and migration-cleanup warnings
-npm test        # contract and runtime unit tests
-npm run check:sri # verify vendored Babylon files against index.html integrity hashes
-npm run build   # emit the production site under dist/
+npm run check      # node --check every first-party JS file (including the service worker)
+npm run lint       # ESLint
+npm test           # contract and runtime unit tests
+npm run check:sri  # verify js/vendor/* against scripts/vendor.manifest.json and upstream
+npm run build      # emit the production site under dist/
+npm run icons      # regenerate the PWA icons under icons/
+npm run version:bump  # bump every cache token and the service-worker version in lockstep
 ```
 
-The test suite fails on a reordered
-script tag, a renamed element id, a `data-control` nothing handles, a missing texture or
-model, mismatched `?v=` cache tokens, a missing SRI attribute, a leaked global event
-listener, a native `alert()`, debug flags left on, and README drift. Runtime tests cover
-the audio URL security boundary, in-flight request deduplication, material cache-key
-normalization, and ShowDirector ramp and movement behavior. Run all checks before every
-commit.
+The test suite fails on: a reordered script tag; a renamed element id; a `data-control`
+nothing handles; a missing texture or model; `?v=` cache tokens that disagree with
+`package.json` or with the service worker; a vendored bundle whose bytes no longer match its
+recorded hash; a third-party origin appearing in the critical path; a leaked global event
+listener; a native `alert()`; a hard-coded 60 fps frame step in the animation layers; a debug
+flag left on; and README drift.
+
+Runtime tests execute real code: the audio URL security boundary, in-flight request
+deduplication, IndexedDB commit/quota semantics, material cache-key normalisation, light
+factory disposal, ShowDirector look validation and safe-mode enforcement, VJDirector beat
+tracking, and a smoke test over all 37 LED wall patterns.
+
+Run all checks before every commit.
 
 Recommended manual smoke test before publishing:
 
@@ -94,17 +125,34 @@ Recommended manual smoke test before publishing:
 
 ## Deployment
 
-Deploy the generated `dist/` directory to static hosting such as GitHub Pages. The app does
-not require a Node backend. `npm run start:prod` builds and serves that directory while
-honouring the platform's `PORT`. Babylon.js `8.30.5` is vendored locally and verified by
-the SRI tooling.
+Deploy the generated `dist/` directory to any static host — there is no Node backend.
+`npm run start:prod` builds and serves that directory while honouring the platform's `PORT`,
+with brotli/gzip compression and security headers.
+
+What the build produces:
+
+- One content-hashed application bundle and stylesheet under `dist/assets/`.
+- A service worker whose precache list and `VERSION` are **generated** from those hashes, so
+  a deploy always invalidates the previous cache and the offline shell actually works.
+- Only the model assets the code references (the deploy is ~61 MB, not ~110 MB).
+- `_headers` for Cloudflare Pages / Netlify, which otherwise send no `frame-ancestors`.
+
+CI enforces a 75 MB payload budget on `dist/`.
+
+The Babylon.js `8.30.5` runtime and the PBR environment texture are vendored under
+`js/vendor/` and verified against `scripts/vendor.manifest.json`. There is **no** CDN
+fallback — the critical path is deliberately same-origin, and a contract test enforces it.
 
 ## Credits
 
-- Pioneer DJ Console by TwoPixels.studio, CC BY 4.0
-- PA speaker model assets, CC BY 4.0
-- Built with Babylon.js and the Web Audio API
+See **[ASSETS.md](ASSETS.md)** for the licence and provenance of every shipped binary.
+
+- Pioneer DJ Console by TwoPixels.studio — CC BY 4.0
+- Stage Speaker — Black — CC BY 4.0
+- Surface textures from Poly Haven — CC0
+- Built with Babylon.js (Apache-2.0) and the Web Audio API
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). The licence covers the source code only; bundled 3D models,
+textures and animations are third-party works under their own terms (see ASSETS.md).

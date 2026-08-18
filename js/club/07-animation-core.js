@@ -14,6 +14,78 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateSpotlights(ctx);
         this.updateStrobes(ctx);
         this.updateSpeakerCones(ctx);
+        this.updateCameraPresence(ctx);
+        this.updateEyeAdaptation(ctx);
+    }
+
+    /**
+     * Walking head-bob for the desktop camera.
+     *
+     * The previous applied offset is removed before measuring locomotion, otherwise the
+     * bob feeds back into its own speed estimate and oscillates.
+     */
+    updateCameraPresence(ctx) {
+        const cam = this.camera;
+        if (!cam || this.isInVRMode || !this.headBobEnabled) return;
+
+        cam.position.y -= this._headBobOffset;
+        cam.rotation.z -= this._headBobRoll;
+
+        const { dt, dtScale } = ctx;
+        if (this._lastCameraX === null) {
+            this._lastCameraX = cam.position.x;
+            this._lastCameraZ = cam.position.z;
+        }
+        const dx = cam.position.x - this._lastCameraX;
+        const dz = cam.position.z - this._lastCameraZ;
+        this._lastCameraX = cam.position.x;
+        this._lastCameraZ = cam.position.z;
+
+        const speed = Math.min(6, Math.sqrt(dx * dx + dz * dz) / Math.max(dt, 0.001));
+        const walking = speed > 0.15;
+
+        // ~1.9 steps/sec at a normal walk; the bob is two vertical cycles per stride.
+        if (walking) this._headBobPhase += speed * 1.35 * dt * Math.PI;
+        const target = walking ? Math.min(1, speed / 3) : 0;
+        this._headBobAmount += (target - this._headBobAmount) * Math.min(1, 0.08 * dtScale);
+
+        this._headBobOffset = Math.sin(this._headBobPhase * 2) * 0.035 * this._headBobAmount;
+        this._headBobRoll = Math.sin(this._headBobPhase) * 0.011 * this._headBobAmount;
+
+        cam.position.y += this._headBobOffset;
+        cam.rotation.z += this._headBobRoll;
+    }
+
+    /**
+     * Iris adaptation on the pipeline exposure.
+     *
+     * Brightness is estimated from rig state rather than read back from the framebuffer:
+     * a GPU readback would stall the pipeline every frame, and the rig already knows
+     * exactly how much light it is producing.
+     */
+    updateEyeAdaptation(ctx) {
+        const pipeline = this.renderPipeline;
+        const ip = pipeline && pipeline.imageProcessing;
+        if (!ip) return;
+
+        const settings = this.isInVRMode ? this.vrSettings.vr : this.vrSettings.desktop;
+        const base = settings.exposure;
+        if (this._adaptedExposure === null) this._adaptedExposure = base;
+
+        const master = this.masterIntensity != null ? this.masterIntensity : 1;
+        let brightness = 0.12;
+        if (this.lightsActive) brightness += 0.32 * master;
+        if (this.ledWallActive) brightness += 0.28 * master;
+        if (this.strobesActive && !this.photosensitiveSafeMode) brightness += 0.12 * master;
+        if (this.blindersActive) brightness += 0.26;
+        brightness += (ctx.beat || 0) * 0.10;
+
+        // Stopping down is capped harder than opening up so a blackout never blows out.
+        const target = base * Math.max(0.78, Math.min(1.22, 1.22 - brightness * 0.42));
+        // Fast constrict, slow dilate - the real asymmetry of the pupil reflex.
+        const rate = target < this._adaptedExposure ? 0.10 : 0.012;
+        this._adaptedExposure += (target - this._adaptedExposure) * Math.min(1, rate * ctx.dtScale);
+        ip.exposure = this._adaptedExposure;
     }
 
     /**
@@ -36,7 +108,10 @@ class VRClubAnimationCore extends VRClubEffects {
         // teleport animation state.
         const frameMs = (this.engine && this.engine.getDeltaTime) ? this.engine.getDeltaTime() : 16.667;
         const dtScale = Math.min(4, Math.max(0.25, frameMs / 16.667));
-        const dt = 0.016 * dtScale; // seconds, clamped — use in place of the old literal
+        // Real elapsed seconds for the SAME clamped frame. Deriving this as
+        // `0.016 * dtScale` made it 0.016/0.016667 = 0.96x true time, so every
+        // dt-driven timer in the app ran ~4% slow at every refresh rate.
+        const dt = dtScale / 60;
         this.dtScale = dtScale;
 
         this.ledTime += dt * (this.ledWallSpeed || 1.0);
@@ -75,6 +150,11 @@ class VRClubAnimationCore extends VRClubEffects {
         // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
         this._updateBassHaptics(audioData);
 
+        // Update 3D spatial audio listener position & room acoustics attenuation
+        if (this.updateSpatialAudioListener) {
+            this.updateSpatialAudioListener();
+        }
+
         if (!this._frameCtx) {
             this._frameCtx = { time: 0, dt: 0, dtScale: 1, audio: null, beat: 0 };
         }
@@ -102,7 +182,6 @@ class VRClubAnimationCore extends VRClubEffects {
                 // Update each fog machine
                 this.fogMachines.forEach((machine, i) => {
                     const emitter = machine.emitter;
-                    const led = machine.led;
                     const ledMat = machine.ledMat;
                     
                     // === FOG BURST LOGIC ===
@@ -168,11 +247,16 @@ class VRClubAnimationCore extends VRClubEffects {
 
     /** Scanning laser sheet: tilt sweep, smoke UV flow, audio-pulsed intensity. */
     updateLaserSheet(ctx) {
-        const { time, audio: audioData } = ctx;
+        const { time, dtScale, audio: audioData } = ctx;
         const speedMultiplierLaser = this.laserSpeed || 1.0;
 
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {
+            // The material is optional on this mesh; hoist it once instead of guarding
+            // in one place and dereferencing unguarded three lines later.
+            const sheetMat = this.laserSheet.material;
+            if (!sheetMat) return;
+
             // SCANNING MOTION (Tilt up and down)
             // Source is at y=5.5. Target z range is 0 to 40.
             // Angle 0 = Horizontal. Angle + = Down.
@@ -187,16 +271,16 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             
             // Animate smoke texture flowing OUTWARD from source
-            if (this.laserSheet.material && this.laserSheet.material.opacityTexture) {
+            if (sheetMat.opacityTexture) {
                 // Move V offset to flow from 0 (source) to 1 (end)
-                this.laserSheet.material.opacityTexture.vOffset -= 0.008 * speedMultiplierLaser;
+                sheetMat.opacityTexture.vOffset -= 0.008 * speedMultiplierLaser * dtScale;
                 // Slight side drift
-                this.laserSheet.material.opacityTexture.uOffset += 0.001 * Math.sin(time * 0.5);
+                sheetMat.opacityTexture.uOffset += 0.001 * Math.sin(time * 0.5) * dtScale;
             }
             
             // Pulse intensity with audio
             const pulse = 0.5 + (audioData.average || 0) * 0.5;
-            this.laserSheet.material.alpha = 0.5 * pulse;
+            sheetMat.alpha = 0.5 * pulse;
             
             // Color sync
             if (this.laserEmissiveColors) {
@@ -205,8 +289,10 @@ class VRClubAnimationCore extends VRClubEffects {
                 else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
                 else sheetColor = this.cachedColors.blue;
                 
-                this.laserSheet.material.emissiveColor = sheetColor;
-                if (this.laserAperture) this.laserAperture.material.emissiveColor = sheetColor;
+                sheetMat.emissiveColor = sheetColor;
+                if (this.laserAperture && this.laserAperture.material) {
+                    this.laserAperture.material.emissiveColor = sheetColor;
+                }
                 if (this.laserLight) {
                     this.laserLight.diffuse = sheetColor;
                     this.laserLight.intensity = 2.0 * pulse;
@@ -232,7 +318,7 @@ class VRClubAnimationCore extends VRClubEffects {
 
     /** Mirror ball: rotation, fixture glow, outgoing rays and reflection spots. */
     updateMirrorBall(ctx) {
-        const { time } = ctx;
+        const { time, dtScale } = ctx;
 
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
@@ -274,12 +360,15 @@ class VRClubAnimationCore extends VRClubEffects {
             // Apply speed multiplier for VJ control
             if (this.mirrorBall) {
                 const speedMultiplier = this.mirrorBallSpeed || 1.0;
-                this.mirrorBallRotation -= 0.003 * speedMultiplier; // Negative rotation - spots now move in same visual direction
+                this.mirrorBallRotation -= 0.003 * speedMultiplier * dtScale; // Negative rotation - spots now move in same visual direction
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
                 
-                // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set)
-                // Cycle colors every 3 seconds for dynamic club atmosphere
-                if (!this.vjManualMode && this.frameCounter % 180 === 0) { // Every ~3 seconds at 60fps
+                // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set).
+                // Wall clock, not `frameCounter % 180`: the frame-counter version fired
+                // every 1.5 s at 120 Hz and every 6 s at 30 Hz, so the ball kept a
+                // different musical tempo on every device.
+                if (!this.vjManualMode && time - (this._mirrorColorSwitchTime || 0) > 3) {
+                    this._mirrorColorSwitchTime = time;
                     this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
                     this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
                     
@@ -321,7 +410,6 @@ class VRClubAnimationCore extends VRClubEffects {
             // These rays rotate WITH the ball and raycast to surfaces for realistic termination
             if (this.mirrorBallOutgoingRays && this.mirrorBallOutgoingRays.length > 0) {
                 const ballPos = this.mirrorBall.position;
-                const speedMultiplier = this.mirrorBallSpeed || 1.0;
                 
                 // Reuse ray object for performance
                 if (!this.mirrorOutgoingRay) {
@@ -363,10 +451,12 @@ class VRClubAnimationCore extends VRClubEffects {
                         }
                     }
                     
-                    // Use cached length with smooth interpolation
+                    // Use cached length with smooth interpolation.
+                    // The retention rate is compounded over dtScale so the smoothing
+                    // TIME CONSTANT is the same at 30, 60, 72, 90 and 120 Hz.
                     const targetLength = ray.currentLength || ray.length;
                     ray.displayLength = ray.displayLength || ray.length;
-                    ray.displayLength += (targetLength - ray.displayLength) * 0.1; // Smooth
+                    ray.displayLength += (targetLength - ray.displayLength) * (1 - Math.pow(0.9, dtScale));
                     
                     // Update mesh scale to match actual ray length
                     const scaleRatio = ray.displayLength / ray.length;
@@ -508,7 +598,10 @@ class VRClubAnimationCore extends VRClubEffects {
                         const isSameMesh = (spot.previousHitMesh === hitMesh);
                         
                         // REALISTIC interpolation: mirror ball reflections move based on physics
-                        // Real disco balls create smooth, continuous movement patterns
+                        // Real disco balls create smooth, continuous movement patterns.
+                        // Each rate is a per-60fps-frame retention that is compounded over
+                        // the real frame time below, so the smoothing time constant no
+                        // longer varies by ~4x across the supported refresh-rate range.
                         let lerpFactor;
                         
                         if (!isSameMesh && distanceMoved > 5.0) {
@@ -528,6 +621,7 @@ class VRClubAnimationCore extends VRClubEffects {
                             // Natural speed that matches ball rotation
                             lerpFactor = 0.75;
                         }
+                        if (lerpFactor < 1.0) lerpFactor = 1 - Math.pow(1 - lerpFactor, dtScale);
                         
                         // Smoothly interpolate position (prevents jarring jumps)
                         spot.visual.position.x += (hitPos.x - spot.visual.position.x) * lerpFactor;
@@ -584,9 +678,12 @@ class VRClubAnimationCore extends VRClubEffects {
                         spot.previousHitMesh = null;
                     }
                 }
-                } // Close if (shouldUpdate)
                 
-                // Update visibility based on tracking state
+                // Update visibility based on tracking state.
+                // Inside the gate: `spot.isVisible` and `activeSpotCount` only change
+                // in the block above, so running this every frame issued up to 300
+                // setEnabled() calls per frame (each walking the mesh's descendant
+                // hierarchy) on state that provably had not changed.
                 this.mirrorReflectionSpots.forEach((spot, index) => {
                     // Only enable if it was marked visible during the last update
                     // AND if the mirror ball is active
@@ -600,6 +697,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         if (spot.beam) spot.beam.setEnabled(false);
                     }
                 });
+                } // Close if (shouldUpdate)
                 
                 // UPGRADE: Update shared beam material color once per frame (not 100×)
                 // QC: permanently unfrozen — see note on _sharedMirrorRayMat above.
@@ -649,7 +747,7 @@ class VRClubAnimationCore extends VRClubEffects {
      * "three places hand control over" table in the agent instructions.
      */
     updateVJPhasing(ctx) {
-        const { time } = ctx;
+        const { time, dtScale } = ctx;
 
         // PROFESSIONAL VJ AUTOMATIC PATTERN SYSTEM
         // Designed by a world-class VJ with experience at Berghain, Fabric, Amnesia, and Output
@@ -673,8 +771,11 @@ class VRClubAnimationCore extends VRClubEffects {
         if (!this.vjManualMode && !directorHoldingMacro && !showDriving) {
             const currentPhaseDuration = this.phaseDurations[this.lightingPhase];
             
-            // Smoothly interpolate energy level toward target
-            const energySpeed = 0.005; // Faster for more dynamic feel
+            // Smoothly interpolate energy level toward target.
+            // energyLevel drives spotlight intensity, laser rotation speed and the
+            // colour-change interval, so an unscaled per-frame increment made the
+            // whole show's ramp rate device-dependent.
+            const energySpeed = 1 - Math.pow(1 - 0.005, dtScale);
             this.energyLevel += (this.targetEnergy - this.energyLevel) * energySpeed;
             
             // === IMMERSIVE BEAT-SYNCED MICRO-DYNAMICS ===
@@ -1120,9 +1221,7 @@ class VRClubAnimationCore extends VRClubEffects {
             // === SPOTLIGHT CROWD FOCUS ===
             // Occasionally converge spotlights on dance floor center for dramatic effect
             if (this.lightsActive && this.spotlights) {
-                const convergeFactor = this.crowdFocusIntensity * 0.3; // 0-0.3 convergence
-                
-                this.spotlights.forEach((spot, i) => {
+                this.spotlights.forEach((spot) => {
                     if (spot.light) {
                         // Intensity breathes with energy + beat sync
                         const baseIntensity = 8 + this.energyLevel * 15; // 8-23
@@ -1150,7 +1249,7 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.lasersActive && this.lasers) {
                 const fanAngle = this.laserFanAngle || 0.5;
                 
-                this.lasers.forEach((laser, i) => {
+                this.lasers.forEach((laser) => {
                     // Rotation speed tied to energy
                     laser.rotationSpeed = (0.008 + this.energyLevel * 0.03) * energySpeedBoost;
                     

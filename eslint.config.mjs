@@ -78,6 +78,8 @@ const projectGlobals = {
     IndexedDBAssetCache: 'readonly',
     InFlightRegistry: 'readonly',
     fetchWithTimeout: 'readonly',
+    fetchBufferWithTimeout: 'readonly',
+    fetchBlobWithTimeout: 'readonly',
     TextureLoader: 'readonly',
     ModelLoader: 'readonly',
     MaterialFactory: 'readonly',
@@ -123,10 +125,34 @@ const sharedRules = {
 export default [
     {
         ignores: [
-            'backup_aframe/**',
             'node_modules/**',
-            'js/vendor/**'
+            'js/vendor/**',
+            // Build output: minified vendor bundles here are megabytes of generated
+            // code that no rule applies to, and linting them cost ~13 s per run.
+            'dist/**'
         ]
+    },
+    {
+        // Service worker. Previously matched NO config block, so it was visited with
+        // no languageOptions and no rules - a typo in the worker shipped unchallenged.
+        files: ['sw.js', 'serviceworker.js'],
+        languageOptions: {
+            ecmaVersion: 2023,
+            sourceType: 'script',
+            globals: {
+                self: 'readonly',
+                caches: 'readonly',
+                clients: 'readonly',
+                fetch: 'readonly',
+                console: 'readonly',
+                importScripts: 'readonly',
+                Response: 'readonly',
+                Request: 'readonly',
+                URL: 'readonly',
+                Promise: 'readonly'
+            }
+        },
+        rules: sharedRules
     },
     {
         // First-party browser scripts (classic, shared global scope).

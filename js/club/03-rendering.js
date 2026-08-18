@@ -1,13 +1,40 @@
 class VRClubRendering extends VRClubLifecycle {
     addPostProcessing() {
-        // Prevent duplicate pipelines
-        if (this.renderPipeline) {
-            return;
-        }
-
         const desktop = this.vrSettings.desktop;
         const tier = this.tierSettings;
 
+        // Guard ONLY the DefaultRenderingPipeline. Keying the whole method on
+        // `this.renderPipeline` meant that once applyVRSettings() swapped in a VR
+        // pipeline, a later call returned immediately and never rebuilt SSAO, SSR or
+        // motion blur. The helpers below carry their own idempotency guards.
+        if (!this.renderPipeline) {
+            this._createDefaultPipeline(desktop, tier);
+        }
+
+        // SSAO 2 Pipeline (Screen Space Ambient Occlusion) - Adds realistic contact shadows
+        // ONLY for desktop mode (too expensive for standalone VR)
+        // Adds depth to corners and contact points for hyperrealism
+        // Note: Pass camera in constructor - don't call attachCamerasToRenderPipeline again (causes reuse warnings)
+        if (!this.ssaoPipeline) {
+            this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, this.camera ? [this.camera] : []);
+            this.ssaoPipeline.radius = 3.5;
+            this.ssaoPipeline.totalStrength = 1.2;
+            this.ssaoPipeline.expensiveBlur = tier.ssaoExpensiveBlur;
+            this.ssaoPipeline.samples = tier.ssaoSamples;
+            // Matched to the camera's far plane (02-lifecycle.js sets camera.maxZ = 100).
+            // A larger maxZ than the camera can see only spreads depth precision thinner.
+            this.ssaoPipeline.maxZ = this.camera ? this.camera.maxZ : 100;
+        }
+
+        // Heavy tier-gated effects.
+        this._createScreenSpaceReflections();
+        this._createMotionBlur();
+        
+        log.info(`✨ Post-processing initialized (hyperrealistic mode, tier: ${this.graphicsTier})`);
+    }
+
+    /** Build the primary HDR pipeline. Split out so addPostProcessing() can be re-run. */
+    _createDefaultPipeline(desktop, tier) {
         // Create ENHANCED rendering pipeline for hyperrealistic cinematic effects
         // Pass cameras array in constructor to avoid "reuse" warnings from addCamera()
         const pipeline = new BABYLON.DefaultRenderingPipeline(
@@ -80,23 +107,6 @@ class VRClubRendering extends VRClubLifecycle {
         
         // Store pipeline for VR/desktop switching
         this.renderPipeline = pipeline;
-
-        // SSAO 2 Pipeline (Screen Space Ambient Occlusion) - Adds realistic contact shadows
-        // ONLY for desktop mode (too expensive for standalone VR)
-        // Adds depth to corners and contact points for hyperrealism
-        // Note: Pass camera in constructor - don't call attachCamerasToRenderPipeline again (causes reuse warnings)
-        this.ssaoPipeline = new BABYLON.SSAO2RenderingPipeline("ssao", this.scene, 0.75, this.camera ? [this.camera] : []);
-        this.ssaoPipeline.radius = 3.5;
-        this.ssaoPipeline.totalStrength = 1.2;
-        this.ssaoPipeline.expensiveBlur = tier.ssaoExpensiveBlur;
-        this.ssaoPipeline.samples = tier.ssaoSamples;
-        this.ssaoPipeline.maxZ = 250;
-
-        // Heavy tier-gated effects.
-        this._createScreenSpaceReflections();
-        this._createMotionBlur();
-        
-        log.info(`✨ Post-processing initialized (hyperrealistic mode, tier: ${this.graphicsTier})`);
     }
 
     /**
@@ -308,15 +318,49 @@ class VRClubRendering extends VRClubLifecycle {
         log.info(`🔍 Anisotropic filtering set to ${target}x on ${count} textures`);
     }
 
-    /** Clamp all lit materials after scene construction to avoid WebGL UBO overflow. */
+    /**
+     * Clamp all lit materials after scene construction to avoid WebGL UBO overflow.
+     *
+     * `maxSimultaneousLights` invalidates the compiled effect via
+     * markAllSubMeshesAsLightsDirty. Three things suppress that and ALL must be
+     * lifted, or the GPU keeps a shader compiled for the old light count while
+     * Babylon sizes the uniform buffer for the new one - which surfaces as
+     * `GL_INVALID_OPERATION: uniform buffer that is too small` on every draw:
+     *   - `scene.blockMaterialDirtyMechanism` (set during construction for speed)
+     *   - `material.freeze()` (sets checkReadyOnlyOnce, so isReady() never re-runs)
+     *   - re-freezing before the recompile has happened
+     *
+     * Hence the re-freeze is deferred to after the next render, by which point the
+     * new effect is bound. This is a one-shot post-construction sweep, so unfreezing
+     * here does not violate the "never freeze/unfreeze per frame" rule.
+     */
     _clampMaterialLightBudgets() {
+        const wasBlocked = this.scene.blockMaterialDirtyMechanism;
+        this.scene.blockMaterialDirtyMechanism = false;
+
+        const refreeze = [];
         let count = 0;
         this.scene.materials.forEach(material => {
             if (material.maxSimultaneousLights === undefined ||
                 material.maxSimultaneousLights === this.maxLights) return;
+            if (material.isFrozen) {
+                material.unfreeze();
+                refreeze.push(material);
+            }
             material.maxSimultaneousLights = this.maxLights;
+            if (material.markAsDirty) material.markAsDirty(BABYLON.Material.LightDirtyFlag);
             count++;
         });
+
+        this.scene.blockMaterialDirtyMechanism = wasBlocked;
+
+        if (refreeze.length && this.scene.onAfterRenderObservable) {
+            this.scene.onAfterRenderObservable.addOnce(() => {
+                refreeze.forEach(material => {
+                    if (!material.isFrozen && material.freeze) material.freeze();
+                });
+            });
+        }
         log.info(`💡 Clamped ${count} materials to ${this.maxLights} simultaneous lights`);
     }
 
@@ -490,11 +534,13 @@ class VRClubRendering extends VRClubLifecycle {
             }
         });
         
-        // Apply the probe's cube texture to the floor PBR material
+        // Apply the probe's cube texture to the floor PBR material.
+        // Freeze state is SAVED and restored: unfreezing conditionally but freezing
+        // unconditionally left an intentionally-hot material frozen, and
+        // _rebuildFloorReflectionProbe() re-runs this on every graphics-tier change.
         const floorMat = this.floorMesh.material;
-        
-        // Unfreeze material if needed to apply reflection
-        if (floorMat.unfreeze) floorMat.unfreeze();
+        const wasFrozen = floorMat.isFrozen;
+        if (wasFrozen && floorMat.unfreeze) floorMat.unfreeze();
         
         floorMat.reflectionTexture = probe.cubeTexture;
         floorMat.reflectionTexture.coordinatesMode = BABYLON.Texture.CUBIC_REFLECTION_MODE;
@@ -503,8 +549,7 @@ class VRClubRendering extends VRClubLifecycle {
         // The floor already has roughness 0.25 which naturally blurs the reflection
         floorMat.environmentIntensity = 0.6; // Subtle ambient reflections
         
-        // Re-freeze material after applying reflection
-        floorMat.freeze();
+        if (wasFrozen && floorMat.freeze) floorMat.freeze();
         
         this.floorReflectionProbe = probe;
         log.info(`🪞 Floor reflection probe created (${this.tierSettings.probeResolution}px cube, ${renderList.length} meshes, frozen)`);

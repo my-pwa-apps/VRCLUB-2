@@ -25,7 +25,10 @@ const files = [
     ...collectJs(join(ROOT, 'js')),
     ...(existsSync(join(ROOT, 'scripts'))
         ? readdirSync(join(ROOT, 'scripts')).filter(f => f.endsWith('.mjs')).map(f => join('scripts', f))
-        : [])
+        : []),
+    // Root-level worker scripts. These live outside js/ and were therefore covered
+    // by no syntax check and no lint config at all.
+    ...['sw.js', 'serviceworker.js'].filter(f => existsSync(join(ROOT, f)))
 ];
 
 let failed = 0;

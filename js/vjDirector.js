@@ -158,7 +158,7 @@ class VJDirector {
         //    the LOOK decision is handed over.)
         const showDriving = !!(this.club.showDirector && this.club.showDirector.isDriving());
         if (now > this.manualSceneUntil && !showDriving) {
-            this._updateAutoScene(audioData, now);
+            this._updateAutoScene(audioData);
         }
 
         // 6. Apply master palette (writes to existing color state vars on phrase boundary)
@@ -218,7 +218,6 @@ class VJDirector {
     }
 
     _registerBeat(now, synthetic) {
-        const dt = now - this.lastBeatAt;
         this.lastBeatAt = now;
         this.beatNumber++;
 
@@ -258,7 +257,7 @@ class VJDirector {
     // -------------------------------------------------------------------------
     // SCENE ENGINE — picks a coordinated look based on perceived energy.
     // -------------------------------------------------------------------------
-    _updateAutoScene(audioData, now) {
+    _updateAutoScene(audioData) {
         // Smoothed energy envelope (long time constant — scenes should not flicker)
         const inst = audioData ? (audioData.bass * 0.6 + audioData.mid * 0.3 + audioData.treble * 0.1) : 0;
         this._energyEMA += (inst - this._energyEMA) * 0.02;
@@ -279,10 +278,10 @@ class VJDirector {
             nextScene = 'drop';
         }
 
-        if (nextScene !== this.scene) this._enterScene(nextScene, now);
+        if (nextScene !== this.scene) this._enterScene(nextScene);
     }
 
-    _enterScene(name, now) {
+    _enterScene(name) {
         const club = this.club;
         this.scene = name;
         this._sceneStartBeat = this.beatNumber;

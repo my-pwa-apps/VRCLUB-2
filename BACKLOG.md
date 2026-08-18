@@ -1098,6 +1098,268 @@ re-raised.
   Business value: Low
   Technical debt reduction: Medium
 
+---
+
+## Review — 2026-08-17 — Comprehensive Architecture, Quality, Reliability, Performance & Maintainability Review
+
+Scope: full-repository review as Principal Software Engineer, Principal Quality Engineer, Software Architect, Product Engineer, Security Engineer, Performance Engineer, UX Reviewer, and Technical Lead covering architecture, engineering principles, runtime efficiency, security, reliability, test coverage, and long-term maintainability.
+
+### Fixed during this review
+
+- [x] Sixty-six ESLint warnings and parameter mismatches across source layers
+  Priority: High
+  Category: Cleanup / Quality
+  Area: Whole codebase
+  Affected files: `js/club/01-core.js`, `js/club/02-lifecycle.js`, `js/club/05-fixtures.js`, `js/club/06-effects.js`, `js/club/07-animation-core.js`, `js/club/08-animation-fixtures.js`, `js/club/09-animation-finish.js`, `js/club/10-ui.js`, `js/ledPatterns.js`, `js/lightFactory.js`, `js/showDirector.js`, `js/textureLoader.js`, `js/ui-init.js`, `js/vjDirector.js`
+  Problem: 66 warnings and dead parameter declarations were flagged across 14 source files, including undeclared loop variables (`i` in fog animation), unexported global constants (`ROOM_BOUNDS`, `CLUB_POSITIONS`), unused variables in lighting loops, and unused parameter declarations in pattern functions.
+  Impact: Noise in build checks obscured real syntax errors, and undeclared loop indices risked runtime ReferenceErrors.
+  Recommended solution: Clean up unused declarations, export required window globals, prefix interface-mandated unused arguments with `_`, and ensure `npm run lint` executes with 0 warnings and 0 errors.
+  Acceptance criteria: `npm run lint` passes with 0 errors and 0 warnings.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: High
+
+- [x] Mirror ball rotation was frame-rate dependent on high-refresh displays
+  Priority: High
+  Category: Bug / Performance
+  Area: Animation
+  Affected files: `js/club/07-animation-core.js`
+  Problem: `this.mirrorBallRotation -= 0.003 * speedMultiplier` in `updateMirrorBall()` did not multiply by `dtScale`, causing mirror ball spin and its associated outgoing rays to rotate 1.5–2x faster on 90 Hz / 120 Hz Quest headsets than on 60 Hz desktop displays.
+  Impact: Visual pacing of the mirror ball effect diverged depending on device refresh rate and thermal throttling.
+  Recommended solution: Destructure `dtScale` from the frame context in `updateMirrorBall` and scale the rotation increment by `dtScale`.
+  Acceptance criteria: Mirror ball rotation completes one revolution in identical wall-clock time across 60, 72, 90, and 120 Hz.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+---
+
+### Open Backlog Items
+
+- [x] Transition 11-layer prototype chain with ambient TypeScript definitions and isolated layer contracts
+  Priority: High
+  Category: Architecture / Refactor
+  Area: Whole application
+  Affected files: `js/club/*.js`, `js/club_hyperrealistic.js`, `types/vrclub.d.ts`, `scripts/build.mjs`
+  Problem: `VRClub` was composed via classic script global inheritance without formal type contracts, creating potential risks of property collisions during cross-layer extension.
+  Impact: Risk of accidental property collision and lack of IDE typing support across layer boundaries.
+  Recommended solution: Solidified each of the 11 focused layers (`01-core.js` through `11-audio-crowd.js`) under 1,500 lines with zero lint warnings, exported clean global contracts (`window.VRClubCore`, `window.ROOM_BOUNDS`, `window.CLUB_POSITIONS`), and authored ambient TypeScript definitions in `types/vrclub.d.ts` specifying all public APIs, configs, and subsystem interfaces.
+  Acceptance criteria: All layers parse, build, lint with zero warnings, and pass all contract and unit tests; `types/vrclub.d.ts` provides complete IDE autocompletion.
+  Estimated effort: Large
+  Business value: High
+  Technical debt reduction: High
+
+- [x] Web Audio 3D spatialization and room acoustics reverberation
+  Priority: High
+  Category: Feature / Audio
+  Area: Sound
+  Affected files: `js/club/11-audio-crowd.js`, `js/club/07-animation-core.js`, `test/unit.test.mjs`
+  Problem: Audio previously routed into a static stereo mastering chain with flat loudness and equal frequency response regardless of listener location (DJ booth vs dance floor center vs entrance).
+  Impact: Moving around the club lacked acoustic depth, directionality, and the physical sense of being inside an industrial acoustic space.
+  Recommended solution: Implemented dynamic Web Audio 3D spatial acoustics. Flown PA speakers at `CLUB_POSITIONS.paSpeakers.left` and `CLUB_POSITIONS.paSpeakers.right` have dedicated `PannerNode`s configured with HRTF panning and distance attenuation. An omnidirectional Sub-bass channel (`BiquadFilterNode` lowpass 100 Hz) dynamically delivers physical sub-bass on the dance floor (`z: -12` to `-16`) with realistic falloff toward the entrance (`z: 0`). Distance-dependent high-frequency air absorption filter and early room reflections (`roomDelay`) provide authentic nightclub acoustic presence. Listener position and orientation update smoothly every frame.
+  Acceptance criteria: Audio loudness, stereo panning, and frequency balance realistically attenuate as player walks from the center dance floor to the entrance; pre-spatial tap preserves 100% reactive lighting across the room; unit tests pass.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] WebXR controller direct interaction and tactile haptic feedback for VJ console
+  Priority: High
+  Category: Feature / UX
+  Area: WebXR / Interaction
+  Affected files: `js/club/10-ui.js`, `js/club/05-fixtures.js`
+  Problem: In-world VJ buttons and audio controls had no physical tactile depression animation or localized controller haptic feedback.
+  Impact: Pressing controls in VR lacked physical responsiveness and tactile feedback.
+  Recommended solution: Added `_pressButton3D(mesh)` and `pulseHaptic(intensity, duration)` to `VRClubUI`. When activated in VR or via desktop ray pointer, 3D buttons visibly depress (`position.y -= 0.015`) for 120 ms and trigger a sharp dual-rumble haptic pulse on active VR controllers.
+  Acceptance criteria: In-world 3D buttons animate on click with physical spring-back and dispatch haptic clicks in VR.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] Dynamic Level of Detail (LOD) and frustum culling for crowd avatars
+  Priority: Medium
+  Category: Performance
+  Area: Crowd / Rendering
+  Affected files: `js/club/11-audio-crowd.js`, `test/unit.test.mjs`
+  Problem: Skinned dancer avatars evaluated full 60-joint skeletal animation groups every frame even when located behind the camera or when the user stood inside the DJ booth facing away from the dance floor.
+  Impact: Unnecessary CPU/GPU vertex skinning load on standalone Quest 3S chipsets.
+  Recommended solution: Implemented camera view frustum testing (`cam.isInFrustum(npc.root)`) inside `updateDancingNPCs()`. Off-screen and distant (>28 m) dancers pause skeletal animation evaluation (`group.pause()`) and automatically resume (`group.restart()`) upon re-entering the camera frustum.
+  Acceptance criteria: Off-screen avatars pause animation evaluation; smoothly resume when entering frustum; unit tests verify culling and pause state logic.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] ServiceWorker and PWA Offline Shell for instant WebXR launch
+  Priority: Medium
+  Category: Reliability / UX
+  Area: Application shell
+  Affected files: `manifest.json`, `sw.js`, `serviceworker.js`, `index.html`, `js/ui-init.js`, `scripts/build.mjs`, `test/unit.test.mjs`
+  Problem: First-time loading over unstable venue or headset Wi-Fi had to fetch all assets fresh, with no installable PWA manifest or offline shell.
+  Impact: Slow cold-start times on standalone VR headsets.
+  Recommended solution: Added `manifest.json` with WebXR fullscreen metadata, `sw.js` with versioned cache management, and registration in `ui-init.js`. Core assets (Babylon runtime, loaders, stylesheets, app scripts) are cached with a stale-while-revalidate strategy. `scripts/build.mjs` copies PWA assets into `dist/`.
+  Acceptance criteria: PWA manifest validates; Service Worker installs and caches app shell; `npm test` and `npm run build` pass.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] Structured client-side telemetry and crash diagnostics buffer
+  Priority: Low
+  Category: Observability / Reliability
+  Area: Monitoring
+  Affected files: `js/club/01-core.js`, `js/club/11-audio-crowd.js`, `test/unit.test.mjs`
+  Problem: Headset users could not access devtools to diagnose runtime audio errors, WebGL context drops, or FPS dips.
+  Impact: Hard-to-diagnose field issues on standalone VR headsets.
+  Recommended solution: Implemented a bounded circular diagnostics buffer (`diagnosticsBuffer`) in `VRClubCore` capturing timestamped audio, XR, render, and lifecycle events with `recordDiagnostic(category, message, data)` and snapshot exporter `getDiagnostics()`. Integrated into debug overlay and error handlers.
+  Acceptance criteria: Bounded 100-item circular buffer records events; `getDiagnostics()` returns full health report; unit tests pass.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [x] Strict TypeScript ambient declarations for public VRClub API
+  Priority: Low
+  Category: Developer Experience / Documentation
+  Area: Tooling
+  Affected files: `types/vrclub.d.ts`
+  Problem: Methods across the 11 prototype layers relied on dynamic duck-typing without IDE autocompletion or ambient type signatures.
+  Impact: Higher cognitive overhead when inspecting or extending VRClub classes.
+  Recommended solution: Authored comprehensive ambient type definitions in `types/vrclub.d.ts` covering `VRClub`, `QualityTierSettings`, `DiagnosticsReport`, `AudioFrameData`, `ShowCue`, `Movement`, and all factory/loader classes.
+  Acceptance criteria: `types/vrclub.d.ts` provides complete IDE autocompletion for `VRClub` APIs and configs.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: High
+
+---
+
+## Review — 2026-08-17b — Physical Presence & Real-World Feel
+
+Scope: a second pass focused solely on the gap between "a good-looking 3D scene" and "being
+in a room". The rig, the show and the spatial mix were already strong; what was missing was
+everything the body notices — the room's acoustic tail, the sound of other people, the fact
+that walking is not gliding, and that eyes and air are not perfect.
+
+### Fixed during this review
+
+- [x] The room had a delay tap but no acoustic tail
+  Priority: High
+  Category: Feature / Audio
+  Area: Sound
+  Affected files: `js/club/11-audio-crowd.js`, `test/unit.test.mjs`
+  Problem: room ambience was a single 38 ms `DelayNode` tap. One discrete echo is not a
+  room; a hard-surfaced warehouse produces a dense, slowly-decaying cloud of reflections,
+  and its absence is why the mix read as "headphones" rather than "venue".
+  Impact: the most-cited difference between recorded and live electronic music was missing.
+  Recommended solution: a `ConvolverNode` fed by a procedurally synthesised impulse
+  response (`_createRoomImpulseResponse()`): six discrete early reflections computed from
+  the actual 25 x 16 x 10 m box at 343 m/s, layered over an exponentially decaying,
+  one-pole-lowpassed noise tail (~1.9 s RT60, concrete-appropriate). Generated rather than
+  shipped so no extra asset lands on the critical path.
+  Acceptance criteria: the tail is dense and stereo-wide; no additional network request;
+  the send survives occlusion so the room keeps ringing when the direct path is blocked.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] Reverb, occlusion and level did not respond to where the listener stood
+  Priority: High
+  Category: Feature / Audio
+  Area: Sound
+  Affected files: `js/club/11-audio-crowd.js`
+  Problem: the panners handled direction, but the dry/wet balance was fixed, and walking
+  out of the room toward the entrance sounded identical to standing in front of the PA.
+  Impact: the room had no acoustic geography — the single strongest spatial cue a real
+  venue gives you.
+  Recommended solution: drive the convolver send from listener distance (0.08 dry at the
+  boxes to 0.62 wet at the back), and add an occlusion `BiquadFilter` between the panners
+  and the mastering bus that rolls off to 700 Hz and drops master gain to 0.72 once the
+  listener passes `ROOM_BOUNDS.z.max`. Keyed off the authored room bounds, not a
+  re-derived literal.
+  Acceptance criteria: walking from the dance floor to the entrance audibly moves from
+  dry/loud/bright to wet/muffled/distant; sourced from `ROOM_BOUNDS`.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] The club was silent between tracks — nobody else was in it
+  Priority: High
+  Category: Feature / Audio
+  Area: Sound
+  Affected files: `js/club/11-audio-crowd.js`, `js/club/02-lifecycle.js`, `test/unit.test.mjs`
+  Problem: fourteen animated dancers were visible on the floor and produced no sound at
+  all. Any gap in the music dropped the room to digital silence, which instantly reads as
+  a simulation.
+  Impact: undermined the crowd the renderer was already paying full skinning cost for.
+  Recommended solution: `_startCrowdAmbience()` — a looping brown-noise buffer through a
+  900 Hz bandpass (the vocal-mass band), spatialised by its own `PannerNode` at
+  `CLUB_POSITIONS.danceFloor` so it sits behind you at the booth, and ducked against
+  analyser energy so it swells in the gaps and disappears under a loud PA.
+  Acceptance criteria: audible murmur between tracks, inaudible under full music, correctly
+  positioned when the listener moves; the looping source is explicitly stopped in
+  `dispose()` (closing the context alone does not reclaim it).
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] The desktop camera glided at a fixed height like a drone
+  Priority: High
+  Category: Feature / UX
+  Area: Camera
+  Affected files: `js/club/01-core.js`, `js/club/07-animation-core.js`, `test/unit.test.mjs`
+  Problem: WASD movement translated the camera with no vertical or rotational component,
+  so the desktop viewer had no body. VR users get real head motion from the headset;
+  desktop users got nothing.
+  Impact: the largest remaining "this is a viewport, not a place" cue on desktop.
+  Recommended solution: `updateCameraPresence()` — speed-derived stride phase driving a
+  35 mm vertical bob at twice stride rate plus an 11 mrad lateral roll at stride rate,
+  amplitude lerped in and out so starting and stopping is smooth. Gated on
+  `prefers-reduced-motion` and hard-disabled in VR, where synthetic bob causes sim
+  sickness. The previously applied offset is subtracted before the camera delta is
+  sampled, otherwise the bob feeds its own speed estimate and self-oscillates.
+  Acceptance criteria: walking feels weighted, stopping settles cleanly, VR is untouched,
+  reduced-motion users get the old behaviour.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] Exposure was constant, so the room never felt bright or dark
+  Priority: Medium
+  Category: Feature / Rendering
+  Area: Post-processing
+  Affected files: `js/club/01-core.js`, `js/club/07-animation-core.js`, `test/unit.test.mjs`
+  Problem: `imageProcessing.exposure` was a fixed per-target constant. A real iris stops
+  down hard against a blinder and opens slowly in a blackout; without that, a full-rig
+  peak and a breakdown are rendered with identical sensitivity and the dynamic range of
+  the show is flattened.
+  Impact: peaks did not feel bright and breakdowns did not feel dark.
+  Recommended solution: `updateEyeAdaptation()` estimates scene brightness from rig state
+  (a GPU readback would stall the pipeline every frame, and the rig already knows exactly
+  how much light it is emitting) and lerps exposure toward it with asymmetric time
+  constants — fast constrict (0.10), slow dilate (0.012). Clamped to [0.78, 1.22] of the
+  target's base so a blackout can never blow out. The strobe term is gated on
+  `photosensitiveSafeMode` so safe mode cannot be brightened through the back door.
+  `_adaptedExposure` is re-seeded on both VR transitions, where the pipeline is rebuilt.
+  Acceptance criteria: a drop visibly stops the image down and a breakdown opens it back
+  up over seconds; safe mode is unaffected; no stale exposure survives a VR transition.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] Light beams were smooth cones with nothing in the air
+  Priority: Medium
+  Category: Feature / Rendering
+  Area: Particles
+  Affected files: `js/club/05-fixtures.js`, `js/club/01-core.js`, `test/unit.test.mjs`
+  Problem: haze made the beams visible as volumes, but the volumes were perfectly smooth.
+  Real air carries dust that glints individually as a beam sweeps across it, and its
+  absence is a recognisable CG tell on every fixture in the room.
+  Recommended solution: an additive `dustMotes` particle system, 12–50 mm particles, tier
+  scaled (1400 / 900 / 400) with upward convection gravity — a packed room lifts dust, so
+  negative gravity would read as falling snow. Emit rate is set on both the VR and desktop
+  paths so entering a headset does not keep paying the desktop cost.
+  Acceptance criteria: beams sparkle as they sweep; capacity follows the tier; VR rate is
+  reduced.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
 - [x] Untracked global click listener in the settings panel
   Priority: Medium
   Category: Bug
@@ -1327,3 +1589,1106 @@ re-raised.
 - `Cross-Origin-Embedder-Policy: require-corp` must **not** be added to `scripts/serve.mjs`. `cdn.babylonjs.com` sends no `Cross-Origin-Resource-Policy`, so COEP would block the pinned Babylon bundles and produce a blank page. The build uses no `SharedArrayBuffer` and no threaded WASM, so it buys nothing. The reasoning is now recorded in the file.
 - Crowd bounding-box "clashes" with `mergedPillars`, `mergedBricks`, `goboProjection*` and `djPlatform` are artefacts of AABB testing against merged meshes and light-projection geometry. Actual pillar positions are `x = ±12.5`; all dancers are within `|x| ≤ 7.4`.
 - Absolute FPS measured in the headless automation browser (12–14) is a property of software rendering, not a regression signal. A/B measurement showed the crowd costs ~2 FPS there.
+
+---
+
+## Review — 2026-08-18 — Full-repository engineering review
+
+Full-stack review across product, architecture, correctness, performance, security,
+reliability, testing, accessibility and maintainability. `[x]` items were resolved in
+this pass; `[ ]` items are carried forward.
+
+Baseline before: 40 tests passing, lint clean, `dist/` = 109.5 MB.
+Baseline after: 40 tests passing (16 source-scanning change-detector tests replaced
+with behavioural ones), lint clean, `dist/` = 60.9 MB, verified in a real browser with
+zero console errors and zero WebGL warnings.
+
+### Critical
+
+- [x] Photosensitive Safe Mode was unreachable until after the strobes had already fired
+  Priority: Critical
+  Category: Accessibility
+  Area: UI / Safety
+  Affected files: `index.html`, `css/styles.css`, `js/ui-init.js`
+  Problem: strobes and blinders default ON; safe mode defaults OFF; the only control was
+  the LAST section of a nine-section panel that itself had no `max-height` or `overflow`,
+  so on any viewport under ~1070 px tall it was clipped off-screen with no scrollbar. The
+  sequence for a photosensitive user was: enter → strobes fire → hunt for an emoji icon →
+  scroll to a section that could not be scrolled to. `prefers-reduced-motion` was consulted
+  only for head-bob, never for strobes.
+  Impact: WCAG 2.3.1 (Level A) failure and a genuine seizure risk on a head-mounted display,
+  where the flashes fill the entire field of view.
+  Recommended solution: put a photosensitivity warning and a Safe Mode toggle on the splash
+  above ENTER; default safe mode ON when `prefers-reduced-motion: reduce` and no explicit
+  preference is stored; promote the accessibility section to first in the VJ panel; give the
+  panel `max-height` + `overflow-y: auto`.
+  Acceptance criteria: the toggle is operable before any WebGL frame renders; the splash and
+  panel controls stay in sync; the panel scrolls on a 600 px-tall viewport.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] The audio toggle button was positioned 40 px below the viewport
+  Priority: Critical
+  Category: UX
+  Area: UI layout
+  Affected files: `css/styles.css`
+  Problem: `#audioToggle` shared `bottom: 20px; left: 50%` with `#cameraControls` and used
+  `margin-bottom: -60px` to dodge the collision. For an absolutely positioned box that shifts
+  the border box DOWN by 60 px, leaving ~5 px of a 45 px button on screen.
+  Impact: the primary entry point for the app's core value proposition — play your own music
+  — was effectively unreachable by pointer.
+  Recommended solution: anchor it bottom-right with safe-area insets; move `#audioMenu` to match.
+  Acceptance criteria: `getBoundingClientRect()` is fully inside the viewport; no overlap with
+  the camera bar at any breakpoint.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] `updateAnimations()` ran AFTER `scene.render()`, so every frame displayed stale state
+  Priority: Critical
+  Category: Bug / Performance
+  Area: Render loop
+  Affected files: `js/club/02-lifecycle.js`
+  Problem: the render loop called `scene.render()` first. Every beam position, spotlight
+  quaternion, LED colour, strobe flash, exposure value and head-bob offset was therefore not
+  seen by the GPU until the NEXT frame.
+  Impact: a permanent one-frame lag (~14 ms at 72 Hz on Quest, on top of the compositor's own),
+  and a guaranteed phase error between the camera matrix and the head-bob written into it.
+  Recommended solution: update, then render.
+  Acceptance criteria: `updateAnimations()` precedes `scene.render()`.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [x] Unclamped `Math.acos()` poisoned pooled beam quaternions with NaN, permanently
+  Priority: Critical
+  Category: Bug
+  Area: Fixture animation
+  Affected files: `js/club/08-animation-fixtures.js`
+  Problem: two beam-orientation paths fed `Vector3.Dot()` of float32-normalised vectors
+  straight into `Math.acos`. Float32 normalisation routinely yields ±1.0000000000000002,
+  whose `acos` is NaN. Because the quaternions are POOLED on the beam object and reused
+  across frames, one NaN made the world matrix NaN forever.
+  Impact: a laser or spotlight beam vanished permanently until reload. The mirror-ball path
+  already clamped correctly, which is evidence this was an oversight.
+  Recommended solution: clamp the dot product to [-1, 1] at both sites; stop mutating the
+  shared `laserDir` scratch with `.normalize()` after it has already been consumed.
+  Acceptance criteria: both call sites clamp; no `Math.acos` in the tree takes an unclamped dot.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Low
+
+- [x] `ModelLoader.loadModel()` had no rollback: a failure left orphaned geometry AND a duplicate
+  Priority: Critical
+  Category: Bug
+  Area: Model loading
+  Affected files: `js/modelLoader.js`
+  Problem: `addAllToScene()` sat inside the same `try` as ~230 lines of post-load configuration
+  whose `catch` built a SECOND model from the procedural fallback. The `AssetContainer` was
+  never removed or disposed on the error path.
+  Impact: on any post-load throw the scene kept un-scaled, un-opacified, over-lit GLB meshes at
+  the origin, with the VR opacity contract half-applied, alongside a duplicate model.
+  Recommended solution: split into a fetch/parse phase and a configure phase; the configure
+  catch calls `removeAllFromScene()` + `dispose()` before falling back.
+  Acceptance criteria: no code path can leave a partially configured container in the scene.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [x] The service worker precached URLs the page never requests; production precached nothing
+  Priority: Critical
+  Category: Bug
+  Area: PWA / build
+  Affected files: `sw.js`, `scripts/build.mjs`, `js/ui-init.js`
+  Problem: three compounding defects. (1) `CORE_ASSETS` held unversioned paths while
+  `index.html` requests `?v=`-suffixed ones; `caches.match()` compares the full URL including
+  the query string, so the precache was unreachable and every core asset downloaded TWICE.
+  (2) `sw.js` was copied verbatim into `dist/`, where 25 of 28 entries 404 — and `cache.addAll()`
+  is atomic, so production precached nothing at all, silenced by a `console.warn`.
+  (3) The SW also cached ~100 MB of GLB/PNG that `IndexedDBAssetCache` already stores.
+  Impact: the PWA had no offline shell, doubled cold-start downloads, and exhausted the origin
+  quota on a Quest — which then made IndexedDB's graceful quota path fire constantly.
+  Recommended solution: rewrite `sw.js` around an app-shell scope with a generated token;
+  have `build.mjs` emit `dist/sw.js` with a `PRECACHE` and `VERSION` derived from the content
+  hashes; exclude IndexedDB-owned binaries by extension; use `Promise.allSettled` per entry.
+  Acceptance criteria: precache entries match the URLs the page requests; a contract test
+  enforces the token; binaries are excluded; a missing optional asset cannot void the install.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [x] `scripts/build.mjs` kept a second, unverified copy of the script load order
+  Priority: Critical
+  Category: Architecture
+  Area: Build
+  Affected files: `scripts/build.mjs`, `test/contract.test.mjs`
+  Problem: the load order existed in three hand-maintained places. Because the HTML rewrite
+  strips first-party `<script>` tags unconditionally, adding a file to `index.html` and
+  forgetting `build.mjs` did not produce a duplicate or an error — the code was simply ABSENT
+  from production while dev worked and `npm test` stayed green.
+  Impact: silent production-only breakage, undetectable by any existing check.
+  Recommended solution: derive `sources` by parsing `index.html`; assert the postcondition
+  that no first-party tag survives into `dist/index.html`; add a contract test.
+  Acceptance criteria: `index.html` is the single source of truth; the build throws rather
+  than shipping a 404.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: High
+
+### High
+
+- [x] `this.lastColorChange` was shared by two unrelated colour cyclers
+  Priority: High
+  Category: Bug
+  Area: Animation
+  Affected files: `js/club/08-animation-fixtures.js`, `js/club/09-animation-finish.js`, `js/ui-init.js`
+  Problem: the spotlight palette cycler (2–12 s) and the LED wall palette cycler (4 s / 8 beats)
+  wrote the same property in the same frame. Whichever fired first reset the other's clock.
+  Impact: neither honoured its configured interval; the spotlight cycler was starved outright
+  whenever the LED interval was shorter. The property was initialised in three places — the
+  smell that led here.
+  Recommended solution: give the LED wall `ledLastColorChange`.
+  Acceptance criteria: one writer per timing property.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [x] The dance-floor LED strip divided an already-normalised audio value by 255
+  Priority: High
+  Category: Bug
+  Area: Animation
+  Affected files: `js/club/08-animation-fixtures.js`
+  Problem: `getAudioData()` already returns 0–1; every other consumer treats it that way.
+  Impact: audio terms collapsed to ≤0.004, so the perimeter strip was completely non-reactive —
+  and was 125× BRIGHTER with no audio than with it, because the `: 0.5` fallback was not divided.
+  Recommended solution: drop the `/ 255`.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [x] Nine frame-rate-independence violations across the animation layers
+  Priority: High
+  Category: Bug / Performance
+  Area: Animation
+  Affected files: `js/club/07-animation-core.js`, `js/club/08-animation-fixtures.js`
+  Problem: the project's stated non-negotiable rule was violated in nine places — mirror-ball
+  colour cycling keyed on `frameCounter % 180`, spotlight colour cross-fade as a bare per-frame
+  increment, mirror-ball spot/ray smoothing lerps, laser-sheet and beam-haze UV scroll, gobo
+  pool spin, and the energy-level easing. `dt` itself was derived as `0.016 * dtScale`, which is
+  0.96× true elapsed time, so every dt-driven timer ran ~4 % slow at every refresh rate.
+  Impact: the show ran at a different musical tempo per device; the gobo pool and the projection
+  disc counter-rotated at any refresh rate other than 60 Hz.
+  Recommended solution: `dt = dtScale / 60`; multiply per-frame steps by `dtScale`; compound
+  smoothing retention as `1 - Math.pow(1 - k60, dtScale)`; replace frame-counter timers with the
+  wall clock. Add a test that fails on a literal `0.016` in the animation tree.
+  Acceptance criteria: `npm test` fails on any reintroduction.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [x] `dispose()` leaked seven categories of GPU and host resource
+  Priority: High
+  Category: Bug
+  Area: Lifecycle
+  Affected files: `js/club/02-lifecycle.js`, `js/textureLoader.js`, `js/modelLoader.js`, `js/materialFactory.js`, `js/lightFactory.js`
+  Problem: `renderPipeline`, `_desktopRenderPipeline` (the parked desktop chain during an XR
+  session — a second full HDR pipeline), `ssaoPipeline`, `glowLayer`, `floorReflectionProbe`,
+  the context-lost observer and its `setTimeout`, the XR jump/Y-lock observers, and all four
+  loader/factory objects (two IndexedDB connections, in-flight downloads, DynamicTextures)
+  were never released.
+  Impact: the club could not be embedded, hot-reloaded or unmounted without leaking the whole
+  scene graph and the WebGL context. The context-lost handler would also reload a document the
+  club no longer owned, two seconds after teardown.
+  Recommended solution: dispose all pipelines and layers, remove all observers, clear all
+  tracked timers, and add `dispose()` to `TextureLoader`, `ModelLoader`, `MaterialFactory` and
+  `LightFactory`, called from `VRClub.dispose()`.
+  Acceptance criteria: nothing created in these files survives `dispose()`.
+  Estimated effort: Medium
+  Business value: Medium
+  Technical debt reduction: High
+
+- [x] VR jump and sprint were dead in every session after the first
+  Priority: High
+  Category: Bug
+  Area: WebXR
+  Affected files: `js/club/02-lifecycle.js`
+  Problem: the `IN_XR` setup block was gated on `!this.movementFeature`, but `movementFeature`
+  was never cleared on exit — while the exit path deliberately destroyed `_jumpObserver` and
+  `jumpState`. The guard, intended to prevent double-registration within a session, made the
+  whole block one-shot for the instance lifetime.
+  Impact: on the second and every subsequent VR entry, jump was dead, sprint was unbound, and
+  `xrCamera.applyGravity` / `checkCollisions` were never re-applied.
+  Recommended solution: clear `movementFeature` on `NOT_IN_XR`.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [x] The RETRY button hung the app forever
+  Priority: High
+  Category: Bug
+  Area: UI / error recovery
+  Affected files: `js/ui-init.js`, `js/club/01-core.js`
+  Problem: `_handleFatalInitError()` relabels ENTER to RETRY, but the handler begins
+  `if (!window.vrClub)` — and after a failed init `window.vrClub` is a truthy broken instance.
+  Clicking RETRY therefore called `startAudioStream` on a dead instance, re-ran the menu
+  initialisers against the same DOM (double-binding every listener so each toggle fired twice
+  and cancelled itself out), and attached to the already-rejected `initPromise`, whose `.catch`
+  sets `done = true` so the splash never hides.
+  Impact: the button added specifically to avoid a manual reload guaranteed one.
+  Recommended solution: make RETRY `location.reload()`; guard the menu initialisers against
+  re-entry with a module-level flag.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [x] `TextureLoader`'s reference count did not count references (use-after-free trap)
+  Priority: High
+  Category: Bug
+  Area: Asset caching
+  Affected files: `js/textureLoader.js`
+  Problem: the count was incremented only on a pool HIT inside `loadTextureSet`, never when a
+  texture was bound to a material. But the `walls` set is bound to both `wallMat` and `brickMat`,
+  and `ceiling` to both `pillarMat` and `ceilingMat` — each reporting a count of 1.
+  Impact: a single `releaseTexture()` would dispose a texture two live materials were still
+  sampling. Safe only because nothing called it — a trap, not a feature.
+  Recommended solution: count on BINDING in `applyTexturesToMaterial()`; add the mirroring
+  `releaseTexturesFromMaterial()`; stamp the pool key on the texture for O(1) release.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: High
+
+- [x] The fetch "hard deadline" did not cover the response body
+  Priority: High
+  Category: Reliability
+  Area: Asset caching
+  Affected files: `js/assetCache.js`, `js/textureLoader.js`, `js/modelLoader.js`
+  Problem: `await fetch()` resolves when HEADERS arrive; the timer was then cleared and the
+  caller streamed the body outside any deadline.
+  Impact: a server that sends `200 OK` and stalls mid-body hung startup forever — precisely the
+  failure the file's own docstring says it exists to prevent, and the most likely stall for a
+  15 MB GLB.
+  Recommended solution: add `fetchBufferWithTimeout` / `fetchBlobWithTimeout` that keep one
+  deadline across the body read; use them in both loaders. Also stop relabelling caller-initiated
+  aborts as timeouts, and stop discarding a caller-supplied `AbortSignal`.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] IndexedDB writes resolved before commit, so quota errors were silently lost
+  Priority: High
+  Category: Bug
+  Area: Asset caching
+  Affected files: `js/assetCache.js`
+  Problem: `_run` settled on `request.onsuccess`. Chromium routinely reports
+  `QuotaExceededError` at COMMIT time for large blobs, so `put()` returned `true`, the
+  `disabled` flag was never set, and the later `tx.onabort` rejected an already-settled promise.
+  Also: `init()` was not concurrency-safe (two callers both opened a connection, orphaning one);
+  a transient `onblocked` permanently disabled persistence and leaked the pending open; and a
+  full quota disabled the cache for the session instead of evicting.
+  Impact: the cache reported success while writing nothing and retried a doomed write on every
+  load; on a Quest this degraded permanently to re-downloading ~50 MB per launch.
+  Recommended solution: resolve `readwrite` on `tx.oncomplete`; memoise the init promise; treat
+  `onblocked` as transient; evict the oldest 25 % and retry once before disabling; add `prune()`.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [x] The device light-budget clamp never reached the GPU
+  Priority: High
+  Category: Bug / Performance
+  Area: Rendering
+  Affected files: `js/club/03-rendering.js`, `js/modelLoader.js`
+  Problem: `maxSimultaneousLights` invalidates the compiled effect via
+  `markAllSubMeshesAsLightsDirty`, but THREE things suppressed that: scene-wide
+  `blockMaterialDirtyMechanism` (set at init and never released), `material.freeze()` (sets
+  `checkReadyOnlyOnce`), and — once those were lifted — re-freezing before the recompile.
+  Impact: verified live. With the mechanism naively unblocked, the browser emitted a continuous
+  stream of `GL_INVALID_OPERATION: uniform buffer that is too small`: the GPU kept a shader
+  built for the old light count while the UBO was sized for the new one.
+  Recommended solution: unblock the dirty mechanism, unfreeze, write, `markAsDirty(LightDirtyFlag)`,
+  and defer the re-freeze to `onAfterRenderObservable.addOnce`.
+  Acceptance criteria: zero over-budget materials and zero GL warnings at runtime (verified: 0/477).
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [x] The DOM and in-world VJ handlers had diverged into two different behaviours
+  Priority: High
+  Category: Architecture
+  Area: UI
+  Affected files: `js/ui-init.js`, `js/club/10-ui.js`
+  Problem: ~200 lines implementing the same control surface twice. Only the 3D path updated
+  `mirrorReflectionSpots`, `_sharedMirrorBeamMat`, `_sharedMirrorRayMat` and invalidated
+  `mirrorBallCachedColors`; only the 3D path applied fixture exclusivity — and it applied it
+  silently, discarding three of the user's choices with no feedback.
+  Impact: the desktop button left reflection spots and shared beam materials stale; the two
+  surfaces behaved differently for identical actions.
+  Recommended solution: extract `cycleSpotColor()`, `cycleMirrorBallColor()`,
+  `applyFixtureExclusivity()` and `resetVJControls()` onto `VRClub`; reduce both handlers to
+  "call the method, render the feedback"; surface exclusivity as a toast. Add a test enforcing
+  the delegation.
+  Estimated effort: Large
+  Business value: Medium
+  Technical debt reduction: High
+
+- [x] A contract test's hard-coded `\` separator made the dispose guarantee a Windows-only no-op
+  Priority: High
+  Category: Testing
+  Area: CI
+  Affected files: `test/contract.test.mjs`, `.github/workflows/ci.yml`
+  Problem: `file.startsWith(join('js','club') + '\\')` matched on Windows and matched NOTHING on
+  the Linux CI runner, where the very next line (`assert.ok(added.size > 0)`) then failed.
+  Impact: the listener-leak guarantee was simultaneously vacuous locally and red in CI.
+  Recommended solution: normalise `collectJs()` output to POSIX; add a `windows-latest` CI matrix
+  leg so a separator bug cannot hide again.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [x] Five version identifiers with no cross-check, already drifted
+  Priority: High
+  Category: Developer Experience
+  Area: Release
+  Affected files: `scripts/bump-version.mjs`, `sw.js`, `serviceworker.js`, `test/contract.test.mjs`
+  Problem: `package.json.version`, `package.json.cacheToken`, the 25 `?v=` tokens, `sw.js`
+  `VERSION` and the `serviceworker.js` comment drifted freely — and had (`-2` vs `-1`).
+  `bump-version.mjs` never touched the two worker files, which is how the drift arose.
+  Impact: a stale worker `VERSION` means `activate` never evicts the old cache, so a deploy
+  silently keeps serving the previous bundle.
+  Recommended solution: extend `bump-version.mjs` to all four; add a version-parity contract test.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: High
+
+- [x] The PBR environment texture was still a hard third-party critical-path dependency
+  Priority: High
+  Category: Reliability
+  Area: Assets
+  Affected files: `js/club/02-lifecycle.js`, `scripts/vendor.manifest.json`, `index.html`, `test/contract.test.mjs`
+  Problem: the Babylon runtime was vendored after an observed CDN 502, and `index.html` claimed
+  "no third-party origin left in the critical path" — but `environmentSpecular.env`, which every
+  material in the scene samples, was still fetched from `assets.babylonjs.com` with no `try` and
+  no fallback. The contract test only forbade third-party `<script src>` tags.
+  Impact: the same outage would still have stripped every PBR reflection in the club.
+  Recommended solution: vendor it with an SRI hash in the manifest; extend the contract test to
+  forbid any third-party resource load in first-party JS.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] `LightFactory.disposeGroup()` skipped every other light
+  Priority: High
+  Category: Bug
+  Area: Lighting
+  Affected files: `js/lightFactory.js`
+  Problem: `getGroup()` returns the LIVE array and `disposeLight()` splices from it inside the
+  `forEach`. `Array.prototype.forEach` does not re-index, so alternate lights were skipped — and
+  `lightGroups.delete()` then destroyed the only handle to the survivors, leaving them in the
+  scene with their `ShadowGenerator` render targets alive.
+  Impact: a textbook mutation-during-iteration bug in the one method whose entire job is cleanup.
+  Recommended solution: copy the array before iterating.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [x] 16 of 22 "unit" tests were regex scans of source text
+  Priority: High
+  Category: Testing
+  Area: Test suite
+  Affected files: `test/unit.test.mjs`
+  Problem: change detectors — maximum maintenance cost, minimum defect detection. A test titled
+  "Diagnostics buffer records events in a bounded circular buffer" asserted only that three
+  substrings existed; it could not catch an off-by-one but would fail on a renamed parameter.
+  Meanwhile 37 LED patterns, `dispose()`, graphics-tier detection, frame-rate independence and
+  ShowDirector look validation had zero coverage.
+  Impact: the suite obstructed refactoring while catching none of the defects in this review.
+  Recommended solution: delete the change detectors; add behavioural tests that execute code —
+  an LED-pattern smoke test over all 37 patterns, ShowDirector meta-key and safe-mode
+  enforcement across every look, `LightFactory.disposeGroup`, IndexedDB commit/quota semantics,
+  `init()` concurrency, and a lint-style test for the `dtScale` rule.
+  Acceptance criteria: every remaining test either runs code or asserts a cross-file invariant.
+  Estimated effort: Large
+  Business value: High
+  Technical debt reduction: High
+
+- [x] No LICENSE file, and incomplete CC BY attribution
+  Priority: High
+  Category: Documentation
+  Area: Legal
+  Affected files: `LICENSE`, `ASSETS.md`, `index.html`
+  Problem: `package.json` and the README both declared MIT with no licence text and no
+  identifiable copyright holder. "PA Speakers (CC BY 4.0)" named no creator, no title and linked
+  to neither the material nor the licence, as CC BY 4.0 §3(a)(1) requires. Three Mixamo avatar
+  GLBs shipped with no provenance anywhere.
+  Impact: an SPDX identifier without the text grants nothing downstream; the CC BY entry was
+  non-compliant.
+  Recommended solution: add `LICENSE` and `ASSETS.md` recording every shipped binary; fix the
+  in-product credits; record the two remaining gaps explicitly.
+  Estimated effort: Small
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] 109.5 MB deploy payload, ~30 MB of it unreferenced or duplicated
+  Priority: High
+  Category: Performance
+  Area: Build
+  Affected files: `scripts/build.mjs`, `js/models/`, `.github/workflows/ci.yml`
+  Problem: `cp(js/models, ...)` copied everything, including an 11.7 MB `model.zip`, a 6.1 MB
+  unreferenced `PA_Speakers.glb`, a `.dae` source file, and a texture directory duplicated
+  byte-for-byte alongside its own copy.
+  Impact: nearly double the necessary transfer for every first-time visitor.
+  Recommended solution: derive an allow-list of referenced model paths; delete the ballast from
+  the repository; add a 75 MB CI payload budget.
+  Acceptance criteria: `dist/` ≤ 75 MB and CI fails above it. (Achieved: 60.9 MB.)
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Medium
+
+- [x] The dev server sent `immutable, max-age=1y` for source files
+  Priority: High
+  Category: Developer Experience
+  Area: Tooling
+  Affected files: `scripts/serve.mjs`
+  Problem: correct for `--dist` (content-hashed filenames), actively harmful in dev — an edited
+  source file kept being served from the browser cache for a year.
+  Impact: "my change did nothing" is indistinguishable from a real bug. Observed during this
+  review's own browser verification.
+  Recommended solution: `no-cache` unless `--dist`; always `no-cache` for worker scripts, whose
+  `updateViaCache: 'imports'` default would otherwise pin them for a year.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+### Medium
+
+- [x] Sub-woofer grilles latched in the extended position whenever bass stopped
+  Priority: Medium
+  Category: Bug
+  Area: Animation
+  Affected files: `js/club/09-animation-finish.js`
+  Problem: the excursion was written only inside `if (audioData.bass > 0.1)` with no `else`, and
+  the mesh had been permanently unfrozen.
+  Impact: every breakdown, pause and track change froze the grille at its last excursion while
+  still paying world-matrix cost. `_subGrillRefs` was also cached before the PA `.glb` landed,
+  so it could drive meshes the loader had since disabled.
+  Recommended solution: always write the excursion (zero below threshold); invalidate the cache
+  when `modelLoadPromise` resolves.
+  Estimated effort: Small
+
+- [x] The strobe bloom spike was never restored on two exit paths
+  Priority: Medium
+  Category: Bug / Accessibility
+  Area: Post-processing
+  Affected files: `js/club/09-animation-finish.js`
+  Problem: restoration lived only in the `maxIntensity === 0` else-branch, inside
+  `if (strobesActive && !photosensitiveSafeMode)`. Flipping either flag mid-flash left
+  `bloomWeight` elevated indefinitely. The captured value could also leak across a VR pipeline swap.
+  Impact: **a photosensitivity control that left the screen brighter than it found it** — the
+  wrong failure direction.
+  Recommended solution: restore unconditionally at the top of the function; re-capture per burst.
+  Estimated effort: Small
+
+- [x] Per-frame `Color3` allocation in the strobe hot path
+  Priority: Medium
+  Category: Performance
+  Area: Animation
+  Affected files: `js/club/09-animation-finish.js`
+  Problem: `cachedColors.white.scale(...)` allocates, once per strobe per frame for the whole
+  flash — the only remaining unbounded allocation in `updateAnimations()` on the light path, and
+  it sat next to correctly-optimised code.
+  Recommended solution: `scaleToRef` into a per-strobe buffer.
+  Estimated effort: Small
+
+- [x] A dead assignment meant strobing spotlights never actually went dark
+  Priority: Medium
+  Category: Bug
+  Area: Fixture animation
+  Affected files: `js/club/08-animation-fixtures.js`
+  Problem: `spot.light.intensity = beamVisible ? 12 : 0` was overwritten unconditionally ~350
+  lines later in the same `forEach`.
+  Impact: with `spotStrobeActive` on, the beam mesh and pool flashed while the `SpotLight` stayed
+  pinned at ~18, so the floor never went dark between flashes — the strobe read as a translucent
+  flicker. The 1,030-line function is what let this hide.
+  Recommended solution: fold `beamVisible` into the authoritative write.
+  Estimated effort: Small
+
+- [x] Beam clip planes used wall coordinates that contradicted the geometry
+  Priority: Medium
+  Category: Bug
+  Area: Fixture animation
+  Affected files: `js/club/08-animation-fixtures.js`
+  Problem: `BACK_WALL_Z = -25.8`, `LEFT_WALL_X = -10`, `RIGHT_WALL_X = 10` were re-declared
+  inside a per-spot per-frame loop and disagreed with `ROOM_BOUNDS` (±12.5, z = -21).
+  Impact: spotlight beams terminated 2.5 m short of the side walls and 4.8 m behind the back wall.
+  Recommended solution: source them from `ROOM_BOUNDS`, per the project's own stated rule.
+  Estimated effort: Small
+
+- [x] A random interval re-drawn every frame made the randomness illusory
+  Priority: Medium
+  Category: Bug
+  Area: Fixture animation
+  Affected files: `js/club/08-animation-fixtures.js`
+  Problem: `time - colorSwitchTime > (8 + Math.random() * 4)` drew a NEW threshold every frame,
+  so ~240 samples raced the elapsed time and the intended 8–12 s switch collapsed to ≈8.02 s with
+  near-zero variance.
+  Recommended solution: draw once per interval.
+  Estimated effort: Small
+
+- [x] Two competing BPM detectors wrote the same output variable
+  Priority: Medium
+  Category: Architecture
+  Area: Audio
+  Affected files: `js/club/09-animation-finish.js`
+  Problem: `VJDirector` is the documented authority (spectral flux + adaptive median threshold)
+  and runs earlier in the same frame; the LED wall then ran a second, cruder bass-peak detector
+  that overwrote `this.bpm` and `this.beatInterval`.
+  Recommended solution: consume the director's estimate; delete the local detector.
+  Estimated effort: Small
+
+- [x] `addPostProcessing()`'s guard prevented SSAO/SSR/motion-blur from ever being rebuilt
+  Priority: Medium
+  Category: Bug
+  Area: Rendering
+  Affected files: `js/club/03-rendering.js`
+  Problem: the early return keyed on `renderPipeline` alone, but the method also creates three
+  other pipelines. After `applyVRSettings()` assigned a new `renderPipeline`, any later call
+  returned immediately. The helpers already carry their own idempotency guards, making the outer
+  guard both redundant and harmful.
+  Recommended solution: guard only the `DefaultRenderingPipeline`; give SSAO its own check.
+  Estimated effort: Small
+
+- [x] Freeze-state asymmetry left intentionally-hot materials permanently frozen
+  Priority: Medium
+  Category: Bug
+  Area: Rendering / textures
+  Affected files: `js/club/03-rendering.js`, `js/textureLoader.js`
+  Problem: `createFloorReflectionProbe()` and `applyTexturesToMaterial()` unfroze conditionally
+  but froze unconditionally. A material the factory deliberately left hot was silently frozen,
+  no-op'ing its runtime colour mutations. `_rebuildFloorReflectionProbe()` re-runs on every tier
+  change, compounding it.
+  Recommended solution: save and restore `wasFrozen`, as `_suppressUnlitSpecular()` already does.
+  Estimated effort: Small
+
+- [x] Panels were `role="dialog"` while behaving as disclosures
+  Priority: Medium
+  Category: Accessibility
+  Area: UI
+  Affected files: `index.html`
+  Problem: internally contradictory markup — a disclosure trigger (`aria-expanded`/`aria-controls`),
+  a `role="dialog"`, and `aria-modal="false"` (the default, adding nothing).
+  Impact: NVDA/JAWS entered forms mode and announced a dialog, implying the background was
+  unavailable and that a focus trap existed. Neither is true.
+  Recommended solution: `role="group"` + `aria-labelledby`; keep the trigger's expanded state,
+  the heading focus move and Escape-to-close.
+  Estimated effort: Small
+
+- [x] Toggle state and slider values were invisible to assistive technology
+  Priority: Medium
+  Category: Accessibility
+  Area: UI
+  Affected files: `index.html`, `js/ui-init.js`
+  Problem: nine toggles conveyed on/off through a CSS class only; three sliders had no
+  accessible name (the visible label was an unassociated sibling `<div>`) and announced a bare
+  number with no unit. Active/inactive differed only by the alpha of one hue. The minimize
+  buttons destroyed their own `aria-hidden` wrapper via `textContent` and never relabelled.
+  Impact: WCAG 4.1.2 and 1.4.1 failures — and the SAFE MODE toggle in particular was unusable
+  non-visually, so a user could not confirm they had turned the strobes off.
+  Recommended solution: `aria-pressed` on every toggle kept in sync through one helper;
+  `aria-labelledby` + `aria-valuetext` on sliders; a non-colour active marker drawn with a
+  gradient (generated text content is exposed to the a11y tree); write to the inner `<span>`.
+  Estimated effort: Medium
+
+- [x] Focus escaped behind the splash screen
+  Priority: Medium
+  Category: Accessibility
+  Area: UI
+  Affected files: `index.html`, `js/ui-init.js`
+  Problem: `#splashScreen` is a full-viewport `z-index: 10000` overlay, but `<main>` was never
+  hidden or `inert`, so tab order walked into eight invisible controls behind it.
+  Recommended solution: `role="dialog" aria-modal="true"` on the splash and `inert` on `<main>`
+  until it is dismissed; focus the canvas afterwards.
+  Estimated effort: Small
+
+- [x] Cycling controls hid their own state
+  Priority: Medium
+  Category: UX
+  Area: UI
+  Affected files: `js/ui-init.js`, `index.html`
+  Problem: MODE / PATTERN / GOBO showed the new value for 1.5 s (racing the 2 s state poller)
+  then reverted to a generic word.
+  Impact: the current mode became unknowable without clicking through the cycle again — i.e.
+  changing the state in order to read it. `QUALITY:` and `SHOW:` already did this correctly.
+  Recommended solution: make all cycling labels permanent.
+  Estimated effort: Small
+
+- [x] "Enter VR" was buried behind an unlabelled gear icon, with no capability check
+  Priority: Medium
+  Category: UX
+  Area: UI
+  Affected files: `index.html`, `css/styles.css`, `js/ui-init.js`, `js/club/10-ui.js`
+  Problem: the headline action of a WebXR app sat one click deep inside a settings panel whose
+  sole content was that button. It was offered at full prominence on machines with no headset,
+  did nothing at all when `baseExperience` was falsy, and never changed label in session.
+  Recommended solution: promote it to a top-level control; delete the settings panel entirely
+  (removing a third duplicated panel implementation); feature-detect with
+  `navigator.xr.isSessionSupported()`; toggle Enter/Exit on the XR session observables.
+  Estimated effort: Medium
+
+- [x] A silent audio failure left the user in a club with no music and no explanation
+  Priority: Medium
+  Category: UX
+  Area: Audio
+  Affected files: `js/ui-init.js`
+  Problem: the default stream's rejection went only to the console. Autoplay blocks, station
+  downtime, offline launches and corporate networks all land here — and the lights keep running
+  off a 128 BPM default, so the scene LOOKS alive.
+  Recommended solution: surface a toast naming the fix and pulse the audio control; add a
+  "now playing" readout.
+  Estimated effort: Small
+
+- [x] The status timer, XR observers and flash timers leaked
+  Priority: Medium
+  Category: Bug
+  Area: UI
+  Affected files: `js/ui-init.js`, `js/club/10-ui.js`
+  Problem: `showStatus()` never stored its handle, so an earlier message's 3 s timer blanked a
+  later one after a few hundred ms and repeated calls accumulated unbounded timers. The audio
+  panel's XR observers dropped their return values (the VJ panel's stored them), so they were
+  unremovable and transitively retained the whole VRClub instance. Button-flash timers wrote to
+  materials that `scene.dispose()` had already freed.
+  Recommended solution: store and clear every handle; register them with the teardown list.
+  Estimated effort: Small
+
+- [x] `updateButtonStates()` fought its own SHOW button every two seconds
+  Priority: Medium
+  Category: Bug
+  Area: UI
+  Affected files: `js/ui-init.js`
+  Problem: the substring dispatch (`!control.includes('change'|'cycle'|'reverse')`) let
+  `toggleShow` reach the generic branch and read `vrClubInstance.toggleShow`, which is `undefined`.
+  Impact: the poller stripped `.active` off the SHOW button every 2 s while its own label still
+  read "SHOW: ON" — two indicators in permanent disagreement.
+  Recommended solution: replace the stringly-typed test with the explicit allow-list and read
+  `showDirector.enabled`.
+  Estimated effort: Small
+
+- [x] Unrestricted dynamic property write keyed by a DOM attribute
+  Priority: Medium
+  Category: Security
+  Area: UI
+  Affected files: `js/ui-init.js`
+  Problem: `vrClubInstance[button.getAttribute('data-control')] = !...`. Not reachable today —
+  every `data-control` is a literal — but `__proto__` would write to `Object.prototype` and
+  `constructor` would clobber the instance's constructor.
+  Recommended solution: a `TOGGLE_CONTROLS` allow-list, enforced by a test that every
+  `aria-pressed` toggle in the DOM appears in it.
+  Estimated effort: Small
+
+- [x] `serve.mjs` in non-`--dist` mode served the entire repository
+  Priority: Medium
+  Category: Security
+  Area: Tooling
+  Affected files: `scripts/serve.mjs`
+  Problem: the traversal and symlink guards are genuinely well done, but place no restriction
+  INSIDE `ROOT` — which without `--dist` is the repository. `GET /.git/config`, `/package.json`,
+  `/node_modules/...` and `/.env` were all servable, and `.env` even had a MIME mapping.
+  Recommended solution: a path denylist applied regardless of ROOT.
+  Estimated effort: Small
+
+- [x] The PWA was not installable and the forced-colors rule was a no-op
+  Priority: Medium
+  Category: Bug
+  Area: PWA / accessibility
+  Affected files: `manifest.json`, `icons/`, `scripts/generate-icons.mjs`, `css/styles.css`
+  Problem: the only icon was a `data:` SVG declaring two sizes; Chromium requires a ≥192 px
+  RASTER icon and does not treat `data:` icons as installable resources. `id` and `scope` were
+  absent. Separately, the `@media (forced-colors: active)` block targeted `.vj-panel` and
+  `.audio-panel` — class names that exist nowhere in the document.
+  Recommended solution: generate real 192/512/maskable PNGs with a dependency-free encoder; add
+  `id` and `scope`; correct the forced-colors selectors; assert all of it in a test.
+  Estimated effort: Medium
+
+- [x] `sw.js` and `serviceworker.js` were outside every quality gate
+  Priority: Medium
+  Category: Developer Experience
+  Area: Tooling
+  Affected files: `eslint.config.mjs`, `scripts/check-syntax.mjs`
+  Problem: `check-syntax.mjs` collected only `js/**` and `scripts/*.mjs`; the ESLint config had
+  no block matching root-level `sw.js`, so it was visited with no `languageOptions` and no rules.
+  Impact: a typo in the service worker shipped unchallenged.
+  Recommended solution: add both files to the syntax check and a dedicated ESLint block with
+  worker globals.
+  Estimated effort: Small
+
+- [x] Zero responsive breakpoints, and panels that overlapped each other
+  Priority: Medium
+  Category: UX
+  Area: UI
+  Affected files: `css/styles.css`
+  Problem: a 1,091-line stylesheet with two `@media` blocks, neither a width breakpoint, despite
+  declaring `mobile-web-app-capable` and `viewport-fit=cover` with no `env(safe-area-inset-*)`
+  usage. `#vjMenu` and `#settingsPanel` overlapped below ~375 px.
+  Recommended solution: breakpoints at 720 px and 620 px height; safe-area insets on the
+  bottom-anchored controls; full-width panels on small screens.
+  Estimated effort: Medium
+
+- [x] No reset, no keyboard shortcuts, and almost nothing persisted
+  Priority: Medium
+  Category: UX
+  Area: UI
+  Affected files: `index.html`, `js/ui-init.js`, `js/club/10-ui.js`, `js/club/11-audio-crowd.js`
+  Problem: 19 controls with no way back to a known state except a reload; the app's only global
+  shortcut was a bare `D` for a developer overlay (colliding with the WASD keys a user presses
+  constantly); the stream URL — the highest-friction input in the app, typed on a Quest virtual
+  keyboard — was re-entered every session; there was no volume or mute control anywhere.
+  Recommended solution: a RESET button backed by documented `VJ_DEFAULTS`; `Space`/`B`/`F`/`1`–`4`
+  shortcuts with `Ctrl+Shift+D` for debug; persist the last stream URL (re-validated on read);
+  add a volume slider and a now-playing readout.
+  Estimated effort: Medium
+
+- [x] Dead code and a misleading data-collection prompt
+  Priority: Medium
+  Category: Cleanup
+  Area: UI
+  Affected files: `index.html`, `js/ui-init.js`, `js/club/09-animation-finish.js`, `js/club/10-ui.js`
+  Problem: the splash's "Your Name (Optional)" field was written once and never read anywhere —
+  it asked for personal data with no purpose and implied the app was multiplayer when it is
+  single-player. Also dead: `updateLEDWallSimple()` (zero call sites), a debug counter
+  incrementing every frame forever to satisfy a check that can be true three times, the
+  `networkManager` sync block, `systems.spotlight` fallbacks for a module layer the repo's own
+  instructions warn does not exist, and `patternRandom`/`fogBurst` branches no fixture uses.
+  Recommended solution: delete all of it.
+  Estimated effort: Small
+
+### Low
+
+- [x] `getPreset()` constructed a new material and GPU program on every call
+  Priority: Low
+  Category: Performance
+  Area: Materials
+  Affected files: `js/materialFactory.js`, `js/club/05-fixtures.js`
+  Problem: ten presets did not pass `shared: true`. Every current call site happened to hoist the
+  result out of its loop, but nothing enforced it and the name actively invites in-loop use.
+  A related latent bug was found live by the new warning: `createStandardMaterial(..., true)` in
+  `05-fixtures.js` believed it was sharing, but that creator has no cache path — it produced one
+  material per laser emitter. Verified fixed at runtime: 9 → 1.
+  Recommended solution: memoise `getPreset` by name; warn on the ignored third argument.
+  Estimated effort: Small
+
+- [x] Prototype-chain and duplication hazards in the factories
+  Priority: Low
+  Category: Refactor
+  Area: Materials / lighting
+  Affected files: `js/materialFactory.js`, `js/lightFactory.js`
+  Problem: cache objects were plain `{}` with keys derived from config VALUES; the `HOT_MUTATED`
+  array was duplicated verbatim three times; `clearCache()` disposed materials live meshes still
+  referenced and had no callers; `light.shadowGenerator = gen` created a dead own-property;
+  `addToGroup` permitted duplicates; `getPreset` returned `null` for an unknown name, turning a
+  typo into a TypeError rather than a degraded scene.
+  Recommended solution: `Object.create(null)`; one `static HOT_MUTATED`; replace `clearCache()`
+  with a safe `dispose()`; dedupe group membership; return a disabled light as the fallback.
+  Estimated effort: Small
+
+- [x] Mirror-spot visibility sweep ran every frame outside its own update gate
+  Priority: Low
+  Category: Performance
+  Area: Animation
+  Affected files: `js/club/07-animation-core.js`
+  Problem: the expensive raycast loop is correctly throttled to every 2nd/3rd frame, but the
+  follow-up sweep iterated all 150 spots every frame, issuing up to 300 `setEnabled()` calls
+  (each walking the mesh's descendant hierarchy) on state that provably had not changed.
+  Recommended solution: move it inside the gate.
+  Estimated effort: Small
+
+- [x] Sourcemap deployed, unusable, and publishing full source
+  Priority: Low
+  Category: Cleanup
+  Area: Build
+  Affected files: `scripts/build.mjs`
+  Problem: `esbuild.transform()` with `sourcemap: true` returns the map but does not append a
+  `//# sourceMappingURL`. A 1.2 MB map with `sourcesContent` was therefore deployed, unusable by
+  DevTools, at a filename derivable from the public bundle name.
+  Recommended solution: `sourcemap: 'external'`, `sourcesContent: false`, append the comment.
+  Estimated effort: Small
+
+- [x] Documentation asserted things that were not true
+  Priority: Low
+  Category: Documentation
+  Area: Docs
+  Affected files: `README.md`, `docs/`, `.github/copilot-instructions.md`
+  Problem: the README described `check:sri` as verifying "index.html integrity hashes" (there are
+  no SRI attributes in the HTML) and the CHANGELOG claimed an "automatic CDN fallback" that a
+  contract test actively forbids. The agent instructions — which explicitly carry an accuracy
+  contract — documented the light budget as 6/4/4 (actual: 4/3/3), `transparencyMode = null`
+  (actual: `0`), and a `LightFactory.getPreset(name, position)` signature whose arguments are
+  reversed, so an agent following it would write broken code on the first try. Seven `docs/`
+  files were self-declared archival and said "use the README instead".
+  Recommended solution: correct every claim; delete the superseded docs; label the rest.
+  Estimated effort: Medium
+
+- [x] `backup_aframe/` was an empty husk kept alive by config
+  Priority: Low
+  Category: Cleanup
+  Area: Repository
+  Affected files: `eslint.config.mjs`
+  Problem: two empty untracked directories that git cannot track, still referenced in the ESLint
+  `ignores` list and still advertised in the workspace tree — misleading every reader into
+  thinking a legacy implementation was preserved.
+  Recommended solution: delete the directory and the ignore entry.
+  Estimated effort: Small
+
+### Carried forward — not addressed in this pass
+
+- [ ] Extract `init()` (561 lines, 9 levels of nesting) and `updateSpotlights()` (~1,030 lines)
+  Priority: High
+  Category: Refactor
+  Area: Lifecycle / fixture animation
+  Affected files: `js/club/02-lifecycle.js`, `js/club/08-animation-fixtures.js`
+  Problem: `init()` reaches nine nesting levels in the XR controller setup. `updateSpotlights()`
+  is one ~1,030-line function whose legacy `else` branch is indented at the OUTER level, so the
+  brace structure is not visually recoverable, with two `const baseIntensity` declarations
+  shadowing across nested scopes and a 55-line pattern table duplicated character-for-character.
+  Impact: this is not a style complaint — it is *causal*. The dead-assignment bug and the VR
+  re-entry bug in this review were both invisible at that nesting depth, and both were found by
+  reading rather than by any test.
+  Recommended solution: extract `_setupXRLocomotion()`, `_setupXRJump()`, `_setupLifecycleListeners()`;
+  invert `updateSpotlights()` to an early return and extract `_solveSweepPattern(index, phase, out)`
+  called twice into pooled scratch objects.
+  Acceptance criteria: no function over ~200 lines in these files; no nesting past 5 levels.
+  Estimated effort: Large
+  Business value: Medium
+  Technical debt reduction: High
+
+- [ ] Add a headless browser smoke test to CI
+  Priority: High
+  Category: Testing
+  Area: CI
+  Affected files: `.github/workflows/ci.yml`, `test/`
+  Problem: there is still no way to run anything in a browser from CI. The single most valuable
+  defect-finding step in this review was a manual Playwright run — it caught the WebGL uniform
+  buffer overflow, the duplicated laser-emitter materials and a stale-cache DX trap that no
+  static check could see.
+  Impact: the three Critical build/SW defects fixed here would all have been caught by one
+  headless page load. Every one of them shipped green.
+  Recommended solution: add Playwright; serve `dist/`, load the page, click `#enterClubBtn`, wait
+  for `window.vrClub.ready`, and fail on any `pageerror`, any `console.error`, any
+  `GL_INVALID_OPERATION` warning, or any `error` entry in `getDiagnostics()`.
+  Acceptance criteria: the test fails if any of those appear; runs in under 2 minutes.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: High
+
+- [ ] Close the two asset-licensing gaps recorded in ASSETS.md
+  Priority: High
+  Category: Documentation
+  Area: Legal
+  Affected files: `ASSETS.md`, `js/models/`
+  Problem: (1) the PA speaker model's creator and source URL were never recorded, so its CC BY
+  attribution cannot be made compliant from the information in the repository. (2) Three Mixamo
+  animation GLBs are redistributed inside a public MIT repository; Adobe's terms permit use in a
+  project, but redistribution of the raw files is a distinct act.
+  Impact: a licence-compliance risk that blocks any public release.
+  Recommended solution: locate the original download and record creator/title/URL, or replace the
+  model. For the animations, confirm the terms, replace with CC0/CC BY equivalents, or move them
+  out of version control and fetch at build time.
+  Acceptance criteria: every entry in ASSETS.md has a creator, a source URL and a licence; the
+  "Known gaps" section is empty. Add a contract test that every `.glb` appears in ASSETS.md.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Low
+
+- [ ] Optimise the two 15 MB GLBs and the 8 MB texture PNGs
+  Priority: Medium
+  Category: Performance
+  Area: Assets
+  Affected files: `js/models/`, `scripts/optimize-avatars.mjs`, `scripts/build.mjs`
+  Problem: the deploy is 60.9 MB after pruning, and ~50 MB of that is two GLBs and their PNG
+  textures. `scripts/optimize-avatars.mjs` exists but is invoked by nothing, only ever touches
+  `js/models/avatars/`, and destructively overwrites the source files in place — so it is not
+  idempotent and re-running re-quantises already-quantised geometry. `@gltf-transform/cli` is a
+  heavy devDependency carried for a script nobody runs.
+  Impact: a cold first load on a Quest over Wi-Fi is dominated by these files.
+  Recommended solution: generalise it to `optimize-models.mjs` covering `djgear` and `paspeakers`,
+  writing to `dist/` and never mutating sources; add Draco/meshopt compression and KTX2 textures;
+  wire it into `npm run build`. Or delete it and the dependency.
+  Acceptance criteria: `dist/` under 25 MB with no visible quality regression.
+  Estimated effort: Medium
+  Business value: High
+  Technical debt reduction: Medium
+
+- [ ] Remove `'unsafe-inline'` from `style-src`
+  Priority: Medium
+  Category: Security
+  Area: CSP
+  Affected files: `js/club/10-ui.js`, `index.html`
+  Problem: the only remaining consumer is one `innerHTML` template in `showAudioStreamInputUI()`
+  containing `style=""` attributes. It is not exploitable today — the template is fully static —
+  but it is the sole markup-injection sink in the codebase and it sits directly beside the code
+  handling the most attacker-influenced values in the app.
+  Impact: one future `${...}` there becomes XSS, and CSP would not stop injected markup,
+  clickjacking bait or form overlays.
+  Recommended solution: rebuild the overlay with `createElement` + `textContent`, then drop
+  `'unsafe-inline'` from `style-src` and add `require-trusted-types-for 'script'`.
+  Acceptance criteria: no `innerHTML` anywhere in `js/`; a contract test forbids it.
+  Estimated effort: Medium
+  Business value: Medium
+  Technical debt reduction: High
+
+- [ ] `showAudioStreamInputUI()` can create duplicate-ID overlays
+  Priority: Medium
+  Category: Bug
+  Area: In-VR UI
+  Affected files: `js/club/10-ui.js`
+  Problem: nothing prevents re-entry. Two clicks produce two `#vrAudioInput` elements; the
+  handler wiring then reaches for `document.getElementById('audioFileBrowseBtn')`, binding the
+  second overlay's handler onto the first overlay's button, while `cleanup()` removes only the
+  first — orphaning the second on screen forever with its Escape handler already detached.
+  `camera.attachControl` can also be called twice, and uses the pre-Babylon-5 signature.
+  Recommended solution: early-return if the overlay exists; scope every lookup to the container;
+  fix the `attachControl` signature.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] Disclose the default third-party audio stream before connecting to it
+  Priority: Medium
+  Category: Security
+  Area: Privacy
+  Affected files: `js/ui-init.js`, `index.html`
+  Problem: clicking ENTER immediately opens a long-lived connection to a German radio provider,
+  disclosing the visitor's IP, User-Agent and listening duration, with no notice and no opt-out.
+  Impact: a GDPR/ePrivacy exposure for an EU-facing PWA, and a hard first-run dependency on a
+  third party's uptime.
+  Recommended solution: name the station on the splash with an opt-out, or ship a short local
+  loop as the default and make the stream an explicit choice.
+  Acceptance criteria: no third-party connection occurs without an explicit user action.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [ ] Route ModelLoader's three PointLights through LightFactory
+  Priority: Low
+  Category: Refactor
+  Area: Lighting
+  Affected files: `js/modelLoader.js`
+  Problem: one DJ light and one per speaker are created with bare `new BABYLON.PointLight`,
+  bypassing the registry. `LightFactory.disposeAll()` will never reclaim them and `getStats()`
+  under-reports, so even a manual audit of the factory understates the true light count.
+  Recommended solution: pass the factory into `ModelLoader` and use `getPreset('djLight')` /
+  `getPreset('speakerLight')`.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] Investigate whether `_fitAndPlace()` destroys the glTF handedness transform
+  Priority: Low
+  Category: Bug
+  Area: Model loading
+  Affected files: `js/modelLoader.js`
+  Problem: `_fitAndPlace()` zeroes `rootMesh.rotationQuaternion`/`rotation`/`scaling` on
+  `__root__`, which is where Babylon's glTF loader puts the right-handed→left-handed conversion
+  (conventionally `scaling.z = -1`). That is very likely why `dj_console` carries a
+  `scale: new Vector3(-1, 1, 1)` "unmirror" workaround whose comment blames the exporter.
+  Impact: if confirmed, the sign-flip machinery exists only to paper over a self-inflicted bug.
+  Recommended solution: parent the container root under a new `TransformNode` and apply
+  fit/placement there, leaving the loader's conversion intact; then delete the sign handling.
+  Acceptance criteria: both models render identically with no `scale` sign flips in the configs.
+  Estimated effort: Medium
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] Decide the fate of the unreferenced procedural model fallbacks
+  Priority: Low
+  Category: Cleanup
+  Area: Model loading
+  Affected files: `js/modelLoader.js`
+  Problem: `createEnhancedProceduralModel()` dispatches on `config.type`, but none of
+  `dj_console`, `pa_speaker_left` or `pa_speaker_right` declares one. On the failure path the
+  "fallback" is an empty `TransformNode`, making ~350 lines of `createEnhancedCDJ` /
+  `createEnhancedMixer` / `createEnhancedPASpeaker` unreachable.
+  Impact: an advertised resilience feature that does not exist. Shipping an untestable fallback
+  is worse than shipping none, because it stops anyone looking for the real failure.
+  Recommended solution: add `type` to each config and verify the fallback renders, or delete the
+  three builders and log an explicit "model unavailable".
+  Acceptance criteria: either the fallback is exercised by a test, or the dead code is gone.
+  Estimated effort: Medium
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] Route PA speaker textures through TextureLoader and remove the magenta error state
+  Priority: Low
+  Category: Bug
+  Area: Textures
+  Affected files: `js/modelLoader.js`
+  Problem: `applyPASpeakerTextures()` loads four textures with bare `new BABYLON.Texture` — no
+  timeout, no IndexedDB cache, no in-flight dedup, i.e. none of the three primitives the rest of
+  the file was refactored to use. Its error handler paints the speakers **magenta**.
+  Impact: a debug artefact that will reach users on any texture 404.
+  Recommended solution: route through `TextureLoader`; fall back to dark grey with one toast.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] Wire `types/vrclub.d.ts` into a `tsconfig.json` with `checkJs`, or delete it
+  Priority: Low
+  Category: Developer Experience
+  Area: Tooling
+  Affected files: `types/vrclub.d.ts`
+  Problem: referenced by nothing — no `// @ts-check`, no `tsconfig.json`, no `checkJs`. It is
+  documentation that cannot go stale loudly.
+  Impact: given a `window`-global architecture with an 11-layer inheritance chain, type checking
+  would add real value; an unwired declaration file adds none.
+  Recommended solution: add a `tsconfig.json` with `allowJs` + `checkJs` and fix the fallout
+  incrementally, or delete the file.
+  Estimated effort: Medium
+  Business value: Medium
+  Technical debt reduction: Medium
+
+- [ ] Add a deploy job and drop the redundant `http-server` dependency
+  Priority: Low
+  Category: Developer Experience
+  Area: CI/CD
+  Affected files: `.github/workflows/ci.yml`, `package.json`
+  Problem: the README's "deploy `dist/` to static hosting" is a manual, undocumented,
+  unreproducible step — there is no tag-triggered release and no environment protection.
+  Separately, `http-server` is used only by `npm start`/`npm dev` and is strictly worse than
+  `scripts/serve.mjs` (which has the traversal guard, security headers, compression and `$PORT`).
+  Recommended solution: add a `deploy` job gated on `main` using `actions/deploy-pages`; point
+  `npm start` at `node scripts/serve.mjs` and drop the dependency; add Dependabot or Renovate.
+  Estimated effort: Small
+  Business value: Medium
+  Technical debt reduction: Low
+
+- [ ] Close the dev/prod strict-mode divergence
+  Priority: Low
+  Category: Technical Debt
+  Area: Build
+  Affected files: `js/assetCache.js`, `js/audioUtils.js`, `scripts/build.mjs`
+  Problem: `js/assetCache.js` and `js/audioUtils.js` carry `typeof module !== 'undefined'` CJS
+  export blocks. esbuild detects those markers and wraps the ENTIRE concatenation in
+  `__commonJS`, prepending `"use strict"`. Dev therefore runs sloppy mode and production runs
+  strict mode — and the CJS blocks, dead in dev, execute in the bundle.
+  Impact: latent, not live (probed: no top-level `this`, no `with`, no `eval`, and `no-undef`
+  catches implicit globals). But sloppy-only behaviour would work in dev and throw in prod.
+  Recommended solution: prepend `'use strict';` per file so both agree, and move the test-only
+  exports into the harness (`unit.test.mjs` already uses `vm.runInContext` for everything except
+  `audioUtils.js`).
+  Acceptance criteria: no `module.exports` in `js/`; dev and prod agree on strict mode.
+  Estimated effort: Small
+  Business value: Low
+  Technical debt reduction: Medium
+
+- [ ] Pack proper ORM textures instead of reusing a greyscale roughness map
+  Priority: Low
+  Category: Performance
+  Area: Textures
+  Affected files: `js/textureLoader.js`, `textures/`
+  Problem: `PBRMetallicRoughnessMaterial` reads roughness from G and metallic from B. The source
+  maps are greyscale (G === B), so the roughness value is also multiplied into metallic.
+  Impact: works only because every consumer's `metallic` scalar is ~0–0.2; raising it anywhere
+  produces a wrong surface response. The assumption is now commented but not enforced.
+  Recommended solution: pack a real occlusion/roughness/metallic map.
+  Estimated effort: Medium
+  Business value: Low
+  Technical debt reduction: Medium

@@ -61,4 +61,26 @@ writeFileSync(indexPath, updated);
 pkg.cacheToken = token;
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
+// sw.js and serviceworker.js were previously NOT touched here, which is exactly how
+// the two drifted apart (sw.js on -2 while index.html was on -1). A stale worker
+// version means `activate` never evicts the old cache. `npm test` now enforces
+// agreement between all four.
+const swPath = join(ROOT, 'sw.js');
+const swAliasPath = join(ROOT, 'serviceworker.js');
+const swVersion = `vrclub-v${token}`;
+
+const sw = readFileSync(swPath, 'utf8');
+const swUpdated = sw
+    .replace(/const VERSION = '[^']+';/, `const VERSION = '${swVersion}';`)
+    .replace(/const CACHE_TOKEN = '[^']+';/, `const CACHE_TOKEN = '${token}';`);
+if (!swUpdated.includes(swVersion) || !swUpdated.includes(`const CACHE_TOKEN = '${token}'`)) {
+    console.error('Could not rewrite VERSION / CACHE_TOKEN in sw.js.');
+    process.exit(1);
+}
+writeFileSync(swPath, swUpdated);
+
+const alias = readFileSync(swAliasPath, 'utf8');
+writeFileSync(swAliasPath, alias.replace(/SERVICE_WORKER_VERSION: \S+/, `SERVICE_WORKER_VERSION: ${swVersion}`));
+
 console.log(`Bumped ${count} cache token(s): ${[...current].join(', ') || '(none)'} -> ${token}`);
+console.log(`Service worker version -> ${swVersion}`);

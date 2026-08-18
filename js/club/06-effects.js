@@ -513,7 +513,6 @@ class VRClubEffects extends VRClubFixtures {
         
         // Position: Center of middle truss (x:0, y:8, z:-12)
         const ballPosition = new BABYLON.Vector3(0, 6.5, -12); // Hanging 1.5m below truss
-        const trussPosition = new BABYLON.Vector3(0, 8, -12);
         
         // === MIRROR BALL SPHERE ===
         const mirrorBall = BABYLON.MeshBuilder.CreateSphere("mirrorBall", {
@@ -1000,8 +999,8 @@ class VRClubEffects extends VRClubFixtures {
                 
                 // Convert to spherical coordinates for rotation
                 const distance = BABYLON.Vector3.Distance(targetPos, ballPos);
-                let theta = Math.atan2(directionFromBall.z, directionFromBall.x);
-                let phi = Math.acos(directionFromBall.y);
+                const theta = Math.atan2(directionFromBall.z, directionFromBall.x);
+                const phi = Math.acos(directionFromBall.y);
                 
                 this.mirrorReflectionSpots.push({
                     visual: spot,

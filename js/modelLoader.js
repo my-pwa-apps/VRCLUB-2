@@ -31,7 +31,12 @@ class ModelLoader {
         this.loadedModels = {}; // Store loaded model containers
     }
 
-    /** Mirrors VRClub.detectMaxLights() for the standalone case. */
+    /**
+     * Fallback light budget for the standalone case (no VRClub instance to ask).
+     * MUST agree with VRClub.detectMaxLights() in js/club/01-core.js - exceeding the
+     * device budget produces GL_INVALID_OPERATION / "uniform buffer too small", and
+     * this is the single most safety-critical constant in the renderer.
+     */
     static detectDefaultMaxLights() {
         const ua = (navigator.userAgent || '').toLowerCase();
         if (ua.includes('quest') || ua.includes('oculus')) return 4;
@@ -227,17 +232,14 @@ class ModelLoader {
     async downloadModel(url) {
         this.log.info(`⬇️ Downloading model: ${url}`);
         try {
-            const response = await fetchWithTimeout(url, {
-                mode: 'cors',
+            // fetchBufferWithTimeout keeps the deadline alive across the BODY read.
+            // With plain fetchWithTimeout the timer was cleared as soon as headers
+            // arrived, so a server that answered 200 and then stalled mid-transfer
+            // hung startup forever - the single most likely stall for a 15 MB GLB.
+            const arrayBuffer = await fetchBufferWithTimeout(url, {
                 cache: 'default',
                 timeoutMs: 60000 // GLBs are large; allow more headroom than textures
             });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const arrayBuffer = await response.arrayBuffer();
             const sizeMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
             this.log.info(`✅ Downloaded: ${url.split('/').pop()} (${sizeMB} MB)`);
             return arrayBuffer;
@@ -271,16 +273,27 @@ class ModelLoader {
             throw new Error(`Unknown model: ${modelKey}`);
         }
 
+        // Idempotent. Without this a second call re-parsed the GLB, re-added every
+        // mesh, created a duplicate PointLight and overwrote loadedModels[modelKey],
+        // orphaning the first AssetContainer with no handle left to dispose it.
+        // (InFlightRegistry dedupes the DOWNLOAD, not the parse.)
+        if (this.loadedModels[modelKey]) return this.loadedModels[modelKey].container;
+
+        return this.inFlight.run(`model:${modelKey}`, () => this._loadModelOnce(modelKey, config));
+    }
+
+    async _loadModelOnce(modelKey, config) {
         this.log.info(`🎸 Loading ${config.name}...`);
 
-        try {
-            // If configured for procedural, create enhanced model
-            if (config.useProcedural) {
-                this.log.info(`📦 Creating enhanced procedural ${config.name}`);
-                return this.createEnhancedProceduralModel(modelKey, config);
-            }
+        // If configured for procedural, create enhanced model
+        if (config.useProcedural) {
+            this.log.info(`📦 Creating enhanced procedural ${config.name}`);
+            return this.createEnhancedProceduralModel(modelKey, config);
+        }
 
-            // Try to load model from URL (for future CDN models)
+        // PHASE 1 - fetch and parse. A failure here has added nothing to the scene.
+        let result;
+        try {
             const arrayBuffer = await this.loadOrDownloadModel(config.url);
 
             if (this.gltfPluginAvailable === false) {
@@ -291,22 +304,38 @@ class ModelLoader {
             const blob = new Blob([arrayBuffer], { type: 'model/gltf-binary' });
             const blobUrl = URL.createObjectURL(blob);
             
-            // Load model with Babylon.js. The blob URL MUST be revoked even when the
-            // loader throws (corrupt GLB, missing loaders plugin) — otherwise every
-            // failed load permanently pins the whole file in memory.
-            let result;
+            // The blob URL MUST be revoked even when the loader throws (corrupt GLB,
+            // missing loaders plugin) - otherwise every failed load permanently pins
+            // the whole file in memory.
             try {
                 result = await BABYLON.SceneLoader.LoadAssetContainerAsync(
-                    '',
-                    blobUrl,
-                    this.scene,
-                    null,
-                    '.glb'
+                    '', blobUrl, this.scene, null, '.glb'
                 );
             } finally {
                 URL.revokeObjectURL(blobUrl);
             }
-            
+        } catch (error) {
+            this.log.warn(`⚠️ Failed to fetch/parse ${config.name}, using enhanced procedural:`, error);
+            return this.createEnhancedProceduralModel(modelKey, config);
+        }
+
+        // PHASE 2 - configure and place. addAllToScene() happens INSIDE this try, so
+        // a throw anywhere in the ~200 lines of post-load configuration must roll the
+        // geometry back out. Previously a failure here left un-scaled, un-opacified,
+        // over-lit GLB meshes sitting at the origin *alongside* the procedural
+        // fallback that the catch then built.
+        try {
+            return await this._configureLoadedModel(modelKey, config, result);
+        } catch (error) {
+            this.log.warn(`⚠️ Failed to configure ${config.name}, using enhanced procedural:`, error);
+            try { result.removeAllFromScene(); } catch (_) { /* ignore */ }
+            try { result.dispose(); } catch (_) { /* ignore */ }
+            return this.createEnhancedProceduralModel(modelKey, config);
+        }
+    }
+
+    async _configureLoadedModel(modelKey, config, result) {
+        {
             // Add to scene
             result.addAllToScene();
 
@@ -536,27 +565,59 @@ class ModelLoader {
             
             return result;
             
-        } catch (error) {
-            this.log.warn(`⚠️ Failed to load ${config.name}, using enhanced procedural:`, error);
-            
-            // Create enhanced procedural model
-            return this.createEnhancedProceduralModel(modelKey, config);
         }
     }
 
-    /** Clamps every material in the scene back to the device light budget. */
+    /**
+     * Clamps every material in the scene back to the device light budget.
+     *
+     * MaterialFactory freezes most materials, and `freeze()` sets checkReadyOnlyOnce,
+     * so the already-compiled effect keeps its old NUM_LIGHTS define. Without the
+     * unfreeze/markAsDirty/refreeze dance the clamp never reaches the GPU and the
+     * device silently keeps the over-budget shader. This is a one-shot post-load
+     * sweep, so it does not violate the no-freeze-per-frame rule.
+     */
     _enforceSceneLightBudget() {
         if (!this.scene) return;
+        const wasBlocked = this.scene.blockMaterialDirtyMechanism;
+        this.scene.blockMaterialDirtyMechanism = false;
+
+        const refreeze = [];
         let clamped = 0;
         for (const mat of this.scene.materials) {
             if (mat.maxSimultaneousLights === undefined) continue;
             if (mat.maxSimultaneousLights === this.maxLights) continue;
+            if (mat.isFrozen) { mat.unfreeze(); refreeze.push(mat); }
             mat.maxSimultaneousLights = this.maxLights;
+            if (mat.markAsDirty) mat.markAsDirty(BABYLON.Material.LightDirtyFlag);
             clamped++;
+        }
+
+        this.scene.blockMaterialDirtyMechanism = wasBlocked;
+
+        // Re-freeze only once the new effect has actually been compiled and bound.
+        // Re-freezing immediately sets checkReadyOnlyOnce again, so isReady() never
+        // re-runs and the GPU keeps a shader built for the old light count while the
+        // uniform buffer is sized for the new one.
+        if (refreeze.length && this.scene.onAfterRenderObservable) {
+            this.scene.onAfterRenderObservable.addOnce(() => {
+                refreeze.forEach(mat => { if (!mat.isFrozen && mat.freeze) mat.freeze(); });
+            });
         }
         if (clamped > 0) {
             this.log.info(`   🔧 Re-clamped ${clamped} material(s) to ${this.maxLights} light(s)`);
         }
+    }
+
+    /**
+     * Release loader-owned resources. The IndexedDB connection and the in-flight
+     * registry are NOT reclaimed by scene.dispose().
+     */
+    dispose() {
+        if (this.inFlight && this.inFlight.clear) this.inFlight.clear();
+        if (this.cache && this.cache.close) this.cache.close();
+        this.loadedModels = {};
+        this._paSpeakerMatCache = null;
     }
 
     createEnhancedProceduralModel(modelKey, config) {

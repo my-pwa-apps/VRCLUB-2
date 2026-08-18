@@ -2,17 +2,42 @@
 // Eliminates code duplication and ensures consistent material settings
 
 class MaterialFactory {
-    constructor(scene, maxLights, logger = null) {
+    /**
+     * Material names whose emissiveColor / albedoColor are written at runtime.
+     * Freezing these would silently no-op every mutation.
+     *
+     * Substring matching on names is fragile (a future `enabledMat` matches 'led'),
+     * but it is the current contract across ~200 call sites. Declared once here
+     * rather than copy-pasted into each creator.
+     */
+    static HOT_MUTATED = Object.freeze([
+        'lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
+        'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
+        'toggle', 'audiobtn', 'sliderhandle'
+    ]);
+
+    static isHotMutated(name) {
+        const lower = String(name).toLowerCase();
+        return MaterialFactory.HOT_MUTATED.some(tag => lower.includes(tag));
+    }
+
+    constructor(scene, maxLights = 4, logger = null) {
         this.scene = scene;
         this.maxLights = maxLights;
         this.log = logger || console; // Use provided logger or fallback to console
         
-        // Cache of shared materials (keyed by material type)
-        this.sharedMaterials = {};
+        // Cache of shared materials (keyed by material type).
+        // Object.create(null): keys are derived from config VALUES, so a key of
+        // 'constructor' or '__proto__' would otherwise produce a false cache hit or a
+        // broken assignment against Object.prototype.
+        this.sharedMaterials = Object.create(null);
 
         // Cache of procedurally generated surface-detail map sets, keyed by kind.
         // See _getDetailMaps().
-        this.detailMaps = {};
+        this.detailMaps = Object.create(null);
+
+        // Presets take no arguments, so their results are memoised by name.
+        this._presetCache = Object.create(null);
     }
 
     /**
@@ -337,17 +362,14 @@ class MaterialFactory {
         // Cache if shared
         if (cacheKey) {
             this.sharedMaterials[cacheKey] = mat;
+            mat._vrclubShared = true;
         }
 
         // Freeze material to prevent shader recompilation.
         // Skip freeze for materials whose emissiveColor / albedoColor is mutated
         // at runtime (lens, source, flare, beam, gobo, strobe, LED, blinder, ...);
         // freezing those would silently no-op the mutations.
-        const nameLower = name.toLowerCase();
-        const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
-                             'toggle', 'audiobtn', 'sliderhandle'];
-        if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
+        if (!MaterialFactory.isHotMutated(name)) {
             mat.freeze();
         }
 
@@ -355,9 +377,17 @@ class MaterialFactory {
     }
 
     /**
-     * Create standard material (for emissive/unlit objects)
+     * Create standard material (for emissive/unlit objects).
+     *
+     * NOTE: unlike its two siblings this creator has no cache path, so it takes no
+     * `shared` argument. Call sites that pass a third argument expecting sharing are
+     * silently getting a fresh material and a fresh GPU program each time - the
+     * warning below makes that visible instead of invisible.
      */
-    createStandardMaterial(name, config = {}) {
+    createStandardMaterial(name, config = {}, shared) {
+        if (shared !== undefined) {
+            this.log.warn(`createStandardMaterial('${name}') does not support sharing; the third argument is ignored.`);
+        }
         const {
             diffuseColor = null,
             emissiveColor = null,
@@ -415,11 +445,7 @@ class MaterialFactory {
 
         // Freeze material to prevent shader recompilation.
         // Skip freeze for materials mutated at runtime (emissiveColor / diffuseColor swaps).
-        const nameLower = name.toLowerCase();
-        const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
-                             'toggle', 'audiobtn', 'sliderhandle'];
-        if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
+        if (!MaterialFactory.isHotMutated(name)) {
             mat.freeze();
         }
 
@@ -506,14 +532,11 @@ class MaterialFactory {
         // Cache if shared
         if (cacheKey) {
             this.sharedMaterials[cacheKey] = mat;
+            mat._vrclubShared = true;
         }
 
         // Freeze (skip for runtime-mutated materials)
-        const nameLower = name.toLowerCase();
-        const HOT_MUTATED = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-                             'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
-                             'toggle', 'audiobtn', 'sliderhandle'];
-        if (!HOT_MUTATED.some(tag => nameLower.includes(tag))) {
+        if (!MaterialFactory.isHotMutated(name)) {
             mat.freeze();
         }
         return mat;
@@ -821,24 +844,39 @@ class MaterialFactory {
     };
 
     /**
-     * Get a preset material by name
+     * Get a preset material by name.
+     *
+     * Memoised: several presets do NOT pass `shared: true`, so each call built a
+     * brand-new material and a brand-new GPU program. Presets take no arguments, so
+     * caching by name is trivially safe and removes the in-a-loop foot-gun the name
+     * `getPreset` invites.
      */
     getPreset(presetName) {
+        if (this._presetCache[presetName]) return this._presetCache[presetName];
         if (this.presets[presetName]) {
-            return this.presets[presetName]();
+            const mat = this.presets[presetName]();
+            this._presetCache[presetName] = mat;
+            return mat;
         }
         this.log.warn(`Material preset "${presetName}" not found`);
         return this.createPBRMaterial('fallbackMat', {});
     }
 
     /**
-     * Clear all cached materials (properly disposes them first)
+     * Release factory-owned resources that scene.dispose() does not reclaim, and
+     * drop references to objects it does (so a reused factory cannot hand out a
+     * disposed material).
      */
-    clearCache() {
-        Object.values(this.sharedMaterials).forEach(mat => {
-            if (mat && mat.dispose) mat.dispose();
+    dispose() {
+        Object.values(this.detailMaps).forEach(pair => {
+            if (!pair) return;
+            for (const tex of Object.values(pair)) {
+                if (tex && tex.dispose) { try { tex.dispose(); } catch (_) { /* ignore */ } }
+            }
         });
-        this.sharedMaterials = {};
+        this.detailMaps = Object.create(null);
+        this.sharedMaterials = Object.create(null);
+        this._presetCache = Object.create(null);
     }
 }
 

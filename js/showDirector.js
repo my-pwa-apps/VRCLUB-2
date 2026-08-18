@@ -326,7 +326,7 @@ class ShowDirector {
     // layer that keeps the room breathing between those boundaries.
     // =========================================================================
 
-    _applyContinuous(vj, audioData) {
+    _applyContinuous(vj, _audioData) {
         const club = this.club;
         const look = this.looks[this._cue.look];
         if (!look) return;

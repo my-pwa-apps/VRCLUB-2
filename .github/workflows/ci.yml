@@ -8,9 +8,21 @@ on:
 permissions:
   contents: read
 
+# Stacked pushes on the same branch waste runners and tell you nothing extra.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # The matrix exists because a hard-coded '\' path separator in the contract
+    # tests passed on Windows and silently matched nothing on Linux. Cross-platform
+    # tooling needs cross-platform CI.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,10 +46,43 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # Building and discarding the output only proves the script does not throw.
+      # The payload budget is the thing that actually regresses: the deploy was
+      # 109 MB before models were pruned, and nothing would catch it growing back.
+      - name: Enforce deploy payload budget
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          SIZE_MB=$(du -sm dist | cut -f1)
+          echo "dist/ is ${SIZE_MB} MB"
+          if [ "$SIZE_MB" -gt 75 ]; then
+            echo "::error::dist/ is ${SIZE_MB} MB, over the 75 MB budget. Optimise or prune assets."
+            exit 1
+          fi
+
+      - name: Upload build artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
   sri:
-    # Network-dependent: verifies the pinned CDN bundles still hash to the
-    # integrity attributes in index.html. Kept separate so a CDN outage does not
-    # block a code-only change.
+    # Network-dependent: verifies the pinned upstream bundles still hash to the
+    # integrity values in scripts/vendor.manifest.json. Kept separate so a CDN
+    # outage does not block a code-only change.
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -47,5 +92,5 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Verify Subresource Integrity hashes
+      - name: Verify vendored bundle integrity
         run: node scripts/check-sri.mjs

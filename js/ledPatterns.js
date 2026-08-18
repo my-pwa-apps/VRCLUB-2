@@ -497,7 +497,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternStrobe(color, time, audioData) {
+    patternStrobe(_color, time, _audioData) {
         // Club strobe effect
         const strobeSpeed = 15; // Hz
         const on = Math.sin(time * strobeSpeed * Math.PI * 2) > 0;
@@ -508,7 +508,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternLaserScan(color, time, audioData) {
+    patternLaserScan(color, time, _audioData) {
         // Scanning laser lines
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -525,7 +525,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternTunnel(color, time, audioData) {
+    patternTunnel(color, time, _audioData) {
         // Tunnel/vortex effect
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -540,7 +540,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternKaleidoscope(color, time, audioData) {
+    patternKaleidoscope(color, time, _audioData) {
         // Symmetrical mirroring
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -559,7 +559,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternDNAHelix(color, time, audioData) {
+    patternDNAHelix(color, time, _audioData) {
         // Double helix
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -577,7 +577,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternInfinityLoop(color, time, audioData) {
+    patternInfinityLoop(color, time, _audioData) {
         // Figure-8 motion
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -649,7 +649,6 @@ class LEDPatternMethods {
 
     patternEqualizerBars(color, time, audioData) {
         // Bouncing EQ columns
-        const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
         const hasAudio = audioData && audioData.hasAudio;
         
@@ -672,8 +671,6 @@ class LEDPatternMethods {
 
     patternBeatGrid(color, time, audioData) {
         // Pulsing grid on beat
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
         const hasAudio = audioData && audioData.hasAudio;
         
         let beat = 0.1;
@@ -691,9 +688,8 @@ class LEDPatternMethods {
         });
     }
 
-    patternPixelRain(color, time, audioData) {
+    patternPixelRain(_color, time, _audioData) {
         // Digital rain effect
-        const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
         
         this.ledPanels.forEach(panel => {
@@ -712,11 +708,8 @@ class LEDPatternMethods {
         });
     }
 
-    patternTriangleWave(color, time, audioData) {
+    patternTriangleWave(color, time, _audioData) {
         // Diagonal lines forming triangles
-        const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
-        
         this.ledPanels.forEach(panel => {
             const val = (panel.col + panel.row + time * 5) % 8;
             const brightness = val < 2 ? 1.0 : 0.0;
@@ -724,15 +717,17 @@ class LEDPatternMethods {
         });
     }
 
-    patternHexagonPulse(color, time, audioData) {
+    patternHexagonPulse(color, time, _audioData) {
         // Hexagonal grid approximation (staggered rows)
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
+        const centerX = cols / 2;
+        const centerY = rows / 2;
         
         this.ledPanels.forEach(panel => {
             const offset = (panel.row % 2) * 0.5;
             const x = panel.col + offset;
-            const dist = Math.sqrt(Math.pow(x - cols/2, 2) + Math.pow(panel.row - rows/2, 2));
+            const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(panel.row - centerY, 2));
             
             const wave = Math.sin(dist - time * 5);
             const brightness = wave > 0.5 ? 1.0 : 0.0;
@@ -740,7 +735,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternDiamondSpin(color, time, audioData) {
+    patternDiamondSpin(color, time, _audioData) {
         // Rotating diamond shape
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -766,13 +761,13 @@ class LEDPatternMethods {
         });
     }
 
-    patternCubeRotate(color, time, audioData) {
+    patternCubeRotate(color, time, _audioData) {
         // 3D cube illusion (wireframe projection)
         // Simplified: rotating square projected
-        this.patternDiamondSpin(color, time, audioData); // Reuse for now as it's similar visually in 2D
+        this.patternDiamondSpin(color, time, _audioData); // Reuse for now as it's similar visually in 2D
     }
 
-    patternPlasma(color, time, audioData) {
+    patternPlasma(_color, time, _audioData) {
         // Organic plasma flow
         this.ledPanels.forEach(panel => {
             const v1 = Math.sin(panel.col * 0.1 + time);
@@ -791,10 +786,8 @@ class LEDPatternMethods {
         });
     }
 
-    patternAurora(color, time, audioData) {
+    patternAurora(_color, time, _audioData) {
         // Wavy vertical bands
-        const cols = this.ledCols || 28;
-        
         this.ledPanels.forEach(panel => {
             const x = panel.col;
             const y = panel.row;
@@ -812,9 +805,8 @@ class LEDPatternMethods {
         });
     }
 
-    patternOceanWave(color, time, audioData) {
+    patternOceanWave(_color, time, _audioData) {
         // Horizontal sine waves
-        const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
         
         this.ledPanels.forEach(panel => {
@@ -824,9 +816,8 @@ class LEDPatternMethods {
         });
     }
 
-    patternFire(color, time, audioData) {
+    patternFire(_color, time, _audioData) {
         // Rising fire columns
-        const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
         
         this.ledPanels.forEach(panel => {
@@ -854,7 +845,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternConfetti(color, time, audioData) {
+    patternConfetti(_color, time, _audioData) {
         // Random colored pixels sparkling
         this.ledPanels.forEach(panel => {
             // Random flicker based on time and position
@@ -873,7 +864,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternSpotlightSweep(color, time, audioData) {
+    patternSpotlightSweep(color, time, _audioData) {
         // Moving spotlights
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -896,7 +887,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternNeonPulse(color, time, audioData) {
+    patternNeonPulse(color, time, _audioData) {
         // Bright outlines pulsing
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -910,7 +901,7 @@ class LEDPatternMethods {
         });
     }
 
-    patternRainbowRave(color, time, audioData) {
+    patternRainbowRave(_color, time, _audioData) {
         // Full RGB cycle
         const cols = this.ledCols || 28;
         
@@ -934,7 +925,7 @@ class LEDPatternMethods {
 
     // === IMMERSIVE PULSATING PATTERNS ===
     
-    patternHeartbeat(color, time, audioData) {
+    patternHeartbeat(_color, time, _audioData) {
         // Rhythmic heartbeat pulse - two quick beats then pause
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -980,7 +971,7 @@ class LEDPatternMethods {
         });
     }
     
-    patternBreathing(color, time, audioData) {
+    patternBreathing(_color, time, _audioData) {
         // Slow inhale/exhale - meditative pulsing glow
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -1014,7 +1005,7 @@ class LEDPatternMethods {
         });
     }
     
-    patternShockwave(color, time, audioData) {
+    patternShockwave(color, time, _audioData) {
         // Concentric rings expanding rapidly from center
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -1044,7 +1035,7 @@ class LEDPatternMethods {
         });
     }
     
-    patternPulseStar(color, time, audioData) {
+    patternPulseStar(color, time, _audioData) {
         // Star shape that pulses and rotates
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -1074,7 +1065,7 @@ class LEDPatternMethods {
         });
     }
     
-    patternCrossBeam(color, time, audioData) {
+    patternCrossBeam(color, time, _audioData) {
         // Crossing beams that pulse in intensity
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -1106,7 +1097,7 @@ class LEDPatternMethods {
         });
     }
     
-    patternRadialPulse(color, time, audioData) {
+    patternRadialPulse(color, time, _audioData) {
         // Radial rays pulsing outward from center like a sun
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -1145,10 +1136,9 @@ class LEDPatternMethods {
         });
     }
     
-    patternWaveCollide(color, time, audioData) {
+    patternWaveCollide(color, time, _audioData) {
         // Waves from left and right that collide at center with splash
         const cols = this.ledCols || 28;
-        const rows = this.ledRows || 8;
         const centerX = cols / 2 - 0.5;
         
         const waveSpeed = 8;
@@ -1190,7 +1180,7 @@ class LEDPatternMethods {
         });
     }
     
-    patternCellularPulse(color, time, audioData) {
+    patternCellularPulse(color, time, _audioData) {
         // Organic cell-like blobs that pulse and merge
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;

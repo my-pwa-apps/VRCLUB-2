@@ -68,22 +68,17 @@ class TextureLoader {
     async init() {
         this.log.info('🎨 Initializing texture loader...');
         await this.cache.init();
+        // Drop entries past their TTL so a renamed or replaced asset cannot occupy
+        // quota forever - the read path alone only expires what is asked for again.
+        this.cache.prune().catch(() => { /* best effort */ });
     }
 
     async downloadTexture(url) {
         this.log.info(`⬇️ Downloading: ${url}`);
         try {
-            const response = await fetchWithTimeout(url, {
-                mode: 'cors',
-                cache: 'default',
-                timeoutMs: 30000
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const blob = await response.blob();
+            // fetchBlobWithTimeout, not fetchWithTimeout: the latter's deadline expires
+            // the moment headers arrive, leaving a stalled BODY to hang startup forever.
+            const blob = await fetchBlobWithTimeout(url, { cache: 'default', timeoutMs: 30000 });
             this.log.info(`✅ Downloaded: ${url.split('/').pop()} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
             return blob;
         } catch (error) {
@@ -145,15 +140,22 @@ class TextureLoader {
             if (this.texturePool.has(poolKey)) {
                 this.log.info(`  ♻️ Reusing pooled ${mapType}: ${filename}`);
                 textures[mapType] = this.texturePool.get(poolKey);
-                this.textureUsageCount.set(poolKey, (this.textureUsageCount.get(poolKey) || 0) + 1);
                 continue;
             }
             
             loadPromises.push(
-                this.loadOrDownloadTexture(url).then(blobUrl => {
+                // Deduped by pool key. The synchronous `has()` check above happens
+                // before an await while the pool is only populated inside the async
+                // continuation, so two concurrent loadTextureSet() calls for the same
+                // type both missed, both built a BABYLON.Texture, and the second
+                // overwrote (and orphaned) the first.
+                this.inFlight.run(poolKey, async () => {
+                    const blobUrl = await this.loadOrDownloadTexture(url);
                     const texture = new BABYLON.Texture(blobUrl, this.scene);
                     texture.uScale = config.scale.u;
                     texture.vScale = config.scale.v;
+                    // O(1) reverse lookup for releaseTexture().
+                    texture._vrclubPoolKey = poolKey;
 
                     // Anisotropic filtering. These are large tiling surfaces (floor,
                     // walls, ceiling) viewed at extremely shallow angles from eye
@@ -164,34 +166,41 @@ class TextureLoader {
                     const caps = this.scene.getEngine().getCaps();
                     texture.anisotropicFilteringLevel = Math.min(16, caps.maxAnisotropy || 1);
 
-                    // Revoke the blob URL once Babylon has uploaded the bitmap to GPU.
-                    // The pool keeps blob URLs alive forever otherwise (one per cached
-                    // texture per page load), and we never need to re-create the
-                    // BABYLON.Texture from the same blob.
+                    // Revoke the blob URL once Babylon has finished with it - on
+                    // SUCCESS *or* FAILURE. Wiring only onLoadObservable meant a 404 or
+                    // a decode error pinned the Blob in memory for the page lifetime.
                     const revoke = () => {
                         if (this.blobUrlPool.has(url)) {
                             try { URL.revokeObjectURL(this.blobUrlPool.get(url)); } catch (_) { /* ignore */ }
                             this.blobUrlPool.delete(url);
                         }
                     };
-                    if (texture.onLoadObservable) {
-                        texture.onLoadObservable.addOnce(revoke);
-                    } else {
-                        // Fallback: revoke on next tick
-                        setTimeout(revoke, 0);
-                    }
+                    if (texture.onLoadObservable) texture.onLoadObservable.addOnce(revoke);
+                    if (texture.onErrorObservable) texture.onErrorObservable.addOnce(revoke);
                     
-                    // Add to pool for reuse
+                    // Add to pool for reuse. Usage is counted on BINDING
+                    // (applyTexturesToMaterial), not here - see the note on releaseTexture.
                     this.texturePool.set(poolKey, texture);
-                    this.textureUsageCount.set(poolKey, 1);
+                    if (!this.textureUsageCount.has(poolKey)) this.textureUsageCount.set(poolKey, 0);
                     
-                    textures[mapType] = texture;
                     this.log.info(`  ✅ ${mapType}: ${filename}`);
-                })
+                    return texture;
+                }).then(texture => { textures[mapType] = texture; })
             );
         }
 
-        await Promise.all(loadPromises);
+        // allSettled, not all: `all` rejects on the first failure while every sibling
+        // map that already resolved has inserted a live BABYLON.Texture into the pool,
+        // unreachable and never released. Partial sets are usable - the material
+        // factory simply keeps its procedural default for the missing map.
+        const outcomes = await Promise.allSettled(loadPromises);
+        const failed = outcomes.filter(o => o.status === 'rejected');
+        if (failed.length === outcomes.length && outcomes.length > 0) {
+            throw failed[0].reason;
+        }
+        if (failed.length > 0) {
+            this.log.warn(`⚠️ ${config.name}: ${failed.length}/${outcomes.length} maps failed; using a partial set.`);
+        }
         this.log.info(`✅ ${config.name} loaded successfully`);
         
         return textures;
@@ -235,9 +244,20 @@ class TextureLoader {
     applyTexturesToMaterial(material, textures) {
         if (!textures) return;
         
-        // Unfreeze material if frozen (materialFactory freezes materials for performance)
-        if (material.isFrozen) {
-            material.unfreeze();
+        // Save and restore the freeze state. Unfreezing here and then freezing
+        // unconditionally permanently froze materials the MaterialFactory had
+        // deliberately left hot, silently no-op'ing their runtime colour mutations.
+        const wasFrozen = material.isFrozen;
+        if (wasFrozen) material.unfreeze();
+
+        // Count a reference for every map we BIND. Usage was previously incremented
+        // only on a pool hit inside loadTextureSet, which meant the walls set (bound
+        // to both wallMat and brickMat) and the ceiling set (pillarMat + ceilingMat)
+        // both reported a count of 1 - so a single releaseTexture() disposed a texture
+        // two live materials were still sampling.
+        for (const texture of Object.values(textures)) {
+            const key = texture && texture._vrclubPoolKey;
+            if (key) this.textureUsageCount.set(key, (this.textureUsageCount.get(key) || 0) + 1);
         }
 
         // Apply PBR textures - support both PBRMaterial and PBRMetallicRoughnessMaterial
@@ -262,6 +282,11 @@ class TextureLoader {
         }
         if (textures.roughness) {
             if (isMetallicRoughness) {
+                // NOTE: PBRMetallicRoughnessMaterial reads roughness from G and metallic
+                // from B. These source maps are greyscale (G === B), so the roughness
+                // value is also multiplied into metallic. That is only harmless because
+                // every consumer's `metallic` scalar is ~0-0.2; pack a real ORM map
+                // before raising it.
                 material.metallicRoughnessTexture = textures.roughness;
             } else {
                 material.metallicTexture = textures.roughness;
@@ -278,10 +303,18 @@ class TextureLoader {
             }
         }
         
-        // Re-freeze material for performance
-        material.freeze();
+        if (wasFrozen) material.freeze();
         
         this.log.info(`✅ Applied textures to material: ${material.name} (${material.getClassName()})`);
+    }
+
+    /**
+     * Release every reference this material holds on pooled textures.
+     * The mirror of applyTexturesToMaterial().
+     */
+    releaseTexturesFromMaterial(textures) {
+        if (!textures) return;
+        for (const texture of Object.values(textures)) this.releaseTexture(texture);
     }
 
     /**
@@ -315,11 +348,9 @@ class TextureLoader {
     releaseTexture(texture) {
         if (!texture) return false;
 
-        let poolKey = null;
-        for (const [key, pooled] of this.texturePool) {
-            if (pooled === texture) { poolKey = key; break; }
-        }
-        if (poolKey === null) {
+        // O(1): the pool key is stamped on the texture at pool time.
+        const poolKey = texture._vrclubPoolKey;
+        if (!poolKey || !this.texturePool.has(poolKey)) {
             this.log.warn('⚠️ releaseTexture called with a texture that is not pooled');
             return false;
         }
@@ -347,12 +378,12 @@ class TextureLoader {
         this.log.info('🗑️ Clearing texture pool...');
         
         // Dispose all textures
-        this.texturePool.forEach((texture, key) => {
+        this.texturePool.forEach((texture) => {
             texture.dispose();
         });
         
         // Revoke all blob URLs to free memory
-        this.blobUrlPool.forEach((blobUrl, url) => {
+        this.blobUrlPool.forEach((blobUrl) => {
             URL.revokeObjectURL(blobUrl);
         });
         
@@ -361,6 +392,17 @@ class TextureLoader {
         this.textureUsageCount.clear();
         
         this.log.info('✅ Texture pool cleared');
+    }
+
+    /**
+     * Full teardown: release GPU textures, blob URLs, in-flight work and the
+     * IndexedDB connection. An unclosed IDBDatabase per VRClub instance both leaks
+     * and blocks any future schema upgrade in another tab.
+     */
+    dispose() {
+        this.clearTexturePool();
+        if (this.inFlight && this.inFlight.clear) this.inFlight.clear();
+        if (this.cache && this.cache.close) this.cache.close();
     }
 
     async clearAllCaches() {

@@ -425,7 +425,6 @@ class VRClubFixtures extends VRClubEnvironment {
         const cols = 21;  // 21 × 1.2 = 25.2m (fills 25m wall completely)
         const rows = 10;  // 10 × 1.0 = 10m (floor to ceiling)
         const wallWidth = cols * panelWidth;
-        const wallHeight = rows * panelHeight;
         
         this.ledPanels = [];
         
@@ -790,6 +789,35 @@ class VRClubFixtures extends VRClubEnvironment {
         
         this.floorFog.updateSpeed = 0.004;
         this.floorFog.start();
+
+        // === AIRBORNE DUST MOTES ===
+        // Haze makes a beam visible as a solid volume; individual glinting motes are
+        // what make it read as real air. They are tiny, additive and slow, so they cost
+        // almost nothing but remove the "smooth CG cone" look from every fixture.
+        const moteCapacity = this.graphicsTier === 'ultra' ? 1400
+            : this.graphicsTier === 'high' ? 900 : 400;
+        this.dustMotes = new BABYLON.ParticleSystem("dustMotes", moteCapacity, this.scene);
+        this.dustMotes.particleTexture = particleTexture;
+        this.dustMotes.emitter = new BABYLON.Vector3(0, 4, -12);
+        this.dustMotes.minEmitBox = new BABYLON.Vector3(-11, -3.5, -8);
+        this.dustMotes.maxEmitBox = new BABYLON.Vector3(11, 3.5, 8);
+        this.dustMotes.color1 = new BABYLON.Color4(1, 0.98, 0.92, 0.5);
+        this.dustMotes.color2 = new BABYLON.Color4(0.9, 0.94, 1.0, 0.38);
+        this.dustMotes.colorDead = new BABYLON.Color4(0, 0, 0, 0);
+        this.dustMotes.minSize = 0.012;
+        this.dustMotes.maxSize = 0.05;
+        this.dustMotes.minLifeTime = 6.0;
+        this.dustMotes.maxLifeTime = 14.0;
+        this.dustMotes.emitRate = moteCapacity / 10;
+        this.dustMotes.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+        // Convection off a room full of people: motes drift upward, never fall.
+        this.dustMotes.gravity = new BABYLON.Vector3(0, 0.012, 0);
+        this.dustMotes.direction1 = new BABYLON.Vector3(-0.06, 0.02, -0.06);
+        this.dustMotes.direction2 = new BABYLON.Vector3(0.06, 0.09, 0.06);
+        this.dustMotes.minEmitPower = 0.01;
+        this.dustMotes.maxEmitPower = 0.05;
+        this.dustMotes.updateSpeed = 0.006;
+        this.dustMotes.start();
         
         // Initialize fog machine state
         this.smokeActive = false;
@@ -809,7 +837,7 @@ class VRClubFixtures extends VRClubEnvironment {
             alpha: 0.8
         });
         
-        for (let side of [-4.2, 4.2]) {
+        for (const side of [-4.2, 4.2]) {
             const strip = BABYLON.MeshBuilder.CreateBox("ledStrip", {
                 width: 8,
                 height: 0.05,
@@ -1237,10 +1265,10 @@ class VRClubFixtures extends VRClubEnvironment {
             emitter.rotation.x = Math.PI / 2;
             emitter.isPickable = false;
             
-            const emitterMat = this.materialFactory.createStandardMaterial("laserEmitterMat", {
-                emissiveColor: [1, 0, 0],
-                disableLighting: true
-            }, true); // UPGRADE: shared across all laser emitters
+            // Shared across all laser emitters. createStandardMaterial has no cache path,
+            // so this must go through the memoised preset - passing a third `shared`
+            // argument silently produced one fresh material (and GPU program) per emitter.
+            const emitterMat = this.materialFactory.getPreset('laserEmitter');
             emitterMat.backFaceCulling = false;
             emitter.material = emitterMat;
             emitter.renderingGroupId = 2; // Render on top for visibility

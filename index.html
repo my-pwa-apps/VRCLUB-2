@@ -5,10 +5,18 @@
 
     <!-- Content Security Policy.
          There are no inline <script> blocks and no on* handlers in this document, so
-         script-src stays strict (no 'unsafe-inline', no 'unsafe-eval'). Styles do use
-         inline style="" attributes, hence 'unsafe-inline' for style-src only.
+         script-src stays strict (no 'unsafe-inline', no 'unsafe-eval').
+         'unsafe-inline' is still required for style-src because js/club/10-ui.js builds
+         the in-VR audio overlay from a template string containing style="" attributes.
+         Removing that one template is what unlocks dropping 'unsafe-inline' here.
+         (Note: element.style.foo = ... writes are CSSOM, not blocked by style-src.)
          media-src is deliberately open to https:/blob: because the whole point of the
          app is that the user pastes an arbitrary internet radio URL or drops a local file.
+
+         connect-src allows immersive-web.github.io because Babylon's WebXR controller
+         layer fetches the input-profiles catalogue from there when a session starts. It
+         is NOT in the startup critical path - blocking it only costs controller models -
+         but blocking it also logs a CSP violation on every VR entry.
 
          script-src is 'self' only: the Babylon.js runtime is vendored under js/vendor/
          (see scripts/vendor.manifest.json) rather than loaded from a CDN, so there is no
@@ -16,7 +24,7 @@
 
          frame-ancestors is NOT listed here: browsers ignore it when delivered via <meta>
          and log a console error for it. It is sent as a real HTTP header by
-         scripts/serve.mjs instead, alongside X-Frame-Options. -->
+         scripts/serve.mjs and by the committed static-host header files instead. -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
         base-uri 'none';
@@ -24,10 +32,10 @@
         form-action 'none';
         script-src 'self';
         style-src 'self' 'unsafe-inline';
-        img-src 'self' data: blob: https://assets.babylonjs.com;
+        img-src 'self' data: blob:;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
-        connect-src 'self' blob: data: https://assets.babylonjs.com https://immersive-web.github.io;
+        connect-src 'self' blob: https://immersive-web.github.io;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
@@ -40,33 +48,47 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
-    <link rel="preload" href="js/vendor/babylon.js?v=20260730-6" as="script">
+    <link rel="preload" href="js/vendor/babylon.js?v=20260818-1" as="script">
     
     <title>VR Club - Virtual Nightclub Experience</title>
     
+    <link rel="manifest" href="manifest.json?v=20260818-1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="stylesheet" href="css/styles.css?v=20260730-6">
+    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260818-1">
+    <link rel="stylesheet" href="css/styles.css?v=20260818-1">
 </head>
 <body>
     <!-- Splash Screen -->
-    <div id="splashScreen">
+    <div id="splashScreen" role="dialog" aria-modal="true" aria-labelledby="splashTitle">
         
         <div class="splash-content">
-            <div class="splash-logo">🎧</div>
-            <div class="splash-title">VR CLUB</div>
+            <div class="splash-logo" aria-hidden="true">🎧</div>
+            <h2 class="splash-title" id="splashTitle">VR CLUB</h2>
             <div class="splash-subtitle">◆ Immersive Virtual Nightclub Experience ◆</div>
-            
-            <button class="splash-button" id="enterClubBtn">
+
+            <!-- WCAG 2.3.1 (Three Flashes). The show uses strobes and blinders, so the
+                 warning and the mitigation must both be reachable BEFORE anything renders,
+                 not buried in a panel the user can only open after the flashing starts. -->
+            <div class="splash-warning" role="note">
+                <strong>⚠ Photosensitivity warning</strong>
+                <span>This experience contains flashing lights and strobe effects.</span>
+            </div>
+            <button class="splash-toggle" id="splashSafeModeBtn" type="button" aria-pressed="false"
+                    title="Disables all strobes, blinders and sharp flashes for the whole session.">
+                <span aria-hidden="true">🛡️</span> Photosensitive Safe Mode: <span id="splashSafeModeState">OFF</span>
+            </button>
+
+            <button class="splash-button" id="enterClubBtn" type="button">
                 ▶ ENTER CLUB
             </button>
-            
-            <div class="splash-options">
-                <div class="splash-input-group">
-                    <label class="splash-label">◇ Your Name (Optional)</label>
-                    <input type="text" class="splash-input" id="splashUsername" placeholder="DJ Guest" maxlength="20">
-                </div>
-            </div>
-            
+
+            <p class="splash-hint">
+                Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and the mouse ·
+                <span aria-hidden="true">🎵</span> load a radio stream or your own audio file ·
+                <span aria-hidden="true">🎛️</span> open the VJ desk ·
+                <span aria-hidden="true">📷</span> jump between viewpoints
+            </p>
+
             <div class="splash-loading" id="splashLoading">
                 <div class="splash-spinner"></div>
                 <div id="splashLoadingStage" aria-live="polite">Preparing renderer...</div>
@@ -78,56 +100,75 @@
         </div>
     </div>
     
-    <main id="mainExperience">
+    <main id="mainExperience" inert>
     <h1 class="visually-hidden">VR Club virtual nightclub</h1>
-    <canvas id="canvas" class="hidden"></canvas>
+    <canvas id="canvas" class="hidden" tabindex="0"
+            aria-label="Club scene. Use W, A, S, D or the arrow keys to move and drag with the mouse to look around."></canvas>
     
     <!-- VJ Toggle Button -->
     <button id="vjToggle" type="button" title="VJ Controls" aria-label="Open VJ controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span></button>
     
-    <!-- VJ Control Menu -->
-    <div id="vjMenu" class="hidden" role="dialog" aria-modal="false" aria-labelledby="vjMenuTitle">
-        <div class="vj-header">
-            <h2 class="vj-title" id="vjMenuTitle" tabindex="-1">
-                <span>🎛️</span>
+    <!-- VJ Control Menu.
+         Deliberately NOT role="dialog": these are non-modal disclosure panels layered
+         over a live scene the user keeps watching. role="dialog" makes screen readers
+         announce a modal context and imply a focus trap that (correctly) does not exist.
+         The trigger carries aria-expanded/aria-controls, which is the right contract. -->
+    <div id="vjMenu" class="panel hidden" role="group" aria-labelledby="vjMenuTitle">
+        <div class="panel-header">
+            <h2 class="panel-title" id="vjMenuTitle" tabindex="-1">
+                <span aria-hidden="true">🎛️</span>
                 <span>VJ Controls</span>
             </h2>
-            <div class="vj-controls">
-                <button class="vj-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel"><span aria-hidden="true">−</span></button>
-                <button class="vj-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
+            <div class="panel-header-actions">
+                <button class="panel-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
         
         <div class="vj-content">
+            <!-- Accessibility & Comfort.
+                 FIRST section by design: the strobes are on by default, so the control
+                 that turns them off must be above the fold on every viewport. -->
+            <div class="vj-section">
+                <div class="vj-section-title">♿ Accessibility &amp; Comfort</div>
+                <div class="vj-button-grid">
+                    <button class="vj-button" id="vjSafeModeBtn" type="button" aria-pressed="false" title="Photosensitive Safe Mode — disables ALL strobes and bright flashes. Recommended for users with photosensitive epilepsy or migraine.">SAFE MODE</button>
+                    <button class="vj-button active" id="vjBassHapticsBtn" type="button" aria-pressed="true" title="Pulse VR controllers on each bass hit — feel the kick drum in your hands.">BASS HAPTICS</button>
+                </div>
+            </div>
+
             <!-- Main Toggles -->
             <div class="vj-section">
                 <div class="vj-section-title">💡 Main Controls</div>
                 <div class="vj-button-grid">
-                    <button class="vj-button active" data-control="lightsActive">LIGHTS</button>
-                    <button class="vj-button" data-control="lasersActive">LASERS</button>
-                    <button class="vj-button active" data-control="ledWallActive">LED WALL</button>
-                    <button class="vj-button" data-control="ledMonochrome">B&amp;W WALL</button>
-                    <button class="vj-button active" data-control="strobesActive">STROBES</button>
-                    <button class="vj-button active" data-control="blindersActive">BLINDERS</button>
-                    <button class="vj-button" data-control="mirrorBallActive">MIRROR BALL</button>
-                    <button class="vj-button" data-control="laserSheetActive">LASER SHEET</button>
-                    <button class="vj-button" data-control="smokeActive">SMOKE</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="lightsActive">LIGHTS</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="lasersActive">LASERS</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="ledWallActive">LED WALL</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="ledMonochrome">B&amp;W WALL</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="blindersActive">BLINDERS</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="mirrorBallActive">MIRROR BALL</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="laserSheetActive">LASER SHEET</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive">SMOKE</button>
                 </div>
+                <button class="vj-button vj-button-wide" id="vjResetBtn" type="button" title="Restore every VJ control to its documented default.">↺ RESET TO DEFAULTS</button>
             </div>
             
             <!-- Spotlight Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🔦 Spotlight Settings</div>
                 <div class="vj-button-grid">
-                    <button class="vj-button" data-control="changeColor">COLOR</button>
-                    <button class="vj-button" data-control="cycleSpotMode">MODE</button>
-                    <button class="vj-button" data-control="cyclePattern">PATTERN</button>
-                    <button class="vj-button" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT FLASH</button>
+                    <button class="vj-button" type="button" data-control="changeColor">COLOR</button>
+                    <button class="vj-button" type="button" data-control="cycleSpotMode">MODE: STROBE+SWEEP</button>
+                    <button class="vj-button" type="button" data-control="cyclePattern">PATTERN: RANDOM</button>
+                    <button class="vj-button" type="button" aria-pressed="true" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT FLASH</button>
                 </div>
                 <div class="vj-slider-container">
-                    <input type="range" class="vj-slider" id="spotSpeed" min="0.1" max="2.0" step="0.1" value="1.0" title="Adjust animation speed for all lighting effects">
+                    <input type="range" class="vj-slider" id="spotSpeed" min="0.1" max="2.0" step="0.1" value="1.0"
+                           aria-labelledby="spotSpeedLabel" aria-valuetext="1.0x"
+                           title="Adjust animation speed for all lighting effects">
                     <div class="vj-slider-label">
-                        <span>Speed</span>
+                        <span id="spotSpeedLabel">Speed</span>
                         <span id="spotSpeedValue">1.0x</span>
                     </div>
                 </div>
@@ -137,14 +178,16 @@
             <div class="vj-section">
                 <div class="vj-section-title">🎭 Gobo Filters</div>
                 <div class="vj-button-grid">
-                    <button class="vj-button" data-control="goboActive">GOBO ON/OFF</button>
-                    <button class="vj-button" data-control="cycleGoboPattern">PATTERN</button>
-                    <button class="vj-button" data-control="reverseGoboSpin">REVERSE</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="goboActive">GOBO ON/OFF</button>
+                    <button class="vj-button" type="button" data-control="cycleGoboPattern">GOBO: CIRCLE</button>
+                    <button class="vj-button" type="button" data-control="reverseGoboSpin">REVERSE</button>
                 </div>
                 <div class="vj-slider-container">
-                    <input type="range" class="vj-slider" id="goboSpeed" min="-2.0" max="2.0" step="0.1" value="1.0" title="Gobo rotation speed (negative = reverse)">
+                    <input type="range" class="vj-slider" id="goboSpeed" min="-2.0" max="2.0" step="0.1" value="1.0"
+                           aria-labelledby="goboSpeedLabel" aria-valuetext="1.0x"
+                           title="Gobo rotation speed (negative = reverse)">
                     <div class="vj-slider-label">
-                        <span>Spin Speed</span>
+                        <span id="goboSpeedLabel">Spin Speed</span>
                         <span id="goboSpeedValue">1.0x</span>
                     </div>
                 </div>
@@ -153,22 +196,22 @@
             <!-- Mirror Ball Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🪩 Mirror Ball</div>
-                <button class="vj-button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
             </div>
 
             <!-- Graphics Quality -->
             <div class="vj-section">
                 <div class="vj-section-title">🎨 Graphics Quality</div>
-                <button class="vj-button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
             </div>
 
             <!-- Show Director: the composed, beat-locked light show -->
             <div class="vj-section">
                 <div class="vj-section-title">🎭 Light Show</div>
-                <button class="vj-button" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
+                <button class="vj-button vj-button-wide" type="button" aria-pressed="true" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
                 <div class="vj-button-grid">
-                    <button class="vj-button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
-                    <button class="vj-button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
+                    <button class="vj-button" type="button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
+                    <button class="vj-button" type="button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
                 </div>
                 <div class="vj-slider-label vj-slider-label-secondary">
                     <span>Now playing</span>
@@ -180,15 +223,17 @@
             <div class="vj-section">
                 <div class="vj-section-title">🎬 Live Macros</div>
                 <div class="vj-button-grid">
-                    <button class="vj-button" id="vjDropBtn" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams).">DROP</button>
-                    <button class="vj-button" id="vjBlackoutBtn" title="Kill all lights for one bar — perfect tension before a drop.">BLACKOUT</button>
-                    <button class="vj-button" id="vjLockBtn" title="Snap all moving heads straight down at the dance floor center.">LOCK</button>
-                    <button class="vj-button" id="vjTapBtn" title="Tap on each beat to set the BPM. 4+ taps for accuracy.">TAP TEMPO</button>
+                    <button class="vj-button" id="vjDropBtn" type="button" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams). Shortcut: F">DROP</button>
+                    <button class="vj-button" id="vjBlackoutBtn" type="button" title="Kill all lights for one bar — perfect tension before a drop. Shortcut: B">BLACKOUT</button>
+                    <button class="vj-button" id="vjLockBtn" type="button" title="Snap all moving heads straight down at the dance floor center.">LOCK</button>
+                    <button class="vj-button" id="vjTapBtn" type="button" title="Tap on each beat to set the BPM. 4+ taps for accuracy.">TAP TEMPO</button>
                 </div>
                 <div class="vj-slider-container">
-                    <input type="range" class="vj-slider" id="vjMasterSlider" min="0" max="1" step="0.01" value="1" title="Master intensity — fader for the whole rig (one knob).">
+                    <input type="range" class="vj-slider" id="vjMasterSlider" min="0" max="1" step="0.01" value="1"
+                           aria-labelledby="vjMasterLabel" aria-valuetext="100%"
+                           title="Master intensity — fader for the whole rig (one knob).">
                     <div class="vj-slider-label">
-                        <span>Master</span>
+                        <span id="vjMasterLabel">Master</span>
                         <span id="vjMasterValue">100%</span>
                     </div>
                 </div>
@@ -197,53 +242,44 @@
                     <span id="vjBpmReadout">128</span>
                 </div>
             </div>
-
-            <!-- Accessibility & Comfort -->
-            <div class="vj-section">
-                <div class="vj-section-title">♿ Accessibility & Comfort</div>
-                <div class="vj-button-grid">
-                    <button class="vj-button" id="vjSafeModeBtn" title="Photosensitive Safe Mode — disables ALL strobes and bright flashes. Recommended for users with photosensitive epilepsy or migraine.">SAFE MODE</button>
-                    <button class="vj-button active" id="vjBassHapticsBtn" title="Pulse VR controllers on each bass hit — feel the kick drum in your hands.">BASS HAPTICS</button>
-                </div>
-            </div>
         </div>
     </div>
     
-    <!-- Settings Toggle Button -->
-    <button id="settingsToggle" type="button" title="Settings" aria-label="Open settings" aria-expanded="false" aria-controls="settingsPanel"><span aria-hidden="true">⚙️</span></button>
-    
-    <!-- Settings Panel (hidden by default) -->
-    <div id="settingsPanel" role="dialog" aria-modal="false" aria-labelledby="settingsPanelTitle">
-        <h2 id="settingsPanelTitle" class="setting-label" tabindex="-1">🎮 VR Mode</h2>
-        <button id="vrButton">🥽 Enter VR</button>
-    </div>
+    <!-- Enter VR. Promoted to a top-level control: burying the headline action of a
+         WebXR app behind an unlabelled gear icon meant nobody on a Quest found it. -->
+    <button id="vrButton" type="button" title="Enter immersive VR">🥽 Enter VR</button>
     
     <!-- Audio Toggle Button -->
     <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span></button>
     
-    <!-- Audio Upload Menu -->
-    <div id="audioMenu" class="hidden" role="dialog" aria-modal="false" aria-labelledby="audioMenuTitle">
-        <div class="audio-header">
-            <h2 class="audio-title" id="audioMenuTitle" tabindex="-1">
-                <span>🎵</span>
+    <!-- Audio Upload Menu. See the note on #vjMenu for why this is not role="dialog". -->
+    <div id="audioMenu" class="panel hidden" role="group" aria-labelledby="audioMenuTitle">
+        <div class="panel-header">
+            <h2 class="panel-title" id="audioMenuTitle" tabindex="-1">
+                <span aria-hidden="true">🎵</span>
                 <span>Audio Stream</span>
             </h2>
-            <div class="audio-controls">
-                <button class="audio-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel"><span aria-hidden="true">−</span></button>
-                <button class="audio-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
+            <div class="panel-header-actions">
+                <button class="panel-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
         
         <div class="audio-content">
+            <!-- Now playing -->
+            <div class="audio-section">
+                <div id="audioNowPlaying" class="audio-now-playing" role="status" aria-live="polite">No audio yet</div>
+            </div>
+
             <!-- Stream URL -->
             <div class="audio-section">
                 <div class="audio-input-group">
                     <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
                               inputmode="url" autocomplete="off"
                            aria-label="Audio stream URL">
-                    <button class="audio-button" id="playStreamBtn">
-                        <span>▶️</span>
-                        <span>Play</span>
+                    <button class="audio-button" id="playStreamBtn" type="button">
+                        <span aria-hidden="true">▶️</span>
+                        <span id="playStreamBtnLabel">Play</span>
                     </button>
                 </div>
             </div>
@@ -251,16 +287,28 @@
             <!-- File Upload -->
             <div class="audio-section">
                 <div class="audio-file-upload">
+                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
                     <label for="audioFileInput" class="audio-file-label">
                         📁 Choose Audio File
                     </label>
-                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
                 </div>
                 <div id="audioFileName" class="audio-file-name"></div>
             </div>
+
+            <!-- Volume -->
+            <div class="audio-section">
+                <div class="vj-slider-container">
+                    <input type="range" class="vj-slider" id="audioVolume" min="0" max="1" step="0.01" value="1"
+                           aria-labelledby="audioVolumeLabel" aria-valuetext="100%" title="Playback volume">
+                    <div class="vj-slider-label">
+                        <span id="audioVolumeLabel">Volume</span>
+                        <span id="audioVolumeValue">100%</span>
+                    </div>
+                </div>
+            </div>
             
             <!-- Status -->
-            <div id="audioStatus" class="audio-status hidden"></div>
+            <div id="audioStatus" class="audio-status hidden" role="status" aria-live="polite" aria-atomic="true"></div>
         </div>
     </div>
     
@@ -270,25 +318,31 @@
                 title="Camera viewpoints" aria-label="Show camera viewpoints"
                 aria-expanded="false" aria-controls="cameraPresetGrid">📷</button>
         <div class="preset-grid" id="cameraPresetGrid" hidden>
-            <button data-camera-preset="arrival" title="Enter the room with the full club opening ahead">🚪 Arrival</button>
-            <button data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">💃 Floor</button>
-            <button data-camera-preset="djBooth" title="Take the DJ's view across the decks and dance floor">🎧 Booth</button>
-            <button data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">💡 Lights</button>
+            <button type="button" data-camera-preset="arrival" title="Enter the room with the full club opening ahead">🚪 Arrival</button>
+            <button type="button" data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">💃 Floor</button>
+            <button type="button" data-camera-preset="djBooth" title="Take the DJ's view across the decks and dance floor">🎧 Booth</button>
+            <button type="button" data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">💡 Lights</button>
         </div>
     </div>
     
-    <!-- 3D Model Credits (CC BY License Attribution) -->
+    <!-- Asset attribution. CC BY 4.0 §3(a)(1) requires creator, title, a link to the
+         material and a link to the licence. Full provenance for every shipped binary
+         is recorded in ASSETS.md; this block is the in-product notice. -->
     <div id="modelCredits">
         <div class="credits-title">
-            <strong>3D Models:</strong>
+            <strong>3D Models</strong>
         </div>
         <div>
-            • Pioneer DJ Console by 
-            <a href="https://sketchfab.com/twopixels.studio" target="_blank" rel="noopener" class="credit-link">TwoPixels.studio</a>
-            (CC BY 4.0)
+            • "Pioneer DJ Console"
+            by <a href="https://sketchfab.com/twopixels.studio" target="_blank" rel="noopener noreferrer" class="credit-link">TwoPixels.studio</a>
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
         </div>
         <div>
-            • PA Speakers (CC BY 4.0)
+            • "Stage Speaker — Black"
+            — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
+        </div>
+        <div class="credits-note">
+            Audio streams are fetched directly from the URL you choose; nothing is sent to us.
         </div>
     </div>
     </main>
@@ -297,57 +351,57 @@
          scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
          against the recorded hashes and against the upstream CDN.
          Refresh with: npm run vendor:babylon -- --force -->
-    <script src="js/vendor/babylon.js?v=20260730-6"></script>
-    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260730-6"></script>
+    <script src="js/vendor/babylon.js?v=20260818-1"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260818-1"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="js/vendor/babylonjs.loaders.min.js?v=20260730-6"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20260818-1"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260730-6"></script>
-    <script src="js/audioUtils.js?v=20260730-6"></script>
+    <script src="js/assetCache.js?v=20260818-1"></script>
+    <script src="js/audioUtils.js?v=20260818-1"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260730-6"></script>
+    <script src="js/textureLoader.js?v=20260818-1"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260730-6"></script>
+    <script src="js/modelLoader.js?v=20260818-1"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260730-6"></script>
+    <script src="js/materialFactory.js?v=20260818-1"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260730-6"></script>
+    <script src="js/lightFactory.js?v=20260818-1"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260730-6"></script>
+    <script src="js/vjDirector.js?v=20260818-1"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20260730-6"></script>
+    <script src="js/showDirector.js?v=20260818-1"></script>
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
-    <script src="js/ledPatterns.js?v=20260730-6"></script>
+    <script src="js/ledPatterns.js?v=20260818-1"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
-    <script src="js/club/01-core.js?v=20260730-6"></script>
-    <script src="js/club/02-lifecycle.js?v=20260730-6"></script>
-    <script src="js/club/03-rendering.js?v=20260730-6"></script>
-    <script src="js/club/04-environment.js?v=20260730-6"></script>
-    <script src="js/club/05-fixtures.js?v=20260730-6"></script>
-    <script src="js/club/06-effects.js?v=20260730-6"></script>
-    <script src="js/club/07-animation-core.js?v=20260730-6"></script>
-    <script src="js/club/08-animation-fixtures.js?v=20260730-6"></script>
-    <script src="js/club/09-animation-finish.js?v=20260730-6"></script>
-    <script src="js/club/10-ui.js?v=20260730-6"></script>
-    <script src="js/club/11-audio-crowd.js?v=20260730-6"></script>
+    <script src="js/club/01-core.js?v=20260818-1"></script>
+    <script src="js/club/02-lifecycle.js?v=20260818-1"></script>
+    <script src="js/club/03-rendering.js?v=20260818-1"></script>
+    <script src="js/club/04-environment.js?v=20260818-1"></script>
+    <script src="js/club/05-fixtures.js?v=20260818-1"></script>
+    <script src="js/club/06-effects.js?v=20260818-1"></script>
+    <script src="js/club/07-animation-core.js?v=20260818-1"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20260818-1"></script>
+    <script src="js/club/09-animation-finish.js?v=20260818-1"></script>
+    <script src="js/club/10-ui.js?v=20260818-1"></script>
+    <script src="js/club/11-audio-crowd.js?v=20260818-1"></script>
 
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260730-6"></script>
+    <script src="js/club_hyperrealistic.js?v=20260818-1"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260730-6"></script>
+    <script src="js/ui-init.js?v=20260818-1"></script>
 </body>
 </html>

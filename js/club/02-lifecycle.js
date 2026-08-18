@@ -22,8 +22,9 @@ class VRClubLifecycle extends VRClubCore {
         // Set scene reference in material factory
         this.materialFactory.scene = this.scene;
         
-        // Initialize light factory
-        this.lightFactory = new LightFactory(this.scene, log);
+        // Initialize light factory. maxLights lets it report a budget overrun rather
+        // than leaving "Too many lights" to surface as a black mesh on a headset.
+        this.lightFactory = new LightFactory(this.scene, log, this.maxLights);
         
         // Initialize Ready Player Me loader (optional, with fallback)
         // this.readyPlayerMeLoader = new ReadyPlayerMeLoader(this.scene);
@@ -44,9 +45,13 @@ class VRClubLifecycle extends VRClubCore {
         // scene.dispose() will not reclaim them and dispose() has to do it by hand.
         this._avatarContainers = [];
         
-        // Load environment for PBR reflections
+        // Load environment for PBR reflections.
+        // Vendored under js/vendor/ for the same reason the Babylon runtime is: a CDN
+        // outage here silently strips every PBR reflection in the scene, and it is the
+        // last third-party origin that would otherwise sit in the critical path.
+        // Provenance + integrity live in scripts/vendor.manifest.json.
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
-            "https://assets.babylonjs.com/environments/environmentSpecular.env",
+            "./js/vendor/environmentSpecular.env",
             this.scene
         );
         this.scene.environmentIntensity = 0.4; // Enhanced PBR reflections for hyperrealistic surfaces
@@ -57,8 +62,8 @@ class VRClubLifecycle extends VRClubCore {
         this.scene.fogDensity = this.vrSettings.desktop.fogDensity;
         this.scene.fogColor = new BABYLON.Color3(0.015, 0.012, 0.018); // Warm dark haze (smoke machines)
         
-        // Initialize texture loader and load textures from CDN (cached for subsequent loads)
-        log.info('🎨 Loading wooden floor and concrete textures from Polyhaven CDN...');
+        // Initialize texture loader and load local surface textures (IndexedDB-cached).
+        log.info('🎨 Loading floor, wall and ceiling textures...');
         this.textureLoader = new TextureLoader(this.scene, log);
         await this.textureLoader.init();
         this._reportInitProgress(0.14, 'Loading surface textures...');
@@ -81,7 +86,13 @@ class VRClubLifecycle extends VRClubCore {
         // Load all models in the background (they'll load asynchronously)
         log.info('📦 Loading DJ equipment and PA speaker models...');
         this.modelLoadPromise = this.modelLoader.loadAllModels().then(() => {
+            // A ~15 MB GLB can still be in flight when the host disposes the club.
+            if (this._disposed) return;
             this._refreshShadowCasters();
+            // Meshes that only exist once the GLB lands: drop caches keyed on them,
+            // and sweep anisotropy over the textures the loader just created.
+            this._subGrillRefs = null;
+            this._applyAnisotropicFiltering();
             log.info('✅ All 3D models loaded successfully');
         }).catch(error => {
             log.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
@@ -189,7 +200,7 @@ class VRClubLifecycle extends VRClubCore {
                     framebufferScaleFactor: 1.0 // Use native resolution (can increase for supersampling)
                 }
             }
-        }).catch(err => {
+        }).catch((_err) => {
             // VR not available - continue with desktop mode
             return null;
         });
@@ -346,8 +357,11 @@ class VRClubLifecycle extends VRClubCore {
             });
         }
         
-        // Set VR starting position at dance floor center (below mirror ball)
-        if (vrHelper) {
+        // Set VR starting position at dance floor center (below mirror ball).
+        // `baseExperience` can be absent when session creation fails after the helper
+        // object is constructed; without this guard init() throws on those platforms
+        // and drops a plain desktop browser onto the fatal-error retry splash.
+        if (vrHelper && vrHelper.baseExperience) {
             vrHelper.baseExperience.onStateChangedObservable.add((state) => {
                 if (state === BABYLON.WebXRState.IN_XR) {
                     // Position user at dance floor center below mirror ball
@@ -373,6 +387,15 @@ class VRClubLifecycle extends VRClubCore {
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
                     // CRITICAL: Re-enable frame-skip optimizations on desktop
                     this.isInVRMode = false;
+
+                    // Clear the feature handle so the IN_XR branch above re-runs on the
+                    // next session. That branch owns the sprint bindings, the jump
+                    // bindings, the controller tracking AND the lazy re-creation of
+                    // _jumpObserver - all of which the teardown below destroys. Leaving
+                    // movementFeature set made the whole block one-shot for the instance
+                    // lifetime, so jump and sprint were dead in every session after the
+                    // first, and xrCamera gravity/collisions were never re-applied.
+                    this.movementFeature = null;
                     
                     // Remove Y-lock observer when exiting VR
                     if (this.vrYLockObserver) {
@@ -491,10 +514,17 @@ class VRClubLifecycle extends VRClubCore {
         log.info(`  📦 Meshes: ${this.scene.meshes.length}`);
         log.info(`  🎨 Materials: ${this.scene.materials.length}`);
         
-        // Start render loop
+        // Start render loop.
+        //
+        // Order matters: updateAnimations() must run BEFORE scene.render(). With
+        // render first, every beam position, spotlight quaternion, LED colour,
+        // head-bob offset and exposure value computed this frame was not seen by the
+        // GPU until the NEXT frame - a permanent one-frame lag (~14 ms at 72 Hz on a
+        // Quest, on top of the compositor's own) and a guaranteed phase error between
+        // the camera matrix and the head-bob written into it.
         this._renderLoop = () => {
-            this.scene.render();
             this.updateAnimations();
+            this.scene.render();
             this.updatePerformanceMonitor();
         };
         this.engine.runRenderLoop(this._renderLoop);
@@ -503,14 +533,12 @@ class VRClubLifecycle extends VRClubCore {
         // On Quest the browser keeps a backgrounded tab's render loop alive, which
         // burns battery and GPU for content nobody can see. We never pause while an
         // immersive XR session is active (the headset owns the frame loop there).
+        // Audio is deliberately left running: a backgrounded club should not silently
+        // kill the music the user is listening to.
         this._onVisibilityChange = () => {
             if (document.hidden && !this.isInVRMode) {
                 this.engine.stopRenderLoop(this._renderLoop);
-                if (this.audioContext && this.audioContext.state === 'running') {
-                    // Leave audio running only if something is actually playing so a
-                    // backgrounded club doesn't silently kill the user's music.
-                    log.info('⏸️ Render loop paused (tab hidden)');
-                }
+                log.info('⏸️ Render loop paused (tab hidden)');
             } else if (!document.hidden) {
                 this.engine.runRenderLoop(this._renderLoop);
             }
@@ -523,11 +551,17 @@ class VRClubLifecycle extends VRClubCore {
         // Under memory pressure (common on standalone Quest) the context can be
         // evicted; without this handler the user is left staring at a frozen black
         // canvas with no explanation.
+        //
+        // Both the observer and the timer handle are retained: a host that disposes
+        // the club (SPA route change, unmount) must not have its document reloaded
+        // out from under it two seconds later.
         if (this.engine.onContextLostObservable) {
-            this.engine.onContextLostObservable.add(() => {
+            this._contextLostObserver = this.engine.onContextLostObservable.add(() => {
                 log.error('❌ WebGL context lost — GPU resources were evicted.');
                 this.showErrorMessage('Graphics context lost. Reloading the club…');
-                setTimeout(() => window.location.reload(), 2000);
+                this._contextLostReloadTimer = setTimeout(() => {
+                    if (!this._disposed) window.location.reload();
+                }, 2000);
             });
         }
 
@@ -600,6 +634,42 @@ class VRClubLifecycle extends VRClubCore {
             document.removeEventListener('keydown', this._onKeyDown);
             this._onKeyDown = null;
         }
+        if (this._vrButtonEl && this._onVRButtonClick) {
+            this._vrButtonEl.removeEventListener('click', this._onVRButtonClick);
+            this._vrButtonEl = null;
+            this._onVRButtonClick = null;
+        }
+        // The context-lost handler schedules a page reload. A host that disposes the
+        // club must not have its document navigated two seconds later.
+        if (this._contextLostReloadTimer) {
+            clearTimeout(this._contextLostReloadTimer);
+            this._contextLostReloadTimer = null;
+        }
+        if (this._contextLostObserver && this.engine && this.engine.onContextLostObservable) {
+            try { this.engine.onContextLostObservable.remove(this._contextLostObserver); } catch (_) { /* ignore */ }
+            this._contextLostObserver = null;
+        }
+        // Button-flash restore timers write to materials scene.dispose() is about to free.
+        if (this._pendingTimers) {
+            this._pendingTimers.forEach(clearTimeout);
+            this._pendingTimers.clear();
+        }
+        // Per-frame observers registered against the scene during an XR session.
+        if (this.scene && this.scene.onBeforeRenderObservable) {
+            for (const key of ['_jumpObserver', 'vrYLockObserver']) {
+                if (this[key]) {
+                    try { this.scene.onBeforeRenderObservable.remove(this[key]); } catch (_) { /* ignore */ }
+                    this[key] = null;
+                }
+            }
+        }
+        if (this._vrButtonObservers && this.scene) {
+            try {
+                this.scene.onXRSessionInit.remove(this._vrButtonObservers[0]);
+                this.scene.onXRSessionEnded.remove(this._vrButtonObservers[1]);
+            } catch (_) { /* ignore */ }
+            this._vrButtonObservers = null;
+        }
         if (this._onCameraPresetToggle) {
             const toggle = document.getElementById('cameraPresetToggle');
             if (toggle) toggle.removeEventListener('click', this._onCameraPresetToggle);
@@ -631,6 +701,10 @@ class VRClubLifecycle extends VRClubCore {
             this.audioElement = null;
         }
         if (this.audioContext && this.audioContext.state !== 'closed') {
+            if (this.crowdAmbienceSource) {
+                try { this.crowdAmbienceSource.stop(); } catch (_) { /* already stopped */ }
+                this.crowdAmbienceSource = null;
+            }
             this.audioContext.close().catch(() => { /* ignore */ });
         }
         this.audioContext = null;
@@ -645,19 +719,24 @@ class VRClubLifecycle extends VRClubCore {
         }
         this.vrHelper = null;
 
-        if (this.textureLoader && this.textureLoader.clearTexturePool) {
-            try { this.textureLoader.clearTexturePool(); } catch (_) { /* ignore */ }
+        // Loader/factory teardown: IndexedDB connections, in-flight downloads and
+        // cached DynamicTextures are owned by these objects, not by the scene.
+        for (const owner of [this.textureLoader, this.modelLoader, this.materialFactory, this.lightFactory]) {
+            if (owner && typeof owner.dispose === 'function') {
+                try { owner.dispose(); } catch (_) { /* ignore */ }
+            }
         }
 
         // Post-process pipelines hold render targets and GL resources that scene.dispose()
-        // does not always reclaim - release them explicitly.
-        if (this.ssrPipeline) {
-            try { this.ssrPipeline.dispose(); } catch (_) { /* ignore */ }
-            this.ssrPipeline = null;
-        }
-        if (this.motionBlur) {
-            try { this.motionBlur.dispose(); } catch (_) { /* ignore */ }
-            this.motionBlur = null;
+        // does not always reclaim - release them explicitly. `_desktopRenderPipeline` is
+        // the parked desktop chain while an XR session is active: disposing mid-session
+        // without it leaks an entire second HDR pipeline.
+        for (const key of ['ssrPipeline', 'motionBlur', 'renderPipeline', '_desktopRenderPipeline',
+                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe']) {
+            if (this[key]) {
+                try { this[key].dispose(); } catch (_) { /* ignore */ }
+                this[key] = null;
+            }
         }
 
         // Release UI-layer timers and XR observers (ui-init.js).

@@ -128,11 +128,15 @@ throttling. `updateAnimations()` computes:
 ```javascript
 const frameMs = this.engine.getDeltaTime();
 const dtScale = Math.min(4, Math.max(0.25, frameMs / 16.667));
-const dt = 0.016 * dtScale;
+const dt = dtScale / 60;   // exact elapsed seconds for the clamped frame
 ```
 
 **Never** hard-code `0.016` or a bare per-frame increment. Multiply rotation/phase steps by
-`dtScale` and decrement timers by `dt`.
+`dtScale` and decrement timers by `dt`. For an exponential smoother, compound the retention
+rate rather than scaling it: `k = 1 - Math.pow(1 - k60, dtScale)`.
+
+A contract test (`test/unit.test.mjs`) fails the build on any literal `0.016` inside
+`js/club/*animation*.js`.
 
 ### Never freeze/unfreeze materials per frame
 `Material.freeze()` and `unfreeze()` both call `markDirty()`, which walks **every mesh in
@@ -141,23 +145,30 @@ full-scene scans per second. If a material's colour is mutated each frame, unfre
 **once** and leave it unfrozen.
 
 ### Light count limits
-PBR materials exhaust GPU uniform buffers past a device-specific light count.
+PBR materials exhaust GPU uniform buffers past a device-specific light count. The authority
+is `VRClub.detectMaxLights()` in `js/club/01-core.js`; `ModelLoader.detectDefaultMaxLights()`
+mirrors it for the standalone case and a test enforces that the two agree.
 
 | Device  | Max simultaneous lights |
 |---------|-------------------------|
-| Quest   | 6                       |
-| Desktop | 4                       |
-| Mobile  | 4                       |
+| Quest   | 4                       |
+| Desktop | 3                       |
+| Mobile  | 3                       |
 
 Set `material.maxSimultaneousLights = this.maxLights` on **every** material, including the
 materials that arrive inside loaded `.glb` files.
+
+`maxSimultaneousLights` invalidates the compiled effect through `markAllSubMeshesAsLightsDirty`.
+Both `scene.blockMaterialDirtyMechanism` and `material.freeze()` suppress that, so any sweep
+that writes it must unfreeze, `markAsDirty(BABYLON.Material.LightDirtyFlag)`, and re-freeze -
+otherwise the clamp never reaches the GPU. See `_clampMaterialLightBudgets()`.
 
 ### VR opacity
 VR stereoscopic rendering is hypersensitive to transparency. On every mesh of a loaded model:
 
 ```javascript
 mesh.material.alpha = 1.0;
-mesh.material.transparencyMode = null;
+mesh.material.transparencyMode = 0;      // PBRMATERIAL_OPAQUE - force it, do not infer
 mesh.material.needAlphaBlending = () => false;
 mesh.material.disableDepthWrite = false;
 ```
@@ -219,12 +230,12 @@ Do not construct materials or lights inline.
 
 ```javascript
 // Material
-const mat = this.materialFactory.getPreset('platform');
+const mat = this.materialFactory.getPreset('platform');   // memoised by preset name
 const custom = this.materialFactory.createPBRMaterial('customMat',
     { baseColor: [0.5, 0.5, 0.5], metallic: 0.8, roughness: 0.3 }, /* shared */ true);
 
-// Light
-const light = this.lightFactory.getPreset('djLight', 'myLight', new BABYLON.Vector3(0, 5, 0));
+// Light. Presets take (position, name) - position FIRST.
+const light = this.lightFactory.getPreset('djLight', new BABYLON.Vector3(0, 5, 0), 'myLight');
 this.lightFactory.getGroup('dj').forEach(l => l.setEnabled(false));
 ```
 
@@ -236,18 +247,47 @@ Light presets: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`.
 
 Shared materials are keyed by `MaterialFactory._cacheKey()`, which normalises arrays and
 `Color3`s so equivalent configs collide correctly. Materials carrying a texture are never
-shared.
+shared. A cached instance is tagged `_vrclubShared = true`: **never mutate one per-instance**,
+because it is handed out by identity to every other consumer.
+
+### Teardown
+Every factory and loader exposes `dispose()` (`TextureLoader`, `ModelLoader`,
+`MaterialFactory`, `LightFactory`). `VRClub.dispose()` calls all four. They own IndexedDB
+connections, in-flight downloads and `DynamicTexture`s that `scene.dispose()` does **not**
+reclaim. Anything you add that holds one of those must be released there.
+
+## Build and service worker
+
+`index.html` is the single source of truth for the script load order. `scripts/build.mjs`
+**derives** the bundle order from it by parsing the `<script>` tags — never add a second
+hand-maintained list. The build also **generates** `dist/sw.js`: its `PRECACHE` array and
+`VERSION` come from the content hashes of the emitted bundle, because `caches.match()`
+compares the full URL including the query string and a hand-written list cannot track them.
+
+The service worker owns the **app shell only**. Models, textures and `.env` files are owned
+by `IndexedDBAssetCache`; caching them in both places doubles ~60 MB of storage and exhausts
+the origin quota on a Quest.
+
+`npm run version:bump` rewrites `index.html`, `package.json`, `sw.js` and `serviceworker.js`
+together. A contract test fails if any of the four disagree.
 
 ## Assets
 
 - **Textures**: local `./textures/{floor,walls,ceiling}/{diff,normal,roughness,ao}.jpg`
-  (originally sourced from Polyhaven). Not fetched from a CDN.
+  (originally sourced from Poly Haven). Not fetched from a CDN.
 - **Models**: local `./js/models/` — `djgear/source/pioneer_DJ_console.glb`,
   `paspeakers/source/stage_speaker___black.glb`.
+- **PBR environment**: local `./js/vendor/environmentSpecular.env`. It used to be fetched
+  from `assets.babylonjs.com`; a contract test now forbids any third-party origin in the
+  critical path, because one CDN outage silently stripped every reflection in the scene.
 - `ModelLoader` has **no** instancing API. `createInstance()` / `disposeInstance()` do not
   exist; both PA speakers are separate loads that share one cached download.
 - `TextureLoader` pools textures by `${url}_${scale.u}_${scale.v}`. `releaseTexture(texture)`
-  takes the texture instance, not a URL.
+  takes the texture instance, not a URL, and references are counted on BINDING
+  (`applyTexturesToMaterial`), not on pool hits.
+- Downloads that read a body must use `fetchBufferWithTimeout` / `fetchBlobWithTimeout`.
+  Plain `fetchWithTimeout` clears its deadline as soon as headers arrive, so a stalled body
+  hangs startup forever.
 
 ### Layout coordinates (`CLUB_POSITIONS` in `js/club/01-core.js`)
 - DJ booth: `{ x: 0, y: 0.95, z: -18 }`
@@ -284,7 +324,22 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.lastStreamUrl` |
+
+## UI
+
+The DOM panel (`js/ui-init.js`) and the in-world desk (`js/club/10-ui.js`) are two surfaces
+over ONE control set. All state mutation lives on `VRClub` — `cycleSpotColor()`,
+`cycleMirrorBallColor()`, `applyFixtureExclusivity()`, `resetVJControls()` — and both
+handlers only call those and render feedback. They previously reimplemented the same actions
+and had silently diverged; a test now enforces the delegation.
+
+`data-control` toggles are dispatched through the `TOGGLE_CONTROLS` allow-list, never by
+writing `instance[attributeValue]` directly.
+
+Photosensitive Safe Mode is offered on the splash **before** the scene renders and defaults
+to on under `prefers-reduced-motion`. It must never be reachable only after the strobes have
+already fired.
 
 ## Debugging
 
@@ -293,10 +348,13 @@ to avoid z-fighting.
 3. Look for `🥽 VR mode activated` / `🖥️ Desktop mode restored`.
 4. `Too many lights` or `GL_INVALID_OPERATION` means a material exceeded `maxLights`.
 5. `DEBUG_MODE` / `*_DEBUG` constants must be left `false` on commit — `npm test` enforces it.
+6. The diagnostics overlay is `Ctrl+Shift+D`; `getDiagnostics()` returns the circular buffer.
 
 ## Licensing
 
-Loaded 3D models are **CC BY 4.0**; attribution must remain visible in `#modelCredits`.
+Source code is MIT (`LICENSE`). Bundled 3D models, textures and animations are third-party
+works under their own terms — every one is recorded in `ASSETS.md`, and CC BY attribution
+must remain visible in `#modelCredits`.
 
 ## Known technical debt
 

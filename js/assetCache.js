@@ -36,25 +36,76 @@ const ASSET_FETCH_TIMEOUT_MS = 45000;
  * but never sends a response, the promise never settles and every `await` behind
  * it is stuck for the lifetime of the page.
  *
+ * NOTE: this covers HEADERS only - `await fetch()` resolves as soon as the response
+ * head arrives. For a large asset the realistic stall is mid-BODY, which is what
+ * `fetchBufferWithTimeout` / `fetchBlobWithTimeout` below exist for. Prefer those
+ * when you are downloading bytes.
+ *
  * @param {string} url
  * @param {RequestInit & { timeoutMs?: number }} [options]
  * @returns {Promise<Response>}
  */
 async function fetchWithTimeout(url, options = {}) {
-    const { timeoutMs = ASSET_FETCH_TIMEOUT_MS, ...init } = options;
+    const { timeoutMs = ASSET_FETCH_TIMEOUT_MS, signal: callerSignal, ...init } = options;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    // A caller-supplied signal used to be silently discarded by the spread, making
+    // the download uncancellable. Chain it instead.
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal) {
+        if (callerSignal.aborted) controller.abort();
+        else callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
     try {
         return await fetch(url, { ...init, signal: controller.signal });
     } catch (err) {
-        if (err && err.name === 'AbortError') {
+        // Only relabel OUR abort. Rewriting a caller cancellation as "timed out" sends
+        // the next debugger hunting a network stall that never happened.
+        if (timedOut && err && err.name === 'AbortError') {
             throw new Error(`Timed out after ${timeoutMs} ms fetching ${url}`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timer);
+        if (callerSignal) callerSignal.removeEventListener('abort', onCallerAbort);
+    }
+}
+
+/**
+ * Download and fully read a response body under ONE deadline.
+ *
+ * `fetchWithTimeout` clears its timer once headers arrive, so a server that sends
+ * `200 OK` and then stalls mid-body hangs startup forever - the exact failure mode
+ * the timeout exists to prevent, and the most likely one for a 15 MB GLB.
+ *
+ * @param {string} url
+ * @param {'arrayBuffer'|'blob'} as
+ * @param {RequestInit & { timeoutMs?: number }} [options]
+ */
+async function fetchBodyWithTimeout(url, as, options = {}) {
+    const { timeoutMs = ASSET_FETCH_TIMEOUT_MS, ...init } = options;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    try {
+        const response = await fetch(url, { ...init, signal: controller.signal });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText} for ${url}`);
+        }
+        return await response[as]();
+    } catch (err) {
+        if (timedOut && err && err.name === 'AbortError') {
+            throw new Error(`Timed out after ${timeoutMs} ms downloading ${url}`);
         }
         throw err;
     } finally {
         clearTimeout(timer);
     }
 }
+
+const fetchBufferWithTimeout = (url, options) => fetchBodyWithTimeout(url, 'arrayBuffer', options);
+const fetchBlobWithTimeout = (url, options) => fetchBodyWithTimeout(url, 'blob', options);
 
 /**
  * Promise-wrapped IndexedDB key/value store for binary assets.
@@ -86,6 +137,16 @@ class IndexedDBAssetCache {
     /** Open the database. Never rejects — falls back to memory-only operation. */
     async init() {
         if (this.db || this.disabled) return;
+        // The `if (this.db)` guard above is checked BEFORE an await, so two concurrent
+        // callers both passed it and both opened a connection - the second assignment
+        // orphaned the first, which stayed open and kept blocking version upgrades.
+        if (!this._initPromise) {
+            this._initPromise = this._open().finally(() => { this._initPromise = null; });
+        }
+        return this._initPromise;
+    }
+
+    async _open() {
         try {
             this.db = await new Promise((resolve, reject) => {
                 if (typeof indexedDB === 'undefined') {
@@ -94,7 +155,14 @@ class IndexedDBAssetCache {
                 }
                 const request = indexedDB.open(this.dbName, this.dbVersion);
                 request.onerror = () => reject(request.error || new Error('indexedDB.open failed'));
-                request.onblocked = () => reject(new Error('IndexedDB upgrade blocked by another tab'));
+                // `blocked` is TRANSIENT - another tab holds an older version and will
+                // release it. Treating it as terminal disabled persistence for the whole
+                // session. Close any connection that arrives late so it cannot leak.
+                request.onblocked = () => {
+                    this.log.info(`⏳ IndexedDB upgrade blocked by another tab (${this.dbName}); retrying later.`);
+                    request.onsuccess = () => { try { request.result.close(); } catch (_) { /* ignore */ } };
+                    reject(Object.assign(new Error('IndexedDB upgrade blocked by another tab'), { transient: true }));
+                };
                 request.onsuccess = () => resolve(request.result);
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
@@ -104,10 +172,13 @@ class IndexedDBAssetCache {
                 };
             });
             // If the browser evicts or another tab deletes the DB, stop using it.
-            this.db.onclose = () => { this.db = null; };
+            this.db.onclose = () => {
+                this.log.warn(`⚠️ Persistent cache connection closed unexpectedly (${this.dbName}); running memory-only.`);
+                this.db = null;
+            };
             this.db.onversionchange = () => { try { this.db.close(); } catch (_) { /* ignore */ } this.db = null; };
         } catch (err) {
-            this.disabled = true;
+            if (!err || !err.transient) this.disabled = true;
             this.log.warn(`⚠️ Persistent cache unavailable (${this.dbName}); running memory-only:`, err);
         }
     }
@@ -137,8 +208,19 @@ class IndexedDBAssetCache {
                 reject(err);
                 return;
             }
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error || new Error('request failed'));
+            request.onerror = () => reject(request.error || tx.error || new Error('request failed'));
+            if (mode === 'readwrite') {
+                // Settle on COMMIT, not on request success. Chromium routinely reports
+                // QuotaExceededError at commit time for large blobs: request.onsuccess
+                // fires, put() returns true, and the later tx.onabort rejects an
+                // already-settled promise - so the cache reported success, never
+                // disabled itself, and retried a doomed write on every single load.
+                let result;
+                request.onsuccess = () => { result = request.result; };
+                tx.oncomplete = () => resolve(result);
+            } else {
+                request.onsuccess = () => resolve(request.result);
+            }
         });
     }
 
@@ -155,7 +237,7 @@ class IndexedDBAssetCache {
                 this.delete(url);
                 return null;
             }
-            return record.payload !== undefined ? record.payload : (record.blob || record.data || null);
+            return record.payload !== undefined ? record.payload : null;
         } catch (err) {
             this.log.warn(`⚠️ Cache read failed for ${url}:`, err);
             return null;
@@ -175,12 +257,66 @@ class IndexedDBAssetCache {
         } catch (err) {
             const name = err && err.name;
             if (name === 'QuotaExceededError' || name === 'NotFoundError') {
+                // Evict the oldest entries and retry once before giving up on
+                // persistence for the session. On a headset the origin quota is a
+                // fraction of free disk, so "disable forever on first full" meant
+                // re-downloading ~50 MB on every single launch.
+                if (!this._evictedOnce) {
+                    this._evictedOnce = true;
+                    const freed = await this._evictOldest(0.25);
+                    if (freed > 0) {
+                        this.log.warn(`⚠️ Storage full for ${this.dbName}; evicted ${freed} old entries and retrying.`);
+                        try {
+                            await this._run('readwrite', (store) => store.put({ url, payload, timestamp: Date.now() }));
+                            return true;
+                        } catch (_) { /* fall through to disable */ }
+                    }
+                }
                 this.log.warn(`⚠️ Storage quota exhausted for ${this.dbName}; disabling persistent cache.`);
                 this.disabled = true;
             } else {
                 this.log.warn(`⚠️ Cache write failed for ${url}:`, err);
             }
             return false;
+        }
+    }
+
+    /**
+     * Delete the oldest `fraction` of entries by timestamp.
+     * @returns {Promise<number>} number of entries removed
+     */
+    async _evictOldest(fraction) {
+        try {
+            const records = await this._run('readonly', (store) => store.getAll());
+            if (!records || records.length === 0) return 0;
+            records.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            const victims = records.slice(0, Math.max(1, Math.ceil(records.length * fraction)));
+            for (const record of victims) {
+                await this._run('readwrite', (store) => store.delete(record.url));
+            }
+            return victims.length;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    /** Drop every entry past its TTL. Cheap, and keeps renamed assets from lingering. */
+    async prune() {
+        if (this.disabled || !this.db || this.maxAgeMs <= 0) return 0;
+        try {
+            const records = await this._run('readonly', (store) => store.getAll());
+            const cutoff = Date.now() - this.maxAgeMs;
+            let removed = 0;
+            for (const record of records || []) {
+                if (record.timestamp && record.timestamp < cutoff) {
+                    await this._run('readwrite', (store) => store.delete(record.url));
+                    removed++;
+                }
+            }
+            if (removed) this.log.info(`🗑️ Pruned ${removed} expired entries from ${this.dbName}`);
+            return removed;
+        } catch (_) {
+            return 0;
         }
     }
 
@@ -224,14 +360,26 @@ class InFlightRegistry {
         this.pending.set(key, promise);
         return promise;
     }
+
+    /**
+     * Forget every tracked promise. The work itself cannot be cancelled from here,
+     * but dropping the references lets the closures - and the loaders and scene they
+     * capture - be collected once they settle.
+     */
+    clear() { this.pending.clear(); }
 }
 
 if (typeof window !== 'undefined') {
     window.IndexedDBAssetCache = IndexedDBAssetCache;
     window.InFlightRegistry = InFlightRegistry;
     window.fetchWithTimeout = fetchWithTimeout;
+    window.fetchBufferWithTimeout = fetchBufferWithTimeout;
+    window.fetchBlobWithTimeout = fetchBlobWithTimeout;
     window.ASSET_FETCH_TIMEOUT_MS = ASSET_FETCH_TIMEOUT_MS;
 }
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { IndexedDBAssetCache, InFlightRegistry, fetchWithTimeout, ASSET_FETCH_TIMEOUT_MS };
+    module.exports = {
+        IndexedDBAssetCache, InFlightRegistry, fetchWithTimeout,
+        fetchBufferWithTimeout, fetchBlobWithTimeout, ASSET_FETCH_TIMEOUT_MS
+    };
 }

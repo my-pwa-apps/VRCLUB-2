@@ -6,32 +6,22 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
-const sources = [
-    'js/assetCache.js',
-    'js/audioUtils.js',
-    'js/textureLoader.js',
-    'js/modelLoader.js',
-    'js/materialFactory.js',
-    'js/lightFactory.js',
-    'js/vjDirector.js',
-    'js/showDirector.js',
-    'js/ledPatterns.js',
-    'js/club/01-core.js',
-    'js/club/02-lifecycle.js',
-    'js/club/03-rendering.js',
-    'js/club/04-environment.js',
-    'js/club/05-fixtures.js',
-    'js/club/06-effects.js',
-    'js/club/07-animation-core.js',
-    'js/club/08-animation-fixtures.js',
-    'js/club/09-animation-finish.js',
-    'js/club/10-ui.js',
-    'js/club/11-audio-crowd.js',
-    'js/club_hyperrealistic.js',
-    'js/ui-init.js'
-];
 
 const digest = content => createHash('sha256').update(content).digest('hex').slice(0, 12);
+
+const indexHtml = await readFile(path.join(root, 'index.html'), 'utf8');
+
+// SINGLE SOURCE OF TRUTH.
+//
+// The bundle order used to be a second, hand-maintained copy of the <script> list
+// in index.html. Because the HTML rewrite below strips first-party tags
+// unconditionally, adding a file to index.html and forgetting that array did not
+// produce a duplicate or an error - the code was simply ABSENT from production
+// while dev worked and `npm test` stayed green. Deriving it removes the class.
+const sources = [...indexHtml.matchAll(/<script[^>]*\ssrc="(js\/(?!vendor\/)[^"?]+)/g)].map(m => m[1]);
+if (sources.length === 0) {
+    throw new Error('build: no first-party <script> tags found in index.html');
+}
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, 'assets'), { recursive: true });
@@ -45,30 +35,106 @@ const result = await transform(combined, {
     loader: 'js',
     format: 'iife',
     minify: true,
-    sourcemap: true,
+    // 'external' plus an explicit comment below: transform() (unlike build()) does
+    // NOT append a //# sourceMappingURL, so the 1.2 MB map was previously deployed
+    // and unusable. sourcesContent is off so the map does not publish the full
+    // unminified first-party source at a guessable URL.
+    sourcemap: 'external',
+    sourcesContent: false,
     sourcefile: 'vrclub.js',
     target: ['es2020'],
 });
+
 const jsName = `app-${digest(result.code)}.js`;
-await writeFile(path.join(dist, 'assets', jsName), result.code);
+await writeFile(path.join(dist, 'assets', jsName), `${result.code}\n//# sourceMappingURL=${jsName}.map\n`);
 await writeFile(path.join(dist, 'assets', `${jsName}.map`), result.map);
 
 const css = await readFile(path.join(root, 'css/styles.css'));
 const cssName = `styles-${digest(css)}.css`;
 await writeFile(path.join(dist, 'assets', cssName), css);
 
-let html = await readFile(path.join(root, 'index.html'), 'utf8');
-html = html
+const html = indexHtml
     .replace(/<link rel="stylesheet" href="css\/styles\.css\?v=[^"]+">/, `<link rel="stylesheet" href="assets/${cssName}">`)
     .replace(/(js\/vendor\/[^"?]+)\?v=[^"]+/g, '$1')
-    .replace(/^\s*<script src="js\/(?!vendor\/)[^"]+"><\/script>\s*$/gm, '')
+    .replace(/manifest\.json\?v=[^"]+/g, 'manifest.json')
+    .replace(/<script\s+src="js\/(?!vendor\/)[^"]+"\s*><\/script>/g, '')
     .replace('</body>', `    <script src="assets/${jsName}"></script>\n</body>`);
 await writeFile(path.join(dist, 'index.html'), html);
 
+// Fail loudly rather than shipping a 404 + CSP console noise: the tag-stripping
+// regex is the fragile part of this script, so assert its postcondition.
+const remainingFirstParty = [...html.matchAll(/<script[^>]*\ssrc="(js\/(?!vendor\/)[^"]+)"/g)].map(m => m[1]);
+if (remainingFirstParty.length) {
+    throw new Error(`build: dist/index.html still references un-bundled scripts: ${remainingFirstParty.join(', ')}`);
+}
+
+// SERVICE WORKER.
+//
+// sw.js used to be copied verbatim, so in dist/ every first-party precache path
+// 404'd - and because cache.addAll() is atomic, that meant production precached
+// NOTHING. The precache list is generated here from the same content hashes the
+// HTML uses, and VERSION is derived from the bundle so a deploy always invalidates
+// the previous cache.
+const swSource = await readFile(path.join(root, 'sw.js'), 'utf8');
+const swVersion = `vrclub-v${digest(result.code + css)}`;
+const distPrecache = [
+    './',
+    './index.html',
+    './manifest.json',
+    './icons/icon-192.png',
+    './icons/icon-512.png',
+    `./assets/${jsName}`,
+    `./assets/${cssName}`,
+    './js/vendor/babylon.js',
+    './js/vendor/babylonjs.proceduralTextures.min.js',
+    './js/vendor/babylonjs.loaders.min.js'
+];
+const swBuilt = swSource
+    .replace(/const VERSION = '[^']+';/, `const VERSION = '${swVersion}';`)
+    .replace(/const PRECACHE = \[[\s\S]*?\n\];/, `const PRECACHE = ${JSON.stringify(distPrecache, null, 4)};`);
+if (!swBuilt.includes(swVersion) || !swBuilt.includes(`assets/${jsName}`)) {
+    throw new Error('build: failed to rewrite sw.js for the dist build');
+}
+await writeFile(path.join(dist, 'sw.js'), swBuilt);
+await writeFile(
+    path.join(dist, 'serviceworker.js'),
+    `// Generated by scripts/build.mjs\n// SERVICE_WORKER_VERSION: ${swVersion}\nimportScripts('./sw.js');\n`
+);
+
+// MODELS.
+//
+// Copying js/models wholesale shipped ~97 MB, including model.zip, a .dae source
+// file, an unreferenced PA_Speakers.glb and a duplicated texture directory. Only
+// the paths the code actually references are deployed.
+const modelReferences = new Set();
+for (const source of sources) {
+    const code = await readFile(path.join(root, source), 'utf8');
+    for (const m of code.matchAll(/['"`](?:\.\/)?(js\/models\/[^'"`]+\.(?:glb|gltf|bin))['"`]/g)) {
+        modelReferences.add(m[1]);
+    }
+    // Texture sets are referenced as a base directory plus a filename at runtime.
+    for (const m of code.matchAll(/['"`](?:\.\/)?(js\/models\/[^'"`]*?\/textures)\/?['"`]/g)) {
+        modelReferences.add(m[1]);
+    }
+}
+if (modelReferences.size === 0) {
+    throw new Error('build: found no js/models references - the allow-list would ship an empty scene');
+}
+
 await Promise.all([
     cp(path.join(root, 'js/vendor'), path.join(dist, 'js/vendor'), { recursive: true }),
-    cp(path.join(root, 'js/models'), path.join(dist, 'js/models'), { recursive: true }),
-    cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true })
+    cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
+    cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
+    cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
+    // Security headers for static hosts, which send no frame-ancestors of their own.
+    cp(path.join(root, '_headers'), path.join(dist, '_headers')),
+    ...[...modelReferences].map(rel =>
+        cp(path.join(root, rel), path.join(dist, rel), { recursive: true }).catch(err => {
+            throw new Error(`build: referenced model asset is missing: ${rel} (${err.message})`);
+        })
+    )
 ]);
 
 console.log(`Built dist/ with assets/${jsName} and assets/${cssName}`);
+console.log(`Service worker version: ${swVersion}`);
+console.log(`Deployed ${modelReferences.size} referenced model path(s)`);

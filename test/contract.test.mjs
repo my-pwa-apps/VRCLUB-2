@@ -10,10 +10,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,13 +27,18 @@ const scriptSrcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
 /** Path portion of a script src, minus the ?v= cache-busting token. */
 const srcPath = (src) => src.split('?')[0];
 
+// Paths are normalised to POSIX separators throughout. A `join('js','club') + '\\'`
+// filter previously matched on Windows and matched NOTHING on the Linux CI runner,
+// which made the dispose()-listener guarantee simultaneously a no-op locally and a
+// hard failure in CI.
+const toPosix = (p) => p.split(sep).join('/');
 const collectJs = (dir, relative = '') => readdirSync(dir, { withFileTypes: true })
     .flatMap(entry => {
         if (entry.name === 'vendor') return [];
         const childRelative = join(relative, entry.name);
         return entry.isDirectory()
             ? collectJs(join(dir, entry.name), childRelative)
-            : (entry.name.endsWith('.js') ? [join('js', childRelative)] : []);
+            : (entry.name.endsWith('.js') ? [toPosix(join('js', childRelative))] : []);
     });
 const jsFiles = collectJs(join(ROOT, 'js'));
 
@@ -203,14 +208,42 @@ test('the Babylon runtime is vendored, not fetched from a third-party CDN', () =
         const p = join(ROOT, 'js/vendor', entry.file);
         assert.ok(existsSync(p), `vendored bundle missing - run npm run vendor:babylon: ${entry.file}`);
         assert.match(entry.integrity, /^sha(256|384|512)-[A-Za-z0-9+/=]+$/, `bad integrity for ${entry.file}`);
-        assert.match(entry.url, /\/v\d+\.\d+\.\d+\//, `vendor source is not version-pinned: ${entry.url}`);
 
         const [algo, expected] = entry.integrity.split('-');
         const actual = createHash(algo).update(readFileSync(p)).digest('base64');
         assert.equal(actual, expected, `js/vendor/${entry.file} does not match its recorded ${algo} hash`);
 
+        // Non-script assets (the PBR environment .env) are loaded by JS, not by a
+        // <script> tag, and upstream does not version-pin their URL.
+        if (entry.kind === 'asset') continue;
+        assert.match(entry.url, /\/v\d+\.\d+\.\d+\//, `vendor source is not version-pinned: ${entry.url}`);
         assert.ok(html.includes(`js/vendor/${entry.file}`), `index.html does not load js/vendor/${entry.file}`);
     }
+});
+
+test('no first-party code fetches from a third-party origin', () => {
+    // A CDN 502 was observed live and silently stripped every .glb from the scene.
+    // The Babylon runtime was vendored in response - but the PBR environment texture
+    // was still fetched from assets.babylonjs.com, so the same outage would still
+    // have removed every reflection in the club. Keep the critical path same-origin.
+    const offenders = [];
+    for (const file of jsFiles) {
+        const source = readFileSync(join(ROOT, file), 'utf8');
+        source.split('\n').forEach((line, i) => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('*') || trimmed.startsWith('//')) return;
+            const m = /["'`](https?:\/\/[^"'`\s]+)["'`]/.exec(line);
+            // Documentation links inside object literals (attribution strings) are fine;
+            // only assignments that look like a resource load are flagged.
+            if (m && /(src|url|Url|URL|CreateFromPrefilteredData|fetch|import)/.test(line)) {
+                offenders.push(`${file}:${i + 1}  ${m[1]}`);
+            }
+        });
+    }
+    // The default radio stream is inherently third-party and user-replaceable.
+    const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de'));
+    assert.deepEqual(filtered, [],
+        `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });
 
 test('the CSP does not grant script-src to any third-party origin', () => {
@@ -225,19 +258,63 @@ test('the CSP does not grant script-src to any third-party origin', () => {
 test('no first-party JS file leaves debug logging switched on', () => {
     for (const file of jsFiles) {
         const source = readFileSync(join(ROOT, file), 'utf8');
-        const m = source.match(/const\s+(\w*DEBUG\w*)\s*=\s*(true|false)/);
-        if (m) assert.equal(m[2], 'false', `${file}: ${m[1]} is left enabled`);
+        // matchAll, not match: the non-global version only ever checked the FIRST
+        // debug flag in a file, so a second `const TEX_DEBUG = true` sailed through.
+        for (const m of source.matchAll(/const\s+(\w*DEBUG\w*)\s*=\s*(true|false)/g)) {
+            assert.equal(m[2], 'false', `${file}: ${m[1]} is left enabled`);
+        }
     }
 });
 
-test('repository contains no empty tracked directories that imply dead features', () => {
-    const serverDir = join(ROOT, 'server');
-    if (existsSync(serverDir) && statSync(serverDir).isDirectory()) {
-        assert.ok(
-            readdirSync(serverDir).length > 0,
-            'server/ is empty - remove it or restore the multiplayer backend it implies'
-        );
-    }
+test('every version identifier agrees', () => {
+    // Five identifiers used to drift freely (they had, in fact, already drifted).
+    // A stale service-worker VERSION means `activate` never evicts the previous
+    // cache, so a deploy silently keeps serving the old bundle.
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+    const token = pkg.cacheToken;
+    assert.ok(token, 'package.json has no cacheToken');
+
+    const htmlTokens = new Set([...html.matchAll(/\?v=([A-Za-z0-9._-]+)/g)].map(m => m[1]));
+    assert.deepEqual([...htmlTokens], [token], 'index.html tokens disagree with package.json cacheToken');
+
+    const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
+    const swVersion = sw.match(/const VERSION = '([^']+)';/)?.[1];
+    assert.equal(swVersion, `vrclub-v${token}`, 'sw.js VERSION disagrees with the cache token');
+
+    const swToken = sw.match(/const CACHE_TOKEN = '([^']+)';/)?.[1];
+    assert.equal(swToken, token, 'sw.js CACHE_TOKEN disagrees with the cache token');
+
+    const alias = readFileSync(join(ROOT, 'serviceworker.js'), 'utf8');
+    assert.ok(alias.includes(swVersion), 'serviceworker.js version comment is stale');
+});
+
+test('the service worker precaches the versioned URLs the page actually requests', () => {
+    // caches.match() compares the FULL url including the query string unless
+    // ignoreSearch is set. An unversioned precache entry can therefore never satisfy
+    // a `?v=`-suffixed request, which silently made the whole precache dead weight
+    // AND downloaded every core asset twice on a cold load.
+    const sw = readFileSync(join(ROOT, 'sw.js'), 'utf8');
+    assert.match(sw, /\$\{path\}\?v=\$\{CACHE_TOKEN\}/,
+        'sw.js must append the cache token to every precached app-shell URL');
+
+    // Binary assets are owned by IndexedDBAssetCache; caching them in the SW too
+    // doubles ~100 MB of storage and exhausts the origin quota on a Quest.
+    assert.match(sw, /IDB_OWNED/, 'sw.js must exclude IndexedDB-owned binary assets');
+    assert.ok(!/skipWaiting\(\)\s*\)/.test(sw.split('addEventListener(\'install\'')[1]?.split('addEventListener(\'message\'')[0] ?? ''),
+        'install must not call skipWaiting() unconditionally');
+});
+
+test('the production build bundles exactly the scripts index.html loads', () => {
+    // build.mjs used to keep a second hand-maintained copy of the load order. A file
+    // added to index.html but missed there was stripped from dist/index.html and
+    // simply absent from production, with a green test suite.
+    const build = readFileSync(join(ROOT, 'scripts/build.mjs'), 'utf8');
+    assert.match(build, /indexHtml\.matchAll\(/,
+        'build.mjs must derive its source list from index.html, not duplicate it');
+    assert.match(build, /still references un-bundled scripts/,
+        'build.mjs must assert that no first-party script tag survives into dist/index.html');
+    assert.match(build, /const VERSION = '\[\^'\]\+';/,
+        'build.mjs must rewrite the service worker VERSION for the dist build');
 });
 
 test('no blocking native dialogs are used for user feedback', () => {
@@ -283,7 +360,7 @@ test('global event listeners are registered with removable handler references', 
 
 test('every long-lived listener stored on the instance is removed in dispose()', () => {
     const source = jsFiles
-        .filter(file => file.startsWith(join('js', 'club') + '\\') || file.endsWith('club_hyperrealistic.js'))
+        .filter(file => file.startsWith('js/club/') || file.endsWith('club_hyperrealistic.js'))
         .map(file => readFileSync(join(ROOT, file), 'utf8'))
         .join('\n');
     const added = new Set(

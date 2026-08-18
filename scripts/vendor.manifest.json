@@ -15,6 +15,12 @@
       "url": "https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js",
       "file": "babylonjs.loaders.min.js",
       "integrity": "sha384-08lzOJD9h7SvlsNvZVYdhN6WvmK1TgUQOGcWdpCIBM86wOvyGJo7vy8PJiJcRs7e"
+    },
+    {
+      "url": "https://assets.babylonjs.com/environments/environmentSpecular.env",
+      "file": "environmentSpecular.env",
+      "kind": "asset",
+      "integrity": "sha384-uRMvqV7R7tQDiwSvfRmjixvLSt3BezZM/A7KxYMgGzp8XPqeHE5TUnNDqMWzjmkp"
     }
   ]
 }

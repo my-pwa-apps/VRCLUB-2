@@ -6,11 +6,94 @@ class VRClubAudioCrowd extends VRClubUI {
             this.audioAnalyser.fftSize = 256;
             this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
 
-            // === CLUB MASTERING CHAIN ===
-            // Real club PAs run a hard limiter + master gain so the room stays loud
-            // without painful peaks. Routing the analyser through a DynamicsCompressor
-            // gives that "wall of sound" feel and protects the user's hearing.
+            // === 3D SPATIAL AUDIO & CLUB ACOUSTICS CHAIN ===
+            // Real club acoustics feature high-power directional main PA arrays
+            // flown from the truss, coupled with physical sub-bass in the room
+            // and distance-dependent air absorption.
             try {
+                // 1. Left Flown PA Speaker Panner
+                this.pannerLeft = this.audioContext.createPanner();
+                this.pannerLeft.panningModel = 'HRTF';
+                this.pannerLeft.distanceModel = 'inverse';
+                this.pannerLeft.refDistance = 4;
+                this.pannerLeft.maxDistance = 45;
+                this.pannerLeft.rolloffFactor = 0.65;
+                this.pannerLeft.coneInnerAngle = 120;
+                this.pannerLeft.coneOuterAngle = 240;
+                this.pannerLeft.coneOuterGain = 0.35;
+                if (this.pannerLeft.positionX) {
+                    this.pannerLeft.positionX.value = CLUB_POSITIONS.paSpeakers.left.x;
+                    this.pannerLeft.positionY.value = CLUB_POSITIONS.paSpeakers.left.y;
+                    this.pannerLeft.positionZ.value = CLUB_POSITIONS.paSpeakers.left.z;
+                    this.pannerLeft.orientationX.value = 0.2;
+                    this.pannerLeft.orientationY.value = -0.5;
+                    this.pannerLeft.orientationZ.value = 1.0;
+                } else if (this.pannerLeft.setPosition) {
+                    this.pannerLeft.setPosition(CLUB_POSITIONS.paSpeakers.left.x, CLUB_POSITIONS.paSpeakers.left.y, CLUB_POSITIONS.paSpeakers.left.z);
+                    this.pannerLeft.setOrientation(0.2, -0.5, 1.0);
+                }
+
+                // 2. Right Flown PA Speaker Panner
+                this.pannerRight = this.audioContext.createPanner();
+                this.pannerRight.panningModel = 'HRTF';
+                this.pannerRight.distanceModel = 'inverse';
+                this.pannerRight.refDistance = 4;
+                this.pannerRight.maxDistance = 45;
+                this.pannerRight.rolloffFactor = 0.65;
+                this.pannerRight.coneInnerAngle = 120;
+                this.pannerRight.coneOuterAngle = 240;
+                this.pannerRight.coneOuterGain = 0.35;
+                if (this.pannerRight.positionX) {
+                    this.pannerRight.positionX.value = CLUB_POSITIONS.paSpeakers.right.x;
+                    this.pannerRight.positionY.value = CLUB_POSITIONS.paSpeakers.right.y;
+                    this.pannerRight.positionZ.value = CLUB_POSITIONS.paSpeakers.right.z;
+                    this.pannerRight.orientationX.value = -0.2;
+                    this.pannerRight.orientationY.value = -0.5;
+                    this.pannerRight.orientationZ.value = 1.0;
+                } else if (this.pannerRight.setPosition) {
+                    this.pannerRight.setPosition(CLUB_POSITIONS.paSpeakers.right.x, CLUB_POSITIONS.paSpeakers.right.y, CLUB_POSITIONS.paSpeakers.right.z);
+                    this.pannerRight.setOrientation(-0.2, -0.5, 1.0);
+                }
+
+                // 3. Omni-directional Sub-bass Channel (club subs hit physical low end)
+                this.subFilter = this.audioContext.createBiquadFilter();
+                this.subFilter.type = 'lowpass';
+                this.subFilter.frequency.value = 100;
+                this.subGain = this.audioContext.createGain();
+                this.subGain.gain.value = 0.95;
+
+                // 4. Warehouse Air Absorption / High Frequency Damping Filter
+                this.airAbsorptionFilter = this.audioContext.createBiquadFilter();
+                this.airAbsorptionFilter.type = 'lowpass';
+                this.airAbsorptionFilter.frequency.value = 16000;
+
+                // 5. Room Acoustics Delay / Ambience
+                this.roomDelay = this.audioContext.createDelay();
+                this.roomDelay.delayTime.value = 0.038; // ~38ms early reflection in 25x16m room
+                this.roomDelayGain = this.audioContext.createGain();
+                this.roomDelayGain.gain.value = 0.18;
+
+                // 6. Convolution reverb — the actual room tail.
+                // A delay tap gives one echo; a real hall gives a dense decaying cloud.
+                // The IR is synthesised (see _createRoomImpulseResponse) so no asset fetch.
+                this.roomConvolver = this.audioContext.createConvolver();
+                this.roomConvolver.buffer = this._createRoomImpulseResponse();
+                // Reverb send is driven per-frame by listener distance in
+                // updateSpatialAudioListener(): dry at the speakers, wet at the back.
+                this.reverbSend = this.audioContext.createGain();
+                this.reverbSend.gain.value = 0.12;
+                this.reverbReturn = this.audioContext.createGain();
+                this.reverbReturn.gain.value = 0.9;
+
+                // 7. Occlusion filter — walking out of the room muffles the PA.
+                this.occlusionFilter = this.audioContext.createBiquadFilter();
+                this.occlusionFilter.type = 'lowpass';
+                this.occlusionFilter.frequency.value = 22050;
+
+                // === CLUB MASTERING CHAIN ===
+                // Real club PAs run a hard limiter + master gain so the room stays loud
+                // without painful peaks. Routing through a DynamicsCompressor
+                // gives that "wall of sound" feel and protects the user's hearing.
                 this.audioCompressor = this.audioContext.createDynamicsCompressor();
                 this.audioCompressor.threshold.value = -18;   // dB
                 this.audioCompressor.knee.value = 24;
@@ -21,17 +104,25 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.audioMasterGain = this.audioContext.createGain();
                 this.audioMasterGain.gain.value = 1.15;       // Slight push for "loud"
 
-                // Source (added later) -> analyser -> compressor -> masterGain -> destination
-                this.audioAnalyser.connect(this.audioCompressor);
+                // Reverb return folds back into the mastering bus.
+                this.roomConvolver.connect(this.reverbReturn);
+                this.reverbSend.connect(this.roomConvolver);
+                this.reverbReturn.connect(this.audioCompressor);
+
+                // Connect mastering output to destination
                 this.audioCompressor.connect(this.audioMasterGain);
                 this.audioMasterGain.connect(this.audioContext.destination);
             } catch (err) {
-                // Graceful fallback if compressor is unavailable
-                log.warn('🎚️ Mastering chain unavailable, using direct routing:', err);
+                // Graceful fallback if spatial nodes or compressor are unavailable
+                log.warn('🎚️ Spatial acoustics chain unavailable, using direct routing:', err);
                 this.audioAnalyser.connect(this.audioContext.destination);
             }
 
-            log.info('🎚️ Audio context initialized (with mastering chain)');
+            log.info('🎚️ Audio context initialized (with 3D spatial acoustics & mastering chain)');
+            if (this.recordDiagnostic) {
+                this.recordDiagnostic('audio', 'AudioContext initialized with 3D spatialization');
+            }
+            this._startCrowdAmbience();
         }
         // Resume if suspended (browser autoplay policy). Awaited via .catch() so
         // we surface failures instead of silently leaving the context suspended.
@@ -39,6 +130,119 @@ class VRClubAudioCrowd extends VRClubUI {
             this.audioContext.resume().catch(err => log.warn('🎚️ AudioContext resume failed:', err));
         }
         return this.audioContext;
+    }
+
+    /**
+     * Synthesise a concrete-warehouse impulse response.
+     *
+     * Shipping a real IR .wav would be another ~200 KB download on the critical path,
+     * and the room is a simple box, so the response is generated instead: a set of
+     * discrete early reflections (parallel walls at 25 m x 16 m x 10 m) layered over an
+     * exponentially decaying noise tail with the high end rolled off, which is what
+     * makes a real room sound like concrete rather than like a plate.
+     */
+    _createRoomImpulseResponse() {
+        const ctx = this.audioContext;
+        const rate = ctx.sampleRate;
+        const seconds = 1.9;                 // RT60 of a hard-surfaced small warehouse
+        const length = Math.floor(rate * seconds);
+        const ir = ctx.createBuffer(2, length, rate);
+        const SPEED_OF_SOUND = 343;          // m/s
+
+        // First-order reflection path lengths from the dance floor, in metres.
+        const earlyPaths = [8.5, 11.2, 14.6, 17.0, 21.4, 26.8];
+
+        for (let channel = 0; channel < 2; channel++) {
+            const data = ir.getChannelData(channel);
+            let lowpassState = 0;
+
+            for (let i = 0; i < length; i++) {
+                const t = i / length;
+                // Concrete absorbs slowly, so the tail is long and only gently curved.
+                const decay = Math.pow(1 - t, 2.4);
+                const noise = Math.random() * 2 - 1;
+                // One-pole lowpass: high frequencies die first in a real room.
+                lowpassState += (noise - lowpassState) * 0.32;
+                data[i] = lowpassState * decay * 0.55;
+            }
+
+            // Stamp the early reflections on top; a small per-channel offset keeps the
+            // stereo image wide instead of collapsing to the centre.
+            for (let p = 0; p < earlyPaths.length; p++) {
+                const skew = channel === 0 ? 1 : 1.04;
+                const index = Math.floor((earlyPaths[p] * skew / SPEED_OF_SOUND) * rate);
+                if (index >= length) continue;
+                data[index] += (0.62 - p * 0.08) * (channel === 0 ? 1 : -1);
+            }
+        }
+
+        return ir;
+    }
+
+    /**
+     * Continuous crowd bed — the sound a room full of people makes.
+     *
+     * Silence between tracks is the single most obvious "this is a simulation" tell.
+     * Filtered noise through a slow LFO reads as a murmuring crowd, spatialised at the
+     * dance floor so it sits behind you when you walk to the booth. Ducked against the
+     * music so it never competes with the PA.
+     */
+    _startCrowdAmbience() {
+        if (this.crowdAmbienceSource || !this.audioContext) return;
+        try {
+            const ctx = this.audioContext;
+            const rate = ctx.sampleRate;
+            const buffer = ctx.createBuffer(1, rate * 4, rate);
+            const data = buffer.getChannelData(0);
+
+            // Brown-ish noise: far closer to the spectrum of massed voices than white.
+            let last = 0;
+            for (let i = 0; i < data.length; i++) {
+                const white = Math.random() * 2 - 1;
+                last = (last + 0.019 * white) / 1.019;
+                data[i] = last * 3.2;
+            }
+
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.loop = true;
+
+            // Voices live in the 300 Hz - 3 kHz band.
+            const voiceBand = ctx.createBiquadFilter();
+            voiceBand.type = 'bandpass';
+            voiceBand.frequency.value = 900;
+            voiceBand.Q.value = 0.7;
+
+            this.crowdAmbienceGain = ctx.createGain();
+            this.crowdAmbienceGain.gain.value = 0.05;
+
+            const panner = ctx.createPanner();
+            panner.panningModel = 'HRTF';
+            panner.distanceModel = 'inverse';
+            panner.refDistance = 6;
+            panner.maxDistance = 40;
+            panner.rolloffFactor = 0.8;
+            const floor = CLUB_POSITIONS.danceFloor;
+            if (panner.positionX) {
+                panner.positionX.value = floor.x;
+                panner.positionY.value = 1.6;
+                panner.positionZ.value = floor.z;
+            } else if (panner.setPosition) {
+                panner.setPosition(floor.x, 1.6, floor.z);
+            }
+
+            source.connect(voiceBand);
+            voiceBand.connect(this.crowdAmbienceGain);
+            this.crowdAmbienceGain.connect(panner);
+            panner.connect(this.audioCompressor || ctx.destination);
+            source.start(0);
+
+            this.crowdAmbienceSource = source;
+            this.crowdAmbiencePanner = panner;
+            log.info('🗣️ Crowd ambience bed started');
+        } catch (err) {
+            log.warn('🗣️ Crowd ambience unavailable:', err);
+        }
     }
 
     /**
@@ -57,7 +261,7 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Connect the (single) audio element to the analyser ONCE.
+     * Connect the (single) audio element to the analyser and spatial chain ONCE.
      * createMediaElementSource throws InvalidStateError if called twice for the
      * same element, so this guard is the source of truth for all audio entry points.
      */
@@ -66,10 +270,129 @@ class VRClubAudioCrowd extends VRClubUI {
         this._ensureAudioContext();
         try {
             this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
+            
+            // Pre-spatial analyser tap ensures lighting and VJ reactivity remain 100% full-bandwidth
             this.audioSource.connect(this.audioAnalyser);
-            log.info('🎚️ Audio analyser connected');
+
+            if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
+                // Directional Mains
+                this.audioSource.connect(this.airAbsorptionFilter);
+                this.airAbsorptionFilter.connect(this.pannerLeft);
+                this.airAbsorptionFilter.connect(this.pannerRight);
+
+                // Occlusion sits between the panners and the bus so leaving the room
+                // muffles the PA without touching the reverb tail or the sub channel.
+                const busIn = this.occlusionFilter || this.audioCompressor;
+                this.pannerLeft.connect(busIn);
+                this.pannerRight.connect(busIn);
+                if (this.occlusionFilter) this.occlusionFilter.connect(this.audioCompressor);
+
+                // Sub-bass Channel
+                if (this.subFilter && this.subGain) {
+                    this.audioSource.connect(this.subFilter);
+                    this.subFilter.connect(this.subGain);
+                    this.subGain.connect(this.audioCompressor);
+                }
+
+                // Warehouse Room Ambience
+                if (this.roomDelay && this.roomDelayGain) {
+                    this.airAbsorptionFilter.connect(this.roomDelay);
+                    this.roomDelay.connect(this.roomDelayGain);
+                    this.roomDelayGain.connect(this.audioCompressor);
+                }
+
+                // Convolution reverb send
+                if (this.reverbSend) {
+                    this.airAbsorptionFilter.connect(this.reverbSend);
+                }
+            } else if (this.audioCompressor) {
+                this.audioAnalyser.connect(this.audioCompressor);
+            }
+            log.info('🎚️ Audio analyser and 3D spatial acoustics connected');
         } catch (err) {
             log.warn('🎚️ Could not connect audio source:', err);
+        }
+    }
+
+    /**
+     * Update Web Audio listener position, orientation, and acoustic attenuation based on camera.
+     */
+    updateSpatialAudioListener() {
+        if (!this.audioContext || this.audioContext.state !== 'running') return;
+        const cam = this.scene ? this.scene.activeCamera : null;
+        if (!cam) return;
+
+        const pos = cam.globalPosition || cam.position;
+        const now = this.audioContext.currentTime;
+        const listener = this.audioContext.listener;
+
+        // Update listener position
+        if (listener.positionX && listener.positionX.setTargetAtTime) {
+            listener.positionX.setTargetAtTime(pos.x, now, 0.03);
+            listener.positionY.setTargetAtTime(pos.y, now, 0.03);
+            listener.positionZ.setTargetAtTime(pos.z, now, 0.03);
+        } else if (listener.setPosition) {
+            listener.setPosition(pos.x, pos.y, pos.z);
+        }
+
+        // Update listener orientation
+        if (cam.getForwardRay) {
+            const ray = cam.getForwardRay();
+            const fwd = ray.direction;
+            const up = cam.upVector || BABYLON.Vector3.Up();
+            if (listener.forwardX && listener.forwardX.setTargetAtTime) {
+                listener.forwardX.setTargetAtTime(fwd.x, now, 0.03);
+                listener.forwardY.setTargetAtTime(fwd.y, now, 0.03);
+                listener.forwardZ.setTargetAtTime(fwd.z, now, 0.03);
+                listener.upX.setTargetAtTime(up.x, now, 0.03);
+                listener.upY.setTargetAtTime(up.y, now, 0.03);
+                listener.upZ.setTargetAtTime(up.z, now, 0.03);
+            } else if (listener.setOrientation) {
+                listener.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+            }
+        }
+
+        // Real-world acoustic zone attenuation:
+        // Dance floor center is at (0, 0, -12); PA speakers flown at z = -16; entrance is at z = 0.
+        const distToStage = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+        
+        // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
+        if (this.subGain && this.subGain.gain) {
+            const subLevel = Math.max(0.45, Math.min(1.15, 1.15 - (distToStage / 22) * 0.55));
+            this.subGain.gain.setTargetAtTime(subLevel, now, 0.05);
+        }
+
+        // Air absorption: high frequency roll-off with distance
+        if (this.airAbsorptionFilter && this.airAbsorptionFilter.frequency) {
+            const cutoff = Math.max(5000, Math.min(18000, 18000 - distToStage * 650));
+            this.airAbsorptionFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
+        }
+
+        // Reverb send rises with distance. Standing in front of the PA you hear the
+        // box; at the back of the room you mostly hear the room.
+        if (this.reverbSend && this.reverbSend.gain) {
+            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30));
+            this.reverbSend.gain.setTargetAtTime(wet, now, 0.12);
+        }
+
+        // Occlusion: the club room spans z -21..-5. Walking out toward the entrance
+        // (z -> 0) puts a wall between the listener and the PA, so the top end goes
+        // and the level drops - the "stepping into the corridor" moment.
+        if (this.occlusionFilter && this.occlusionFilter.frequency) {
+            const outsideBy = Math.max(0, pos.z - ROOM_BOUNDS.z.max);
+            const occluded = outsideBy > 0;
+            const cutoff = occluded ? Math.max(700, 20000 - outsideBy * 3800) : 20000;
+            this.occlusionFilter.frequency.setTargetAtTime(cutoff, now, 0.08);
+            if (this.audioMasterGain && this.audioMasterGain.gain) {
+                this.audioMasterGain.gain.setTargetAtTime(occluded ? 0.72 : 1.15, now, 0.15);
+            }
+        }
+
+        // Crowd bed ducks under a loud PA and comes up in the gaps between tracks.
+        if (this.crowdAmbienceGain && this.crowdAmbienceGain.gain) {
+            const energy = this._audioFrameData ? this._audioFrameData.average : 0;
+            const level = Math.max(0.012, 0.085 - energy * 0.14);
+            this.crowdAmbienceGain.gain.setTargetAtTime(level, now, 0.4);
         }
     }
 
@@ -224,6 +547,23 @@ class VRClubAudioCrowd extends VRClubUI {
         }
         log.info(`♿ Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'ON (strobes disabled)' : 'OFF'}`);
         return this.photosensitiveSafeMode;
+    }
+
+    /**
+     * Set playback volume (0..1).
+     *
+     * Written to the <audio> element rather than `audioMasterGain`, because the
+     * gain node is driven every frame by the room-acoustics occlusion model
+     * (see updateRoomAcoustics) and any value written here would be overwritten
+     * within one frame. The element's own volume composes with that cleanly.
+     * @param {number} value 0..1
+     */
+    setAudioVolume(value) {
+        const v = Math.min(1, Math.max(0, Number(value)));
+        if (!Number.isFinite(v)) return this._audioVolume ?? 1;
+        this._audioVolume = v;
+        if (this.audioElement) this.audioElement.volume = v;
+        return v;
     }
 
     /**
@@ -471,10 +811,7 @@ class VRClubAudioCrowd extends VRClubUI {
     /**
      * @param {number} time
      * @param {object} [audioData] Analyser output for THIS frame, supplied by
-     *   updateAnimations. This used to call getAudioData() itself, which meant two
-     *   full getByteFrequencyData() reads plus two passes over every FFT bin every
-     *   frame - and, more subtly, it incremented the CORS silent-stream frame
-     *   counter twice, so the "~3 s of silence" heuristic actually fired after ~1.5 s.
+     *   updateAnimations.
      */
     updateDancingNPCs(time, audioData) {
         // GLB avatars animate themselves via their animation groups; this only
@@ -482,21 +819,57 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!this.npcAvatars || this.npcAvatars.length === 0) return;
 
         if (!audioData) audioData = this.getAudioData();
-        // Previously this rolled a fresh Math.random() per animation per frame, which
-        // made playback rates jitter wildly, and it never restored the base rate once
-        // the bass dropped - the crowd stayed permanently sped up.
         const beatBoost = (audioData.hasAudio && audioData.bass > 0.3)
             ? 1.0 + (audioData.bass - 0.3) * 0.3
             : 1.0;
 
-        if (Math.abs(beatBoost - this._npcBeatBoost) < 0.01) return;
-        this._npcBeatBoost = beatBoost;
+        const tempoChanged = Math.abs(beatBoost - this._npcBeatBoost) >= 0.01;
+        if (tempoChanged) {
+            this._npcBeatBoost = beatBoost;
+        }
+
+        // === DYNAMIC FRUSTUM CULLING & ANIMATION LOD ===
+        // Standalone Quest 3S evaluating vertex skinning for multiple 60-joint
+        // skeletons burns noticeable GPU/CPU time.
+        // If a dancer is outside the active camera's view frustum or behind the player,
+        // we pause its skeletal animation evaluation and restart it on re-entering.
+        const cam = this.scene ? this.scene.activeCamera : null;
+        const checkFrustum = cam && (this.frameCounter % 4 === 0);
+        const camPos = cam ? (cam.globalPosition || cam.position) : null;
 
         for (let i = 0; i < this.npcAvatars.length; i++) {
             const npc = this.npcAvatars[i];
-            if (!npc.animations) continue;
-            for (let a = 0; a < npc.animations.length; a++) {
-                npc.animations[a].speedRatio = npc.baseSpeed * beatBoost;
+            if (!npc.animations || !npc.root || !npc.root.isEnabled()) continue;
+
+            if (tempoChanged) {
+                for (let a = 0; a < npc.animations.length; a++) {
+                    npc.animations[a].speedRatio = npc.baseSpeed * beatBoost;
+                }
+            }
+
+            if (checkFrustum && camPos) {
+                const rootPos = npc.root.position;
+                const dx = rootPos.x - camPos.x;
+                const dz = rootPos.z - camPos.z;
+                const distSq = dx * dx + dz * dz;
+
+                let inFrustum = true;
+                if (cam.isInFrustum) {
+                    inFrustum = cam.isInFrustum(npc.root);
+                }
+
+                // If outside view frustum or very distant (>28m), pause skeleton evaluation
+                if (!inFrustum || distSq > 784) {
+                    if (!npc._animPaused) {
+                        npc.animations.forEach(g => { if (g.pause) g.pause(); });
+                        npc._animPaused = true;
+                    }
+                } else {
+                    if (npc._animPaused) {
+                        npc.animations.forEach(g => { if (g.restart) g.restart(); else if (g.play) g.play(); });
+                        npc._animPaused = false;
+                    }
+                }
             }
         }
     }
