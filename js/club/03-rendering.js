@@ -524,6 +524,7 @@ class VRClubRendering extends VRClubLifecycle {
         this.scene.meshes.forEach(mesh => {
             if (!mesh.name) return;
             const n = mesh.name.toLowerCase();
+            if (n.includes('ledpanel')) return; // animated wall cannot live in a render-once probe
             // Include structural and decorative elements (skip floor itself, beams, pools, gobos)
             if (n.includes('wall') || n.includes('ceiling') || n.includes('truss') ||
                 n.includes('brace') || n.includes('pillar') || n.includes('speaker') ||

@@ -334,7 +334,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 });
             }
             if (this.mirrorBallBeams) {
-                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(beam.isIncidentLight));
+                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
             }
             if (this._mirrorAppliedColorSource !== this.mirrorBallSpotlightColor) {
                 this._mirrorAppliedColorSource = this.mirrorBallSpotlightColor;

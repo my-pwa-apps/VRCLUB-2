@@ -190,6 +190,19 @@ class VRClubLifecycle extends VRClubCore {
             floorMeshes: [this.floorMesh],
             optionalFeatures: true,
             disableTeleportation: true, // Disable default teleportation to allow smooth movement
+            // Controller rays drive the quick menu. Babylon otherwise enables hand
+            // tracking by default and downloads hand meshes from third-party URLs,
+            // which violates this app's same-origin CSP and creates noisy XR errors.
+            disableHandTracking: true,
+            // The quick menu uses far pointer rays. Near interaction creates a
+            // decorative touch orb by fetching a material from snippet.babylonjs.com.
+            disableNearInteraction: true,
+            inputOptions: {
+                // Input components, poses, haptics and pointer rays remain active;
+                // only the decorative controller GLB from Babylon's snippet server
+                // is skipped so XR remains entirely same-origin.
+                doNotLoadControllerMeshes: true
+            },
             // CRITICAL: Configure XR layer with anti-aliasing enabled
             outputCanvasOptions: {
                 canvasOptions: {
@@ -197,7 +210,7 @@ class VRClubLifecycle extends VRClubCore {
                     depth: true,
                     stencil: true,
                     alpha: true,
-                    framebufferScaleFactor: 1.0 // Use native resolution (can increase for supersampling)
+                    framebufferScaleFactor: this.vrSettings.vr.framebufferScaleFactor
                 }
             }
         }).catch((error) => {
@@ -221,6 +234,24 @@ class VRClubLifecycle extends VRClubCore {
         
         // Store VR helper for later use
         this.vrHelper = vrHelper;
+
+        // Subscribe before session entry. Some runtimes publish controller identities
+        // between session creation and the IN_XR state callback below.
+        if (vrHelper?.input) {
+            const trackController = (controller) => {
+                if (this._xrControllers.indexOf(controller) === -1) {
+                    this._xrControllers.push(controller);
+                }
+                if (controller._vrclubTrackingBound) return;
+                controller._vrclubTrackingBound = true;
+                controller.onDisposeObservable.add(() => {
+                    const index = this._xrControllers.indexOf(controller);
+                    if (index >= 0) this._xrControllers.splice(index, 1);
+                });
+            };
+            vrHelper.input.onControllerAddedObservable.add(trackController);
+            vrHelper.input.controllers.forEach(trackController);
+        }
         
         // Enable VR controller locomotion (thumbstick movement)
         // CRITICAL: Must wait for XR session to be active before enabling movement
@@ -263,15 +294,12 @@ class VRClubLifecycle extends VRClubCore {
                         
                         // SPRINT FEATURE: Press thumbstick or Grip button to run
                         const registerController = (controller) => {
-                            // Track for haptic dispatch (bass-pulse rumble)
                             if (this._xrControllers.indexOf(controller) === -1) {
                                 this._xrControllers.push(controller);
                             }
-                            controller.onDisposeObservable.add(() => {
-                                const idx = this._xrControllers.indexOf(controller);
-                                if (idx >= 0) this._xrControllers.splice(idx, 1);
-                            });
-                            controller.onMotionControllerInitObservable.add((motionController) => {
+                            const bindMotionController = (motionController) => {
+                                if (motionController._vrclubControlsBound) return;
+                                motionController._vrclubControlsBound = true;
                                 // 1. Thumbstick Press (Click)
                                 const thumbstick = motionController.getComponent("xr-standard-thumbstick");
                                 if (thumbstick) {
@@ -351,10 +379,27 @@ class VRClubLifecycle extends VRClubCore {
                                         });
                                     }
                                 });
-                            });
+
+                                // Quest exposes Y as the app-menu button. Some runtimes
+                                // also expose a generic menu component; bind either and
+                                // de-duplicate the press edge when both map to one input.
+                                ['y-button', 'menu'].forEach(id => {
+                                    const menuButton = motionController.getComponent(id);
+                                    if (menuButton) {
+                                        menuButton.onButtonStateChangedObservable.add(component => {
+                                            if (component.pressed && !component._vrclubWasPressed) {
+                                                this.toggleVRQuickMenu();
+                                            }
+                                            component._vrclubWasPressed = component.pressed;
+                                        });
+                                    }
+                                });
+                            };
+                            controller.onMotionControllerInitObservable.add(bindMotionController);
+                            if (controller.motionController) bindMotionController(controller.motionController);
                         };
                         vrHelper.input.onControllerAddedObservable.add(registerController);
-                        vrHelper.input.controllers.forEach(registerController);
+                        new Set([...vrHelper.input.controllers, ...this._xrControllers]).forEach(registerController);
                     } catch (e) {
                         log.warn('Could not enable VR movement feature:', e);
                     }
@@ -674,6 +719,12 @@ class VRClubLifecycle extends VRClubCore {
                 this.scene.onXRSessionEnded.remove(this._vrButtonObservers[1]);
             } catch (_) { /* ignore */ }
             this._vrButtonObservers = null;
+        }
+        if (this._vrButtonStateObserver && this.vrHelper?.baseExperience) {
+            try {
+                this.vrHelper.baseExperience.onStateChangedObservable.remove(this._vrButtonStateObserver);
+            } catch (_) { /* ignore */ }
+            this._vrButtonStateObserver = null;
         }
         if (this._onCameraPresetToggle) {
             const toggle = document.getElementById('cameraPresetToggle');

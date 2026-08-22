@@ -43,9 +43,6 @@ class VRClubCore {
             preserveDrawingBuffer: true,
             stencil: true,
             antialias: true,
-            // VR Anti-Aliasing: Enable MSAA for smooth edges in VR headsets
-            // FXAA alone causes jaggies in VR - MSAA is essential
-            antialiasingSamples: 4, // 4x MSAA for VR quality
             // PERFORMANCE: Additional engine optimizations
             doNotHandleContextLost: true, // Skip context lost handling for performance
             useHighPrecisionFloats: false // Use medium precision for better performance
@@ -159,8 +156,9 @@ class VRClubCore {
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true, // ENABLE — same color/luminance response as desktop
-                edgeSharpness: 0.3,
-                colorSharpness: 0.2,
+                framebufferScaleFactor: 1.2, // Moderate supersampling for thin truss and rail edges
+                edgeSharpness: 0.1, // Do not re-amplify residual stair-stepping after FXAA
+                colorSharpness: 0.1,
                 fxaaEnabled: true,
                 fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
@@ -458,6 +456,7 @@ class VRClubCore {
         this.mirrorBallSpeed = 1.0; // Mirror ball rotation speed
         this.ledWallSpeed = 1.0;    // LED wall animation speed
         this.strobeSpeed = 1.0;     // Strobe flash rate
+        this.blinderSpeed = 1.0;    // Audience blinder pulse rate/intensity
         
         // === PROFESSIONAL VJ AUTO-PATTERN SYSTEM ===
         // Immersive light show timing for drops, builds, and impacts
@@ -560,7 +559,9 @@ class VRClubCore {
             );
             
             // Selective post-processing for VR - keep bloom for light glow, disable expensive effects
-            this.renderPipeline.fxaaEnabled = false; // Use XR layer's native AA instead
+            // XR antialias support and sample count are compositor-dependent. FXAA is
+            // a cheap per-eye fallback for thin rails and truss tubes that still stair-step.
+            this.renderPipeline.fxaaEnabled = vr.fxaaEnabled;
             this.renderPipeline.bloomEnabled = true; // KEEP bloom - essential for light glow in dark club
             this.renderPipeline.bloomWeight = vr.bloomWeight; // Subtle bloom
             this.renderPipeline.bloomThreshold = vr.bloomThreshold;

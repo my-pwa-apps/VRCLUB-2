@@ -13,10 +13,23 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- VR now renders at a conservative 1.2x per-eye framebuffer scale with FXAA retained
+  as a compositor-independent fallback, reducing jagged truss, rail, and fixture edges
+  without enabling a heavyweight headset-only pipeline.
+- Moving-head volumes no longer use a negative depth bias that distorted stereo
+  occlusion, mirror-ball beam gradients now expose their alpha channel, and the frozen
+  floor probe no longer captures a stale frame of the animated LED wall.
+- The DJ avatar now faces the dance floor instead of the LED wall. Existing wall-neon
+  planes are opaque and visible from inside the room rather than entering the VR
+  transparency path or disappearing through back-face culling.
 - Mirror-ball reflections now rotate with the ball's actual Babylon transform instead
   of sweeping in the opposite direction. Reflected shafts are correctly aligned to
   their Y-axis geometry, sparsely haze-gated, distance-faded, and terminate in soft
-  projected spots; only the real incident spotlight renders an incoming beam.
+  projected spots. All four incident fixtures render restrained shafts while only one
+  consumes a real GPU light slot.
+- Restored the four audience blinders that were still exposed in controls and NOCTURNE
+  cues but had no meshes or update path. Strobes now use larger emitter faces and a
+  synchronized burst clock so both fixture types produce readable hits.
 - Moving-head beams now use lower-density atmospheric scatter, view-angle edge falloff,
   and a full fade before the receiving surface instead of reading as hard translucent
   cones.
@@ -81,6 +94,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- A camera-relative VR quick menu opened with the Quest `Y`/menu button. Controller
+  rays can toggle spots, lasers, mirror ball, strobes, blinders, LED wall and smoke,
+  advance the LED pattern, or close the panel from anywhere in the club.
 - Photosensitivity warning and splash-level Safe Mode opt-in.
 - Keyboard shortcuts: `Space` play/pause, `B` blackout, `F` drop, `1`–`4` camera presets.
   The debug overlay moved from a bare `D` (which collides with the movement keys) to

@@ -61,7 +61,7 @@ js/models/                 Local GLB models and model textures
 ## Controls
 
 - **Move**: `W` `A` `S` `D` or the arrow keys; drag with the mouse to look. `Q`/`E` for down/up.
-- **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. In-headset, thumbsticks move and turn; click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump.
+- **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. In-headset, thumbsticks move and turn; click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump. Press `Y` (or the controller menu button when exposed) to open the lighting menu, then point and trigger to change fixtures, the LED wall, and smoke.
 - **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
 - **🎵 Audio menu** (bottom-right): play an HTTP(S) stream URL or a local audio file, plus volume. The last stream you played is remembered.
 - **📷 Camera presets** (bottom-centre): four fixed viewpoints.

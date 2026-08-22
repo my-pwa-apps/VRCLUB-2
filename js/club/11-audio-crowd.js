@@ -769,7 +769,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 djSource,
                 'djPerformer',
                 new BABYLON.Vector3(0, 0.5, -19.4),
-                Math.PI * 2,   // square on to the crowd
+                Math.PI,       // source avatar's forward axis points toward the dance floor at +z
                 1.78,
                 0.55
             );

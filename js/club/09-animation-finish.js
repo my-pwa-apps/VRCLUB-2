@@ -25,6 +25,21 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 // VJ AUTO-MODE: Enhanced strobing during drops
                 const inDropMode = this.vjDropActive;
                 const inBuildMode = this.vjBuildIntensity > 0.7;
+
+                const burstActive = this.strobes.some(strobe => strobe.flashDuration > 0);
+                if (!burstActive && (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)) {
+                    let intensityBase = inDropMode ? 100 : 72 + Math.random() * 28;
+                    if (bass > 0.6) intensityBase *= 1 + (bass - 0.6) * 0.5;
+                    const flashDuration = (inDropMode ? 0.14 : 0.20) / strobeSpeedMultiplier;
+                    const intensity = Math.min(100, intensityBase);
+                    this.strobes.forEach(strobe => {
+                        strobe.currentIntensity = intensity;
+                        strobe.flashDuration = flashDuration;
+                        strobe._burstOn = true;
+                    });
+                    const interval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
+                    this._nextStrobeBurstTime = time + interval / strobeSpeedMultiplier;
+                }
                 
                 this.strobes.forEach((strobe) => {
                     // Handle ongoing flash
@@ -40,28 +55,26 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     // VJ Director master fader (1.0 = full, 0 = blackout). Cheap multiply.
                     intensityVariation *= (this.masterIntensity != null ? this.masterIntensity : 1.0);
                     
-                    // Burst phase is computed exactly once per strobe per frame and
-                    // cached on the fixture: the shared flash-light pass below needs
-                    // the same value, and recomputing it there let the two passes
-                    // disagree whenever flashDuration changed between them.
-                    const burstOn = Math.floor(strobe.flashDuration * 40 * strobeSpeedMultiplier) % 2 === 0;
-                    strobe._burstOn = burstOn;
-                    const intensity = burstOn ? intensityVariation : 0;
+                    // The scheduler already creates discrete 140-200 ms flashes.
+                    // Gating that short window again at 40 Hz made a newly triggered
+                    // burst begin on an off phase and often disappear entirely.
+                    strobe._burstOn = true;
                     
                     // scaleToRef into a per-strobe buffer: Color3.scale() allocates,
                     // and this runs once per strobe per frame for the whole flash.
                     if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
-                    this.cachedColors.white.scaleToRef(intensity * 1.5, strobe._emisBuf);
+                    const emitterLevel = Math.min(12, 3 + intensityVariation * 0.09);
+                    this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel, strobe._emisBuf);
                     strobe.material.emissiveColor = strobe._emisBuf;
                     // Strobe lights disabled for performance - visual effect only via emissive material
                     if (strobe.light) {
-                        strobe.light.intensity = intensity * 200;
+                        strobe.light.intensity = intensityVariation * 200;
                         strobe.light.range = 80 + (intensityVariation * 0.8);
-                        strobe.light.setEnabled(intensity > 0);
+                        strobe.light.setEnabled(true);
                     }
                     
                     if (strobe.flashDuration <= 0) {
-                        strobe.material.emissiveColor = this.cachedColors.black;
+                        strobe._emisBuf.set(0, 0, 0);
                         if (strobe.light) {
                             strobe.light.intensity = 0;
                             strobe.light.setEnabled(false);
@@ -81,38 +94,6 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             flashInterval = (0.1 + Math.random() * 0.9) / strobeSpeedMultiplier;
                         }
                         strobe.nextFlashTime = time + flashInterval;
-                    }
-                } else {
-                    // Check if it's time for next flash
-                    if (time >= strobe.nextFlashTime) {
-                        // VJ AUTO-MODE: Brighter strobes during drops
-                        let intensityBase = Math.random() > 0.6 ? 
-                            (60 + Math.random() * 20) : 
-                            (80 + Math.random() * 20);
-                        
-                        // BASS REACTIVE: Boost on bass hits
-                        if (bass > 0.6) {
-                            intensityBase *= 1 + (bass - 0.6) * 0.5;
-                        }
-                        
-                        // DROP BOOST: Maximum power during drops
-                        if (inDropMode) {
-                            intensityBase = 100; // Full power
-                        }
-                        
-                        strobe.currentIntensity = Math.min(100, intensityBase);
-                        
-                        // Flash duration varies with mode
-                        let flashDuration;
-                        if (inDropMode) {
-                            flashDuration = (0.08 + Math.random() * 0.12) / strobeSpeedMultiplier;
-                        } else {
-                            flashDuration = (0.15 + Math.random() * 0.2) / strobeSpeedMultiplier;
-                        }
-                        strobe.flashDuration = flashDuration;
-                        // Seed the cached burst phase for the shared flash light below,
-                        // which runs in the same frame the flash is scheduled.
-                        strobe._burstOn = Math.floor(flashDuration * 40 * strobeSpeedMultiplier) % 2 === 0;
                     }
                 }
                 });
@@ -146,7 +127,9 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             } else {
                 // Turn off strobes when disabled
                 this.strobes.forEach((strobe) => {
-                    strobe.material.emissiveColor = this.cachedColors.black;
+                    if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
+                    strobe._emisBuf.set(0, 0, 0);
+                    strobe.material.emissiveColor = strobe._emisBuf;
                     if (strobe.light) {
                         strobe.light.intensity = 0;
                         strobe.light.setEnabled(false);
@@ -157,10 +140,27 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     this.strobeFlashLight.intensity = 0;
                     this.strobeFlashLight.setEnabled(false);
                 }
+                this._nextStrobeBurstTime = undefined;
             }
         }
-        
-        // Blinders removed - strobes provide sufficient impact lighting
+
+        this.updateBlinders(ctx);
+    }
+
+    updateBlinders(ctx) {
+        if (!this.blinderMaterial) return;
+        if (!this.blindersActive || this.photosensitiveSafeMode) {
+            this.blinderMaterial.emissiveColor.set(0, 0, 0);
+            return;
+        }
+
+        const bpm = this.vjBPM || this.bpm || 128;
+        const beatPhase = (ctx.time * bpm / 60) % 1;
+        const beatHit = Math.pow(1 - beatPhase, 7);
+        const envelope = Math.max(beatHit, this.beatEnvelope || 0);
+        const master = this.masterIntensity != null ? this.masterIntensity : 1;
+        const intensity = master * (1.2 + envelope * 10 * (this.blinderSpeed || 1));
+        this.cachedColors.warmWhite.scaleToRef(intensity, this.blinderMaterial.emissiveColor);
     }
 
     /** Sub-grille excursion driven by the bass band. */

@@ -135,7 +135,7 @@ The system provides detailed feedback:
 **Buttons not responding?**
 - Check console for "VJ Control interaction enabled" message
 - Ensure you're clicking the 3D button meshes (not behind them)
-- VR users: Use controller pointer to click
+- VR users: Press `Y` (or the exposed menu button) anywhere in the club, then use the controller pointer and trigger on the camera-relative quick menu
 
 **Patterns not changing?**
 - Click the PATTERN button - it cycles through 3 modes

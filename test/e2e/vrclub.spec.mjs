@@ -105,16 +105,51 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         diagnosticsInVR: window.vrClub.getDiagnostics().isInVR,
         controllerCount: window.vrClub._xrControllers.length,
         movementEnabled: Boolean(window.vrClub.movementFeature),
-        renderScale: window.vrClub.engine.getHardwareScalingLevel()
+        renderScale: window.vrClub.engine.getHardwareScalingLevel(),
+        xrFramebufferScale: window.vrClub.vrSettings.vr.framebufferScaleFactor,
+        fxaaEnabled: window.vrClub.renderPipeline.fxaaEnabled,
+        spotlightBeamDepthBias: window.vrClub.spotlights[0].beamMat.zOffset,
+        mirrorBeamUsesAlpha: window.vrClub._mirrorBeamGradientTexture.hasAlpha,
+        djFacing: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')?.root.rotation.y
     }));
-    expect(xrState).toEqual({
+    expect(xrState).toMatchObject({
         inVR: true,
         diagnosticsInVR: true,
         controllerCount: 2,
         movementEnabled: true,
-        renderScale: 1
+        renderScale: 1,
+        xrFramebufferScale: 1.2,
+        fxaaEnabled: true,
+        spotlightBeamDepthBias: 0,
+        mirrorBeamUsesAlpha: true
     });
+    expect(xrState.djFacing).toBeCloseTo(Math.PI, 5);
     await expect(vrButton).toContainText('Exit VR');
+
+    await page.evaluate(() => window.__iwerDevice.controllers.left.updateButtonValue('y-button', 1));
+    await page.waitForFunction(() => window.vrClub?._vrQuickMenuRoot?.isEnabled() === true);
+    await page.evaluate(() => window.__iwerDevice.controllers.left.updateButtonValue('y-button', 0));
+
+    const menuState = await page.evaluate(() => {
+        const club = window.vrClub;
+        const smokeButton = club._vrQuickMenuButtons.find(button => button.control === 'smokeActive');
+        const smokeBefore = club.smokeActive;
+        club.scene.onPointerDown({}, { hit: true, pickedMesh: smokeButton.mesh });
+        return {
+            enabled: club._vrQuickMenuRoot.isEnabled(),
+            buttonCount: club._vrQuickMenuButtons.length,
+            parentIsXRCamera: club._vrQuickMenuRoot.parent === club.vrHelper.baseExperience.camera,
+            smokeChanged: club.smokeActive !== smokeBefore,
+            manualMode: club.vjManualMode
+        };
+    });
+    expect(menuState).toEqual({
+        enabled: true,
+        buttonCount: 9,
+        parentIsXRCamera: true,
+        smokeChanged: true,
+        manualMode: true
+    });
 
     await page.evaluate(() => document.getElementById('vrButton').click());
     await page.waitForFunction(() => window.vrClub?.isInVRMode === false);

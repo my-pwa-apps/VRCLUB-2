@@ -204,7 +204,7 @@ class VRClubEffects extends VRClubFixtures {
             beamMat.disableDepthWrite = true; // Don't write to depth (transparent object)
             beamMat.separateCullingPass = false;
             beamMat.needDepthPrePass = false;
-            beamMat.zOffset = -2; // Ensure beam renders slightly behind at equal depth
+            beamMat.zOffset = 0; // Preserve physically correct stereo depth and occlusion
             
             // HYPERREALISTIC: Clip plane to hide beam below floor level (y < 0)
             // This allows beam to extend past floor for tilted angles while hiding the portion below
@@ -594,6 +594,7 @@ class VRClubEffects extends VRClubFixtures {
             mbCtx.fillStyle = mbGrad;
             mbCtx.fillRect(0, 0, 256, 256);
             mbGradTex.update();
+            mbGradTex.hasAlpha = true;
             this._mirrorBeamGradientTexture = mbGradTex;
         }
         
@@ -779,11 +780,11 @@ class VRClubEffects extends VRClubFixtures {
             // Apply gradient texture to emissive channel
             beamMat.emissiveTexture = beamTexture;
             beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
-            beamMat.emissiveIntensity = 1.8;
+            beamMat.emissiveIntensity = config.isRealLight ? 1.8 : 0.8;
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.08;
+            beamMat.alpha = config.isRealLight ? 0.08 : 0.035;
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side

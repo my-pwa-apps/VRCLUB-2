@@ -1126,9 +1126,9 @@ class VRClubFixtures extends VRClubEnvironment {
             clamp.doNotSyncBoundingInfo = true;
             
             const strobe = BABYLON.MeshBuilder.CreateBox("strobe" + i, {
-                width: 0.4,
+                width: 0.8,
                 height: 0.3,
-                depth: 0.3
+                depth: 0.18
             }, this.scene);
             strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
             const strobeMat = this.materialFactory.createStandardMaterial("strobeMat" + i, {
@@ -1137,6 +1137,16 @@ class VRClubFixtures extends VRClubEnvironment {
             });
             
             strobe.material = strobeMat;
+
+            const emitter = BABYLON.MeshBuilder.CreatePlane("strobeEmitter" + i, {
+                width: 0.68,
+                height: 0.20
+            }, this.scene);
+            emitter.position = new BABYLON.Vector3(pos.x, 7.6, pos.z + 0.095);
+            emitter.material = strobeMat;
+            emitter.isPickable = false;
+            emitter.renderingGroupId = 2;
+            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(emitter);
             
             // DISABLED: Strobe PointLights caused shader uniform buffer overflow
             // WebGL2 PBR materials have strict uniform buffer limits (~12)
@@ -1146,6 +1156,7 @@ class VRClubFixtures extends VRClubEnvironment {
             
             this.strobes.push({ 
                 mesh: strobe, 
+                emitter,
                 material: strobeMat,
                 light: strobeLight, // null - visual-only strobe
                 flashDuration: 0,
@@ -1163,6 +1174,49 @@ class VRClubFixtures extends VRClubEnvironment {
         this.strobeFlashLight.intensity = 0;
         this.strobeFlashLight.range = 35;
         this.strobeFlashLight.setEnabled(false);
+
+        this.createBlinders();
+    }
+
+    createBlinders() {
+        this.blinders = [];
+        const housingMaterial = this.materialFactory.getPreset('lightFixture');
+        const lampMaterial = this.materialFactory.createStandardMaterial('blinderLampMat', {
+            emissiveColor: [0, 0, 0],
+            disableLighting: true
+        });
+        lampMaterial.backFaceCulling = false;
+
+        [-9, -3, 3, 9].forEach((x, index) => {
+            const housing = BABYLON.MeshBuilder.CreateBox(`blinderHousing${index}`, {
+                width: 1.05,
+                height: 0.48,
+                depth: 0.20
+            }, this.scene);
+            housing.position = new BABYLON.Vector3(x, 7.35, -17.7);
+            housing.material = housingMaterial;
+            housing.isPickable = false;
+            housing.freezeWorldMatrix();
+            housing.doNotSyncBoundingInfo = true;
+
+            const lamps = [];
+            for (let cell = 0; cell < 2; cell++) {
+                const lamp = BABYLON.MeshBuilder.CreateDisc(`blinderLamp${index}-${cell}`, {
+                    radius: 0.19,
+                    tessellation: 24
+                }, this.scene);
+                lamp.position = new BABYLON.Vector3(x + (cell === 0 ? -0.25 : 0.25), 7.35, -17.59);
+                lamp.material = lampMaterial;
+                lamp.isPickable = false;
+                lamp.renderingGroupId = 2;
+                lamp.freezeWorldMatrix();
+                lamp.doNotSyncBoundingInfo = true;
+                lamps.push(lamp);
+                if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(lamp);
+            }
+            this.blinders.push({ housing, lamps });
+        });
+        this.blinderMaterial = lampMaterial;
     }
 
     createLasers() {

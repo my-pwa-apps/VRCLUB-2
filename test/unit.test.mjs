@@ -592,6 +592,52 @@ test('every LED wall pattern runs without throwing', () => {
     assert.equal(bad.length, 0, 'a pattern wrote a non-finite colour');
 });
 
+test('strobe bursts light immediately and blinder off-state preserves cached black', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {}
+    });
+    const material = { emissiveColor: new BABYLON.Color3() };
+    const flashLight = {
+        enabled: false,
+        intensity: 0,
+        setEnabled(value) { this.enabled = value; }
+    };
+    const club = {
+        strobesActive: true,
+        photosensitiveSafeMode: false,
+        strobeSpeed: 1,
+        vjDropActive: false,
+        vjBuildIntensity: 0,
+        masterIntensity: 1,
+        cachedColors: {
+            black: new BABYLON.Color3(0, 0, 0),
+            ledMonoWhite: new BABYLON.Color3(1, 1, 1),
+            warmWhite: new BABYLON.Color3(1, 0.9, 0.7)
+        },
+        strobes: [{ material, light: null, flashDuration: 0, currentIntensity: 0 }],
+        strobeFlashLight: flashLight,
+        blinderMaterial: { emissiveColor: new BABYLON.Color3() },
+        blindersActive: false,
+        updateBlinders: window.VRClubAnimationFinish.prototype.updateBlinders
+    };
+
+    window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
+        time: 10,
+        dt: 1 / 60,
+        audio: { bass: 0, hasAudio: false }
+    });
+
+    assert.ok(material.emissiveColor.r > 0, 'new strobe burst started on a dark frame');
+    assert.equal(flashLight.enabled, true, 'shared strobe flash light did not fire');
+    assert.deepEqual(
+        [club.cachedColors.black.r, club.cachedColors.black.g, club.cachedColors.black.b],
+        [0, 0, 0],
+        'blinder off-state mutated the shared cached black color'
+    );
+});
+
 // ---------------------------------------------------------------------------
 // Cross-file invariants that no other check can enforce
 // ---------------------------------------------------------------------------

@@ -9,5 +9,5 @@
 // scripts/serve.mjs would otherwise pin sw.js for a year behind `immutable`.
 // (serve.mjs now special-cases worker scripts as `no-cache` for the same reason.)
 //
-// SERVICE_WORKER_VERSION: vrclub-v20260822-2
+// SERVICE_WORKER_VERSION: vrclub-v20260822-5
 importScripts('./sw.js');

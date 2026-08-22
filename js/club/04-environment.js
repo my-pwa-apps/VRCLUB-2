@@ -323,11 +323,12 @@ class VRClubEnvironment extends VRClubRendering {
             neonPlane.rotation.y = sign.rot;
             
             const neonMat = new BABYLON.StandardMaterial(`neonMat${i}`, this.scene);
-            neonMat.emissiveColor = new BABYLON.Color3(sign.color[0], sign.color[1], sign.color[2]);
+            neonMat.emissiveColor = new BABYLON.Color3(sign.color[0] * 0.95, sign.color[1] * 0.95, sign.color[2] * 0.95);
             neonMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
             neonMat.specularColor = new BABYLON.Color3(0, 0, 0);
             neonMat.disableLighting = true;
-            neonMat.alpha = 0.95;
+            neonMat.backFaceCulling = false;
+            neonMat.alpha = 1.0;
             neonPlane.material = neonMat;
             neonPlane.isPickable = false;
             neonPlane.freezeWorldMatrix();
