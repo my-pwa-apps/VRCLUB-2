@@ -14,7 +14,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 ### Added
 
 - Production browser coverage now verifies laser-sheet exclusivity, the exact moving
-  strobe sequence, Photosensitive Safe Mode suppression, and synchronized room colors.
+  strobe sequence, Photosensitive Safe Mode suppression, synchronized room colors,
+  and the mounting point and motion axis of both ceiling-sheet variations.
 
 ### Fixed
 
@@ -33,6 +34,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - The existing laser-sheet effect is now constructed during startup, originates inside
   the rear wall, uses restrained additive haze scatter without writing depth, and no
   longer floods the dance floor like an opaque surface.
+- Laser sheets now vary between the rear wall and left/right ceiling-truss mounting
+  points. Authored cues move them slowly either vertically or laterally while reusing
+  one transparent mesh and no additional GPU lights.
 - VR now renders at a conservative 1.2x per-eye framebuffer scale with FXAA retained
   as a compositor-independent fallback, reducing jagged truss, rail, and fixture edges
   without enabling a heavyweight headset-only pipeline.

@@ -183,6 +183,8 @@ export declare class VRClub {
     strobesActive: boolean;
     mirrorBallActive: boolean;
     laserSheetActive: boolean;
+    laserSheetOrigin: 'rear' | 'ceilingLeft' | 'ceilingRight';
+    laserSheetMotion: 'vertical' | 'lateral';
     smokeActive: boolean;
 
     // Speeds

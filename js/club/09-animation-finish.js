@@ -16,6 +16,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this.renderPipeline.bloomWeight = this._preStrobeBloom;
             this._preStrobeBloom = undefined;
         }
+        if (this._preStrobeExposure !== undefined && this.renderPipeline?.imageProcessing) {
+            this.renderPipeline.imageProcessing.exposure = this._preStrobeExposure;
+            this._preStrobeExposure = undefined;
+        }
         if (this.strobes && this.strobes.length > 0) {
             // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
             if (this.strobesActive && !this.photosensitiveSafeMode) {
@@ -30,7 +34,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 if (!burstActive && (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)) {
                     let intensityBase = inDropMode ? 100 : 72 + Math.random() * 28;
                     if (bass > 0.6) intensityBase *= 1 + (bass - 0.6) * 0.5;
-                    const flashDuration = (inDropMode ? 0.14 : 0.20) / strobeSpeedMultiplier;
+                    const flashDuration = Math.max(
+                        0.045,
+                        (inDropMode ? 0.07 : 0.09) / Math.sqrt(strobeSpeedMultiplier)
+                    );
                     const intensity = Math.min(100, intensityBase);
                     const chaseOrder = [0, 1, 3, 2];
                     const chaseIndex = chaseOrder[(this._strobeChaseStep || 0) % chaseOrder.length];
@@ -44,6 +51,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
                             strobe._emisBuf.set(0, 0, 0);
                             strobe.material.emissiveColor = strobe._emisBuf;
+                            if (strobe.glareMaterial) {
+                                strobe.glareMaterial.emissiveColor.set(0, 0, 0);
+                                strobe.glareMaterial.alpha = 0;
+                            }
                         }
                     });
                     const interval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
@@ -72,9 +83,15 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     // scaleToRef into a per-strobe buffer: Color3.scale() allocates,
                     // and this runs once per strobe per frame for the whole flash.
                     if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
-                    const emitterLevel = Math.min(12, 3 + intensityVariation * 0.09);
+                    const emitterLevel = Math.min(24, 6 + intensityVariation * 0.18);
                     this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel, strobe._emisBuf);
                     strobe.material.emissiveColor = strobe._emisBuf;
+                    if (strobe.glareMaterial) {
+                        if (!strobe._glareBuf) strobe._glareBuf = new BABYLON.Color3(0, 0, 0);
+                        this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel * 0.75, strobe._glareBuf);
+                        strobe.glareMaterial.emissiveColor = strobe._glareBuf;
+                        strobe.glareMaterial.alpha = 0.95;
+                    }
                     // Strobe lights disabled for performance - visual effect only via emissive material
                     if (strobe.light) {
                         strobe.light.intensity = intensityVariation * 200;
@@ -84,6 +101,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     
                     if (strobe.flashDuration <= 0) {
                         strobe._emisBuf.set(0, 0, 0);
+                        if (strobe.glareMaterial) {
+                            strobe.glareMaterial.emissiveColor.set(0, 0, 0);
+                            strobe.glareMaterial.alpha = 0;
+                        }
                         if (strobe.light) {
                             strobe.light.intensity = 0;
                             strobe.light.setEnabled(false);
@@ -125,7 +146,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         } else if (this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.set(0, 8, -12);
                         }
-                        this.strobeFlashLight.intensity = maxIntensity * 3;
+                        this.strobeFlashLight.intensity = maxIntensity * 8;
                         this.strobeFlashLight.setEnabled(true);
                         // Brief bloom spike for blinding strobe effect. Captured per
                         // burst (cleared at the top of this function), so a pipeline swap
@@ -133,7 +154,11 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // freshly created VR pipeline.
                         if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
                             this._preStrobeBloom = this.renderPipeline.bloomWeight;
-                            this.renderPipeline.bloomWeight = Math.min(1.0, this._preStrobeBloom + maxIntensity * 0.008);
+                            this.renderPipeline.bloomWeight = 1.0;
+                            if (this.renderPipeline.imageProcessing) {
+                                this._preStrobeExposure = this.renderPipeline.imageProcessing.exposure;
+                                this.renderPipeline.imageProcessing.exposure = this.isInVRMode ? 1.75 : 1.55;
+                            }
                         }
                     } else {
                         this.strobeFlashLight.intensity = 0;
@@ -146,6 +171,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
                     strobe._emisBuf.set(0, 0, 0);
                     strobe.material.emissiveColor = strobe._emisBuf;
+                    if (strobe.glareMaterial) {
+                        strobe.glareMaterial.emissiveColor.set(0, 0, 0);
+                        strobe.glareMaterial.alpha = 0;
+                    }
                     if (strobe.light) {
                         strobe.light.intensity = 0;
                         strobe.light.setEnabled(false);

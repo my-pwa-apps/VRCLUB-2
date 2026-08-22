@@ -143,12 +143,12 @@ class VRClubCore {
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                exposure: 1.15,
+                exposure: 1.22,
                 contrast: 1.65,
-                bloomWeight: 0.28, // Stronger fixture halo without desktop's broad wash
-                bloomThreshold: 0.72, // Catch beams and lenses while retaining visible LED tile gaps
+                bloomWeight: 0.45, // Headset optics need a stronger halo around compact fixture sources
+                bloomThreshold: 0.55, // Catch HDR lenses and laser cores without lifting dark structures
                 bloomScale: 0.4,
-                glowIntensity: 0.95, // Restore emissive presence lost through headset optics
+                glowIntensity: 1.25, // Make direct views into emitters read as high-output light sources
                 ambientIntensity: 0.06, // Match desktop — keeps shadowed metal readable
                 environmentIntensity: 0.5, // MATCH desktop — metallic trusses/pipes/fixtures rely on env reflections
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Match desktop tint (was pure black)
@@ -404,6 +404,8 @@ class VRClubCore {
         this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
         this.laserSheetActive = false; // Laser sheet effect
+        this.laserSheetOrigin = 'rear'; // 'rear', 'ceilingLeft', or 'ceilingRight'
+        this.laserSheetMotion = 'vertical'; // 'vertical' or 'lateral'
         this.colorLockActive = false; // ShowDirector can align every active color system
         
         // Spotlight pattern and speed controls
@@ -692,6 +694,12 @@ class VRClubCore {
             this.haze.color2.a = 0.13;
             log.info('⚡ Reduced haze emit rate for VR');
         }
+        if (this.mirrorBallBeams) {
+            this.mirrorBallBeams.forEach(beam => {
+                beam.material.alpha = 0.12;
+                beam.material.emissiveIntensity = 2.4;
+            });
+        }
         if (this.dustMotes) {
             this.dustMotes.emitRate = 30; // Motes still glint in the beams, at a third the cost
         }
@@ -831,6 +839,12 @@ class VRClubCore {
             this.haze.emitRate = 80; // Full haze for desktop
             this.haze.color1.a = 0.12;
             this.haze.color2.a = 0.10;
+        }
+        if (this.mirrorBallBeams) {
+            this.mirrorBallBeams.forEach(beam => {
+                beam.material.alpha = 0.07;
+                beam.material.emissiveIntensity = 1.35;
+            });
         }
         if (this.dustMotes) {
             this.dustMotes.emitRate = this.dustMotes.getCapacity() / 10;

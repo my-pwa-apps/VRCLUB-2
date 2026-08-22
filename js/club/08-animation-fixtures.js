@@ -265,7 +265,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     }
                     
                     // Apply color to core beam - pure saturated color
-                    beam.material.emissiveColor = currentColor;
+                    if (!beam._emissiveBuf) beam._emissiveBuf = new BABYLON.Color3(0, 0, 0);
+                    currentColor.scaleToRef(this.isInVRMode ? 5.0 : 2.5, beam._emissiveBuf);
+                    beam.material.emissiveColor = beam._emissiveBuf;
                     beam.mesh.visibility = 1.0;
                     
                     // Apply inner glow color (tight halo)
@@ -1064,7 +1066,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     const beamPathLength = spot.currentBeamLength || 7.3;
                     const pathDensity = Math.min(1.0, beamPathLength / 10.0); // Longer = denser
                     const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
-                    spot.beamMat.alpha = (0.065 + Math.abs(atmosphericNoise) * 0.035) * pathDensity * angleVis;
+                    const scatterBase = this.isInVRMode ? 0.10 : 0.065;
+                    const scatterVariation = this.isInVRMode ? 0.05 : 0.035;
+                    spot.beamMat.alpha = (scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis;
                     
                     // Update HYPERREALISTIC floor light pool - Physics-accurate projection
                     if (spot.lightPool) {
@@ -1385,8 +1389,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 }
                 
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
-                const baseIntensity = 18; // Professional moving head (300W equivalent)
-                const smoothPulse = Math.sin(time * 2.5) * 3; // Smooth breathing effect
+                const baseIntensity = this.isInVRMode ? 42 : 18;
+                const smoothPulse = Math.sin(time * 2.5) * (this.isInVRMode ? 5 : 3);
                 
                 // UPGRADE: Keep diffuse in sync with specular color for projectionTexture.
                 // `specular` may safely alias currentSpotColor (we own it and never let
@@ -1394,7 +1398,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // per-spot buffer rather than allocating a Color3 per spotlight per frame.
                 spot.light.specular = this.currentSpotColor;
                 if (!spot._diffuseBuf) spot._diffuseBuf = new BABYLON.Color3(0, 0, 0);
-                this.currentSpotColor.scaleToRef(0.15, spot._diffuseBuf);
+                this.currentSpotColor.scaleToRef(this.isInVRMode ? 0.32 : 0.15, spot._diffuseBuf);
                 spot.light.diffuse = spot._diffuseBuf;
                 
                 spot.light.intensity = (this.lightsActive && spot.beamVisible !== false)
@@ -1425,8 +1429,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (this.spotlights && this.spotlights.length > 0) {
             // Use the GLOBAL currentSpotColor for ALL fixtures - they must all match
             const targetColor = this.currentSpotColor;
-            const lensIntensity = 1.8;
-            const sourceIntensity = 3.0;
+            const lensIntensity = this.isInVRMode ? 6.0 : 1.8;
+            const sourceIntensity = this.isInVRMode ? 12.0 : 3.0;
             
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];

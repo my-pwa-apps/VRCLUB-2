@@ -149,12 +149,12 @@ class VRClubLifecycle extends VRClubCore {
                     material.emissiveColor.b * 2.0,
                     1.0
                 );
-            } else if (name.includes('Emitter')) {
+            } else if (name.includes('Emitter') || (name.startsWith('laser') && name.includes('_beam'))) {
                 // Fixture emitters: visible source glow without blooming laser beams across the LED wall
                 result.set(
-                    material.emissiveColor.r * 1.2,
-                    material.emissiveColor.g * 1.2,
-                    material.emissiveColor.b * 1.2,
+                    material.emissiveColor.r * 1.8,
+                    material.emissiveColor.g * 1.8,
+                    material.emissiveColor.b * 1.8,
                     1.0
                 );
             } else if (name.includes('lens') || name.includes('lightSource') || name.includes('Lens')) {

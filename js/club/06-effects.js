@@ -509,8 +509,37 @@ class VRClubEffects extends VRClubFixtures {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
             this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
         }
+
+        this.configureLaserSheetVariant();
         
         log.info('✨ Laser sheet effect created with hyperrealistic source');
+    }
+
+    configureLaserSheetVariant() {
+        if (!this.laserSheetSource) return;
+
+        if (this.laserSheetOrigin === 'ceilingLeft') {
+            this.laserSheetSource.position.set(-6, 7.55, -16);
+            this._laserSheetBasePitch = 0.34;
+            this._laserSheetBaseYaw = 0.10;
+            this._laserSheetPitchRange = 0.16;
+            this._laserSheetYawRange = 0.20;
+        } else if (this.laserSheetOrigin === 'ceilingRight') {
+            this.laserSheetSource.position.set(6, 7.55, -16);
+            this._laserSheetBasePitch = 0.34;
+            this._laserSheetBaseYaw = -0.10;
+            this._laserSheetPitchRange = 0.16;
+            this._laserSheetYawRange = 0.20;
+        } else {
+            this.laserSheetSource.position.set(0, 5.5, -20.6);
+            this._laserSheetBasePitch = 0.15;
+            this._laserSheetBaseYaw = 0;
+            this._laserSheetPitchRange = 0.25;
+            this._laserSheetYawRange = 0.16;
+        }
+
+        this.laserSheetSource.rotation.x = this._laserSheetBasePitch;
+        this.laserSheetSource.rotation.y = this._laserSheetBaseYaw;
     }
 
     createMirrorBall() {
@@ -734,6 +763,12 @@ class VRClubEffects extends VRClubFixtures {
             flare.material = flareMat;
             flare.renderingGroupId = 2;
             flare.isPickable = false;
+
+            if (this.glowLayer) {
+                this.glowLayer.addIncludedOnlyMesh(lens);
+                this.glowLayer.addIncludedOnlyMesh(lightSource);
+                this.glowLayer.addIncludedOnlyMesh(flare);
+            }
             
             this.mirrorBallHousings.push({ 
                 mesh: housing, 

@@ -56,7 +56,7 @@
  *   smokeActive, ledWallActive, spotlightPattern, spotlightMode, spotlightSpeed,
  *   goboEnabled, goboPatternIndex, goboRotationSpeed, laserSpeed, ledPattern,
  *   ledWallSpeed, mirrorBallSpeed, strobeSpeed, blinderSpeed, fogIntensity,
- *   masterIntensity
+ *   laserSheetOrigin, laserSheetMotion, masterIntensity
  * plus vjDirector.paletteMode, so the director's HSV palette engine stays in
  * charge of actual hue selection — this class only tells it which harmony to use.
  *
@@ -319,6 +319,10 @@ class ShowDirector {
             if (safe && (key === 'strobesActive' || key === 'blindersActive')) value = false;
 
             club[key] = value;
+        }
+
+        if (club.laserSheetActive && typeof club.configureLaserSheetVariant === 'function') {
+            club.configureLaserSheetVariant();
         }
 
         if (look.palette && club.vjDirector) club.vjDirector.paletteMode = look.palette;
@@ -624,7 +628,26 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, blindersActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
-                laserSpeed: [0.35, 0.9], fogIntensity: 1.9, goboEnabled: false
+                laserSheetOrigin: 'rear', laserSheetMotion: 'vertical',
+                laserSpeed: [0.35, 0.65], fogIntensity: 1.9, goboEnabled: false
+            },
+
+            ceilingSidewash: {
+                intensity: 0.90, punch: 0.18, palette: 'analogous', colorLock: true,
+                lightsActive: false, lasersActive: false, laserSheetActive: true,
+                strobesActive: false, blindersActive: false, mirrorBallActive: false,
+                smokeActive: true, ledWallActive: false, ledMonochrome: false,
+                laserSheetOrigin: 'ceilingLeft', laserSheetMotion: 'lateral',
+                laserSpeed: [0.30, 0.55], fogIntensity: 1.8, goboEnabled: false
+            },
+
+            ceilingDip: {
+                intensity: 0.94, punch: 0.22, palette: 'complementary', colorLock: true,
+                lightsActive: false, lasersActive: false, laserSheetActive: true,
+                strobesActive: false, blindersActive: false, mirrorBallActive: false,
+                smokeActive: true, ledWallActive: false, ledMonochrome: false,
+                laserSheetOrigin: 'ceilingRight', laserSheetMotion: 'vertical',
+                laserSpeed: [0.32, 0.60], fogIntensity: 1.9, goboEnabled: false
             },
 
             // ---------------------------------------------------------------
@@ -811,7 +834,7 @@ class ShowDirector {
                     { look: 'sideways',  bars: 8, punchIn: true },
                     { look: 'theWave',   bars: 8 },
                     { look: 'crossfire', bars: 8, punchIn: true },
-                    { look: 'liquidPlane', bars: 8 },
+                    { look: 'ceilingSidewash', bars: 8 },
                     { look: 'beamsOnly', bars: 8, punchIn: true },
                     { look: 'sideways',  bars: 8, punchIn: true }
                 ]
@@ -824,7 +847,7 @@ class ShowDirector {
                     { look: 'theClimb',   bars: 8 },
                     { look: 'heldBreath', bars: 8 },
                     { look: 'whiteChase', bars: 4 },
-                    { look: 'liquidPlane', bars: 4 },
+                    { look: 'ceilingDip', bars: 4 },
                     { look: 'theClimb',   bars: 8, punchIn: true }
                 ]
             },
@@ -848,6 +871,7 @@ class ShowDirector {
                 cues: [
                     { look: 'theVoid',   bars: 8 },
                     { look: 'eclipse',   bars: 4 },
+                    { look: 'liquidPlane', bars: 8 },
                     { look: 'driftAway', bars: 12 }
                 ]
             }

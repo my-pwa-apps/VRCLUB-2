@@ -88,6 +88,27 @@ test('production build initializes a rendered club without browser errors', asyn
                 !club.ledWallActive && !club.strobesActive && !club.blindersActive
         };
 
+        const sampleSheetVariant = lookName => {
+            director._applyLook(director.looks[lookName], 1);
+            club.updateLaserSheet({ time: 0, dtScale: 1, audio: { average: 0 } });
+            const start = { pitch: club.laserSheetSource.rotation.x, yaw: club.laserSheetSource.rotation.y };
+            club.updateLaserSheet({ time: 10, dtScale: 1, audio: { average: 0 } });
+            return {
+                origin: club.laserSheetOrigin,
+                motion: club.laserSheetMotion,
+                position: club.laserSheetSource.position.asArray(),
+                start,
+                afterTenSeconds: {
+                    pitch: club.laserSheetSource.rotation.x,
+                    yaw: club.laserSheetSource.rotation.y
+                }
+            };
+        };
+        const sheetVariants = {
+            left: sampleSheetVariant('ceilingSidewash'),
+            right: sampleSheetVariant('ceilingDip')
+        };
+
         club.photosensitiveSafeMode = false;
         director._applyLook(director.looks.whiteChase, 1);
         club._strobeChaseStep = 0;
@@ -120,9 +141,9 @@ test('production build initializes a rendered club without browser errors', asyn
             led: club.ledShowColor.asArray()
         };
 
-        return { laserSheet, chase, chaseExclusive, safeMode, colorLock };
+        return { laserSheet, sheetVariants, chase, chaseExclusive, safeMode, colorLock };
     });
-    expect(showState).toEqual({
+    expect(showState).toMatchObject({
         laserSheet: {
             exists: true,
             active: true,
@@ -140,6 +161,24 @@ test('production build initializes a rendered club without browser errors', asyn
             led: showState.colorLock.master
         }
     });
+    expect(showState.sheetVariants.left).toMatchObject({
+        origin: 'ceilingLeft',
+        motion: 'lateral',
+        position: [-6, 7.55, -16]
+    });
+    expect(showState.sheetVariants.left.afterTenSeconds.pitch)
+        .toBeCloseTo(showState.sheetVariants.left.start.pitch, 6);
+    expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.yaw - showState.sheetVariants.left.start.yaw))
+        .toBeGreaterThan(0.05);
+    expect(showState.sheetVariants.right).toMatchObject({
+        origin: 'ceilingRight',
+        motion: 'vertical',
+        position: [6, 7.55, -16]
+    });
+    expect(showState.sheetVariants.right.afterTenSeconds.yaw)
+        .toBeCloseTo(showState.sheetVariants.right.start.yaw, 6);
+    expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.pitch - showState.sheetVariants.right.start.pitch))
+        .toBeGreaterThan(0.05);
     await expectHealthyRuntime(page);
 });
 
@@ -206,10 +245,10 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         xrFramebufferScale: 1.2,
         fxaaEnabled: true,
         vrBrightness: {
-            exposure: 1.15,
-            bloomWeight: 0.28,
-            bloomThreshold: 0.72,
-            glowIntensity: 0.95
+            exposure: 1.22,
+            bloomWeight: 0.45,
+            bloomThreshold: 0.55,
+            glowIntensity: 1.25
         },
         vrSmoke: {
             hazeRate: 65,
@@ -221,12 +260,69 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         mirrorBeamUsesAlpha: true,
         mirrorBeamState: Array.from({ length: 4 }, () => ({
             enabled: true,
-            alpha: 0.07,
-            emissiveIntensity: 1.35
+            alpha: 0.12,
+            emissiveIntensity: 2.4
         })),
         mirrorRealLightCount: 1
     });
     expect(xrState.djFacing).toBeCloseTo(Math.PI, 5);
+
+    const opticsState = await page.evaluate(() => {
+        const club = window.vrClub;
+        const frame = {
+            time: 4,
+            dt: 1 / 72,
+            dtScale: 60 / 72,
+            audio: { hasAudio: false, average: 0.5, bass: 0.5, mid: 0.5, high: 0.5 }
+        };
+
+        club.showDirector._applyLook(club.showDirector.looks.firstLight, 1);
+        club.spotlightPattern = 1;
+        club.spotlightMode = 3;
+        club.updateSpotlights(frame);
+        const spot = club.spotlights[0];
+
+        club.showDirector._applyLook(club.showDirector.looks.beamsOnly, 1);
+        club.updateLasers(frame);
+        const laser = club.lasers[0].beams[0];
+
+        club.photosensitiveSafeMode = false;
+        club.showDirector._applyLook(club.showDirector.looks.whiteChase, 1);
+        club._nextStrobeBurstTime = 0;
+        club.strobes.forEach(strobe => { strobe.flashDuration = 0; });
+        club.updateStrobes(frame);
+        const strobe = {
+            duration: Math.max(...club.strobes.map(item => item.flashDuration)),
+            glareAlpha: Math.max(...club.strobes.map(item => item.glareMaterial.alpha)),
+            lightIntensity: club.strobeFlashLight.intensity,
+            bloomWeight: club.renderPipeline.bloomWeight,
+            exposure: club.renderPipeline.imageProcessing.exposure
+        };
+
+        return {
+            spot: {
+                colorPeak: Math.max(...club.currentSpotColor.asArray()),
+                lensPeak: Math.max(...spot.lens.material.emissiveColor.asArray()),
+                sourcePeak: Math.max(...spot.lightSource.material.emissiveColor.asArray()),
+                intensity: spot.light.intensity
+            },
+            laser: {
+                emissivePeak: Math.max(...laser.material.emissiveColor.asArray()),
+                glowIncluded: club.glowLayer.hasMesh(laser.mesh)
+            },
+            strobe
+        };
+    });
+    expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(6, 2);
+    expect(opticsState.spot.sourcePeak / opticsState.spot.colorPeak).toBeCloseTo(12, 2);
+    expect(opticsState.spot.intensity).toBeGreaterThan(35);
+    expect(opticsState.laser.emissivePeak).toBeCloseTo(5, 2);
+    expect(opticsState.laser.glowIncluded).toBe(true);
+    expect(opticsState.strobe.duration).toBeLessThanOrEqual(0.09);
+    expect(opticsState.strobe.glareAlpha).toBe(0.95);
+    expect(opticsState.strobe.lightIntensity).toBeGreaterThan(500);
+    expect(opticsState.strobe.bloomWeight).toBe(1);
+    expect(opticsState.strobe.exposure).toBe(1.75);
     await expect(vrButton).toContainText('Exit VR');
 
     await page.evaluate(() => window.__iwerDevice.controllers.left.updateButtonValue('y-button', 1));
@@ -262,12 +358,16 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         hazeRate: window.vrClub.haze.emitRate,
         hazeAlpha1: window.vrClub.haze.color1.a,
         hazeAlpha2: window.vrClub.haze.color2.a,
-        floorFogRate: window.vrClub.floorFog.emitRate
+        floorFogRate: window.vrClub.floorFog.emitRate,
+        mirrorBeamAlpha: window.vrClub.mirrorBallBeams[0].material.alpha,
+        mirrorBeamEmission: window.vrClub.mirrorBallBeams[0].material.emissiveIntensity
     }))).toEqual({
         hazeRate: 80,
         hazeAlpha1: 0.12,
         hazeAlpha2: 0.10,
-        floorFogRate: 40
+        floorFogRate: 40,
+        mirrorBeamAlpha: 0.07,
+        mirrorBeamEmission: 1.35
     });
     await expectHealthyRuntime(page);
 });

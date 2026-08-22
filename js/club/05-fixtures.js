@@ -1058,6 +1058,11 @@ class VRClubFixtures extends VRClubEnvironment {
             sourceMat.backFaceCulling = false;
             lightSource.material = sourceMat;
             lightSource.renderingGroupId = 2;
+
+            if (this.glowLayer) {
+                this.glowLayer.addIncludedOnlyMesh(lens);
+                this.glowLayer.addIncludedOnlyMesh(lightSource);
+            }
             
             // Flare removed - was causing visible red ring artifact
             
@@ -1090,6 +1095,19 @@ class VRClubFixtures extends VRClubEnvironment {
         ];
         
         this.strobes = [];
+
+        const glareTexture = new BABYLON.DynamicTexture('strobeGlareFalloff', { width: 64, height: 64 }, this.scene, false);
+        const glareContext = glareTexture.getContext();
+        const glareGradient = glareContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        glareGradient.addColorStop(0, 'rgba(255,255,255,1)');
+        glareGradient.addColorStop(0.22, 'rgba(255,255,255,0.95)');
+        glareGradient.addColorStop(0.58, 'rgba(255,255,255,0.28)');
+        glareGradient.addColorStop(1, 'rgba(255,255,255,0)');
+        glareContext.fillStyle = glareGradient;
+        glareContext.fillRect(0, 0, 64, 64);
+        glareTexture.hasAlpha = true;
+        glareTexture.update();
+        this._strobeGlareTexture = glareTexture;
         
         // Reuse clamp material for strobe mounts
         const strobeMountMat = this.materialFactory.createPBRMaterial("strobeMountMat", {
@@ -1147,6 +1165,24 @@ class VRClubFixtures extends VRClubEnvironment {
             emitter.isPickable = false;
             emitter.renderingGroupId = 2;
             if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(emitter);
+
+            const glare = BABYLON.MeshBuilder.CreatePlane(`strobeGlare${i}`, {
+                width: 1.8,
+                height: 0.9
+            }, this.scene);
+            glare.position = new BABYLON.Vector3(pos.x, 7.6, pos.z + 0.105);
+            glare.isPickable = false;
+            glare.renderingGroupId = 2;
+            const glareMat = new BABYLON.StandardMaterial(`strobeGlareMat${i}`, this.scene);
+            glareMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            glareMat.opacityTexture = glareTexture;
+            glareMat.alpha = 0;
+            glareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            glareMat.disableLighting = true;
+            glareMat.disableDepthWrite = true;
+            glareMat.backFaceCulling = false;
+            glare.material = glareMat;
+            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(glare);
             
             // DISABLED: Strobe PointLights caused shader uniform buffer overflow
             // WebGL2 PBR materials have strict uniform buffer limits (~12)
@@ -1157,6 +1193,8 @@ class VRClubFixtures extends VRClubEnvironment {
             this.strobes.push({ 
                 mesh: strobe, 
                 emitter,
+                glare,
+                glareMaterial: glareMat,
                 material: strobeMat,
                 light: strobeLight, // null - visual-only strobe
                 flashDuration: 0,
@@ -1326,6 +1364,7 @@ class VRClubFixtures extends VRClubEnvironment {
             emitterMat.backFaceCulling = false;
             emitter.material = emitterMat;
             emitter.renderingGroupId = 2; // Render on top for visibility
+            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(emitter);
             
             // Create beams based on laser type
             const beams = [];
@@ -1485,6 +1524,7 @@ class VRClubFixtures extends VRClubEnvironment {
         beam.material = beamMat;
         beam.renderingGroupId = 2; // Render on top for crisp appearance
         beam.isPickable = false;
+        if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(beam);
         
         // Hit spots removed - cleaner laser look without floor reflections
         

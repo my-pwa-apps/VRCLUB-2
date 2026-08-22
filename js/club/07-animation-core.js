@@ -257,17 +257,19 @@ class VRClubAnimationCore extends VRClubEffects {
             const sheetMat = this.laserSheet.material;
             if (!sheetMat) return;
 
-            // SCANNING MOTION (Tilt up and down)
-            // Source is at y=5.5. Target z range is 0 to 40.
-            // Angle 0 = Horizontal. Angle + = Down.
-            
+            // Slow vertical or lateral scan from the cue-selected mounting point.
             const scanSpeed = 0.2 * speedMultiplierLaser;
-            // Scan range: -0.1 (slightly up) to +0.4 (down to floor)
-            const scanAngle = 0.15 + Math.sin(time * scanSpeed) * 0.25; 
-            
-            // Rotate the SOURCE (parent), sheet follows
             if (this.laserSheetSource) {
-                this.laserSheetSource.rotation.x = scanAngle;
+                const scanPhase = Math.sin(time * scanSpeed);
+                if (this.laserSheetMotion === 'lateral') {
+                    this.laserSheetSource.rotation.x = this._laserSheetBasePitch;
+                    this.laserSheetSource.rotation.y = this._laserSheetBaseYaw +
+                        scanPhase * this._laserSheetYawRange;
+                } else {
+                    this.laserSheetSource.rotation.x = this._laserSheetBasePitch +
+                        scanPhase * this._laserSheetPitchRange;
+                    this.laserSheetSource.rotation.y = this._laserSheetBaseYaw;
+                }
             }
             
             // Animate smoke texture flowing OUTWARD from source
@@ -501,7 +503,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     
                     // Twinkling effect - subtle visibility variation (shared material, per-mesh visibility)
                     const twinkle = 0.8 + 0.2 * Math.sin(time * 5 + i * 0.7);
-                    const rayBaseVisibility = this.isInVRMode ? 0.18 : 0.12;
+                    const rayBaseVisibility = this.isInVRMode ? 0.28 : 0.12;
                     ray.mesh.visibility = (rayBaseVisibility + (i % 5) * 0.02) * twinkle;
                 });
                 
@@ -700,7 +702,7 @@ class VRClubAnimationCore extends VRClubEffects {
                                 ? Math.min(1, (this.fogIntensity || 0) / 1.5)
                                 : 0;
                             spot.beamVisible = haze > 0 && i % 4 === 0;
-                            spot.beam.visibility = (this.isInVRMode ? 0.07 : 0.05) * distanceFade * twinkle * haze;
+                            spot.beam.visibility = (this.isInVRMode ? 0.12 : 0.05) * distanceFade * twinkle * haze;
                             spot.beam.setEnabled(spot.beamVisible);
                         }
                         
@@ -744,9 +746,9 @@ class VRClubAnimationCore extends VRClubEffects {
                     if (this._sharedMirrorBeamMat.isFrozen) this._sharedMirrorBeamMat.unfreeze();
                     if (!this._mirrorBeamEmissive) this._mirrorBeamEmissive = new BABYLON.Color3(0, 0, 0);
                     this._mirrorBeamEmissive.copyFromFloats(
-                        this.mirrorBallSpotlightColor.r * 0.8,
-                        this.mirrorBallSpotlightColor.g * 0.8,
-                        this.mirrorBallSpotlightColor.b * 0.8
+                        this.mirrorBallSpotlightColor.r * (this.isInVRMode ? 1.4 : 0.8),
+                        this.mirrorBallSpotlightColor.g * (this.isInVRMode ? 1.4 : 0.8),
+                        this.mirrorBallSpotlightColor.b * (this.isInVRMode ? 1.4 : 0.8)
                     );
                     this._sharedMirrorBeamMat.emissiveColor = this._mirrorBeamEmissive;
                 }

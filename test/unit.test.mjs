@@ -457,6 +457,8 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
         beamsOnly: 'lasersActive',
         heldBreath: 'ledWallActive',
         liquidPlane: 'laserSheetActive',
+        ceilingSidewash: 'laserSheetActive',
+        ceilingDip: 'laserSheetActive',
         whiteChase: 'strobesActive',
         laserStorm: 'lasersActive',
         theVoid: 'mirrorBallActive'
@@ -473,7 +475,12 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
 
     const runningOrder = Object.values(director.movements).flatMap(movement => movement.cues.map(cue => cue.look));
     assert.ok(runningOrder.filter(name => name === 'whiteChase').length >= 2, 'strobe chase is not recurring');
-    assert.ok(runningOrder.filter(name => name === 'liquidPlane').length >= 2, 'laser sheet is not recurring');
+    const sheetLooks = ['liquidPlane', 'ceilingSidewash', 'ceilingDip'];
+    assert.ok(runningOrder.filter(name => sheetLooks.includes(name)).length >= 3, 'laser sheet is not recurring');
+    assert.deepEqual(
+        sheetLooks.map(name => [director.looks[name].laserSheetOrigin, director.looks[name].laserSheetMotion]),
+        [['rear', 'vertical'], ['ceilingLeft', 'lateral'], ['ceilingRight', 'vertical']]
+    );
 });
 
 test('NOCTURNE color lock aligns the LED wall and mirror ball to the master hue', () => {
@@ -661,6 +668,11 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
         intensity: 0,
         setEnabled(value) { this.enabled = value; }
     };
+    const renderPipeline = {
+        bloomEnabled: true,
+        bloomWeight: 0.45,
+        imageProcessing: { exposure: 1.22 }
+    };
     const club = {
         strobesActive: true,
         photosensitiveSafeMode: false,
@@ -675,6 +687,8 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
         },
         strobes: [{ material, light: null, flashDuration: 0, currentIntensity: 0 }],
         strobeFlashLight: flashLight,
+        renderPipeline,
+        isInVRMode: true,
         blinderMaterial: { emissiveColor: new BABYLON.Color3() },
         blindersActive: false,
         updateBlinders: window.VRClubAnimationFinish.prototype.updateBlinders
@@ -688,6 +702,19 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
 
     assert.ok(material.emissiveColor.r > 0, 'new strobe burst started on a dark frame');
     assert.equal(flashLight.enabled, true, 'shared strobe flash light did not fire');
+    assert.ok(flashLight.intensity >= 576, 'shared strobe light was not bright enough');
+    assert.ok(club.strobes[0].flashDuration <= 0.09, 'strobe burst was not brief');
+    assert.equal(renderPipeline.bloomWeight, 1, 'strobe did not drive full bloom');
+    assert.equal(renderPipeline.imageProcessing.exposure, 1.75, 'VR strobe did not spike exposure');
+
+    club.photosensitiveSafeMode = true;
+    window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
+        time: 10.01,
+        dt: 1 / 60,
+        audio: { bass: 0, hasAudio: false }
+    });
+    assert.equal(renderPipeline.bloomWeight, 0.45, 'Safe Mode did not restore bloom');
+    assert.equal(renderPipeline.imageProcessing.exposure, 1.22, 'Safe Mode did not restore exposure');
     assert.deepEqual(
         [club.cachedColors.black.r, club.cachedColors.black.g, club.cachedColors.black.b],
         [0, 0, 0],
