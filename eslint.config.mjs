@@ -191,5 +191,13 @@ export default [
             // to prove that browser code rejects it.
             'no-script-url': 'off'
         }
+    },
+    {
+        // Playwright evaluate/init callbacks execute in the browser, even though
+        // their containing spec is a Node ESM module.
+        files: ['test/e2e/**/*.mjs'],
+        languageOptions: {
+            globals: browserGlobals
+        }
     }
 ];

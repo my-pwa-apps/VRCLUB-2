@@ -322,6 +322,7 @@ class VRClubAnimationCore extends VRClubEffects {
 
         // === MIRROR BALL EFFECT ===
         if (this.mirrorBallActive) {
+            const showDriving = !!(this.showDirector && this.showDirector.isDriving());
             // Mirror ball is now INDEPENDENT - doesn't disable other lights
             // All lights (spotlights, lasers, LED wall, strobes) can run simultaneously
             // VJ has full control to enable any combination
@@ -333,7 +334,20 @@ class VRClubAnimationCore extends VRClubEffects {
                 });
             }
             if (this.mirrorBallBeams) {
-                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(true));
+                this.mirrorBallBeams.forEach(beam => beam.mesh.setEnabled(beam.isIncidentLight));
+            }
+            if (this._mirrorAppliedColorSource !== this.mirrorBallSpotlightColor) {
+                this._mirrorAppliedColorSource = this.mirrorBallSpotlightColor;
+                if (this.mirrorBallSpotlights) {
+                    this.mirrorBallSpotlights.forEach(light => {
+                        if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
+                    });
+                }
+                if (this.mirrorBallBeams) {
+                    this.mirrorBallBeams.forEach(beam => {
+                        beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
+                    });
+                }
             }
             if (this.mirrorBallHousings) {
                 // PERFORMANCE: Cache scaled colors for mirror ball housings (avoid creating Color3 objects every frame)
@@ -367,7 +381,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 // Wall clock, not `frameCounter % 180`: the frame-counter version fired
                 // every 1.5 s at 120 Hz and every 6 s at 30 Hz, so the ball kept a
                 // different musical tempo on every device.
-                if (!this.vjManualMode && time - (this._mirrorColorSwitchTime || 0) > 3) {
+                if (!this.vjManualMode && !showDriving && time - (this._mirrorColorSwitchTime || 0) > 3) {
                     this._mirrorColorSwitchTime = time;
                     this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
                     this.mirrorBallSpotlightColor = this.mirrorBallColors[this.mirrorBallColorIndex];
@@ -427,7 +441,9 @@ class VRClubAnimationCore extends VRClubEffects {
                     ray.mesh.setEnabled(true);
                     
                     // Rotate ray direction with the mirror ball (around Y axis)
-                    const rotatedTheta = ray.theta + this.mirrorBallRotation;
+                    // Babylon's left-handed Y rotation maps this spherical basis
+                    // (x=cos(theta), z=sin(theta)) to theta - rotation.
+                    const rotatedTheta = ray.theta - this.mirrorBallRotation;
                     
                     // Calculate new direction based on rotated angle.
                     // Written into shared scratch - this loop runs 40x per frame, so a
@@ -545,8 +561,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     // Each spot represents a mirror facet at a specific angle (theta, phi)
                     // As ball rotates, the facet direction rotates with it in a realistic manner
                     // The ball rotates on Y-axis, so horizontal angle (theta) changes, vertical (phi) stays fixed
-                    // SYNC FIX: Use same rotation direction as outgoing rays (+ not -)
-                    const rotatedTheta = spot.theta + this.mirrorBallRotation; // Match outgoing ray rotation direction
+                    const rotatedTheta = spot.theta - this.mirrorBallRotation;
                     
                     // OPTIMIZED: Cache cos/sin calculations for reuse
                     const cosTheta = Math.cos(rotatedTheta);
@@ -650,20 +665,42 @@ class VRClubAnimationCore extends VRClubEffects {
                         );
                         spot.material.alpha = 0.9; // More visible spot
 
-                        // UPDATE VOLUMETRIC BEAM - Position at ball, point at spot
+                        // Position the Y-axis cylinder between the ball and hit point.
+                        // Mesh.lookAt() aligns Z-forward and made these shafts visibly
+                        // diverge from their spots because cylinders are Y-forward.
                         if (spot.beam) {
-                            spot.beam.setEnabled(true);
-                            // CRITICAL: Set beam position at the mirror ball
-                            spot.beam.position.copyFrom(ballPos);
-                            // Point beam at spot position
-                            spot.beam.lookAt(spot.visual.position);
-                            // Scale length to reach spot
-                            const beamDist = BABYLON.Vector3.Distance(ballPos, spot.visual.position);
-                            spot.beam.scaling.y = beamDist; // Cylinder height is Y axis
-                            
-                            // HYPERREALISTIC: Brighter beams for all directions
-                            // UPGRADE: Use mesh.visibility instead of shared material alpha
-                            spot.beam.visibility = (this.isInVRMode ? 0.22 : 0.18) * distanceFade;
+                            const beamDir = this.vecPool.mirrorDir;
+                            beamDir.copyFrom(spot.visual.position).subtractInPlace(ballPos);
+                            const beamDist = beamDir.length();
+                            beamDir.scaleInPlace(1 / Math.max(beamDist, 0.001));
+                            beamDir.scaleToRef(beamDist * 0.5, this.vecPool.mirrorTmp);
+                            spot.beam.position.copyFrom(ballPos).addInPlace(this.vecPool.mirrorTmp);
+                            spot.beam.scaling.y = beamDist;
+
+                            const up = this.vecPool.up;
+                            up.set(0, 1, 0);
+                            const angle = Math.acos(Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(up, beamDir))));
+                            BABYLON.Vector3.CrossToRef(up, beamDir, this.vecPool.mirrorAxis);
+                            if (this.vecPool.mirrorAxis.length() > 0.001) {
+                                this.vecPool.mirrorAxis.normalize();
+                                if (!spot.beam.rotationQuaternion) {
+                                    spot.beam.rotationQuaternion = BABYLON.Quaternion.Identity();
+                                }
+                                BABYLON.Quaternion.RotationAxisToRef(
+                                    this.vecPool.mirrorAxis,
+                                    angle,
+                                    spot.beam.rotationQuaternion
+                                );
+                            }
+
+                            // Real reflected shafts are sparse and only legible in haze;
+                            // the bright surface spots carry the effect, not 100 solid tubes.
+                            const haze = this.smokeActive
+                                ? Math.min(1, (this.fogIntensity || 0) / 1.5)
+                                : 0;
+                            spot.beamVisible = haze > 0 && i % 4 === 0;
+                            spot.beam.visibility = (this.isInVRMode ? 0.07 : 0.05) * distanceFade * twinkle * haze;
+                            spot.beam.setEnabled(spot.beamVisible);
                         }
                         
                         // Mark as visible for this frame
@@ -674,6 +711,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         // Spots shouldn't float in mid-air
                         spot.visual.setEnabled(false);
                         if (spot.beam) spot.beam.setEnabled(false);
+                        spot.beamVisible = false;
                         spot.isVisible = false;
                         spot.previousHitMesh = null;
                     }
@@ -689,7 +727,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     // AND if the mirror ball is active
                     if (index < activeSpotCount && spot.isVisible) {
                         spot.visual.setEnabled(true);
-                        if (spot.beam && spot.material.alpha > 0.01) {
+                        if (spot.beam && spot.beamVisible && spot.material.alpha > 0.01) {
                             spot.beam.setEnabled(true);
                         }
                     } else {

@@ -12,8 +12,8 @@
 // `caches.match()` compares the FULL URL including the query string, so an
 // unversioned precache entry could never satisfy a versioned request and the
 // whole precache was previously dead weight (every asset downloaded twice).
-const VERSION = 'vrclub-v20260822-1';
-const CACHE_TOKEN = '20260822-1';
+const VERSION = 'vrclub-v20260822-2';
+const CACHE_TOKEN = '20260822-2';
 const CACHE_NAME = `vrclub-cache-${VERSION}`;
 
 /** Canonical key for the navigation/app-shell document. */

@@ -13,6 +13,16 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- Mirror-ball reflections now rotate with the ball's actual Babylon transform instead
+  of sweeping in the opposite direction. Reflected shafts are correctly aligned to
+  their Y-axis geometry, sparsely haze-gated, distance-faded, and terminate in soft
+  projected spots; only the real incident spotlight renders an incoming beam.
+- Moving-head beams now use lower-density atmospheric scatter, view-angle edge falloff,
+  and a full fade before the receiving surface instead of reading as hard translucent
+  cones.
+- NOCTURNE now owns LED hue timing as well as pattern timing. The LED wall and mirror
+  ball receive the VJ Director's phrase palette together, eliminating independent
+  three/four-second color clocks that broke authored looks mid-cue.
 - Model and avatar teardown now releases owned containers and procedural hierarchies;
   disposing during a GLB download also aborts the body read.
 - IndexedDB quota recovery now selects timestamp-indexed keys instead of deserializing

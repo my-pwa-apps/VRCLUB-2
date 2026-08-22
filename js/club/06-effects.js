@@ -86,9 +86,9 @@ class VRClubEffects extends VRClubFixtures {
             
             const beamGrad = gCtx.createLinearGradient(0, 0, 0, gradH);
             // Canvas Y=0 → V=1 (floor/wide end): soft termination
-            beamGrad.addColorStop(0.0,  'rgb(77,77,77)');    // V=1.0: 30% - soft fade at floor
-            beamGrad.addColorStop(0.08, 'rgb(128,128,128)'); // V=0.92: 50% - quickening
-            beamGrad.addColorStop(0.25, 'rgb(230,230,230)'); // V=0.75: 90% - entering mid zone
+            beamGrad.addColorStop(0.0,  'rgb(0,0,0)');       // V=1.0: vanish at the receiving surface
+            beamGrad.addColorStop(0.10, 'rgb(46,46,46)');    // V=0.90: soft atmospheric emergence
+            beamGrad.addColorStop(0.28, 'rgb(204,204,204)'); // V=0.72: accumulated haze scatter
             beamGrad.addColorStop(0.45, 'rgb(255,255,255)'); // V=0.55: 100% - peak brightness
             beamGrad.addColorStop(0.65, 'rgb(255,255,255)'); // V=0.35: 100% - sustained peak
             beamGrad.addColorStop(0.85, 'rgb(217,217,217)'); // V=0.15: 85% - near fixture
@@ -193,6 +193,11 @@ class VRClubEffects extends VRClubFixtures {
             beamMat.backFaceCulling = false; // Visible from all angles
             beamMat.disableLighting = true; // Self-illuminated
             beamMat.useAlphaFromDiffuseTexture = false;
+            beamMat.opacityFresnelParameters = new BABYLON.FresnelParameters();
+            beamMat.opacityFresnelParameters.leftColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+            beamMat.opacityFresnelParameters.rightColor = new BABYLON.Color3(0, 0, 0);
+            beamMat.opacityFresnelParameters.bias = 0.05;
+            beamMat.opacityFresnelParameters.power = 2.5;
             
             // CRITICAL: Beam must respect depth buffer to NOT render through NPCs
             // ALPHA_COMBINE properly discards fragments behind opaque geometry
@@ -744,8 +749,8 @@ class VRClubEffects extends VRClubFixtures {
             // Visible volumetric beam from all positions (dramatic effect with HIGH-QUALITY rendering)
             const beamLength = BABYLON.Vector3.Distance(config.pos, ballPosition);
             const beam = BABYLON.MeshBuilder.CreateCylinder(`mirrorSpotBeam${index}`, {
-                diameterTop: 1.4,     // Wide at ball
-                diameterBottom: 0.3,  // Narrow at source
+                diameterTop: 1.1,
+                diameterBottom: 0.18,
                 height: beamLength,
                 tessellation: 16,
                 cap: BABYLON.Mesh.NO_CAP
@@ -774,11 +779,11 @@ class VRClubEffects extends VRClubFixtures {
             // Apply gradient texture to emissive channel
             beamMat.emissiveTexture = beamTexture;
             beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
-            beamMat.emissiveIntensity = 3.5;
+            beamMat.emissiveIntensity = 1.8;
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = 0.20;
+            beamMat.alpha = 0.08;
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side
@@ -799,7 +804,12 @@ class VRClubEffects extends VRClubFixtures {
             beam.renderingGroupId = 1;
             beam.setEnabled(false);
             
-            this.mirrorBallBeams.push({ mesh: beam, material: beamMat, texture: beamTexture });
+            this.mirrorBallBeams.push({
+                mesh: beam,
+                material: beamMat,
+                texture: beamTexture,
+                isIncidentLight: config.isRealLight
+            });
             
             // UPGRADE: Freeze static fixture hardware (housing, base, bezel don't animate)
             base.freezeWorldMatrix();
@@ -814,7 +824,7 @@ class VRClubEffects extends VRClubFixtures {
         // These are the visible light rays emanating FROM the ball in all directions
         // Real disco balls reflect light to ceiling, walls, floor - creating a sphere of rays
         this.mirrorBallOutgoingRays = [];
-        const numRays = 40; // Reduced from 80 for VR performance
+        const numRays = 24;
         
         for (let i = 0; i < numRays; i++) {
             // Distribute rays evenly using golden angle spiral on a sphere
@@ -827,13 +837,13 @@ class VRClubEffects extends VRClubFixtures {
             const dirY = Math.cos(phi); // Goes up AND down
             const dirZ = Math.sin(phi) * Math.sin(theta);
             
-            // Vary ray length (6-15m) for natural look
-            const rayLength = 6 + Math.random() * 9;
+            // Deterministic variation prevents the rig changing on every reload.
+            const rayLength = 7 + ((i * 7) % 9);
             
             // Create ray cylinder from ball position
             const ray = BABYLON.MeshBuilder.CreateCylinder(`mirrorOutgoingRay${i}`, {
-                diameterTop: 0.015,   // Very thin at ball (light source point)
-                diameterBottom: 0.08, // Slightly wider at end (light spread)
+                diameterTop: 0.008,
+                diameterBottom: 0.045,
                 height: rayLength,
                 tessellation: 4
             }, this.scene);
@@ -862,13 +872,14 @@ class VRClubEffects extends VRClubFixtures {
                 this._sharedMirrorRayMat = new BABYLON.StandardMaterial('sharedMirrorRayMat', this.scene);
                 this._sharedMirrorRayMat.emissiveColor = this.mirrorBallSpotlightColor.clone();
                 this._sharedMirrorRayMat.alpha = 1.0; // Controlled per-ray via mesh.visibility
+                this._sharedMirrorRayMat.opacityTexture = this._mirrorBeamGradientTexture;
                 this._sharedMirrorRayMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
                 this._sharedMirrorRayMat.disableLighting = true;
                 this._sharedMirrorRayMat.backFaceCulling = false;
                 this._sharedMirrorRayMat.freeze();
             }
             ray.material = this._sharedMirrorRayMat;
-            ray.visibility = 0.12 + Math.random() * 0.08; // Per-ray alpha variation (0.12-0.20)
+            ray.visibility = 0.04 + (i % 5) * 0.008;
             ray.isPickable = false;
             ray.setEnabled(false); // Starts disabled
             
@@ -898,7 +909,25 @@ class VRClubEffects extends VRClubFixtures {
         const wallSpots = Math.floor(numSpots * 0.15);      // 15% per wall (4 walls = 60%)
         let spotIndex = 0;
         
-        // No shared texture - using simple colored discs for performance and correct color updates
+        // One radial alpha mask gives every reflected facet a soft optical falloff
+        // instead of a hard-edged emissive polygon.
+        const spotTexture = new BABYLON.DynamicTexture(
+            'mirrorSpotFalloff',
+            { width: 64, height: 64 },
+            this.scene,
+            false
+        );
+        const spotContext = spotTexture.getContext();
+        const spotGradient = spotContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        spotGradient.addColorStop(0, 'rgba(255,255,255,1)');
+        spotGradient.addColorStop(0.35, 'rgba(255,255,255,0.9)');
+        spotGradient.addColorStop(0.75, 'rgba(255,255,255,0.25)');
+        spotGradient.addColorStop(1, 'rgba(255,255,255,0)');
+        spotContext.fillStyle = spotGradient;
+        spotContext.fillRect(0, 0, 64, 64);
+        spotTexture.hasAlpha = true;
+        spotTexture.update();
+        this._mirrorSpotFalloffTexture = spotTexture;
         
         const surfaces = [
             { name: 'floor', axis: 'xz', fixed: 'y', value: 0.02, count: floorSpots },
@@ -923,6 +952,7 @@ class VRClubEffects extends VRClubFixtures {
                 spotMat.emissiveColor = this.mirrorBallSpotlightColor.clone(); // Initial color - updated every frame in animation loop
                 spotMat.alpha = 0.85; // High visibility
                 spotMat.alphaMode = BABYLON.Engine.ALPHA_ADD; // Additive blending for light
+                spotMat.opacityTexture = spotTexture;
                 spotMat.disableLighting = true;
                 spotMat.backFaceCulling = false; // Visible from both sides
                 spot.material = spotMat;

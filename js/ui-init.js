@@ -990,6 +990,8 @@ function initAudioMenu() {
 // SERVICE WORKER REGISTRATION (PWA Offline Shell & Fast Startup)
 // =============================================================================
 
+let swUpdateAccepted = false;
+
 const onWindowLoadRegisterSW = () => {
     // Register sw.js on same-origin http(s)
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -1021,6 +1023,7 @@ const onWindowLoadRegisterSW = () => {
             reload.addEventListener('click', () => {
                 reload.disabled = true;
                 reload.textContent = 'Reloading…';
+                swUpdateAccepted = true;
                 worker.postMessage({ type: 'SKIP_WAITING' });
             }, { once: true });
 
@@ -1050,7 +1053,10 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     // Reload exactly once when a newly activated worker takes control.
     let swRefreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (swRefreshing) return;
+        // The first install also calls clients.claim(), which fires controllerchange.
+        // Reloading then destroys a club that may still be parsing its startup GLBs.
+        // Only a user-approved update should reload the current page.
+        if (!swUpdateAccepted || swRefreshing) return;
         swRefreshing = true;
         window.location.reload();
     });

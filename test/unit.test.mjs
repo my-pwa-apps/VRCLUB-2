@@ -454,6 +454,33 @@ test('VJDirector converges on BPM from synthetic onset intervals', () => {
     assert.equal(director.beatNumber, 14);
 });
 
+test('VJDirector publishes one phrase palette to the LED wall and mirror ball', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const mirrorColors = [
+        new BABYLON.Color3(1, 0, 0),
+        new BABYLON.Color3(0, 1, 0)
+    ];
+    const club = {
+        vjBPM: 128,
+        cachedColors: {},
+        spotColorList: mirrorColors,
+        mirrorBallColors: mirrorColors,
+        mirrorBallColorIndex: 0
+    };
+    const director = new window.VJDirector(club);
+    director.beatNumber = 16;
+
+    director._applyPalette();
+
+    assert.ok(club.ledShowColor instanceof BABYLON.Color3);
+    assert.equal(club.ledShowColor.r, club.currentSpotColor.r);
+    assert.equal(club.ledShowColor.g, club.currentSpotColor.g);
+    assert.equal(club.ledShowColor.b, club.currentSpotColor.b);
+    assert.equal(club.mirrorBallColorIndex, 1);
+    assert.equal(club.mirrorBallSpotlightColor, mirrorColors[1]);
+});
+
 test('crowd instances expand to the active tier without duplicating dancers', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', {

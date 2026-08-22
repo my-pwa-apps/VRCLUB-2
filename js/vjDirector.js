@@ -361,6 +361,7 @@ class VJDirector {
         // Spot color: primary palette color
         if (club.spotColorList && club.cachedColors) {
             club.currentSpotColor = A.clone();
+            club.ledShowColor = A.clone();
             // Try to land on the closest palette index so legacy code that
             // reads spotColorIndex (e.g. for sheet color) still works.
             club.spotColorIndex = this._closestPaletteIndex(A, club.spotColorList);
@@ -383,6 +384,7 @@ class VJDirector {
         // Mirror ball: rotate one slot per phrase for variety
         if (club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
             club.mirrorBallColorIndex = (club.mirrorBallColorIndex + 1) % club.mirrorBallColors.length;
+            club.mirrorBallSpotlightColor = club.mirrorBallColors[club.mirrorBallColorIndex];
         }
     }
 

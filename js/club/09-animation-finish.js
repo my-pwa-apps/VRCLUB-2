@@ -301,14 +301,16 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             : 4.0; // 4-second color changes without audio
         
         if (this.ledLastColorChange === undefined) this.ledLastColorChange = -1;
-        if (this.ledLastColorChange === -1 || time - this.ledLastColorChange > colorChangeTime) {
+        if (!showOwnsPattern && (this.ledLastColorChange === -1 || time - this.ledLastColorChange > colorChangeTime)) {
             this.ledColorIndex = (this.ledColorIndex + 1) % colors.length;
             this.ledLastColorChange = time;
         }
         
         // Execute current pattern with error handling
         const currentPattern = patterns[this.ledPattern];
-        const activeColor = colors[this.ledColorIndex % colors.length];
+        const activeColor = showOwnsPattern && !this.ledMonochrome && this.ledShowColor
+            ? this.ledShowColor
+            : colors[this.ledColorIndex % colors.length];
         if (currentPattern && typeof currentPattern === 'function') {
             try {
                 currentPattern.call(this, activeColor, time, audioData);

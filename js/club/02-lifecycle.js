@@ -200,8 +200,11 @@ class VRClubLifecycle extends VRClubCore {
                     framebufferScaleFactor: 1.0 // Use native resolution (can increase for supersampling)
                 }
             }
-        }).catch((_err) => {
+        }).catch((error) => {
             // VR not available - continue with desktop mode
+            const message = error && error.message ? error.message : String(error);
+            log.warn('WebXR helper unavailable; continuing in desktop mode:', message);
+            this.recordDiagnostic('xr', 'WebXR helper initialization failed', { error: message });
             return null;
         });
         this._reportInitProgress(0.52, 'Configuring WebXR...');
@@ -259,7 +262,7 @@ class VRClubLifecycle extends VRClubCore {
                         log.info('🎮 VR controller locomotion enabled with gravity');
                         
                         // SPRINT FEATURE: Press thumbstick or Grip button to run
-                        vrHelper.input.onControllerAddedObservable.add((controller) => {
+                        const registerController = (controller) => {
                             // Track for haptic dispatch (bass-pulse rumble)
                             if (this._xrControllers.indexOf(controller) === -1) {
                                 this._xrControllers.push(controller);
@@ -349,7 +352,9 @@ class VRClubLifecycle extends VRClubCore {
                                     }
                                 });
                             });
-                        });
+                        };
+                        vrHelper.input.onControllerAddedObservable.add(registerController);
+                        vrHelper.input.controllers.forEach(registerController);
                     } catch (e) {
                         log.warn('Could not enable VR movement feature:', e);
                     }

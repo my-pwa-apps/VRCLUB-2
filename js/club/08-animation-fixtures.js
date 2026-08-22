@@ -1041,11 +1041,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     // CRITICAL: Use this.currentSpotColor (global) as single source of truth
                     // This ensures beam, fixture, and all effects use the EXACT same color
                     const spotColor = this.currentSpotColor;
-                    const baseIntensity = 3.0 + atmosphericNoise; // Boosted to compensate for beam gradient dimming (was 2.0)
+                    const baseIntensity = 1.8 + atmosphericNoise;
                     if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
                     spotColor.scaleToRef(baseIntensity, spot._beamEmisBuf);
                     spot.beamMat.emissiveColor = spot._beamEmisBuf;
-                    spot.beamMat.emissiveIntensity = 8.0; // High intensity for light shaft
                     
                     // CRITICAL: Store the actual beam color for fixture sync (BASE color, not scaled)
                     // This ensures fixture uses EXACT same color as beam
@@ -1057,7 +1056,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     const beamPathLength = spot.currentBeamLength || 7.3;
                     const pathDensity = Math.min(1.0, beamPathLength / 10.0); // Longer = denser
                     const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
-                    spot.beamMat.alpha = (0.12 + Math.abs(atmosphericNoise) * 0.06) * pathDensity * angleVis;
+                    spot.beamMat.alpha = (0.065 + Math.abs(atmosphericNoise) * 0.035) * pathDensity * angleVis;
                     
                     // Update HYPERREALISTIC floor light pool - Physics-accurate projection
                     if (spot.lightPool) {
