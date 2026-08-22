@@ -1030,6 +1030,41 @@ html, body {
     border-radius: 4px;
 }
 
+.sw-update-prompt {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10020;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: min(420px, calc(100vw - 32px));
+    padding: 12px 14px;
+    border: 1px solid rgba(122, 162, 255, 0.75);
+    border-radius: 6px;
+    background: rgba(10, 12, 18, 0.96);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    font-size: 14px;
+}
+
+.sw-update-prompt button {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    border: 1px solid #7aa2ff;
+    border-radius: 4px;
+    background: #244a86;
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.sw-update-prompt button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
 /* Touch/press feedback. Hover states do nothing on a Quest controller or a phone. */
 button:active,
 .vj-button:active,

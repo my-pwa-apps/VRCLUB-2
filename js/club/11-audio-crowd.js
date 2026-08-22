@@ -698,7 +698,6 @@ class VRClubAudioCrowd extends VRClubUI {
         // animation group (so nobody moves in lockstep) off a single download and a
         // single set of geometry buffers and materials.
         const crowdSize = Math.max(0, this.tierSettings.crowdSize | 0);
-        const maxCrowdSize = Math.max(...Object.values(this.qualityTiers).map(tier => tier.crowdSize | 0));
 
         const avatarSources = [
             './js/models/avatars/Hip Hop Dancing.glb',
@@ -729,6 +728,8 @@ class VRClubAudioCrowd extends VRClubUI {
         // Fall back to whatever did load so a single missing file does not leave
         // holes in the crowd.
         const pick = index => containers[index] || available[index % available.length];
+        this._crowdSourceContainers = containers;
+        this._availableCrowdSources = available;
 
         // Hand-placed rather than randomised: the list is ordered so that the first
         // N slots are already well spread, which means a `balanced` tier still gets
@@ -751,22 +752,12 @@ class VRClubAudioCrowd extends VRClubUI {
             { x:  7.2, z: -13.6, src: 0, height: 1.86, facing: -0.40 },
             { x: -0.6, z:  -6.4, src: 1, height: 1.68, facing:  0.02 }
         ];
+        this._crowdSlots = crowdSlots;
 
-        // Rotation.y = PI puts a source model's front toward -z, i.e. toward the booth.
-        const FACING_BOOTH = Math.PI;
-
-        crowdSlots.slice(0, maxCrowdSize).forEach((slot, i) => {
-            const source = pick(slot.src);
-            if (!source) return;
-            this._spawnAvatar(
-                source,
-                `dancer${i}`,
-                new BABYLON.Vector3(slot.x, 0, slot.z),
-                FACING_BOOTH + slot.facing,
-                slot.height,
-                0.85 + (i % 5) * 0.07   // deterministic per-dancer tempo spread
-            );
-        });
+        // Do not instantiate hidden upper-tier dancers on the startup critical path.
+        // Their source containers stay resident, so raising quality can add them
+        // synchronously later without another download or parse.
+        this._spawnCrowdTo(crowdSize);
 
         // === THE DJ ===
         // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
@@ -778,7 +769,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 djSource,
                 'djPerformer',
                 new BABYLON.Vector3(0, 0.5, -19.4),
-                FACING_BOOTH + Math.PI,   // square on to the crowd
+                Math.PI * 2,   // square on to the crowd
                 1.78,
                 0.55
             );
@@ -790,9 +781,34 @@ class VRClubAudioCrowd extends VRClubUI {
         log.info(`✅ Crowd ready: ${this.npcAvatars.length} animated characters (incl. the DJ)`);
     }
 
+    _spawnCrowdTo(target) {
+        if (!this._crowdSlots || !this._crowdSourceContainers || !this._availableCrowdSources?.length) return;
+        const existing = new Set(this.npcAvatars
+            .filter(npc => npc.name.startsWith('dancer'))
+            .map(npc => npc.name));
+        const limit = Math.min(Math.max(0, target | 0), this._crowdSlots.length);
+
+        this._crowdSlots.slice(0, limit).forEach((slot, index) => {
+            const name = `dancer${index}`;
+            if (existing.has(name)) return;
+            const source = this._crowdSourceContainers[slot.src]
+                || this._availableCrowdSources[index % this._availableCrowdSources.length];
+            if (!source) return;
+            this._spawnAvatar(
+                source,
+                name,
+                new BABYLON.Vector3(slot.x, 0, slot.z),
+                Math.PI + slot.facing,
+                slot.height,
+                0.85 + (index % 5) * 0.07
+            );
+        });
+    }
+
     _applyCrowdSize() {
         if (!this.npcAvatars) return;
         const target = Math.max(0, this.tierSettings.crowdSize | 0);
+        this._spawnCrowdTo(target);
         this.npcAvatars.forEach(npc => {
             if (!npc.name.startsWith('dancer')) return;
             const index = Number(npc.name.slice('dancer'.length));

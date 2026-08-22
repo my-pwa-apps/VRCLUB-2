@@ -2535,7 +2535,7 @@ zero console errors and zero WebGL warnings.
   Business value: Medium
   Technical debt reduction: High
 
-- [ ] `showAudioStreamInputUI()` can create duplicate-ID overlays
+- [x] `showAudioStreamInputUI()` can create duplicate-ID overlays
   Priority: Medium
   Category: Bug
   Area: In-VR UI
@@ -2547,6 +2547,8 @@ zero console errors and zero WebGL warnings.
   `camera.attachControl` can also be called twice, and uses the pre-Babylon-5 signature.
   Recommended solution: early-return if the overlay exists; scope every lookup to the container;
   fix the `attachControl` signature.
+  Acceptance criteria: repeated activation leaves exactly one `#vrAudioInput` and one Escape
+  handler; implemented 2026-08-22 with an early re-entry guard.
   Estimated effort: Small
   Business value: Low
   Technical debt reduction: Medium
@@ -2692,3 +2694,293 @@ zero console errors and zero WebGL warnings.
   Estimated effort: Medium
   Business value: Low
   Technical debt reduction: Medium
+
+---
+
+## Review — 2026-08-22 — Production readiness and lifecycle hardening
+
+Scope: independent architecture, product/UX, security/reliability, rendering/performance,
+testing, deployment and maintainability passes, followed by direct source verification,
+`npm audit`, lint, unit/contract tests and a production build. Automated claims that were
+already fixed or contradicted by source were excluded.
+
+### Fixed during this review
+
+- [x] ModelLoader discarded owned model records without releasing GPU resources
+
+  Priority: High
+
+  Category: Bug
+
+  Area: Model lifecycle
+
+  Affected files: `js/modelLoader.js`, `test/unit.test.mjs`
+
+  Problem: `dispose()` cleared `loadedModels` without disposing loaded `AssetContainer`s or
+  recursively disposing procedural fallback roots.
+
+  Impact: remounting, retrying or embedding the club could retain model geometry, textures and
+  materials until the page itself was destroyed, which is especially costly on Quest.
+
+  Recommended solution: remove each container from the scene and dispose it; recursively dispose
+  procedural roots without destroying shared factory materials.
+
+  Acceptance criteria: a unit test covers both record shapes and verifies all ownership handles
+  are cleared.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: High
+
+- [x] Quota recovery copied every cached binary asset into JavaScript heap
+
+  Priority: High
+
+  Category: Performance
+
+  Area: IndexedDB asset cache
+
+  Affected files: `js/assetCache.js`, `test/unit.test.mjs`
+
+  Problem: eviction and TTL pruning used `getAll()`, deserializing all model and texture payloads
+  at the exact moment the device was already under storage pressure.
+
+  Impact: tens of megabytes of duplicate transient heap and a credible tab-termination risk on
+  memory-constrained headsets.
+
+  Recommended solution: migrate caches to schema version 2 with a timestamp index and select only
+  primary keys through `getAllKeys()`.
+
+  Acceptance criteria: eviction uses the timestamp index, never reads payload records, and retains
+  the oldest-first policy.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: High
+
+- [x] Model body downloads ignored cancellation during teardown
+
+  Priority: Medium
+
+  Category: Reliability
+
+  Area: Network / lifecycle
+
+  Affected files: `js/assetCache.js`, `js/modelLoader.js`, `test/unit.test.mjs`
+
+  Problem: `fetchBodyWithTimeout()` overwrote a caller's signal, and `ModelLoader` supplied no
+  lifecycle-owned abort signal.
+
+  Impact: retries or disposal could leave large GLB downloads running for up to 60 seconds against
+  a scene that had already been torn down.
+
+  Recommended solution: chain caller cancellation into the timeout controller and abort the
+  loader-owned controller from `dispose()`.
+
+  Acceptance criteria: an already-aborted caller signal reaches `fetch()` as aborted; disposing a
+  loader aborts its active model requests.
+
+  Estimated effort: Small
+
+  Business value: Medium
+
+  Technical debt reduction: Medium
+
+- [x] Service-worker updates forcibly reloaded active desktop and XR sessions
+
+  Priority: High
+
+  Category: UX
+
+  Area: PWA updates
+
+  Affected files: `js/ui-init.js`, `css/styles.css`, `test/contract.test.mjs`
+
+  Problem: the update notification immediately posted `SKIP_WAITING`; there was no acceptance
+  despite comments and copy saying the user controlled the reload.
+
+  Impact: a background deployment could eject a guest from XR and stop audio mid-session.
+
+  Recommended solution: show a persistent, keyboard-focusable update prompt and post
+  `SKIP_WAITING` only from its explicit Reload button.
+
+  Acceptance criteria: installing a waiting worker does not reload by itself; one user activation
+  requests activation, and duplicate prompts are prevented.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
+- [x] Exiting XR permanently disabled static-material freezing
+
+  Priority: Medium
+
+  Category: Performance
+
+  Area: Desktop/XR handoff
+
+  Affected files: `js/club/01-core.js`
+
+  Problem: `applyDesktopSettings()` unconditionally unfroze every material even though XR entry
+  only thaws known animated materials and static ownership is established at creation time.
+
+  Impact: one XR round trip imposed avoidable material readiness work for the remainder of the
+  desktop session.
+
+  Recommended solution: preserve creation-time freeze state and remove the global unfreeze sweep.
+
+  Acceptance criteria: static materials remain frozen after desktop → XR → desktop; animated LED
+  and strobe materials continue updating.
+
+  Estimated effort: Small
+
+  Business value: Medium
+
+  Technical debt reduction: Medium
+
+- [x] Balanced-tier startup instantiated and animated the ultra-tier crowd before hiding it
+
+  Priority: High
+
+  Category: Performance
+
+  Area: Startup / crowd
+
+  Affected files: `js/club/11-audio-crowd.js`, `js/club/02-lifecycle.js`, `test/unit.test.mjs`
+
+  Problem: awaited startup created all 14 dancer instances on every device even though Quest's
+  balanced tier displays six.
+
+  Impact: unnecessary clone, skeleton and animation-group work delayed the first usable frame and
+  increased retained memory on the primary target device.
+
+  Recommended solution: instantiate only the active tier count and retain source containers plus
+  slot metadata so higher tiers can expand synchronously on demand.
+
+  Acceptance criteria: balanced/high/ultra initially create 6/10/14 dancers; raising the tier adds
+  only missing dancers and never duplicates an existing name.
+
+  Estimated effort: Medium
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
+- [x] Development dependencies contained five high and one moderate known vulnerability
+
+  Priority: High
+
+  Category: Security
+
+  Area: Toolchain dependencies
+
+  Affected files: `package.json`, `package-lock.json`
+
+  Problem: `brace-expansion`, `js-yaml`, `qs` and two `sharp` installations were vulnerable;
+  upstream `@gltf-transform/cli` still pinned the vulnerable `sharp ~0.34.5` line.
+
+  Impact: CI and local asset-processing jobs consumed vulnerable parsers and native image tooling.
+
+  Recommended solution: apply nonbreaking lockfile updates and override `sharp` to patched 0.35.3,
+  then execute the real avatar optimization workflow to prove compatibility.
+
+  Acceptance criteria: `npm audit --audit-level=low` reports zero vulnerabilities and a temporary
+  avatar optimization completes successfully.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: High
+
+### New open items
+
+- [ ] Add structural tests for the Web Audio spatial graph
+
+  Priority: Medium
+
+  Category: Testing
+
+  Area: Audio
+
+  Affected files: `js/club/11-audio-crowd.js`, `test/unit.test.mjs`
+
+  Problem: URL policy and analyser behavior are tested, but construction and teardown of the HRTF
+  panners, filters, compressor, room delay and convolver are not.
+
+  Impact: a node-order, parameter or disconnect regression can silently flatten or break the
+  experience's primary spatial cue.
+
+  Recommended solution: provide a minimal Web Audio test double and assert graph topology,
+  critical node parameters, listener updates and idempotent teardown without decoding audio.
+
+  Acceptance criteria: tests fail when a PA panner is omitted, HRTF is disabled, the analyser is
+  moved after spatial attenuation, or disposal leaves a source running.
+
+  Estimated effort: Medium
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
+- [ ] Replace name-based material mutability with an explicit factory option
+
+  Priority: Medium
+
+  Category: Refactor
+
+  Area: Materials
+
+  Affected files: `js/materialFactory.js`, material creation call sites, `test/unit.test.mjs`
+
+  Problem: `MaterialFactory.isHotMutated()` infers whether a material may be frozen from substrings
+  in its name. A rename or new animated material can silently change runtime behavior.
+
+  Impact: accidental freezing breaks animations; accidental nonfreezing increases CPU work across
+  a material-heavy scene.
+
+  Recommended solution: add an explicit `mutable` configuration option, migrate call sites, and
+  keep name matching only as a temporary compatibility fallback with a warning.
+
+  Acceptance criteria: every runtime-mutated material opts in explicitly; tests prove names no
+  longer decide freeze behavior; the compatibility fallback is removed.
+
+  Estimated effort: Medium
+
+  Business value: Medium
+
+  Technical debt reduction: High
+
+- [ ] Expose online/offline state and document the offline capability boundary
+
+  Priority: Low
+
+  Category: UX
+
+  Area: PWA / audio
+
+  Affected files: `README.md`, `js/ui-init.js`, `index.html`
+
+  Problem: the app has an offline shell and persistent binary caches, but neither the UI nor the
+  documentation explains that local exploration can work offline while radio streams cannot.
+
+  Impact: users cannot distinguish an offline audio limitation from a broken club and may not know
+  the installed experience is useful without venue Wi-Fi after the first load.
+
+  Recommended solution: add a restrained connectivity state to the audio panel and a README table
+  describing first-load, cached scene, local-file and streaming behavior.
+
+  Acceptance criteria: changing `navigator.onLine` updates the audio status without blocking local
+  files; documentation accurately lists which workflows require a network.
+
+  Estimated effort: Small
+
+  Business value: Medium
+
+  Technical debt reduction: Low

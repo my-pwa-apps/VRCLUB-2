@@ -27,6 +27,7 @@ class ModelLoader {
             logger: this.log
         });
         this.inFlight = new InFlightRegistry();
+        this.abortController = new AbortController();
         this.modelConfigs = this.getModelConfigs();
         this.loadedModels = {}; // Store loaded model containers
     }
@@ -238,6 +239,7 @@ class ModelLoader {
             // hung startup forever - the single most likely stall for a 15 MB GLB.
             const arrayBuffer = await fetchBufferWithTimeout(url, {
                 cache: 'default',
+                signal: this.abortController.signal,
                 timeoutMs: 60000 // GLBs are large; allow more headroom than textures
             });
             const sizeMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
@@ -614,8 +616,20 @@ class ModelLoader {
      * registry are NOT reclaimed by scene.dispose().
      */
     dispose() {
+        if (this.abortController) this.abortController.abort();
         if (this.inFlight && this.inFlight.clear) this.inFlight.clear();
         if (this.cache && this.cache.close) this.cache.close();
+
+        for (const record of Object.values(this.loadedModels)) {
+            if (record.container) {
+                try { record.container.removeAllFromScene(); } catch (_) { /* ignore */ }
+                try { record.container.dispose(); } catch (_) { /* ignore */ }
+            } else if (record.rootMesh && record.rootMesh.dispose) {
+                // Procedural children are parented to the root, so recursive disposal
+                // releases the hierarchy without disposing shared factory materials.
+                try { record.rootMesh.dispose(false, false); } catch (_) { /* ignore */ }
+            }
+        }
         this.loadedModels = {};
         this._paSpeakerMatCache = null;
     }

@@ -753,6 +753,9 @@ class VRClubLifecycle extends VRClubCore {
             });
             this._avatarContainers = [];
         }
+        this._crowdSourceContainers = null;
+        this._availableCrowdSources = null;
+        this._crowdSlots = null;
         this.npcAvatars = [];
 
         if (this.scene) {

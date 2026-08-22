@@ -48,14 +48,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
-    <link rel="preload" href="js/vendor/babylon.js?v=20260818-1" as="script">
+    <link rel="preload" href="js/vendor/babylon.js?v=20260822-1" as="script">
     
     <title>VR Club - Virtual Nightclub Experience</title>
     
-    <link rel="manifest" href="manifest.json?v=20260818-1">
+    <link rel="manifest" href="manifest.json?v=20260822-1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260818-1">
-    <link rel="stylesheet" href="css/styles.css?v=20260818-1">
+    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260822-1">
+    <link rel="stylesheet" href="css/styles.css?v=20260822-1">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -351,57 +351,57 @@
          scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
          against the recorded hashes and against the upstream CDN.
          Refresh with: npm run vendor:babylon -- --force -->
-    <script src="js/vendor/babylon.js?v=20260818-1"></script>
-    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260818-1"></script>
+    <script src="js/vendor/babylon.js?v=20260822-1"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260822-1"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="js/vendor/babylonjs.loaders.min.js?v=20260818-1"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20260822-1"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260818-1"></script>
-    <script src="js/audioUtils.js?v=20260818-1"></script>
+    <script src="js/assetCache.js?v=20260822-1"></script>
+    <script src="js/audioUtils.js?v=20260822-1"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260818-1"></script>
+    <script src="js/textureLoader.js?v=20260822-1"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260818-1"></script>
+    <script src="js/modelLoader.js?v=20260822-1"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260818-1"></script>
+    <script src="js/materialFactory.js?v=20260822-1"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260818-1"></script>
+    <script src="js/lightFactory.js?v=20260822-1"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260818-1"></script>
+    <script src="js/vjDirector.js?v=20260822-1"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20260818-1"></script>
+    <script src="js/showDirector.js?v=20260822-1"></script>
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
-    <script src="js/ledPatterns.js?v=20260818-1"></script>
+    <script src="js/ledPatterns.js?v=20260822-1"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
-    <script src="js/club/01-core.js?v=20260818-1"></script>
-    <script src="js/club/02-lifecycle.js?v=20260818-1"></script>
-    <script src="js/club/03-rendering.js?v=20260818-1"></script>
-    <script src="js/club/04-environment.js?v=20260818-1"></script>
-    <script src="js/club/05-fixtures.js?v=20260818-1"></script>
-    <script src="js/club/06-effects.js?v=20260818-1"></script>
-    <script src="js/club/07-animation-core.js?v=20260818-1"></script>
-    <script src="js/club/08-animation-fixtures.js?v=20260818-1"></script>
-    <script src="js/club/09-animation-finish.js?v=20260818-1"></script>
-    <script src="js/club/10-ui.js?v=20260818-1"></script>
-    <script src="js/club/11-audio-crowd.js?v=20260818-1"></script>
+    <script src="js/club/01-core.js?v=20260822-1"></script>
+    <script src="js/club/02-lifecycle.js?v=20260822-1"></script>
+    <script src="js/club/03-rendering.js?v=20260822-1"></script>
+    <script src="js/club/04-environment.js?v=20260822-1"></script>
+    <script src="js/club/05-fixtures.js?v=20260822-1"></script>
+    <script src="js/club/06-effects.js?v=20260822-1"></script>
+    <script src="js/club/07-animation-core.js?v=20260822-1"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20260822-1"></script>
+    <script src="js/club/09-animation-finish.js?v=20260822-1"></script>
+    <script src="js/club/10-ui.js?v=20260822-1"></script>
+    <script src="js/club/11-audio-crowd.js?v=20260822-1"></script>
 
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260818-1"></script>
+    <script src="js/club_hyperrealistic.js?v=20260822-1"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260818-1"></script>
+    <script src="js/ui-init.js?v=20260822-1"></script>
 </body>
 </html>

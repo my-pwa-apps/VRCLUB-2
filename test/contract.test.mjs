@@ -132,7 +132,8 @@ test('every element id looked up in JS exists in index.html', () => {
     // which the loop below verifies - so a typo is still caught.
     const runtimeIds = new Set([
         'vrclubToasts', 'vrAudioInput', 'audioUrlInput', 'audioFileBrowseBtn',
-        'vrAudioFileInput', 'audioPlayBtn', 'audioCancelBtn', 'fpsCounter'
+        'vrAudioFileInput', 'audioPlayBtn', 'audioCancelBtn', 'fpsCounter',
+        'swUpdatePrompt'
     ]);
     const allJsSource = jsFiles.map(f => readFileSync(join(ROOT, f), 'utf8')).join('\n');
 

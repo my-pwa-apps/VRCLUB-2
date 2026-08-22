@@ -812,11 +812,6 @@ class VRClubCore {
         this.scene.clearColor = desktop.clearColor;
         this.scene.fogDensity = desktop.fogDensity;
         
-        // Unfreeze materials for desktop (allows dynamic updates)
-        this.scene.materials.forEach(mat => {
-            if (mat.unfreeze) mat.unfreeze();
-        });
-        
         // Restore shadow quality for desktop (contact-hardening on capable tiers)
         this._applyShadowQuality();
 

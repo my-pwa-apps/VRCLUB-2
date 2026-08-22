@@ -486,6 +486,8 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     showAudioStreamInputUI() {
+        if (document.getElementById('vrAudioInput')) return;
+
         // Pause pointer lock to allow input interaction
         if (this.scene.activeCamera && this.scene.activeCamera.detachControl) {
             this.scene.activeCamera.detachControl();

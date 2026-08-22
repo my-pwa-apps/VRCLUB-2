@@ -1005,11 +1005,28 @@ const onWindowLoadRegisterSW = () => {
         // controller under a page that was built from the previous bundle.
         const promptForUpdate = (worker) => {
             if (!worker) return;
-            const club = window.vrClub;
-            if (club && club.showErrorMessage) {
-                club.showErrorMessage('A new version is ready — reload to update.');
-            }
-            worker.postMessage({ type: 'SKIP_WAITING' });
+            let prompt = document.getElementById('swUpdatePrompt');
+            if (prompt) return;
+
+            prompt = document.createElement('div');
+            prompt.id = 'swUpdatePrompt';
+            prompt.className = 'sw-update-prompt';
+            prompt.setAttribute('role', 'status');
+
+            const message = document.createElement('span');
+            message.textContent = 'A new version is ready.';
+            const reload = document.createElement('button');
+            reload.type = 'button';
+            reload.textContent = 'Reload now';
+            reload.addEventListener('click', () => {
+                reload.disabled = true;
+                reload.textContent = 'Reloading…';
+                worker.postMessage({ type: 'SKIP_WAITING' });
+            }, { once: true });
+
+            prompt.append(message, reload);
+            document.body.appendChild(prompt);
+            uiTeardowns.push(() => prompt.remove());
         };
 
         if (registration.waiting) promptForUpdate(registration.waiting);

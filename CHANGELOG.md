@@ -13,6 +13,18 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- Model and avatar teardown now releases owned containers and procedural hierarchies;
+  disposing during a GLB download also aborts the body read.
+- IndexedDB quota recovery now selects timestamp-indexed keys instead of deserializing
+  every cached binary payload into memory.
+- Service-worker updates wait for an explicit **Reload now** action instead of ejecting
+  users from an active desktop or XR session.
+- Exiting XR preserves static material freezing, and the audio overlay rejects duplicate
+  activation.
+- Development dependency advisories were cleared, including a tested `sharp` override for
+  the glTF optimization toolchain.
+- Balanced and high graphics tiers instantiate only their visible crowd during startup;
+  raising quality creates the missing dancers on demand.
 - **Photosensitive Safe Mode is now reachable before the strobes fire.** A warning and
   an opt-in toggle sit on the splash screen, the preference defaults to on under
   `prefers-reduced-motion`, and the in-app control is the first section of a panel that

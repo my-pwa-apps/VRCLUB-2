@@ -84,10 +84,15 @@ async function fetchWithTimeout(url, options = {}) {
  * @param {RequestInit & { timeoutMs?: number }} [options]
  */
 async function fetchBodyWithTimeout(url, as, options = {}) {
-    const { timeoutMs = ASSET_FETCH_TIMEOUT_MS, ...init } = options;
+    const { timeoutMs = ASSET_FETCH_TIMEOUT_MS, signal: callerSignal, ...init } = options;
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal) {
+        if (callerSignal.aborted) controller.abort();
+        else callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
     try {
         const response = await fetch(url, { ...init, signal: controller.signal });
         if (!response.ok) {
@@ -101,6 +106,7 @@ async function fetchBodyWithTimeout(url, as, options = {}) {
         throw err;
     } finally {
         clearTimeout(timer);
+        if (callerSignal) callerSignal.removeEventListener('abort', onCallerAbort);
     }
 }
 
@@ -123,7 +129,7 @@ class IndexedDBAssetCache {
      * @param {number} [opts.maxAgeMs] Entries older than this are treated as misses.
      * @param {object} [opts.logger]   `{ info, warn, error }`.
      */
-    constructor({ dbName, storeName, version = 1, maxAgeMs = 1000 * 60 * 60 * 24 * 30, logger = console }) {
+    constructor({ dbName, storeName, version = 2, maxAgeMs = 1000 * 60 * 60 * 24 * 30, logger = console }) {
         this.dbName = dbName;
         this.storeName = storeName;
         this.dbVersion = version;
@@ -166,8 +172,11 @@ class IndexedDBAssetCache {
                 request.onsuccess = () => resolve(request.result);
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
-                    if (!db.objectStoreNames.contains(this.storeName)) {
-                        db.createObjectStore(this.storeName, { keyPath: 'url' });
+                    const store = db.objectStoreNames.contains(this.storeName)
+                        ? event.target.transaction.objectStore(this.storeName)
+                        : db.createObjectStore(this.storeName, { keyPath: 'url' });
+                    if (!store.indexNames.contains('timestamp')) {
+                        store.createIndex('timestamp', 'timestamp');
                     }
                 };
             });
@@ -287,12 +296,15 @@ class IndexedDBAssetCache {
      */
     async _evictOldest(fraction) {
         try {
-            const records = await this._run('readonly', (store) => store.getAll());
-            if (!records || records.length === 0) return 0;
-            records.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-            const victims = records.slice(0, Math.max(1, Math.ceil(records.length * fraction)));
-            for (const record of victims) {
-                await this._run('readwrite', (store) => store.delete(record.url));
+            const count = await this._run('readonly', (store) => store.count());
+            if (!count) return 0;
+            const victimCount = Math.max(1, Math.ceil(count * fraction));
+            // Query primary keys through the timestamp index. getAll() duplicated every
+            // cached GLB/texture payload into JS heap precisely when storage was full.
+            const victims = await this._run('readonly', (store) =>
+                store.index('timestamp').getAllKeys(undefined, victimCount));
+            for (const url of victims) {
+                await this._run('readwrite', (store) => store.delete(url));
             }
             return victims.length;
         } catch (_) {
@@ -304,17 +316,14 @@ class IndexedDBAssetCache {
     async prune() {
         if (this.disabled || !this.db || this.maxAgeMs <= 0) return 0;
         try {
-            const records = await this._run('readonly', (store) => store.getAll());
             const cutoff = Date.now() - this.maxAgeMs;
-            let removed = 0;
-            for (const record of records || []) {
-                if (record.timestamp && record.timestamp < cutoff) {
-                    await this._run('readwrite', (store) => store.delete(record.url));
-                    removed++;
-                }
+            const expired = await this._run('readonly', (store) =>
+                store.index('timestamp').getAllKeys(globalThis.IDBKeyRange.upperBound(cutoff, true)));
+            for (const url of expired) {
+                await this._run('readwrite', (store) => store.delete(url));
             }
-            if (removed) this.log.info(`🗑️ Pruned ${removed} expired entries from ${this.dbName}`);
-            return removed;
+            if (expired.length) this.log.info(`🗑️ Pruned ${expired.length} expired entries from ${this.dbName}`);
+            return expired.length;
         } catch (_) {
             return 0;
         }

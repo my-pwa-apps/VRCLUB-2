@@ -203,6 +203,52 @@ test('IndexedDBAssetCache.init is concurrency-safe', async () => {
     assert.equal(opens, 1, 'concurrent init() calls must share one open');
 });
 
+test('body downloads preserve a caller abort signal', async () => {
+    let observedSignal;
+    const { window } = loadClassic('js/assetCache.js', {
+        AbortController, setTimeout, clearTimeout,
+        fetch: async (_url, init) => {
+            observedSignal = init.signal;
+            if (init.signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+            return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) };
+        }
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(
+        window.fetchBufferWithTimeout('/model.glb', { signal: controller.signal }),
+        error => error.name === 'AbortError'
+    );
+    assert.equal(observedSignal.aborted, true);
+});
+
+test('cache eviction selects timestamp-indexed keys without reading payloads', async () => {
+    const { window } = loadClassic('js/assetCache.js', {
+        AbortController, setTimeout, clearTimeout, fetch: async () => ({ ok: true })
+    });
+    const cache = new window.IndexedDBAssetCache({ dbName: 'test', storeName: 'assets' });
+    const deleted = [];
+    let selectedLimit;
+    cache._run = async (mode, work) => work({
+        count: () => 8,
+        index: name => {
+            assert.equal(name, 'timestamp');
+            return {
+                getAllKeys: (_range, limit) => {
+                    selectedLimit = limit;
+                    return ['old-a', 'old-b'];
+                }
+            };
+        },
+        delete: key => { deleted.push([mode, key]); }
+    });
+
+    assert.equal(await cache._evictOldest(0.25), 2);
+    assert.equal(selectedLimit, 2);
+    assert.deepEqual(deleted, [['readwrite', 'old-a'], ['readwrite', 'old-b']]);
+});
+
 // ---------------------------------------------------------------------------
 // Material factory
 // ---------------------------------------------------------------------------
@@ -280,6 +326,43 @@ test('LightFactory refuses to silently orphan a light on a name collision', () =
     assert.equal(disposedFirst, true);
     assert.equal(factory.lights.size, 1);
     assert.ok(warnings.some(w => String(w).includes('already exists')));
+});
+
+test('ModelLoader.dispose releases loaded containers and procedural hierarchies', () => {
+    const { window } = loadClassic('js/modelLoader.js', {
+        BABYLON: makeBabylonStub(),
+        navigator: { userAgent: '' },
+        IndexedDBAssetCache: class {},
+        InFlightRegistry: class {}
+    });
+    const loader = Object.create(window.ModelLoader.prototype);
+    const calls = [];
+    loader.inFlight = { clear: () => calls.push('clear') };
+    loader.cache = { close: () => calls.push('close') };
+    loader.loadedModels = {
+        glb: {
+            container: {
+                removeAllFromScene: () => calls.push('remove-container'),
+                dispose: () => calls.push('dispose-container')
+            }
+        },
+        fallback: {
+            rootMesh: { dispose: (...args) => calls.push(['dispose-root', ...args]) }
+        }
+    };
+    loader._paSpeakerMatCache = {};
+
+    loader.dispose();
+
+    assert.deepEqual(calls, [
+        'clear',
+        'close',
+        'remove-container',
+        'dispose-container',
+        ['dispose-root', false, false]
+    ]);
+    assert.equal(Object.keys(loader.loadedModels).length, 0);
+    assert.equal(loader._paSpeakerMatCache, null);
 });
 
 // ---------------------------------------------------------------------------
@@ -369,6 +452,33 @@ test('VJDirector converges on BPM from synthetic onset intervals', () => {
 
     assert.ok(Math.abs(director.bpm - 120) < 1, `expected about 120 BPM, got ${director.bpm}`);
     assert.equal(director.beatNumber, 14);
+});
+
+test('crowd instances expand to the active tier without duplicating dancers', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON,
+        VRClubUI: class {}
+    });
+    const club = {
+        npcAvatars: [],
+        _crowdSourceContainers: ['source-a'],
+        _availableCrowdSources: ['source-a'],
+        _crowdSlots: [
+            { x: 0, z: 0, src: 0, height: 1.7, facing: 0 },
+            { x: 1, z: 1, src: 0, height: 1.8, facing: 0.1 },
+            { x: 2, z: 2, src: 0, height: 1.9, facing: 0.2 }
+        ],
+        _spawnAvatar(source, name) {
+            this.npcAvatars.push({ source, name });
+        }
+    };
+
+    window.VRClubAudioCrowd.prototype._spawnCrowdTo.call(club, 2);
+    window.VRClubAudioCrowd.prototype._spawnCrowdTo.call(club, 3);
+    window.VRClubAudioCrowd.prototype._spawnCrowdTo.call(club, 3);
+
+    assert.deepEqual(club.npcAvatars.map(npc => npc.name), ['dancer0', 'dancer1', 'dancer2']);
 });
 
 // ---------------------------------------------------------------------------
