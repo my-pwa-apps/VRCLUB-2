@@ -32,10 +32,19 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     if (bass > 0.6) intensityBase *= 1 + (bass - 0.6) * 0.5;
                     const flashDuration = (inDropMode ? 0.14 : 0.20) / strobeSpeedMultiplier;
                     const intensity = Math.min(100, intensityBase);
-                    this.strobes.forEach(strobe => {
-                        strobe.currentIntensity = intensity;
-                        strobe.flashDuration = flashDuration;
-                        strobe._burstOn = true;
+                    const chaseOrder = [0, 1, 3, 2];
+                    const chaseIndex = chaseOrder[(this._strobeChaseStep || 0) % chaseOrder.length];
+                    this._strobeChaseStep = (this._strobeChaseStep || 0) + 1;
+                    this.strobes.forEach((strobe, index) => {
+                        const active = this.strobePattern !== 'chase' || index === chaseIndex;
+                        strobe.currentIntensity = active ? intensity : 0;
+                        strobe.flashDuration = active ? flashDuration : 0;
+                        strobe._burstOn = active;
+                        if (!active) {
+                            if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
+                            strobe._emisBuf.set(0, 0, 0);
+                            strobe.material.emissiveColor = strobe._emisBuf;
+                        }
                     });
                     const interval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
                     this._nextStrobeBurstTime = time + interval / strobeSpeedMultiplier;
@@ -101,14 +110,21 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 // Drive shared strobe flash light from max strobe intensity
                 if (this.strobeFlashLight) {
                     let maxIntensity = 0;
+                    let brightestStrobe = null;
                     this.strobes.forEach(s => {
                         if (s.flashDuration > 0) {
                             if (s._burstOn && s.currentIntensity > maxIntensity) {
                                 maxIntensity = s.currentIntensity;
+                                brightestStrobe = s;
                             }
                         }
                     });
                     if (maxIntensity > 0) {
+                        if (this.strobePattern === 'chase' && brightestStrobe && this.strobeFlashLight.position) {
+                            this.strobeFlashLight.position.copyFrom(brightestStrobe.mesh.position);
+                        } else if (this.strobeFlashLight.position) {
+                            this.strobeFlashLight.position.set(0, 8, -12);
+                        }
                         this.strobeFlashLight.intensity = maxIntensity * 3;
                         this.strobeFlashLight.setEnabled(true);
                         // Brief bloom spike for blinding strobe effect. Captured per

@@ -413,9 +413,9 @@ class VRClubEffects extends VRClubFixtures {
         // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
         // 1. Create the Source/Projector Housing
-        // Positioned high on the back LED wall (z=-26), centered
+        // Positioned high on the room side of the back wall, centered
         // Height 5.5m clears the DJ booth and hits the dancefloor nicely
-        const sourcePos = new BABYLON.Vector3(0, 5.5, -25.8); 
+        const sourcePos = new BABYLON.Vector3(0, 5.5, -20.6);
         
         this.laserSheetSource = BABYLON.MeshBuilder.CreateBox("laserSheetSource", {
             width: 0.5, height: 0.2, depth: 0.4
@@ -477,9 +477,10 @@ class VRClubEffects extends VRClubFixtures {
         sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
         sheetMat.disableLighting = true;
-        sheetMat.alpha = 0.6;
+        sheetMat.alpha = 0.18;
         sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         sheetMat.backFaceCulling = false;
+        sheetMat.disableDepthWrite = true;
         
         // Procedural noise for smoke movement
         const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
@@ -780,11 +781,13 @@ class VRClubEffects extends VRClubFixtures {
             // Apply gradient texture to emissive channel
             beamMat.emissiveTexture = beamTexture;
             beamMat.emissiveColor = this.mirrorBallSpotlightColor.scale(0.6);
-            beamMat.emissiveIntensity = config.isRealLight ? 1.8 : 0.8;
+            // All four fixtures emit visible incident shafts. Only the first owns a
+            // GPU SpotLight; dimming the other beam meshes made three fixtures look off.
+            beamMat.emissiveIntensity = 1.35;
             
             // Use gradient as alpha mask for realistic edge softness
             beamMat.opacityTexture = beamTexture;
-            beamMat.alpha = config.isRealLight ? 0.08 : 0.035;
+            beamMat.alpha = 0.07;
             beamMat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
             
             // Fresnel effect - more visible from the side

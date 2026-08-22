@@ -246,7 +246,11 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     
                     // Color all beam elements with current color - HYPERREALISTIC color grading
                     let currentColor, innerGlowColor, outerGlowColor;
-                    if (this.currentColorIndex === 0) {
+                    if (this.colorLockActive) {
+                        currentColor = this.currentSpotColor;
+                        innerGlowColor = this.currentSpotColor;
+                        outerGlowColor = this.currentSpotColor;
+                    } else if (this.currentColorIndex === 0) {
                         currentColor = this.cachedColors.red;
                         innerGlowColor = this.cachedLaserGlowColors.redInner;
                         outerGlowColor = this.cachedLaserGlowColors.redOuter;
@@ -286,7 +290,11 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // Update lights and emitter color - Now updates every frame for sync with beams
                 // Get current color based on color index
                 let currentLaserColor, currentEmissiveColor, currentBrightColor;
-                if (this.currentColorIndex === 0) {
+                if (this.colorLockActive) {
+                    currentLaserColor = this.currentSpotColor;
+                    currentEmissiveColor = this.currentSpotColor;
+                    currentBrightColor = this.currentSpotColor;
+                } else if (this.currentColorIndex === 0) {
                     currentLaserColor = this.cachedColors.red;
                     currentEmissiveColor = this.cachedLaserGlowColors.redEmissive;
                     currentBrightColor = this.cachedLaserGlowColors.redBright;

@@ -143,13 +143,12 @@ class VRClubCore {
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                exposure: 1.0,
+                exposure: 1.15,
                 contrast: 1.65,
-                bloomWeight: 0.12, // Keep LED tile gaps crisp instead of bridging them with bloom
-                bloomThreshold: 1.1, // Reserve bloom for fixture cores, not the LED panel faces
-                                      // — LED panels (emissive ~1.0) stop blooming so tile gaps stay visible
-                bloomScale: 0.3,
-                glowIntensity: 0.7, // Preserve beam presence without washing out the LED wall
+                bloomWeight: 0.28, // Stronger fixture halo without desktop's broad wash
+                bloomThreshold: 0.72, // Catch beams and lenses while retaining visible LED tile gaps
+                bloomScale: 0.4,
+                glowIntensity: 0.95, // Restore emissive presence lost through headset optics
                 ambientIntensity: 0.06, // Match desktop — keeps shadowed metal readable
                 environmentIntensity: 0.5, // MATCH desktop — metallic trusses/pipes/fixtures rely on env reflections
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Match desktop tint (was pure black)
@@ -402,8 +401,10 @@ class VRClubCore {
         this.ledWallActive = true;
         this.ledMonochrome = false; // true = wall renders in black & white only
         this.strobesActive = true;
+        this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
         this.laserSheetActive = false; // Laser sheet effect
+        this.colorLockActive = false; // ShowDirector can align every active color system
         
         // Spotlight pattern and speed controls
         // (Per-light-type speed multipliers — including a unified spotlightSpeed —
@@ -679,13 +680,16 @@ class VRClubCore {
         });
         
         // #8 OPTIMIZED: Reduce particle systems for VR performance
-        // Particles are expensive - reduce capacity and emit rates in VR
+        // Retain enough layered haze to survive the headset's higher bloom threshold.
+        // Cutting these rates in half made smoke disappear between machine bursts.
         if (this.floorFog) {
-            this.floorFog.emitRate = 20; // Reduced for VR performance
+            this.floorFog.emitRate = 30;
             log.info('⚡ Reduced floor fog emit rate for VR');
         }
         if (this.haze) {
-            this.haze.emitRate = 40; // Keep visible for beam visibility
+            this.haze.emitRate = 65;
+            this.haze.color1.a = 0.16;
+            this.haze.color2.a = 0.13;
             log.info('⚡ Reduced haze emit rate for VR');
         }
         if (this.dustMotes) {
@@ -825,6 +829,8 @@ class VRClubCore {
         }
         if (this.haze) {
             this.haze.emitRate = 80; // Full haze for desktop
+            this.haze.color1.a = 0.12;
+            this.haze.color2.a = 0.10;
         }
         if (this.dustMotes) {
             this.dustMotes.emitRate = this.dustMotes.getCapacity() / 10;

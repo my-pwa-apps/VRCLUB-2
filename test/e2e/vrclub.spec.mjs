@@ -73,6 +73,73 @@ test('production build initializes a rendered club without browser errors', asyn
     });
     expect(renderState.canvasWidth).toBeGreaterThan(0);
     expect(renderState.canvasHeight).toBeGreaterThan(0);
+
+    const showState = await page.evaluate(() => {
+        const club = window.vrClub;
+        const director = club.showDirector;
+
+        director._applyLook(director.looks.liquidPlane, 1);
+        const laserSheet = {
+            exists: Boolean(club.laserSheet),
+            active: club.laserSheetActive,
+            alpha: club.laserSheet.material.alpha,
+            depthWriteDisabled: club.laserSheet.material.disableDepthWrite,
+            exclusive: !club.lightsActive && !club.lasersActive && !club.mirrorBallActive &&
+                !club.ledWallActive && !club.strobesActive && !club.blindersActive
+        };
+
+        club.photosensitiveSafeMode = false;
+        director._applyLook(director.looks.whiteChase, 1);
+        club._strobeChaseStep = 0;
+        const chase = [];
+        for (let step = 0; step < 4; step++) {
+            club.strobes.forEach(strobe => {
+                strobe.flashDuration = 0;
+                strobe._burstOn = false;
+            });
+            club._nextStrobeBurstTime = 0;
+            club.updateStrobes({ time: step + 1, dt: 0.001, audio: { bass: 0 } });
+            chase.push(club.strobes
+                .map((strobe, index) => strobe.material.emissiveColor.r > 0.1 ? index : -1)
+                .filter(index => index >= 0));
+        }
+        const chaseExclusive = !club.lightsActive && !club.lasersActive &&
+            !club.laserSheetActive && !club.mirrorBallActive && !club.ledWallActive;
+
+        club.photosensitiveSafeMode = true;
+        director._applyLook(director.looks.whiteChase, 1);
+        const safeMode = { strobes: club.strobesActive, blinders: club.blindersActive };
+
+        club.photosensitiveSafeMode = false;
+        director._applyLook(director.looks.chromaticRoom, 1);
+        director._applyContinuous(club.vjDirector, {});
+        const colorLock = {
+            active: club.colorLockActive,
+            master: club.currentSpotColor.asArray(),
+            mirror: club.mirrorBallSpotlightColor.asArray(),
+            led: club.ledShowColor.asArray()
+        };
+
+        return { laserSheet, chase, chaseExclusive, safeMode, colorLock };
+    });
+    expect(showState).toEqual({
+        laserSheet: {
+            exists: true,
+            active: true,
+            alpha: 0.18,
+            depthWriteDisabled: true,
+            exclusive: true
+        },
+        chase: [[0], [1], [3], [2]],
+        chaseExclusive: true,
+        safeMode: { strobes: false, blinders: false },
+        colorLock: {
+            active: true,
+            master: showState.colorLock.master,
+            mirror: showState.colorLock.master,
+            led: showState.colorLock.master
+        }
+    });
     await expectHealthyRuntime(page);
 });
 
@@ -108,8 +175,26 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         renderScale: window.vrClub.engine.getHardwareScalingLevel(),
         xrFramebufferScale: window.vrClub.vrSettings.vr.framebufferScaleFactor,
         fxaaEnabled: window.vrClub.renderPipeline.fxaaEnabled,
+        vrBrightness: {
+            exposure: window.vrClub.vrSettings.vr.exposure,
+            bloomWeight: window.vrClub.renderPipeline.bloomWeight,
+            bloomThreshold: window.vrClub.renderPipeline.bloomThreshold,
+            glowIntensity: window.vrClub.glowLayer.intensity
+        },
+        vrSmoke: {
+            hazeRate: window.vrClub.haze.emitRate,
+            hazeAlpha1: window.vrClub.haze.color1.a,
+            hazeAlpha2: window.vrClub.haze.color2.a,
+            floorFogRate: window.vrClub.floorFog.emitRate
+        },
         spotlightBeamDepthBias: window.vrClub.spotlights[0].beamMat.zOffset,
         mirrorBeamUsesAlpha: window.vrClub._mirrorBeamGradientTexture.hasAlpha,
+        mirrorBeamState: window.vrClub.mirrorBallBeams.map(beam => ({
+            enabled: beam.mesh.isEnabled(),
+            alpha: beam.material.alpha,
+            emissiveIntensity: beam.material.emissiveIntensity
+        })),
+        mirrorRealLightCount: window.vrClub.mirrorBallSpotlights.filter(Boolean).length,
         djFacing: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')?.root.rotation.y
     }));
     expect(xrState).toMatchObject({
@@ -120,8 +205,26 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         renderScale: 1,
         xrFramebufferScale: 1.2,
         fxaaEnabled: true,
+        vrBrightness: {
+            exposure: 1.15,
+            bloomWeight: 0.28,
+            bloomThreshold: 0.72,
+            glowIntensity: 0.95
+        },
+        vrSmoke: {
+            hazeRate: 65,
+            hazeAlpha1: 0.16,
+            hazeAlpha2: 0.13,
+            floorFogRate: 30
+        },
         spotlightBeamDepthBias: 0,
-        mirrorBeamUsesAlpha: true
+        mirrorBeamUsesAlpha: true,
+        mirrorBeamState: Array.from({ length: 4 }, () => ({
+            enabled: true,
+            alpha: 0.07,
+            emissiveIntensity: 1.35
+        })),
+        mirrorRealLightCount: 1
     });
     expect(xrState.djFacing).toBeCloseTo(Math.PI, 5);
     await expect(vrButton).toContainText('Exit VR');
@@ -155,5 +258,16 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     await page.waitForFunction(() => window.vrClub?.isInVRMode === false);
     await expect(vrButton).toContainText('Enter VR');
     expect(await page.evaluate(() => window.vrClub.movementFeature)).toBeNull();
+    expect(await page.evaluate(() => ({
+        hazeRate: window.vrClub.haze.emitRate,
+        hazeAlpha1: window.vrClub.haze.color1.a,
+        hazeAlpha2: window.vrClub.haze.color2.a,
+        floorFogRate: window.vrClub.floorFog.emitRate
+    }))).toEqual({
+        hazeRate: 80,
+        hazeAlpha1: 0.12,
+        hazeAlpha2: 0.10,
+        floorFogRate: 40
+    });
     await expectHealthyRuntime(page);
 });

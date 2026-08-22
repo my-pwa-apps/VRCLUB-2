@@ -280,12 +280,13 @@ class VRClubAnimationCore extends VRClubEffects {
             
             // Pulse intensity with audio
             const pulse = 0.5 + (audioData.average || 0) * 0.5;
-            sheetMat.alpha = 0.5 * pulse;
+            sheetMat.alpha = 0.11 + 0.07 * pulse;
             
             // Color sync
             if (this.laserEmissiveColors) {
                 let sheetColor;
-                if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
+                if (this.colorLockActive) sheetColor = this.currentSpotColor;
+                else if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
                 else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
                 else sheetColor = this.cachedColors.blue;
                 

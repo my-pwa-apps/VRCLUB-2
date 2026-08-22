@@ -484,6 +484,7 @@ class VRClubLifecycle extends VRClubCore {
         }
         
         this.createLasers();
+        this.createLaserSheet();
         this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
         
         // Use modular spotlight system if enabled

@@ -11,8 +11,28 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ## [Unreleased]
 
+### Added
+
+- Production browser coverage now verifies laser-sheet exclusivity, the exact moving
+  strobe sequence, Photosensitive Safe Mode suppression, and synchronized room colors.
+
 ### Fixed
 
+- VR lighting now uses a brighter headset-specific exposure with stronger glow and
+  a lower, still-controlled bloom threshold, restoring fixture and beam presence
+  without applying the desktop pipeline's broad LED-wall wash.
+- Persistent VR smoke now retains enough ambient haze and floor-fog particles to stay
+  visible between machine bursts, with a small headset-only opacity lift that is fully
+  restored to desktop values on XR exit.
+- NOCTURNE now repeatedly gives the LED wall, lasers, mirror ball, and moving heads
+  exclusive passages. Nine recurring looks are single-subject cues; layered systems
+  remain reserved for builds, transitions, and peak detonation/afterburn moments.
+- NOCTURNE now includes recurring strobe-only clockwise chases, diffuse laser-sheet
+  passages through the existing haze, and selected full-room color locks that align
+  the LED wall, pencil lasers, moving heads, and mirror ball to one master hue.
+- The existing laser-sheet effect is now constructed during startup, originates inside
+  the rear wall, uses restrained additive haze scatter without writing depth, and no
+  longer floods the dance floor like an opaque surface.
 - VR now renders at a conservative 1.2x per-eye framebuffer scale with FXAA retained
   as a compositor-independent fallback, reducing jagged truss, rail, and fixture edges
   without enabling a heavyweight headset-only pipeline.
@@ -25,8 +45,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - Mirror-ball reflections now rotate with the ball's actual Babylon transform instead
   of sweeping in the opposite direction. Reflected shafts are correctly aligned to
   their Y-axis geometry, sparsely haze-gated, distance-faded, and terminate in soft
-  projected spots. All four incident fixtures render restrained shafts while only one
-  consumes a real GPU light slot.
+  projected spots. All four incident fixtures now render equally legible restrained
+  shafts while only one consumes a real GPU light slot.
 - Restored the four audience blinders that were still exposed in controls and NOCTURNE
   cues but had no meshes or update path. Strobes now use larger emitter faces and a
   synchronized burst clock so both fixture types produce readable hits.

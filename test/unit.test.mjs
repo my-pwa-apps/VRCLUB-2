@@ -441,6 +441,63 @@ test('photosensitive safe mode force-clears strobes and blinders in every look',
     }
 });
 
+test('NOCTURNE includes recurring single-subject lighting looks', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const director = new window.ShowDirector({
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        vjDirector: { paletteMode: 'analogous' }
+    });
+    const expectedSolo = {
+        deepBlue: 'mirrorBallActive',
+        firstLight: 'lightsActive',
+        theWave: 'ledWallActive',
+        crossfire: 'lasersActive',
+        sideways: 'lightsActive',
+        beamsOnly: 'lasersActive',
+        heldBreath: 'ledWallActive',
+        liquidPlane: 'laserSheetActive',
+        whiteChase: 'strobesActive',
+        laserStorm: 'lasersActive',
+        theVoid: 'mirrorBallActive'
+    };
+    const headlineSystems = [
+        'lightsActive', 'lasersActive', 'laserSheetActive',
+        'strobesActive', 'mirrorBallActive', 'ledWallActive'
+    ];
+
+    for (const [name, expected] of Object.entries(expectedSolo)) {
+        const active = headlineSystems.filter(key => director.looks[name][key] === true);
+        assert.deepEqual(active, [expected], `look "${name}" is not an exclusive ${expected} moment`);
+    }
+
+    const runningOrder = Object.values(director.movements).flatMap(movement => movement.cues.map(cue => cue.look));
+    assert.ok(runningOrder.filter(name => name === 'whiteChase').length >= 2, 'strobe chase is not recurring');
+    assert.ok(runningOrder.filter(name => name === 'liquidPlane').length >= 2, 'laser sheet is not recurring');
+});
+
+test('NOCTURNE color lock aligns the LED wall and mirror ball to the master hue', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const masterColor = { r: 0.2, g: 0.7, b: 1 };
+    const club = {
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        vjDirector: { paletteMode: 'analogous' },
+        currentSpotColor: masterColor
+    };
+    const director = new window.ShowDirector(club);
+    director._cue = { look: 'chromaticRoom', bars: 4 };
+    director._cueStartBar = 0;
+    director._barCounter = 0;
+    director._beatInBar = 0;
+    director._applyLook(director.looks.chromaticRoom);
+    director._applyContinuous({ beatEnvelope: 1, blackoutUntil: 0 }, { hasAudio: false });
+
+    assert.equal(club.colorLockActive, true);
+    assert.equal(club.ledShowColor, masterColor);
+    assert.equal(club.mirrorBallSpotlightColor, masterColor);
+});
+
 test('VJDirector converges on BPM from synthetic onset intervals', () => {
     const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub() });
     const club = { vjBPM: 128 };
@@ -636,6 +693,54 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
         [0, 0, 0],
         'blinder off-state mutated the shared cached black color'
     );
+});
+
+test('strobe chase advances clockwise with only one corner lit per burst', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {}
+    });
+    const strobes = Array.from({ length: 4 }, () => ({
+        material: { emissiveColor: new BABYLON.Color3() },
+        light: null,
+        flashDuration: 0,
+        currentIntensity: 0
+    }));
+    const club = {
+        strobesActive: true,
+        photosensitiveSafeMode: false,
+        strobePattern: 'chase',
+        strobeSpeed: 1,
+        vjDropActive: false,
+        vjBuildIntensity: 0,
+        masterIntensity: 1,
+        cachedColors: {
+            ledMonoWhite: new BABYLON.Color3(1, 1, 1),
+            warmWhite: new BABYLON.Color3(1, 0.9, 0.7)
+        },
+        strobes,
+        strobeFlashLight: { intensity: 0, setEnabled() {} },
+        blinderMaterial: { emissiveColor: new BABYLON.Color3() },
+        blindersActive: false,
+        updateBlinders: window.VRClubAnimationFinish.prototype.updateBlinders
+    };
+    const order = [];
+
+    for (let burst = 0; burst < 4; burst++) {
+        strobes.forEach(strobe => { strobe.flashDuration = 0; });
+        club._nextStrobeBurstTime = undefined;
+        window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
+            time: burst + 1,
+            dt: 1 / 60,
+            audio: { bass: 0, hasAudio: false }
+        });
+        const lit = strobes.flatMap((strobe, index) => strobe.material.emissiveColor.r > 0 ? [index] : []);
+        assert.equal(lit.length, 1, `burst ${burst} lit ${lit.length} corners`);
+        order.push(lit[0]);
+    }
+
+    assert.deepEqual(order, [0, 1, 3, 2]);
 });
 
 // ---------------------------------------------------------------------------
