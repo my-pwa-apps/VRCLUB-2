@@ -42,7 +42,7 @@ const UI_TIMING = Object.freeze({
  */
 const TOGGLE_CONTROLS = Object.freeze(new Set([
     'lightsActive', 'lasersActive', 'ledWallActive', 'ledMonochrome',
-    'strobesActive', 'blindersActive', 'mirrorBallActive', 'laserSheetActive',
+    'strobesActive', 'mirrorBallActive', 'laserSheetActive',
     'smokeActive', 'spotStrobeActive'
 ]));
 
@@ -105,7 +105,7 @@ const mainExperience = document.getElementById('mainExperience');
 
 // Photosensitive Safe Mode, offered BEFORE the scene renders.
 //
-// Strobes and blinders are on by default, so a control that only exists inside a
+// Strobes are on by default, so a control that only exists inside a
 // panel the user has to open after entering is not a mitigation - the exposure has
 // already happened. This mirrors VRClubCore's own resolution order: an explicit
 // stored choice wins, otherwise prefers-reduced-motion opts the user in.
@@ -524,7 +524,6 @@ function initVJMenu() {
             vrClubInstance.mirrorBallSpeed = value;
             vrClubInstance.ledWallSpeed = value;
             vrClubInstance.strobeSpeed = value;
-            vrClubInstance.blinderSpeed = value;
             const text = `${value.toFixed(1)}x`;
             spotSpeedValue.textContent = text;
             // The visible label is a sibling <div>; without aria-valuetext a screen

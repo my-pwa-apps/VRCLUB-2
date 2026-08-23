@@ -81,7 +81,7 @@ All shortcuts are ignored while a text field has focus.
 
 ## Accessibility
 
-- **Photosensitive Safe Mode** disables every strobe, blinder and bloom flash. It is offered
+- **Photosensitive Safe Mode** disables every strobe and bloom flash. It is offered
   on the splash screen *before* the scene renders, and defaults to **on** when the OS reports
   `prefers-reduced-motion: reduce`. The preference persists across sessions.
 - Every control is keyboard reachable, has an accessible name, and exposes its state via

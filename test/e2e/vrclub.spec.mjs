@@ -57,6 +57,11 @@ async function expectHealthyRuntime(page) {
 }
 
 test('production build initializes a rendered club without browser errors', async ({ page }) => {
+    page.on('console', message => {
+        if (message.text().includes('uniform buffer that is too small')) {
+            browserFailures.get(page).push(`webgl: ${message.text()}`);
+        }
+    });
     await enterClub(page);
 
     const renderState = await page.evaluate(() => ({
@@ -64,12 +69,16 @@ test('production build initializes a rendered club without browser errors', asyn
         canvasWidth: window.vrClub.canvas.width,
         canvasHeight: window.vrClub.canvas.height,
         activeCamera: window.vrClub.scene.activeCamera?.name,
-        engineDisposed: window.vrClub.engine.isDisposed
+        engineDisposed: window.vrClub.engine.isDisposed,
+        blindersRemoved: !('blindersActive' in window.vrClub) &&
+            !window.vrClub.scene.meshes.some(mesh => /blinder/i.test(mesh.name)) &&
+            !document.querySelector('[data-control="blindersActive"]')
     }));
     expect(renderState).toMatchObject({
         ready: true,
         activeCamera: 'camera',
-        engineDisposed: false
+        engineDisposed: false,
+        blindersRemoved: true
     });
     expect(renderState.canvasWidth).toBeGreaterThan(0);
     expect(renderState.canvasHeight).toBeGreaterThan(0);
@@ -97,7 +106,7 @@ test('production build initializes a rendered club without browser errors', asyn
             depthWriteDisabled: club.laserSheet.material.disableDepthWrite,
             minimumPitch: club._laserSheetBasePitch - club._laserSheetPitchRange,
             exclusive: !club.lightsActive && !club.lasersActive && !club.mirrorBallActive &&
-                !club.ledWallActive && !club.strobesActive && !club.blindersActive
+                !club.ledWallActive && !club.strobesActive
         };
 
         const sampleSheetVariant = lookName => {
@@ -142,7 +151,7 @@ test('production build initializes a rendered club without browser errors', asyn
 
         club.photosensitiveSafeMode = true;
         director._applyLook(director.looks.whiteChase, 1);
-        const safeMode = { strobes: club.strobesActive, blinders: club.blindersActive };
+        const safeMode = { strobes: club.strobesActive };
 
         club.photosensitiveSafeMode = false;
         director._applyLook(director.looks.chromaticRoom, 1);
@@ -205,7 +214,7 @@ test('production build initializes a rendered club without browser errors', asyn
         },
         chase: [[0], [1], [3], [2]],
         chaseExclusive: true,
-        safeMode: { strobes: false, blinders: false },
+        safeMode: { strobes: false },
         colorLock: {
             active: true,
             master: showState.colorLock.master,
@@ -240,6 +249,34 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.roomBounce.active).toBeGreaterThanOrEqual(0.19);
     expect(showState.roomBounce.active).toBeLessThanOrEqual(0.201);
     expect(showState.roomBounce.blackout).toBeCloseTo(0.06, 4);
+
+    await page.evaluate(() => window.vrClub.showDirector._applyLook(
+        window.vrClub.showDirector.looks.deepBlue,
+        1
+    ));
+    await page.waitForTimeout(2000);
+    const mirrorCueState = await page.evaluate(() => {
+        const club = window.vrClub;
+        const active = new Set(club.scene.getActiveMeshes().data);
+        const categoryIsActive = pattern => club.scene.meshes
+            .filter(mesh => pattern.test(mesh.name) && mesh.getTotalVertices() > 0 &&
+                mesh.isEnabled() && mesh.isVisible)
+            .every(mesh => active.has(mesh));
+        return {
+            mirrorActive: club.mirrorBallActive,
+            realMirrorLightExists: Boolean(club.scene.getLightByName('mirrorBallSpotlight0')),
+            avatarsActive: categoryIsActive(/dancer/i),
+            trussActive: categoryIsActive(/truss/i),
+            djActive: categoryIsActive(/djPlatform|djTable|leftCDJ|rightCDJ|mixer/i)
+        };
+    });
+    expect(mirrorCueState).toEqual({
+        mirrorActive: true,
+        realMirrorLightExists: false,
+        avatarsActive: true,
+        trussActive: true,
+        djActive: true
+    });
     await expectHealthyRuntime(page);
 });
 
@@ -324,7 +361,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             alpha: 0.12,
             emissiveIntensity: 2.4
         })),
-        mirrorRealLightCount: 1
+        mirrorRealLightCount: 0
     });
     expect(xrState.djFacing).toBeCloseTo(0, 5);
 
@@ -493,7 +530,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(menuState).toEqual({
         enabled: true,
-        buttonCount: 9,
+        buttonCount: 8,
         parentIsXRCamera: true,
         smokeChanged: true,
         manualMode: true

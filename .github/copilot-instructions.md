@@ -104,7 +104,7 @@ Rules when editing:
 - `intensity`, `palette` and `punch` are meta keys (`ShowDirector.META_KEYS`) consumed by
   the director itself. They must never be written onto the club instance.
 - `photosensitiveSafeMode` **overrides the designer**: `_applyLook()` force-clears
-  `strobesActive`/`blindersActive`, and the `countdown` set-piece drops its strobe ladder
+  `strobesActive`, and the `countdown` set-piece drops its strobe ladder
   and carries the build with intensity and speed alone. Never bypass this.
 - Keep the gobo/laser exclusivity rule — one aerial idea at a time, or the haze turns to soup.
 
@@ -157,6 +157,11 @@ mirrors it for the standalone case and a test enforces that the two agree.
 
 Set `material.maxSimultaneousLights = this.maxLights` on **every** material, including the
 materials that arrive inside loaded `.glb` files.
+
+Mirror-ball fixtures are deliberately visual-only. Their emissive incident beams, reflected
+surface spots/rays and ambient bounce provide the effect; do not add or dynamically enable a
+real mirror-ball light. Doing so changes the light UBO layout after static PBR materials are
+frozen and can invalidate DJ, avatar and truss draws on WebGL.
 
 `maxSimultaneousLights` invalidates the compiled effect through `markAllSubMeshesAsLightsDirty`.
 Both `scene.blockMaterialDirtyMechanism` and `material.freeze()` suppress that, so any sweep

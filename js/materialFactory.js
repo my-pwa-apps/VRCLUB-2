@@ -12,7 +12,7 @@ class MaterialFactory {
      */
     static HOT_MUTATED = Object.freeze([
         'lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-        'led', 'blinder', 'pool', 'glow', 'laser', 'mirror',
+        'led', 'pool', 'glow', 'laser', 'mirror',
         'toggle', 'audiobtn', 'sliderhandle'
     ]);
 
@@ -367,7 +367,7 @@ class MaterialFactory {
 
         // Freeze material to prevent shader recompilation.
         // Skip freeze for materials whose emissiveColor / albedoColor is mutated
-        // at runtime (lens, source, flare, beam, gobo, strobe, LED, blinder, ...);
+        // at runtime (lens, source, flare, beam, gobo, strobe, LED, ...);
         // freezing those would silently no-op the mutations.
         if (!MaterialFactory.isHotMutated(name)) {
             mat.freeze();

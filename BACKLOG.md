@@ -2998,6 +2998,65 @@ contradicted by the repository were excluded.
 
 ### Fixed during this review
 
+- [x] DJ, crowd, and truss disappeared when the mirror-ball cue began
+
+  Priority: Critical
+
+  Category: Bug / Rendering
+
+  Area: Mirror ball / material light buffers
+
+  Affected files: `js/club/06-effects.js`, `test/e2e/vrclub.spec.mjs`
+
+  Problem: the mirror-ball cue dynamically enabled a real SpotLight after static PBR materials
+  had been frozen while scene material-dirty propagation was blocked. Babylon changed the active
+  light UBO layout without recompiling those effects.
+
+  Impact: WebGL emitted `uniform buffer that is too small` draw errors and stopped rendering
+  unrelated DJ, avatar, and truss materials on both desktop and VR. Their meshes remained enabled
+  and active, making the failure look like delayed asset removal.
+
+  Recommended solution: keep mirror fixtures visual-only and use their emissive incident beams,
+  reflected surface spots/rays, and existing fixture-driven ambient bounce for illumination.
+
+  Acceptance criteria: a rendered desktop mirror-only cue has no real mirror SpotLight, emits no
+  UBO warning, and keeps all renderable dancer, DJ, and truss meshes in Babylon's active set.
+
+  Estimated effort: Small
+
+  Business value: Critical
+
+  Technical debt reduction: High
+
+- [x] Audience blinders consumed scene and control complexity without useful output
+
+  Priority: Low
+
+  Category: Simplification / Performance
+
+  Area: Fixtures / VJ controls
+
+  Affected files: `js/club/05-fixtures.js`, `js/club/07-animation-core.js`,
+  `js/club/09-animation-finish.js`, `js/club/10-ui.js`, `js/showDirector.js`, `js/ui-init.js`
+
+  Problem: four decorative two-cell blinder housings exposed controls and show state, but their
+  emissive discs did not provide useful room illumination or a distinct effect beyond strobes.
+
+  Impact: eight glowing discs, four housings, a per-frame update, and duplicated choreography/UI
+  state increased scene and maintenance cost without improving the experience.
+
+  Recommended solution: remove the fixture meshes, animation and public controls completely;
+  retain strobes as the sole photosensitive white-impact system.
+
+  Acceptance criteria: no runtime or test code references blinder state, no blinder control is
+  rendered, and the production desktop/Quest browser suite remains healthy.
+
+  Estimated effort: Small
+
+  Business value: Low
+
+  Technical debt reduction: Medium
+
 - [x] Laser-sheet smoke looked like glowing bubbles and fixtures did not illuminate the room
 
   Priority: High

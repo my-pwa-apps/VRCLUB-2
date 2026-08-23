@@ -422,22 +422,19 @@ test('no look writes a ShowDirector meta key onto the club instance', () => {
     }
 });
 
-test('photosensitive safe mode force-clears strobes and blinders in every look', () => {
+test('photosensitive safe mode force-clears strobes in every look', () => {
     const { window } = loadClassic('js/showDirector.js');
     const club = {
         vjManualMode: false,
         photosensitiveSafeMode: true,
         strobesActive: true,
-        blindersActive: true,
         vjDirector: { paletteMode: 'analogous' }
     };
     const director = new window.ShowDirector(club);
     for (const name of Object.keys(director.looks)) {
         club.strobesActive = true;
-        club.blindersActive = true;
         director._applyLook(director.looks[name]);
         assert.equal(club.strobesActive, false, `look "${name}" left strobes on in safe mode`);
-        assert.equal(club.blindersActive, false, `look "${name}" left blinders on in safe mode`);
     }
 });
 
@@ -660,7 +657,7 @@ test('every LED wall pattern runs without throwing', () => {
     assert.equal(bad.length, 0, 'a pattern wrote a non-finite colour');
 });
 
-test('strobe bursts light immediately and blinder off-state preserves cached black', () => {
+test('strobe bursts light immediately and safe mode restores the scene', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', {
         BABYLON,
@@ -696,10 +693,7 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
         renderPipeline,
         scene: { getLightByName: name => name === 'ambient' ? ambient : null },
         strobeRetinalFlash: retinalFlash,
-        isInVRMode: true,
-        blinderMaterial: { emissiveColor: new BABYLON.Color3() },
-        blindersActive: false,
-        updateBlinders: window.VRClubAnimationFinish.prototype.updateBlinders
+        isInVRMode: true
     };
 
     window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
@@ -727,11 +721,6 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
     assert.equal(renderPipeline.imageProcessing.exposure, 1.22, 'Safe Mode did not restore exposure');
     assert.equal(ambient.intensity, 0.06, 'Safe Mode did not restore room lighting');
     assert.equal(retinalFlash.color.a, 0, 'Safe Mode did not clear retinal glare');
-    assert.deepEqual(
-        [club.cachedColors.black.r, club.cachedColors.black.g, club.cachedColors.black.b],
-        [0, 0, 0],
-        'blinder off-state mutated the shared cached black color'
-    );
 });
 
 test('strobe chase advances clockwise with only one corner lit per burst', () => {
@@ -759,10 +748,7 @@ test('strobe chase advances clockwise with only one corner lit per burst', () =>
             warmWhite: new BABYLON.Color3(1, 0.9, 0.7)
         },
         strobes,
-        strobeFlashLight: { intensity: 0, setEnabled() {} },
-        blinderMaterial: { emissiveColor: new BABYLON.Color3() },
-        blindersActive: false,
-        updateBlinders: window.VRClubAnimationFinish.prototype.updateBlinders
+        strobeFlashLight: { intensity: 0, setEnabled() {} }
     };
     const order = [];
 

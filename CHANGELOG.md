@@ -19,6 +19,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- Mirror-ball cues no longer enable a late real SpotLight that invalidated frozen PBR
+  light buffers and caused the DJ, dancers, and truss to disappear on desktop and VR.
+  The existing emissive beams, reflected spots/rays, and room bounce retain the effect.
+- Removed the ineffective audience blinder meshes, animation state, NOCTURNE cues and
+  controls. Strobes remain the sole high-impact white fixture and stay governed by
+  Photosensitive Safe Mode.
 - Strobe impulses now illuminate frozen room materials through the always-compiled
   ambient fill and add a brief XR-rendered retinal glare veil. The local flash light,
   bloom and exposure spike remain, while Safe Mode restores every value immediately.

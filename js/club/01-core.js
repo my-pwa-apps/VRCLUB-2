@@ -223,7 +223,7 @@ class VRClubCore {
         this._lastCameraZ = null;
 
         // === EYE ADAPTATION ===
-        // Iris response: closes fast against a blinder, opens slowly in the dark.
+        // Iris response: closes fast against a bright flash, opens slowly in the dark.
         // The asymmetric time constants are what make it read as an eye.
         this._adaptedExposure = null;
         
@@ -249,9 +249,9 @@ class VRClubCore {
             black: new BABYLON.Color3(0, 0, 0),
             orange: new BABYLON.Color3(1, 0.5, 0),
             purple: new BABYLON.Color3(0.5, 0, 1),
-            warmWhite: new BABYLON.Color3(1, 0.9, 0.7), // Blinder warm white
+            warmWhite: new BABYLON.Color3(1, 0.9, 0.7),
             // LED wall monochrome palette. `white` above is an over-driven HDR
-            // value for blinders and would clip the whole wall flat, so the
+            // value for bright flashes and would clip the whole wall flat, so the
             // black-and-white looks use these near-neutral tones instead. Three
             // slightly different whites keep the 8-beat colour rotation alive
             // without reintroducing hue.
@@ -459,7 +459,6 @@ class VRClubCore {
         this.mirrorBallSpeed = 1.0; // Mirror ball rotation speed
         this.ledWallSpeed = 1.0;    // LED wall animation speed
         this.strobeSpeed = 1.0;     // Strobe flash rate
-        this.blinderSpeed = 1.0;    // Audience blinder pulse rate/intensity
         
         // === PROFESSIONAL VJ AUTO-PATTERN SYSTEM ===
         // Immersive light show timing for drops, builds, and impacts

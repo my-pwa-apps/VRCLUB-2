@@ -1,7 +1,7 @@
 {
   "name": "vrclub",
   "version": "1.1.0",
-  "cacheToken": "20260823-18",
+  "cacheToken": "20260823-23",
   "description": "Hyperrealistic Babylon.js WebXR VR Club with music streaming for Meta Quest 3S",
   "scripts": {
     "start": "node scripts/serve.mjs",

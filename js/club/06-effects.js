@@ -405,7 +405,6 @@ class VRClubEffects extends VRClubFixtures {
         
     }
 
-    // Blinders removed - strobes provide sufficient impact lighting
 
     createLaserSheet() {
         // === LASER SHEET EFFECT ===
@@ -694,9 +693,11 @@ class VRClubEffects extends VRClubFixtures {
         cable.freezeWorldMatrix();
         cable.doNotSyncBoundingInfo = true;
         
-        // === MULTIPLE SPOTLIGHTS FOR MIRROR BALL (Professional disco ball setup) ===
-        // Strategy: Use 1 main spotlight + visual beams from multiple angles
-        // Why: GPU uniform buffer limits prevent multiple real SpotLights with PBR materials
+        // === MULTIPLE VISUAL SPOTLIGHTS FOR MIRROR BALL ===
+        // These remain emissive optics only. Enabling a real SpotLight when the cue starts
+        // changes the light UBO layout after static PBR materials have been frozen, which
+        // invalidates unrelated avatar, DJ and truss draws on WebGL. Surface spots and the
+        // fixture-driven ambient bounce provide the reflected illumination instead.
         this.mirrorBallSpotlights = [];
         this.mirrorBallBeams = [];
         this.mirrorBallHousings = [];
@@ -733,34 +734,16 @@ class VRClubEffects extends VRClubFixtures {
         sharedMirrorBezelMat.maxSimultaneousLights = this.maxLights;
         
         const spotlightConfigs = [
-            { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right", isRealLight: true },  // Only this one is a real light
-            { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "Front-Left", isRealLight: false }, // Visual only
-            { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right", isRealLight: false }, // Visual only - cross pattern
-            { pos: new BABYLON.Vector3(-4, 7.5, -16), name: "Back-Left", isRealLight: false }  // Visual only - cross pattern
+            { pos: new BABYLON.Vector3(4, 7.5, -8), name: "Front-Right" },
+            { pos: new BABYLON.Vector3(-4, 7.5, -8), name: "Front-Left" },
+            { pos: new BABYLON.Vector3(4, 7.5, -16), name: "Back-Right" },
+            { pos: new BABYLON.Vector3(-4, 7.5, -16), name: "Back-Left" }
         ];
         
         spotlightConfigs.forEach((config, index) => {
             const direction = ballPosition.subtract(config.pos).normalize();
             
-            // Create real spotlight only for the main one
-            if (config.isRealLight) {
-                const spotlight = new BABYLON.SpotLight(
-                    `mirrorBallSpotlight${index}`,
-                    config.pos,
-                    direction,
-                    Math.PI / 6,  // Wider beam to cover ball from one angle
-                    8,            // Softer falloff
-                    this.scene
-                );
-                spotlight.diffuse = this.mirrorBallSpotlightColor.clone();
-                spotlight.intensity = 150; // Very bright since it's the only real light
-                spotlight.range = 35;
-                spotlight.setEnabled(false);
-                this.mirrorBallSpotlights.push(spotlight);
-            } else {
-                // Fake spotlight (visual only, no actual light)
-                this.mirrorBallSpotlights.push(null);
-            }
+            this.mirrorBallSpotlights.push(null);
             
             // === HYPERREALISTIC MOVING HEAD FIXTURE (Professional Stage Light) ===
             const housingDirection = ballPosition.subtract(config.pos).normalize();

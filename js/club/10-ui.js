@@ -276,7 +276,6 @@ class VRClubUI extends VRClubAnimationFinish {
             ledWallActive: true,
             ledMonochrome: false,
             strobesActive: true,
-            blindersActive: true,
             mirrorBallActive: false,
             laserSheetActive: false,
             smokeActive: false,
@@ -290,7 +289,6 @@ class VRClubUI extends VRClubAnimationFinish {
             mirrorBallSpeed: 1.0,
             ledWallSpeed: 1.0,
             strobeSpeed: 1.0,
-            blinderSpeed: 1.0,
             vjManualMode: false
         };
     }
@@ -393,9 +391,8 @@ class VRClubUI extends VRClubAnimationFinish {
             const patternCount = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 18;
             this.ledPattern = (this.ledPattern + 1) % patternCount;
         } else if (button.control) {
-            if (this.photosensitiveSafeMode &&
-                (button.control === 'strobesActive' || button.control === 'blindersActive')) {
-                this.showErrorMessage('Photosensitive Safe Mode blocks strobes and blinders.');
+            if (this.photosensitiveSafeMode && button.control === 'strobesActive') {
+                this.showErrorMessage('Photosensitive Safe Mode blocks strobes.');
                 return;
             }
             this[button.control] = !this[button.control];
@@ -432,7 +429,6 @@ class VRClubUI extends VRClubAnimationFinish {
             ['LASERS', 'lasersActive'],
             ['MIRROR', 'mirrorBallActive'],
             ['STROBES', 'strobesActive'],
-            ['BLINDERS', 'blindersActive'],
             ['LED WALL', 'ledWallActive'],
             ['LED NEXT', 'cycleLedPattern'],
             ['SMOKE', 'smokeActive'],
@@ -622,7 +618,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 this.mirrorBallSpeed = newSpeed;
                 this.ledWallSpeed = newSpeed;
                 this.strobeSpeed = newSpeed;
-                this.blinderSpeed = newSpeed;
             }
         };
         

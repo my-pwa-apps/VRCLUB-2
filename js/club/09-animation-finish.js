@@ -207,23 +207,6 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             }
         }
 
-        this.updateBlinders(ctx);
-    }
-
-    updateBlinders(ctx) {
-        if (!this.blinderMaterial) return;
-        if (!this.blindersActive || this.photosensitiveSafeMode) {
-            this.blinderMaterial.emissiveColor.set(0, 0, 0);
-            return;
-        }
-
-        const bpm = this.vjBPM || this.bpm || 128;
-        const beatPhase = (ctx.time * bpm / 60) % 1;
-        const beatHit = Math.pow(1 - beatPhase, 7);
-        const envelope = Math.max(beatHit, this.beatEnvelope || 0);
-        const master = this.masterIntensity != null ? this.masterIntensity : 1;
-        const intensity = master * (1.2 + envelope * 10 * (this.blinderSpeed || 1));
-        this.cachedColors.warmWhite.scaleToRef(intensity, this.blinderMaterial.emissiveColor);
     }
 
     /** Sub-grille excursion driven by the bass band. */

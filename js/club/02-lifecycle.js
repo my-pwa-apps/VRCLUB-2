@@ -498,7 +498,6 @@ class VRClubLifecycle extends VRClubCore {
         }
         
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
-        // Blinders removed - strobes are sufficient
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createLaserSheetSmokeScatter(); // Light suspended haze inside the moving sheet
         this.createMirrorBall(); // Add disco/mirror ball with spotlight

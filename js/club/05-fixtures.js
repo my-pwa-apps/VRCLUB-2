@@ -277,13 +277,6 @@ class VRClubFixtures extends VRClubEnvironment {
                 onColor: new BABYLON.Color3(1, 0.5, 1), // Pink - changes per pattern
                 offColor: new BABYLON.Color3(0.2, 0.1, 0.2),
                 col: 4, row: 1
-            },
-            { 
-                label: "BLINDERS",
-                control: "blindersActive",
-                onColor: new BABYLON.Color3(1, 0.8, 0.45),
-                offColor: new BABYLON.Color3(0.2, 0.12, 0.04),
-                col: 5, row: 1
             }
         ];
         
@@ -1269,48 +1262,6 @@ class VRClubFixtures extends VRClubEnvironment {
             new BABYLON.Color4(1, 1, 1, 0)
         );
 
-        this.createBlinders();
-    }
-
-    createBlinders() {
-        this.blinders = [];
-        const housingMaterial = this.materialFactory.getPreset('lightFixture');
-        const lampMaterial = this.materialFactory.createStandardMaterial('blinderLampMat', {
-            emissiveColor: [0, 0, 0],
-            disableLighting: true
-        });
-        lampMaterial.backFaceCulling = false;
-
-        [-9, -3, 3, 9].forEach((x, index) => {
-            const housing = BABYLON.MeshBuilder.CreateBox(`blinderHousing${index}`, {
-                width: 1.05,
-                height: 0.48,
-                depth: 0.20
-            }, this.scene);
-            housing.position = new BABYLON.Vector3(x, 7.35, -17.7);
-            housing.material = housingMaterial;
-            housing.isPickable = false;
-            housing.freezeWorldMatrix();
-            housing.doNotSyncBoundingInfo = true;
-
-            const lamps = [];
-            for (let cell = 0; cell < 2; cell++) {
-                const lamp = BABYLON.MeshBuilder.CreateDisc(`blinderLamp${index}-${cell}`, {
-                    radius: 0.19,
-                    tessellation: 24
-                }, this.scene);
-                lamp.position = new BABYLON.Vector3(x + (cell === 0 ? -0.25 : 0.25), 7.35, -17.59);
-                lamp.material = lampMaterial;
-                lamp.isPickable = false;
-                lamp.renderingGroupId = 2;
-                lamp.freezeWorldMatrix();
-                lamp.doNotSyncBoundingInfo = true;
-                lamps.push(lamp);
-                if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(lamp);
-            }
-            this.blinders.push({ housing, lamps });
-        });
-        this.blinderMaterial = lampMaterial;
     }
 
     createLasers() {
@@ -1531,7 +1482,6 @@ class VRClubFixtures extends VRClubEnvironment {
         this.lasersActive = false;      // Ceiling lasers OFF when gobos on
         this.mirrorBallActive = false;
         this.strobesActive = true;      // Strobes ENABLED for immediate impact
-        this.blindersActive = true;     // Blinders pulsing
         this.laserSheetActive = false;
         this.smokeActive = true;        // Haze for beam visibility
         
@@ -1540,7 +1490,6 @@ class VRClubFixtures extends VRClubEnvironment {
         this.spotlightSpeed = 1.2;
         this.laserSpeed = 1.0;
         this.ledWallSpeed = 1.2;
-        this.blinderSpeed = 0.8;
         this.strobeSpeed = 1.5;         // Active strobe rate
         
         // === IMMERSIVE ANIMATION PARAMETERS ===

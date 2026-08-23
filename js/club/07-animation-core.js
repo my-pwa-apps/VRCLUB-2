@@ -78,7 +78,6 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.lightsActive) brightness += 0.32 * master;
         if (this.ledWallActive) brightness += 0.28 * master;
         if (this.strobesActive && !this.photosensitiveSafeMode) brightness += 0.12 * master;
-        if (this.blindersActive) brightness += 0.26;
         brightness += (ctx.beat || 0) * 0.10;
 
         // Stopping down is capped harder than opening up so a blackout never blows out.
@@ -913,7 +912,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true; // Haze for beam visibility
                         
@@ -941,7 +939,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false; // Lasers OFF - save for their moment
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = true; // Blinders start pulsing
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
@@ -950,7 +947,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.spotlightSpeed = 1.4; // Faster as tension builds
                         this.laserSpeed = 1.0;
                         this.ledWallSpeed = 1.2;
-                        this.blinderSpeed = 0.8;
                         
                         // === FOG: Building intensity ===
                         this.fogIntensity = 1.2;
@@ -968,12 +964,11 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.vjDropActive = true; // Trigger drop effects
                         this.vjDropTimer = time;
                         
-                        // MAXIMUM CHAOS - Laser sheet + strobes + blinders
+                        // MAXIMUM CHAOS - Laser sheet + strobes
                         this.lightsActive = false; // Gobos off for laser sheet
                         this.lasersActive = false; // Ceiling lasers off
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // STROBES FIRE
-                        this.blindersActive = true; // BLINDERS FIRE
                         this.smokeActive = true; // Maximum haze
                         
                         // === FOG MACHINE BURST ON DROP ===
@@ -992,7 +987,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.laserSpeed = 2.0;
                         this.ledWallSpeed = 2.5; // LED wall goes crazy
                         this.strobeSpeed = 2.0; // Rapid strobes
-                        this.blinderSpeed = 2.0; // Blinders punching
                         this.currentShowMode = 'laserSheet';
                         log.info('💥 DROP: MAXIMUM IMPACT - Fog machines blast!');
                         break;
@@ -1008,14 +1002,12 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // Keep strobes
-                        this.blindersActive = true; // Keep blinders
                         this.smokeActive = true;
                         
                         this.spotlightSpeed = 1.8;
                         this.laserSpeed = 1.5;
                         this.ledWallSpeed = 1.8;
                         this.strobeSpeed = 1.5;
-                        this.blinderSpeed = 1.2;
                         
                         // === FOG: Sustained high output ===
                         this.fogIntensity = 1.5;
@@ -1035,7 +1027,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;
                         this.mirrorBallActive = true; // THE DISCO BALL MOMENT
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = false; // Clear air for reflections
                         
@@ -1064,7 +1055,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;  // No lasers
                         this.mirrorBallActive = false; // Mirror ball had its moment
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true; // Light haze for beam visibility
                         
@@ -1093,7 +1083,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = true;
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.smokeActive = true; // Maximum haze for beam visibility
                         
                         // === FOG MACHINES: Heavy continuous output for laser tunnel ===
@@ -1117,7 +1106,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;  // Lasers OFF - contrast after laser tunnel
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
@@ -1148,7 +1136,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;  // Lasers OFF - would overpower reflections
                         this.mirrorBallActive = true; // THE STAR
                         this.strobesActive = false; // No strobes - pure vibes
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = false;   // Clear air for crisp reflections
                         
@@ -1178,7 +1165,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = false;
                         
@@ -1198,12 +1184,11 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lightingPhase = 'strobe_attack';
                         this.targetEnergy = 1.0; // MAXIMUM
                         
-                        // STROBES + BLINDERS - sensory overload
+                        // STROBES - sensory overload
                         this.lightsActive = false;
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
                         this.strobesActive = true; // FULL STROBES
-                        this.blindersActive = true; // BLINDERS PUNCH
                         this.smokeActive = true;
                         
                         // === FOG BURST on strobe attack ===
@@ -1219,7 +1204,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         }
                         
                         this.strobeSpeed = 3.0; // VERY FAST
-                        this.blinderSpeed = 2.5;
                         this.ledWallSpeed = 3.0; // LED goes crazy
                         this.currentShowMode = 'strobe_attack';
                         log.info('⚡ STROBE ATTACK: Fog blast with strobes!');
@@ -1235,7 +1219,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         
@@ -1261,7 +1244,6 @@ class VRClubAnimationCore extends VRClubEffects {
                         this.lasersActive = false;
                         this.mirrorBallActive = false;
                         this.strobesActive = false;
-                        this.blindersActive = false;
                         this.laserSheetActive = false;
                         this.smokeActive = true;
                         

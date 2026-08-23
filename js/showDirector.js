@@ -52,10 +52,10 @@
  * --------------
  * Only pre-existing state vars on the VRClub instance (the same ones the VJ
  * buttons drive), so no subsystem needs to know this file exists:
- *   lightsActive, lasersActive, strobesActive, blindersActive, mirrorBallActive,
+ *   lightsActive, lasersActive, strobesActive, mirrorBallActive,
  *   smokeActive, ledWallActive, spotlightPattern, spotlightMode, spotlightSpeed,
  *   goboEnabled, goboPatternIndex, goboRotationSpeed, laserSpeed, ledPattern,
- *   ledWallSpeed, mirrorBallSpeed, strobeSpeed, blinderSpeed, fogIntensity,
+ *   ledWallSpeed, mirrorBallSpeed, strobeSpeed, fogIntensity,
  *   laserSheetOrigin, laserSheetMotion, masterIntensity
  * plus vjDirector.paletteMode, so the director's HSV palette engine stays in
  * charge of actual hue selection — this class only tells it which harmony to use.
@@ -316,7 +316,7 @@ class ShowDirector {
 
             // Photosensitive safe mode is a medical setting, not a preference.
             // It overrides the designer at the point of application.
-            if (safe && (key === 'strobesActive' || key === 'blindersActive')) value = false;
+            if (safe && key === 'strobesActive') value = false;
 
             club[key] = value;
         }
@@ -534,7 +534,7 @@ class ShowDirector {
             deepBlue: {
                 intensity: 0.42, punch: 0.10, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 5, ledWallSpeed: 0.35,
                 mirrorBallSpeed: 0.30, fogIntensity: 1.5,
                 goboEnabled: false
@@ -546,7 +546,7 @@ class ShowDirector {
             firstLight: {
                 intensity: 0.60, punch: 0.18, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 11, ledWallSpeed: 0.5,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
                 goboEnabled: true, goboPatternIndex: 4, goboRotationSpeed: 0.18,
@@ -560,7 +560,7 @@ class ShowDirector {
             eclipse: {
                 intensity: 0.38, punch: 0.12, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
                 goboEnabled: true, goboPatternIndex: 0, goboRotationSpeed: 0.10,
@@ -576,7 +576,7 @@ class ShowDirector {
             theWave: {
                 intensity: 0.82, punch: 0.22, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 0, ledWallSpeed: 0.8,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.55, 0.85],
                 goboEnabled: false, goboPatternIndex: 5, goboRotationSpeed: -0.35,
@@ -588,7 +588,7 @@ class ShowDirector {
             crossfire: {
                 intensity: 0.88, punch: 0.30, palette: 'complementary',
                 lightsActive: false, lasersActive: true, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 13, ledWallSpeed: 1.0,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.4,
                 goboEnabled: false, laserSpeed: [0.6, 1.1],
@@ -600,7 +600,7 @@ class ShowDirector {
             sideways: {
                 intensity: 0.85, punch: 0.25, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
                 goboEnabled: true, goboPatternIndex: 2, goboRotationSpeed: 0.5,
@@ -614,7 +614,7 @@ class ShowDirector {
             beamsOnly: {
                 intensity: 0.90, punch: 0.38, palette: 'complementary',
                 lightsActive: false, lasersActive: true, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 3, spotlightMode: 1, spotlightSpeed: [0.7, 1.3],
                 goboEnabled: false, laserSpeed: [0.9, 1.6],
@@ -626,7 +626,7 @@ class ShowDirector {
             liquidPlane: {
                 intensity: 0.92, punch: 0.20, palette: 'analogous', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
-                strobesActive: false, blindersActive: false, mirrorBallActive: false,
+                strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
                 laserSheetOrigin: 'rear', laserSheetMotion: 'vertical',
                 laserSpeed: [0.35, 0.65], fogIntensity: 1.9, goboEnabled: false
@@ -635,7 +635,7 @@ class ShowDirector {
             ceilingSidewash: {
                 intensity: 0.90, punch: 0.18, palette: 'analogous', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
-                strobesActive: false, blindersActive: false, mirrorBallActive: false,
+                strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
                 laserSheetOrigin: 'ceilingLeft', laserSheetMotion: 'lateral',
                 laserSpeed: [0.30, 0.55], fogIntensity: 1.8, goboEnabled: false
@@ -644,7 +644,7 @@ class ShowDirector {
             ceilingDip: {
                 intensity: 0.94, punch: 0.22, palette: 'complementary', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
-                strobesActive: false, blindersActive: false, mirrorBallActive: false,
+                strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
                 laserSheetOrigin: 'ceilingRight', laserSheetMotion: 'vertical',
                 laserSpeed: [0.32, 0.60], fogIntensity: 1.9, goboEnabled: false
@@ -660,7 +660,7 @@ class ShowDirector {
             theClimb: {
                 intensity: [0.80, 1.0], punch: 0.35, palette: 'complementary',
                 lightsActive: true, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 6, ledWallSpeed: [0.9, 1.9],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.8, 2.0],
                 goboEnabled: true, goboPatternIndex: 1, goboRotationSpeed: [0.4, 1.6],
@@ -673,7 +673,7 @@ class ShowDirector {
             heldBreath: {
                 intensity: [0.70, 0.95], punch: 0.45, palette: 'complementary',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 9, ledWallSpeed: [1.2, 2.0],
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
                 goboEnabled: false, laserSpeed: [1.0, 1.8],
@@ -686,7 +686,7 @@ class ShowDirector {
                 intensity: 1.0, punch: 0.12, palette: 'analogous',
                 lightsActive: false, lasersActive: false, laserSheetActive: false,
                 strobesActive: true, strobePattern: 'chase', strobeSpeed: 2.4,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true,
                 fogIntensity: 1.4, goboEnabled: false
             },
@@ -701,11 +701,11 @@ class ShowDirector {
             detonation: {
                 intensity: 1.0, punch: 0.55, palette: 'triad',
                 lightsActive: true, lasersActive: true, strobesActive: true,
-                blindersActive: true, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 17, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
                 goboEnabled: false, laserSpeed: 1.8,
-                strobeSpeed: 2.2, blinderSpeed: 1.8, fogIntensity: 1.5
+                strobeSpeed: 2.2, fogIntensity: 1.5
             },
 
             // Sustain, not repeat. Everything but lasers drops out at full speed.
@@ -715,7 +715,7 @@ class ShowDirector {
             laserStorm: {
                 intensity: 0.96, punch: 0.40, palette: 'triad',
                 lightsActive: false, lasersActive: true, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false, ledPattern: 15, ledWallSpeed: 1.8,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1.5,
                 goboEnabled: false, laserSpeed: 2.0, fogIntensity: 1.5
@@ -725,7 +725,7 @@ class ShowDirector {
             afterburn: {
                 intensity: 1.0, punch: 0.50, palette: 'triad',
                 lightsActive: true, lasersActive: true, strobesActive: true,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 2.0,
                 goboEnabled: false, laserSpeed: 1.6,
@@ -737,7 +737,7 @@ class ShowDirector {
             chromaticRoom: {
                 intensity: 0.94, punch: 0.28, palette: 'analogous', colorLock: true,
                 lightsActive: true, lasersActive: true, laserSheetActive: false,
-                strobesActive: false, blindersActive: false, mirrorBallActive: true,
+                strobesActive: false, mirrorBallActive: true,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false,
                 ledPattern: 5, ledWallSpeed: 0.65,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
@@ -754,7 +754,7 @@ class ShowDirector {
             theVoid: {
                 intensity: 0.30, punch: 0.08, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 16, ledWallSpeed: 0.4,
                 mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
             },
@@ -764,7 +764,7 @@ class ShowDirector {
             driftAway: {
                 intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7],
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
                 goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: 0.15,
@@ -782,7 +782,7 @@ class ShowDirector {
             countdownBase: {
                 intensity: 0.85, punch: 0.30, palette: 'complementary',
                 lightsActive: true, lasersActive: false, strobesActive: true,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 6, ledWallSpeed: 1.4,
                 spotlightPattern: 1, spotlightMode: 2, spotlightSpeed: 0.3,
                 goboEnabled: false, strobeSpeed: 0.6, fogIntensity: 1.7
@@ -793,7 +793,7 @@ class ShowDirector {
             silence: {
                 intensity: 0.0, punch: 0.0, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                blindersActive: false, mirrorBallActive: false, smokeActive: true,
+                mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false, goboEnabled: false, fogIntensity: 1.8
             }
         };
