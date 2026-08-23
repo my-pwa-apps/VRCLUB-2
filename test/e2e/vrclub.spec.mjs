@@ -420,6 +420,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
                 lensPeak: Math.max(...spot.lens.material.emissiveColor.asArray()),
                 sourcePeak: Math.max(...spot.lightSource.material.emissiveColor.asArray()),
                 flareWhiteFloor: Math.min(...spot.flareMat.emissiveColor.asArray()),
+                diffusePeak: Math.max(...spot.light.diffuse.asArray()),
+                beamPeak: Math.max(...spot.beamMat.emissiveColor.asArray()),
+                poolPeak: Math.max(...spot.poolMat.emissiveColor.asArray()),
                 intensity: spot.light.intensity,
                 enabled: spot.light.isEnabled(),
                 flareGlowIncluded: club.glowLayer.hasMesh(spot.flare)
@@ -433,10 +436,13 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             safeModeRestoration
         };
     });
-    expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(6, 2);
-    expect(opticsState.spot.sourcePeak / opticsState.spot.colorPeak).toBeCloseTo(12, 2);
-    expect(opticsState.spot.flareWhiteFloor).toBeGreaterThanOrEqual(6);
-    expect(opticsState.spot.intensity).toBeGreaterThan(35);
+    expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(7, 2);
+    expect(opticsState.spot.sourcePeak / opticsState.spot.colorPeak).toBeCloseTo(14, 2);
+    expect(opticsState.spot.flareWhiteFloor).toBeGreaterThanOrEqual(7);
+    expect(opticsState.spot.diffusePeak / opticsState.spot.colorPeak).toBeCloseTo(0.45, 2);
+    expect(opticsState.spot.beamPeak / opticsState.spot.colorPeak).toBeGreaterThan(2.6);
+    expect(opticsState.spot.poolPeak / opticsState.spot.colorPeak).toBeGreaterThan(2.5);
+    expect(opticsState.spot.intensity).toBeGreaterThan(40);
     expect(opticsState.spot.enabled).toBe(true);
     expect(opticsState.spot.flareGlowIncluded).toBe(true);
     expect(opticsState.laser.emissivePeak).toBeCloseTo(5, 2);

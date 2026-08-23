@@ -118,11 +118,11 @@ class VRClubEffects extends VRClubFixtures {
                 5,                                        // Sharper falloff
                 this.scene
             );
-            // UPGRADE: Enable diffuse for projectionTexture gobo patterns on surfaces
-            // Diffuse at 15% intensity provides visible gobo patterns without overwhelming scene
-            spot.diffuse = this.currentSpotColor.scale(0.15);
+            // Keep enough chroma in the real light to illuminate materials, not only the
+            // additive beam mesh. Intensity remains the photometric dimmer.
+            spot.diffuse = this.currentSpotColor.scale(0.40);
             spot.specular = this.currentSpotColor; // Specular for floor reflections
-            spot.intensity = 12; // Increased for visibility
+            spot.intensity = 30;
             spot.range = 25;
 
             // The two rear fixtures give the DJ booth and flown speaker stacks

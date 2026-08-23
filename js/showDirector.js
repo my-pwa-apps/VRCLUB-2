@@ -335,7 +335,7 @@ class ShowDirector {
     // layer that keeps the room breathing between those boundaries.
     // =========================================================================
 
-    _applyContinuous(vj, _audioData) {
+    _applyContinuous(vj, audioData) {
         const club = this.club;
         const look = this.looks[this._cue.look];
         if (!look) return;
@@ -367,10 +367,13 @@ class ShowDirector {
                 ? rawIntensity[0] + (rawIntensity[1] - rawIntensity[0]) * t
                 : rawIntensity);
 
-        // Kick punch — the rig breathes with the track. `punch` is how much of the
-        // level is surrendered to the beat envelope (0 = steady, 1 = fully gated).
+        // Kick punch — the rig breathes with the track. Professional fixtures keep a
+        // strong pedestal and add kick accents; gating the whole rig toward black made
+        // peak looks appear dim between beats. Hard blackouts remain separate below.
         const punch = look.punch !== undefined ? look.punch : 0.25;
-        const env = vj.beatEnvelope || 0;
+        const trackedEnvelope = vj.beatEnvelope || 0;
+        const envelopeFloor = audioData && audioData.hasAudio ? 0.65 : 0.75;
+        const env = envelopeFloor + trackedEnvelope * (1 - envelopeFloor);
         target *= (1 - punch) + punch * env;
 
         // Set-piece per-frame hook (strobe ramps, sweeps, white-outs).

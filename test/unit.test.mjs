@@ -401,6 +401,33 @@ test('ShowDirector resolves ramps and selects every calibrated energy band', () 
     }
 });
 
+test('ShowDirector preserves fixture output between synthetic no-audio beats', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const makeDirector = () => {
+        const club = {
+            vjManualMode: false,
+            photosensitiveSafeMode: false,
+            vjDirector: { paletteMode: 'triad' }
+        };
+        const director = new window.ShowDirector(club);
+        director._cue = { look: 'detonation', bars: 4 };
+        director._cueStartBar = 0;
+        director._barCounter = 0;
+        director._beatInBar = 0;
+        director._intensity = 0;
+        return { club, director };
+    };
+
+    const synthetic = makeDirector();
+    synthetic.director._applyContinuous({ beatEnvelope: 0, blackoutUntil: 0 }, { hasAudio: false });
+    const tracked = makeDirector();
+    tracked.director._applyContinuous({ beatEnvelope: 0, blackoutUntil: 0 }, { hasAudio: true });
+
+    assert.ok(synthetic.club.masterIntensity > tracked.club.masterIntensity);
+    assert.ok(synthetic.club.masterIntensity >= 0.25);
+    assert.ok(tracked.club.masterIntensity >= 0.24);
+});
+
 test('no look writes a ShowDirector meta key onto the club instance', () => {
     // intensity / palette / punch are consumed by the director itself. Leaking one
     // onto the club would create a second, invisible writer for a fixture property.

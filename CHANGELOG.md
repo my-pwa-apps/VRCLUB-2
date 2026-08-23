@@ -19,6 +19,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- Moving heads now cast materially brighter, saturated direct light with stronger HDR
+  lens cores, volumetric beams, and receiving-surface pools. Exposure adaptation and
+  the existing indirect-bounce ceiling still preserve blackouts and room contrast.
+  Beat punch now rides above a 65% output pedestal (75% without audio) instead of
+  holding peak looks near half output between pulses.
 - Mirror-ball cues no longer enable a late real SpotLight that invalidated frozen PBR
   light buffers and caused the DJ, dancers, and truss to disappear on desktop and VR.
   The existing emissive beams, reflected spots/rays, and room bounce retain the effect.

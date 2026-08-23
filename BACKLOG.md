@@ -2998,6 +2998,39 @@ contradicted by the repository were excluded.
 
 ### Fixed during this review
 
+- [x] Moving-head output looked dimmed instead of photometrically powerful
+
+  Priority: High
+
+  Category: Visual fidelity
+
+  Area: Fixture optics / direct lighting
+
+  Affected files: `js/club/06-effects.js`, `js/club/08-animation-fixtures.js`,
+  `test/e2e/vrclub.spec.mjs`
+
+  Problem: moving-head diffuse color was multiplied to 15% on desktop and 32% in VR,
+  using chroma as a dimmer despite the light already having an intensity control. Desktop
+  source cores were also much weaker than their headset equivalents. Punch-heavy looks let
+  the entire rig fall to 45% output between beats, even with active music.
+
+  Impact: lenses and additive pools appeared lit, but PBR surfaces, haze, dancers, and room
+  architecture received weak colored light, making professional fixtures read as dim props.
+
+  Recommended solution: increase real SpotLight intensity and preserve more direct-light chroma;
+  strengthen compact HDR source cores, beam scatter, and receiving pools while retaining the
+  existing auto-iris, `0.20` indirect-bounce cap, and `0.06` blackout floor. Make musical
+  punch additive above a 65% pedestal (75% without audio); hard blackouts stay independent.
+
+  Acceptance criteria: rendered desktop review shows bright source-to-beam-to-surface continuity;
+  Quest optics tests enforce direct-light chroma, source, beam, pool, and intensity floors.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
 - [x] DJ, crowd, and truss disappeared when the mirror-ball cue began
 
   Priority: Critical

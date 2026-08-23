@@ -1053,7 +1053,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     // CRITICAL: Use this.currentSpotColor (global) as single source of truth
                     // This ensures beam, fixture, and all effects use the EXACT same color
                     const spotColor = this.currentSpotColor;
-                    const baseIntensity = 1.8 + atmosphericNoise;
+                    const baseIntensity = (this.isInVRMode ? 2.8 : 2.4) + atmosphericNoise;
                     if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
                     spotColor.scaleToRef(baseIntensity, spot._beamEmisBuf);
                     spot.beamMat.emissiveColor = spot._beamEmisBuf;
@@ -1206,7 +1206,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                             // Make pool clearly visible on the surface
                             // Wall hits get boosted brightness since wall materials are darker
                             const surfaceBrightnessBoost = (hitSurface === 'floor') ? 1.0 : 1.6;
-                            const poolBrightness = 2.5 * physicsIntensity * shimmer * surfaceBrightnessBoost;
+                            const poolBrightness = 3.4 * physicsIntensity * shimmer * surfaceBrightnessBoost;
                             if (spot.poolMat) {
                                 if (!spot._poolEmisBuf) spot._poolEmisBuf = new BABYLON.Color3(0, 0, 0);
                                 spotColor.scaleToRef(poolBrightness, spot._poolEmisBuf);
@@ -1282,7 +1282,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                                 if (spot.poolGlowMat) {
                                     // HYPERREALISTIC: Wall scatter is warmer/brighter (Lambertian diffuse scatter)
                                     const wallScatterBoost = (hitSurface === 'floor') ? 1.0 : 1.4;
-                                    const glowBrightness = 0.7 * physicsIntensity * shimmer * wallScatterBoost;
+                                    const glowBrightness = 0.95 * physicsIntensity * shimmer * wallScatterBoost;
                                     if (!spot._poolGlowEmisBuf) spot._poolGlowEmisBuf = new BABYLON.Color3(0, 0, 0);
                                     spotColor.scaleToRef(glowBrightness, spot._poolGlowEmisBuf);
                                     spot.poolGlowMat.emissiveColor = spot._poolGlowEmisBuf;
@@ -1391,7 +1391,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 }
                 
                 // PROFESSIONAL CONSTANT INTENSITY (audio disabled)
-                const baseIntensity = this.isInVRMode ? 42 : 18;
+                const baseIntensity = this.isInVRMode ? 48 : 30;
                 const smoothPulse = Math.sin(time * 2.5) * (this.isInVRMode ? 5 : 3);
                 
                 // UPGRADE: Keep diffuse in sync with specular color for projectionTexture.
@@ -1400,7 +1400,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // per-spot buffer rather than allocating a Color3 per spotlight per frame.
                 spot.light.specular = this.currentSpotColor;
                 if (!spot._diffuseBuf) spot._diffuseBuf = new BABYLON.Color3(0, 0, 0);
-                this.currentSpotColor.scaleToRef(this.isInVRMode ? 0.32 : 0.15, spot._diffuseBuf);
+                this.currentSpotColor.scaleToRef(this.isInVRMode ? 0.45 : 0.40, spot._diffuseBuf);
                 spot.light.diffuse = spot._diffuseBuf;
                 
                 const lightEnabled = this.lightsActive && spot.beamVisible !== false;
@@ -1432,10 +1432,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (this.spotlights && this.spotlights.length > 0) {
             // Use the GLOBAL currentSpotColor for ALL fixtures - they must all match
             const targetColor = this.currentSpotColor;
-            const lensIntensity = this.isInVRMode ? 6.0 : 1.8;
-            const sourceIntensity = this.isInVRMode ? 12.0 : 3.0;
-            const flareColorIntensity = this.isInVRMode ? 18.0 : 7.0;
-            const flareWhiteCore = this.isInVRMode ? 6.0 : 1.5;
+            const lensIntensity = this.isInVRMode ? 7.0 : 4.0;
+            const sourceIntensity = this.isInVRMode ? 14.0 : 8.0;
+            const flareColorIntensity = this.isInVRMode ? 20.0 : 12.0;
+            const flareWhiteCore = this.isInVRMode ? 7.0 : 3.0;
             
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
