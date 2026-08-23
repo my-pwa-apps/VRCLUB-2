@@ -697,13 +697,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     // === HYPERREALISTIC FLARE RESPONSE ===
                     // Update flare intensity based on viewing angle AND movement speed
                     // Moving heads create more light scatter/flare when sweeping quickly
-                    if (spot.flareMat && this.camera) {
-                        this.camera.position.subtractToRef(spot.basePos, this.vecPool.temp1);
+                    const viewCamera = this.isInVRMode ? this.scene.activeCamera : this.camera;
+                    if (spot.flareMat && viewCamera) {
+                        const viewPosition = viewCamera.globalPosition || viewCamera.position;
+                        viewPosition.subtractToRef(spot.basePos, this.vecPool.temp1);
                         const cameraDir = this.vecPool.temp1.normalize();
-                        direction.scaleToRef(-1, this.vecPool.temp2);
-                        const lightDir = this.vecPool.temp2; // Light points opposite of beam direction
-                        const dot = BABYLON.Vector3.Dot(cameraDir, lightDir);
-                        const viewBrightness = Math.max(0, dot); // 0 to 1 based on viewing angle
+                        const dot = BABYLON.Vector3.Dot(cameraDir, direction);
+                        const viewBrightness = Math.pow(Math.max(0, dot), 8);
                         
                         // Calculate movement speed for dynamic flare (brighter when moving)
                         // Store previous direction for speed calculation
@@ -712,8 +712,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                         spot.prevDirection.copyFrom(direction);
                         
                         // Dynamic flare: base visibility + viewing angle + movement boost
-                        const movementBoost = Math.min(0.15, movementSpeed * 2); // Cap at 0.15 extra
-                        spot.flareMat.alpha = 0.2 + (viewBrightness * 0.3) + movementBoost;
+                        const movementBoost = Math.min(0.08, movementSpeed); // Cap subtle servo scatter
+                        spot.flareMat.alpha = this.lightsActive
+                            ? 0.04 + viewBrightness * (this.isInVRMode ? 0.96 : 0.72) + movementBoost
+                            : 0;
                         
                         // Movement glow boost is now handled in main fixture update loop
                         // Store movement speed for fixture update to use
@@ -1401,14 +1403,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 this.currentSpotColor.scaleToRef(this.isInVRMode ? 0.32 : 0.15, spot._diffuseBuf);
                 spot.light.diffuse = spot._diffuseBuf;
                 
-                spot.light.intensity = (this.lightsActive && spot.beamVisible !== false)
-                    ? (baseIntensity + smoothPulse)
-                    : 0;
+                const lightEnabled = this.lightsActive && spot.beamVisible !== false;
+                spot.light.intensity = lightEnabled ? (baseIntensity + smoothPulse) : 0;
+                spot.light.setEnabled(lightEnabled);
             });
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
             this.spotlights.forEach(spot => {
                 spot.light.intensity = 0;
+                spot.light.setEnabled(false);
                 if (spot.beam) spot.beam.visibility = 0;
                 if (spot.beamGlow) spot.beamGlow.visibility = 0;
                 if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;
@@ -1431,6 +1434,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const targetColor = this.currentSpotColor;
             const lensIntensity = this.isInVRMode ? 6.0 : 1.8;
             const sourceIntensity = this.isInVRMode ? 12.0 : 3.0;
+            const flareColorIntensity = this.isInVRMode ? 18.0 : 7.0;
+            const flareWhiteCore = this.isInVRMode ? 6.0 : 1.5;
             
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
@@ -1483,6 +1488,19 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                         );
                     } else {
                         mat.emissiveColor.copyFromFloats(0, 0, 0);
+                    }
+                }
+
+                if (spot.flareMat) {
+                    if (fixtureVisible) {
+                        spot.flareMat.emissiveColor.copyFromFloats(
+                            flareWhiteCore + targetColor.r * flareColorIntensity,
+                            flareWhiteCore + targetColor.g * flareColorIntensity,
+                            flareWhiteCore + targetColor.b * flareColorIntensity
+                        );
+                    } else {
+                        spot.flareMat.emissiveColor.copyFromFloats(0, 0, 0);
+                        spot.flareMat.alpha = 0;
                     }
                 }
             }

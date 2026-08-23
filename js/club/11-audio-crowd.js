@@ -662,12 +662,19 @@ class VRClubAudioCrowd extends VRClubUI {
         root.position.y += position.y - bounds.min.y;
         root.computeWorldMatrix(true);
 
+        const meshes = [];
         entry.rootNodes.forEach(node => {
             node.getChildMeshes().forEach(mesh => {
                 // Group 0 = opaque. Beams live in group 1 with additive blending and
                 // are depth-tested against whatever group 0 already wrote.
                 mesh.renderingGroupId = 0;
                 mesh.isPickable = false;
+                // Skinned GLB bounds are authored from the bind pose and are not
+                // reliable for stereo frustum culling after animation advances.
+                // The balanced VR tier has only seven characters, so keeping these
+                // meshes active is cheaper than characters disappearing per eye.
+                mesh.alwaysSelectAsActiveMesh = true;
+                meshes.push(mesh);
             });
         });
 
@@ -683,6 +690,7 @@ class VRClubAudioCrowd extends VRClubUI {
         this.npcAvatars.push({
             name,
             root,
+            meshes,
             animations: entry.animationGroups,
             baseSpeed: speedRatio
         });
@@ -769,7 +777,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 djSource,
                 'djPerformer',
                 new BABYLON.Vector3(0, 0.5, -19.4),
-                Math.PI,       // source avatar's forward axis points toward the dance floor at +z
+                0,             // source avatar's forward axis points toward the dance floor at +z
                 1.78,
                 0.55
             );
@@ -847,10 +855,10 @@ class VRClubAudioCrowd extends VRClubUI {
         // === DYNAMIC FRUSTUM CULLING & ANIMATION LOD ===
         // Standalone Quest 3S evaluating vertex skinning for multiple 60-joint
         // skeletons burns noticeable GPU/CPU time.
-        // If a dancer is outside the active camera's view frustum or behind the player,
-        // we pause its skeletal animation evaluation and restart it on re-entering.
+        // Pause only very distant dancers. TransformNode/skinned-hierarchy frustum
+        // bounds become unreliable as animation advances, especially for stereo XR.
         const cam = this.scene ? this.scene.activeCamera : null;
-        const checkFrustum = cam && (this.frameCounter % 4 === 0);
+        const checkDistance = cam && (this.frameCounter % 4 === 0);
         const camPos = cam ? (cam.globalPosition || cam.position) : null;
 
         for (let i = 0; i < this.npcAvatars.length; i++) {
@@ -863,19 +871,13 @@ class VRClubAudioCrowd extends VRClubUI {
                 }
             }
 
-            if (checkFrustum && camPos) {
+            if (checkDistance && camPos) {
                 const rootPos = npc.root.position;
                 const dx = rootPos.x - camPos.x;
                 const dz = rootPos.z - camPos.z;
                 const distSq = dx * dx + dz * dz;
 
-                let inFrustum = true;
-                if (cam.isInFrustum) {
-                    inFrustum = cam.isInFrustum(npc.root);
-                }
-
-                // If outside view frustum or very distant (>28m), pause skeleton evaluation
-                if (!inFrustum || distSq > 784) {
+                if (distSq > 784) {
                     if (!npc._animPaused) {
                         npc.animations.forEach(g => { if (g.pause) g.pause(); });
                         npc._animPaused = true;

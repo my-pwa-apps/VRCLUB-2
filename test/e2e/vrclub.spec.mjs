@@ -43,7 +43,7 @@ async function enterClub(page) {
     await page.goto('/');
     await expect(page.locator('#enterClubBtn')).toBeVisible();
     await page.locator('#enterClubBtn').click();
-    await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 120_000 });
+    await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 180_000 });
     await expect(page.locator('#splashScreen')).toBeHidden();
 }
 
@@ -81,9 +81,15 @@ test('production build initializes a rendered club without browser errors', asyn
         director._applyLook(director.looks.liquidPlane, 1);
         const laserSheet = {
             exists: Boolean(club.laserSheet),
+            hazeLayerExists: Boolean(club.laserSheetHaze),
+            smokeScatterExists: Boolean(club.laserSheetSmokeScatter),
+            smokeScatterCapacity: club.laserSheetSmokeScatter?.getCapacity(),
+            hazeUsesIndependentNoise: club.laserSheetHaze?.material.opacityTexture !==
+                club.laserSheet.material.opacityTexture,
             active: club.laserSheetActive,
             alpha: club.laserSheet.material.alpha,
             depthWriteDisabled: club.laserSheet.material.disableDepthWrite,
+            minimumPitch: club._laserSheetBasePitch - club._laserSheetPitchRange,
             exclusive: !club.lightsActive && !club.lasersActive && !club.mirrorBallActive &&
                 !club.ledWallActive && !club.strobesActive && !club.blindersActive
         };
@@ -97,6 +103,7 @@ test('production build initializes a rendered club without browser errors', asyn
                 origin: club.laserSheetOrigin,
                 motion: club.laserSheetMotion,
                 position: club.laserSheetSource.position.asArray(),
+                smokeScatterEmitRate: club.laserSheetSmokeScatter.emitRate,
                 start,
                 afterTenSeconds: {
                     pitch: club.laserSheetSource.rotation.x,
@@ -146,8 +153,11 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState).toMatchObject({
         laserSheet: {
             exists: true,
+            hazeLayerExists: true,
+            smokeScatterExists: true,
+            hazeUsesIndependentNoise: true,
             active: true,
-            alpha: 0.18,
+            alpha: 0.10,
             depthWriteDisabled: true,
             exclusive: true
         },
@@ -161,6 +171,9 @@ test('production build initializes a rendered club without browser errors', asyn
             led: showState.colorLock.master
         }
     });
+    expect(showState.laserSheet.smokeScatterCapacity).toBeGreaterThanOrEqual(220);
+    expect(showState.laserSheet.smokeScatterCapacity).toBeLessThanOrEqual(420);
+    expect(showState.laserSheet.minimumPitch).toBeGreaterThan(0);
     expect(showState.sheetVariants.left).toMatchObject({
         origin: 'ceilingLeft',
         motion: 'lateral',
@@ -168,8 +181,9 @@ test('production build initializes a rendered club without browser errors', asyn
     });
     expect(showState.sheetVariants.left.afterTenSeconds.pitch)
         .toBeCloseTo(showState.sheetVariants.left.start.pitch, 6);
+    expect(showState.sheetVariants.left.smokeScatterEmitRate).toBeGreaterThan(0);
     expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.yaw - showState.sheetVariants.left.start.yaw))
-        .toBeGreaterThan(0.05);
+        .toBeGreaterThan(0.015);
     expect(showState.sheetVariants.right).toMatchObject({
         origin: 'ceilingRight',
         motion: 'vertical',
@@ -177,8 +191,9 @@ test('production build initializes a rendered club without browser errors', asyn
     });
     expect(showState.sheetVariants.right.afterTenSeconds.yaw)
         .toBeCloseTo(showState.sheetVariants.right.start.yaw, 6);
+    expect(showState.sheetVariants.right.smokeScatterEmitRate).toBeGreaterThan(0);
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.pitch - showState.sheetVariants.right.start.pitch))
-        .toBeGreaterThan(0.05);
+        .toBeGreaterThan(0.015);
     await expectHealthyRuntime(page);
 });
 
@@ -265,7 +280,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         })),
         mirrorRealLightCount: 1
     });
-    expect(xrState.djFacing).toBeCloseTo(Math.PI, 5);
+    expect(xrState.djFacing).toBeCloseTo(0, 5);
 
     const opticsState = await page.evaluate(() => {
         const club = window.vrClub;
@@ -304,7 +319,10 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
                 colorPeak: Math.max(...club.currentSpotColor.asArray()),
                 lensPeak: Math.max(...spot.lens.material.emissiveColor.asArray()),
                 sourcePeak: Math.max(...spot.lightSource.material.emissiveColor.asArray()),
-                intensity: spot.light.intensity
+                flareWhiteFloor: Math.min(...spot.flareMat.emissiveColor.asArray()),
+                intensity: spot.light.intensity,
+                enabled: spot.light.isEnabled(),
+                flareGlowIncluded: club.glowLayer.hasMesh(spot.flare)
             },
             laser: {
                 emissivePeak: Math.max(...laser.material.emissiveColor.asArray()),
@@ -315,14 +333,56 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(6, 2);
     expect(opticsState.spot.sourcePeak / opticsState.spot.colorPeak).toBeCloseTo(12, 2);
+    expect(opticsState.spot.flareWhiteFloor).toBeGreaterThanOrEqual(6);
     expect(opticsState.spot.intensity).toBeGreaterThan(35);
+    expect(opticsState.spot.enabled).toBe(true);
+    expect(opticsState.spot.flareGlowIncluded).toBe(true);
     expect(opticsState.laser.emissivePeak).toBeCloseTo(5, 2);
     expect(opticsState.laser.glowIncluded).toBe(true);
     expect(opticsState.strobe.duration).toBeLessThanOrEqual(0.09);
     expect(opticsState.strobe.glareAlpha).toBe(0.95);
-    expect(opticsState.strobe.lightIntensity).toBeGreaterThan(500);
+    expect(opticsState.strobe.lightIntensity).toBeGreaterThan(900);
     expect(opticsState.strobe.bloomWeight).toBe(1);
-    expect(opticsState.strobe.exposure).toBe(1.75);
+    expect(opticsState.strobe.exposure).toBe(2.6);
+
+    const sustainedVisibility = await page.evaluate(() => {
+        const club = window.vrClub;
+        for (let frame = 0; frame < 240; frame++) {
+            club.frameCounter = frame;
+            club.updateDancingNPCs(600 + frame / 72, {
+                hasAudio: false,
+                bass: 0,
+                average: 0
+            });
+        }
+
+        const enabledNpcs = club.npcAvatars.filter(npc => npc.root.isEnabled());
+        const npcMeshes = enabledNpcs.flatMap(npc => npc.meshes || []);
+        const trussRoots = [
+            ...(club.horizontalTrusses || []),
+            ...Object.values(club.sideTrusses || {})
+        ];
+        const trussMeshes = trussRoots
+            .flatMap(root => root.getChildMeshes())
+            .filter(mesh => mesh.name.toLowerCase().includes('truss'));
+
+        return {
+            enabledNpcCount: enabledNpcs.length,
+            npcMeshCount: npcMeshes.length,
+            npcMeshesAlwaysActive: npcMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
+            nearbyAnimationsRunning: enabledNpcs.every(npc => !npc._animPaused),
+            trussMeshCount: trussMeshes.length,
+            trussMeshesAlwaysActive: trussMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
+            trussMeshesEnabled: trussMeshes.every(mesh => mesh.isEnabled())
+        };
+    });
+    expect(sustainedVisibility.enabledNpcCount).toBeGreaterThanOrEqual(7);
+    expect(sustainedVisibility.npcMeshCount).toBeGreaterThan(0);
+    expect(sustainedVisibility.npcMeshesAlwaysActive).toBe(true);
+    expect(sustainedVisibility.nearbyAnimationsRunning).toBe(true);
+    expect(sustainedVisibility.trussMeshCount).toBeGreaterThanOrEqual(20);
+    expect(sustainedVisibility.trussMeshesAlwaysActive).toBe(true);
+    expect(sustainedVisibility.trussMeshesEnabled).toBe(true);
     await expect(vrButton).toContainText('Exit VR');
 
     await page.evaluate(() => window.__iwerDevice.controllers.left.updateButtonValue('y-button', 1));

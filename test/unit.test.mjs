@@ -476,7 +476,11 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
     const runningOrder = Object.values(director.movements).flatMap(movement => movement.cues.map(cue => cue.look));
     assert.ok(runningOrder.filter(name => name === 'whiteChase').length >= 2, 'strobe chase is not recurring');
     const sheetLooks = ['liquidPlane', 'ceilingSidewash', 'ceilingDip'];
-    assert.ok(runningOrder.filter(name => sheetLooks.includes(name)).length >= 3, 'laser sheet is not recurring');
+    assert.ok(runningOrder.filter(name => sheetLooks.includes(name)).length >= 5, 'laser sheet is not recurring');
+    for (const movement of Object.values(director.movements)) {
+        assert.ok(movement.cues.some(cue => sheetLooks.includes(cue.look)),
+            `${movement.title} has no laser-sheet cue`);
+    }
     assert.deepEqual(
         sheetLooks.map(name => [director.looks[name].laserSheetOrigin, director.looks[name].laserSheetMotion]),
         [['rear', 'vertical'], ['ceilingLeft', 'lateral'], ['ceilingRight', 'vertical']]
@@ -702,10 +706,10 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
 
     assert.ok(material.emissiveColor.r > 0, 'new strobe burst started on a dark frame');
     assert.equal(flashLight.enabled, true, 'shared strobe flash light did not fire');
-    assert.ok(flashLight.intensity >= 576, 'shared strobe light was not bright enough');
+    assert.ok(flashLight.intensity >= 1000, 'shared strobe light was not bright enough');
     assert.ok(club.strobes[0].flashDuration <= 0.09, 'strobe burst was not brief');
     assert.equal(renderPipeline.bloomWeight, 1, 'strobe did not drive full bloom');
-    assert.equal(renderPipeline.imageProcessing.exposure, 1.75, 'VR strobe did not spike exposure');
+    assert.equal(renderPipeline.imageProcessing.exposure, 2.6, 'VR strobe did not spike exposure');
 
     club.photosensitiveSafeMode = true;
     window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {

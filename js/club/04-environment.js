@@ -1035,6 +1035,10 @@ class VRClubEnvironment extends VRClubRendering {
                 mesh.freezeWorldMatrix();
                 mesh.doNotSyncBoundingInfo = true;
                 mesh.isPickable = false;
+                // The merged/instanced rig is long and thin. Per-eye frustum tests
+                // occasionally reject its frozen bounds after sustained XR head
+                // movement, making the entire ceiling structure disappear.
+                mesh.alwaysSelectAsActiveMesh = true;
             });
         });
         

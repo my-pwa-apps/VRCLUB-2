@@ -440,8 +440,10 @@ class VRClubEffects extends VRClubFixtures {
         const sheet = new BABYLON.Mesh("laserSheet", this.scene);
         
         // Fan dimensions
-        const length = 45; // Reach across the room
-        const widthEnd = 35; // Wide spread at the end
+        const length = 24; // Rear wall to entrance, without extending outside the room
+        const widthEnd = 22; // Covers the dance floor at the entrance
+        this._laserSheetLength = length;
+        this._laserSheetWidthEnd = widthEnd;
         
         const positions = [
             0, 0, 0,              // 0: Source (Tip)
@@ -477,7 +479,7 @@ class VRClubEffects extends VRClubFixtures {
         sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
         sheetMat.disableLighting = true;
-        sheetMat.alpha = 0.18;
+        sheetMat.alpha = 0.10;
         sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         sheetMat.backFaceCulling = false;
         sheetMat.disableDepthWrite = true;
@@ -495,6 +497,27 @@ class VRClubEffects extends VRClubFixtures {
         
         sheet.material = sheetMat;
         this.laserSheet = sheet;
+
+        // A second, slightly offset scatter layer gives the plane visible depth where
+        // it intersects uneven haze instead of reading as one uniformly transparent
+        // triangle. It reuses the same geometry and adds only one draw call.
+        const hazeSheet = sheet.clone("laserSheetHaze");
+        hazeSheet.parent = this.laserSheetSource;
+        hazeSheet.position.set(0, 0.035, 0.25);
+        hazeSheet.scaling.set(0.985, 1, 0.985);
+
+        const hazeMat = sheetMat.clone("laserSheetHazeMat");
+        const hazeNoise = new BABYLON.NoiseProceduralTexture("laserSheetHazeNoise", 128, this.scene);
+        hazeNoise.octaves = 6;
+        hazeNoise.persistence = 0.62;
+        hazeNoise.animationSpeedFactor = 0.16;
+        hazeNoise.brightness = 0.42;
+        hazeNoise.contrast = 2.8;
+        hazeMat.opacityTexture = hazeNoise;
+        hazeMat.emissiveTexture = hazeNoise;
+        hazeMat.alpha = 0.06;
+        hazeSheet.material = hazeMat;
+        this.laserSheetHaze = hazeSheet;
         
         // 4. Light Source (Actual light projection) - DISABLED for performance
         // DISABLED: Laser sheet SpotLight adds to uniform buffer count
@@ -507,6 +530,7 @@ class VRClubEffects extends VRClubFixtures {
         // Add to glow layer for bloom effect
         if (this.glowLayer) {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
+            this.glowLayer.addIncludedOnlyMesh(this.laserSheetHaze);
             this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
         }
 
@@ -515,27 +539,72 @@ class VRClubEffects extends VRClubFixtures {
         log.info('✨ Laser sheet effect created with hyperrealistic source');
     }
 
+    createLaserSheetSmokeScatter() {
+        if (!this.laserSheetSource || !this._fogParticleTexture || this.laserSheetSmokeScatter) return;
+
+        const capacity = this.graphicsTier === 'ultra' ? 420
+            : this.graphicsTier === 'high' ? 320 : 220;
+        const scatter = new BABYLON.ParticleSystem('laserSheetSmokeScatter', capacity, this.scene);
+        scatter.particleTexture = this._fogParticleTexture;
+        scatter.emitter = this.laserSheetSource;
+        scatter.emitRate = 0;
+        scatter.minSize = 0.4;
+        scatter.maxSize = 1.4;
+        scatter.minLifeTime = 0.65;
+        scatter.maxLifeTime = 1.5;
+        scatter.minEmitPower = 0.01;
+        scatter.maxEmitPower = 0.04;
+        scatter.direction1 = new BABYLON.Vector3(-0.04, -0.015, -0.03);
+        scatter.direction2 = new BABYLON.Vector3(0.04, 0.035, 0.03);
+        scatter.gravity = new BABYLON.Vector3(0, 0.015, 0);
+        scatter.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+        scatter.updateSpeed = 0.008;
+        scatter.color1 = new BABYLON.Color4(0, 0.8, 0.15, 0.32);
+        scatter.color2 = new BABYLON.Color4(0.1, 1, 0.25, 0.20);
+        scatter.colorDead = new BABYLON.Color4(0, 0, 0, 0);
+        scatter.addSizeGradient(0, 0.35);
+        scatter.addSizeGradient(0.45, 1.0);
+        scatter.addSizeGradient(1, 1.8);
+
+        const localPosition = new BABYLON.Vector3();
+        const length = this._laserSheetLength;
+        const halfWidthEnd = this._laserSheetWidthEnd / 2;
+        scatter.startPositionFunction = (worldMatrix, positionToUpdate) => {
+            const distance = 2 + Math.random() * (length - 2);
+            const halfWidth = halfWidthEnd * (distance / length);
+            localPosition.set(
+                (Math.random() * 2 - 1) * halfWidth,
+                (Math.random() - 0.5) * 0.14,
+                distance
+            );
+            BABYLON.Vector3.TransformCoordinatesToRef(localPosition, worldMatrix, positionToUpdate);
+        };
+
+        scatter.start();
+        this.laserSheetSmokeScatter = scatter;
+    }
+
     configureLaserSheetVariant() {
         if (!this.laserSheetSource) return;
 
         if (this.laserSheetOrigin === 'ceilingLeft') {
             this.laserSheetSource.position.set(-6, 7.55, -16);
-            this._laserSheetBasePitch = 0.34;
+            this._laserSheetBasePitch = 0.44;
             this._laserSheetBaseYaw = 0.10;
-            this._laserSheetPitchRange = 0.16;
-            this._laserSheetYawRange = 0.20;
+            this._laserSheetPitchRange = 0.10;
+            this._laserSheetYawRange = 0.16;
         } else if (this.laserSheetOrigin === 'ceilingRight') {
             this.laserSheetSource.position.set(6, 7.55, -16);
-            this._laserSheetBasePitch = 0.34;
+            this._laserSheetBasePitch = 0.44;
             this._laserSheetBaseYaw = -0.10;
-            this._laserSheetPitchRange = 0.16;
-            this._laserSheetYawRange = 0.20;
+            this._laserSheetPitchRange = 0.10;
+            this._laserSheetYawRange = 0.16;
         } else {
             this.laserSheetSource.position.set(0, 5.5, -20.6);
-            this._laserSheetBasePitch = 0.15;
+            this._laserSheetBasePitch = 0.27;
             this._laserSheetBaseYaw = 0;
-            this._laserSheetPitchRange = 0.25;
-            this._laserSheetYawRange = 0.16;
+            this._laserSheetPitchRange = 0.10;
+            this._laserSheetYawRange = 0.14;
         }
 
         this.laserSheetSource.rotation.x = this._laserSheetBasePitch;

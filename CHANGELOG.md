@@ -19,9 +19,27 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- The DJ now faces the dance floor instead of the LED wall. Laser-sheet cues now
+  appear in every NOCTURNE movement, scan lower and more slowly, and illuminate
+  short-lived, palette-synchronized smoke pockets inside the moving sheet.
+- Animated NPC meshes and the merged/instanced ceiling truss are now exempt from
+  unreliable stereo frustum rejection. Crowd animation LOD uses distance only instead
+  of testing skinned hierarchy roots, preventing both systems from disappearing after
+  sustained XR head movement.
 - VR lighting now uses a brighter headset-specific exposure with stronger glow and
   a lower, still-controlled bloom threshold, restoring fixture and beam presence
   without applying the desktop pipeline's broad LED-wall wash.
+- Moving heads now enable their real SpotLights when their beams are active instead
+  of only changing intensity on permanently disabled lights. VR uses stronger real
+  illumination, HDR lens cores, and soft beam-aligned glare driven by the active XR
+  camera, so looking into an aimed fixture produces a white-hot source response.
+- Pencil lasers now retain their physically narrow cores while using HDR emission and
+  selective glow in VR. Mirror-ball incident beams, outgoing rays, reflected shafts,
+  lenses, and source flares receive headset-specific brightness without adding lights.
+- Strobes now fire as short 45-90 ms white bursts with a soft flare face, one brighter
+  shared light, full transient bloom, and a brief exposure impulse instead of lingering
+  grey rectangles. Photosensitive Safe Mode still suppresses the cue and immediately
+  restores both bloom and exposure.
 - Persistent VR smoke now retains enough ambient haze and floor-fog particles to stay
   visible between machine bursts, with a small headset-only opacity lift that is fully
   restored to desktop values on XR exit.

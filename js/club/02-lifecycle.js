@@ -157,7 +157,8 @@ class VRClubLifecycle extends VRClubCore {
                     material.emissiveColor.b * 1.8,
                     1.0
                 );
-            } else if (name.includes('lens') || name.includes('lightSource') || name.includes('Lens')) {
+            } else if (name.includes('lens') || name.includes('lightSource') ||
+                name.includes('Lens') || name.includes('Flare')) {
                 // Fixture lenses: visible glow (like real stage lights)
                 result.set(
                     material.emissiveColor.r * 1.5,
@@ -499,6 +500,7 @@ class VRClubLifecycle extends VRClubCore {
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
         // Blinders removed - strobes are sufficient
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
+        this.createLaserSheetSmokeScatter(); // Light suspended haze inside the moving sheet
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs only

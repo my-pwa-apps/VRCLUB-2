@@ -83,7 +83,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     // scaleToRef into a per-strobe buffer: Color3.scale() allocates,
                     // and this runs once per strobe per frame for the whole flash.
                     if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
-                    const emitterLevel = Math.min(24, 6 + intensityVariation * 0.18);
+                    const emitterLevel = Math.min(36, 10 + intensityVariation * 0.30);
                     this.cachedColors.ledMonoWhite.scaleToRef(emitterLevel, strobe._emisBuf);
                     strobe.material.emissiveColor = strobe._emisBuf;
                     if (strobe.glareMaterial) {
@@ -146,7 +146,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         } else if (this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.set(0, 8, -12);
                         }
-                        this.strobeFlashLight.intensity = maxIntensity * 8;
+                        this.strobeFlashLight.intensity = maxIntensity * 14;
                         this.strobeFlashLight.setEnabled(true);
                         // Brief bloom spike for blinding strobe effect. Captured per
                         // burst (cleared at the top of this function), so a pipeline swap
@@ -157,7 +157,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             this.renderPipeline.bloomWeight = 1.0;
                             if (this.renderPipeline.imageProcessing) {
                                 this._preStrobeExposure = this.renderPipeline.imageProcessing.exposure;
-                                this.renderPipeline.imageProcessing.exposure = this.isInVRMode ? 1.75 : 1.55;
+                                this.renderPipeline.imageProcessing.exposure = this.isInVRMode ? 2.6 : 2.1;
                             }
                         }
                     } else {

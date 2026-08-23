@@ -247,7 +247,7 @@ class VRClubAnimationCore extends VRClubEffects {
 
     /** Scanning laser sheet: tilt sweep, smoke UV flow, audio-pulsed intensity. */
     updateLaserSheet(ctx) {
-        const { time, dtScale, audio: audioData } = ctx;
+        const { time, audio: audioData } = ctx;
         const speedMultiplierLaser = this.laserSpeed || 1.0;
 
         // ANIMATE LASER SHEET (Hyperrealism)
@@ -258,7 +258,7 @@ class VRClubAnimationCore extends VRClubEffects {
             if (!sheetMat) return;
 
             // Slow vertical or lateral scan from the cue-selected mounting point.
-            const scanSpeed = 0.2 * speedMultiplierLaser;
+            const scanSpeed = 0.09 * speedMultiplierLaser;
             if (this.laserSheetSource) {
                 const scanPhase = Math.sin(time * scanSpeed);
                 if (this.laserSheetMotion === 'lateral') {
@@ -274,40 +274,67 @@ class VRClubAnimationCore extends VRClubEffects {
             
             // Animate smoke texture flowing OUTWARD from source
             if (sheetMat.opacityTexture) {
-                // Move V offset to flow from 0 (source) to 1 (end)
-                sheetMat.opacityTexture.vOffset -= 0.008 * speedMultiplierLaser * dtScale;
-                // Slight side drift
-                sheetMat.opacityTexture.uOffset += 0.001 * Math.sin(time * 0.5) * dtScale;
+                sheetMat.opacityTexture.vOffset = -time * 0.028 * speedMultiplierLaser;
+                sheetMat.opacityTexture.uOffset = 0.035 * Math.sin(time * 0.12);
             }
             
             // Pulse intensity with audio
             const pulse = 0.5 + (audioData.average || 0) * 0.5;
-            sheetMat.alpha = 0.11 + 0.07 * pulse;
-            
-            // Color sync
-            if (this.laserEmissiveColors) {
-                let sheetColor;
-                if (this.colorLockActive) sheetColor = this.currentSpotColor;
-                else if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
-                else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
-                else sheetColor = this.cachedColors.blue;
-                
-                sheetMat.emissiveColor = sheetColor;
-                if (this.laserAperture && this.laserAperture.material) {
-                    this.laserAperture.material.emissiveColor = sheetColor;
-                }
-                if (this.laserLight) {
-                    this.laserLight.diffuse = sheetColor;
-                    this.laserLight.intensity = 2.0 * pulse;
+            sheetMat.alpha = 0.03 + 0.03 * pulse;
+            if (this.laserSheetHaze && this.laserSheetHaze.material) {
+                const hazeMat = this.laserSheetHaze.material;
+                hazeMat.alpha = 0.015 + 0.025 * pulse;
+                if (hazeMat.opacityTexture) {
+                    hazeMat.opacityTexture.vOffset = time * 0.017 * speedMultiplierLaser;
+                    hazeMat.opacityTexture.uOffset = -0.05 * Math.sin(time * 0.08);
                 }
             }
             
+            // Color sync
+            let sheetColor;
+            if (this.colorLockActive) sheetColor = this.currentSpotColor;
+            else if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
+            else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
+            else sheetColor = this.cachedColors.blue;
+            
+            sheetMat.emissiveColor = sheetColor;
+            if (this.laserSheetHaze && this.laserSheetHaze.material) {
+                this.laserSheetHaze.material.emissiveColor = sheetColor;
+            }
+            if (this.laserSheetSmokeScatter) {
+                const scatter = this.laserSheetSmokeScatter;
+                scatter.color1.set(sheetColor.r, sheetColor.g, sheetColor.b, 0.32);
+                scatter.color2.set(
+                    Math.min(1, sheetColor.r + 0.16),
+                    Math.min(1, sheetColor.g + 0.16),
+                    Math.min(1, sheetColor.b + 0.16),
+                    0.20
+                );
+                for (let i = 0; i < scatter.particles.length; i++) {
+                    const color = scatter.particles[i].color;
+                    color.r = sheetColor.r;
+                    color.g = sheetColor.g;
+                    color.b = sheetColor.b;
+                }
+                scatter.emitRate = this.smokeActive ? 75 * (this.fogIntensity || 1) : 0;
+            }
+            if (this.laserAperture && this.laserAperture.material) {
+                this.laserAperture.material.emissiveColor = sheetColor;
+            }
+            if (this.laserLight) {
+                this.laserLight.diffuse = sheetColor;
+                this.laserLight.intensity = 2.0 * pulse;
+            }
+            
             this.laserSheet.isVisible = true;
+            if (this.laserSheetHaze) this.laserSheetHaze.isVisible = true;
             if (this.laserSheetSource) this.laserSheetSource.isVisible = true;
         } else if (this.laserSheet) {
             this.laserSheet.isVisible = false;
+            if (this.laserSheetHaze) this.laserSheetHaze.isVisible = false;
             if (this.laserSheetSource) this.laserSheetSource.isVisible = false;
             if (this.laserLight) this.laserLight.intensity = 0;
+            if (this.laserSheetSmokeScatter) this.laserSheetSmokeScatter.emitRate = 0;
         }
     }
 
@@ -357,9 +384,13 @@ class VRClubAnimationCore extends VRClubEffects {
                 if (!this.mirrorBallCachedColors || this.mirrorBallCachedColorSource !== this.mirrorBallSpotlightColor) {
                     this.mirrorBallCachedColors = {
                         housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                        lensBright: this.mirrorBallSpotlightColor.scale(5.0),
-                        sourceVeryBright: this.mirrorBallSpotlightColor.scale(8.0),
-                        flareMedium: this.mirrorBallSpotlightColor.scale(3.0)
+                        lensBright: this.mirrorBallSpotlightColor.scale(8.0),
+                        sourceVeryBright: this.mirrorBallSpotlightColor.scale(16.0),
+                        flareMedium: new BABYLON.Color3(
+                            3 + this.mirrorBallSpotlightColor.r * 10,
+                            3 + this.mirrorBallSpotlightColor.g * 10,
+                            3 + this.mirrorBallSpotlightColor.b * 10
+                        )
                     };
                     this.mirrorBallCachedColorSource = this.mirrorBallSpotlightColor;
                 }
@@ -408,9 +439,13 @@ class VRClubAnimationCore extends VRClubEffects {
                         // Update cached colors
                         this.mirrorBallCachedColors = {
                             housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                            lensBright: this.mirrorBallSpotlightColor.scale(5.0),
-                            sourceVeryBright: this.mirrorBallSpotlightColor.scale(8.0),
-                            flareMedium: this.mirrorBallSpotlightColor.scale(3.0)
+                            lensBright: this.mirrorBallSpotlightColor.scale(8.0),
+                            sourceVeryBright: this.mirrorBallSpotlightColor.scale(16.0),
+                            flareMedium: new BABYLON.Color3(
+                                3 + this.mirrorBallSpotlightColor.r * 10,
+                                3 + this.mirrorBallSpotlightColor.g * 10,
+                                3 + this.mirrorBallSpotlightColor.b * 10
+                            )
                         };
                         
                         this.mirrorBallHousings.forEach(housing => {

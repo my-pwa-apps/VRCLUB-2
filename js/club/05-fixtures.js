@@ -876,6 +876,24 @@ class VRClubFixtures extends VRClubEnvironment {
         ];
         
         this.trussLights = [];
+
+        const fixtureGlareTexture = new BABYLON.DynamicTexture(
+            'fixtureGlareFalloff',
+            { width: 64, height: 64 },
+            this.scene,
+            false
+        );
+        const fixtureGlareContext = fixtureGlareTexture.getContext();
+        const fixtureGlareGradient = fixtureGlareContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+        fixtureGlareGradient.addColorStop(0, 'rgba(255,255,255,1)');
+        fixtureGlareGradient.addColorStop(0.18, 'rgba(255,255,255,0.98)');
+        fixtureGlareGradient.addColorStop(0.52, 'rgba(255,255,255,0.20)');
+        fixtureGlareGradient.addColorStop(1, 'rgba(255,255,255,0)');
+        fixtureGlareContext.fillStyle = fixtureGlareGradient;
+        fixtureGlareContext.fillRect(0, 0, 64, 64);
+        fixtureGlareTexture.hasAlpha = true;
+        fixtureGlareTexture.update();
+        this._fixtureGlareTexture = fixtureGlareTexture;
         
         lightPositions.forEach((pos, i) => {
             // === REALISTIC MOVING HEAD FIXTURE WITH TRUSS MOUNTING ===
@@ -1064,7 +1082,27 @@ class VRClubFixtures extends VRClubEnvironment {
                 this.glowLayer.addIncludedOnlyMesh(lightSource);
             }
             
-            // Flare removed - was causing visible red ring artifact
+            // Soft source glare. The radial alpha mask avoids the old hard red ring;
+            // animation gates it by beam-to-eye alignment so it only blooms head-on.
+            const flare = BABYLON.MeshBuilder.CreatePlane(`fixtureFlare${i}`, {
+                width: 1.4,
+                height: 1.4
+            }, this.scene);
+            flare.parent = head;
+            flare.position.y = -0.34;
+            flare.rotation.x = Math.PI / 2;
+            flare.isPickable = false;
+            flare.renderingGroupId = 2;
+            const flareMat = new BABYLON.StandardMaterial(`fixtureFlareMat${i}`, this.scene);
+            flareMat.emissiveColor = this.currentSpotColor.scale(8.0);
+            flareMat.opacityTexture = fixtureGlareTexture;
+            flareMat.alpha = 0;
+            flareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            flareMat.disableLighting = true;
+            flareMat.disableDepthWrite = true;
+            flareMat.backFaceCulling = false;
+            flare.material = flareMat;
+            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(flare);
             
             this.trussLights.push({ 
                 root,
@@ -1077,8 +1115,8 @@ class VRClubFixtures extends VRClubEnvironment {
                 sourceMat,
                 base,
                 bezel,
-                flare: null,
-                flareMat: null
+                flare,
+                flareMat
             });
         });
         
@@ -1100,8 +1138,8 @@ class VRClubFixtures extends VRClubEnvironment {
         const glareContext = glareTexture.getContext();
         const glareGradient = glareContext.createRadialGradient(32, 32, 0, 32, 32, 32);
         glareGradient.addColorStop(0, 'rgba(255,255,255,1)');
-        glareGradient.addColorStop(0.22, 'rgba(255,255,255,0.95)');
-        glareGradient.addColorStop(0.58, 'rgba(255,255,255,0.28)');
+        glareGradient.addColorStop(0.42, 'rgba(255,255,255,0.95)');
+        glareGradient.addColorStop(0.72, 'rgba(255,255,255,0.32)');
         glareGradient.addColorStop(1, 'rgba(255,255,255,0)');
         glareContext.fillStyle = glareGradient;
         glareContext.fillRect(0, 0, 64, 64);

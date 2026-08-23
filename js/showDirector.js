@@ -820,6 +820,7 @@ class ShowDirector {
                 cues: [
                     { look: 'eclipse',    bars: 4 },
                     { look: 'deepBlue',   bars: 8 },
+                    { look: 'liquidPlane', bars: 4 },
                     { look: 'firstLight', bars: 8, punchIn: true },
                     { look: 'eclipse',    bars: 4 },
                     { look: 'firstLight', bars: 8 }
@@ -860,6 +861,7 @@ class ShowDirector {
                     { look: 'whiteChase', bars: 4, punchIn: true },
                     { look: 'chromaticRoom', bars: 8, punchIn: true },
                     { look: 'laserStorm', bars: 8, punchIn: true },
+                    { look: 'ceilingSidewash', bars: 4 },
                     { look: 'afterburn',  bars: 8, punchIn: true },
                     { look: 'laserStorm', bars: 8 }
                 ]

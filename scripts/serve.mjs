@@ -176,6 +176,10 @@ const server = createServer(async (req, res) => {
             pipeline(source, res, () => { /* client disconnects are normal */ });
         }
     } catch {
+        if (res.headersSent) {
+            res.destroy();
+            return;
+        }
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not Found');
     }
 });
