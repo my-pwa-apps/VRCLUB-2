@@ -296,7 +296,7 @@ class VRClubAnimationCore extends VRClubEffects {
             else if (this.currentColorIndex === 0) sheetColor = this.cachedColors.red;
             else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
             else sheetColor = this.cachedColors.blue;
-            
+
             sheetMat.emissiveColor = sheetColor;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 this.laserSheetHaze.material.emissiveColor = sheetColor;

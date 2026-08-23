@@ -791,7 +791,7 @@ class VRClubLifecycle extends VRClubCore {
         // the parked desktop chain while an XR session is active: disposing mid-session
         // without it leaks an entire second HDR pipeline.
         for (const key of ['ssrPipeline', 'motionBlur', 'renderPipeline', '_desktopRenderPipeline',
-                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe']) {
+                           'ssaoPipeline', 'glowLayer', 'floorReflectionProbe', 'strobeRetinalFlash']) {
             if (this[key]) {
                 try { this[key].dispose(); } catch (_) { /* ignore */ }
                 this[key] = null;

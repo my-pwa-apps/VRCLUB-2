@@ -19,6 +19,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- Strobe impulses now illuminate frozen room materials through the always-compiled
+  ambient fill and add a brief XR-rendered retinal glare veil. The local flash light,
+  bloom and exposure spike remain, while Safe Mode restores every value immediately.
 - The DJ now faces the dance floor instead of the LED wall. Laser-sheet cues now
   appear in every NOCTURNE movement, scan lower and more slowly, and illuminate
   short-lived, palette-synchronized smoke pockets inside the moving sheet.

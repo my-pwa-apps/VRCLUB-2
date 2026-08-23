@@ -1251,6 +1251,24 @@ class VRClubFixtures extends VRClubEnvironment {
         this.strobeFlashLight.range = 35;
         this.strobeFlashLight.setEnabled(false);
 
+        // ACES tone mapping deliberately preserves detail in very bright frames,
+        // which also suppresses the momentary retinal veil a real xenon discharge
+        // creates. A scene Layer renders in both XR eyes (unlike a DOM overlay) and
+        // starts fully transparent; updateStrobes drives it only during the impulse.
+        const flashCanvas = document.createElement('canvas');
+        flashCanvas.width = 1;
+        flashCanvas.height = 1;
+        const flashContext = flashCanvas.getContext('2d');
+        flashContext.fillStyle = '#ffffff';
+        flashContext.fillRect(0, 0, 1, 1);
+        this.strobeRetinalFlash = new BABYLON.Layer(
+            'strobeRetinalFlash',
+            flashCanvas.toDataURL(),
+            this.scene,
+            false,
+            new BABYLON.Color4(1, 1, 1, 0)
+        );
+
         this.createBlinders();
     }
 

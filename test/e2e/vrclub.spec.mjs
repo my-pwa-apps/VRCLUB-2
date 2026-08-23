@@ -303,6 +303,12 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
 
         club.photosensitiveSafeMode = false;
         club.showDirector._applyLook(club.showDirector.looks.whiteChase, 1);
+        const preStrobe = {
+            ambientIntensity: club.scene.getLightByName('ambient').intensity,
+            retinalAlpha: club.strobeRetinalFlash.color.a,
+            bloomWeight: club.renderPipeline.bloomWeight,
+            exposure: club.renderPipeline.imageProcessing.exposure
+        };
         club._nextStrobeBurstTime = 0;
         club.strobes.forEach(strobe => { strobe.flashDuration = 0; });
         club.updateStrobes(frame);
@@ -310,6 +316,17 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             duration: Math.max(...club.strobes.map(item => item.flashDuration)),
             glareAlpha: Math.max(...club.strobes.map(item => item.glareMaterial.alpha)),
             lightIntensity: club.strobeFlashLight.intensity,
+            bloomWeight: club.renderPipeline.bloomWeight,
+            exposure: club.renderPipeline.imageProcessing.exposure,
+            ambientIntensity: club.scene.getLightByName('ambient').intensity,
+            retinalAlpha: club.strobeRetinalFlash.color.a
+        };
+
+        club.photosensitiveSafeMode = true;
+        club.updateStrobes({ ...frame, time: frame.time + frame.dt });
+        const safeModeRestoration = {
+            ambientIntensity: club.scene.getLightByName('ambient').intensity,
+            retinalAlpha: club.strobeRetinalFlash.color.a,
             bloomWeight: club.renderPipeline.bloomWeight,
             exposure: club.renderPipeline.imageProcessing.exposure
         };
@@ -328,7 +345,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
                 emissivePeak: Math.max(...laser.material.emissiveColor.asArray()),
                 glowIncluded: club.glowLayer.hasMesh(laser.mesh)
             },
-            strobe
+            strobe,
+            preStrobe,
+            safeModeRestoration
         };
     });
     expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(6, 2);
@@ -344,6 +363,15 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(opticsState.strobe.lightIntensity).toBeGreaterThan(900);
     expect(opticsState.strobe.bloomWeight).toBe(1);
     expect(opticsState.strobe.exposure).toBe(2.6);
+    expect(opticsState.strobe.ambientIntensity).toBe(3.8);
+    expect(opticsState.strobe.retinalAlpha).toBe(0.24);
+    expect(opticsState.safeModeRestoration.ambientIntensity)
+        .toBeCloseTo(opticsState.preStrobe.ambientIntensity, 6);
+    expect(opticsState.safeModeRestoration.retinalAlpha).toBe(0);
+    expect(opticsState.safeModeRestoration.bloomWeight)
+        .toBeCloseTo(opticsState.preStrobe.bloomWeight, 6);
+    expect(opticsState.safeModeRestoration.exposure)
+        .toBeCloseTo(opticsState.preStrobe.exposure, 6);
 
     const sustainedVisibility = await page.evaluate(() => {
         const club = window.vrClub;

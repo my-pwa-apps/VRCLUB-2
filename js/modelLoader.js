@@ -236,11 +236,12 @@ class ModelLoader {
             // fetchBufferWithTimeout keeps the deadline alive across the BODY read.
             // With plain fetchWithTimeout the timer was cleared as soon as headers
             // arrived, so a server that answered 200 and then stalled mid-transfer
-            // hung startup forever - the single most likely stall for a 15 MB GLB.
+            // hung startup forever. The largest local GLB is roughly 60 MB, and a
+            // software-rendered Quest test can contend heavily with the body read.
             const arrayBuffer = await fetchBufferWithTimeout(url, {
                 cache: 'default',
                 signal: this.abortController.signal,
-                timeoutMs: 60000 // GLBs are large; allow more headroom than textures
+                timeoutMs: 120000
             });
             const sizeMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
             this.log.info(`✅ Downloaded: ${url.split('/').pop()} (${sizeMB} MB)`);

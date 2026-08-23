@@ -677,6 +677,8 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
         bloomWeight: 0.45,
         imageProcessing: { exposure: 1.22 }
     };
+    const ambient = { intensity: 0.06 };
+    const retinalFlash = { color: { a: 0 } };
     const club = {
         strobesActive: true,
         photosensitiveSafeMode: false,
@@ -692,6 +694,8 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
         strobes: [{ material, light: null, flashDuration: 0, currentIntensity: 0 }],
         strobeFlashLight: flashLight,
         renderPipeline,
+        scene: { getLightByName: name => name === 'ambient' ? ambient : null },
+        strobeRetinalFlash: retinalFlash,
         isInVRMode: true,
         blinderMaterial: { emissiveColor: new BABYLON.Color3() },
         blindersActive: false,
@@ -710,6 +714,8 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
     assert.ok(club.strobes[0].flashDuration <= 0.09, 'strobe burst was not brief');
     assert.equal(renderPipeline.bloomWeight, 1, 'strobe did not drive full bloom');
     assert.equal(renderPipeline.imageProcessing.exposure, 2.6, 'VR strobe did not spike exposure');
+    assert.equal(ambient.intensity, 3.8, 'VR strobe did not light the room');
+    assert.equal(retinalFlash.color.a, 0.24, 'VR strobe did not create retinal glare');
 
     club.photosensitiveSafeMode = true;
     window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
@@ -719,6 +725,8 @@ test('strobe bursts light immediately and blinder off-state preserves cached bla
     });
     assert.equal(renderPipeline.bloomWeight, 0.45, 'Safe Mode did not restore bloom');
     assert.equal(renderPipeline.imageProcessing.exposure, 1.22, 'Safe Mode did not restore exposure');
+    assert.equal(ambient.intensity, 0.06, 'Safe Mode did not restore room lighting');
+    assert.equal(retinalFlash.color.a, 0, 'Safe Mode did not clear retinal glare');
     assert.deepEqual(
         [club.cachedColors.black.r, club.cachedColors.black.g, club.cachedColors.black.b],
         [0, 0, 0],

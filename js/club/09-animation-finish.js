@@ -20,6 +20,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this.renderPipeline.imageProcessing.exposure = this._preStrobeExposure;
             this._preStrobeExposure = undefined;
         }
+        const ambient = this.scene?.getLightByName('ambient');
+        if (this._preStrobeAmbientIntensity !== undefined) {
+            if (ambient) ambient.intensity = this._preStrobeAmbientIntensity;
+            this._preStrobeAmbientIntensity = undefined;
+        }
+        if (this.strobeRetinalFlash?.color) this.strobeRetinalFlash.color.a = 0;
         if (this.strobes && this.strobes.length > 0) {
             // Photosensitive Safe Mode hard-disables strobes regardless of VJ state
             if (this.strobesActive && !this.photosensitiveSafeMode) {
@@ -148,6 +154,18 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                         this.strobeFlashLight.intensity = maxIntensity * 14;
                         this.strobeFlashLight.setEnabled(true);
+                        // The point light is created disabled and many static room
+                        // materials are frozen after startup, so those shaders cannot
+                        // reliably add it mid-frame. The always-compiled hemispheric
+                        // light carries the short room-fill impulse; the point still
+                        // supplies local falloff on dynamic/unfrozen surfaces.
+                        if (ambient) {
+                            this._preStrobeAmbientIntensity = ambient.intensity;
+                            ambient.intensity = this.isInVRMode ? 3.8 : 3.2;
+                        }
+                        if (this.strobeRetinalFlash?.color) {
+                            this.strobeRetinalFlash.color.a = this.isInVRMode ? 0.24 : 0.18;
+                        }
                         // Brief bloom spike for blinding strobe effect. Captured per
                         // burst (cleared at the top of this function), so a pipeline swap
                         // on VR entry cannot leak a stale desktop bloomWeight into the
