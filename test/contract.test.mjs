@@ -42,6 +42,14 @@ const collectJs = (dir, relative = '') => readdirSync(dir, { withFileTypes: true
     });
 const jsFiles = collectJs(join(ROOT, 'js'));
 
+const collectFilesWithExtension = (dir, extension, relative = '') => readdirSync(dir, { withFileTypes: true })
+    .flatMap(entry => {
+        const childRelative = join(relative, entry.name);
+        return entry.isDirectory()
+            ? collectFilesWithExtension(join(dir, entry.name), extension, childRelative)
+            : (entry.name.toLowerCase().endsWith(extension) ? [toPosix(childRelative)] : []);
+    });
+
 test('every first-party JS file parses', () => {
     for (const file of jsFiles) {
         assert.doesNotThrow(
@@ -187,6 +195,16 @@ test('local model assets referenced by modelLoader exist', () => {
     const paths = [...source.matchAll(/url:\s*'(\.\/js\/models\/[^']+)'/g)].map(m => m[1]);
     for (const p of paths) {
         assert.ok(existsSync(join(ROOT, p)), `missing model asset: ${p}`);
+    }
+});
+
+test('every shipped GLB is documented in ASSETS.md', () => {
+    const manifest = readFileSync(join(ROOT, 'ASSETS.md'), 'utf8');
+    const models = collectFilesWithExtension(join(ROOT, 'js/models'), '.glb', 'js/models');
+
+    assert.ok(models.length > 0, 'no GLB assets found under js/models');
+    for (const model of models) {
+        assert.ok(manifest.includes(`\`${model}\``), `${model} is missing from ASSETS.md`);
     }
 });
 

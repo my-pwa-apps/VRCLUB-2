@@ -37,7 +37,7 @@ suite fails if the tokens diverge. Production uses content-hashed app and CSS fi
 ## Commands
 
 ```powershell
-npm start        # http-server on :8000 (local dev)
+npm start        # dependency-free local server on :8000
 npm run build    # content-hashed production site under dist/
 npm run start:prod  # build + dependency-free dist server honouring $PORT
 npm run check    # node --check every JS file

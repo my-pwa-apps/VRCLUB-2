@@ -2460,20 +2460,20 @@ zero console errors and zero WebGL warnings.
   Business value: Medium
   Technical debt reduction: High
 
-- [ ] Add a headless browser smoke test to CI
+- [x] Add the headless browser E2E suite to CI
   Priority: High
   Category: Testing
   Area: CI
   Affected files: `.github/workflows/ci.yml`, `test/`
-  Problem: there is still no way to run anything in a browser from CI. The single most valuable
-  defect-finding step in this review was a manual Playwright run — it caught the WebGL uniform
-  buffer overflow, the duplicated laser-emitter materials and a stale-cache DX trap that no
-  static check could see.
+  Problem: the Playwright desktop/Quest suite existed but CI never ran it. Browser-only WebGL,
+  WebXR, service-worker and production-bundle failures could therefore ship while every required
+  check stayed green.
   Impact: the three Critical build/SW defects fixed here would all have been caught by one
   headless page load. Every one of them shipped green.
-  Recommended solution: add Playwright; serve `dist/`, load the page, click `#enterClubBtn`, wait
-  for `window.vrClub.ready`, and fail on any `pageerror`, any `console.error`, any
-  `GL_INVALID_OPERATION` warning, or any `error` entry in `getDiagnostics()`.
+  Recommended solution: install Chromium in a Linux CI job and run the existing serial E2E suite
+  against `npm run start:prod`, retaining traces, screenshots, video and the HTML report on failure.
+  Acceptance criteria: implemented 2026-08-23. CI runs desktop rendering plus emulated Quest XR,
+  fails on page/console/diagnostic errors, and uploads browser failure artifacts.
   Acceptance criteria: the test fails if any of those appear; runs in under 2 minutes.
   Estimated effort: Medium
   Business value: High
@@ -2493,7 +2493,8 @@ zero console errors and zero WebGL warnings.
   model. For the animations, confirm the terms, replace with CC0/CC BY equivalents, or move them
   out of version control and fetch at build time.
   Acceptance criteria: every entry in ASSETS.md has a creator, a source URL and a licence; the
-  "Known gaps" section is empty. Add a contract test that every `.glb` appears in ASSETS.md.
+  "Known gaps" section is empty. The contract test requiring every `.glb` to appear in ASSETS.md
+  was added 2026-08-23; creator/source recovery and Mixamo redistribution clearance remain open.
   Estimated effort: Medium
   Business value: High
   Technical debt reduction: Low
@@ -2503,7 +2504,7 @@ zero console errors and zero WebGL warnings.
   Category: Performance
   Area: Assets
   Affected files: `js/models/`, `scripts/optimize-avatars.mjs`, `scripts/build.mjs`
-  Problem: the deploy is 60.9 MB after pruning, and ~50 MB of that is two GLBs and their PNG
+  Problem: the source asset payload is 65.26 MiB, and 49.66 MiB of that is two GLBs and two PNG
   textures. `scripts/optimize-avatars.mjs` exists but is invoked by nothing, only ever touches
   `js/models/avatars/`, and destructively overwrites the source files in place — so it is not
   idempotent and re-running re-quantises already-quantised geometry. `@gltf-transform/cli` is a
@@ -2512,7 +2513,8 @@ zero console errors and zero WebGL warnings.
   Recommended solution: generalise it to `optimize-models.mjs` covering `djgear` and `paspeakers`,
   writing to `dist/` and never mutating sources; add Draco/meshopt compression and KTX2 textures;
   wire it into `npm run build`. Or delete it and the dependency.
-  Acceptance criteria: `dist/` under 25 MB with no visible quality regression.
+  Acceptance criteria: `dist/` under 25 MB with no visible quality regression. `npm run
+  audit:assets` now reports the total, top ten and type totals in CI so progress is measurable.
   Estimated effort: Medium
   Business value: High
   Technical debt reduction: Medium
@@ -2647,17 +2649,17 @@ zero console errors and zero WebGL warnings.
   Business value: Medium
   Technical debt reduction: Medium
 
-- [ ] Add a deploy job and drop the redundant `http-server` dependency
+- [ ] Add a protected deploy job and dependency update automation
   Priority: Low
   Category: Developer Experience
   Area: CI/CD
   Affected files: `.github/workflows/ci.yml`, `package.json`
-  Problem: the README's "deploy `dist/` to static hosting" is a manual, undocumented,
-  unreproducible step — there is no tag-triggered release and no environment protection.
-  Separately, `http-server` is used only by `npm start`/`npm dev` and is strictly worse than
-  `scripts/serve.mjs` (which has the traversal guard, security headers, compression and `$PORT`).
-  Recommended solution: add a `deploy` job gated on `main` using `actions/deploy-pages`; point
-  `npm start` at `node scripts/serve.mjs` and drop the dependency; add Dependabot or Renovate.
+  Problem: the README's "deploy `dist/` to static hosting" remains a manual step — there is no
+  tag-triggered release, environment protection, or automated dependency update policy.
+  The redundant `http-server` dependency was removed 2026-08-23; `npm start` and `npm dev` now use
+  the hardened dependency-free server with traversal guards, security headers and `$PORT` support.
+  Recommended solution: add a `deploy` job gated on `main` using `actions/deploy-pages`, with an
+  approved production environment; add Dependabot or Renovate.
   Estimated effort: Small
   Business value: Medium
   Technical debt reduction: Low
@@ -2984,3 +2986,133 @@ already fixed or contradicted by source were excluded.
   Business value: Medium
 
   Technical debt reduction: Low
+
+---
+
+## Review — 2026-08-23 — Full product and engineering assessment
+
+Scope: product, UX/accessibility, architecture, maintainability, security, privacy, rendering,
+performance, assets, testing, browser compatibility, PWA behavior, deployment and legal readiness.
+Three independent model reviews were reconciled against source and runtime evidence; claims
+contradicted by the repository were excluded.
+
+### Fixed during this review
+
+- [x] Existing browser coverage was not a required CI check
+
+  Priority: High
+
+  Category: Testing
+
+  Area: CI / WebXR
+
+  Affected files: `.github/workflows/ci.yml`
+
+  Problem: 461 lines of Playwright desktop and emulated Quest coverage ran only by hand.
+
+  Impact: production-only rendering, WebGL, WebXR and service-worker regressions could merge with
+  green CI.
+
+  Recommended solution: run the serial suite in Linux CI with Chromium and preserve diagnostics
+  on failure.
+
+  Acceptance criteria: E2E is required after the cross-platform verify matrix and uploads traces,
+  screenshots, video and the HTML report when it fails.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: High
+
+- [x] Supported Node releases were not represented in CI
+
+  Priority: Medium
+
+  Category: Reliability
+
+  Area: Toolchain / server
+
+  Affected files: `.github/workflows/ci.yml`
+
+  Problem: `package.json` supports Node 20 and newer, but CI exercised only Node 20. A Node 24
+  response-lifecycle defect had already escaped that matrix during this review cycle.
+
+  Impact: users on a supported current Node release could hit failures absent from CI.
+
+  Recommended solution: run syntax, lint and tests on Node 20 and 24 across Ubuntu and Windows;
+  build and upload artifacts once on the baseline runtime.
+
+  Acceptance criteria: the verify matrix contains both runtimes and operating systems without
+  duplicating payload artifacts.
+
+  Estimated effort: Small
+
+  Business value: Medium
+
+  Technical debt reduction: Medium
+
+- [x] Asset weight and licence-manifest completeness had no automated controls
+
+  Priority: High
+
+  Category: Legal / Performance
+
+  Area: Assets
+
+  Affected files: `scripts/audit-assets.mjs`, `test/contract.test.mjs`, `package.json`,
+  `.github/workflows/ci.yml`
+
+  Problem: model/texture weight required manual inspection, and a new GLB could ship without an
+  entry in `ASSETS.md`.
+
+  Impact: Quest startup regressions and missing third-party notices could remain invisible.
+
+  Recommended solution: report source asset totals and largest files in CI; recursively require
+  every shipped GLB to be named in the legal manifest.
+
+  Acceptance criteria: the audit reports 65.26 MiB across 27 files and identifies every file over
+  5 MiB; the contract suite fails for an undocumented GLB. Existing provenance gaps remain tracked
+  in the original release-blocking item.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
+- [x] Development used a redundant, less-hardened static server
+
+  Priority: Medium
+
+  Category: Security / Cleanup
+
+  Area: Local serving
+
+  Affected files: `package.json`, `package-lock.json`, `scripts/serve.mjs`,
+  `.github/copilot-instructions.md`
+
+  Problem: `npm start` and `npm dev` bypassed the server used in production, including path
+  containment, denied-path policy, security headers, compression and injected-port support.
+
+  Impact: development did not exercise production serving behavior and carried 27 unnecessary
+  transitive packages.
+
+  Recommended solution: use `scripts/serve.mjs` everywhere and remove `http-server`.
+
+  Acceptance criteria: package installation removes the dependency, reports zero vulnerabilities,
+  and local/production serving share one implementation.
+
+  Estimated effort: Small
+
+  Business value: Medium
+
+  Technical debt reduction: Medium
+
+### Confirmed release blockers
+
+No duplicate open items were added. Public release remains blocked by the existing asset-licensing
+item: the PA speaker lacks creator/source provenance and raw Mixamo GLBs lack redistribution
+clearance. The measured 65.26 MiB asset payload, default third-party radio connection, large
+lifecycle/fixture methods, unenforced declaration file and absent protected deployment remain
+tracked above.

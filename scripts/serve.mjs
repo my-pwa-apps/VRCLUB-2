@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // Minimal dependency-free static file server for production/PaaS deploys.
 //
-// `npm start` runs `http-server -p 8000`, which HARD-CODES port 8000 and therefore
-// fails health checks on any platform that injects $PORT (Heroku, Render, Fly,
-// Railway, Azure App Service). This server honours process.env.PORT and binds
-// 0.0.0.0 so it works both locally and in a container.
+// Used for local development and production/PaaS deploys. It honours process.env.PORT
+// and binds 0.0.0.0 by default, so it works both locally and in a container.
 
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
