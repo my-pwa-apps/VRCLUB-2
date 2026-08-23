@@ -84,6 +84,12 @@ test('production build initializes a rendered club without browser errors', asyn
             hazeLayerExists: Boolean(club.laserSheetHaze),
             smokeScatterExists: Boolean(club.laserSheetSmokeScatter),
             smokeScatterCapacity: club.laserSheetSmokeScatter?.getCapacity(),
+            smokeUsesStandardAlpha: club.laserSheetSmokeScatter?.blendMode ===
+                globalThis.BABYLON.ParticleSystem.BLENDMODE_STANDARD,
+            smokeIsVelocityStretched: club.laserSheetSmokeScatter?.billboardMode ===
+                globalThis.BABYLON.ParticleSystem.BILLBOARDMODE_STRETCHED,
+            smokeAspectRatio: club.laserSheetSmokeScatter?.minScaleX /
+                club.laserSheetSmokeScatter?.maxScaleY,
             hazeUsesIndependentNoise: club.laserSheetHaze?.material.opacityTexture !==
                 club.laserSheet.material.opacityTexture,
             active: club.laserSheetActive,
@@ -148,13 +154,49 @@ test('production build initializes a rendered club without browser errors', asyn
             led: club.ledShowColor.asArray()
         };
 
-        return { laserSheet, sheetVariants, chase, chaseExclusive, safeMode, colorLock };
+        const ambient = club.scene.getLightByName('ambient');
+        const preBounceState = {
+            masterIntensity: club.masterIntensity,
+            lightsActive: club.lightsActive,
+            ledWallActive: club.ledWallActive,
+            lasersActive: club.lasersActive,
+            laserSheetActive: club.laserSheetActive,
+            mirrorBallActive: club.mirrorBallActive,
+            ambientIntensity: ambient.intensity,
+            ambientDiffuse: ambient.diffuse.clone()
+        };
+        club.masterIntensity = 1;
+        club.lightsActive = true;
+        club.ledWallActive = true;
+        club.lasersActive = true;
+        club.laserSheetActive = true;
+        club.mirrorBallActive = true;
+        for (let frame = 0; frame < 360; frame++) club.updateRoomBounce({ dtScale: 1 });
+        const activeRoomBounce = ambient.intensity;
+        club.masterIntensity = 0;
+        for (let frame = 0; frame < 360; frame++) club.updateRoomBounce({ dtScale: 1 });
+        const blackoutRoomBounce = ambient.intensity;
+        club.masterIntensity = preBounceState.masterIntensity;
+        club.lightsActive = preBounceState.lightsActive;
+        club.ledWallActive = preBounceState.ledWallActive;
+        club.lasersActive = preBounceState.lasersActive;
+        club.laserSheetActive = preBounceState.laserSheetActive;
+        club.mirrorBallActive = preBounceState.mirrorBallActive;
+        ambient.intensity = preBounceState.ambientIntensity;
+        ambient.diffuse.copyFrom(preBounceState.ambientDiffuse);
+
+        return {
+            laserSheet, sheetVariants, chase, chaseExclusive, safeMode, colorLock,
+            roomBounce: { active: activeRoomBounce, blackout: blackoutRoomBounce }
+        };
     });
     expect(showState).toMatchObject({
         laserSheet: {
             exists: true,
             hazeLayerExists: true,
             smokeScatterExists: true,
+            smokeUsesStandardAlpha: true,
+            smokeIsVelocityStretched: false,
             hazeUsesIndependentNoise: true,
             active: true,
             alpha: 0.10,
@@ -173,6 +215,7 @@ test('production build initializes a rendered club without browser errors', asyn
     });
     expect(showState.laserSheet.smokeScatterCapacity).toBeGreaterThanOrEqual(220);
     expect(showState.laserSheet.smokeScatterCapacity).toBeLessThanOrEqual(420);
+    expect(showState.laserSheet.smokeAspectRatio).toBeGreaterThan(5);
     expect(showState.laserSheet.minimumPitch).toBeGreaterThan(0);
     expect(showState.sheetVariants.left).toMatchObject({
         origin: 'ceilingLeft',
@@ -194,6 +237,9 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.sheetVariants.right.smokeScatterEmitRate).toBeGreaterThan(0);
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.pitch - showState.sheetVariants.right.start.pitch))
         .toBeGreaterThan(0.015);
+    expect(showState.roomBounce.active).toBeGreaterThanOrEqual(0.19);
+    expect(showState.roomBounce.active).toBeLessThanOrEqual(0.201);
+    expect(showState.roomBounce.blackout).toBeCloseTo(0.06, 4);
     await expectHealthyRuntime(page);
 });
 
@@ -373,6 +419,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(opticsState.safeModeRestoration.exposure)
         .toBeCloseTo(opticsState.preStrobe.exposure, 6);
 
+    await page.waitForTimeout(2000);
     const sustainedVisibility = await page.evaluate(() => {
         const club = window.vrClub;
         for (let frame = 0; frame < 240; frame++) {
@@ -393,24 +440,38 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         const trussMeshes = trussRoots
             .flatMap(root => root.getChildMeshes())
             .filter(mesh => mesh.name.toLowerCase().includes('truss'));
+        const activeMeshes = new Set(club.scene.getActiveMeshes().data);
+        const avatarMaterials = [...new Set(npcMeshes.map(mesh => mesh.material).filter(Boolean))];
+        const trussMaterials = [...new Set(trussMeshes.map(mesh => mesh.material).filter(Boolean))];
+        const emissiveFloor = material => material.emissiveColor
+            ? Math.min(material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b)
+            : 0;
 
         return {
             enabledNpcCount: enabledNpcs.length,
             npcMeshCount: npcMeshes.length,
             npcMeshesAlwaysActive: npcMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
+            npcMeshesActive: npcMeshes.every(mesh => activeMeshes.has(mesh)),
+            avatarEmissiveFloor: Math.min(...avatarMaterials.map(emissiveFloor)),
             nearbyAnimationsRunning: enabledNpcs.every(npc => !npc._animPaused),
             trussMeshCount: trussMeshes.length,
             trussMeshesAlwaysActive: trussMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
-            trussMeshesEnabled: trussMeshes.every(mesh => mesh.isEnabled())
+            trussMeshesEnabled: trussMeshes.every(mesh => mesh.isEnabled()),
+            trussMeshesActive: trussMeshes.every(mesh => activeMeshes.has(mesh)),
+            trussEmissiveFloor: Math.min(...trussMaterials.map(emissiveFloor))
         };
     });
     expect(sustainedVisibility.enabledNpcCount).toBeGreaterThanOrEqual(7);
     expect(sustainedVisibility.npcMeshCount).toBeGreaterThan(0);
     expect(sustainedVisibility.npcMeshesAlwaysActive).toBe(true);
+    expect(sustainedVisibility.npcMeshesActive).toBe(true);
+    expect(sustainedVisibility.avatarEmissiveFloor).toBeGreaterThanOrEqual(0.012);
     expect(sustainedVisibility.nearbyAnimationsRunning).toBe(true);
     expect(sustainedVisibility.trussMeshCount).toBeGreaterThanOrEqual(20);
     expect(sustainedVisibility.trussMeshesAlwaysActive).toBe(true);
     expect(sustainedVisibility.trussMeshesEnabled).toBe(true);
+    expect(sustainedVisibility.trussMeshesActive).toBe(true);
+    expect(sustainedVisibility.trussEmissiveFloor).toBeGreaterThanOrEqual(0.018);
     await expect(vrButton).toContainText('Exit VR');
 
     await page.evaluate(() => window.__iwerDevice.controllers.left.updateButtonValue('y-button', 1));

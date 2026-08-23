@@ -639,7 +639,7 @@ class MaterialFactory {
             baseColor: [0.72, 0.72, 0.75], // Brighter aluminum
             metallic: 1.0,
             roughness: 0.21, // Brushed finish (0.18 pre-compensated for the detail map)
-            emissiveColor: [0.04, 0.04, 0.045],
+            emissiveColor: [0.055, 0.055, 0.06],
             detail: 'brushedMetal',
             detailScale: 6
         }, true),

@@ -604,6 +604,19 @@ class VRClubAudioCrowd extends VRClubUI {
             mat.forceDepthWrite = true;
             mat.backFaceCulling = true;
 
+            // Aerial-only show looks deliberately extinguish every surface light for
+            // several bars. In a headset, dark avatar textures then fall below the
+            // display black level and look unloaded even though the meshes stay active.
+            // Preserve a neutral silhouette floor without making the crowd a light source.
+            const silhouetteFloor = 0.012;
+            if (mat.emissiveColor) {
+                mat.emissiveColor.r = Math.max(mat.emissiveColor.r, silhouetteFloor);
+                mat.emissiveColor.g = Math.max(mat.emissiveColor.g, silhouetteFloor);
+                mat.emissiveColor.b = Math.max(mat.emissiveColor.b, silhouetteFloor);
+            } else {
+                mat.emissiveColor = new BABYLON.Color3(silhouetteFloor, silhouetteFloor, silhouetteFloor);
+            }
+
             [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
                 if (!tex) return;
                 tex.hasAlpha = false;

@@ -2998,6 +2998,68 @@ contradicted by the repository were excluded.
 
 ### Fixed during this review
 
+- [x] Laser-sheet smoke looked like glowing bubbles and fixtures did not illuminate the room
+
+  Priority: High
+
+  Category: Visual fidelity
+
+  Area: Laser sheet / indirect lighting
+
+  Affected files: `js/club/06-effects.js`, `js/club/07-animation-core.js`,
+  `test/e2e/vrclub.spec.mjs`
+
+  Problem: additive fog billboards expanded to 1.8 times their initial size with near-zero drift,
+  producing luminous spheres instead of aerosol density variations. Fixture beams were visible,
+  but contributed almost no low-frequency illumination to surrounding architecture.
+
+  Impact: the sheet read as a particle effect rather than laser light scattered by turbulent haze,
+  while the room remained implausibly black around powerful operating fixtures.
+
+  Recommended solution: use sparse, rotated, anisotropic standard-alpha haze wisps with lateral
+  turbulent flow and fading tails. Derive a smoothed, hue-matched bounce term from active fixture
+  energy using the existing hemispheric light, avoiding new light uniforms or shadow maps.
+
+  Acceptance criteria: rendered checks show dark gaps and irregular wisps without additive bubbles;
+  active fixtures settle the room bounce at or below 0.20, while a blackout returns it to 0.06.
+  Browser tests enforce particle blending/shape and both illumination bounds.
+
+  Estimated effort: Medium
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
+- [x] Truss and crowd appeared to disappear during sustained VR show playback
+
+  Priority: High
+
+  Category: Bug
+
+  Area: VR rendering / show readability
+
+  Affected files: `js/materialFactory.js`, `js/club/11-audio-crowd.js`,
+  `test/e2e/vrclub.spec.mjs`
+
+  Problem: multi-bar aerial-only looks deliberately extinguish surface fixtures and the LED wall.
+  Through denser VR haze, dark avatar textures and aluminum truss then fell below the headset's
+  useful black level and looked unloaded even though Babylon kept every mesh enabled and active.
+
+  Impact: users could mistake an authored lighting transition for delayed culling or failed assets.
+
+  Recommended solution: retain true fixture blackouts but give avatar silhouettes and structural
+  aluminum a restrained neutral emissive floor; verify actual active-mesh membership after rendered
+  XR frames rather than checking only `alwaysSelectAsActiveMesh` flags.
+
+  Acceptance criteria: the emulated Quest test proves every enabled NPC and truss mesh is in the
+  scene's active-mesh set after sustained rendering, and verifies the minimum material floors.
+
+  Estimated effort: Small
+
+  Business value: High
+
+  Technical debt reduction: Medium
+
 - [x] Existing browser coverage was not a required CI check
 
   Priority: High

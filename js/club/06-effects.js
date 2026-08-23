@@ -548,25 +548,36 @@ class VRClubEffects extends VRClubFixtures {
         scatter.particleTexture = this._fogParticleTexture;
         scatter.emitter = this.laserSheetSource;
         scatter.emitRate = 0;
-        scatter.minSize = 0.4;
-        scatter.maxSize = 1.4;
-        scatter.minLifeTime = 0.65;
-        scatter.maxLifeTime = 1.5;
-        scatter.minEmitPower = 0.01;
-        scatter.maxEmitPower = 0.04;
-        scatter.direction1 = new BABYLON.Vector3(-0.04, -0.015, -0.03);
-        scatter.direction2 = new BABYLON.Vector3(0.04, 0.035, 0.03);
-        scatter.gravity = new BABYLON.Vector3(0, 0.015, 0);
-        scatter.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+        scatter.billboardMode = BABYLON.ParticleSystem.BILLBOARDMODE_ALL;
+        scatter.minSize = 0.28;
+        scatter.maxSize = 0.72;
+        scatter.minScaleX = 2.5;
+        scatter.maxScaleX = 5.5;
+        scatter.minScaleY = 0.18;
+        scatter.maxScaleY = 0.45;
+        scatter.minLifeTime = 1.2;
+        scatter.maxLifeTime = 2.6;
+        scatter.minEmitPower = 0.045;
+        scatter.maxEmitPower = 0.12;
+        scatter.minInitialRotation = -0.65;
+        scatter.maxInitialRotation = 0.65;
+        scatter.minAngularSpeed = -0.10;
+        scatter.maxAngularSpeed = 0.10;
+        scatter.gravity = new BABYLON.Vector3(0, 0.008, 0);
+        // Real laser haze reveals density filaments; additive sprites read as glowing
+        // bubbles. Standard alpha keeps overlapping wisps translucent with dark voids.
+        scatter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         scatter.updateSpeed = 0.008;
-        scatter.color1 = new BABYLON.Color4(0, 0.8, 0.15, 0.32);
-        scatter.color2 = new BABYLON.Color4(0.1, 1, 0.25, 0.20);
+        scatter.color1 = new BABYLON.Color4(0, 0.8, 0.15, 0.13);
+        scatter.color2 = new BABYLON.Color4(0.1, 1, 0.25, 0.07);
         scatter.colorDead = new BABYLON.Color4(0, 0, 0, 0);
-        scatter.addSizeGradient(0, 0.35);
-        scatter.addSizeGradient(0.45, 1.0);
-        scatter.addSizeGradient(1, 1.8);
+        scatter.addSizeGradient(0, 0.2);
+        scatter.addSizeGradient(0.18, 1.0);
+        scatter.addSizeGradient(0.72, 1.15);
+        scatter.addSizeGradient(1, 0.55);
 
         const localPosition = new BABYLON.Vector3();
+        const localDirection = new BABYLON.Vector3();
         const length = this._laserSheetLength;
         const halfWidthEnd = this._laserSheetWidthEnd / 2;
         scatter.startPositionFunction = (worldMatrix, positionToUpdate) => {
@@ -578,6 +589,16 @@ class VRClubEffects extends VRClubFixtures {
                 distance
             );
             BABYLON.Vector3.TransformCoordinatesToRef(localPosition, worldMatrix, positionToUpdate);
+        };
+        scatter.startDirectionFunction = (worldMatrix, directionToUpdate) => {
+            const flow = Math.random() < 0.5 ? -1 : 1;
+            const speed = 0.08 + Math.random() * 0.14;
+            localDirection.set(
+                flow * speed,
+                (Math.random() - 0.35) * 0.025,
+                (Math.random() - 0.5) * 0.018
+            );
+            BABYLON.Vector3.TransformNormalToRef(localDirection, worldMatrix, directionToUpdate);
         };
 
         scatter.start();

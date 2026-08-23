@@ -12,6 +12,7 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateLasers(ctx);
         this.updateSpotColorCycle(ctx);
         this.updateSpotlights(ctx);
+        this.updateRoomBounce(ctx);
         this.updateStrobes(ctx);
         this.updateSpeakerCones(ctx);
         this.updateCameraPresence(ctx);
@@ -86,6 +87,34 @@ class VRClubAnimationCore extends VRClubEffects {
         const rate = target < this._adaptedExposure ? 0.10 : 0.012;
         this._adaptedExposure += (target - this._adaptedExposure) * Math.min(1, rate * ctx.dtScale);
         ip.exposure = this._adaptedExposure;
+    }
+
+    /** Low-energy indirect fill from active fixtures; one existing light, no extra shadow pass. */
+    updateRoomBounce(ctx) {
+        const ambient = this.scene && this.scene.getLightByName('ambient');
+        if (!ambient) return;
+
+        const settings = this.isInVRMode ? this.vrSettings.vr : this.vrSettings.desktop;
+        const master = Math.max(0, this.masterIntensity != null ? this.masterIntensity : 1);
+        let reflectedEnergy = 0;
+        if (this.lightsActive) reflectedEnergy += 0.070;
+        if (this.ledWallActive) reflectedEnergy += 0.040;
+        if (this.lasersActive) reflectedEnergy += 0.025;
+        if (this.laserSheetActive) reflectedEnergy += 0.045;
+        if (this.mirrorBallActive) reflectedEnergy += 0.018;
+        reflectedEnergy *= master * (this.isInVRMode ? 1.15 : 1);
+
+        const targetIntensity = Math.min(0.20, settings.ambientIntensity + reflectedEnergy);
+        const retention = 1 - Math.pow(1 - 0.045, ctx.dtScale);
+        ambient.intensity += (targetIntensity - ambient.intensity) * retention;
+
+        const hue = this.currentSpotColor || this.cachedColors.white;
+        const targetR = 0.62 + hue.r * 0.30;
+        const targetG = 0.62 + hue.g * 0.30;
+        const targetB = 0.66 + hue.b * 0.30;
+        ambient.diffuse.r += (targetR - ambient.diffuse.r) * retention;
+        ambient.diffuse.g += (targetG - ambient.diffuse.g) * retention;
+        ambient.diffuse.b += (targetB - ambient.diffuse.b) * retention;
     }
 
     /**
@@ -316,7 +345,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     color.g = sheetColor.g;
                     color.b = sheetColor.b;
                 }
-                scatter.emitRate = this.smokeActive ? 75 * (this.fogIntensity || 1) : 0;
+                scatter.emitRate = this.smokeActive ? 28 * (this.fogIntensity || 1) : 0;
             }
             if (this.laserAperture && this.laserAperture.material) {
                 this.laserAperture.material.emissiveColor = sheetColor;
