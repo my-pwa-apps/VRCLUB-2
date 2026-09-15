@@ -1041,6 +1041,48 @@ test('disabled haptics also suppress VR menu feedback pulses', () => {
     assert.equal(pulses, 1);
 });
 
+test('visual-only fixtures contribute bounded room bounce in desktop and VR', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const update = window.VRClubAnimationCore.prototype.updateRoomBounce;
+    const ambient = {
+        intensity: 0,
+        diffuse: new BABYLON.Color3(1, 1, 1)
+    };
+    const club = {
+        scene: { getLightByName: () => ambient },
+        vrSettings: {
+            desktop: { ambientIntensity: 0.08 },
+            vr: { ambientIntensity: 0.10 }
+        },
+        cachedColors: { white: new BABYLON.Color3(1, 1, 1) },
+        currentSpotColor: new BABYLON.Color3(0.2, 0.4, 1),
+        masterIntensity: 1,
+        ledWallActive: false,
+        laserSheetActive: false
+    };
+
+    const settle = ({ vr, spots = false, lasers = false, mirror = false }) => {
+        club.isInVRMode = vr;
+        club.lightsActive = spots;
+        club.lasersActive = lasers;
+        club.mirrorBallActive = mirror;
+        ambient.intensity = club.vrSettings[vr ? 'vr' : 'desktop'].ambientIntensity;
+        for (let frame = 0; frame < 240; frame++) update.call(club, { dtScale: 1 });
+        return ambient.intensity;
+    };
+
+    assert.ok(Math.abs(settle({ vr: false, mirror: true }) - 0.16) < 0.001);
+    assert.ok(Math.abs(settle({ vr: false, lasers: true }) - 0.15) < 0.001);
+    assert.ok(Math.abs(settle({ vr: false, spots: true }) - 0.20) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, mirror: true }) - 0.204) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, lasers: true }) - 0.191) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.34) < 0.001);
+});
+
 test('mirror raycasts cover every active ray within the batch budget on desktop and VR', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const { window } = loadClassic('js/club/07-animation-core.js', {

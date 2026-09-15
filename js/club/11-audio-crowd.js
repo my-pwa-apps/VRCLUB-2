@@ -709,8 +709,11 @@ class VRClubAudioCrowd extends VRClubUI {
         const crowdSize = Math.max(0, this.tierSettings.crowdSize | 0);
 
         const avatarSources = [
-            './js/models/avatars/club-dancer-female.glb',
-            './js/models/avatars/club-dancer-male.glb'
+            { url: './js/models/avatars/club-dancer-female.glb', garmentColor: new BABYLON.Color3(0.45, 0.82, 1.0) },
+            { url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
+            { url: './js/models/avatars/Hip Hop Dancing.glb' },
+            { url: './js/models/avatars/house.glb' },
+            { url: './js/models/avatars/rumba_dancing_female_character.glb' }
         ];
 
         log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
@@ -728,12 +731,9 @@ class VRClubAudioCrowd extends VRClubUI {
         };
 
         const containers = [];
-        const garmentColors = [
-            new BABYLON.Color3(0.45, 0.82, 1.0),
-            new BABYLON.Color3(1.0, 0.42, 0.68)
-        ];
         for (let index = 0; index < avatarSources.length; index++) {
-            containers.push(await loadAvatarSource(avatarSources[index], garmentColors[index]));
+            const source = avatarSources[index];
+            containers.push(await loadAvatarSource(source.url, source.garmentColor));
         }
 
         const available = containers.filter(Boolean);
@@ -755,18 +755,18 @@ class VRClubAudioCrowd extends VRClubUI {
         const crowdSlots = [
             { x: -3.4, z: -13.4, src: 0, height: 1.84, facing:  0.10 },
             { x:  3.2, z: -13.0, src: 1, height: 1.66, facing: -0.12 },
-            { x:  0.4, z: -10.8, src: 0, height: 1.74, facing:  0.04 },
-            { x: -6.0, z: -11.6, src: 1, height: 1.79, facing:  0.28 },
-            { x:  5.6, z: -11.0, src: 0, height: 1.71, facing: -0.26 },
+            { x:  0.4, z: -10.8, src: 2, height: 1.74, facing:  0.04 },
+            { x: -6.0, z: -11.6, src: 3, height: 1.79, facing:  0.28 },
+            { x:  5.6, z: -11.0, src: 4, height: 1.71, facing: -0.26 },
             { x: -1.4, z:  -8.6, src: 1, height: 1.62, facing:  0.08 },
-            { x:  2.6, z: -15.0, src: 0, height: 1.88, facing: -0.06 },
-            { x: -4.6, z: -15.2, src: 1, height: 1.69, facing:  0.16 },
-            { x:  6.6, z:  -8.4, src: 0, height: 1.77, facing: -0.34 },
-            { x: -6.8, z:  -8.0, src: 1, height: 1.81, facing:  0.36 },
-            { x:  1.6, z:  -7.4, src: 0, height: 1.60, facing: -0.10 },
-            { x: -7.4, z: -13.8, src: 1, height: 1.73, facing:  0.42 },
-            { x:  7.2, z: -13.6, src: 0, height: 1.86, facing: -0.40 },
-            { x: -0.6, z:  -6.4, src: 1, height: 1.68, facing:  0.02 }
+            { x:  2.6, z: -15.0, src: 2, height: 1.88, facing: -0.06 },
+            { x: -4.6, z: -15.2, src: 3, height: 1.69, facing:  0.16 },
+            { x:  6.6, z:  -8.4, src: 4, height: 1.77, facing: -0.34 },
+            { x: -6.8, z:  -8.0, src: 0, height: 1.81, facing:  0.36 },
+            { x:  1.6, z:  -7.4, src: 1, height: 1.60, facing: -0.10 },
+            { x: -7.4, z: -13.8, src: 2, height: 1.73, facing:  0.42 },
+            { x:  7.2, z: -13.6, src: 3, height: 1.86, facing: -0.40 },
+            { x: -0.6, z:  -6.4, src: 4, height: 1.68, facing:  0.02 }
         ];
         this._crowdSlots = crowdSlots;
 

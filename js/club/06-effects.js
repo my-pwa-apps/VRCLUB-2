@@ -952,7 +952,7 @@ class VRClubEffects extends VRClubFixtures {
         // VISUAL ONLY - No actual PointLights to stay within GPU uniform buffer limits
         // These are purely emissive meshes that create the illusion of reflections
         this.mirrorReflectionSpots = [];
-        const numSpots = 100; // Reduced from 300 for VR performance
+        const numSpots = 140;
         
         // PRE-DISTRIBUTE spots across surfaces for guaranteed even coverage
         // Weight distribution to emphasize walls and ceiling (more visible in VR)
@@ -1023,7 +1023,7 @@ class VRClubEffects extends VRClubFixtures {
                 // Pivot at top (ball position) so we can scale length easily
                 beam.setPivotPoint(new BABYLON.Vector3(0, 0.5, 0)); 
                 
-                // UPGRADE: Share 1 beam material for all 100 reflection beams (was 100 unique)
+                // Share one beam material across the full ultra-tier reflection pool.
                 // Per-beam alpha handled via mesh.visibility
                 if (!this._sharedMirrorBeamMat) {
                     this._sharedMirrorBeamMat = new BABYLON.StandardMaterial('sharedMirrorBeamMat', this.scene);

@@ -96,14 +96,15 @@ class VRClubAnimationCore extends VRClubEffects {
         const settings = this.isInVRMode ? this.vrSettings.vr : this.vrSettings.desktop;
         const master = Math.max(0, this.masterIntensity != null ? this.masterIntensity : 1);
         let reflectedEnergy = 0;
-        if (this.lightsActive) reflectedEnergy += 0.070;
-        if (this.ledWallActive) reflectedEnergy += 0.040;
-        if (this.lasersActive) reflectedEnergy += 0.025;
-        if (this.laserSheetActive) reflectedEnergy += 0.045;
-        if (this.mirrorBallActive) reflectedEnergy += 0.018;
-        reflectedEnergy *= master * (this.isInVRMode ? 1.15 : 1);
+        if (this.lightsActive) reflectedEnergy += 0.120;
+        if (this.ledWallActive) reflectedEnergy += 0.060;
+        if (this.lasersActive) reflectedEnergy += 0.070;
+        if (this.laserSheetActive) reflectedEnergy += 0.090;
+        if (this.mirrorBallActive) reflectedEnergy += 0.080;
+        reflectedEnergy *= master * (this.isInVRMode ? 1.30 : 1);
 
-        const targetIntensity = Math.min(0.20, settings.ambientIntensity + reflectedEnergy);
+        const maxBounce = this.isInVRMode ? 0.34 : 0.28;
+        const targetIntensity = Math.min(maxBounce, settings.ambientIntensity + reflectedEnergy);
         const retention = 1 - Math.pow(1 - 0.045, ctx.dtScale);
         ambient.intensity += (targetIntensity - ambient.intensity) * retention;
 
@@ -589,7 +590,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 //
                 // This loop is the single most expensive thing in the frame: one
                 // scene.pickWithRay() per spot, against every pickable mesh in the room.
-                // With 100 spots that is 100 full scene raycasts per update.
+                // At ultra's 140 spots that is 140 full scene raycasts per update.
                 //
                 // It previously ran EVERY frame in VR, on the justification that
                 // "frame-skipping in VR causes different states per eye = epileptic

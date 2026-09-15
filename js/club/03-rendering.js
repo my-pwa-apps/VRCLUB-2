@@ -751,6 +751,84 @@ class VRClubRendering extends VRClubLifecycle {
             mergedPipes.doNotSyncBoundingInfo = true;
             log.info("✅ Merged 4 pipes/conduits into single mesh");
         }
+
+        const artMetalMat = this.materialFactory.createPBRMaterial('wallArtMetal', {
+            baseColor: [0.14, 0.15, 0.16],
+            metallic: 0.92,
+            roughness: 0.28
+        }, true);
+        const artAccentMats = [
+            this.materialFactory.createPBRMaterial('wallArtAmber', {
+                baseColor: [0.16, 0.025, 0.008],
+                emissiveColor: [1.0, 0.12, 0.025],
+                emissiveIntensity: 2.4,
+                metallic: 0.65,
+                roughness: 0.3
+            }, true),
+            this.materialFactory.createPBRMaterial('wallArtCyan', {
+                baseColor: [0.005, 0.1, 0.13],
+                emissiveColor: [0.01, 0.65, 0.9],
+                emissiveIntensity: 2.0,
+                metallic: 0.65,
+                roughness: 0.3
+            }, true)
+        ];
+        const artPieces = [[], []];
+        [-1, 1].forEach((side, artIndex) => {
+            const wallX = side * 12.18;
+            const zCenter = artIndex === 0 ? -10 : -18.6;
+            const facing = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+
+            [1.45, 0.9].forEach((diameter, ringIndex) => {
+                const ring = BABYLON.MeshBuilder.CreateTorus(`wallArtRing${artIndex}-${ringIndex}`, {
+                    diameter,
+                    thickness: ringIndex === 0 ? 0.12 : 0.09,
+                    tessellation: ringIndex === 0 ? 20 : 16
+                }, this.scene);
+                ring.position = new BABYLON.Vector3(wallX - side * ringIndex * 0.035, 4.7, zCenter);
+                ring.rotation.z = Math.PI / 2;
+                ring.material = ringIndex === 1 ? artAccentMats[artIndex] : artMetalMat;
+                artPieces[artIndex].push(ring);
+            });
+            const hub = BABYLON.MeshBuilder.CreateCylinder(`wallArtHub${artIndex}`, {
+                diameter: 0.32,
+                height: 0.12,
+                tessellation: 14
+            }, this.scene);
+            hub.position = new BABYLON.Vector3(wallX - side * 0.07, 4.7, zCenter);
+            hub.rotation.z = Math.PI / 2;
+            hub.material = artMetalMat;
+            artPieces[artIndex].push(hub);
+
+            const barLayout = [
+                { y: 3.65, z: -0.7, width: 0.12, height: 2.5, angle: 0.62 },
+                { y: 5.75, z: 0.62, width: 0.1, height: 2.15, angle: -0.78 },
+                { y: 4.25, z: 1.35, width: 0.09, height: 1.5, angle: 1.05 },
+                { y: 6.0, z: -1.2, width: 0.08, height: 1.35, angle: -1.12 }
+            ];
+            barLayout.forEach((layout, barIndex) => {
+                const bar = BABYLON.MeshBuilder.CreateBox(`wallArtBar${artIndex}-${barIndex}`, {
+                    width: 0.08,
+                    height: layout.height,
+                    depth: layout.width
+                }, this.scene);
+                bar.position = new BABYLON.Vector3(wallX, layout.y, zCenter + layout.z);
+                bar.rotation.x = layout.angle;
+                bar.rotation.y = facing;
+                bar.material = barIndex === 2 ? artAccentMats[artIndex] : artMetalMat;
+                artPieces[artIndex].push(bar);
+            });
+
+            const mergedArt = BABYLON.Mesh.MergeMeshes(
+                artPieces[artIndex], true, true, undefined, false, true
+            );
+            if (mergedArt) {
+                mergedArt.name = `weldedWallArt${artIndex}`;
+                mergedArt.isPickable = false;
+                mergedArt.freezeWorldMatrix();
+                mergedArt.doNotSyncBoundingInfo = true;
+            }
+        });
         
         log.info("✅ Created industrial wall details");
     }

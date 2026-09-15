@@ -227,7 +227,7 @@ Tier-gated features, all **desktop only**:
 | Contact-hardening (PCSS) shadows | `_applyShadowQuality()` | on | on | off |
 | Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
 | Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
-| Mirror reflection spots | `updateMirrorBall()` | 100 | 60 | 30 |
+| Mirror reflection spots | `updateMirrorBall()` | 140 | 90 | 48 |
 | Mirror outgoing rays / beam stride | `updateMirrorBall()` | 64 / 1 | 52 / 2 | 32 / 3 |
 | SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
 | Floor `receiveShadows` | `createFloor()` | on | off | off |

@@ -79,7 +79,7 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: true,
                 crowdSize: 14,             // animated skinned dancers on the floor
-                mirrorSpots: 100,
+                mirrorSpots: 140,
                 mirrorRays: 64,
                 mirrorBeamStride: 1
             },
@@ -99,7 +99,7 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: false,
                 crowdSize: 10,
-                mirrorSpots: 60,
+                mirrorSpots: 90,
                 mirrorRays: 52,
                 mirrorBeamStride: 2
             },
@@ -123,7 +123,7 @@ class VRClubCore {
                 // headcount is the first thing to give on weak GPUs. Quest is always
                 // `balanced`, so this is the number a headset actually renders.
                 crowdSize: 6,
-                mirrorSpots: 30,
+                mirrorSpots: 48,
                 mirrorRays: 32,
                 mirrorBeamStride: 3
             }
@@ -132,15 +132,15 @@ class VRClubCore {
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {
-                exposure: 1.1,
-                contrast: 1.3,
+                exposure: 1.2,
+                contrast: 1.2,
                 bloomWeight: 0.28,
                 bloomThreshold: 0.8,
                 bloomScale: 0.5, // Wide bloom halo
                 glowIntensity: 0.65,
                 hazeAlpha: [0.04, 0.03],
-                ambientIntensity: 0.06, // Very low ambient - club should be DARK except for lighting
-                environmentIntensity: 0.5, // Rich PBR reflections for wet/metallic surfaces
+                ambientIntensity: 0.08,
+                environmentIntensity: 0.6, // Rich PBR reflections for wet/metallic surfaces
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Near-black with subtle blue tint
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,
@@ -150,15 +150,15 @@ class VRClubCore {
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                exposure: 1.22,
-                contrast: 1.3,
+                exposure: 1.35,
+                contrast: 1.18,
                 bloomWeight: 0.22,
                 bloomThreshold: 0.85,
                 bloomScale: 0.4,
                 glowIntensity: 0.7,
                 hazeAlpha: [0.035, 0.025],
-                ambientIntensity: 0.06, // Match desktop — keeps shadowed metal readable
-                environmentIntensity: 0.5, // MATCH desktop — metallic trusses/pipes/fixtures rely on env reflections
+                ambientIntensity: 0.10,
+                environmentIntensity: 0.65,
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Match desktop tint (was pure black)
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,

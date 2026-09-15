@@ -15,7 +15,7 @@ Configuration: production bundle, 1280 x 800, default outside camera, all local 
 
 Active mesh counts are camera- and show-dependent, so only compare them from the same preset. The integrated browser ran at 4 FPS under automation and is not representative of desktop or headset performance; its draw count is a reproducible complexity baseline, not a frame-rate target.
 
-Static material-group merging removes 56 potential submissions from the entrance and dance-floor grid. Mirror reflections are tiered to 100/60/30 spot-and-beam pairs for ultra/high/balanced; Quest uses balanced, cutting up to 140 active mirror meshes and 70 raycasts per mirror update relative to ultra.
+Static material-group merging removes 56 potential submissions from the entrance and dance-floor grid. Mirror reflection spots are tiered to 140/90/48 for ultra/high/balanced; Quest uses balanced with every third beam enabled, cutting 92 raycasts per mirror update and up to 216 enabled spot/beam meshes relative to ultra.
 
 ## Quest Check
 

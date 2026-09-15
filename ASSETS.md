@@ -34,6 +34,9 @@ in `index.html`).
 | `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
 | `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
 | `js/models/avatars/club-dj.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Idle_Loop`) | CC0 1.0 |
+| `js/models/avatars/Hip Hop Dancing.glb` | Adobe Mixamo character and hip-hop animation | Mixamo terms of use |
+| `js/models/avatars/house.glb` | Adobe Mixamo character and house-dance animation | Mixamo terms of use |
+| `js/models/avatars/rumba_dancing_female_character.glb` | Adobe Mixamo character and rumba animation | Mixamo terms of use |
 
 Official sources: <https://quaternius.itch.io/universal-base-characters> and
 <https://quaternius.itch.io/universal-animation-library>, plus
@@ -46,6 +49,12 @@ characters and animations, and
 The checked-in GLBs were combined with `scripts/build-avatar-glb.mjs`, then optimized
 with 512 px WebP textures. Geometry transforms are omitted to preserve one shared skin
 across each modular animated character.
+
+The three Mixamo-derived GLBs are retained to provide distinct authored dance motion.
+They are not covered by this repository's MIT licence. Adobe permits Mixamo characters
+and animations in projects under its published terms, but redistribution of editable or
+extractable raw character files may be restricted. Confirm that shipping these GLBs is
+compatible with the intended distribution before a public release.
 
 ## Environment / surface textures
 
