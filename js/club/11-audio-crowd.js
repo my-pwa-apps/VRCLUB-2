@@ -604,28 +604,12 @@ class VRClubAudioCrowd extends VRClubUI {
             mat.forceDepthWrite = true;
             mat.backFaceCulling = true;
 
-            // Aerial-only show looks deliberately extinguish every surface light for
-            // several bars. In a headset, dark avatar textures then fall below the
-            // display black level and look unloaded even though the meshes stay active.
-            // Preserve a neutral silhouette floor without making the crowd a light source.
-            const silhouetteFloor = 0.012;
-            if (mat.emissiveColor) {
-                mat.emissiveColor.r = Math.max(mat.emissiveColor.r, silhouetteFloor);
-                mat.emissiveColor.g = Math.max(mat.emissiveColor.g, silhouetteFloor);
-                mat.emissiveColor.b = Math.max(mat.emissiveColor.b, silhouetteFloor);
-            } else {
-                mat.emissiveColor = new BABYLON.Color3(silhouetteFloor, silhouetteFloor, silhouetteFloor);
-            }
-
             [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
                 if (!tex) return;
                 tex.hasAlpha = false;
                 tex.anisotropicFilteringLevel = aniso;
             });
 
-            // Frozen once, here. Never inside the render loop - Material.freeze()
-            // calls markDirty(), which walks every mesh in the scene.
-            mat.freeze();
         });
     }
 
@@ -657,6 +641,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
         root.name = name;
         root.position.copyFrom(position);
+        root.rotationQuaternion = null;
         root.rotation.y = facing;
         root.scaling.setAll(1);
         root.computeWorldMatrix(true);
@@ -713,32 +698,34 @@ class VRClubAudioCrowd extends VRClubUI {
 
     async createDancingNPCs() {
         // === CROWD + DJ ===
-        // Only three animated avatar GLBs exist, and two of them are ~60 MB, so the
-        // crowd is built by loading each file ONCE into an AssetContainer and then
+        // The crowd is built by loading each source file ONCE into an AssetContainer and then
         // instantiating it per dancer. That gives every dancer its own skeleton and
         // animation group (so nobody moves in lockstep) off a single download and a
         // single set of geometry buffers and materials.
         const crowdSize = Math.max(0, this.tierSettings.crowdSize | 0);
 
         const avatarSources = [
-            './js/models/avatars/Hip Hop Dancing.glb',
-            './js/models/avatars/house.glb',
-            './js/models/avatars/rumba_dancing_female_character.glb'
+            './js/models/avatars/club-dancer-female.glb',
+            './js/models/avatars/club-dancer-male.glb'
         ];
 
         log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
 
-        const containers = [];
-        for (const url of avatarSources) {
+        const loadAvatarSource = async url => {
             try {
                 const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
                 this._prepareAvatarMaterials(container.materials);
                 this._avatarContainers.push(container);
-                containers.push(container);
+                return container;
             } catch (error) {
                 log.warn(`  ❌ Failed to load avatar source ${url}: ${error.message}`);
-                containers.push(null);
+                return null;
             }
+        };
+
+        const containers = [];
+        for (const url of avatarSources) {
+            containers.push(await loadAvatarSource(url));
         }
 
         const available = containers.filter(Boolean);
@@ -759,17 +746,17 @@ class VRClubAudioCrowd extends VRClubUI {
         // None of these fall inside the DJ platform footprint (x -3..3, z -20..-16).
         const crowdSlots = [
             { x: -3.4, z: -13.4, src: 0, height: 1.84, facing:  0.10 },
-            { x:  3.2, z: -13.0, src: 2, height: 1.66, facing: -0.12 },
-            { x:  0.4, z: -10.8, src: 1, height: 1.74, facing:  0.04 },
+            { x:  3.2, z: -13.0, src: 1, height: 1.66, facing: -0.12 },
+            { x:  0.4, z: -10.8, src: 0, height: 1.74, facing:  0.04 },
             { x: -6.0, z: -11.6, src: 1, height: 1.79, facing:  0.28 },
             { x:  5.6, z: -11.0, src: 0, height: 1.71, facing: -0.26 },
-            { x: -1.4, z:  -8.6, src: 2, height: 1.62, facing:  0.08 },
-            { x:  2.6, z: -15.0, src: 1, height: 1.88, facing: -0.06 },
-            { x: -4.6, z: -15.2, src: 2, height: 1.69, facing:  0.16 },
-            { x:  6.6, z:  -8.4, src: 1, height: 1.77, facing: -0.34 },
-            { x: -6.8, z:  -8.0, src: 0, height: 1.81, facing:  0.36 },
-            { x:  1.6, z:  -7.4, src: 2, height: 1.60, facing: -0.10 },
-            { x: -7.4, z: -13.8, src: 2, height: 1.73, facing:  0.42 },
+            { x: -1.4, z:  -8.6, src: 1, height: 1.62, facing:  0.08 },
+            { x:  2.6, z: -15.0, src: 0, height: 1.88, facing: -0.06 },
+            { x: -4.6, z: -15.2, src: 1, height: 1.69, facing:  0.16 },
+            { x:  6.6, z:  -8.4, src: 0, height: 1.77, facing: -0.34 },
+            { x: -6.8, z:  -8.0, src: 1, height: 1.81, facing:  0.36 },
+            { x:  1.6, z:  -7.4, src: 0, height: 1.60, facing: -0.10 },
+            { x: -7.4, z: -13.8, src: 1, height: 1.73, facing:  0.42 },
             { x:  7.2, z: -13.6, src: 0, height: 1.86, facing: -0.40 },
             { x: -0.6, z:  -6.4, src: 1, height: 1.68, facing:  0.02 }
         ];
@@ -784,13 +771,13 @@ class VRClubAudioCrowd extends VRClubUI {
         // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
         // the deck plinth (z=-19), facing the floor. Playback is dialled well down so
         // they read as working the decks rather than raving in the crowd.
-        const djSource = pick(1);
+        const djSource = await loadAvatarSource('./js/models/avatars/club-dj.glb');
         if (djSource) {
             this._spawnAvatar(
                 djSource,
                 'djPerformer',
                 new BABYLON.Vector3(0, 0.5, -19.4),
-                0,             // source avatar's forward axis points toward the dance floor at +z
+                0,
                 1.78,
                 0.55
             );

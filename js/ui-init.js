@@ -141,6 +141,16 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
+(function initSplashVRComfort() {
+    const checkbox = document.getElementById('splashVRComfort');
+    if (!checkbox) return;
+    try { checkbox.checked = localStorage.getItem('vrclub.vrComfort') !== '0'; } catch (_) {}
+    checkbox.addEventListener('change', () => {
+        try { localStorage.setItem('vrclub.vrComfort', checkbox.checked ? '1' : '0'); } catch (_) {}
+        if (window.vrClub) window.vrClub.setVRComfortMode(checkbox.checked);
+    });
+})();
+
 // Enter Club Button
 if (enterClubBtn) {
     enterClubBtn.addEventListener('click', function() {
@@ -622,6 +632,13 @@ function initVJMenu() {
     // === ACCESSIBILITY: Photosensitive Safe Mode + Bass Haptics ===
     const safeModeBtn = document.getElementById('vjSafeModeBtn');
     const bassHapticsBtn = document.getElementById('vjBassHapticsBtn');
+    const vrComfortBtn = document.getElementById('vjVRComfortBtn');
+    if (vrComfortBtn) {
+        setToggleState(vrComfortBtn, vrClubInstance.vrComfortMode);
+        vrComfortBtn.addEventListener('click', () => {
+            vrClubInstance.setVRComfortMode(!vrClubInstance.vrComfortMode);
+        });
+    }
     const splashSafeState = document.getElementById('splashSafeModeState');
     const splashSafeBtn = document.getElementById('splashSafeModeBtn');
     if (safeModeBtn) {

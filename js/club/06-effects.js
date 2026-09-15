@@ -478,7 +478,7 @@ class VRClubEffects extends VRClubFixtures {
         sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
         sheetMat.disableLighting = true;
-        sheetMat.alpha = 0.10;
+        sheetMat.alpha = 0.025;
         sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         sheetMat.backFaceCulling = false;
         sheetMat.disableDepthWrite = true;
@@ -486,13 +486,12 @@ class VRClubEffects extends VRClubFixtures {
         // Procedural noise for smoke movement
         const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
         noiseTexture.octaves = 4;
-        noiseTexture.persistence = 0.8; // Smoky detail
+        noiseTexture.persistence = 0.5;
         noiseTexture.animationSpeedFactor = 0.5;
-        noiseTexture.brightness = 0.5;
-        noiseTexture.contrast = 2.0; // Defined smoke wisps
+        noiseTexture.brightness = 0.62;
+        noiseTexture.contrast = 0.85;
         
         sheetMat.opacityTexture = noiseTexture;
-        sheetMat.emissiveTexture = noiseTexture; // Texture the light itself
         
         sheet.material = sheetMat;
         this.laserSheet = sheet;
@@ -508,13 +507,13 @@ class VRClubEffects extends VRClubFixtures {
         const hazeMat = sheetMat.clone("laserSheetHazeMat");
         const hazeNoise = new BABYLON.NoiseProceduralTexture("laserSheetHazeNoise", 128, this.scene);
         hazeNoise.octaves = 6;
-        hazeNoise.persistence = 0.62;
+        hazeNoise.persistence = 0.48;
         hazeNoise.animationSpeedFactor = 0.16;
-        hazeNoise.brightness = 0.42;
-        hazeNoise.contrast = 2.8;
+        hazeNoise.brightness = 0.56;
+        hazeNoise.contrast = 1.15;
         hazeMat.opacityTexture = hazeNoise;
-        hazeMat.emissiveTexture = hazeNoise;
-        hazeMat.alpha = 0.06;
+        hazeMat.emissiveTexture = null;
+        hazeMat.alpha = 0.012;
         hazeSheet.material = hazeMat;
         this.laserSheetHaze = hazeSheet;
         
@@ -536,72 +535,6 @@ class VRClubEffects extends VRClubFixtures {
         this.configureLaserSheetVariant();
         
         log.info('✨ Laser sheet effect created with hyperrealistic source');
-    }
-
-    createLaserSheetSmokeScatter() {
-        if (!this.laserSheetSource || !this._fogParticleTexture || this.laserSheetSmokeScatter) return;
-
-        const capacity = this.graphicsTier === 'ultra' ? 420
-            : this.graphicsTier === 'high' ? 320 : 220;
-        const scatter = new BABYLON.ParticleSystem('laserSheetSmokeScatter', capacity, this.scene);
-        scatter.particleTexture = this._fogParticleTexture;
-        scatter.emitter = this.laserSheetSource;
-        scatter.emitRate = 0;
-        scatter.billboardMode = BABYLON.ParticleSystem.BILLBOARDMODE_ALL;
-        scatter.minSize = 0.28;
-        scatter.maxSize = 0.72;
-        scatter.minScaleX = 2.5;
-        scatter.maxScaleX = 5.5;
-        scatter.minScaleY = 0.18;
-        scatter.maxScaleY = 0.45;
-        scatter.minLifeTime = 1.2;
-        scatter.maxLifeTime = 2.6;
-        scatter.minEmitPower = 0.045;
-        scatter.maxEmitPower = 0.12;
-        scatter.minInitialRotation = -0.65;
-        scatter.maxInitialRotation = 0.65;
-        scatter.minAngularSpeed = -0.10;
-        scatter.maxAngularSpeed = 0.10;
-        scatter.gravity = new BABYLON.Vector3(0, 0.008, 0);
-        // Real laser haze reveals density filaments; additive sprites read as glowing
-        // bubbles. Standard alpha keeps overlapping wisps translucent with dark voids.
-        scatter.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        scatter.updateSpeed = 0.008;
-        scatter.color1 = new BABYLON.Color4(0, 0.8, 0.15, 0.13);
-        scatter.color2 = new BABYLON.Color4(0.1, 1, 0.25, 0.07);
-        scatter.colorDead = new BABYLON.Color4(0, 0, 0, 0);
-        scatter.addSizeGradient(0, 0.2);
-        scatter.addSizeGradient(0.18, 1.0);
-        scatter.addSizeGradient(0.72, 1.15);
-        scatter.addSizeGradient(1, 0.55);
-
-        const localPosition = new BABYLON.Vector3();
-        const localDirection = new BABYLON.Vector3();
-        const length = this._laserSheetLength;
-        const halfWidthEnd = this._laserSheetWidthEnd / 2;
-        scatter.startPositionFunction = (worldMatrix, positionToUpdate) => {
-            const distance = 2 + Math.random() * (length - 2);
-            const halfWidth = halfWidthEnd * (distance / length);
-            localPosition.set(
-                (Math.random() * 2 - 1) * halfWidth,
-                (Math.random() - 0.5) * 0.14,
-                distance
-            );
-            BABYLON.Vector3.TransformCoordinatesToRef(localPosition, worldMatrix, positionToUpdate);
-        };
-        scatter.startDirectionFunction = (worldMatrix, directionToUpdate) => {
-            const flow = Math.random() < 0.5 ? -1 : 1;
-            const speed = 0.08 + Math.random() * 0.14;
-            localDirection.set(
-                flow * speed,
-                (Math.random() - 0.35) * 0.025,
-                (Math.random() - 0.5) * 0.018
-            );
-            BABYLON.Vector3.TransformNormalToRef(localDirection, worldMatrix, directionToUpdate);
-        };
-
-        scatter.start();
-        this.laserSheetSmokeScatter = scatter;
     }
 
     configureLaserSheetVariant() {
@@ -936,13 +869,19 @@ class VRClubEffects extends VRClubFixtures {
         // These are the visible light rays emanating FROM the ball in all directions
         // Real disco balls reflect light to ceiling, walls, floor - creating a sphere of rays
         this.mirrorBallOutgoingRays = [];
-        const numRays = 24;
+        const numRays = 64;
         
         for (let i = 0; i < numRays; i++) {
             // Distribute rays evenly using golden angle spiral on a sphere
             const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5 degrees
             const theta = goldenAngle * i;
-            const phi = Math.acos(1 - 2 * (i + 0.5) / numRays); // Uniform sphere distribution
+            let latitude = 0.5 / numRays;
+            let latitudeWeight = 0.5;
+            for (let latitudeIndex = i; latitudeIndex > 0; latitudeIndex = Math.floor(latitudeIndex / 2)) {
+                latitude += (latitudeIndex % 2) * latitudeWeight;
+                latitudeWeight *= 0.5;
+            }
+            const phi = Math.acos(1 - 2 * latitude);
             
             // Calculate ray direction in spherical coordinates
             const dirX = Math.sin(phi) * Math.cos(theta);
@@ -978,7 +917,8 @@ class VRClubEffects extends VRClubFixtures {
             // Offset position so ray starts at ball surface, not center
             ray.position = ballPosition.add(dir.scale(rayLength / 2 + 0.6)); // 0.6m = ball radius
             
-            // UPGRADE: Share 1 material for all 40 rays (was 40 unique but identical materials)
+            // Share one material across the full ultra-tier ray pool. Lower tiers
+            // enable a prefix of this evenly distributed golden-angle sequence.
             // Per-ray alpha variation handled via mesh.visibility instead of material.alpha
             if (!this._sharedMirrorRayMat) {
                 this._sharedMirrorRayMat = new BABYLON.StandardMaterial('sharedMirrorRayMat', this.scene);

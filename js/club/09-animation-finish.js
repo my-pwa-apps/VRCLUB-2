@@ -45,9 +45,23 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         (inDropMode ? 0.07 : 0.09) / Math.sqrt(strobeSpeedMultiplier)
                     );
                     const intensity = Math.min(100, intensityBase);
-                    const chaseOrder = [0, 1, 3, 2];
-                    const chaseIndex = chaseOrder[(this._strobeChaseStep || 0) % chaseOrder.length];
-                    this._strobeChaseStep = (this._strobeChaseStep || 0) + 1;
+                    let chaseIndex = -1;
+                    if (this.strobePattern === 'chase') {
+                        if (this.strobes.length === 1) {
+                            chaseIndex = 0;
+                        } else {
+                            // Pick any corner except the previous one. This reads as
+                            // improvised without allowing one fixture to double-hit.
+                            const last = Number.isInteger(this._lastStrobeChaseIndex) &&
+                                this._lastStrobeChaseIndex >= 0 &&
+                                this._lastStrobeChaseIndex < this.strobes.length
+                                ? this._lastStrobeChaseIndex : -1;
+                            const candidateCount = this.strobes.length - (last >= 0 ? 1 : 0);
+                            chaseIndex = Math.floor(Math.random() * candidateCount);
+                            if (last >= 0 && chaseIndex >= last) chaseIndex++;
+                        }
+                        this._lastStrobeChaseIndex = chaseIndex;
+                    }
                     this.strobes.forEach((strobe, index) => {
                         const active = this.strobePattern !== 'chase' || index === chaseIndex;
                         strobe.currentIntensity = active ? intensity : 0;
@@ -63,8 +77,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             }
                         }
                     });
-                    const interval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
-                    this._nextStrobeBurstTime = time + interval / strobeSpeedMultiplier;
+                    const baseInterval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
+                    const intervalVariation = 0.6 + Math.random() * 1.0;
+                    this._nextStrobeBurstTime = time +
+                        (baseInterval * intervalVariation) / strobeSpeedMultiplier;
                 }
                 
                 this.strobes.forEach((strobe) => {
@@ -116,20 +132,6 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             strobe.light.setEnabled(false);
                         }
                         
-                        // VJ AUTO-MODE: Faster strobing during drops and builds
-                        let flashInterval;
-                        if (inDropMode) {
-                            // RAPID FIRE during drops (0.05-0.15s)
-                            flashInterval = (0.05 + Math.random() * 0.1) / strobeSpeedMultiplier;
-                        } else if (inBuildMode) {
-                            // Increasing frequency during build (0.1-0.3s)
-                            const buildFactor = 1 - (this.vjBuildIntensity - 0.7) / 0.3;
-                            flashInterval = (0.1 + Math.random() * 0.2 * buildFactor) / strobeSpeedMultiplier;
-                        } else {
-                            // Normal operation (0.1-1.0s)
-                            flashInterval = (0.1 + Math.random() * 0.9) / strobeSpeedMultiplier;
-                        }
-                        strobe.nextFlashTime = time + flashInterval;
                     }
                 }
                 });

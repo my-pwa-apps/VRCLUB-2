@@ -6,6 +6,141 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-09-15 — Immersive environment presence assessment
+
+Scope: desktop runtime inspection at arrival, dance-floor, bar-wall and DJ-booth positions;
+scene-graph/material/audio/interaction inspection; repository evidence; existing performance
+records. Quest frame timing, stereoscopic stability, scale and comfort still require an in-headset
+pass, so findings that depend on them are not presented as confirmed visual defects.
+
+- [ ] **Restore distinct entrance and bar presence zones**
+
+  **Priority:** High
+  **Category:** Environment
+  **Confidence:** High
+  **Area:** Arrival, room perimeter and right wall
+  **Evidence:** `createEntranceArea()`, `createDanceFloorLighting()` and `createBar()` exist, but
+  `init()` explicitly omits all three "for cleaner look". Runtime inspection found zero entrance,
+  stanchion, bar, bottle or shelf meshes; the right wall is an uninterrupted dark surface.
+  **Problem:** The 25 m x 16 m room has almost no spatial hierarchy outside the stage, so it reads
+  as a lighting volume rather than a venue that supports arrival, waiting, service and circulation.
+  **Presence impact:** Looking away from the DJ immediately reveals an empty simulation shell.
+  **Recommended solution:** Reintroduce a restrained threshold and compact working bar using the
+  existing methods as prototypes, then replace decorative primitives with a small believable
+  ecosystem: door/security point, counter, backbar, sink/till/bin/storage cues and warm practicals.
+  **Performance considerations:** Merge static geometry, share materials and use emissive practicals;
+  set a fixed draw-call and texture-memory budget before enabling the zone on Quest.
+  **Acceptance criteria:** Arrival, dance floor and bar are visually distinguishable with show lights
+  disabled; each has a plausible function and circulation path; the Quest balanced tier stays within
+  its measured frame budget.
+  **Validation:** A/B captures from arrival and the right wall, collision walk-through, and sustained
+  Quest GPU/CPU frame-time capture with the bar visible.
+  **Estimated effort:** Medium
+  **Immersion value:** High
+
+- [ ] **Replace the looping clone crowd with social micro-behaviours**
+
+  **Priority:** High
+  **Category:** Crowd
+  **Confidence:** High
+  **Area:** Dance floor and DJ booth
+  **Evidence:** High tier rendered ten dancers plus one DJ from three source GLBs. Every character
+  ran one looping animation; repeated sources differed mainly by phase and speed, all crowd slots
+  were oriented toward the booth, and the runtime has no gaze, idle, conversation or navigation state.
+  **Problem:** Repeated full-body loops and evenly distributed solo performers create obvious clone
+  and chorus-line patterns despite phase offsets.
+  **Presence impact:** Humans become the strongest computer-generated cue in the primary presence zone.
+  **Recommended solution:** Keep the tiered headcount but add a low-frequency behaviour scheduler with
+  dancing, resting, talking, watching, phone-check and transit states; arrange pairs/small groups,
+  vary facing and personal space, and reserve the most animated loops for a minority.
+  **Performance considerations:** Reuse current skeletons and animation LOD; state changes should occur
+  infrequently and must not add per-frame allocations, pathfinding or a higher Quest headcount.
+  **Acceptance criteria:** A two-minute fixed-camera capture contains no synchronized restarts; fewer
+  than half of visible patrons face the DJ continuously; at least three readable social states occur;
+  balanced-tier skeleton and draw counts do not increase.
+  **Validation:** Timeline capture from arrival and dance floor, automated state-distribution test, and
+  in-headset uncanny/repetition review.
+  **Estimated effort:** Large
+  **Immersion value:** High
+
+- [ ] **Establish a representative Quest 3S frame-time and stability baseline**
+
+  **Priority:** High
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Balanced tier, WebXR render loop and worst-case show cues
+  **Evidence:** The documented baseline records desktop automation at 4 FPS and explicitly says it is
+  not representative. This review observed 1,015 meshes, 590 active meshes, 487 materials and roughly
+  611 draws from one high-tier arrival frame, but the repository contains no Quest CPU/GPU frame-time,
+  dropped-frame, reprojection, thermal-soak or texture-memory result.
+  **Problem:** Stable headset delivery, the hard requirement for presence and comfort, is currently an
+  assumption rather than a release criterion.
+  **Presence impact:** Judder, reprojection or thermal degradation could invalidate every visual gain.
+  **Recommended solution:** Define a repeatable 15-minute Quest 3S route covering arrival, crowd,
+  mirror ball, laser sheet and maximum safe lighting; capture refresh rate, CPU/GPU frame time, dropped
+  frames, memory and thermals, then set budgets and fail criteria in `docs/PERFORMANCE_BASELINE.md`.
+  **Performance considerations:** Measurement only initially; optimize from the measured dominant cost
+  instead of reducing effect density by assumption.
+  **Acceptance criteria:** Balanced tier sustains the selected native refresh target through the route
+  without progressive thermal frame loss; worst-case p95 CPU and GPU times retain documented headroom.
+  **Validation:** Quest 3S capture using the same route and show-state seed on two cold starts and one
+  thermal-soak run.
+  **Estimated effort:** Medium
+  **Immersion value:** High
+
+- [ ] **Add minimal player embodiment and physical venue response**
+
+  **Priority:** High
+  **Category:** Interaction
+  **Confidence:** Medium
+  **Area:** Player rig, DJ booth and nearby venue objects
+  **Evidence:** The scene has no player body or rendered hands; controller meshes and near interaction
+  are disabled, venue meshes have no action managers, and the physics engine is disabled. Interaction
+  is intentionally limited to far-pointer VJ controls, locomotion, collisions and controller haptics.
+  **Problem:** At close range the player behaves like a floating camera that can operate a control desk
+  but cannot physically register against the venue.
+  **Presence impact:** Reaching toward rails, booth surfaces or obvious controls produces no embodied
+  response, weakening scale and ownership of space.
+  **Recommended solution:** Add lightweight tracked hand/controller proxies and collision-aware hand
+  poses, then choose two high-value responses rather than broad physics: rail/booth contact haptics and
+  one physically depressed DJ control. Keep decorative venue props visibly non-interactive.
+  **Performance considerations:** Avoid a general rigid-body simulation; use bounded overlaps, authored
+  poses and pooled haptic events suitable for Quest.
+  **Acceptance criteria:** Hands/controllers remain aligned at normal reach, never pass visibly through
+  the booth or rail during the test route, and the chosen control gives visual and tactile confirmation.
+  **Validation:** In-headset seated/standing reach tests across two player heights and both controllers.
+  **Estimated effort:** Large
+  **Immersion value:** High
+
+- [ ] **Author eye-level wear and break up large surface repetition**
+
+  **Priority:** Medium
+  **Category:** Material
+  **Confidence:** High
+  **Area:** Floor, perimeter walls, entrance threshold and DJ booth
+  **Evidence:** Local 1K PBR texture sets provide albedo, normal, roughness and AO, but one wall set is
+  tiled 4 x 2 across long 25-45 m planes and the floor set 6 x 6 across a 35 x 45 m ground mesh. Runtime
+  and close captures show clean box junctions and broad repeated material response with little localized
+  wear, dirt accumulation, repairs, cable routing or contact variation.
+  **Problem:** Good base materials describe material type but not how this specific club was built,
+  touched, cleaned and damaged.
+  **Presence impact:** At 10-20 cm inspection, repetition and perfect transitions reveal procedural
+  construction before texture resolution becomes the limiting factor.
+  **Recommended solution:** Add a small shared trim/decal atlas and sparse geometry for thresholds,
+  skirting, floor-edge buildup, patched conduit mounts, booth fingerprints and traffic wear. Place marks
+  by physical cause and avoid uniform grunge.
+  **Performance considerations:** Use atlas batching, instanced fasteners and distance-gated decals;
+  do not increase base texture resolution or add unique 4K maps.
+  **Acceptance criteria:** No obvious repeated stain/feature appears twice in one headset view; floor-wall
+  and booth-floor contacts have depth and localized wear; added balanced-tier draw and memory costs are
+  measured and remain inside the Quest budget.
+  **Validation:** 10-20 cm in-headset inspection at five fixed locations plus before/after material and
+  draw-call captures.
+  **Estimated effort:** Medium
+  **Immersion value:** High
+
+---
+
 ## Feature — 2026-07-29 — Hyperrealistic rendering tiers
 
 - [x] Renderer had no way to scale visual quality to the GPU it was running on

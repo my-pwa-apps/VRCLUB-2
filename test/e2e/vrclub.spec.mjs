@@ -56,6 +56,99 @@ async function expectHealthyRuntime(page) {
     expect(browserFailures.get(page)).toEqual([]);
 }
 
+test('later lighting groups respect opaque depth without hiding foreground beams', async ({ page }) => {
+    await enterClub(page);
+    const results = await page.evaluate(async () => {
+        const club = window.vrClub;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 64;
+        const engine = new BABYLON.Engine(canvas, false, { preserveDrawingBuffer: true });
+        const scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color4(0, 0, 0, 1);
+        new BABYLON.FreeCamera('occlusionCamera', new BABYLON.Vector3(0, 0, -5), scene);
+        const occluder = BABYLON.MeshBuilder.CreatePlane('opaqueSurface', { size: 2 }, scene);
+        const opaque = new BABYLON.StandardMaterial('opaqueMaterial', scene);
+        opaque.disableLighting = true;
+        occluder.material = opaque;
+        const beam = BABYLON.MeshBuilder.CreatePlane('testBeam', { size: 2 }, scene);
+        const emission = new BABYLON.StandardMaterial('beamMaterial', scene);
+        emission.disableLighting = true;
+        emission.emissiveColor.set(1, 0, 0);
+        emission.alpha = 0.8;
+        emission.disableDepthWrite = true;
+        beam.material = emission;
+        try {
+            await scene.whenReadyAsync();
+            const sample = () => {
+                scene.render();
+                const pixel = new Uint8Array(4);
+                engine._gl.readPixels(32, 32, 1, 1, engine._gl.RGBA, engine._gl.UNSIGNED_BYTE, pixel);
+                return pixel[0];
+            };
+            return [1, 2].map(group => {
+                beam.renderingGroupId = group;
+                beam.position.z = 1;
+                scene.setRenderingAutoClearDepthStencil(group, true);
+                const withoutDepth = sample();
+                const setup = club.scene.getAutoClearDepthStencilSetup(group);
+                scene.setRenderingAutoClearDepthStencil(group, setup.autoClear, setup.depth, setup.stencil);
+                const behind = sample();
+                beam.position.z = -1;
+                const front = sample();
+                return { group, withoutDepth, behind, front };
+            });
+        } finally {
+            scene.dispose();
+            engine.dispose();
+        }
+    });
+    for (const result of results) {
+        expect(result.withoutDepth).toBeGreaterThan(100);
+        expect(result.behind).toBeLessThan(5);
+        expect(result.front).toBeGreaterThan(100);
+    }
+});
+
+test('mirror-only cues do not turn the foreground into a white layer', async ({ page }) => {
+    await enterClub(page);
+    const foreground = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        club.showDirector._applyCue({ look: 'deepBlue', bars: 1024 });
+        return new Promise(resolve => {
+            let frames = 0;
+            const observer = club.scene.onAfterRenderObservable.add(() => {
+                if (++frames < 60) return;
+                club.scene.onAfterRenderObservable.remove(observer);
+                const gl = club.engine._gl;
+                const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+                gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+                const pixel = new Uint8Array(4);
+                let brightness = 0;
+                let samples = 0;
+                for (let row = 1; row <= 4; row++) {
+                    for (let column = 2; column <= 8; column++) {
+                        gl.readPixels(Math.floor(gl.drawingBufferWidth * column / 10),
+                            Math.floor(gl.drawingBufferHeight * row / 12),
+                            1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+                        brightness += (pixel[0] + pixel[1] + pixel[2]) / 3;
+                        samples++;
+                    }
+                }
+                gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+                resolve({
+                    meanBrightness: brightness / samples,
+                    specularPath: club.scene.getMeshByName('floor').subMeshes[0]
+                        .materialDefines.toString().includes('#define SPECULARTERM')
+                });
+            });
+        });
+    });
+    expect(foreground.specularPath).toBe(true);
+    expect(foreground.meanBrightness).toBeLessThan(60);
+    await expectHealthyRuntime(page);
+});
+
 test('production build initializes a rendered club without browser errors', async ({ page }) => {
     page.on('console', message => {
         if (message.text().includes('uniform buffer that is too small')) {
@@ -64,12 +157,38 @@ test('production build initializes a rendered club without browser errors', asyn
     });
     await enterClub(page);
 
+    const lightingState = await page.evaluate(async () => {
+        const club = window.vrClub;
+        await club.modelLoadPromise;
+        await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        const floor = club.scene.getMeshByName('floor');
+        const equipmentLights = club.scene.lights.filter(light =>
+            /^(djConsoleLight|speakerLight_)/.test(light.name));
+        return {
+            responsiveMaterials: !club.scene.blockMaterialDirtyMechanism && !floor.material.isFrozen,
+            floorHasSpotlights: floor.lightSources.some(light => light.name.startsWith('spot')),
+            equipmentCount: equipmentLights.length,
+            equipmentIsLocal: equipmentLights.every(light => light.includedOnlyMeshes.length > 0 &&
+                !light.canAffectMesh(floor))
+        };
+    });
+    expect(lightingState).toEqual({
+        responsiveMaterials: true,
+        floorHasSpotlights: true,
+        equipmentCount: 3,
+        equipmentIsLocal: true
+    });
+
     const renderState = await page.evaluate(() => ({
         ready: window.vrClub.ready,
         canvasWidth: window.vrClub.canvas.width,
         canvasHeight: window.vrClub.canvas.height,
         activeCamera: window.vrClub.scene.activeCamera?.name,
         engineDisposed: window.vrClub.engine.isDisposed,
+        cameraArtifactsDisabled: !window.vrClub.renderPipeline.grainEnabled &&
+            !window.vrClub.renderPipeline.chromaticAberrationEnabled,
+        floorFogRemoved: !window.vrClub.scene.particleSystems.some(system => system.name === 'floorFog'),
+        configuredGlow: window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.desktop.glowIntensity,
         blindersRemoved: !('blindersActive' in window.vrClub) &&
             !window.vrClub.scene.meshes.some(mesh => /blinder/i.test(mesh.name)) &&
             !document.querySelector('[data-control="blindersActive"]')
@@ -78,6 +197,9 @@ test('production build initializes a rendered club without browser errors', asyn
         ready: true,
         activeCamera: 'camera',
         engineDisposed: false,
+        cameraArtifactsDisabled: true,
+        floorFogRemoved: true,
+        configuredGlow: true,
         blindersRemoved: true
     });
     expect(renderState.canvasWidth).toBeGreaterThan(0);
@@ -92,13 +214,6 @@ test('production build initializes a rendered club without browser errors', asyn
             exists: Boolean(club.laserSheet),
             hazeLayerExists: Boolean(club.laserSheetHaze),
             smokeScatterExists: Boolean(club.laserSheetSmokeScatter),
-            smokeScatterCapacity: club.laserSheetSmokeScatter?.getCapacity(),
-            smokeUsesStandardAlpha: club.laserSheetSmokeScatter?.blendMode ===
-                globalThis.BABYLON.ParticleSystem.BLENDMODE_STANDARD,
-            smokeIsVelocityStretched: club.laserSheetSmokeScatter?.billboardMode ===
-                globalThis.BABYLON.ParticleSystem.BILLBOARDMODE_STRETCHED,
-            smokeAspectRatio: club.laserSheetSmokeScatter?.minScaleX /
-                club.laserSheetSmokeScatter?.maxScaleY,
             hazeUsesIndependentNoise: club.laserSheetHaze?.material.opacityTexture !==
                 club.laserSheet.material.opacityTexture,
             active: club.laserSheetActive,
@@ -118,7 +233,7 @@ test('production build initializes a rendered club without browser errors', asyn
                 origin: club.laserSheetOrigin,
                 motion: club.laserSheetMotion,
                 position: club.laserSheetSource.position.asArray(),
-                smokeScatterEmitRate: club.laserSheetSmokeScatter.emitRate,
+                smokeScatterEmitRate: club.laserSheetSmokeScatter?.emitRate || 0,
                 start,
                 afterTenSeconds: {
                     pitch: club.laserSheetSource.rotation.x,
@@ -203,16 +318,13 @@ test('production build initializes a rendered club without browser errors', asyn
         laserSheet: {
             exists: true,
             hazeLayerExists: true,
-            smokeScatterExists: true,
-            smokeUsesStandardAlpha: true,
-            smokeIsVelocityStretched: false,
+            smokeScatterExists: false,
             hazeUsesIndependentNoise: true,
             active: true,
-            alpha: 0.10,
+            alpha: 0.025,
             depthWriteDisabled: true,
             exclusive: true
         },
-        chase: [[0], [1], [3], [2]],
         chaseExclusive: true,
         safeMode: { strobes: false },
         colorLock: {
@@ -222,18 +334,17 @@ test('production build initializes a rendered club without browser errors', asyn
             led: showState.colorLock.master
         }
     });
-    expect(showState.laserSheet.smokeScatterCapacity).toBeGreaterThanOrEqual(220);
-    expect(showState.laserSheet.smokeScatterCapacity).toBeLessThanOrEqual(420);
-    expect(showState.laserSheet.smokeAspectRatio).toBeGreaterThan(5);
+    expect(showState.chase.every(burst => burst.length === 1)).toBe(true);
+    expect(showState.chase.every((burst, index) => index === 0 || burst[0] !== showState.chase[index - 1][0])).toBe(true);
     expect(showState.laserSheet.minimumPitch).toBeGreaterThan(0);
     expect(showState.sheetVariants.left).toMatchObject({
         origin: 'ceilingLeft',
         motion: 'lateral',
         position: [-6, 7.55, -16]
     });
-    expect(showState.sheetVariants.left.afterTenSeconds.pitch)
-        .toBeCloseTo(showState.sheetVariants.left.start.pitch, 6);
-    expect(showState.sheetVariants.left.smokeScatterEmitRate).toBeGreaterThan(0);
+    expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.pitch - showState.sheetVariants.left.start.pitch))
+        .toBeGreaterThan(0.005);
+    expect(showState.sheetVariants.left.smokeScatterEmitRate).toBe(0);
     expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.yaw - showState.sheetVariants.left.start.yaw))
         .toBeGreaterThan(0.015);
     expect(showState.sheetVariants.right).toMatchObject({
@@ -241,9 +352,9 @@ test('production build initializes a rendered club without browser errors', asyn
         motion: 'vertical',
         position: [6, 7.55, -16]
     });
-    expect(showState.sheetVariants.right.afterTenSeconds.yaw)
-        .toBeCloseTo(showState.sheetVariants.right.start.yaw, 6);
-    expect(showState.sheetVariants.right.smokeScatterEmitRate).toBeGreaterThan(0);
+    expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.yaw - showState.sheetVariants.right.start.yaw))
+        .toBeGreaterThan(0.005);
+    expect(showState.sheetVariants.right.smokeScatterEmitRate).toBe(0);
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.pitch - showState.sheetVariants.right.start.pitch))
         .toBeGreaterThan(0.015);
     expect(showState.roomBounce.active).toBeGreaterThanOrEqual(0.19);
@@ -265,6 +376,19 @@ test('production build initializes a rendered club without browser errors', asyn
         return {
             mirrorActive: club.mirrorBallActive,
             realMirrorLightExists: Boolean(club.scene.getLightByName('mirrorBallSpotlight0')),
+            hemisphereCoverage: [32, 52, 64].map(count => {
+                const rays = club.mirrorBallOutgoingRays.slice(0, count);
+                return [
+                    rays.filter(ray => Math.cos(ray.phi) > 0).length,
+                    rays.filter(ray => Math.cos(ray.phi) < 0).length
+                ];
+            }),
+            outgoingRays: club.mirrorBallOutgoingRays.filter(ray => ray.mesh.isEnabled()).length,
+            expectedOutgoingRays: club.tierSettings.mirrorRays,
+            reflectionBeams: club.mirrorReflectionSpots.filter(spot => spot.beam?.isEnabled()).length,
+            expectedReflectionBeams: Math.ceil(
+                club.tierSettings.mirrorSpots / club.tierSettings.mirrorBeamStride
+            ),
             avatarsActive: categoryIsActive(/dancer/i),
             trussActive: categoryIsActive(/truss/i),
             djActive: categoryIsActive(/djPlatform|djTable|leftCDJ|rightCDJ|mixer/i)
@@ -273,6 +397,11 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(mirrorCueState).toEqual({
         mirrorActive: true,
         realMirrorLightExists: false,
+        hemisphereCoverage: [[16, 16], [26, 26], [32, 32]],
+        outgoingRays: mirrorCueState.expectedOutgoingRays,
+        expectedOutgoingRays: mirrorCueState.expectedOutgoingRays,
+        reflectionBeams: mirrorCueState.expectedReflectionBeams,
+        expectedReflectionBeams: mirrorCueState.expectedReflectionBeams,
         avatarsActive: true,
         trussActive: true,
         djActive: true
@@ -309,6 +438,10 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         diagnosticsInVR: window.vrClub.getDiagnostics().isInVR,
         controllerCount: window.vrClub._xrControllers.length,
         movementEnabled: Boolean(window.vrClub.movementFeature),
+        comfortEnabled: window.vrClub.vrComfortMode,
+        continuousMovement: window.vrClub.movementFeature.movementEnabled,
+        continuousRotation: window.vrClub.movementFeature.rotationEnabled,
+        teleportEnabled: window.vrClub.vrHelper.teleportation.teleportationEnabled,
         renderScale: window.vrClub.engine.getHardwareScalingLevel(),
         xrFramebufferScale: window.vrClub.vrSettings.vr.framebufferScaleFactor,
         fxaaEnabled: window.vrClub.renderPipeline.fxaaEnabled,
@@ -322,7 +455,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             hazeRate: window.vrClub.haze.emitRate,
             hazeAlpha1: window.vrClub.haze.color1.a,
             hazeAlpha2: window.vrClub.haze.color2.a,
-            floorFogRate: window.vrClub.floorFog.emitRate
+            floorFogRemoved: !window.vrClub.scene.particleSystems.some(system => system.name === 'floorFog')
         },
         spotlightBeamDepthBias: window.vrClub.spotlights[0].beamMat.zOffset,
         mirrorBeamUsesAlpha: window.vrClub._mirrorBeamGradientTexture.hasAlpha,
@@ -332,13 +465,19 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             emissiveIntensity: beam.material.emissiveIntensity
         })),
         mirrorRealLightCount: window.vrClub.mirrorBallSpotlights.filter(Boolean).length,
-        djFacing: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')?.root.rotation.y
+        djFacing: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')?.root.rotation.y,
+        djFacingUsesEuler: window.vrClub.npcAvatars.find(npc => npc.name === 'djPerformer')
+            ?.root.rotationQuaternion === null
     }));
     expect(xrState).toMatchObject({
         inVR: true,
         diagnosticsInVR: true,
         controllerCount: 2,
         movementEnabled: true,
+        comfortEnabled: true,
+        continuousMovement: false,
+        continuousRotation: false,
+        teleportEnabled: true,
         renderScale: 1,
         xrFramebufferScale: 1.2,
         fxaaEnabled: true,
@@ -350,9 +489,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         },
         vrSmoke: {
             hazeRate: 65,
-            hazeAlpha1: 0.16,
-            hazeAlpha2: 0.13,
-            floorFogRate: 30
+            hazeAlpha1: 0.035,
+            hazeAlpha2: 0.025,
+            floorFogRemoved: true
         },
         spotlightBeamDepthBias: 0,
         mirrorBeamUsesAlpha: true,
@@ -364,6 +503,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         mirrorRealLightCount: 0
     });
     expect(xrState.djFacing).toBeCloseTo(0, 5);
+    expect(xrState.djFacingUsesEuler).toBe(true);
 
     const opticsState = await page.evaluate(() => {
         const club = window.vrClub;
@@ -529,6 +669,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         return {
             enabled: club._vrQuickMenuRoot.isEnabled(),
             buttonCount: club._vrQuickMenuButtons.length,
+            textureOnlyEmission: club._vrQuickMenuButtons.every(button =>
+                button.material.emissiveTexture === button.texture &&
+                button.material.emissiveColor.equalsFloats(0, 0, 0)),
             parentIsXRCamera: club._vrQuickMenuRoot.parent === club.vrHelper.baseExperience.camera,
             smokeChanged: club.smokeActive !== smokeBefore,
             manualMode: club.vjManualMode
@@ -536,7 +679,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(menuState).toEqual({
         enabled: true,
-        buttonCount: 8,
+        buttonCount: 14,
+        textureOnlyEmission: true,
         parentIsXRCamera: true,
         smokeChanged: true,
         manualMode: true
@@ -550,14 +694,14 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         hazeRate: window.vrClub.haze.emitRate,
         hazeAlpha1: window.vrClub.haze.color1.a,
         hazeAlpha2: window.vrClub.haze.color2.a,
-        floorFogRate: window.vrClub.floorFog.emitRate,
+        floorFogRemoved: !window.vrClub.scene.particleSystems.some(system => system.name === 'floorFog'),
         mirrorBeamAlpha: window.vrClub.mirrorBallBeams[0].material.alpha,
         mirrorBeamEmission: window.vrClub.mirrorBallBeams[0].material.emissiveIntensity
     }))).toEqual({
         hazeRate: 80,
-        hazeAlpha1: 0.12,
-        hazeAlpha2: 0.10,
-        floorFogRate: 40,
+        hazeAlpha1: 0.04,
+        hazeAlpha2: 0.03,
+        floorFogRemoved: true,
         mirrorBeamAlpha: 0.07,
         mirrorBeamEmission: 1.35
     });

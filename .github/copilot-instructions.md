@@ -164,9 +164,22 @@ real mirror-ball light. Doing so changes the light UBO layout after static PBR m
 frozen and can invalidate DJ, avatar and truss draws on WebGL.
 
 `maxSimultaneousLights` invalidates the compiled effect through `markAllSubMeshesAsLightsDirty`.
-Both `scene.blockMaterialDirtyMechanism` and `material.freeze()` suppress that, so any sweep
-that writes it must unfreeze, `markAsDirty(BABYLON.Material.LightDirtyFlag)`, and re-freeze -
-otherwise the clamp never reaches the GPU. See `_clampMaterialLightBudgets()`.
+Both `scene.blockMaterialDirtyMechanism` and `material.freeze()` suppress that. The startup
+and model-loader budget sweeps unfreeze lit materials and mark their lights dirty, even
+when the numeric budget already matches. Leave lit materials unfrozen: asynchronously
+loaded or enabled lights can change a slot from spotlight to point light without changing
+the count, leaving a frozen shader expecting a larger buffer than the bound light supplies.
+Startup restores `scene.blockMaterialDirtyMechanism = false` before rendering. Unlit
+materials may remain frozen. See `_clampMaterialLightBudgets()` and
+`ModelLoader._enforceSceneLightBudget()`; never freeze/unfreeze in the animation loop.
+
+DJ-console and PA-speaker accent lights target only their own imported meshes through
+`includedOnlyMeshes`. Do not let them consume the room or crowd's moving-spotlight budget.
+
+Keep the ambient preset's small nonzero specular contribution. Babylon 8.30.5's
+clear-coat path can read uninitialized pre-lighting vectors when only a zero-specular
+hemispheric light remains. This produces a white floor/foreground in mirror-only cues,
+not extra fog. The ambient specular term keeps `SPECULARTERM` enabled without another light.
 
 ### VR opacity
 VR stereoscopic rendering is hypersensitive to transparency. On every mesh of a loaded model:
@@ -199,6 +212,8 @@ this is*: `this.qualityTiers` (constructor, next to `vrSettings`) with `ultra` /
 - `this.tierSettings` is a getter for the active tier's config.
 - `setGraphicsTier(tier)` switches at runtime, persists the choice and rebuilds the
   tier-owned pipelines. Wired to the `cycleGraphicsQuality` VJ button.
+  After rebuilding it unfreezes and invalidates material effects once, because
+  pre-pass outputs can change when motion blur or SSR is attached or removed.
 
 Tier-gated features, all **desktop only**:
 
@@ -213,6 +228,7 @@ Tier-gated features, all **desktop only**:
 | Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
 | Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
 | Mirror reflection spots | `updateMirrorBall()` | 100 | 60 | 30 |
+| Mirror outgoing rays / beam stride | `updateMirrorBall()` | 64 / 1 | 52 / 2 | 32 / 3 |
 | SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
 | Floor `receiveShadows` | `createFloor()` | on | off | off |
 
@@ -330,6 +346,16 @@ to avoid z-fighting.
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
 | `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.lastStreamUrl` |
+
+VR comfort is persisted separately as `vrclub.vrComfort` (on unless explicitly `0`).
+`setVRComfortMode()` owns movement/rotation versus teleport/snap-turn enablement.
+Comfort mode suppresses sprint/jump and artificial gravity; XR entry preserves
+tracked eye height. `moveCameraToPreset()` routes to the XR camera when active,
+preserving head orientation and measured seated height with a booth floor offset.
+The 14-button quick menu includes comfort, safe mode, haptics, and three destinations;
+Y/B or the runtime menu component opens it. Haptics are opt-in for new visitors and
+the same preference gates both bass pulses and UI feedback. These preference and
+travel actions must not force VJ manual mode.
 
 ## UI
 

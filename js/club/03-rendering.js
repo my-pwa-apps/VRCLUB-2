@@ -318,49 +318,20 @@ class VRClubRendering extends VRClubLifecycle {
         log.info(`🔍 Anisotropic filtering set to ${target}x on ${count} textures`);
     }
 
-    /**
-     * Clamp all lit materials after scene construction to avoid WebGL UBO overflow.
-     *
-     * `maxSimultaneousLights` invalidates the compiled effect via
-     * markAllSubMeshesAsLightsDirty. Three things suppress that and ALL must be
-     * lifted, or the GPU keeps a shader compiled for the old light count while
-     * Babylon sizes the uniform buffer for the new one - which surfaces as
-     * `GL_INVALID_OPERATION: uniform buffer that is too small` on every draw:
-     *   - `scene.blockMaterialDirtyMechanism` (set during construction for speed)
-     *   - `material.freeze()` (sets checkReadyOnlyOnce, so isReady() never re-runs)
-     *   - re-freezing before the recompile has happened
-     *
-     * Hence the re-freeze is deferred to after the next render, by which point the
-     * new effect is bound. This is a one-shot post-construction sweep, so unfreezing
-     * here does not violate the "never freeze/unfreeze per frame" rule.
-     */
     _clampMaterialLightBudgets() {
         const wasBlocked = this.scene.blockMaterialDirtyMechanism;
         this.scene.blockMaterialDirtyMechanism = false;
 
-        const refreeze = [];
         let count = 0;
         this.scene.materials.forEach(material => {
-            if (material.maxSimultaneousLights === undefined ||
-                material.maxSimultaneousLights === this.maxLights) return;
-            if (material.isFrozen) {
-                material.unfreeze();
-                refreeze.push(material);
-            }
+            if (material.maxSimultaneousLights === undefined || material.disableLighting) return;
+            if (material.isFrozen) material.unfreeze();
             material.maxSimultaneousLights = this.maxLights;
             if (material.markAsDirty) material.markAsDirty(BABYLON.Material.LightDirtyFlag);
             count++;
         });
 
         this.scene.blockMaterialDirtyMechanism = wasBlocked;
-
-        if (refreeze.length && this.scene.onAfterRenderObservable) {
-            this.scene.onAfterRenderObservable.addOnce(() => {
-                refreeze.forEach(material => {
-                    if (!material.isFrozen && material.freeze) material.freeze();
-                });
-            });
-        }
         log.info(`💡 Clamped ${count} materials to ${this.maxLights} simultaneous lights`);
     }
 

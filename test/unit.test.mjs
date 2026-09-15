@@ -42,7 +42,7 @@ function makeBabylonStub() {
             : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
         return out.set(r + m, g + m, b + m);
     };
-    return { Color3, Vector3 };
+    return { Color3, Vector3, Material: { MATERIAL_OPAQUE: 0 } };
 }
 
 function loadClassic(relativePath, globals = {}) {
@@ -328,6 +328,90 @@ test('LightFactory refuses to silently orphan a light on a name collision', () =
     assert.ok(warnings.some(w => String(w).includes('already exists')));
 });
 
+test('ambient preset preserves specular pre-lighting for clear-coated dark cues', () => {
+    const { window } = loadClassic('js/lightFactory.js', { BABYLON: makeBabylonStub() });
+    const factory = new window.LightFactory({ lights: [] }, { info() {}, warn() {} });
+    factory.createHemisphericLight = (name, direction, config) => config;
+    const config = factory.presets.ambient();
+    assert.ok(config.specular.every(channel => channel > 0 && channel <= 0.02));
+    assert.equal(config.intensity, 0.04);
+});
+
+test('startup preserves opaque depth for both later lighting groups', async () => {
+    const BABYLON = makeBabylonStub();
+    const configurations = new Map();
+    BABYLON.Scene = class {
+        setRenderingAutoClearDepthStencil(group, autoClear) {
+            configurations.set(group, autoClear);
+        }
+    };
+    const { window } = loadClassic('js/club/02-lifecycle.js', {
+        BABYLON, VRClubCore: class {}, log: { info() {} }
+    });
+    const stopAfterSceneSetup = new Error('scene setup complete');
+    const club = {
+        _reportInitProgress() {},
+        materialFactory: { set scene(value) { throw stopAfterSceneSetup; } }
+    };
+    await assert.rejects(window.VRClubLifecycle.prototype.init.call(club),
+        error => error === stopAfterSceneSetup);
+    assert.equal(configurations.get(1), false);
+    assert.equal(configurations.get(2), false);
+    assert.equal(configurations.has(0), false);
+});
+
+test('light budget sweeps refresh matching-budget lit materials without refreezing them', () => {
+    const BABYLON = { Material: { LightDirtyFlag: 2 } };
+    const rendering = loadClassic('js/club/03-rendering.js', {
+        BABYLON, VRClubLifecycle: class {}, log: { info() {} }
+    }).window.VRClubRendering.prototype._clampMaterialLightBudgets;
+    const loader = loadClassic('js/modelLoader.js', { BABYLON })
+        .window.ModelLoader.prototype._enforceSceneLightBudget;
+    for (const sweep of [rendering, loader]) {
+        const lit = {
+            maxSimultaneousLights: 3, isFrozen: true, dirty: false,
+            unfreeze() { this.isFrozen = false; },
+            markAsDirty(flag) { this.dirty = flag === BABYLON.Material.LightDirtyFlag; }
+        };
+        const unlit = { maxSimultaneousLights: 3, disableLighting: true, isFrozen: true };
+        const scene = {
+            materials: [lit, unlit], blockMaterialDirtyMechanism: false,
+            onAfterRenderObservable: { addOnce() { assert.fail('Lit shaders must remain responsive'); } }
+        };
+        sweep.call({ scene, maxLights: 3, log: { info() {} } });
+        assert.equal(lit.isFrozen, false);
+        assert.equal(lit.dirty, true);
+        assert.equal(lit.maxSimultaneousLights, 3);
+        assert.equal(unlit.isFrozen, true);
+        assert.equal(scene.blockMaterialDirtyMechanism, false);
+    }
+});
+
+test('graphics tier changes invalidate frozen pre-pass shader layouts', () => {
+    const BABYLON = { Material: { AllDirtyFlag: 63 } };
+    const { window } = loadClassic('js/club/01-core.js', {
+        BABYLON, log: { info() {}, warn() {} }, localStorage: { setItem() {} }
+    });
+    const material = {
+        isFrozen: true, dirty: false,
+        unfreeze() { this.isFrozen = false; },
+        markAsDirty(flag) { this.dirty = flag === BABYLON.Material.AllDirtyFlag; }
+    };
+    const club = {
+        qualityTiers: { high: {}, ultra: {} }, graphicsTier: 'high',
+        scene: { materials: [material] }, isInVRMode: false,
+        _applyTierToPipeline() {}, _createScreenSpaceReflections() {},
+        _createMotionBlur() {}, _suppressUnlitSpecular() {},
+        _applyAnisotropicFiltering() {}, _applyShadowQuality() {},
+        _rebuildFloorReflectionProbe() {}, _applyCrowdSize() {},
+        applyDesktopSettings() {}, showErrorMessage() {}
+    };
+    window.VRClubCore.prototype.setGraphicsTier.call(club, 'ultra');
+    assert.equal(club.graphicsTier, 'ultra');
+    assert.equal(material.isFrozen, false);
+    assert.equal(material.dirty, true);
+});
+
 test('ModelLoader.dispose releases loaded containers and procedural hierarchies', () => {
     const { window } = loadClassic('js/modelLoader.js', {
         BABYLON: makeBabylonStub(),
@@ -474,6 +558,8 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
     });
     const expectedSolo = {
         deepBlue: 'mirrorBallActive',
+        eclipse: 'mirrorBallActive',
+        driftAway: 'lightsActive',
         firstLight: 'lightsActive',
         theWave: 'ledWallActive',
         crossfire: 'lasersActive',
@@ -498,7 +584,29 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
     }
 
     const runningOrder = Object.values(director.movements).flatMap(movement => movement.cues.map(cue => cue.look));
-    assert.ok(runningOrder.filter(name => name === 'whiteChase').length >= 2, 'strobe chase is not recurring');
+    assert.equal(runningOrder.filter(name => name === 'whiteChase').length, 1, 'strobe chase belongs only in the peak');
+    let totalBars = 0;
+    let soloBars = 0;
+    for (const [name, movement] of Object.entries(director.movements)) {
+        for (const cue of movement.cues) {
+            const look = director.looks[cue.look];
+            const activeCount = headlineSystems.filter(key => look[key] === true).length;
+            totalBars += cue.bars;
+            if (activeCount <= 1) soloBars += cue.bars;
+            if (look.mirrorBallActive) assert.equal(activeCount, 1, `${cue.look} crowds out the mirror ball`);
+            if (name === 'ignition' && activeCount > 1) assert.ok(cue.bars <= 2, 'layered peak lasts too long');
+        }
+    }
+    assert.ok(soloBars / totalBars >= 0.8, 'single-focus looks should dominate the show');
+    director._energy = 0.5;
+    director._movementName = 'ignition';
+    director._movement = director.movements.ignition;
+    director._barsSinceMovement = 100;
+    assert.equal(director._pickMovement(), 'pulse', 'sustained energy must not loop the peak');
+    director._enterMovement('pulse');
+    assert.equal(director._pickMovement(), 'pulse', 'recovery cannot be skipped');
+    director._barsSinceMovement = director.movements.pulse.cues.reduce((bars, cue) => bars + cue.bars, 0);
+    assert.equal(director._pickMovement(), 'ignition', 'a later peak remains available');
     const sheetLooks = ['liquidPlane', 'ceilingSidewash', 'ceilingDip'];
     assert.ok(runningOrder.filter(name => sheetLooks.includes(name)).length >= 5, 'laser sheet is not recurring');
     for (const movement of Object.values(director.movements)) {
@@ -598,6 +706,52 @@ test('crowd instances expand to the active tier without duplicating dancers', ()
     window.VRClubAudioCrowd.prototype._spawnCrowdTo.call(club, 3);
 
     assert.deepEqual(club.npcAvatars.map(npc => npc.name), ['dancer0', 'dancer1', 'dancer2']);
+});
+
+test('avatar materials preserve authored colors while enforcing opacity and depth', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON,
+        VRClubUI: class {}
+    });
+    const texture = { hasAlpha: true, anisotropicFilteringLevel: 1 };
+    const albedoColor = new BABYLON.Color3(0.1, 0.25, 0.7);
+    const material = {
+        maxSimultaneousLights: 8,
+        alpha: 0.5,
+        transparencyMode: 2,
+        emissiveColor: new BABYLON.Color3(),
+        albedoColor,
+        albedoTexture: texture,
+        needAlphaBlending: () => true,
+        needAlphaTesting: () => true,
+        freeze() { this.isFrozen = true; }
+    };
+    const authoredEmission = new BABYLON.Color3(0.3, 0.02, 0);
+    const emissiveTexture = {};
+    const glowingMaterial = { emissiveColor: authoredEmission, emissiveTexture };
+
+    window.VRClubAudioCrowd.prototype._prepareAvatarMaterials.call({
+        tierSettings: { anisotropy: 8 },
+        maxLights: 3
+    }, [material, glowingMaterial]);
+
+    assert.deepEqual([material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b], [0, 0, 0]);
+    assert.equal(material.albedoColor, albedoColor);
+    assert.equal(material.albedoTexture, texture);
+    assert.equal(glowingMaterial.emissiveColor, authoredEmission);
+    assert.deepEqual([authoredEmission.r, authoredEmission.g, authoredEmission.b], [0.3, 0.02, 0]);
+    assert.equal(glowingMaterial.emissiveTexture, emissiveTexture);
+    assert.equal(material.alpha, 1);
+    assert.equal(material.needAlphaBlending(), false);
+    assert.equal(material.needAlphaTesting(), false);
+    assert.equal(material.disableDepthWrite, false);
+    assert.equal(material.forceDepthWrite, true);
+    assert.equal(material.transparencyMode, BABYLON.Material.MATERIAL_OPAQUE);
+    assert.equal(material.maxSimultaneousLights, 3);
+    assert.equal(texture.hasAlpha, false);
+    assert.equal(texture.anisotropicFilteringLevel, 8);
+    assert.notEqual(material.isFrozen, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -750,11 +904,21 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     assert.equal(retinalFlash.color.a, 0, 'Safe Mode did not clear retinal glare');
 });
 
-test('strobe chase advances clockwise with only one corner lit per burst', () => {
+test('strobe chase randomizes corners and cadence without immediate repeats', () => {
     const BABYLON = makeBabylonStub();
+    const randomValues = [
+        0.1, 0.99, 0.1,
+        0.2, 0.8, 0.9,
+        0.3, 0.2, 0.3,
+        0.4, 0.9, 0.7
+    ];
+    let randomIndex = 0;
+    const testMath = Object.create(Math);
+    testMath.random = () => randomValues[randomIndex++ % randomValues.length];
     const { window } = loadClassic('js/club/09-animation-finish.js', {
         BABYLON,
-        VRClubAnimationFixtures: class {}
+        VRClubAnimationFixtures: class {},
+        Math: testMath
     });
     const strobes = Array.from({ length: 4 }, () => ({
         material: { emissiveColor: new BABYLON.Color3() },
@@ -778,6 +942,7 @@ test('strobe chase advances clockwise with only one corner lit per burst', () =>
         strobeFlashLight: { intensity: 0, setEnabled() {} }
     };
     const order = [];
+    const intervals = [];
 
     for (let burst = 0; burst < 4; burst++) {
         strobes.forEach(strobe => { strobe.flashDuration = 0; });
@@ -790,9 +955,212 @@ test('strobe chase advances clockwise with only one corner lit per burst', () =>
         const lit = strobes.flatMap((strobe, index) => strobe.material.emissiveColor.r > 0 ? [index] : []);
         assert.equal(lit.length, 1, `burst ${burst} lit ${lit.length} corners`);
         order.push(lit[0]);
+        intervals.push(club._nextStrobeBurstTime - (burst + 1));
     }
 
-    assert.deepEqual(order, [0, 1, 3, 2]);
+    assert.equal(order[0], 3, 'the first burst must be able to select the last fixture');
+    assert.ok(order.every((corner, index) => index === 0 || corner !== order[index - 1]));
+    assert.deepEqual(intervals.map(value => Number(value.toFixed(3))), [0.455, 0.975, 0.585, 0.845]);
+});
+
+test('VR comfort switches movement and teleportation together without changing show ownership', () => {
+    const saved = new Map();
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {},
+        localStorage: { setItem: (key, value) => saved.set(key, value) }
+    });
+    const club = {
+        vjManualMode: false,
+        movementFeature: {},
+        vrHelper: { teleportation: {}, baseExperience: { camera: {} } },
+        jumpState: { active: true },
+        _refreshVRQuickMenu() {}
+    };
+    const setMode = window.VRClubUI.prototype.setVRComfortMode;
+    setMode.call(club, true);
+    assert.equal(club.movementFeature.movementEnabled, false);
+    assert.equal(club.movementFeature.rotationEnabled, false);
+    assert.equal(club.vrHelper.teleportation.teleportationEnabled, true);
+    assert.equal(club.vrHelper.teleportation.rotationEnabled, true);
+    assert.equal(club.vrHelper.teleportation.backwardsMovementEnabled, false);
+    assert.equal(club.vrHelper.teleportation.rotationAngle, Math.PI / 6);
+    assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false);
+    assert.equal(club.jumpState.active, false);
+    assert.equal(saved.get('vrclub.vrComfort'), '1');
+    setMode.call(club, false);
+    assert.equal(club.movementFeature.movementEnabled, true);
+    assert.equal(club.movementFeature.rotationEnabled, true);
+    assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
+    assert.equal(club.vrHelper.teleportation.rotationEnabled, false);
+    assert.equal(saved.get('vrclub.vrComfort'), '0');
+    assert.equal(club.vjManualMode, false);
+});
+
+test('VR viewpoints preserve seated eye height and orientation without moving the desktop camera', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/10-ui.js', {
+        BABYLON, VRClubAnimationFinish: class {}
+    });
+    const xrCamera = {
+        position: new BABYLON.Vector3(0, 1.15, -12),
+        realWorldHeight: 1.15,
+        rotationQuaternion: BABYLON.Quaternion.Identity()
+    };
+    const orientation = xrCamera.rotationQuaternion.clone();
+    const desktopPosition = new BABYLON.Vector3(0, 1.7, -5);
+    const club = {
+        isInVRMode: true,
+        vrHelper: { baseExperience: { camera: xrCamera } },
+        camera: { position: desktopPosition.clone() },
+        showCameraTransitionFeedback() {}
+    };
+    const move = window.VRClubUI.prototype.moveCameraToPreset;
+    move.call(club, 'djBooth');
+    assert.equal(xrCamera.position.y, 1.65);
+    move.call(club, 'danceFloor');
+    assert.equal(xrCamera.position.y, 1.15);
+    assert.equal(xrCamera.position.x, -2.8);
+    assert.equal(xrCamera.position.z, -9.2);
+    assert.ok(xrCamera.rotationQuaternion.equals(orientation));
+    assert.ok(club.camera.position.equals(desktopPosition));
+});
+
+test('disabled haptics also suppress VR menu feedback pulses', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    let pulses = 0;
+    const club = {
+        bassHapticsEnabled: false,
+        _xrControllers: [{ inputSource: { gamepad: {
+            hapticActuators: [{ pulse() { pulses++; } }]
+        } } }]
+    };
+    window.VRClubUI.prototype.pulseHaptic.call(club);
+    assert.equal(pulses, 0);
+    club.bassHapticsEnabled = true;
+    window.VRClubUI.prototype.pulseHaptic.call(club);
+    assert.equal(pulses, 1);
+});
+
+test('mirror raycasts cover every active ray within the batch budget on desktop and VR', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const update = window.VRClubAnimationCore.prototype.updateMirrorBall;
+
+    for (const isInVRMode of [false, true]) {
+        for (const activeCount of [32, 52, 64]) {
+            let raycasts = 0;
+            let enableWrites = 0;
+            const rays = Array.from({ length: 64 }, (_, index) => ({
+                theta: index * 0.7,
+                phi: Math.PI / 3,
+                length: 10,
+                mesh: {
+                    enabled: false,
+                    position: BABYLON.Vector3.Zero(),
+                    scaling: BABYLON.Vector3.One(),
+                    rotationQuaternion: BABYLON.Quaternion.Identity(),
+                    isEnabled() { return this.enabled; },
+                    setEnabled(enabled) { this.enabled = enabled; enableWrites++; }
+                }
+            }));
+            const club = {
+                isInVRMode,
+                mirrorBallActive: true,
+                vjManualMode: true,
+                mirrorBallRotation: 0,
+                mirrorBall: { position: BABYLON.Vector3.Zero(), rotation: { y: 0 } },
+                tierSettings: { mirrorRays: activeCount },
+                mirrorBallOutgoingRays: rays,
+                vecPool: {
+                    mirrorDir: BABYLON.Vector3.Zero(),
+                    mirrorTmp: BABYLON.Vector3.Zero(),
+                    mirrorAxis: BABYLON.Vector3.Zero(),
+                    up: BABYLON.Vector3.Up()
+                },
+                scene: {
+                    pickWithRay() {
+                        raycasts++;
+                        return { hit: true, distance: 5, pickedPoint: BABYLON.Vector3.Zero() };
+                    }
+                }
+            };
+            const cadence = isInVRMode ? 2 : 6;
+            for (let frame = 1; frame <= cadence * 8; frame++) {
+                const before = raycasts;
+                club.frameCounter = frame;
+                update.call(club, { time: frame / 60, dtScale: 1 });
+                assert.ok(raycasts - before <= Math.ceil(activeCount / 8));
+                if (frame % cadence !== 0) assert.equal(raycasts, before);
+            }
+            assert.equal(raycasts, activeCount);
+            assert.ok(rays.slice(0, activeCount).every(ray => ray.currentLength === 5));
+            assert.ok(rays.slice(activeCount).every(ray => ray.currentLength === undefined));
+            assert.equal(enableWrites, activeCount);
+
+            club.tierSettings.mirrorRays = 16;
+            club.frameCounter++;
+            update.call(club, { time: 1, dtScale: 1 });
+            assert.equal(rays.filter(ray => ray.mesh.isEnabled()).length, 16);
+        }
+    }
+});
+
+test('laser sheet uses bounded two-axis motion for vertical and lateral cues', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const source = { rotation: { x: 0, y: 0 }, isVisible: false };
+    const club = {
+        laserSpeed: 0.6,
+        laserSheetActive: true,
+        laserSheetMotion: 'vertical',
+        laserSheetSource: source,
+        laserSheet: {
+            material: {
+                alpha: 0,
+                emissiveColor: null,
+                opacityTexture: { uOffset: 0, vOffset: 0 }
+            },
+            isVisible: false
+        },
+        _laserSheetBasePitch: 0.3,
+        _laserSheetBaseYaw: 0.1,
+        _laserSheetPitchRange: 0.12,
+        _laserSheetYawRange: 0.16,
+        colorLockActive: false,
+        currentColorIndex: 1,
+        cachedColors: {
+            red: new BABYLON.Color3(1, 0, 0),
+            green: new BABYLON.Color3(0, 1, 0),
+            blue: new BABYLON.Color3(0, 0, 1)
+        }
+    };
+    const update = time => window.VRClubAnimationCore.prototype.updateLaserSheet.call(club, {
+        time,
+        audio: { average: 0 }
+    });
+
+    update(0);
+    const verticalStart = { ...source.rotation };
+    update(7);
+    assert.notEqual(source.rotation.x, verticalStart.x);
+    assert.notEqual(source.rotation.y, verticalStart.y);
+    assert.ok(Math.abs(source.rotation.x - club._laserSheetBasePitch) <= club._laserSheetPitchRange);
+    assert.ok(Math.abs(source.rotation.y - club._laserSheetBaseYaw) <= club._laserSheetYawRange);
+
+    club.laserSheetMotion = 'lateral';
+    update(0);
+    const lateralStart = { ...source.rotation };
+    update(7);
+    assert.notEqual(source.rotation.x, lateralStart.x);
+    assert.notEqual(source.rotation.y, lateralStart.y);
+    assert.ok(Math.abs(source.rotation.x - club._laserSheetBasePitch) <= club._laserSheetPitchRange);
+    assert.ok(Math.abs(source.rotation.y - club._laserSheetBaseYaw) <= club._laserSheetYawRange);
 });
 
 // ---------------------------------------------------------------------------

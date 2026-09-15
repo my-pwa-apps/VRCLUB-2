@@ -79,7 +79,9 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: true,
                 crowdSize: 14,             // animated skinned dancers on the floor
-                mirrorSpots: 100
+                mirrorSpots: 100,
+                mirrorRays: 64,
+                mirrorBeamStride: 1
             },
             high: {
                 renderScale: 1.0,
@@ -97,7 +99,9 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: false,
                 crowdSize: 10,
-                mirrorSpots: 60
+                mirrorSpots: 60,
+                mirrorRays: 52,
+                mirrorBeamStride: 2
             },
             balanced: {
                 renderScale: 1.0,
@@ -119,7 +123,9 @@ class VRClubCore {
                 // headcount is the first thing to give on weak GPUs. Quest is always
                 // `balanced`, so this is the number a headset actually renders.
                 crowdSize: 6,
-                mirrorSpots: 30
+                mirrorSpots: 30,
+                mirrorRays: 32,
+                mirrorBeamStride: 3
             }
         };
         
@@ -127,16 +133,17 @@ class VRClubCore {
         this.vrSettings = {
             desktop: {
                 exposure: 1.1,
-                contrast: 1.6, // Deep contrast for dramatic club lighting
-                bloomWeight: 0.55, // Strong bloom for neon/laser glow (clubs are LUMINOUS)
-                bloomThreshold: 0.35, // Catch more light sources (lower = more things glow)
+                contrast: 1.3,
+                bloomWeight: 0.28,
+                bloomThreshold: 0.8,
                 bloomScale: 0.5, // Wide bloom halo
-                glowIntensity: 0.9, // Pronounced glow on emissive surfaces
+                glowIntensity: 0.65,
+                hazeAlpha: [0.04, 0.03],
                 ambientIntensity: 0.06, // Very low ambient - club should be DARK except for lighting
                 environmentIntensity: 0.5, // Rich PBR reflections for wet/metallic surfaces
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Near-black with subtle blue tint
-                grainEnabled: true, // Filmic grain for cinema feel
-                chromaticAberrationEnabled: true, // Lens realism
+                grainEnabled: false,
+                chromaticAberrationEnabled: false,
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
                 sharpenAmount: 0.5,
@@ -144,11 +151,12 @@ class VRClubCore {
             },
             vr: {
                 exposure: 1.22,
-                contrast: 1.65,
-                bloomWeight: 0.45, // Headset optics need a stronger halo around compact fixture sources
-                bloomThreshold: 0.55, // Catch HDR lenses and laser cores without lifting dark structures
+                contrast: 1.3,
+                bloomWeight: 0.22,
+                bloomThreshold: 0.85,
                 bloomScale: 0.4,
-                glowIntensity: 1.25, // Make direct views into emitters read as high-output light sources
+                glowIntensity: 0.7,
+                hazeAlpha: [0.035, 0.025],
                 ambientIntensity: 0.06, // Match desktop — keeps shadowed metal readable
                 environmentIntensity: 0.5, // MATCH desktop — metallic trusses/pipes/fixtures rely on env reflections
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Match desktop tint (was pure black)
@@ -197,12 +205,15 @@ class VRClubCore {
         this.photosensitiveSafeMode = (() => {
             try { return localStorage.getItem('vrclub.safeMode') === '1'; } catch (_) { return false; }
         })();
+        this.vrComfortMode = (() => {
+            try { return localStorage.getItem('vrclub.vrComfort') !== '0'; } catch (_) { return true; }
+        })();
 
         // === HAPTICS ===
         // Bass-driven controller rumble. Off by default to respect battery /
         // user preference; toggle in the VJ menu. Persists across sessions.
         this.bassHapticsEnabled = (() => {
-            try { return localStorage.getItem('vrclub.bassHaptics') !== '0'; } catch (_) { return true; }
+            try { return localStorage.getItem('vrclub.bassHaptics') === '1'; } catch (_) { return false; }
         })();
         this._lastHapticPulseAt = 0;     // ms timestamp guard (prevents rumble spam)
         this._xrControllers = [];        // Tracked controllers for haptic dispatch
@@ -683,14 +694,10 @@ class VRClubCore {
         // #8 OPTIMIZED: Reduce particle systems for VR performance
         // Retain enough layered haze to survive the headset's higher bloom threshold.
         // Cutting these rates in half made smoke disappear between machine bursts.
-        if (this.floorFog) {
-            this.floorFog.emitRate = 30;
-            log.info('⚡ Reduced floor fog emit rate for VR');
-        }
         if (this.haze) {
             this.haze.emitRate = 65;
-            this.haze.color1.a = 0.16;
-            this.haze.color2.a = 0.13;
+            this.haze.color1.a = vr.hazeAlpha[0];
+            this.haze.color2.a = vr.hazeAlpha[1];
             log.info('⚡ Reduced haze emit rate for VR');
         }
         if (this.mirrorBallBeams) {
@@ -831,13 +838,10 @@ class VRClubCore {
         this._applyAnisotropicFiltering();
         
         // Restore particle system emit rates for desktop
-        if (this.floorFog) {
-            this.floorFog.emitRate = 40; // Full floor fog for desktop
-        }
         if (this.haze) {
             this.haze.emitRate = 80; // Full haze for desktop
-            this.haze.color1.a = 0.12;
-            this.haze.color2.a = 0.10;
+            this.haze.color1.a = desktop.hazeAlpha[0];
+            this.haze.color2.a = desktop.hazeAlpha[1];
         }
         if (this.mirrorBallBeams) {
             this.mirrorBallBeams.forEach(beam => {
@@ -943,6 +947,11 @@ class VRClubCore {
         // Re-run the desktop path so render scale / attachments match the new tier.
         // In VR the conservative VR path already owns these values, so leave it alone.
         if (!this.isInVRMode) this.applyDesktopSettings();
+
+        this.scene.materials.forEach(material => {
+            if (material.isFrozen) material.unfreeze();
+            material.markAsDirty(BABYLON.Material.AllDirtyFlag);
+        });
 
         log.info(`🎨 Graphics tier switched to: ${tier}`);
         this.showErrorMessage(`Graphics quality: ${tier.toUpperCase()}`);

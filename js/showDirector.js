@@ -249,6 +249,7 @@ class ShowDirector {
         if (e < 0.16) return 'arrival';
         if (e < 0.25) return 'pulse';
         if (e < 0.34) return 'ascent';
+        if (this._movementName === 'ignition') return 'pulse';
         return 'ignition';
     }
 
@@ -556,17 +557,14 @@ class ShowDirector {
                 mirrorBallSpeed: 0.4, fogIntensity: 1.3
             },
 
-            // Wall killed outright. Mirror ball and one slow gobo pool in deep
-            // haze, with nothing lit behind them. Dropped into ARRIVAL and again
-            // into AFTERGLOW as a reset — after a few bars of true darkness the
-            // wall's return reads as an event rather than as wallpaper.
+            // Mirror ball alone, with the wall and moving heads dark.
             eclipse: {
                 intensity: 0.38, punch: 0.12, palette: 'analogous',
-                lightsActive: true, lasersActive: false, strobesActive: false,
+                lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
-                goboEnabled: true, goboPatternIndex: 0, goboRotationSpeed: 0.10,
+                goboEnabled: false, goboPatternIndex: 0, goboRotationSpeed: 0.10,
                 mirrorBallSpeed: 0.45, fogIntensity: 1.7
             },
 
@@ -698,12 +696,12 @@ class ShowDirector {
             // IV. IGNITION — peak. Everything, all at once, but still composed.
             // ---------------------------------------------------------------
 
-            // The payoff. Crossed beams, strobes, lasers, triad palette. Deep
+            // The payoff. Crossed beams, strobes and wall, without lasers. Deep
             // punch (0.55) so the whole rig is gated hard by the kick — at peak
             // the room should pump visibly rather than sit at flat maximum.
             detonation: {
                 intensity: 1.0, punch: 0.55, palette: 'triad',
-                lightsActive: true, lasersActive: true, strobesActive: true,
+                lightsActive: true, lasersActive: false, strobesActive: true,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 17, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
@@ -724,10 +722,10 @@ class ShowDirector {
                 goboEnabled: false, laserSpeed: 2.0, fogIntensity: 1.5
             },
 
-            // Second-wind hit: back to butterfly with the wall on plasma tunnel.
+            // Brief second-wind hit: lasers and wall, without heads or strobes.
             afterburn: {
                 intensity: 1.0, punch: 0.50, palette: 'triad',
-                lightsActive: true, lasersActive: true, strobesActive: true,
+                lightsActive: false, lasersActive: true, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 2.0,
@@ -735,12 +733,11 @@ class ShowDirector {
                 strobeSpeed: 1.6, fogIntensity: 1.4
             },
 
-            // Rare full-room color lock: every active colored system takes the
-            // same master hue rather than a complementary or triad partner.
+            // Brief color lock between the heads and wall; other systems stay dark.
             chromaticRoom: {
                 intensity: 0.94, punch: 0.28, palette: 'analogous', colorLock: true,
-                lightsActive: true, lasersActive: true, laserSheetActive: false,
-                strobesActive: false, mirrorBallActive: true,
+                lightsActive: true, lasersActive: false, laserSheetActive: false,
+                strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false,
                 ledPattern: 5, ledWallSpeed: 0.65,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
@@ -767,8 +764,8 @@ class ShowDirector {
             driftAway: {
                 intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7],
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: false, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7],
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
                 goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: 0.15,
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
@@ -809,11 +806,10 @@ class ShowDirector {
     // minBars stops the energy picker from abandoning a movement before its
     // internal arc has had time to read.
     //
-    // Every movement except IGNITION carries at least one dark-wall cue
-    // (`eclipse` / `beamsOnly`). The LED wall is the brightest thing in the room
+    // Every movement carries dark-wall cues. The LED wall is the brightest thing in the room
     // and the eye goes straight to it, so a wall that is lit for the entire show
-    // flattens everything else into background. The dark windows are short and
-    // sit immediately before a punchIn, which turns the wall's return into a hit.
+    // flattens everything else into background. Single-focus cues dominate;
+    // layered peak hits last two bars and give way to longer recovery cues.
     // =========================================================================
     static _buildMovements() {
         return {
@@ -835,12 +831,12 @@ class ShowDirector {
                 minBars: 24,
                 cues: [
                     { look: 'theWave',   bars: 8 },
-                    { look: 'sideways',  bars: 8, punchIn: true },
-                    { look: 'theWave',   bars: 8 },
-                    { look: 'crossfire', bars: 8, punchIn: true },
-                    { look: 'ceilingSidewash', bars: 8 },
-                    { look: 'beamsOnly', bars: 8, punchIn: true },
-                    { look: 'sideways',  bars: 8, punchIn: true }
+                    { look: 'sideways',  bars: 16 },
+                    { look: 'deepBlue',  bars: 8 },
+                    { look: 'crossfire', bars: 4 },
+                    { look: 'ceilingSidewash', bars: 4 },
+                    { look: 'firstLight', bars: 8 },
+                    { look: 'sideways',  bars: 8 }
                 ]
             },
 
@@ -850,7 +846,7 @@ class ShowDirector {
                 cues: [
                     { look: 'theClimb',   bars: 8 },
                     { look: 'heldBreath', bars: 8 },
-                    { look: 'whiteChase', bars: 4 },
+                    { look: 'sideways', bars: 4 },
                     { look: 'ceilingDip', bars: 4 },
                     { look: 'theClimb',   bars: 8, punchIn: true }
                 ]
@@ -860,13 +856,15 @@ class ShowDirector {
                 title: 'IV · IGNITION',
                 minBars: 16,
                 cues: [
-                    { look: 'detonation', bars: 8 },
-                    { look: 'whiteChase', bars: 4, punchIn: true },
-                    { look: 'chromaticRoom', bars: 8, punchIn: true },
-                    { look: 'laserStorm', bars: 8, punchIn: true },
+                    { look: 'detonation', bars: 2 },
+                    { look: 'firstLight', bars: 8 },
+                    { look: 'chromaticRoom', bars: 2 },
+                    { look: 'laserStorm', bars: 4 },
+                    { look: 'deepBlue', bars: 8 },
+                    { look: 'whiteChase', bars: 2 },
+                    { look: 'afterburn', bars: 2 },
                     { look: 'ceilingSidewash', bars: 4 },
-                    { look: 'afterburn',  bars: 8, punchIn: true },
-                    { look: 'laserStorm', bars: 8 }
+                    { look: 'firstLight', bars: 8 }
                 ]
             },
 

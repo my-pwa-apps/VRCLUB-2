@@ -331,6 +331,7 @@ class VRClubUI extends VRClubAnimationFinish {
      * @param {number} [duration=30] ms
      */
     pulseHaptic(intensity = 0.8, duration = 30) {
+        if (!this.bassHapticsEnabled) return;
         if (!this._xrControllers || this._xrControllers.length === 0) return;
         for (let i = 0; i < this._xrControllers.length; i++) {
             const ctrl = this._xrControllers[i];
@@ -353,7 +354,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _drawVRQuickMenuButton(button) {
         const context = button.texture.getContext();
-        const active = button.control && button.control !== 'cycleLedPattern'
+        const active = !button.action && button.control && button.control !== 'cycleLedPattern'
             ? !!this[button.control]
             : true;
         context.clearRect(0, 0, 512, 192);
@@ -368,7 +369,7 @@ class VRClubUI extends VRClubAnimationFinish {
         context.font = 'bold 48px sans-serif';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
-        const suffix = button.control && button.control !== 'cycleLedPattern'
+        const suffix = !button.action && button.control && button.control !== 'cycleLedPattern'
             ? (active ? '  ON' : '  OFF')
             : '';
         context.fillText(button.label + suffix, 256, 96);
@@ -384,6 +385,25 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!button) return;
         if (button.action === 'close') {
             this.toggleVRQuickMenu(false);
+            return;
+        }
+        if (button.action === 'travel') {
+            this.moveCameraToPreset(button.control);
+            this.toggleVRQuickMenu(false);
+            return;
+        }
+        if (button.control === 'vrComfortMode') {
+            this.setVRComfortMode(!this.vrComfortMode);
+            return;
+        }
+        if (button.control === 'photosensitiveSafeMode') {
+            this.setPhotosensitiveSafeMode(!this.photosensitiveSafeMode);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.control === 'bassHapticsEnabled') {
+            this.setBassHapticsEnabled(!this.bassHapticsEnabled);
+            this._refreshVRQuickMenu();
             return;
         }
 
@@ -411,7 +431,7 @@ class VRClubUI extends VRClubAnimationFinish {
         const root = new BABYLON.TransformNode('vrQuickMenuRoot', this.scene);
         const panel = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuPanel', {
             width: 1.42,
-            height: 1.12,
+            height: 1.8,
             sideOrientation: BABYLON.Mesh.DOUBLESIDE
         }, this.scene);
         panel.parent = root;
@@ -425,6 +445,12 @@ class VRClubUI extends VRClubAnimationFinish {
         panel.material = panelMaterial;
 
         const definitions = [
+            ['COMFORT', 'vrComfortMode'],
+            ['SAFE MODE', 'photosensitiveSafeMode'],
+            ['HAPTICS', 'bassHapticsEnabled'],
+            ['ENTRANCE', 'arrival', 'travel'],
+            ['DANCE FLOOR', 'danceFloor', 'travel'],
+            ['DJ BOOTH', 'djBooth', 'travel'],
             ['SPOTS', 'lightsActive'],
             ['LASERS', 'lasersActive'],
             ['MIRROR', 'mirrorBallActive'],
@@ -444,7 +470,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 sideOrientation: BABYLON.Mesh.DOUBLESIDE
             }, this.scene);
             mesh.parent = root;
-            mesh.position.set((col - 1) * 0.45, 0.34 - row * 0.34, -0.012);
+            mesh.position.set((col - 1) * 0.45, 0.68 - row * 0.34, -0.012);
             mesh.isPickable = true;
             mesh.renderingGroupId = 2;
 
@@ -456,10 +482,10 @@ class VRClubUI extends VRClubAnimationFinish {
             );
             texture.hasAlpha = false;
             const material = this.materialFactory.createStandardMaterial(`vrQuickMenuMat${index}`, {
-                emissiveColor: [1, 1, 1],
+                emissiveColor: [0, 0, 0],
+                emissiveTexture: texture,
                 disableLighting: true
             });
-            material.emissiveTexture = texture;
             material.backFaceCulling = false;
             mesh.material = material;
 
@@ -480,12 +506,13 @@ class VRClubUI extends VRClubAnimationFinish {
 
     toggleVRQuickMenu(force) {
         this._createVRQuickMenu();
-        const camera = this.vrHelper?.baseExperience?.camera || this.scene.activeCamera;
+        const camera = this.isInVRMode
+            ? this.vrHelper?.baseExperience?.camera : this.scene.activeCamera;
         if (!camera) return false;
         const next = force === undefined ? !this._vrQuickMenuRoot.isEnabled() : !!force;
         if (next) {
             this._vrQuickMenuRoot.parent = camera;
-            this._vrQuickMenuRoot.position.set(0, -0.10, 1.35);
+            this._vrQuickMenuRoot.position.set(0, -0.10, 1.8);
             this._vrQuickMenuRoot.rotation.set(0, 0, 0);
             this._refreshVRQuickMenu();
         }
@@ -923,6 +950,41 @@ class VRClubUI extends VRClubAnimationFinish {
         setTimeout(() => errorDiv.remove(), 4000);
     }
 
+    setVRComfortMode(enabled) {
+        this.vrComfortMode = !!enabled;
+        try { localStorage.setItem('vrclub.vrComfort', this.vrComfortMode ? '1' : '0'); } catch (_) {}
+        if (this.movementFeature) {
+            this.movementFeature.movementEnabled = !this.vrComfortMode;
+            this.movementFeature.rotationEnabled = !this.vrComfortMode;
+            this.movementFeature.movementSpeed = 1.5;
+        }
+        const teleportation = this.vrHelper?.teleportation;
+        if (teleportation) {
+            teleportation.teleportationEnabled = this.vrComfortMode;
+            teleportation.rotationEnabled = this.vrComfortMode;
+            teleportation.rotationAngle = Math.PI / 6;
+            teleportation.backwardsMovementEnabled = false;
+        }
+        const xrCamera = this.vrHelper?.baseExperience?.camera;
+        if (xrCamera) xrCamera.applyGravity = !this.vrComfortMode;
+        if (xrCamera && this.vrComfortMode) {
+            xrCamera.cameraDirection?.set(0, 0, 0);
+            xrCamera.cameraRotation?.set(0, 0);
+        }
+        if (this.vrComfortMode && this.jumpState) this.jumpState.active = false;
+        if (typeof document !== 'undefined') {
+            const splash = document.getElementById('splashVRComfort');
+            if (splash) splash.checked = this.vrComfortMode;
+            const button = document.getElementById('vjVRComfortBtn');
+            if (button) {
+                button.setAttribute('aria-pressed', String(this.vrComfortMode));
+                button.classList.toggle('active', this.vrComfortMode);
+            }
+        }
+        this._refreshVRQuickMenu();
+        return this.vrComfortMode;
+    }
+
     moveCameraToPreset(preset) {
         const presets = {
             arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, 1.7, -3), target: new BABYLON.Vector3(0, 2.2, -17) },
@@ -935,22 +997,18 @@ class VRClubUI extends VRClubAnimationFinish {
         
         const p = presets[preset];
         if (p) {
-            // Temporarily disable gravity/collisions for smooth camera transition
-            this.camera.applyGravity = false;
-            this.camera.checkCollisions = false;
-            
-            this.camera.position = p.pos.clone();
-            this.camera.setTarget(p.target);
-            
-            // Re-enable collisions after camera settles (short delay for physics)
-            setTimeout(() => {
-                this.camera.checkCollisions = true;
-                // Only re-enable gravity for ground-level presets
-                if (p.pos.y < 3.0) {
-                    this.camera.applyGravity = false; // Keep false for free camera
-                }
-            }, 300);
-            
+            const xrCamera = this.isInVRMode ? this.vrHelper?.baseExperience?.camera : null;
+            if (xrCamera) {
+                const height = Number.isFinite(xrCamera.realWorldHeight) && xrCamera.realWorldHeight > 0
+                    ? xrCamera.realWorldHeight : xrCamera.position.y;
+                xrCamera.position.x = p.pos.x;
+                xrCamera.position.z = p.pos.z;
+                xrCamera.position.y = height + (preset === 'djBooth' ? 0.5 : 0);
+                if (this.jumpState) this.jumpState.active = false;
+            } else {
+                this.camera.position.copyFrom(p.pos);
+                this.camera.setTarget(p.target);
+            }
             this.showCameraTransitionFeedback(p.label);
         }
     }

@@ -1,6 +1,39 @@
 # VJ Control System Guide
 
+## VR Comfort and Access
+
+- **VR Comfort** is on by default and is selectable before entry, in the desktop
+  accessibility panel, and in the headset quick menu. It uses Babylon teleportation
+  with 30-degree snap turns. Turn it off for continuous thumbstick movement.
+- Comfort mode disables sprint and jump shortcuts. Switching it on also cancels
+  an active jump and clears residual camera movement.
+- Open the headset quick menu with **Y on the left controller** or **B on the
+  right controller** (or the app-menu component if supplied by the runtime).
+- **Entrance**, **Dance Floor**, and **DJ Booth** provide instant travel without
+  walking, preserving tracked eye height and head orientation. The booth adds
+  its 0.5 m platform elevation; travel back to the floor removes that elevation.
+- **Safe Mode** and **Haptics** are available in the headset menu. Vibration is
+  opt-in for new visitors; existing saved preferences are retained.
+- Comfort and travel controls do not stop the automatic light show. Photosensitive
+  Safe Mode reduces flashing but is not a medical guarantee of safety.
+
+These controls support seated use but do not establish universal accessibility.
+Controller-free input, spatial room acoustics, broader crowd behavior, and testing
+with disabled visitors remain priorities before presenting this as an authentic,
+accessible substitute for a club visit. Headset frame pacing and user comfort must
+be evaluated on the target device, not inferred from desktop screenshots.
+
 ## Overview
+
+### Automatic Show Balance
+
+The automatic show favors one headline fixture at a time. Mirror-ball cues keep
+the LED wall, moving heads and lasers dark. Layered peak cues last two bars;
+sustained high audio energy returns from the peak sequence to a complete groove
+sequence before another peak is possible. The groove emphasizes moving heads and
+mirror-ball looks, with shorter dedicated laser moments and fewer blackout cuts.
+Safe Mode continues to suppress strobes, and manual fixture controls remain available.
+
 The VJ control console is located on the **right side of the DJ platform** (x=3.5, z=-24.4). It features **9 interactive 3D buttons** arranged in 3 rows.
 
 ## Button Layout (3 Rows)

@@ -635,8 +635,8 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.maxEmitBox = new BABYLON.Vector3(0.05, 0.05, 0.05);
             
             // Fog colors (White/gray smoke with slight blue tint)
-            fogEmitter.color1 = new BABYLON.Color4(0.85, 0.85, 0.9, 0.4);
-            fogEmitter.color2 = new BABYLON.Color4(0.9, 0.9, 0.95, 0.35);
+            fogEmitter.color1 = new BABYLON.Color4(0.85, 0.85, 0.9, 0.12);
+            fogEmitter.color2 = new BABYLON.Color4(0.9, 0.9, 0.95, 0.09);
             fogEmitter.colorDead = new BABYLON.Color4(0.5, 0.5, 0.6, 0.0);
             
             // Start small, expand as fog disperses
@@ -679,9 +679,9 @@ class VRClubFixtures extends VRClubEnvironment {
             fogEmitter.addSizeGradient(1.0, 2.5);
             
             // Alpha fade over lifetime
-            fogEmitter.addColorGradient(0, new BABYLON.Color4(0.9, 0.9, 0.95, 0.5));
-            fogEmitter.addColorGradient(0.4, new BABYLON.Color4(0.85, 0.85, 0.9, 0.35));
-            fogEmitter.addColorGradient(0.8, new BABYLON.Color4(0.7, 0.7, 0.8, 0.15));
+            fogEmitter.addColorGradient(0, new BABYLON.Color4(0.9, 0.9, 0.95, 0.12));
+            fogEmitter.addColorGradient(0.4, new BABYLON.Color4(0.85, 0.85, 0.9, 0.075));
+            fogEmitter.addColorGradient(0.8, new BABYLON.Color4(0.7, 0.7, 0.8, 0.03));
             fogEmitter.addColorGradient(1.0, new BABYLON.Color4(0.5, 0.5, 0.6, 0.0));
             
             fogEmitter.updateSpeed = 0.008;
@@ -712,8 +712,8 @@ class VRClubFixtures extends VRClubEnvironment {
         this.haze.maxEmitBox = new BABYLON.Vector3(10, 3, 8);
         
         // Visible ambient haze - makes light beams stand out
-        this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, 0.12);
-        this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.10);
+        this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, this.vrSettings.desktop.hazeAlpha[0]);
+        this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, this.vrSettings.desktop.hazeAlpha[1]);
         this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
         
         this.haze.minSize = 1.0;
@@ -735,54 +735,6 @@ class VRClubFixtures extends VRClubEnvironment {
         // Haze is always running when smoke is active
         this.haze.start();
         
-        // === LOW-LYING FLOOR FOG (CO2 cryo effect - pools at ankle level) ===
-        this.floorFog = new BABYLON.ParticleSystem("floorFog", 600, this.scene);
-        this.floorFog.particleTexture = particleTexture;
-        
-        // Emit across the dance floor at ankle level
-        this.floorFog.emitter = new BABYLON.Vector3(0, 0.1, -12);
-        this.floorFog.minEmitBox = new BABYLON.Vector3(-12, -0.1, -10);
-        this.floorFog.maxEmitBox = new BABYLON.Vector3(12, 0.2, 10);
-        
-        // Dense white fog that hugs the floor
-        this.floorFog.color1 = new BABYLON.Color4(0.7, 0.7, 0.8, 0.15);
-        this.floorFog.color2 = new BABYLON.Color4(0.8, 0.8, 0.9, 0.12);
-        this.floorFog.colorDead = new BABYLON.Color4(0, 0, 0, 0);
-        
-        this.floorFog.minSize = 1.5;
-        this.floorFog.maxSize = 4.0;
-        this.floorFog.minScaleX = 2.0;
-        this.floorFog.maxScaleX = 3.0;
-        this.floorFog.minLifeTime = 6.0;
-        this.floorFog.maxLifeTime = 12.0;
-        
-        this.floorFog.emitRate = 40;
-        this.floorFog.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
-        
-        // Fog stays low - minimal upward movement, slight drift
-        this.floorFog.direction1 = new BABYLON.Vector3(-0.2, -0.05, -0.2);
-        this.floorFog.direction2 = new BABYLON.Vector3(0.2, 0.1, 0.2);
-        this.floorFog.minEmitPower = 0.02;
-        this.floorFog.maxEmitPower = 0.08;
-        this.floorFog.gravity = new BABYLON.Vector3(0, -0.15, 0); // Keeps fog on ground
-        
-        this.floorFog.minAngularSpeed = -0.3;
-        this.floorFog.maxAngularSpeed = 0.3;
-        
-        // Size grows as fog spreads along floor
-        this.floorFog.addSizeGradient(0, 1.0);
-        this.floorFog.addSizeGradient(0.5, 2.5);
-        this.floorFog.addSizeGradient(1.0, 4.0);
-        
-        // Fast fade out so fog doesn't accumulate unnaturally
-        this.floorFog.addColorGradient(0, new BABYLON.Color4(0.8, 0.8, 0.9, 0.15));
-        this.floorFog.addColorGradient(0.3, new BABYLON.Color4(0.7, 0.7, 0.8, 0.12));
-        this.floorFog.addColorGradient(0.7, new BABYLON.Color4(0.5, 0.5, 0.6, 0.05));
-        this.floorFog.addColorGradient(1.0, new BABYLON.Color4(0.3, 0.3, 0.4, 0));
-        
-        this.floorFog.updateSpeed = 0.004;
-        this.floorFog.start();
-
         // === AIRBORNE DUST MOTES ===
         // Haze makes a beam visible as a solid volume; individual glinting motes are
         // what make it read as real air. They are tiny, additive and slow, so they cost
@@ -1228,8 +1180,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 glareMaterial: glareMat,
                 material: strobeMat,
                 light: strobeLight, // null - visual-only strobe
-                flashDuration: 0,
-                nextFlashTime: Math.random() * 2
+                flashDuration: 0
             });
         });
         

@@ -3,6 +3,8 @@ class VRClubLifecycle extends VRClubCore {
         this._reportInitProgress(0.04, 'Preparing renderer...');
         // Create scene with hyperrealistic atmosphere
         this.scene = new BABYLON.Scene(this.engine);
+        this.scene.setRenderingAutoClearDepthStencil(1, false);
+        this.scene.setRenderingAutoClearDepthStencil(2, false);
         this.scene.clearColor = new BABYLON.Color3(0.003, 0.003, 0.008); // Near-black with subtle blue - real clubs are DARK
         
         // PERFORMANCE OPTIMIZATIONS - Scene-level settings
@@ -135,7 +137,7 @@ class VRClubLifecycle extends VRClubCore {
             mainTextureFixedSize: 512,
             blurKernelSize: 32  // Wider blur for more realistic light halos
         });
-        this.glowLayer.intensity = 0.85; // Pronounced glow for dramatic light sources
+        this.glowLayer.intensity = this.vrSettings.desktop.glowIntensity;
         
         // Custom glow intensity per mesh type - selective glow for realism
         // LED panels and strobes get strong glow, lasers get intense glow, structures get none
@@ -190,7 +192,7 @@ class VRClubLifecycle extends VRClubCore {
         const vrHelper = await this.scene.createDefaultXRExperienceAsync({
             floorMeshes: [this.floorMesh],
             optionalFeatures: true,
-            disableTeleportation: true, // Disable default teleportation to allow smooth movement
+            disableTeleportation: false,
             // Controller rays drive the quick menu. Babylon otherwise enables hand
             // tracking by default and downloads hand meshes from third-party URLs,
             // which violates this app's same-origin CSP and creates noisy XR errors.
@@ -235,6 +237,7 @@ class VRClubLifecycle extends VRClubCore {
         
         // Store VR helper for later use
         this.vrHelper = vrHelper;
+        this.setVRComfortMode(this.vrComfortMode);
 
         // Subscribe before session entry. Some runtimes publish controller identities
         // between session creation and the IN_XR state callback below.
@@ -269,10 +272,10 @@ class VRClubLifecycle extends VRClubCore {
                             {
                                 xrInput: vrHelper.input,
                                 // Smooth locomotion settings - left stick moves, right stick rotates
-                                movementEnabled: true,
+                                movementEnabled: !this.vrComfortMode,
                                 movementSpeed: 1.5, // Slower for realistic walking feel
                                 movementThreshold: 0.2, // Higher threshold to prevent drift
-                                rotationEnabled: true,
+                                rotationEnabled: !this.vrComfortMode,
                                 rotationSpeed: 0.8, // Slightly slower turning for comfort
                                 rotationThreshold: 0.2, // Higher threshold for rotation
                                 // IMPORTANT: Set to FALSE so movement doesn't follow head pitch (looking up/down)
@@ -285,7 +288,7 @@ class VRClubLifecycle extends VRClubCore {
                         
                         // GRAVITY & COLLISIONS: Enable physics-like movement
                         const xrCamera = vrHelper.baseExperience.camera;
-                        xrCamera.applyGravity = true;
+                        xrCamera.applyGravity = !this.vrComfortMode;
                         xrCamera.checkCollisions = true;
                         // Set ellipsoid for collision detection (approximate human size)
                         xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.8, 0.3); // Lower height
@@ -305,6 +308,7 @@ class VRClubLifecycle extends VRClubCore {
                                 const thumbstick = motionController.getComponent("xr-standard-thumbstick");
                                 if (thumbstick) {
                                     thumbstick.onButtonStateChangedObservable.add((component) => {
+                                        if (this.vrComfortMode) return;
                                         if (component.pressed) {
                                             if (this.movementFeature) {
                                                 this.movementFeature.movementSpeed = 3.0; // Sprint (2x normal)
@@ -322,6 +326,7 @@ class VRClubLifecycle extends VRClubCore {
                                 const squeeze = motionController.getComponent("xr-standard-squeeze");
                                 if (squeeze) {
                                     squeeze.onButtonStateChangedObservable.add((component) => {
+                                        if (this.vrComfortMode) return;
                                         if (component.pressed) {
                                             if (this.movementFeature) {
                                                 this.movementFeature.movementSpeed = 4.5; // Fast sprint
@@ -371,7 +376,7 @@ class VRClubLifecycle extends VRClubCore {
                                     const btn = motionController.getComponent(id);
                                     if (btn) {
                                         btn.onButtonStateChangedObservable.add((c) => {
-                                            if (c.pressed && !this.jumpState.active) {
+                                            if (c.pressed && !this.vrComfortMode && !this.jumpState.active) {
                                                 log.info('🦘 VR Jump activated');
                                                 this.jumpState.active = true;
                                                 this.jumpState.velocity = 0.12;
@@ -384,7 +389,7 @@ class VRClubLifecycle extends VRClubCore {
                                 // Quest exposes Y as the app-menu button. Some runtimes
                                 // also expose a generic menu component; bind either and
                                 // de-duplicate the press edge when both map to one input.
-                                ['y-button', 'menu'].forEach(id => {
+                                ['y-button', 'b-button', 'menu'].forEach(id => {
                                     const menuButton = motionController.getComponent(id);
                                     if (menuButton) {
                                         menuButton.onButtonStateChangedObservable.add(component => {
@@ -418,8 +423,8 @@ class VRClubLifecycle extends VRClubCore {
                     // Position user at dance floor center below mirror ball
                     const xrCamera = vrHelper.baseExperience.camera;
                     if (xrCamera) {
-                        // Y=1.7 for proper standing eye height (not 0 which is floor level)
-                        xrCamera.position = new BABYLON.Vector3(0, 1.7, -12);
+                        xrCamera.position.x = 0;
+                        xrCamera.position.z = -12;
                         
                         // Configure depth range for better VR rendering (now that session is active)
                         if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
@@ -499,7 +504,6 @@ class VRClubLifecycle extends VRClubCore {
         
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
-        this.createLaserSheetSmokeScatter(); // Light suspended haze inside the moving sheet
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
         // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs only
@@ -558,6 +562,8 @@ class VRClubLifecycle extends VRClubCore {
             this._createScreenSpaceReflections();
         }
         
+        this.scene.blockMaterialDirtyMechanism = false;
+
         // Verify scene is ready
         log.info('🎬 Scene initialization complete:');
         log.info(`  📷 Camera: ${this.camera.position.toString()}`);

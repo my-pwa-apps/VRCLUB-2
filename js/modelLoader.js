@@ -443,6 +443,16 @@ class ModelLoader {
                             mesh.material.ambientColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Reduced
                         }
                     }
+
+                    // Show cues deliberately extinguish the moving fixtures for several
+                    // bars. Keep imported subjects above the headset display's black level
+                    // so a lighting blackout does not read as unloaded geometry.
+                    if (mesh.material.emissiveColor !== undefined) {
+                        const visibilityFloor = 0.12;
+                        mesh.material.emissiveColor.r = Math.max(mesh.material.emissiveColor.r, visibilityFloor);
+                        mesh.material.emissiveColor.g = Math.max(mesh.material.emissiveColor.g, visibilityFloor);
+                        mesh.material.emissiveColor.b = Math.max(mesh.material.emissiveColor.b, visibilityFloor);
+                    }
                     
                     // CRITICAL: Ensure materials are fully opaque in VR
                     if (mesh.material.alpha !== undefined) {
@@ -485,6 +495,7 @@ class ModelLoader {
                 djLight.intensity = 2.0; // Increased for better VR visibility
                 djLight.range = 8; // Wider range
                 djLight.diffuse = new BABYLON.Color3(1, 1, 1);
+                djLight.includedOnlyMeshes = result.meshes.slice();
                 this.log.info(`   💡 Added dedicated light above DJ console (intensity: 2.0)`);
                 
                 // Hide procedural CDJs when real model loads (they conflict)
@@ -520,6 +531,7 @@ class ModelLoader {
                 speakerLight.intensity = 0.8; // Reduced intensity
                 speakerLight.range = 8; // Wider range for hung speakers
                 speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
+                speakerLight.includedOnlyMeshes = result.meshes.slice();
                 this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
@@ -571,42 +583,21 @@ class ModelLoader {
         }
     }
 
-    /**
-     * Clamps every material in the scene back to the device light budget.
-     *
-     * MaterialFactory freezes most materials, and `freeze()` sets checkReadyOnlyOnce,
-     * so the already-compiled effect keeps its old NUM_LIGHTS define. Without the
-     * unfreeze/markAsDirty/refreeze dance the clamp never reaches the GPU and the
-     * device silently keeps the over-budget shader. This is a one-shot post-load
-     * sweep, so it does not violate the no-freeze-per-frame rule.
-     */
     _enforceSceneLightBudget() {
         if (!this.scene) return;
         const wasBlocked = this.scene.blockMaterialDirtyMechanism;
         this.scene.blockMaterialDirtyMechanism = false;
 
-        const refreeze = [];
         let clamped = 0;
         for (const mat of this.scene.materials) {
-            if (mat.maxSimultaneousLights === undefined) continue;
-            if (mat.maxSimultaneousLights === this.maxLights) continue;
-            if (mat.isFrozen) { mat.unfreeze(); refreeze.push(mat); }
+            if (mat.maxSimultaneousLights === undefined || mat.disableLighting) continue;
+            if (mat.isFrozen) mat.unfreeze();
             mat.maxSimultaneousLights = this.maxLights;
             if (mat.markAsDirty) mat.markAsDirty(BABYLON.Material.LightDirtyFlag);
             clamped++;
         }
 
         this.scene.blockMaterialDirtyMechanism = wasBlocked;
-
-        // Re-freeze only once the new effect has actually been compiled and bound.
-        // Re-freezing immediately sets checkReadyOnlyOnce again, so isReady() never
-        // re-runs and the GPU keeps a shader built for the old light count while the
-        // uniform buffer is sized for the new one.
-        if (refreeze.length && this.scene.onAfterRenderObservable) {
-            this.scene.onAfterRenderObservable.addOnce(() => {
-                refreeze.forEach(mat => { if (!mat.isFrozen && mat.freeze) mat.freeze(); });
-            });
-        }
         if (clamped > 0) {
             this.log.info(`   🔧 Re-clamped ${clamped} material(s) to ${this.maxLights} light(s)`);
         }

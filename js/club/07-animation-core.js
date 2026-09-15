@@ -285,36 +285,44 @@ class VRClubAnimationCore extends VRClubEffects {
             const sheetMat = this.laserSheet.material;
             if (!sheetMat) return;
 
-            // Slow vertical or lateral scan from the cue-selected mounting point.
-            const scanSpeed = 0.09 * speedMultiplierLaser;
+            // Compound, slightly asymmetric motion avoids the mechanical pendulum
+            // look of a single sine while keeping the fan inside its calibrated aim.
+            const scanSpeed = 0.32 * Math.sqrt(Math.max(0.2, speedMultiplierLaser));
             if (this.laserSheetSource) {
-                const scanPhase = Math.sin(time * scanSpeed);
+                const scanTime = time * scanSpeed;
+                const primaryPhase = Math.sin(scanTime + 0.24 * Math.sin(scanTime * 0.37));
+                const crossPhase = 0.32 * Math.sin(scanTime * 1.71 + 1.1) +
+                    0.12 * Math.sin(scanTime * 0.63);
                 if (this.laserSheetMotion === 'lateral') {
-                    this.laserSheetSource.rotation.x = this._laserSheetBasePitch;
+                    this.laserSheetSource.rotation.x = this._laserSheetBasePitch +
+                        crossPhase * this._laserSheetPitchRange;
                     this.laserSheetSource.rotation.y = this._laserSheetBaseYaw +
-                        scanPhase * this._laserSheetYawRange;
+                        primaryPhase * this._laserSheetYawRange;
                 } else {
                     this.laserSheetSource.rotation.x = this._laserSheetBasePitch +
-                        scanPhase * this._laserSheetPitchRange;
-                    this.laserSheetSource.rotation.y = this._laserSheetBaseYaw;
+                        primaryPhase * this._laserSheetPitchRange;
+                    this.laserSheetSource.rotation.y = this._laserSheetBaseYaw +
+                        crossPhase * this._laserSheetYawRange;
                 }
             }
             
             // Animate smoke texture flowing OUTWARD from source
             if (sheetMat.opacityTexture) {
                 sheetMat.opacityTexture.vOffset = -time * 0.028 * speedMultiplierLaser;
-                sheetMat.opacityTexture.uOffset = 0.035 * Math.sin(time * 0.12);
+                sheetMat.opacityTexture.uOffset = 0.045 * Math.sin(time * 0.19) +
+                    0.015 * Math.sin(time * 0.47);
             }
             
             // Pulse intensity with audio
             const pulse = 0.5 + (audioData.average || 0) * 0.5;
-            sheetMat.alpha = 0.03 + 0.03 * pulse;
+            sheetMat.alpha = 0.012 + 0.012 * pulse;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 const hazeMat = this.laserSheetHaze.material;
-                hazeMat.alpha = 0.015 + 0.025 * pulse;
+                hazeMat.alpha = 0.006 + 0.008 * pulse;
                 if (hazeMat.opacityTexture) {
                     hazeMat.opacityTexture.vOffset = time * 0.017 * speedMultiplierLaser;
-                    hazeMat.opacityTexture.uOffset = -0.05 * Math.sin(time * 0.08);
+                    hazeMat.opacityTexture.uOffset = -0.055 * Math.sin(time * 0.13) +
+                        0.018 * Math.sin(time * 0.31 + 0.8);
                 }
             }
             
@@ -328,23 +336,6 @@ class VRClubAnimationCore extends VRClubEffects {
             sheetMat.emissiveColor = sheetColor;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 this.laserSheetHaze.material.emissiveColor = sheetColor;
-            }
-            if (this.laserSheetSmokeScatter) {
-                const scatter = this.laserSheetSmokeScatter;
-                scatter.color1.set(sheetColor.r, sheetColor.g, sheetColor.b, 0.32);
-                scatter.color2.set(
-                    Math.min(1, sheetColor.r + 0.16),
-                    Math.min(1, sheetColor.g + 0.16),
-                    Math.min(1, sheetColor.b + 0.16),
-                    0.20
-                );
-                for (let i = 0; i < scatter.particles.length; i++) {
-                    const color = scatter.particles[i].color;
-                    color.r = sheetColor.r;
-                    color.g = sheetColor.g;
-                    color.b = sheetColor.b;
-                }
-                scatter.emitRate = this.smokeActive ? 28 * (this.fogIntensity || 1) : 0;
             }
             if (this.laserAperture && this.laserAperture.material) {
                 this.laserAperture.material.emissiveColor = sheetColor;
@@ -362,7 +353,6 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.laserSheetHaze) this.laserSheetHaze.isVisible = false;
             if (this.laserSheetSource) this.laserSheetSource.isVisible = false;
             if (this.laserLight) this.laserLight.intensity = 0;
-            if (this.laserSheetSmokeScatter) this.laserSheetSmokeScatter.emitRate = 0;
         }
     }
 
@@ -490,6 +480,7 @@ class VRClubAnimationCore extends VRClubEffects {
             // These rays rotate WITH the ball and raycast to surfaces for realistic termination
             if (this.mirrorBallOutgoingRays && this.mirrorBallOutgoingRays.length > 0) {
                 const ballPos = this.mirrorBall.position;
+                const activeRayCount = this.tierSettings.mirrorRays;
                 
                 // Reuse ray object for performance
                 if (!this.mirrorOutgoingRay) {
@@ -502,9 +493,16 @@ class VRClubAnimationCore extends VRClubEffects {
                 const shouldUpdateRayLengths = this.isInVRMode ? 
                     (this.frameCounter % 2 === 0) : 
                     (this.frameCounter % 6 === 0);
+                const rayBatch = this._mirrorRaycastBatch || 0;
+                if (shouldUpdateRayLengths) this._mirrorRaycastBatch = (rayBatch + 1) % 8;
+                const lengthSmoothing = 1 - Math.pow(0.9, dtScale);
                 
                 this.mirrorBallOutgoingRays.forEach((ray, i) => {
-                    ray.mesh.setEnabled(true);
+                    if (i >= activeRayCount) {
+                        if (ray.mesh.isEnabled()) ray.mesh.setEnabled(false);
+                        return;
+                    }
+                    if (!ray.mesh.isEnabled()) ray.mesh.setEnabled(true);
                     
                     // Rotate ray direction with the mirror ball (around Y axis)
                     // Babylon's left-handed Y rotation maps this spherical basis
@@ -519,8 +517,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     dir.set(sinPhi * Math.cos(rotatedTheta), Math.cos(ray.phi), sinPhi * Math.sin(rotatedTheta));
                     
                     // Raycast to find actual surface hit (staggered for performance)
-                    let actualLength = ray.length; // Default to stored length
-                    if (shouldUpdateRayLengths && (i % 8 === this.frameCounter % 8)) {
+                    if (shouldUpdateRayLengths && i % 8 === rayBatch) {
                         // Raycast from ball surface outward
                         dir.scaleToRef(0.6, this.vecPool.mirrorTmp);
                         this.mirrorOutgoingRay.origin.copyFrom(ballPos).addInPlace(this.vecPool.mirrorTmp);
@@ -528,8 +525,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         
                         const hit = this.scene.pickWithRay(this.mirrorOutgoingRay, this.mirrorOutgoingRayPredicate);
                         if (hit && hit.hit && hit.pickedPoint) {
-                            actualLength = hit.distance;
-                            ray.currentLength = actualLength; // Cache for smooth interpolation
+                            ray.currentLength = hit.distance;
                         }
                     }
                     
@@ -538,7 +534,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     // TIME CONSTANT is the same at 30, 60, 72, 90 and 120 Hz.
                     const targetLength = ray.currentLength || ray.length;
                     ray.displayLength = ray.displayLength || ray.length;
-                    ray.displayLength += (targetLength - ray.displayLength) * (1 - Math.pow(0.9, dtScale));
+                    ray.displayLength += (targetLength - ray.displayLength) * lengthSmoothing;
                     
                     // Update mesh scale to match actual ray length
                     const scaleRatio = ray.displayLength / ray.length;
@@ -566,7 +562,7 @@ class VRClubAnimationCore extends VRClubEffects {
                     
                     // Twinkling effect - subtle visibility variation (shared material, per-mesh visibility)
                     const twinkle = 0.8 + 0.2 * Math.sin(time * 5 + i * 0.7);
-                    const rayBaseVisibility = this.isInVRMode ? 0.28 : 0.12;
+                    const rayBaseVisibility = this.isInVRMode ? 0.32 : 0.18;
                     ray.mesh.visibility = (rayBaseVisibility + (i % 5) * 0.02) * twinkle;
                 });
                 
@@ -759,13 +755,15 @@ class VRClubAnimationCore extends VRClubEffects {
                                 );
                             }
 
-                            // Real reflected shafts are sparse and only legible in haze;
-                            // the bright surface spots carry the effect, not 100 solid tubes.
+                            // Facet shafts are only legible in haze. Density scales with
+                            // the graphics tier so desktop can render the full mirror-ball
+                            // canopy while Quest keeps a conservative draw-call budget.
                             const haze = this.smokeActive
                                 ? Math.min(1, (this.fogIntensity || 0) / 1.5)
                                 : 0;
-                            spot.beamVisible = haze > 0 && i % 4 === 0;
-                            spot.beam.visibility = (this.isInVRMode ? 0.12 : 0.05) * distanceFade * twinkle * haze;
+                            const beamStride = this.tierSettings.mirrorBeamStride;
+                            spot.beamVisible = haze > 0 && i % beamStride === 0;
+                            spot.beam.visibility = (this.isInVRMode ? 0.13 : 0.065) * distanceFade * twinkle * haze;
                             spot.beam.setEnabled(spot.beamVisible);
                         }
                         

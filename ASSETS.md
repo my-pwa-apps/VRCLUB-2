@@ -27,13 +27,21 @@ in `index.html`).
 | `js/models/djgear/textures/` | Pioneer DJ Console | CC BY 4.0 (same as the model) |
 | `js/models/paspeakers/source/textures/` | Stage Speaker — Black | CC BY 4.0 (same as the model) |
 
-## Character animations
+## Character models and animations
 
 | File | Origin | Licence |
 |------|--------|---------|
-| `js/models/avatars/Hip Hop Dancing.glb` | Adobe Mixamo | Mixamo terms of use |
-| `js/models/avatars/rumba_dancing_female_character.glb` | Adobe Mixamo | Mixamo terms of use |
-| `js/models/avatars/house.glb` | Adobe Mixamo | Mixamo terms of use |
+| `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
+| `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
+| `js/models/avatars/club-dj.glb` | Quaternius Universal Base Characters + Universal Animation Library (`Idle_Loop`) | CC0 1.0 |
+
+Official sources: <https://quaternius.itch.io/universal-base-characters> and
+<https://quaternius.itch.io/universal-animation-library>. The Standard archives used to
+build these files have SHA-256 hashes
+`FDBF1804C90DFC1EA03E992BFF7DA2DFD1A79318E13270A660180F9308455F40` and
+`CC73FC4E495B82958207316596317A3F40B9FA38065BDE1027937452DA537724` respectively.
+The checked-in GLBs were combined with `scripts/build-avatar-glb.mjs`, then optimized
+with quantization and 512 px WebP textures.
 
 ## Environment / surface textures
 
@@ -63,8 +71,3 @@ These are tracked in `BACKLOG.md` and must be closed before any public release:
    recorded. CC BY 4.0 §3(a)(1) requires identifying the creator, the title, a
    link to the material and a link to the licence. Until the original download is
    located, this asset is **not** compliantly attributed.
-2. **Mixamo animations**: Adobe's terms permit use of Mixamo assets in a project,
-   but redistributing the raw `.glb` files inside a public MIT-licensed
-   repository is a different act. Either confirm this is permitted, replace them
-   with CC0/CC BY equivalents, or move them out of version control and fetch them
-   at build time.

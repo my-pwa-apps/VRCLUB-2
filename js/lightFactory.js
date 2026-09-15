@@ -375,7 +375,7 @@ class LightFactory {
             {
                 intensity: 0.04,
                 diffuse: [0.9, 0.9, 1.0],
-                specular: [0, 0, 0],
+                specular: [0.01, 0.01, 0.01],
                 groundColor: [0.03, 0.01, 0.06]
             }
         ),

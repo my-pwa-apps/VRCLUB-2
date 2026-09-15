@@ -1,75 +1,34 @@
-# Avatar Directory
+# Avatar Assets
 
-This directory contains 3D avatar models in GLB format for use in the VR Club.
+The crowd loader in `js/club/11-audio-crowd.js` explicitly loads the GLBs in this
+directory into Babylon `AssetContainer`s. Each dancer gets an independent skeleton and
+animation group while clones share source geometry, materials, and textures.
 
-## Supported Avatar Types
+## Current Sources
 
-### 1. VRoid Studio Avatars
-- Anime-styled characters
-- Created with VRoid Studio (https://vroid.com/en/studio)
-- Export as VRM, convert to GLB
-- See `docs/VROID_INTEGRATION_GUIDE_2025-10-18.md`
+The dancers and DJ use the CC0 Quaternius Universal Base Characters and Universal
+Animation Library Standard packs. Exact provenance and archive hashes are recorded in
+`ASSETS.md`.
 
-### 2. Ready Player Me Avatars
-- Photorealistic characters
-- Created at https://readyplayer.me/avatar
-- Download as GLB
-- See `docs/HOW_TO_ADD_RPM_AVATARS.md`
+| File | Role | Clip | Size target |
+|------|------|------|-------------|
+| `club-dancer-female.glb` | Crowd | `Dance_Loop` | Under 1 MB |
+| `club-dancer-male.glb` | Crowd | `Dance_Loop` | Under 1 MB |
+| `club-dj.glb` | DJ booth | `Idle_Loop` | Under 1 MB |
 
-### 3. Other Sources
-- Mixamo characters (https://www.mixamo.com/)
-- Sketchfab models (https://sketchfab.com/)
-- Custom GLB files
+## Rebuilding
 
-## File Naming Convention
+Build a character by combining a base glTF with one animation from the compatible
+Quaternius library:
 
-Use descriptive names:
-- `vroid_01.glb`, `vroid_02.glb` (VRoid avatars)
-- `rpm_casual_male.glb`, `rpm_dressy_female.glb` (Ready Player Me)
-- `mixamo_knight.glb`, `custom_avatar.glb` (other sources)
-
-## Usage
-
-Avatar files in this directory are automatically detected by the avatar loader system (`js/readyPlayerMeLoader.js`).
-
-Add file paths to the `avatarLibrary` array:
-
-```javascript
-this.avatarLibrary = [
-    './js/models/avatars/vroid_01.glb',
-    './js/models/avatars/vroid_02.glb',
-    './js/models/avatars/rpm_custom.glb',
-    // etc.
-];
+```powershell
+node scripts/build-avatar-glb.mjs <base.gltf> <animations.glb> <clip> <output.glb>
 ```
 
-## Performance Notes
+Then run `gltf-transform optimize` with quantization, WebP texture compression, a
+512 px texture cap, and simplification disabled. Do not add decoder-based compression
+without also adding and validating the corresponding Babylon runtime decoder.
 
-- **File Size**: Aim for 10-20MB per avatar
-- **Mesh Count**: VRoid avatars typically have 30-50 meshes
-- **Texture Size**: 2K textures recommended (4K may impact performance)
-- **Light Limits**: Materials automatically set to 6 lights max for VR compatibility
-
-## Getting Started
-
-### VRoid Studio (Recommended):
-1. Download VRoid Studio (FREE)
-2. Create 8-10 diverse avatars
-3. Export as VRM
-4. Convert to GLB using VRoid Hub
-5. Copy GLB files to this directory
-6. Update `js/readyPlayerMeLoader.js` avatarLibrary
-
-### Ready Player Me:
-1. Visit readyplayer.me/avatar
-2. Create custom avatars
-3. Download GLB URLs or files
-4. Add to avatarLibrary array
-
-See full documentation in `/docs/` for detailed guides.
-
----
-
-**Current Status**: Empty directory, ready for avatar files  
-**Fallback**: System uses procedural avatars if no files present  
-**Last Updated**: October 18, 2025
+Every shipped GLB must be listed in `ASSETS.md`. Keep character textures at 512 px for
+Quest, force imported materials opaque through `_prepareAvatarMaterials()`, and validate
+orientation from rendered geometry rather than trusting the root transform alone.

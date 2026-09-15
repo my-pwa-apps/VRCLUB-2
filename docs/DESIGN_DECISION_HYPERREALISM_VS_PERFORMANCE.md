@@ -1,5 +1,33 @@
 # Design Decision: Hyperrealism vs. Performance
 
+## Current Immersion Priorities
+
+The mirror-ball discussion below is historical, not the current tier configuration
+or a measured performance baseline. Current limits live in `qualityTiers` in
+`js/club/01-core.js`. Stable headset frame delivery and comfort take precedence over
+effect density.
+
+The current realism pass addresses verified rendering and visibility problems:
+
+- Lit materials remain responsive to changing light types. A frozen spotlight
+    shader bound to a smaller point-light buffer was dropping room geometry.
+- Equipment accents illuminate only their own models, leaving the room and crowd
+    light budgets available for the moving spots.
+- Tier changes invalidate shaders after rebuilding pre-pass pipelines.
+- Desktop grain and chromatic aberration are disabled; desktop and VR use restrained
+    bloom and contrast to retain surface detail next to bright fixtures.
+- Machine plumes and ambient haze are less opaque. The constant floor-fog layer
+    is removed: its flattened sprites read as grey ribbons across the floor.
+    Airborne haze and fog-machine bursts remain available for beam visibility.
+
+Desktop browser checks sampled more than 190,000 draws without errors after the
+lighting repairs, including High/Ultra transitions. Desktop and mobile-width images
+were inspected, including accumulated fog. These are not Quest performance results.
+Physical headset testing of brightness, seated scale, movement and sustained frame
+delivery is still required. The existing avatar assets, repeated crowd animations,
+and lack of room-specific spatial acoustics remain limits on lifelike presence.
+Do not describe the experience as indistinguishable from a real club on this evidence.
+
 ## The Mirror Ball Spot Count Decision
 
 ### Question
