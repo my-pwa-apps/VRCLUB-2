@@ -129,6 +129,8 @@ class VRClubCore {
             }
         };
         
+        this.atmosphereTestDisabled = true;
+
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
             desktop: {

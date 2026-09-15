@@ -198,6 +198,25 @@ class VRClubAnimationCore extends VRClubEffects {
 
     /** Fog machine bursts, haze start/stop and the fixture status LEDs. */
     updateFogMachines(ctx) {
+        if (this.atmosphereTestDisabled) {
+            this.scene.fogEnabled = false;
+            if (!this._atmosphereTestCleared) {
+                const particles = [this.haze, this.dustMotes];
+                for (const machine of this.fogMachines || []) {
+                    particles.push(machine.emitter);
+                    machine.isBursting = false;
+                    machine.burstTimer = 0;
+                }
+                for (const system of particles) {
+                    if (!system) continue;
+                    system.stop();
+                    system.reset();
+                }
+                this._atmosphereTestCleared = true;
+            }
+            return;
+        }
+
         const { time, dt } = ctx;
 
         // === FOG MACHINE SYSTEM CONTROL ===

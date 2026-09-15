@@ -1041,6 +1041,40 @@ test('disabled haptics also suppress VR menu feedback pulses', () => {
     assert.equal(pulses, 1);
 });
 
+test('clear-air test suppresses fog and particles despite smoke cues in both modes', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        VRClubEffects: class {}
+    });
+    const update = window.VRClubAnimationCore.prototype.updateFogMachines;
+    for (const isInVRMode of [false, true]) {
+        const systems = Array.from({ length: 4 }, () => ({
+            stops: 0,
+            resets: 0,
+            stop() { this.stops++; },
+            reset() { this.resets++; },
+            start() { assert.fail('Clear-air test must not start particles'); }
+        }));
+        const club = {
+            isInVRMode,
+            atmosphereTestDisabled: true,
+            smokeActive: true,
+            scene: { fogEnabled: true },
+            haze: systems[0],
+            dustMotes: systems[1],
+            fogMachines: systems.slice(2).map(emitter => ({
+                emitter, isBursting: true, burstTimer: 2
+            }))
+        };
+        update.call(club, { time: 1, dt: 1 / 60 });
+        club.scene.fogEnabled = true;
+        update.call(club, { time: 2, dt: 1 / 60 });
+        assert.equal(club.scene.fogEnabled, false);
+        assert.equal(club.smokeActive, true);
+        assert.ok(systems.every(system => system.stops === 1 && system.resets === 1));
+        assert.ok(club.fogMachines.every(machine => !machine.isBursting && machine.burstTimer === 0));
+    }
+});
+
 test('visual-only fixtures contribute bounded room bounce in desktop and VR', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/07-animation-core.js', {
