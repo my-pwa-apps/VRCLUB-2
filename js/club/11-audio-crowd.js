@@ -582,7 +582,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * Runs ONCE per source file, not once per dancer: every clone shares these
      * materials, so a single pass covers the whole crowd.
      */
-    _prepareAvatarMaterials(materials) {
+    _prepareAvatarMaterials(materials, garmentColor = null) {
         const aniso = this.tierSettings.anisotropy;
 
         materials.forEach(mat => {
@@ -603,6 +603,10 @@ class VRClubAudioCrowd extends VRClubUI {
             mat.disableDepthWrite = false;
             mat.forceDepthWrite = true;
             mat.backFaceCulling = true;
+
+            if (garmentColor && mat.name === 'MI_Peasant' && mat.albedoColor) {
+                mat.albedoColor.copyFrom(garmentColor);
+            }
 
             [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
                 if (!tex) return;
@@ -711,10 +715,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
         log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
 
-        const loadAvatarSource = async url => {
+        const loadAvatarSource = async (url, garmentColor = null) => {
             try {
                 const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
-                this._prepareAvatarMaterials(container.materials);
+            this._prepareAvatarMaterials(container.materials, garmentColor);
                 this._avatarContainers.push(container);
                 return container;
             } catch (error) {
@@ -724,8 +728,12 @@ class VRClubAudioCrowd extends VRClubUI {
         };
 
         const containers = [];
-        for (const url of avatarSources) {
-            containers.push(await loadAvatarSource(url));
+        const garmentColors = [
+            new BABYLON.Color3(0.45, 0.82, 1.0),
+            new BABYLON.Color3(1.0, 0.42, 0.68)
+        ];
+        for (let index = 0; index < avatarSources.length; index++) {
+            containers.push(await loadAvatarSource(avatarSources[index], garmentColors[index]));
         }
 
         const available = containers.filter(Boolean);
@@ -771,7 +779,8 @@ class VRClubAudioCrowd extends VRClubUI {
         // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
         // the deck plinth (z=-19), facing the floor. Playback is dialled well down so
         // they read as working the decks rather than raving in the crowd.
-        const djSource = await loadAvatarSource('./js/models/avatars/club-dj.glb');
+        const djSource = await loadAvatarSource('./js/models/avatars/club-dj.glb',
+            new BABYLON.Color3(0.55, 0.48, 1.0));
         if (djSource) {
             this._spawnAvatar(
                 djSource,

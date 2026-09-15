@@ -3,11 +3,14 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { NodeIO } from '@gltf-transform/core';
+import { copyToDocument } from '@gltf-transform/functions';
 
-const [basePath, animationPath, clipName, outputPath] = process.argv.slice(2);
+const [basePath, animationPath, clipName, outputPath, ...options] = process.argv.slice(2);
+const headOnly = options.includes('--head-only');
+const accessoryPaths = options.filter(option => option !== '--head-only');
 
 if (!basePath || !animationPath || !clipName || !outputPath) {
-    console.error('Usage: node scripts/build-avatar-glb.mjs <base.gltf> <animations.glb> <clip> <output.glb>');
+    console.error('Usage: node scripts/build-avatar-glb.mjs <base.gltf> <animations.glb> <clip> <output.glb> [accessory.gltf ...]');
     process.exit(1);
 }
 
@@ -34,6 +37,69 @@ async function readDocument(path) {
 
 const baseDocument = await readDocument(basePath);
 const animationDocument = await io.read(animationPath);
+const baseSkin = baseDocument.getRoot().listSkins()[0];
+const baseJointNames = baseSkin?.listJoints().map(joint => joint.getName());
+
+if (headOnly) {
+    const bodyNode = baseDocument.getRoot().listNodes()
+        .find(node => node.getMesh() && /Superhero_(Female|Male)/i.test(node.getName()));
+    const primitive = bodyNode?.getMesh()?.listPrimitives()[0];
+    const joints = primitive?.getAttribute('JOINTS_0');
+    const weights = primitive?.getAttribute('WEIGHTS_0');
+    const indices = primitive?.getIndices();
+    if (!bodyNode || !primitive || !joints || !weights || !indices || !baseJointNames) {
+        throw new Error('Base character does not expose indexed skinned body geometry for --head-only');
+    }
+
+    const headJoints = new Set(['Head', 'neck_01']);
+    const jointArray = joints.getArray();
+    const weightArray = weights.getArray();
+    const indexArray = indices.getArray();
+    const influences = joints.getElementSize();
+    const belongsToHead = vertex => {
+        let headWeight = 0;
+        for (let influence = 0; influence < influences; influence++) {
+            const offset = vertex * influences + influence;
+            if (headJoints.has(baseJointNames[jointArray[offset]])) headWeight += weightArray[offset];
+        }
+        return headWeight >= 0.5;
+    };
+    const selected = [];
+    for (let index = 0; index < indexArray.length; index += 3) {
+        const triangle = [indexArray[index], indexArray[index + 1], indexArray[index + 2]];
+        if (triangle.every(belongsToHead)) selected.push(...triangle);
+    }
+    if (selected.length === 0) throw new Error('No head triangles matched the base character skin weights');
+
+    primitive.setIndices(baseDocument.createAccessor('Head_indices')
+        .setType('SCALAR')
+        .setArray(new indexArray.constructor(selected)));
+}
+
+for (const accessoryPath of accessoryPaths) {
+    const accessoryDocument = await readDocument(accessoryPath);
+    const accessoryNodes = accessoryDocument.getRoot().listNodes()
+        .filter(node => node.getMesh() && node.getSkin());
+    const accessorySkin = accessoryNodes[0]?.getSkin();
+    const accessoryJointNames = accessorySkin?.listJoints().map(joint => joint.getName());
+
+    if (!baseSkin || accessoryNodes.length === 0 || !accessoryJointNames ||
+        accessoryJointNames.length !== baseJointNames.length ||
+        accessoryJointNames.some((name, index) => name !== baseJointNames[index])) {
+        throw new Error(`Accessory skeleton does not match the base character: ${accessoryPath}`);
+    }
+
+    const propertyMap = copyToDocument(baseDocument, accessoryDocument,
+        accessoryNodes.map(node => node.getMesh()));
+    for (const accessoryNode of accessoryNodes) {
+        const targetNode = baseDocument.createNode(accessoryNode.getName())
+            .setMesh(propertyMap.get(accessoryNode.getMesh()))
+            .setSkin(baseSkin)
+            .setMatrix(accessoryNode.getMatrix());
+        baseDocument.getRoot().listScenes()[0].addChild(targetNode);
+    }
+}
+
 const sourceAnimation = animationDocument.getRoot().listAnimations()
     .find(animation => animation.getName() === clipName);
 
@@ -90,5 +156,9 @@ for (const sourceChannel of sourceAnimation.listChannels()) {
     targetAnimation.addChannel(channel);
 }
 
+const buffers = baseDocument.getRoot().listBuffers();
+const targetBuffer = buffers[0] || baseDocument.createBuffer('avatar');
+for (const accessor of baseDocument.getRoot().listAccessors()) accessor.setBuffer(targetBuffer);
+for (const buffer of buffers.slice(1)) buffer.dispose();
 await io.write(outputPath, baseDocument);
 console.log(`Wrote ${outputPath} with ${targetAnimation.listChannels().length} animation channels.`);

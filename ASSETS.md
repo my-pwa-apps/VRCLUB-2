@@ -31,17 +31,21 @@ in `index.html`).
 
 | File | Origin | Licence |
 |------|--------|---------|
-| `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-dj.glb` | Quaternius Universal Base Characters + Universal Animation Library (`Idle_Loop`) | CC0 1.0 |
+| `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
+| `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
+| `js/models/avatars/club-dj.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Idle_Loop`) | CC0 1.0 |
 
 Official sources: <https://quaternius.itch.io/universal-base-characters> and
-<https://quaternius.itch.io/universal-animation-library>. The Standard archives used to
-build these files have SHA-256 hashes
+<https://quaternius.itch.io/universal-animation-library>, plus
+<https://quaternius.itch.io/modular-character-outfits-fantasy>. The Standard archives
+used to build these files have SHA-256 hashes
 `FDBF1804C90DFC1EA03E992BFF7DA2DFD1A79318E13270A660180F9308455F40` and
-`CC73FC4E495B82958207316596317A3F40B9FA38065BDE1027937452DA537724` respectively.
+`CC73FC4E495B82958207316596317A3F40B9FA38065BDE1027937452DA537724` for the base
+characters and animations, and
+`C3468B18871CC8C8F05AB14DF7712BAF22CB9F389CBD870BABF130E595187F70` for the outfits.
 The checked-in GLBs were combined with `scripts/build-avatar-glb.mjs`, then optimized
-with quantization and 512 px WebP textures.
+with 512 px WebP textures. Geometry transforms are omitted to preserve one shared skin
+across each modular animated character.
 
 ## Environment / surface textures
 

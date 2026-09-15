@@ -1,32 +1,30 @@
 #!/usr/bin/env node
-// Rebuild the checked-in avatar GLBs with standard glTF quantization and WebP
-// textures. Meshopt/Draco are deliberately avoided: both require a runtime decoder,
-// while these extensions are decoded natively by Babylon.js/browser image support.
+// Rebuild checked-in avatar GLBs with 512 px WebP textures. Geometry transforms
+// are deliberately avoided because they can duplicate skins in modular animated models.
 
 import { readdirSync, renameSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NodeIO } from '@gltf-transform/core';
+import { EXTTextureWebP, KHRMeshQuantization } from '@gltf-transform/extensions';
+import { textureCompress } from '@gltf-transform/functions';
+import sharp from 'sharp';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const avatarDir = join(ROOT, 'js', 'models', 'avatars');
 const files = readdirSync(avatarDir).filter(file => file.endsWith('.glb'));
+const io = new NodeIO().registerExtensions([EXTTextureWebP, KHRMeshQuantization]);
 
 for (const file of files) {
     const source = join(avatarDir, file);
     const output = join(avatarDir, `${basename(file, '.glb')}.optimized.glb`);
-    const result = spawnSync(
-        process.platform === 'win32' ? 'npx.cmd' : 'npx',
-        [
-            '--no-install', 'gltf-transform', 'optimize', source, output,
-            '--compress', 'quantize',
-            '--texture-compress', 'webp',
-            '--texture-size', '1024',
-            '--simplify', 'false'
-        ],
-        { stdio: 'inherit' }
-    );
-    if (result.status !== 0) process.exit(result.status || 1);
+    const document = await io.read(source);
+    await document.transform(textureCompress({
+        encoder: sharp,
+        targetFormat: 'webp',
+        resize: [512, 512]
+    }));
+    await io.write(output, document);
     renameSync(output, source);
 }
 
