@@ -54,7 +54,9 @@ const browserGlobals = {
     structuredClone: 'readonly',
     TextEncoder: 'readonly',
     TextDecoder: 'readonly',
-    crypto: 'readonly'
+    crypto: 'readonly',
+    WebSocket: 'readonly',
+    RTCPeerConnection: 'readonly'
 };
 
 // Third-party runtime + the first-party classes published onto `window` by
@@ -88,6 +90,8 @@ const projectGlobals = {
     ShowDirector: 'readonly',
     LEDPatterns: 'readonly',
     VRClub: 'readonly',
+    NetworkClient: 'readonly',
+    AvatarManager: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };

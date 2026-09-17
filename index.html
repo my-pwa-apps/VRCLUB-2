@@ -18,6 +18,13 @@
          is NOT in the startup critical path - blocking it only costs controller models -
          but blocking it also logs a CSP violation on every VR entry.
 
+         connect-src also allows the ws:/wss: schemes (any origin) for the optional
+         multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
+         the Multiplayer panel / js/networkClient.js), not a fixed origin known at
+         build time, so it cannot be pinned to one hostname here. WebRTC's own
+         signaling (SDP/ICE) is negotiated through that same relay; the resulting
+         peer-to-peer audio connection is exempt from connect-src by the Fetch spec.
+
          script-src is 'self' only: the Babylon.js runtime is vendored under js/vendor/
          (see scripts/vendor.manifest.json) rather than loaded from a CDN, so there is no
          third-party origin left in the critical path.
@@ -35,7 +42,7 @@
         img-src 'self' data: blob:;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
-        connect-src 'self' blob: https://immersive-web.github.io;
+        connect-src 'self' blob: https://immersive-web.github.io ws: wss:;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
@@ -317,6 +324,67 @@
         </div>
     </div>
     
+    <!-- Multiplayer Menu. See the note on #vjMenu for why this is not role="dialog". -->
+    <div id="networkMenu" class="panel hidden" role="group" aria-labelledby="networkMenuTitle">
+        <div class="panel-header">
+            <h2 class="panel-title" id="networkMenuTitle" tabindex="-1">
+                <span aria-hidden="true">👥</span>
+                <span>Multiplayer</span>
+            </h2>
+            <div class="panel-header-actions">
+                <button class="panel-btn-icon" id="networkMinimize" type="button" title="Minimize" aria-label="Minimize multiplayer panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="networkClose" type="button" title="Close" aria-label="Close multiplayer panel"><span aria-hidden="true">×</span></button>
+            </div>
+        </div>
+
+        <div class="audio-content">
+            <div class="audio-section">
+                <div id="networkStatus" class="audio-now-playing" role="status" aria-live="polite">Not connected</div>
+            </div>
+
+            <div class="audio-section">
+                <div class="audio-input-group">
+                    <input type="url" class="audio-input" id="networkServerUrl" placeholder="Relay URL (wss://your-worker.workers.dev)"
+                           inputmode="url" autocomplete="off" aria-label="Multiplayer relay server URL">
+                </div>
+                <div class="audio-input-group">
+                    <input type="text" class="audio-input" id="networkRoom" placeholder="Room code" maxlength="64" autocomplete="off" aria-label="Room code">
+                    <input type="text" class="audio-input" id="networkName" placeholder="Your name" maxlength="32" autocomplete="off" aria-label="Display name">
+                </div>
+                <button class="audio-button" id="networkConnectBtn" type="button">
+                    <span aria-hidden="true">🔌</span>
+                    <span id="networkConnectBtnLabel">Connect</span>
+                </button>
+            </div>
+
+            <div class="audio-section">
+                <button class="audio-button" id="networkMicBtn" type="button" aria-pressed="false" disabled>
+                    <span aria-hidden="true">🎤</span>
+                    <span id="networkMicBtnLabel">Enable Mic</span>
+                </button>
+            </div>
+
+            <div class="audio-section">
+                <div class="vj-section-title">Say something</div>
+                <div class="vj-button-grid" id="networkEmojiGrid">
+                    <button class="vj-button" type="button" data-emoji="🎉" disabled>🎉</button>
+                    <button class="vj-button" type="button" data-emoji="🔥" disabled>🔥</button>
+                    <button class="vj-button" type="button" data-emoji="❤️" disabled>❤️</button>
+                    <button class="vj-button" type="button" data-emoji="😂" disabled>😂</button>
+                    <button class="vj-button" type="button" data-emoji="👋" disabled>👋</button>
+                    <button class="vj-button" type="button" data-emoji="🙌" disabled>🙌</button>
+                    <button class="vj-button" type="button" data-emoji="💃" disabled>💃</button>
+                    <button class="vj-button" type="button" data-emoji="🕺" disabled>🕺</button>
+                </div>
+            </div>
+
+            <div id="networkPeerCount" class="audio-file-name">0 guests here</div>
+        </div>
+    </div>
+
+    <!-- Multiplayer Toggle Button -->
+    <button id="networkToggle" type="button" title="Multiplayer" aria-label="Open multiplayer panel" aria-expanded="false" aria-controls="networkMenu"><span aria-hidden="true">👥</span></button>
+
     <!-- Camera Controls -->
     <div id="cameraControls">
         <button id="cameraPresetToggle" class="camera-controls-toggle" type="button"
@@ -389,6 +457,12 @@
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
     <script src="js/ledPatterns.js?v=20260915-1"></script>
+
+    <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
+         Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
+         VRClub only creates instances once a guest connects from the Multiplayer panel. -->
+    <script src="js/networkClient.js?v=20260915-1"></script>
+    <script src="js/avatarManager.js?v=20260915-1"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
     <script src="js/club/01-core.js?v=20260915-1"></script>

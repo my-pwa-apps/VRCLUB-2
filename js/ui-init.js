@@ -286,6 +286,7 @@ function initMenus() {
     vrClubInstance = window.vrClub;
     initVJMenu();
     initAudioMenu();
+    initNetworkMenu();
     initKeyboardShortcuts();
     uiLog.info('VJ/Audio menus initialized');
 }
@@ -940,6 +941,10 @@ function initAudioMenu() {
                 activeAudio.pause();
                 setPlayLabel(false);
                 showStatus('Stream paused', 'success');
+                // If this guest is the room host, tell everyone else to pause too.
+                if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
+                    vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: false, position: activeAudio.currentTime });
+                }
                 return;
             }
 
@@ -949,6 +954,10 @@ function initAudioMenu() {
                     setPlayLabel(true);
                     setNowPlaying(`\u25B6 ${url}`);
                     try { localStorage.setItem(LAST_STREAM_KEY, url); } catch (_) { /* ignore */ }
+                    // Broadcast the new "now playing" to the room, if this guest hosts it.
+                    if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
+                        vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: true, position: 0 });
+                    }
                 })
                 .catch(err => {
                     showStatus(`Error: ${err.message}`, 'error');
@@ -1000,6 +1009,256 @@ function initAudioMenu() {
     }
     
     uiLog.info('Audio menu initialized');
+}
+
+// =============================================================================
+// MULTIPLAYER (NETWORK) MENU
+// =============================================================================
+
+const NETWORK_PREFS = Object.freeze({
+    serverUrl: 'vrclub.networkServerUrl',
+    room: 'vrclub.networkRoom',
+    name: 'vrclub.networkName'
+});
+
+/**
+ * Local dev convenience only: `npm run --prefix worker dev` (wrangler) serves the
+ * relay on :8787. A real deployment's Worker URL cannot be known at build time -
+ * see the connect-src comment on the CSP meta tag in index.html - so guests off
+ * localhost must paste their own.
+ */
+function defaultNetworkServerUrl() {
+    try {
+        const stored = localStorage.getItem(NETWORK_PREFS.serverUrl);
+        if (stored) return stored;
+    } catch (_) { /* private browsing */ }
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    return isLocal ? `ws://${window.location.hostname}:8787` : '';
+}
+
+function initNetworkMenu() {
+    const networkToggle = document.getElementById('networkToggle');
+    const networkMenu = document.getElementById('networkMenu');
+    const networkMinimize = document.getElementById('networkMinimize');
+    const networkClose = document.getElementById('networkClose');
+    const networkTitle = document.getElementById('networkMenuTitle');
+    const serverUrlInput = document.getElementById('networkServerUrl');
+    const roomInput = document.getElementById('networkRoom');
+    const nameInput = document.getElementById('networkName');
+    const connectBtn = document.getElementById('networkConnectBtn');
+    const connectBtnLabel = document.getElementById('networkConnectBtnLabel');
+    const micBtn = document.getElementById('networkMicBtn');
+    const micBtnLabel = document.getElementById('networkMicBtnLabel');
+    const statusEl = document.getElementById('networkStatus');
+    const peerCountEl = document.getElementById('networkPeerCount');
+    const emojiButtons = [...document.querySelectorAll('#networkEmojiGrid [data-emoji]')];
+
+    if (!networkToggle || !networkMenu) return;
+
+    const teardowns = uiTeardowns;
+
+    let params = null;
+    try { params = new URLSearchParams(window.location.search); } catch (_) { /* ignore */ }
+
+    if (serverUrlInput) serverUrlInput.value = defaultNetworkServerUrl();
+    if (roomInput) {
+        let room = params && params.get('room');
+        if (!room) { try { room = localStorage.getItem(NETWORK_PREFS.room); } catch (_) { /* ignore */ } }
+        roomInput.value = room || 'lobby';
+    }
+    if (nameInput) {
+        let name = null;
+        try { name = localStorage.getItem(NETWORK_PREFS.name); } catch (_) { /* ignore */ }
+        nameInput.value = name || `Guest${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    const closeNetworkMenu = (restoreFocus = true) => {
+        networkMenu.classList.add('hidden');
+        networkToggle.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) networkToggle.focus();
+    };
+    const openNetworkMenu = () => {
+        networkMenu.classList.remove('hidden', 'minimized');
+        networkToggle.setAttribute('aria-expanded', 'true');
+        if (networkTitle) networkTitle.focus();
+    };
+
+    networkToggle.addEventListener('click', () => {
+        if (networkMenu.classList.contains('hidden')) openNetworkMenu();
+        else closeNetworkMenu();
+    });
+
+    if (networkMinimize) {
+        networkMinimize.addEventListener('click', () => {
+            const minimized = networkMenu.classList.toggle('minimized');
+            const glyph = networkMinimize.querySelector('span') || networkMinimize;
+            glyph.textContent = minimized ? '+' : '\u2212';
+            networkMinimize.setAttribute('aria-label', minimized ? 'Expand multiplayer panel' : 'Minimize multiplayer panel');
+            networkMinimize.setAttribute('aria-expanded', String(!minimized));
+        });
+    }
+    if (networkClose) networkClose.addEventListener('click', () => closeNetworkMenu());
+
+    const onNetworkKeyDown = (e) => {
+        if (e.key === 'Escape' && !networkMenu.classList.contains('hidden')) {
+            e.preventDefault();
+            closeNetworkMenu();
+        }
+    };
+    document.addEventListener('keydown', onNetworkKeyDown);
+    teardowns.push(() => document.removeEventListener('keydown', onNetworkKeyDown));
+
+    const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
+    const setPeerCount = (n) => { if (peerCountEl) peerCountEl.textContent = `${n} guest${n === 1 ? '' : 's'} here`; };
+    const setEmojiEnabled = (enabled) => emojiButtons.forEach(btn => { btn.disabled = !enabled; });
+    const setMicEnabled = (enabled) => { if (micBtn) micBtn.disabled = !enabled; };
+
+    /** Applies a shared "now playing" announcement from the room host. Guests
+     *  that host their own stream ignore this - they ARE the source of truth. */
+    const applyMusicState = (music) => {
+        const net = vrClubInstance.networkManager;
+        if (!music || !music.url || !net || net.isHost()) return;
+        const elapsed = music.playing && music.updatedAt ? (Date.now() - music.updatedAt) / 1000 : 0;
+        const targetTime = Math.max(0, (Number(music.position) || 0) + elapsed);
+
+        const seekAndPlay = () => {
+            const el = vrClubInstance.audioElement;
+            if (!el) return;
+            if (Math.abs(el.currentTime - targetTime) > 2) el.currentTime = targetTime;
+            if (music.playing && el.paused) el.play().catch(() => { /* needs a user gesture the first time */ });
+            if (!music.playing && !el.paused) el.pause();
+        };
+
+        const audio = vrClubInstance.audioElement;
+        if (audio && audio.src === music.url) {
+            seekAndPlay();
+        } else if (music.playing) {
+            vrClubInstance.startAudioStream(music.url).then(seekAndPlay).catch(() => { /* unreachable for this guest */ });
+        }
+    };
+
+    if (connectBtn) {
+        connectBtn.addEventListener('click', () => {
+            const net = vrClubInstance.networkManager;
+            if (net && net.connected) {
+                net.disconnect();
+                if (vrClubInstance.avatarManager) {
+                    for (const id of [...vrClubInstance.avatarManager.remotes.keys()]) {
+                        vrClubInstance.avatarManager.removePeer(id);
+                    }
+                }
+                return;
+            }
+
+            const serverUrl = (serverUrlInput?.value || '').trim();
+            const room = (roomInput?.value || 'lobby').trim() || 'lobby';
+            const name = (nameInput?.value || 'Guest').trim() || 'Guest';
+            if (!serverUrl) {
+                setStatus('Enter a relay URL first (deploy worker/, see its wrangler.toml).');
+                return;
+            }
+
+            try {
+                localStorage.setItem(NETWORK_PREFS.serverUrl, serverUrl);
+                localStorage.setItem(NETWORK_PREFS.room, room);
+                localStorage.setItem(NETWORK_PREFS.name, name);
+            } catch (_) { /* private browsing */ }
+
+            const client = new NetworkClient({ serverUrl, room, name });
+            if (!vrClubInstance.avatarManager) vrClubInstance.avatarManager = new AvatarManager(vrClubInstance);
+            vrClubInstance.networkManager = client;
+
+            client.onStatusChange = (status) => {
+                if (status === 'connecting') {
+                    setStatus(`Connecting to "${room}"\u2026`);
+                    if (connectBtnLabel) connectBtnLabel.textContent = 'Cancel';
+                } else if (status === 'connected') {
+                    setStatus(`Connected \u2014 room "${room}"`);
+                    if (connectBtnLabel) connectBtnLabel.textContent = 'Disconnect';
+                    vrClubInstance.isMultiplayer = true;
+                    setEmojiEnabled(true);
+                    setMicEnabled(true);
+                    setPeerCount(client.peerCount);
+                } else {
+                    setStatus(status === 'error' ? 'Connection error' : 'Not connected');
+                    if (connectBtnLabel) connectBtnLabel.textContent = 'Connect';
+                    vrClubInstance.isMultiplayer = false;
+                    setEmojiEnabled(false);
+                    setMicEnabled(false);
+                    setPeerCount(0);
+                    if (micBtn) { setToggleState(micBtn, false); if (micBtnLabel) micBtnLabel.textContent = 'Enable Mic'; }
+                }
+            };
+            client.onPeerJoin = (id, peerName) => {
+                setPeerCount(client.peerCount);
+                vrClubInstance.avatarManager.ensurePeer(id, peerName);
+            };
+            client.onPeerState = (id, state) => vrClubInstance.avatarManager.updatePeerState(id, null, state);
+            client.onPeerLeave = (id) => { vrClubInstance.avatarManager.removePeer(id); setPeerCount(client.peerCount); };
+            client.onEmoji = (id, emoji) => vrClubInstance.avatarManager.showEmoji(id, emoji);
+            client.onMusic = applyMusicState;
+            client.onRemoteStream = (id, stream) => vrClubInstance.avatarManager.attachVoice(id, stream);
+            client.onError = (err) => setStatus(`Error: ${err.message}`);
+
+            client.connect();
+        });
+    }
+
+    if (micBtn) {
+        micBtn.addEventListener('click', async () => {
+            const net = vrClubInstance.networkManager;
+            if (!net || !net.connected) return;
+            if (net.micEnabled) {
+                net.disableVoice();
+                setToggleState(micBtn, false);
+                if (micBtnLabel) micBtnLabel.textContent = 'Enable Mic';
+                return;
+            }
+            try {
+                await net.enableVoice();
+                setToggleState(micBtn, true);
+                if (micBtnLabel) micBtnLabel.textContent = 'Mute Mic';
+            } catch (err) {
+                setStatus(`Mic error: ${err.message}`);
+            }
+        });
+    }
+
+    for (const btn of emojiButtons) {
+        btn.addEventListener('click', () => {
+            const net = vrClubInstance.networkManager;
+            if (net && net.connected) net.sendEmoji(btn.dataset.emoji);
+        });
+    }
+
+    // Periodic host heartbeat: re-announces the current track/position every few
+    // seconds so a guest who joins mid-track (or drifts) stays in sync without
+    // waiting for the next play/pause click.
+    const musicHeartbeat = setInterval(() => {
+        const net = vrClubInstance.networkManager;
+        const audio = vrClubInstance.audioElement;
+        if (!net || !net.connected || !net.isHost() || !audio || !audio.src || audio.paused) return;
+        net.sendMusic({ url: audio.src, playing: true, position: audio.currentTime });
+    }, 8000);
+    teardowns.push(() => clearInterval(musicHeartbeat));
+
+    // Hide in VR mode, matching the VJ/audio panels.
+    if (vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
+        const scene = vrClubInstance.scene;
+        const onInit = scene.onXRSessionInit.add(() => {
+            closeNetworkMenu(false);
+            networkToggle.style.display = 'none';
+        });
+        const onEnded = scene.onXRSessionEnded.add(() => {
+            networkToggle.style.display = 'block';
+        });
+        teardowns.push(() => {
+            scene.onXRSessionInit.remove(onInit);
+            scene.onXRSessionEnded.remove(onEnded);
+        });
+    }
+
+    uiLog.info('Multiplayer menu initialized');
 }
 
 // =============================================================================

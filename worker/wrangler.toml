@@ -1,0 +1,15 @@
+name = "vrclub-network"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# One Durable Object instance per room name (see `idFromName` in src/index.js).
+# It holds the room's connected WebSocket sessions, the current host id and the
+# last known shared music state entirely in memory - there is no persistence
+# because a club session that ends does not need to be replayed.
+[[durable_objects.bindings]]
+name = "CLUB_ROOM"
+class_name = "ClubRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ClubRoom"]

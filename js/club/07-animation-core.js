@@ -17,6 +17,29 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateSpeakerCones(ctx);
         this.updateCameraPresence(ctx);
         this.updateEyeAdaptation(ctx);
+        this.updateNetworkPresence(ctx);
+    }
+
+    /**
+     * Multiplayer: advance remote-avatar interpolation/spatial-audio positions
+     * and throttle-broadcast this guest's own position/facing. Both halves are
+     * no-ops until a guest connects from the Multiplayer panel (ui-init.js).
+     */
+    updateNetworkPresence(ctx) {
+        if (this.avatarManager) this.avatarManager.update(ctx.dt);
+
+        const net = this.networkManager;
+        if (!net || !net.connected) return;
+
+        // 10 Hz is plenty for a walking-speed avatar and keeps the relay's
+        // bandwidth trivial even with a room full of guests.
+        if (ctx.time - (this._lastNetworkSendTime || 0) < 0.1) return;
+        this._lastNetworkSendTime = ctx.time;
+
+        const cam = (this.isInVRMode && this.vrHelper?.baseExperience?.camera) || this.camera;
+        if (!cam) return;
+        const rotY = cam.rotationQuaternion ? cam.rotationQuaternion.toEulerAngles().y : (cam.rotation ? cam.rotation.y : 0);
+        net.sendState({ x: cam.position.x, y: cam.position.y, z: cam.position.z, rotY });
     }
 
     /**

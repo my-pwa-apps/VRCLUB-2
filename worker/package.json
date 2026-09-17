@@ -1,0 +1,15 @@
+{
+  "name": "vrclub-network-worker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Worker (Durable Object) relaying presence, WebRTC voice signaling, emoji and shared music state for VR Club multiplayer sessions.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

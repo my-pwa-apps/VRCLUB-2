@@ -37,6 +37,8 @@ js/lightFactory.js         Shared Babylon light creation helpers
 js/vjDirector.js           Beat/BPM detection, colour palette and VJ macros
 js/showDirector.js         "NOCTURNE" — the composed, beat-locked cue engine
 js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
+js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
+js/avatarManager.js        Remote-guest avatars, spatial voice and emoji bubbles driven by networkClient
 js/club/01-core.js         VRClub constructor, shared state, and device settings
 js/club/02-lifecycle.js    Scene initialization and disposal
 js/club/03-rendering.js    Pipelines, materials, shadows, floor, and walls
@@ -78,6 +80,27 @@ js/models/                 Local GLB models and model textures
 | `Ctrl+Shift+D` | FPS / diagnostics overlay |
 
 All shortcuts are ignored while a text field has focus.
+
+## Multiplayer (optional)
+
+The **👥 Multiplayer** panel (top-right) lets several guests share one club: the same
+room state, each other's positions as simple avatars, voice chat, and one shared "now
+playing" stream. It is entirely opt-in — nobody connects to anything until a guest fills
+in a relay URL and clicks **Connect**.
+
+The relay is a small Cloudflare Worker (Durable Object) under [worker/](worker/) that only
+forwards JSON messages between guests in the same room; deploy your own with:
+
+```powershell
+cd worker
+npm install
+npm run deploy   # or: npm run dev, to run it locally on ws://localhost:8787
+```
+
+Paste the deployed `wss://your-worker.workers.dev` URL (and a room code) into the panel.
+Voice audio itself never touches the Worker — once two guests are in the same room their
+browsers negotiate a direct WebRTC connection (the Worker only relays the SDP/ICE
+handshake), so audio stays peer-to-peer.
 
 ## Accessibility
 

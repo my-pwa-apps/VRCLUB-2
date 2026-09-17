@@ -778,6 +778,20 @@ class VRClubLifecycle extends VRClubCore {
         if (this.vjDirector) this.vjDirector = null;
         if (this.showDirector) this.showDirector = null;
 
+        // Multiplayer: closes the WebSocket, every RTCPeerConnection and the
+        // microphone track, then removes every remote-guest mesh/audio node.
+        // Must run before materialFactory.dispose() below frees the shared
+        // remote-player material out from under a still-live avatar mesh.
+        if (this.networkManager) {
+            try { this.networkManager.dispose(); } catch (_) { /* ignore */ }
+            this.networkManager = null;
+        }
+        if (this.avatarManager) {
+            try { this.avatarManager.dispose(); } catch (_) { /* ignore */ }
+            this.avatarManager = null;
+        }
+        this.isMultiplayer = false;
+
         if (this.vrHelper && this.vrHelper.baseExperience) {
             try { this.vrHelper.baseExperience.dispose(); } catch (_) { /* ignore */ }
         }
