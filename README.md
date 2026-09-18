@@ -85,8 +85,9 @@ All shortcuts are ignored while a text field has focus.
 
 The **👥 Multiplayer** panel (top-right) lets several guests share one club: the same
 room state, each other's positions as simple avatars, voice chat, and one shared "now
-playing" stream. It is entirely opt-in — nobody connects to anything until a guest fills
-in a relay URL and clicks **Connect**.
+playing" stream. It is entirely opt-in — nobody connects until a guest clicks **Connect**.
+Both local testing and the deployed site default to the hosted relay:
+`wss://vrclub-network.garfieldapp.workers.dev`. No local Worker is required.
 
 The relay is a small Cloudflare Worker (Durable Object) under [worker/](worker/) that only
 forwards JSON messages between guests in the same room; deploy your own with:
@@ -98,6 +99,8 @@ npm run deploy   # or: npm run dev, to run it locally on ws://localhost:8787
 ```
 
 Paste the deployed `wss://your-worker.workers.dev` URL (and a room code) into the panel.
+Custom hosted relay URLs are remembered. Saved legacy localhost:8787 defaults migrate to
+the hosted relay; enter a local URL explicitly when testing Worker changes locally.
 Voice audio itself never touches the Worker — once two guests are in the same room their
 browsers negotiate a direct WebRTC connection (the Worker only relays the SDP/ICE
 handshake), so audio stays peer-to-peer.

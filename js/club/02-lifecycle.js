@@ -1,4 +1,11 @@
 class VRClubLifecycle extends VRClubCore {
+    async _createXRExperience(options) {
+        if (!navigator.xr || typeof navigator.xr.isSessionSupported !== 'function') return null;
+        const supported = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
+        if (!supported) return null;
+        return this.scene.createDefaultXRExperienceAsync(options);
+    }
+
     async init() {
         this._reportInitProgress(0.04, 'Preparing renderer...');
         // Create scene with hyperrealistic atmosphere
@@ -189,7 +196,7 @@ class VRClubLifecycle extends VRClubCore {
         this.createFloor();
         
         // Enable VR with teleportation on floor - optimized for Quest 3S
-        const vrHelper = await this.scene.createDefaultXRExperienceAsync({
+        const vrHelper = await this._createXRExperience({
             floorMeshes: [this.floorMesh],
             optionalFeatures: true,
             disableTeleportation: false,

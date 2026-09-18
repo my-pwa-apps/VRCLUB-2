@@ -37,6 +37,7 @@ class NetworkClient {
         this._closedByUser = false;
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
+        this._hasConnected = false;
 
         // Assigned by the caller (AvatarManager / ui-init.js). Defaulted to no-ops
         // so every internal call site doesn't need an existence guard.
@@ -56,8 +57,10 @@ class NetworkClient {
     isHost() { return !!this.selfId && this.selfId === this.hostId; }
 
     connect() {
-        if (this.ws) return;
+        if (this.ws || this._reconnectTimer !== null) return;
         this._closedByUser = false;
+        this._reconnectAttempts = 0;
+        this._hasConnected = false;
         this._setStatus('connecting');
         this._open();
     }
@@ -65,14 +68,16 @@ class NetworkClient {
     disconnect() {
         this._closedByUser = true;
         clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
         this.disableVoice();
         for (const id of [...this.peers.keys()]) this._teardownPeerConnection(id);
         this.peers.clear();
         this.selfId = null;
         this.hostId = null;
         if (this.ws) {
-            try { this.ws.close(); } catch { /* ignore */ }
+            const socket = this.ws;
             this.ws = null;
+            try { socket.close(); } catch { /* ignore */ }
         }
         this._setStatus('disconnected');
     }
@@ -101,11 +106,12 @@ class NetworkClient {
         }
         this.ws = ws;
 
-        ws.addEventListener('open', () => {
-            this._reconnectAttempts = 0;
+        ws.addEventListener('message', (evt) => {
+            if (this.ws === ws) this._onMessage(evt);
         });
-        ws.addEventListener('message', (evt) => this._onMessage(evt));
-        ws.addEventListener('close', () => this._onSocketClosed());
+        ws.addEventListener('close', () => {
+            if (this.ws === ws) this._onSocketClosed();
+        });
         ws.addEventListener('error', () => { /* the close event follows and handles cleanup */ });
     }
 
@@ -118,10 +124,16 @@ class NetworkClient {
             this._setStatus('disconnected');
             return;
         }
-        this._setStatus('disconnected');
+        if (!this._hasConnected || this._reconnectAttempts >= 3) {
+            this._setStatus('error');
+            this.onError(new Error('Cannot reach multiplayer relay. Start the relay or check its URL, then click Connect to retry.'));
+            return;
+        }
+        this._setStatus('connecting');
         const delay = Math.min(10000, 1000 * (2 ** this._reconnectAttempts++));
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = setTimeout(() => {
+            this._reconnectTimer = null;
             if (!this._closedByUser) this._open();
         }, delay);
     }
@@ -144,6 +156,8 @@ class NetworkClient {
 
         switch (msg.type) {
             case 'welcome':
+                this._hasConnected = true;
+                this._reconnectAttempts = 0;
                 this.selfId = msg.id;
                 this.hostId = msg.hostId;
                 this._setStatus('connected');

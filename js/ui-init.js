@@ -1021,19 +1021,19 @@ const NETWORK_PREFS = Object.freeze({
     name: 'vrclub.networkName'
 });
 
-/**
- * Local dev convenience only: `npm run --prefix worker dev` (wrangler) serves the
- * relay on :8787. A real deployment's Worker URL cannot be known at build time -
- * see the connect-src comment on the CSP meta tag in index.html - so guests off
- * localhost must paste their own.
- */
 function defaultNetworkServerUrl() {
+    const hostedRelay = 'wss://vrclub-network.garfieldapp.workers.dev';
     try {
         const stored = localStorage.getItem(NETWORK_PREFS.serverUrl);
-        if (stored) return stored;
+        if (stored) {
+            const url = new URL(stored);
+            const legacyLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+                && url.protocol === 'ws:' && url.port === '8787';
+            if (!legacyLocal) return stored;
+            localStorage.setItem(NETWORK_PREFS.serverUrl, hostedRelay);
+        }
     } catch (_) { /* private browsing */ }
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    return isLocal ? `ws://${window.location.hostname}:8787` : '';
+    return hostedRelay;
 }
 
 function initNetworkMenu() {
@@ -1140,7 +1140,7 @@ function initNetworkMenu() {
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {
             const net = vrClubInstance.networkManager;
-            if (net && net.connected) {
+            if (net && (net.connected || net.status === 'connecting')) {
                 net.disconnect();
                 if (vrClubInstance.avatarManager) {
                     for (const id of [...vrClubInstance.avatarManager.remotes.keys()]) {
@@ -1164,6 +1164,7 @@ function initNetworkMenu() {
                 localStorage.setItem(NETWORK_PREFS.name, name);
             } catch (_) { /* private browsing */ }
 
+            if (net) net.dispose();
             const client = new NetworkClient({ serverUrl, room, name });
             if (!vrClubInstance.avatarManager) vrClubInstance.avatarManager = new AvatarManager(vrClubInstance);
             vrClubInstance.networkManager = client;

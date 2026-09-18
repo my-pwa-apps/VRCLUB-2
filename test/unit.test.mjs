@@ -73,6 +73,78 @@ function loadClassic(relativePath, globals = {}) {
 // Security boundary
 // ---------------------------------------------------------------------------
 
+test('multiplayer defaults to the hosted relay and migrates legacy local URLs', () => {
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const start = source.indexOf('function defaultNetworkServerUrl()');
+    const end = source.indexOf('function initNetworkMenu()', start);
+    const hosted = 'wss://vrclub-network.garfieldapp.workers.dev';
+    for (const stored of [null, '', 'ws://localhost:8787', 'ws://127.0.0.1:8787/',
+        'ws://[::1]:8787', 'wss://custom.example', 'invalid']) {
+        let saved = stored;
+        const context = vm.createContext({ URL, NETWORK_PREFS: { serverUrl: 'relay' },
+            localStorage: { getItem: () => saved, setItem: (key, value) => { saved = value; } } });
+        vm.runInContext(source.slice(start, end), context);
+        const expected = stored === 'wss://custom.example' ? stored : hosted;
+        assert.equal(vm.runInContext('defaultNetworkServerUrl()', context), expected);
+        if (stored?.startsWith('ws:')) assert.equal(saved, hosted);
+    }
+    const context = vm.createContext({ URL, NETWORK_PREFS: { serverUrl: 'relay' },
+        localStorage: { getItem() { throw new Error('Storage unavailable'); } } });
+    vm.runInContext(source.slice(start, end), context);
+    assert.equal(vm.runInContext('defaultNetworkServerUrl()', context), hosted);
+});
+
+test('multiplayer stops initial failures and bounds cancellable reconnects', () => {
+    const sockets = [];
+    const timers = new Map();
+    let timerId = 0;
+    class FakeSocket {
+        constructor() { this.listeners = {}; sockets.push(this); }
+        addEventListener(event, handler) { this.listeners[event] = handler; }
+        close() { this.listeners.close(); }
+        welcome() { this.listeners.message({ data: JSON.stringify({ type: 'welcome', id: 'self', peers: [] }) }); }
+    }
+    const { window } = loadClassic('js/networkClient.js', {
+        WebSocket: FakeSocket,
+        setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
+        clearTimeout: id => timers.delete(id)
+    });
+    const client = new window.NetworkClient({ serverUrl: 'ws://localhost:8787' });
+    const errors = [];
+    client.onError = error => errors.push(error.message);
+    client.connect();
+    sockets.at(-1).close();
+    assert.equal(client.status, 'error');
+    assert.equal(timers.size, 0);
+    assert.match(errors[0], /Start the relay/);
+    client.connect();
+    sockets.at(-1).welcome();
+    sockets.at(-1).close();
+    assert.equal(client.status, 'connecting');
+    for (let attempt = 0; attempt < 3; attempt++) {
+        assert.equal(timers.size, 1);
+        const callback = timers.values().next().value;
+        timers.clear();
+        callback();
+        sockets.at(-1).close();
+    }
+    assert.equal(client.status, 'error');
+    assert.equal(timers.size, 0);
+    client.connect();
+    const oldSocket = sockets.at(-1);
+    client.disconnect();
+    client.connect();
+    oldSocket.welcome();
+    oldSocket.close();
+    assert.equal(client.status, 'connecting');
+    assert.equal(client.ws, sockets.at(-1));
+    sockets.at(-1).welcome();
+    sockets.at(-1).close();
+    client.disconnect();
+    assert.equal(timers.size, 0);
+    assert.equal(client.status, 'disconnected');
+});
+
 test('audio URL policy accepts supported sources and rejects unsafe inputs', () => {
     const AudioUtils = require('../js/audioUtils.js');
     const httpsPage = 'https://vrclub.example/';
@@ -335,6 +407,34 @@ test('ambient preset preserves specular pre-lighting for clear-coated dark cues'
     const config = factory.presets.ambient();
     assert.ok(config.specular.every(channel => channel > 0 && channel <= 0.02));
     assert.equal(config.intensity, 0.04);
+});
+
+test('XR initialization only creates a helper for supported immersive VR', async () => {
+    const navigator = {};
+    const { window } = loadClassic('js/club/02-lifecycle.js', {
+        VRClubCore: class {}, navigator
+    });
+    let calls = 0;
+    const options = { floorMeshes: [] };
+    const helper = {};
+    const club = { scene: { createDefaultXRExperienceAsync: async received => {
+        assert.equal(received, options);
+        calls++;
+        return helper;
+    } } };
+    const create = () => window.VRClubLifecycle.prototype._createXRExperience.call(club, options);
+    assert.equal(await create(), null);
+    navigator.xr = { isSessionSupported: async () => false };
+    assert.equal(await create(), null);
+    navigator.xr.isSessionSupported = async () => { throw new Error('XR unavailable'); };
+    assert.equal(await create(), null);
+    assert.equal(calls, 0);
+    navigator.xr.isSessionSupported = async mode => {
+        assert.equal(mode, 'immersive-vr');
+        return true;
+    };
+    assert.equal(await create(), helper);
+    assert.equal(calls, 1);
 });
 
 test('startup preserves opaque depth for both later lighting groups', async () => {
