@@ -6,6 +6,43 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-09-18 — Multiplayer presence follow-up
+
+Scope: current source inspection and desktop runtime comparison of an injected remote guest beside
+the authored high-tier crowd. The five unresolved findings from the 2026-09-15 immersive environment
+assessment remain current and are not duplicated here.
+
+- [ ] **Replace remote guest capsules with expressive low-cost avatars**
+
+  **Priority:** Medium
+  **Category:** Crowd
+  **Confidence:** High
+  **Area:** Optional multiplayer sessions and dance floor
+  **Evidence:** `AvatarManager.ensurePeer()` represents every remote guest as a shared cyan 1.6 m
+  capsule plus sphere head and floating label. A desktop runtime comparison placed that figure beside
+  the rigged crowd and confirmed that its featureless silhouette, rigid body and uniform material are
+  immediately conspicuous. Remote transforms interpolate smoothly, but no head/controller pose or
+  idle motion is transmitted or rendered.
+  **Problem:** The representation communicates network occupancy but not another embodied clubgoer,
+  and its abstraction conflicts with the otherwise human crowd.
+  **Presence impact:** In multiplayer, the person the player is most likely to attend to becomes one
+  of the strongest computer-generated cues in the primary presence zone.
+  **Recommended solution:** Replace the primitive with a Quest-budget avatar assembled from a low-poly
+  torso, head and tracked hand/controller proxies; transmit quantized head and hand poses, add restrained
+  procedural idle motion, and preserve the current interpolation, nameplate and spatial-voice ownership.
+  **Performance considerations:** Keep one shared material/mesh set, pool avatar parts and labels, cap
+  update frequency, interpolate locally, and define a measured remote-player budget before increasing
+  geometry or adding skinning.
+  **Acceptance criteria:** Remote guests have readable facing, head height and hand intent at normal
+  social distance; no capsule primitive is visible; four simulated guests add no sustained frame-time
+  miss on Quest balanced tier and allocate nothing in the per-frame update path.
+  **Validation:** Side-by-side in-headset social-distance review, packet-loss/latency simulation, four-peer
+  Quest CPU/GPU frame-time capture, and seated/standing head-and-hand alignment tests.
+  **Estimated effort:** Medium
+  **Immersion value:** High
+
+---
+
 ## Review — 2026-09-15 — Immersive environment presence assessment
 
 Scope: desktop runtime inspection at arrival, dance-floor, bar-wall and DJ-booth positions;
