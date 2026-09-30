@@ -149,6 +149,12 @@ the scene**. Calling them in the render loop for a handful of fixtures produced 
 full-scene scans per second. If a material's colour is mutated each frame, unfreeze it
 **once** and leave it unfrozen.
 
+The same cascade fires from any `ImageProcessingConfiguration` setter (`exposure`,
+`contrast`, vignette, tone mapping): every material observes the scene configuration and
+walks every mesh. A per-frame `imageProcessing.exposure = …` cost 104–130 ms per write at
+the current scene size. Per-frame exposure goes through `_writeExposure()`
+(`js/club/07-animation-core.js`); a unit test and the e2e suite assert zero notifications.
+
 ### Light count limits
 PBR materials exhaust GPU uniform buffers past a device-specific light count. The authority
 is `VRClub.detectMaxLights()` in `js/club/01-core.js`; `ModelLoader.detectDefaultMaxLights()`
@@ -356,7 +362,11 @@ to avoid z-fighting.
 `<audio crossOrigin="anonymous">` → `MediaElementSource` → `AnalyserNode(fftSize=256)` →
 `DynamicsCompressor` → `GainNode` → destination.
 
-- Bass (0–85 Hz) drives the mirror ball, mids (85–255 Hz) the lasers, highs the LED patterns.
+- `getAudioData()` averages the analyser's 128 bins as bass = bins 0–11, mid = 12–63,
+  treble = 64–127. At 48 kHz and `fftSize = 256` that is roughly 0–2.2 kHz, 2.2–12 kHz and
+  12–24 kHz, so "bass" also carries vocals and snare body. Bass drives the mirror ball and
+  onset detection, mids the lasers, highs the LED patterns. Re-banding needs the Show
+  Director's energy thresholds recalibrated (see `BACKLOG.md`).
 - URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
 - A stream served without `Access-Control-Allow-Origin` produces an all-zero analyser.

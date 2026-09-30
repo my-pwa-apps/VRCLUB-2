@@ -1308,8 +1308,10 @@ function initNetworkMenu() {
             }
             try {
                 await net.enableVoice();
-                setToggleState(micBtn, true);
-                if (micBtnLabel) micBtnLabel.textContent = 'Mute Mic';
+                // The request can be cancelled (disconnect, error close) while the
+                // permission prompt is open; reflect the client's real state.
+                setToggleState(micBtn, net.micEnabled);
+                if (micBtnLabel) micBtnLabel.textContent = net.micEnabled ? 'Mute Mic' : 'Enable Mic';
             } catch (err) {
                 setStatus(`Mic error: ${err.message}`);
             }

@@ -646,6 +646,8 @@ class VRClubEnvironment extends VRClubRendering {
             depth: 45
         }, this.scene);
         ceiling.position = new BABYLON.Vector3(0, 10, -10);
+        // Q/E and look-up-and-walk fly the desktop camera; it must stop at the roof.
+        ceiling.checkCollisions = true;
         
         // Industrial concrete/metal ceiling
         const ceilingMat = this.materialFactory.getPreset('ceiling');

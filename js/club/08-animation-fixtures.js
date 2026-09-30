@@ -49,8 +49,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     // Minimal glow during blackout - just enough to see
                     r = 0.1; g = 0.1; b = 0.2;
                     intensity = 0.2 + Math.sin(time * 0.5) * 0.1;
-                } else if (phase === 'strobe_attack') {
-                    // White strobe sync with floor
+                } else if (phase === 'strobe_attack' && !this.photosensitiveSafeMode) {
+                    // White strobe sync with floor (~3 Hz full on/off). Safe Mode falls
+                    // through to the slow colour cycle: the legacy cycler still reaches
+                    // this phase whenever the Show Director is switched off.
                     const strobe = Math.sin(time * 20) > 0 ? 1 : 0;
                     r = g = b = strobe;
                     intensity = 1.0;

@@ -27,6 +27,26 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- The desktop and VR frame rate is no longer capped below ~10 fps by eye adaptation. Writing
+  `imageProcessing.exposure` every frame notified ~550 materials, each of which walked all
+  ~1,100 meshes (104–130 ms per write, measured). Exposure now updates the post-process
+  uniform without the material cascade; a strobe's exposure spike is no longer cancelled in
+  the same frame.
+- Mirror-ball ray casts are ~2.5x cheaper: the surface predicate, run for every scene mesh
+  on every pick, now memoises its name match instead of rebuilding a keyword array.
+- The desktop camera can no longer walk out through the front wall or fly over the 4 m
+  collision band and through the side walls or roof; the visible shell and ceiling collide.
+- VR jump (comfort off) follows real gravity (~0.45 m apex) at every refresh rate and lands
+  at the player's own eye height; it was a ~1.2 m lift whose speed scaled with Hz and that
+  re-seated players at 1.7 m.
+- Photosensitive Safe Mode now also stops the dance-floor edge strip from strobing (~3 Hz)
+  in the legacy show's strobe phase, reachable whenever the Show Director is switched off.
+- The VJ beat envelope, master-intensity smoothing and Show Director energy follow wall-clock
+  time instead of a per-frame step; onset detection no longer allocates a sorted copy per frame.
+- Pressing Play resumes an AudioContext the browser suspended after the first track.
+- Multiplayer: the microphone is released on a terminal relay close; a second Enable Mic
+  click during the permission prompt can no longer leak a capture; late frames from a
+  dropped session no longer create an avatar that never leaves.
 - VR smooth locomotion, sprint, jump and the Y/B quick-menu binding work again. Babylon
   forbids MOVEMENT and TELEPORTATION together, so comfort mode now swaps the features
   instead of enabling both, and controller bindings no longer depend on locomotion.

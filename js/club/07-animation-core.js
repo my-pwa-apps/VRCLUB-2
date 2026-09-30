@@ -109,7 +109,31 @@ class VRClubAnimationCore extends VRClubEffects {
         // Fast constrict, slow dilate - the real asymmetry of the pupil reflex.
         const rate = target < this._adaptedExposure ? 0.10 : 0.012;
         this._adaptedExposure += (target - this._adaptedExposure) * Math.min(1, rate * ctx.dtScale);
-        ip.exposure = this._adaptedExposure;
+        // A strobe burst owns exposure for its flash frame; overwriting it here
+        // (this runs after updateStrobes) silently cancelled the designed spike.
+        if (this._preStrobeExposure !== undefined) return;
+        this._writeExposure(this._adaptedExposure);
+    }
+
+    /**
+     * Per-frame exposure write that does not dirty every material.
+     *
+     * The public `exposure` setter notifies the scene's ImageProcessingConfiguration,
+     * and every material observes it and walks every mesh to mark its submeshes dirty:
+     * ~550 materials x ~1,100 meshes measured 104-130 ms PER WRITE, which pinned the
+     * whole app below 10 fps. Exposure is a uniform that `bind()` re-reads from
+     * `_exposure` every frame, so only a change that toggles the EXPOSURE define
+     * (a value of exactly 1) needs the notifying setter.
+     */
+    _writeExposure(value) {
+        const ip = this.renderPipeline && this.renderPipeline.imageProcessing;
+        if (!ip) return;
+        const cfg = ip.imageProcessingConfiguration;
+        if (cfg && typeof cfg._exposure === 'number' && cfg._exposure !== 1 && value !== 1) {
+            cfg._exposure = value;
+        } else {
+            ip.exposure = value;
+        }
     }
 
     /** Low-energy indirect fill from active fixtures; one existing light, no extra shadow pass. */

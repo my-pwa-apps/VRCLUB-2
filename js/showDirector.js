@@ -144,7 +144,10 @@ class ShowDirector {
         const inst = audioData && audioData.hasAudio
             ? (audioData.bass * 0.6 + audioData.mid * 0.3 + audioData.treble * 0.1)
             : 0.24;   // No audio: sit in the groove band so the room still performs.
-        this._energy += (inst - this._energy) * 0.02;
+        // Compounded per elapsed frame so movement choice keeps the same musical
+        // timing at 72, 90 and 120 Hz.
+        const follow = 1 - Math.pow(1 - 0.02, this.club.dtScale || 1);
+        this._energy += (inst - this._energy) * follow;
 
         // --- Advance the musical grid on beat edges only
         const beat = vj.beatNumber;

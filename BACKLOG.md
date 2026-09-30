@@ -6,6 +6,548 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-09-30 — Principal experience, rendering and performance review
+
+Scope: every validation command; a runtime session of the production build in desktop
+Chromium (Adreno X1-85 laptop iGPU) with per-method CPU instrumentation of
+`updateAnimations()`, draw-call/scene counters, ray-pick profiling, collision probes and
+viewpoint captures; a code review of the staged 2026-09-23 implementation pass; and focused
+passes over the render loop, XR/UI lifecycle, audio/crowd and scene/rendering code. Not
+executed: any headset session, two-device voice, a deployed-relay test. Every "measured"
+figure below is CPU time on that laptop, not a Quest result.
+
+Validation actually executed:
+
+| Check | Before | After this pass |
+|-------|--------|-----------------|
+| `npm run check` | Pass | Pass (37 files) |
+| `npm run lint` | Pass | Pass |
+| `npm test` | 92/92 | 99/99 (7 new regression tests; each new test was run against the old code and failed) |
+| `npm run check:sri` | Pass | Pass |
+| `npm run build` | Pass | Pass |
+| `npm audit` | **1 high** (dev-only `brace-expansion`) | 0 (lockfile-only fix) |
+| `npm run test:e2e` | 3/4 (`reflectionBeams` 0 vs 16) | 4/4 (production test re-run alone after its final edit; the other three passed in the preceding full run) |
+
+Checked and found sound (do not re-raise without new evidence): `moveCameraToPreset()`
+preserves seated XR eye height (unit-tested); XR state observers are cleared by
+`baseExperience.dispose()`; the music graph is genuinely spatial (two HRTF PA panners,
+listener tracks the active/XR camera, air absorption, occlusion, convolution reverb, sub
+branch, spatialised crowd bed); the analyser is pre-spatial; no DynamicTexture is redrawn per
+frame; GLB materials are forced opaque with the device light budget; room scale is plausible
+(25 x 21 x 10 m shell, 1.42 m booth work surface, 7.1 m flown PA). `patternStrobe` (15 Hz
+full-field) is **not** in the LED playlist, so it is dead code rather than a live
+safe-mode bypass (see the cleanup item).
+
+### Fixed during this review
+
+- [x] **Per-frame exposure writes dirtied every material (the app ran below 10 fps)**
+
+  **Resolved 2026-09-30.** `_writeExposure()` updates the configuration's backing
+  `_exposure`, which `bind()` re-reads every frame, and uses the notifying setter only when
+  the value crosses exactly 1 (the EXPOSURE define). Strobe spike/restore use it too.
+  Measured on the same scene: `updateEyeAdaptation()` 109 ms to 0.00 ms per frame; frame rate
+  on a non-mirror cue 6–8 fps to 36.6 fps; zero `onUpdateParameters` notifications in 6 s.
+  Guarded by a unit test (fails on the old code) and an e2e assertion on the real build.
+
+  **Priority:** Critical
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Render loop / post-processing
+  **Affected files:** `js/club/07-animation-core.js`, `js/club/09-animation-finish.js`
+  **Evidence:** MEASURED. `updateEyeAdaptation()` wrote `ip.exposure` every frame. Babylon's
+  setter notifies 556 observers; each material runs `_markAllSubMeshesAsDirty`, walking all
+  1,115 meshes (0.2 ms per material). Five timed writes: 104, 110, 120, 122, 130 ms.
+  Introduced 2026-08-18 (`619a5a8`), and it scales with materials x meshes, so it worsened as
+  the venue grew.
+  **Problem:** An O(materials x meshes) scan ran every frame, in VR as well.
+  **User-visible effect:** Single-digit frame rates on a capable laptop; this is also the real
+  cause of the "host at 0.6 fps" e2e slowdown that the 2026-09-23 pass attributed to machine load.
+  **Immersion impact:** Judder destroys presence.
+  **Desktop impact:** 6–8 fps to 30–37 fps on the measured machine.
+  **VR impact:** The same code ran in XR (`vrSettings.vr.exposure`); on a Quest-class CPU this
+  alone exceeds any headset frame budget several times over.
+  **Performance impact:** About 100 ms per frame removed.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Materials apply image processing by post-process, so they
+  never read exposure. The bloom downscale keeps its last notified exposure. VR/desktop
+  switches still use the public setter.
+  **Acceptance criteria:** No image-processing notification over 20 rendered frames; eye
+  adaptation still moves exposure.
+  **Validation:** Unit test "per-frame exposure never dirties every material…"; e2e production test.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** High
+
+- [x] **The strobe exposure spike never reached the screen**
+
+  **Resolved 2026-09-30.** `updateEyeAdaptation()` runs after `updateStrobes()` and
+  overwrote the spike in the same frame, so the designed (and unit-tested) 2.1/2.6 exposure
+  flash never rendered. It now yields on a strobe flash frame. This is a visible change for
+  non-Safe-Mode strobes only; Safe Mode still disables strobes entirely.
+
+  **Priority:** Medium
+  **Category:** Lighting
+  **Confidence:** High
+  **Area:** Strobes / eye adaptation
+  **Affected files:** `js/club/07-animation-core.js`
+  **Evidence:** CONFIRMED by call order in `updateAnimations()`.
+  **Problem:** Two per-frame writers to one property.
+  **User-visible effect:** Strobe hits lacked the intended blinding exposure lift.
+  **Immersion impact:** Low–medium: strobes read weaker than designed.
+  **Desktop impact:** Visible on strobe cues.
+  **VR impact:** Same, 2.6 exposure spike.
+  **Performance impact:** None (cheap write path).
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Photosensitive review of the restored spike before release.
+  **Acceptance criteria:** A flash frame renders the spike; the next frame restores adaptation.
+  **Validation:** Unit test asserts the spike survives eye adaptation.
+  **Estimated effort:** Small
+  **Product value:** Low
+  **Technical debt reduction:** Low
+
+- [x] **Mirror-ball ray predicate cost ~0.6 ms per pick**
+
+  **Resolved 2026-09-30.** Mesh names are fixed at creation, so the surface match is
+  memoised per mesh (WeakMap, re-derived if a name changes); enabled/visible stay live.
+  Identical to the old predicate on every scene mesh (checked at runtime). Measured with the
+  mirror pinned: pick 0.97 to 0.38 ms, `updateMirrorBall()` 31 to 12 ms per frame,
+  16.6 to 23.4 fps. The remaining cost is tracked as an open item below.
+
+  **Priority:** High
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Mirror ball
+  **Affected files:** `js/club/06-effects.js`
+  **Evidence:** MEASURED. About 31 picks per frame; Babylon calls the predicate for all
+  1,115 meshes per pick; the predicate lowercased the name, scanned up to 25 substrings and
+  allocated a 19-element array on every call (about 35k arrays per frame).
+  **Problem:** Avoidable string work and GC in the hottest loop of mirror cues.
+  **User-visible effect:** Mirror-ball cues dropped the frame rate by half.
+  **Immersion impact:** The signature disco-ball moment was the least smooth part of the show.
+  **Desktop impact:** Plus 40% fps on mirror cues.
+  **VR impact:** VR updates spots every 2nd frame, so the saving applies at a higher rate.
+  **Performance impact:** About 19 ms per frame on the measured machine.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Keep the whitelist semantics; avatars and effects must never
+  receive spots.
+  **Acceptance criteria:** Same hit set; lower pick cost.
+  **Validation:** Runtime equivalence check across all meshes; e2e mirror-cue assertions.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **The desktop camera could leave the venue through walls and roof**
+
+  **Resolved 2026-09-30.** The four brick shell walls and the ceiling now collide (simple
+  boxes). An e2e check walks out of the entrance, flies into a side wall at 6 m and into the
+  roof, and asserts containment.
+
+  **Priority:** High
+  **Category:** Desktop
+  **Confidence:** High
+  **Area:** Desktop locomotion / collision
+  **Affected files:** `js/club/03-rendering.js`, `js/club/04-environment.js`
+  **Evidence:** MEASURED with the camera's own collider. From arrival, walking +z reached
+  z = 41 (the visible front wall is at z = 0); at 6 m the camera passed the left wall to
+  x = −50; holding E reached y = 13.8 (roof at 9.8). Only the floor, a 4 m-tall invisible band
+  and the DJ platform collided.
+  **Problem:** The visible architecture was not the physical boundary.
+  **User-visible effect:** Walking or flying through brick into a black void.
+  **Immersion impact:** High; this is a classic "floating camera" break.
+  **Desktop impact:** Fixed.
+  **VR impact:** Smooth locomotion now also stops at the shell; teleport is handled below.
+  **Performance impact:** Five extra collision boxes; negligible.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** All four camera presets remain reachable (the closest is 1.35 m
+  from a wall).
+  **Acceptance criteria:** No path leaves the shell by walking or Q/E flight.
+  **Validation:** e2e production test.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **VR teleport arc passed through walls onto the floor outside the venue**
+
+  **Resolved 2026-09-30.** The shell walls and DJ platform are registered as teleport
+  blockers (`addBlockerMesh`) on every path that obtains a teleport feature, idempotently.
+
+  **Priority:** High
+  **Category:** VR
+  **Confidence:** High
+  **Area:** WebXR locomotion
+  **Affected files:** `js/club/10-ui.js`
+  **Evidence:** CONFIRMED by code and Babylon 8.30.5 source: the teleport pick considers only
+  `floorMeshes` and `pickBlockerMeshes`; none were set. The single floor slab spans x ±17.5,
+  z −32.5..12.5, i.e. 5–12 m beyond the brick shell on every side.
+  **Problem:** Pointing at a wall selected the floor behind it.
+  **User-visible effect:** Teleporting outside the club, or under the DJ platform.
+  **Immersion impact:** High.
+  **Desktop impact:** None.
+  **VR impact:** Default (comfort-on) locomotion could exit the venue.
+  **Performance impact:** None.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Teleport to every floor area inside the room must still work.
+  **Acceptance criteria:** No teleport target outside the shell or under the platform.
+  **Validation:** Unit test asserts the blocker set; in-headset check still recommended.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **VR jump was a ~1.2 m forced lift that scaled with refresh rate**
+
+  **Resolved 2026-09-30.** `_startVRJump()` / `_stepVRJump()` integrate real gravity with
+  the clamped frame time (~0.45 m apex) and land at the eye height measured at take-off.
+
+  **Priority:** High
+  **Category:** VR
+  **Confidence:** High
+  **Area:** WebXR locomotion (comfort off)
+  **Affected files:** `js/club/02-lifecycle.js`
+  **Evidence:** CONFIRMED by code. `y += 0.12; v -= 0.006` per frame gives a 1.2 m apex with
+  effective gravity of 31 m/s² at 72 Hz and 86 m/s² at 120 Hz; landing forced `ground + 1.7`.
+  **Problem:** Artificial vertical motion that was unrealistic and refresh-rate dependent, and
+  that discarded tracked height.
+  **User-visible effect:** A floaty-then-violent lift; seated players re-seated at standing height.
+  **Immersion impact:** Medium.
+  **Desktop impact:** None.
+  **VR impact:** Vection and comfort risk for users who turned comfort off.
+  **Performance impact:** None.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Comfort mode still suppresses jump.
+  **Acceptance criteria:** The same arc at 72 and 120 Hz; a seated player lands at their own height.
+  **Validation:** Unit test at 72/120 Hz with a 1.15 m seated eye height.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **Safe Mode did not stop the dance-floor strip strobing**
+
+  **Resolved 2026-09-30.** The legacy `strobe_attack` floor branch is gated by
+  `photosensitiveSafeMode`; Safe Mode falls through to the slow colour cycle.
+
+  **Priority:** High
+  **Category:** Accessibility
+  **Confidence:** High
+  **Area:** Photosensitive Safe Mode
+  **Affected files:** `js/club/08-animation-fixtures.js`
+  **Evidence:** CONFIRMED by code. `sin(time*20) > 0 ? 1 : 0` produces a ~3.2 Hz full on/off
+  white strip. The legacy cycler reaches `strobe_attack` whenever the Show Director is
+  switched off (the `toggleShow` control) and not in manual mode.
+  **Problem:** A flashing source not covered by the photosensitivity control.
+  **User-visible effect:** Flashing in Safe Mode.
+  **Immersion impact:** None; this is a safety issue.
+  **Desktop impact:** Fixed.
+  **VR impact:** Fixed; flashing in the headset periphery is the higher risk.
+  **Performance impact:** None.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Without Safe Mode the phase still strobes.
+  **Acceptance criteria:** No luminance step greater than 0.5 between 60 Hz samples in Safe Mode.
+  **Validation:** Unit test with a non-Safe-Mode control.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **VJ and Show Director smoothing depended on frame rate**
+
+  **Resolved 2026-09-30.** `beatEnvelope` decay scales by `dtScale`; `masterIntensity` and
+  the Show Director energy EMA compound their retention. Onset detection sorts into a reused
+  scratch array.
+
+  **Priority:** Medium
+  **Category:** Animation
+  **Confidence:** High
+  **Area:** `js/vjDirector.js`, `js/showDirector.js`
+  **Affected files:** `js/vjDirector.js`, `js/showDirector.js`
+  **Evidence:** CONFIRMED by code. `beatEnvelope - 0.06`, `* 0.12` and `* 0.02` were applied
+  per frame, and `slice().sort()` ran per audio frame. The contract test only scans
+  `js/club/*animation*.js`, so these escaped it.
+  **Problem:** Kick punch decayed twice as fast at 120 Hz; movement choice timing varied by device.
+  **User-visible effect:** Beat-reactive lighting felt different on every headset refresh rate.
+  **Immersion impact:** Medium; audiovisual sync is the club's core.
+  **Desktop impact:** 144 Hz monitors saw about 2.4x faster decay.
+  **VR impact:** 72/90/120 Hz produced three different shows.
+  **Performance impact:** One allocation plus sort per frame removed.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** At 60 Hz the behaviour is unchanged.
+  **Acceptance criteria:** Identical envelope and intensity after 0.1 s at 60 and 120 Hz.
+  **Validation:** Unit test (fails on the old code).
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [x] **Pressing Play could never resume a suspended AudioContext**
+
+  **Resolved 2026-09-30.** `_connectAudioSourceOnce()` calls `_ensureAudioContext()`
+  (which resumes) before returning early for an existing media source.
+
+  **Priority:** Medium
+  **Category:** Audio
+  **Confidence:** High
+  **Area:** Audio lifecycle
+  **Affected files:** `js/club/11-audio-crowd.js`
+  **Evidence:** CONFIRMED by code: the early `return` preceded `_ensureAudioContext()`, the
+  only resume path.
+  **Problem:** After a browser suspension (interruption, backgrounding) the graph stayed
+  silent while the error toast said "Press Play again".
+  **User-visible effect:** A silent club until reload.
+  **Immersion impact:** High when it occurs.
+  **Desktop impact:** Fixed.
+  **VR impact:** Fixed.
+  **Performance impact:** None.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** `createMediaElementSource` is still called once.
+  **Acceptance criteria:** A Play request resumes a suspended context.
+  **Validation:** Extended the Web Audio graph unit test.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **Multiplayer: mic left live after an error close; double-click leaked a capture; ghost avatars**
+
+  **Resolved 2026-09-30** (relay half needs a redeploy).
+  - `_onSocketClosed()` calls `disableVoice()` on the room-full, flooding and
+    retries-exhausted closes.
+  - `enableVoice()` shares one in-flight permission request and stops a stream granted after
+    mute, disconnect or dispose; the UI reflects the client's real mic state.
+  - Clients ignore `state` for ids never announced by welcome/join.
+  - The relay ignores frames from sessions it has already closed.
+
+  **Priority:** Medium
+  **Category:** Privacy
+  **Confidence:** High
+  **Area:** Multiplayer voice and presence
+  **Affected files:** `js/networkClient.js`, `js/ui-init.js`, `worker/src/index.js`
+  **Evidence:** CONFIRMED by code review of the staged diff; each case is reproduced by a new
+  unit or worker test that fails on the old code.
+  **Problem:** A capture the UI showed as off and could not stop; frozen avatars that no
+  leave/reconnect removed.
+  **User-visible effect:** The headset mic indicator stayed on; phantom guests.
+  **Immersion impact:** Medium (phantom guests).
+  **Desktop impact:** Same as VR.
+  **VR impact:** Same as desktop.
+  **Performance impact:** Unbounded ghost avatars removed.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** Auto-reconnect keeps the mic; perfect negotiation unchanged.
+  **Acceptance criteria:** No live track after a terminal close; one capture per request;
+  no avatar for unannounced ids.
+  **Validation:** `test/unit.test.mjs`, `test/worker.test.mjs`.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **Dev-only `brace-expansion` advisory (GHSA-q2hr-2g5m-vwhr and two related)**
+
+  **Resolved 2026-09-30** with `npm audit fix`; lockfile-only, and production dependencies
+  were already clean.
+  **Priority:** Low · **Category:** Dependency · **Confidence:** High ·
+  **Validation:** `npm audit` reports 0.
+
+### New open items
+
+- [ ] **Decide and document the shipped "clear-air test": haze is off in production**
+
+  **Priority:** High
+  **Category:** Lighting
+  **Confidence:** High
+  **Area:** Atmosphere / haze / fog machines
+  **Affected files:** `js/club/01-core.js`, `js/club/07-animation-core.js`
+  **Evidence:** CONFIRMED. `this.atmosphereTestDisabled = true` (added in `770d132`,
+  2026-09-15) makes `updateFogMachines()` force `scene.fogEnabled = false` and stop the haze,
+  dust-mote and fog-machine particles for everyone. It is undocumented in the README,
+  CHANGELOG, backlog and agent instructions. Runtime captures show mirror shafts and laser
+  lines as hard lines in clear air; re-enabling the flag at runtime restarted the haze emitter.
+  **Problem:** Every beam fixture was designed for haze (the instructions' own "haze turns to
+  soup" rule), yet the medium is switched off, so beams are visible without anything to
+  scatter them.
+  **User-visible effect:** Light shafts look drawn rather than lit; the room reads as a void.
+  **Immersion impact:** High; this is the prompt's canonical realism contradiction.
+  **Desktop impact:** Same as VR.
+  **VR impact:** Same as desktop; haze also affects stereo depth cues.
+  **Performance impact:** Re-enabling adds particle overdraw that must be budgeted per tier.
+  **Recommended solution:** The owner decides. Either remove the switch and restore
+  tier-budgeted haze with the white-foreground guards (e2e "mirror-only cues…"), or make
+  clear-air an explicit documented look and stop rendering beams where there is no medium.
+  **Regression considerations:** The 2026-09 "white foreground" fixes; keep the Safe Mode and
+  clear-air unit test semantics if the switch stays.
+  **Acceptance criteria:** The shipped atmosphere is a documented decision; beams are
+  never drawn with zero scattering medium.
+  **Validation:** A/B captures at four presets; a Quest balanced-tier frame-time capture with haze on.
+  **Estimated effort:** Small (decision) / Medium (haze budget)
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Audio bands do not match their documented ranges and cannot isolate the kick**
+
+  **Priority:** High
+  **Category:** Audio
+  **Confidence:** High
+  **Area:** `getAudioData()`, VJ onset detection, Show Director energy
+  **Affected files:** `js/club/11-audio-crowd.js`, `js/vjDirector.js`, `js/showDirector.js`
+  **Evidence:** CONFIRMED. `fftSize = 256` gives 128 bins of 187.5 Hz at 48 kHz;
+  `bassEnd = floor(128 × 0.1) = 12`, so "bass" is about 0–2.25 kHz and "mid" 2.25–12 kHz.
+  The instructions claimed 0–85 / 85–255 Hz (corrected this pass). The analyser's
+  `smoothingTimeConstant` applies per `getByteFrequencyData()` call, i.e. per render frame,
+  so flux dynamics also vary with refresh rate.
+  **Problem:** Onset detection and "bass" reactivity respond to vocals, snare and synth leads.
+  **User-visible effect:** Lights hit on the wrong musical events; the mirror ball follows vocals.
+  **Immersion impact:** High; audiovisual coherence is the club's core promise.
+  **Desktop impact:** Same as VR.
+  **VR impact:** Same as desktop.
+  **Performance impact:** Negligible (larger FFT reads).
+  **Recommended solution:** `fftSize` 2048; derive band edges from `sampleRate` (kick
+  40–120 Hz, low-mid 120–500 Hz, presence 2–6 kHz, air above); sample the analyser at a fixed
+  rate independent of the render rate; then recalibrate the Show Director energy bands and
+  onset threshold against a reference track set.
+  **Regression considerations:** "ShowDirector … calibrated energy band" test; CORS-silence detection.
+  **Acceptance criteria:** On a reference 128 BPM four-on-the-floor track, at least 95% of
+  detected onsets fall within 30 ms of kicks, with none on vocal-only passages; identical
+  results at 72/90/120 Hz.
+  **Validation:** Offline analyser harness with recorded spectra, plus an in-headset listen test.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Mirror-ball reflections still cost ~12 ms per frame on the high tier**
+
+  **Priority:** High
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Mirror ball
+  **Affected files:** `js/club/07-animation-core.js`, `js/club/06-effects.js`
+  **Evidence:** MEASURED after the predicate fix: about 31 `scene.pickWithRay()` per frame at
+  0.38 ms each, because Babylon still walks all 1,115 meshes per pick. A candidate-list
+  `mesh.intersects()` prototype disagreed with Babylon on 245 of 400 rays, so it was not shipped.
+  **Problem:** The most expensive remaining per-frame CPU system; VR updates every 2nd frame.
+  **User-visible effect:** Mirror cues run about 35% slower than other cues.
+  **Immersion impact:** Medium.
+  **Desktop impact:** About 12 ms per frame.
+  **VR impact:** Likely a missed frame on Quest during mirror cues (unmeasured).
+  **Performance impact:** Up to about 12 ms per frame recoverable.
+  **Recommended solution:** Intersect the axis-aligned shell (floor, walls, ceiling) analytically
+  (ray vs. box, O(1)) and pick only the small set of non-planar receivers (truss, pillars,
+  platform) from a cached list using Babylon's own `Ray.intersectsMesh`; or bake a reflection
+  lookup per facet and update positions without per-frame picks.
+  **Regression considerations:** Spots must never float in mid-air or land on people/effects;
+  e2e mirror assertions.
+  **Acceptance criteria:** Mirror cue at most 2 ms of mirror CPU per frame on the measured
+  laptop; the same hit surfaces.
+  **Validation:** The instrumentation recorded in `docs/PERFORMANCE_BASELINE.md`, then Quest.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Live streams that stall or error fail silently**
+
+  **Priority:** Medium
+  **Category:** Audio
+  **Confidence:** High
+  **Area:** Audio stream lifecycle
+  **Affected files:** `js/club/10-ui.js`
+  **Evidence:** CONFIRMED by code: no `error`, `stalled`, `waiting` or `ended` listener on the
+  `<audio>` element; only a rejected `play()` is handled.
+  **Problem:** Internet radio drops mid-session with no feedback and no retry.
+  **User-visible effect:** The music stops and the show falls back to synthetic beats unexplained.
+  **Immersion impact:** High when it occurs.
+  **Desktop impact:** Same as VR.
+  **VR impact:** Same as desktop; worse in the headset, where the DOM panel is unreachable.
+  **Performance impact:** None.
+  **Recommended solution:** Listen for `error`/`stalled`; show a toast and in-world indicator;
+  retry with bounded backoff for live streams; clean up the listeners in `dispose()`.
+  **Regression considerations:** The CORS-silence warning; blob files.
+  **Acceptance criteria:** A killed stream is reported within 5 s and retried up to 3 times.
+  **Validation:** Unit test with a fake media element; manual network-drop test.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [ ] **Alpha-blended beam and flare materials write depth**
+
+  **Priority:** Medium
+  **Category:** Rendering
+  **Confidence:** Medium
+  **Area:** Lasers, mirror flares/spots, beam cones
+  **Affected files:** `js/club/05-fixtures.js`, `js/club/06-effects.js`
+  **Evidence:** MEASURED at runtime: `laser*_beam*` (alpha 0.6), `mirrorFlare*` (0.4),
+  `mirrorSpot*` (0.9) and `mirrorSpotBeam*` (0.07) all have `disableDepthWrite = false` in
+  rendering group 2; 131 alpha-blended meshes were active in one frame.
+  **Problem:** A transparent surface that writes depth hides transparent surfaces sorted after it.
+  **User-visible effect:** Beams that vanish or pop where they cross; ordering can differ between eyes.
+  **Immersion impact:** Medium (visual QA required to quantify).
+  **Desktop impact:** Same class of artifact as VR.
+  **VR impact:** Most visible in stereo.
+  **Performance impact:** None, or a small gain.
+  **Recommended solution:** Additive, depth-test-only (`disableDepthWrite = true`) for emissive
+  light volumes; keep depth write only for solid spots if sorting requires it.
+  **Regression considerations:** The e2e "later lighting groups respect opaque depth…" test.
+  **Acceptance criteria:** No beam occludes another in crossing-beam captures from three presets.
+  **Validation:** Before/after captures; in-headset crossing-beam check.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [ ] **Remove the 19 unreachable LED patterns (including a 15 Hz full-field strobe)**
+
+  **Priority:** Low
+  **Category:** Cleanup
+  **Confidence:** High
+  **Area:** LED wall
+  **Affected files:** `js/ledPatterns.js`, `test/unit.test.mjs`, `docs/LED_WALL.md`
+  **Evidence:** CONFIRMED. The playlist in `updateLEDWall()` references 18 of 37 `pattern*`
+  methods; the rest are unreachable. `patternStrobe` flashes the whole wall at 15 Hz with no
+  Safe Mode check and allocates a `Color3` per panel per frame.
+  **Problem:** About half of a 53 KB module is dead code, and one piece is unsafe if re-added.
+  **User-visible effect:** None today.
+  **Immersion impact:** None.
+  **Desktop impact:** Smaller bundle.
+  **VR impact:** Smaller bundle.
+  **Performance impact:** Smaller parse cost.
+  **Recommended solution:** Delete the unreferenced patterns (or move them to an opt-in module
+  gated by Safe Mode); update the test that runs every pattern and the "37 implementations" docs.
+  **Regression considerations:** Show Director cues reference patterns by index (for example 16 = aurora).
+  **Acceptance criteria:** Every `pattern*` method is reachable; no pattern flashes above 3 Hz full-field.
+  **Validation:** Unit test.
+  **Estimated effort:** Small
+  **Product value:** Low
+  **Technical debt reduction:** Medium
+
+- [ ] **`dispose()` leaves the XR default experience's input observers attached**
+
+  **Priority:** Low
+  **Category:** Reliability
+  **Confidence:** Medium
+  **Area:** Teardown
+  **Affected files:** `js/club/02-lifecycle.js`
+  **Evidence:** CONFIRMED by code: `dispose()` calls `vrHelper.baseExperience.dispose()`, not
+  `vrHelper.dispose()`; `_xrButtonBindingObserver` on `vrHelper.input` is never removed.
+  **Problem:** Closures over a disposed club survive on embed/hot-reload teardown.
+  **User-visible effect:** None in the normal page lifecycle.
+  **Immersion impact:** None.
+  **Desktop impact:** None.
+  **VR impact:** Only affects re-initialisation.
+  **Performance impact:** Minor retained memory.
+  **Recommended solution:** Remove `_xrButtonBindingObserver` and dispose the whole default experience.
+  **Regression considerations:** The e2e XR exit/restore test.
+  **Acceptance criteria:** No XR observer references the disposed club.
+  **Validation:** Extend the dispose unit test.
+  **Estimated effort:** Small
+  **Product value:** Low
+  **Technical debt reduction:** Low
+
+### Updated existing items
+
+- **Establish a representative Quest 3S frame-time and stability baseline** (2026-09-15):
+  still open. New evidence: a single per-frame call cost about 100 ms on a laptop CPU for six
+  weeks without any gate noticing. Add CPU-per-system instrumentation (as in
+  `docs/PERFORMANCE_BASELINE.md`) to the Quest route, and a structural e2e guard per hot path
+  (the exposure-notification guard added in this pass is the pattern).
+- **2026-09-23 "E2E on the final build blocked by the host"**: root-caused. The 0.6 fps was the
+  exposure cascade above, and the `reflectionBeams` failure came from a 2 s wall-clock wait while
+  the show advanced to a haze-free cue. The test now pins the cue and waits on rendered frames.
+- Asset licensing, GLB/texture optimisation, ORM packing, the relay deploy, the Pages source
+  setting and the six 2026-09-15/18 presence items were not re-verified and remain open.
+
+---
+
 ## Review — 2026-09-23 — Evidence-driven quality review (V2 protocol)
 
 Scope: repository discovery; every existing validation command; GitHub Actions history; the

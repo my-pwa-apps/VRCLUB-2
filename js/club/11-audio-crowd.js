@@ -267,8 +267,12 @@ class VRClubAudioCrowd extends VRClubUI {
      * same element, so this guard is the source of truth for all audio entry points.
      */
     _connectAudioSourceOnce() {
-        if (this.audioSource || !this.audioElement || !window.AudioContext) return;
+        if (!this.audioElement || !window.AudioContext) return;
+        // Every play request is a user gesture: resume a context the browser has
+        // suspended since (interruption, backgrounding). Returning before this once
+        // the source existed made "Press Play again" unable to ever restore sound.
         this._ensureAudioContext();
+        if (this.audioSource) return;
         try {
             this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
             

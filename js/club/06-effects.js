@@ -1117,42 +1117,44 @@ class VRClubEffects extends VRClubFixtures {
         // PERFORMANCE: Cache ray picking predicate (avoid creating new function every ray cast)
         // CRITICAL: Only accept REAL ROOM SURFACES - floor, walls, ceiling, pillars, truss
         // Reject everything else to prevent reflection spots floating in mid-air
+        //
+        // Babylon calls this for EVERY scene mesh (~1,100) on every pick, and the mirror
+        // issues ~30 picks per frame. Re-deriving the name match each time (a lowercase
+        // copy, up to 25 substring scans and a fresh keyword array per call) measured
+        // ~0.6 ms of every ~1 ms pick. Names are fixed at creation, so the match is
+        // memoised per mesh; enabled/visible state stays live.
+        const validSurfaces = [
+            'floor', 'ground', 'dancefloor',
+            'wall', 'backwall', 'sidewall', 'frontwall',
+            'ceiling',
+            'pillar', 'column',
+            'truss', 'beam',  // Structural beams, not light beams
+            'stage', 'platform', 'booth',
+            'bar', 'counter',
+            'brick', 'concrete'
+        ];
+        // A light beam or effect that happens to contain a surface keyword.
+        const effectNames = ['light', 'spot', 'laser', 'glow', 'led', 'pool'];
+        const isSurfaceName = (meshName) => {
+            const name = meshName.toLowerCase();
+            if (!validSurfaces.some(surface => name.includes(surface))) return false;
+            return !effectNames.some(effect => name.includes(effect));
+        };
+        const surfaceByMesh = new WeakMap();
         this.mirrorBallRayPredicate = (mesh) => {
             // Structural scenery is intentionally non-pickable for controller input,
             // but it must still receive optical ray casts from the mirror ball.
             if (!mesh.isEnabled()) return false;
             if (!mesh.isVisible) return false;
-            
-            const name = mesh.name.toLowerCase();
-            
-            // WHITELIST APPROACH: Only accept known room surfaces
-            // This prevents spots appearing on invisible/transparent objects
-            const validSurfaces = [
-                'floor', 'ground', 'dancefloor',
-                'wall', 'backwall', 'sidewall', 'frontwall',
-                'ceiling',
-                'pillar', 'column',
-                'truss', 'beam',  // Structural beams, not light beams
-                'stage', 'platform', 'booth',
-                'bar', 'counter',
-                'brick', 'concrete'
-            ];
-            
-            // Check if mesh name contains any valid surface keyword
-            for (const surface of validSurfaces) {
-                if (name.includes(surface)) {
-                    // Double-check it's not a light beam or effect
-                    if (name.includes('light') || name.includes('spot') || 
-                        name.includes('laser') || name.includes('glow') ||
-                        name.includes('led') || name.includes('pool')) {
-                        return false;
-                    }
-                    return true;
-                }
+
+            // WHITELIST APPROACH: Only accept known room surfaces. This prevents spots
+            // appearing on invisible/transparent objects, avatars, NPCs, effects and UI.
+            let entry = surfaceByMesh.get(mesh);
+            if (!entry || entry.name !== mesh.name) {
+                entry = { name: mesh.name, surface: isSurfaceName(mesh.name) };
+                surfaceByMesh.set(mesh, entry);
             }
-            
-            // Reject everything else (avatars, NPCs, effects, UI, etc.)
-            return false;
+            return entry.surface;
         };
         
         // PERFORMANCE: Pre-create reusable Ray object (avoid allocating new Ray every frame)

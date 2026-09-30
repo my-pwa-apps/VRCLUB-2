@@ -269,6 +269,11 @@ class VRClubUI extends VRClubAnimationFinish {
         this._pendingTimers.add(id);
     }
 
+    /** Visible geometry the VR teleport arc must not pass through. */
+    static get TELEPORT_BLOCKERS() {
+        return ['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop'];
+    }
+
     /** Documented defaults for every VJ-controllable property. */
     static get VJ_DEFAULTS() {
         return {
@@ -1036,6 +1041,18 @@ class VRClubUI extends VRClubAnimationFinish {
                 teleport.rotationEnabled = true;
                 teleport.rotationAngle = Math.PI / 6;
                 teleport.backwardsMovementEnabled = false;
+                // Babylon's teleport ray tests only floor and blocker meshes, and the floor
+                // slab runs 5-12 m past the brick shell: without blockers the arc passed
+                // through the walls and landed the player outside the venue, or under the
+                // DJ platform. Remove-then-add keeps re-application idempotent.
+                if (typeof teleport.addBlockerMesh === 'function' && this.scene) {
+                    for (const name of VRClubUI.TELEPORT_BLOCKERS) {
+                        const mesh = this.scene.getMeshByName(name);
+                        if (!mesh) continue;
+                        teleport.removeBlockerMesh(mesh);
+                        teleport.addBlockerMesh(mesh);
+                    }
+                }
             } else if (inXR) {
                 if (features.getEnabledFeature(names.TELEPORTATION)) features.disableFeature(names.TELEPORTATION);
                 vrHelper.teleportation = null;

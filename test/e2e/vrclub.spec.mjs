@@ -212,6 +212,46 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(renderState.canvasWidth).toBeGreaterThan(0);
     expect(renderState.canvasHeight).toBeGreaterThan(0);
 
+    // Each notification makes every material walk every mesh (~100 ms at this scene
+    // size); per-frame exposure changes must bypass it or the club renders at <10 fps.
+    const exposureNotifications = await page.evaluate(async () => {
+        const club = window.vrClub;
+        const config = club.renderPipeline.imageProcessing.imageProcessingConfiguration;
+        let count = 0;
+        const observer = config.onUpdateParameters.add(() => { count++; });
+        for (let frame = 0; frame < 20; frame++) {
+            await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        }
+        config.onUpdateParameters.remove(observer);
+        return count;
+    });
+    expect(exposureNotifications).toBe(0);
+
+    // The visible shell and roof must contain the free desktop camera: the invisible
+    // collision band is 4 m tall and open at the entrance.
+    const escape = await page.evaluate(() => {
+        const camera = window.vrClub.camera;
+        const start = camera.position.clone();
+        const push = (from, step, count) => {
+            camera.position.copyFrom(from);
+            for (let i = 0; i < count; i++) camera._collideWithWorld(step);
+            return camera.position.clone();
+        };
+        const outEntrance = push(new BABYLON.Vector3(0, 1.7, -3), new BABYLON.Vector3(0, 0, 0.25), 80);
+        const throughSideWall = push(new BABYLON.Vector3(0, 6, -12), new BABYLON.Vector3(-0.25, 0, 0), 80);
+        const throughRoof = push(new BABYLON.Vector3(0, 1.7, -12), new BABYLON.Vector3(0, 0.25, 0), 80);
+        camera.position.copyFrom(start);
+        const bounds = name => window.vrClub.scene.getMeshByName(name).getBoundingInfo().boundingBox;
+        return {
+            z: outEntrance.z, frontWallInner: bounds('frontWall').minimumWorld.z,
+            x: throughSideWall.x, leftWallInner: bounds('leftWall').maximumWorld.x,
+            y: throughRoof.y, roofUnderside: bounds('ceiling').minimumWorld.y
+        };
+    });
+    expect(escape.z).toBeLessThan(escape.frontWallInner);
+    expect(escape.x).toBeGreaterThan(escape.leftWallInner);
+    expect(escape.y).toBeLessThanOrEqual(escape.roofUnderside);
+
     const showState = await page.evaluate(() => {
         const club = window.vrClub;
         const director = club.showDirector;
@@ -375,11 +415,16 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.roomBounce.active).toBeLessThanOrEqual(0.2801);
     expect(showState.roomBounce.blackout).toBeCloseTo(showState.roomBounce.baseAmbient, 3);
 
-    await page.evaluate(() => window.vrClub.showDirector._applyLook(
-        window.vrClub.showDirector.looks.deepBlue,
-        1
-    ));
-    await page.waitForTimeout(2000);
+    // Pin the cue (as the spotlight check above does) and wait on rendered frames, not
+    // wall-clock time: on a slow software renderer 2 s is a handful of frames, and the
+    // running show could move to a haze-free cue before the shafts were ever updated.
+    await page.evaluate(async () => {
+        const club = window.vrClub;
+        club.showDirector._applyCue({ look: 'deepBlue', bars: 1024 });
+        for (let frame = 0; frame < 12; frame++) {
+            await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        }
+    });
     const mirrorCueState = await page.evaluate(() => {
         const club = window.vrClub;
         const active = new Set(club.scene.getActiveMeshes().data);

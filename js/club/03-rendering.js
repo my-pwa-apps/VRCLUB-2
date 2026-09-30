@@ -601,6 +601,11 @@ class VRClubRendering extends VRClubLifecycle {
         frontWall.receiveShadows = false; // Optimization: disable shadows on walls
         frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
         frontWall.doNotSyncBoundingInfo = true;
+
+        // The visible shell is the venue boundary. The invisible collisionWall band is
+        // only 4 m tall and open at the entrance, so without this a desktop visitor
+        // walked out through the front wall or flew over the band and through a side wall.
+        for (const wall of [backWall, leftWall, rightWall, frontWall]) wall.checkCollisions = true;
         
         // Add industrial wall details
         this.createIndustrialWallDetails();

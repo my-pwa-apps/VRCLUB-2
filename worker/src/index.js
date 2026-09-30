@@ -207,6 +207,9 @@ export class ClubRoom {
     }
 
     _onMessage(ws, session, evt) {
+        // Flood-close and socket errors end the session immediately, but frames already
+        // queued on the socket can still arrive; never relay for a departed id.
+        if (!this.sessions.has(ws)) return;
         if (typeof evt.data !== 'string' || evt.data.length > MAX_FRAME_BYTES) return;
         let msg;
         try { msg = JSON.parse(evt.data); } catch { return; }

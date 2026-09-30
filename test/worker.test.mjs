@@ -101,6 +101,24 @@ test('per-connection rate limits throttle floods and close persistent flooders',
     assert.equal(b.ws.last('leave').id, a.session.id);
 });
 
+test('frames still queued on a flood-closed socket are never relayed for the departed id', () => {
+    const room = new ClubRoom({});
+    const a = join(room);
+    const b = join(room);
+    for (let i = 0; i < 450; i++) a.ws.message({ type: 'emoji', emoji: ALLOWED_EMOJI[0] });
+    assert.equal(a.ws.closed.code, CLOSE_FLOODING);
+    const before = b.ws.sent.length;
+    // Buckets refill with time; a late frame must still be ignored.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 60_000;
+    try {
+        a.ws.message({ type: 'state', state: { x: 1, y: 1.6, z: 1, rotY: 0 } });
+    } finally {
+        Date.now = realNow;
+    }
+    assert.equal(b.ws.sent.length, before, 'a departed session was relayed as a ghost');
+});
+
 test('state samples are finite, bounded and carry a normalised yaw', () => {
     const sample = sanitizeState({ x: 'Infinity', y: NaN, z: 1e9, rotY: 3 * Math.PI });
     assert.deepEqual({ x: sample.x, y: sample.y, z: sample.z }, { x: 0, y: 0, z: 500 });

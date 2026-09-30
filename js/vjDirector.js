@@ -134,8 +134,10 @@ class VJDirector {
             }
         }
 
-        // 2. Decay beat envelope (kick punch). ~120 ms half-life.
-        this.beatEnvelope = Math.max(0, this.beatEnvelope - 0.06);
+        // 2. Decay beat envelope (kick punch). ~120 ms half-life, in real time:
+        //    a bare per-frame step decayed twice as fast at 120 Hz as at 60 Hz.
+        const dtScale = this.club.dtScale || 1;
+        this.beatEnvelope = Math.max(0, this.beatEnvelope - 0.06 * dtScale);
 
         // 3. Phase tracking (within bar, within phrase)
         const beatDur = 60000 / this.bpm;
@@ -147,8 +149,9 @@ class VJDirector {
         if (now < this.blackoutUntil) {
             this.masterIntensity = 0;
         } else {
-            // Lerp toward target (~150 ms time constant)
-            this.masterIntensity += (this.targetMasterIntensity - this.masterIntensity) * 0.12;
+            // Lerp toward target (~150 ms time constant at any refresh rate)
+            const follow = 1 - Math.pow(1 - 0.12, dtScale);
+            this.masterIntensity += (this.targetMasterIntensity - this.masterIntensity) * follow;
         }
 
         // 5. Auto-scene selection (suppressed during manual macros, and whenever
@@ -206,8 +209,12 @@ class VJDirector {
         if (now < this._refractoryUntil) return;
 
         // Adaptive threshold: median × 2.4 plus a small absolute floor.
-        // Median is robust to occasional spikes (better than mean).
-        const sorted = this._fluxHistory.slice().sort((a, b) => a - b);
+        // Median is robust to occasional spikes (better than mean). Sorted in a
+        // reused scratch array: this runs every audio frame.
+        const sorted = this._fluxSorted || (this._fluxSorted = []);
+        sorted.length = 0;
+        for (let i = 0; i < this._fluxHistory.length; i++) sorted.push(this._fluxHistory[i]);
+        sorted.sort(VJDirector._ascending);
         const median = sorted[Math.floor(sorted.length / 2)];
         const threshold = Math.max(0.04, median * 2.4);
 
@@ -496,6 +503,8 @@ class VJDirector {
         this.manualSceneUntil = now + 8000;
     }
 }
+
+VJDirector._ascending = (a, b) => a - b;
 
 // Expose globally — the script tag in index.html loads before club_hyperrealistic.js
 window.VJDirector = VJDirector;

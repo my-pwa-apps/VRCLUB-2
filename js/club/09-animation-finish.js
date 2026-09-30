@@ -18,7 +18,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this._preStrobeBloom = undefined;
         }
         if (this._preStrobeExposure !== undefined && this.renderPipeline?.imageProcessing) {
-            this.renderPipeline.imageProcessing.exposure = this._preStrobeExposure;
+            this._writeExposure(this._preStrobeExposure);
             this._preStrobeExposure = undefined;
         }
         const ambient = this.scene?.getLightByName('ambient');
@@ -178,7 +178,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             this.renderPipeline.bloomWeight = 1.0;
                             if (this.renderPipeline.imageProcessing) {
                                 this._preStrobeExposure = this.renderPipeline.imageProcessing.exposure;
-                                this.renderPipeline.imageProcessing.exposure = this.isInVRMode ? 2.6 : 2.1;
+                                this._writeExposure(this.isInVRMode ? 2.6 : 2.1);
                             }
                         }
                     } else {

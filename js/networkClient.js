@@ -48,6 +48,8 @@ class NetworkClient {
 
         this.micStream = null;
         this.micEnabled = false;
+        this._micPending = null;
+        this._voiceEpoch = 0;
 
         this.ws = null;
         this._closedByUser = false;
@@ -152,6 +154,9 @@ class NetworkClient {
         }
         const code = evt && evt.code;
         if (code === NetworkClient.CLOSE_ROOM_FULL || code === NetworkClient.CLOSE_FLOODING) {
+            // Terminal: release the microphone. The panel shows the mic as off and
+            // disables the button, so a live capture here could never be stopped.
+            this.disableVoice();
             this._setStatus('error');
             this.onError(new Error(code === NetworkClient.CLOSE_ROOM_FULL
                 ? 'That room is full. Try another room code.'
@@ -159,6 +164,7 @@ class NetworkClient {
             return;
         }
         if (!this._hasConnected || this._reconnectAttempts >= 3) {
+            this.disableVoice();
             this._setStatus('error');
             this.onError(new Error('Cannot reach multiplayer relay. Start the relay or check its URL, then click Connect to retry.'));
             return;
@@ -218,8 +224,12 @@ class NetworkClient {
                 break;
 
             case 'state': {
+                // Only peers announced by welcome/join. A stray frame from a session the
+                // relay already dropped would otherwise create an avatar that no later
+                // `leave`, disconnect or reconnect ever removes.
                 const peer = this.peers.get(msg.id);
-                if (peer) peer.state = msg.state;
+                if (!peer) break;
+                peer.state = msg.state;
                 this.onPeerState(msg.id, msg.state);
                 break;
             }
@@ -268,16 +278,31 @@ class NetworkClient {
 
     async enableVoice() {
         if (this.micEnabled) return;
+        if (this._micPending) return this._micPending;
         if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             throw new Error('Microphone access is not available in this browser');
         }
-        this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        this.micEnabled = true;
-        for (const id of this.peers.keys()) this._attachLocalTracks(id);
+        // One permission request at a time. A second click during the prompt used to
+        // start a second capture whose tracks were never stopped by disableVoice().
+        const epoch = this._voiceEpoch;
+        this._micPending = navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+            .then((stream) => {
+                // Muted, disconnected or disposed while the prompt was open.
+                if (epoch !== this._voiceEpoch || this._closedByUser) {
+                    for (const track of stream.getTracks()) track.stop();
+                    return;
+                }
+                this.micStream = stream;
+                this.micEnabled = true;
+                for (const id of this.peers.keys()) this._attachLocalTracks(id);
+            })
+            .finally(() => { this._micPending = null; });
+        return this._micPending;
     }
 
     /** Stops sending; connections stay up so this guest keeps hearing everyone else. */
     disableVoice() {
+        this._voiceEpoch++;
         this.micEnabled = false;
         const stream = this.micStream;
         this.micStream = null;

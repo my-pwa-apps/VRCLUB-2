@@ -627,31 +627,14 @@ class VRClubLifecycle extends VRClubCore {
         // (previous bug: a new observer was added every first jump and never removed,
         // accumulating across XR sessions and continuing to raycast every frame.)
         if (!this.jumpState) {
-            this.jumpState = { active: false, velocity: 0 };
+            this.jumpState = { active: false, velocity: 0, eyeHeight: 1.7, startY: 1.7 };
             this._jumpRayDir = new BABYLON.Vector3(0, -1, 0);
             this._jumpRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), this._jumpRayDir, 2.5);
-            const meshHasCollisions = (mesh) => mesh.checkCollisions;
             this._jumpObserver = this.scene.onBeforeRenderObservable.add(() => {
                 if (!this.jumpState.active || !xrCamera) return;
-                // Apply velocity & gravity
-                xrCamera.position.y += this.jumpState.velocity;
-                this.jumpState.velocity -= 0.006;
-                if (this.jumpState.velocity >= 0) return;
-                // Falling: raycast down to find ground (reuse cached Ray/Vector3)
-                this._jumpRay.origin.copyFrom(xrCamera.position);
-                this._jumpRay.direction.copyFrom(this._jumpRayDir);
-                this._jumpRay.length = 2.5;
-                const pick = this.scene.pickWithRay(this._jumpRay, meshHasCollisions);
-                if (pick && pick.hit && pick.distance <= 1.75) {
-                    this.jumpState.active = false;
-                    xrCamera.applyGravity = true;
-                    xrCamera.position.y = pick.pickedPoint.y + 1.7;
-                } else if (xrCamera.position.y < 1.7) {
-                    // Fallback for infinite fall
-                    this.jumpState.active = false;
-                    xrCamera.applyGravity = true;
-                    xrCamera.position.y = 1.7;
-                }
+                // Same clamped real-time step as the animation clock.
+                const frameMs = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() : 16.667;
+                this._stepVRJump(xrCamera, Math.min(4, Math.max(0.25, frameMs / 16.667)) / 60);
             });
         }
         const jumpBtnIds = ["a-button", "x-button"];
@@ -661,9 +644,7 @@ class VRClubLifecycle extends VRClubCore {
                 btn.onButtonStateChangedObservable.add((c) => {
                     if (c.pressed && !this.vrComfortMode && !this.jumpState.active) {
                         log.info('🦘 VR Jump activated');
-                        this.jumpState.active = true;
-                        this.jumpState.velocity = 0.12;
-                        xrCamera.applyGravity = false;
+                        this._startVRJump(xrCamera);
                     }
                 });
             }
@@ -683,6 +664,51 @@ class VRClubLifecycle extends VRClubCore {
                 });
             }
         });
+    }
+
+    /**
+     * Begin a comfort-off VR jump from the player's CURRENT eye height, so a
+     * seated or short player lands where they took off instead of at 1.7 m.
+     */
+    _startVRJump(xrCamera) {
+        const state = this.jumpState;
+        state.startY = xrCamera.position.y;
+        state.eyeHeight = 1.7;
+        const ground = this._pickJumpGround(xrCamera, 3);
+        if (ground) state.eyeHeight = Math.max(0.5, xrCamera.position.y - ground.pickedPoint.y);
+        // ~0.45 m apex under real gravity; the former per-frame constants produced a
+        // ~1.2 m forced lift whose speed changed with the headset refresh rate.
+        state.velocity = Math.sqrt(2 * 9.81 * 0.45);
+        state.active = true;
+        xrCamera.applyGravity = false;
+    }
+
+    /** Advance the jump arc by `dt` real seconds and land on collidable ground. */
+    _stepVRJump(xrCamera, dt) {
+        const state = this.jumpState;
+        xrCamera.position.y += state.velocity * dt;
+        state.velocity -= 9.81 * dt;
+        if (state.velocity >= 0) return;
+        const ground = this._pickJumpGround(xrCamera, state.eyeHeight + 0.8);
+        if (ground && ground.distance <= state.eyeHeight + 0.05) {
+            state.active = false;
+            xrCamera.applyGravity = true;
+            xrCamera.position.y = ground.pickedPoint.y + state.eyeHeight;
+        } else if (xrCamera.position.y < state.startY - 1.0) {
+            // No collidable ground below: never fall forever.
+            state.active = false;
+            xrCamera.applyGravity = true;
+            xrCamera.position.y = state.startY;
+        }
+    }
+
+    _pickJumpGround(xrCamera, length) {
+        this._jumpRay.origin.copyFrom(xrCamera.position);
+        this._jumpRay.direction.copyFrom(this._jumpRayDir);
+        this._jumpRay.length = length;
+        if (!this._jumpGroundPredicate) this._jumpGroundPredicate = (mesh) => mesh.checkCollisions;
+        const pick = this.scene.pickWithRay(this._jumpRay, this._jumpGroundPredicate);
+        return pick && pick.hit ? pick : null;
     }
 
     /**

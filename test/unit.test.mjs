@@ -182,15 +182,16 @@ function createMultiplayerHarness() {
         const from = [...sockets].find(([, s]) => s === socket)[0];
         sockets.get(msg.target)?.deliver({ type: 'rtc-signal', from, signal: msg.signal });
     }
+    const navigatorStub = { mediaDevices: { getUserMedia: async () => {
+        const track = { stop() { this.stopped = true; } };
+        return { getTracks: () => [track] };
+    } } };
     const { window } = loadClassic('js/networkClient.js', {
         WebSocket: FakeSocket,
         RTCPeerConnection: FakePC,
         queueMicrotask,
         setTimeout, clearTimeout,
-        navigator: { mediaDevices: { getUserMedia: async () => {
-            const track = { stop() { this.stopped = true; } };
-            return { getTracks: () => [track] };
-        } } }
+        navigator: navigatorStub
     });
     const join = (id, peers) => {
         const client = new window.NetworkClient({ serverUrl: 'wss://relay.example' });
@@ -203,7 +204,7 @@ function createMultiplayerHarness() {
         return client;
     };
     const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)); };
-    return { window, join, settle };
+    return { window, join, settle, navigatorStub };
 }
 
 test('voice negotiates whichever guest enables the mic first, and renegotiates a later mic', async () => {
@@ -272,6 +273,55 @@ test('the relay close codes stop reconnecting and explain why', () => {
     assert.equal(client.status, 'error');
     assert.match(errors[0], /room is full/);
     assert.equal(client._reconnectTimer, null);
+});
+
+test('a terminal relay close releases the mic and a double click never leaks a capture', async () => {
+    const stops = [];
+    let resolveMic;
+    const { window, navigatorStub } = createMultiplayerHarness();
+    const client = new window.NetworkClient({ serverUrl: 'wss://relay.example' });
+    client.onError = () => {};
+    client.connect();
+    client.ws.deliver({ type: 'welcome', id: 'x', hostId: 'x', peers: [] });
+
+    const track = () => { const t = { stop() { stops.push(t); } }; return t; };
+    const gum = [];
+    navigatorStub.mediaDevices.getUserMedia = () => new Promise(resolve => { gum.push(1); resolveMic = resolve; });
+
+    // Two clicks while the permission prompt is open: one request, one stream.
+    const first = client.enableVoice();
+    const second = client.enableVoice();
+    assert.equal(gum.length, 1, 'a second click opened a second capture');
+    const t1 = track();
+    resolveMic({ getTracks: () => [t1] });
+    await Promise.all([first, second]);
+    assert.equal(client.micEnabled, true);
+
+    client.ws.listeners.close({ code: window.NetworkClient.CLOSE_FLOODING });
+    assert.equal(client.status, 'error');
+    assert.equal(client.micEnabled, false, 'the mic stayed enabled after a terminal close');
+    assert.deepEqual(stops, [t1], 'the capture track was not stopped');
+
+    // Muted while the prompt was still open: the late stream is stopped at once.
+    const late = client.enableVoice();
+    client.disableVoice();
+    const t2 = track();
+    resolveMic({ getTracks: () => [t2] });
+    await late;
+    assert.equal(client.micEnabled, false);
+    assert.ok(stops.includes(t2), 'a stream granted after mute kept capturing');
+});
+
+test('state for an id never announced by welcome or join creates no avatar', () => {
+    const { join } = createMultiplayerHarness();
+    const a = join('a', []);
+    const seen = [];
+    a.onPeerState = id => seen.push(id);
+    a.ws.deliver({ type: 'state', id: 'ghost', state: { x: 0, y: 1.6, z: 0, rotY: 0 } });
+    assert.deepEqual(seen, []);
+    join('b', ['a']);
+    a.ws.deliver({ type: 'state', id: 'b', state: { x: 0, y: 1.6, z: 0, rotY: 0 } });
+    assert.deepEqual(seen, ['b']);
 });
 
 function loadAvatarManager() {
@@ -905,6 +955,15 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     const source = club.audioSource;
     club._connectAudioSourceOnce();
     assert.equal(club.audioSource, source);
+
+    // A later play request (a user gesture) must resume a context the browser
+    // suspended, even though the media source already exists.
+    let resumed = 0;
+    ctx.state = 'suspended';
+    ctx.resume = () => { resumed++; ctx.state = 'running'; return Promise.resolve(); };
+    club._connectAudioSourceOnce();
+    assert.equal(resumed, 1, 'a suspended AudioContext was never resumed by Play');
+    assert.equal(club.audioSource, source);
 });
 
 test('the Web Audio listener follows the camera and leaving the room occludes the PA', () => {
@@ -1216,6 +1275,35 @@ test('NOCTURNE color lock aligns the LED wall and mirror ball to the master hue'
     assert.equal(club.mirrorBallSpotlightColor, masterColor);
 });
 
+test('VJDirector envelope and intensity follow wall-clock time at any refresh rate', () => {
+    const settle = (hz) => {
+        let clock = 10000;
+        const { window } = loadClassic('js/vjDirector.js', {
+            BABYLON: makeBabylonStub(),
+            performance: { now: () => clock }
+        });
+        const club = { vjBPM: 128, dtScale: 60 / hz };
+        const director = new window.VJDirector(club);
+        director.lastBeatAt = clock;
+        director.beatEnvelope = 1;
+        director.masterIntensity = 0;
+        director.targetMasterIntensity = 1;
+        director.blackoutUntil = 0;
+        // 0.1 s: shorter than one beat at 128 BPM, so no synthetic beat re-punches.
+        for (let frame = 0; frame < hz / 10; frame++) {
+            clock += 1000 / hz;
+            director.update(clock / 1000, { hasAudio: false });
+        }
+        return { envelope: director.beatEnvelope, intensity: director.masterIntensity };
+    };
+    const at60 = settle(60);
+    const at120 = settle(120);
+    assert.ok(Math.abs(at60.envelope - at120.envelope) < 1e-9,
+        `beat envelope depends on refresh rate: ${at60.envelope} vs ${at120.envelope}`);
+    assert.ok(Math.abs(at60.intensity - at120.intensity) < 1e-9,
+        `master intensity depends on refresh rate: ${at60.intensity} vs ${at120.intensity}`);
+});
+
 test('VJDirector converges on BPM from synthetic onset intervals', () => {
     const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub() });
     const club = { vjBPM: 128 };
@@ -1413,6 +1501,85 @@ test('every LED wall pattern runs without throwing', () => {
     assert.equal(bad.length, 0, 'a pattern wrote a non-finite colour');
 });
 
+test('per-frame exposure never dirties every material, and a strobe spike survives eye adaptation', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const proto = window.VRClubAnimationCore.prototype;
+
+    // Mirrors Babylon's ImageProcessingConfiguration: the public setter notifies
+    // every observing material, which then walks every mesh in the scene.
+    let notifications = 0;
+    const config = {
+        _exposure: 1.2,
+        get exposure() { return this._exposure; },
+        set exposure(v) { if (v !== this._exposure) { this._exposure = v; notifications++; } }
+    };
+    const imageProcessing = {
+        imageProcessingConfiguration: config,
+        get exposure() { return config.exposure; },
+        set exposure(v) { config.exposure = v; }
+    };
+    const club = {
+        renderPipeline: { imageProcessing },
+        vrSettings: { desktop: { exposure: 1.2 }, vr: { exposure: 1.35 } },
+        isInVRMode: false,
+        _adaptedExposure: null,
+        masterIntensity: 1,
+        lightsActive: true,
+        ledWallActive: true,
+        strobesActive: false,
+        photosensitiveSafeMode: false,
+        _writeExposure: proto._writeExposure
+    };
+
+    for (let i = 0; i < 120; i++) proto.updateEyeAdaptation.call(club, { dtScale: 1, beat: i % 2 });
+    assert.equal(notifications, 0, 'eye adaptation notified image-processing observers per frame');
+    assert.ok(config.exposure < 1.2, 'a bright rig did not stop the iris down');
+    assert.equal(config.exposure, club._adaptedExposure, 'adapted exposure never reached the post-process');
+
+    // A value of exactly 1 toggles the EXPOSURE shader define, so it must notify.
+    proto._writeExposure.call(club, 1);
+    assert.equal(notifications, 1, 'crossing exposure 1 skipped the define update');
+    proto._writeExposure.call(club, 1.1);
+    assert.equal(notifications, 2, 'leaving exposure 1 skipped the define update');
+
+    // updateStrobes runs first; eye adaptation must not cancel its flash frame.
+    club._preStrobeExposure = 1.1;
+    proto._writeExposure.call(club, 2.1);
+    proto.updateEyeAdaptation.call(club, { dtScale: 1, beat: 0 });
+    assert.equal(config.exposure, 2.1, 'eye adaptation overwrote the strobe exposure spike');
+});
+
+test('safe mode keeps the dance-floor strip from strobing in the legacy strobe phase', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON,
+        VRClubAnimationCore: class {}
+    });
+    const hardSwitches = (safe) => {
+        const led = { material: { emissiveColor: new BABYLON.Color3() } };
+        const club = { danceFloorLEDs: [led], lightingPhase: 'strobe_attack', photosensitiveSafeMode: safe };
+        let previous = null;
+        let switches = 0;
+        for (let frame = 0; frame < 120; frame++) {
+            window.VRClubAnimationFixtures.prototype.updateDanceFloorLEDs.call(club, {
+                time: frame / 60,
+                audio: { bass: 0.5, mid: 0.5 }
+            });
+            const c = led.material.emissiveColor;
+            const level = (c.r + c.g + c.b) / 3;
+            if (previous !== null && Math.abs(level - previous) > 0.5) switches++;
+            previous = level;
+        }
+        return switches;
+    };
+    assert.ok(hardSwitches(false) > 4, 'control: the strobe phase should flash without Safe Mode');
+    assert.equal(hardSwitches(true), 0, 'Safe Mode let the floor strip strobe');
+});
+
 test('strobe bursts light immediately and safe mode restores the scene', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', {
@@ -1451,6 +1618,11 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
         strobeRetinalFlash: retinalFlash,
         isInVRMode: true
     };
+    const { window: coreWindow } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    club._writeExposure = coreWindow.VRClubAnimationCore.prototype._writeExposure;
 
     window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
         time: 10,
@@ -1551,7 +1723,16 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
             if (enabled.has(conflicts[name])) {
                 throw new Error(`Feature ${name} cannot be enabled while ${conflicts[name]} is enabled.`);
             }
-            const feature = { name, options, setSelectionFeature(sel) { this.selection = sel; } };
+            const feature = {
+                name, options, setSelectionFeature(sel) { this.selection = sel; },
+                // Babylon 8.30.5 WebXRMotionControllerTeleportation blocker API.
+                addBlockerMesh(mesh) { (this.options.pickBlockerMeshes ||= []).push(mesh); },
+                removeBlockerMesh(mesh) {
+                    const list = this.options.pickBlockerMeshes || [];
+                    const index = list.indexOf(mesh);
+                    if (index !== -1) list.splice(index, 1);
+                }
+            };
             enabled.set(name, feature);
             return feature;
         }
@@ -1563,10 +1744,13 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
         log: { error: (...args) => { throw new Error(args.join(' ')); } }
     });
     const originalTeleport = featuresManager.enableFeature(names.TELEPORTATION, 'latest', {});
+    const sceneMeshes = new Map(['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop']
+        .map(name => [name, { name }]));
     const club = {
         vjManualMode: false,
         movementFeature: null,
         floorMesh: { name: 'floor' },
+        scene: { getMeshByName: name => sceneMeshes.get(name) || null },
         vrHelper: {
             input: { name: 'input' },
             pointerSelection: { name: 'pointer' },
@@ -1603,6 +1787,14 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     assert.equal(club.vrHelper.teleportation.options.floorMeshes[0], club.floorMesh);
     assert.equal(club.vrHelper.teleportation.selection, club.vrHelper.pointerSelection);
     assert.equal(club.vjManualMode, false);
+    // The floor slab extends past the brick shell; the arc must stop at the walls
+    // and the DJ platform, and re-applying the mode must not duplicate blockers.
+    club.setVRComfortMode(true);
+    assert.deepEqual(
+        club.vrHelper.teleportation.options.pickBlockerMeshes.map(mesh => mesh.name).sort(),
+        [...sceneMeshes.keys()].sort()
+    );
+    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size);
 
     // Outside a session the preference is stored, teleport is left registered but inert,
     // and nothing throws; the IN_XR handler re-applies the mode on entry.
@@ -1639,6 +1831,48 @@ test('VR viewpoints preserve seated eye height and orientation without moving th
     assert.equal(xrCamera.position.z, -9.2);
     assert.ok(xrCamera.rotationQuaternion.equals(orientation));
     assert.ok(club.camera.position.equals(desktopPosition));
+});
+
+test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own eye height', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/02-lifecycle.js', {
+        BABYLON, VRClubCore: class {}
+    });
+    const proto = window.VRClubLifecycle.prototype;
+    const jump = (hz) => {
+        const xrCamera = { position: new BABYLON.Vector3(0, 1.15, -12), applyGravity: true };
+        const club = {
+            jumpState: { active: false, velocity: 0 },
+            _jumpRayDir: new BABYLON.Vector3(0, -1, 0),
+            _jumpRay: new BABYLON.Ray(BABYLON.Vector3.Zero(), new BABYLON.Vector3(0, -1, 0), 2.5),
+            // A collidable floor at y = 0.
+            scene: { pickWithRay: (ray) => {
+                const distance = ray.origin.y;
+                return distance >= 0 && distance <= ray.length
+                    ? { hit: true, distance, pickedPoint: new BABYLON.Vector3(ray.origin.x, 0, ray.origin.z) }
+                    : { hit: false };
+            } },
+            _pickJumpGround: proto._pickJumpGround,
+            _stepVRJump: proto._stepVRJump
+        };
+        proto._startVRJump.call(club, xrCamera);
+        let apex = xrCamera.position.y;
+        let frames = 0;
+        while (club.jumpState.active && frames < 1000) {
+            club._stepVRJump(xrCamera, 1 / hz);
+            apex = Math.max(apex, xrCamera.position.y);
+            frames++;
+        }
+        return { apex, airtime: frames / hz, landedAt: xrCamera.position.y, gravity: xrCamera.applyGravity };
+    };
+    const at72 = jump(72);
+    const at120 = jump(120);
+    assert.ok(Math.abs(at72.apex - at120.apex) < 0.02, `apex depends on refresh rate: ${at72.apex} vs ${at120.apex}`);
+    assert.ok(Math.abs(at72.airtime - at120.airtime) < 0.03, `airtime depends on refresh rate: ${at72.airtime} vs ${at120.airtime}`);
+    assert.ok(at72.apex - 1.15 > 0.35 && at72.apex - 1.15 < 0.55, `unrealistic jump height ${at72.apex - 1.15}`);
+    assert.equal(at72.landedAt, 1.15, 'a seated player was re-seated at a different eye height');
+    assert.equal(at120.landedAt, 1.15);
+    assert.equal(at72.gravity, true);
 });
 
 test('disabled haptics also suppress VR menu feedback pulses', () => {
