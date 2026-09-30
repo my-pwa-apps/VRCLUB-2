@@ -103,7 +103,32 @@ Custom hosted relay URLs are remembered. Saved legacy localhost:8787 defaults mi
 the hosted relay; enter a local URL explicitly when testing Worker changes locally.
 Voice audio itself never touches the Worker — once two guests are in the same room their
 browsers negotiate a direct WebRTC connection (the Worker only relays the SDP/ICE
-handshake), so audio stays peer-to-peer.
+handshake), so audio stays peer-to-peer. Either guest may enable the mic first; muting keeps
+you listening to everyone else.
+
+The host's stream is not fetched automatically. A guest sees the stream's origin and chooses
+**Listen along**, because loading it discloses their IP address to that server. Local files
+the host plays are not shared.
+
+The relay accepts browser connections only from origins listed in `ALLOWED_ORIGINS`
+(`worker/wrangler.toml`); loopback and private-LAN origins always pass. Add your own site's
+origin before deploying a relay for it. Rooms hold up to 16 guests, and per-connection
+rate limits disconnect clients that flood the room.
+
+## Offline use
+
+After one successful online visit, the app shell (service worker) and the models, textures and
+environment (IndexedDB) are cached on the device.
+
+| Workflow | Needs a network? |
+|----------|------------------|
+| First visit (download app shell, ~60 MB of models/textures) | Yes |
+| Later visits: explore the club, VJ desk, NOCTURNE show, VR | No |
+| Play a local audio file | No |
+| Internet radio / stream URL | Yes |
+| Multiplayer (relay, voice, shared music) | Yes |
+
+The audio panel announces when the device goes offline or comes back online.
 
 ## Accessibility
 
@@ -154,6 +179,12 @@ Recommended manual smoke test before publishing:
 Deploy the generated `dist/` directory to any static host — there is no Node backend.
 `npm run start:prod` builds and serves that directory while honouring the platform's `PORT`,
 with brotli/gzip compression and security headers.
+
+GitHub Pages is published by the `deploy` job in `.github/workflows/ci.yml`. It builds `dist/`
+and deploys it only after the `verify`, `e2e` and `audit` jobs pass on `main`. One-time setup:
+**Settings → Pages → Build and deployment → Source: GitHub Actions**. Until then, Pages
+serves the raw repository root. GitHub Pages ignores `_headers`, so clickjacking protection
+(`frame-ancestors`) requires Cloudflare Pages or Netlify.
 
 What the build produces:
 

@@ -1,3 +1,4 @@
+'use strict';
 class VRClubFixtures extends VRClubEnvironment {
     createDJBooth() {
         // === HYPERREALISTIC INTEGRATED DJ/VJ BOOTH ===
@@ -158,6 +159,7 @@ class VRClubFixtures extends VRClubEnvironment {
         audioBtn.isPickable = true;
         
         const audioBtnMat = this.materialFactory.createStandardMaterial("audioBtnMat", {
+            mutable: true, // colour written at runtime
             emissiveColor: [0, 0.8, 0],
             disableLighting: true
         });
@@ -297,6 +299,7 @@ class VRClubFixtures extends VRClubEnvironment {
             const isActive = this[btnDef.control];
             
             const toggleMat = this.materialFactory.createStandardMaterial("toggleMat_" + btnDef.control, {
+                mutable: true, // colour written at runtime
                 emissiveColor: isActive ? btnDef.onColor : btnDef.offColor,
                 disableLighting: true
             });
@@ -351,6 +354,7 @@ class VRClubFixtures extends VRClubEnvironment {
         sliderHandle.position = new BABYLON.Vector3(speedToPosition(this.spotlightSpeed), sliderY, sliderZ);
         
         const handleMat = this.materialFactory.createStandardMaterial("sliderHandleMat", {
+            mutable: true, // colour written at runtime
             emissiveColor: [0, 0.8, 1], // Cyan
             disableLighting: true
         });
@@ -439,6 +443,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 
                 // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
                 const panelMat = this.materialFactory.createStandardMaterial("ledMat_" + row + "_" + col, {
+                    mutable: true, // colour written at runtime
                     emissiveColor: [0.1, 0, 0], // MUCH dimmer for contrast
                     disableLighting: true
                 });
@@ -608,6 +613,7 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // Status LED
             const ledMat = this.materialFactory.createStandardMaterial(`fogMachineLED${i}`, {
+                mutable: true, // colour written at runtime
                 emissiveColor: [0, 0.8, 0], // Green when ready
                 disableLighting: true
             });
@@ -777,6 +783,7 @@ class VRClubFixtures extends VRClubEnvironment {
     createBoothLighting() {
         // LED strip under platform (accent lighting)
         const stripMat = this.materialFactory.createStandardMaterial("ledStripMat", {
+            mutable: true, // colour written at runtime
             emissiveColor: [0, 0.5, 1],
             disableLighting: true,
             alpha: 0.8
@@ -1001,6 +1008,7 @@ class VRClubFixtures extends VRClubEnvironment {
             lens.position.y = -0.28; // Just inside bezel
             
             const lensMat = this.materialFactory.createStandardMaterial("lensMat" + i, {
+                mutable: true, // colour written at runtime
                 emissiveColor: this.currentSpotColor.scale(6.0),
                 disableLighting: true
             });
@@ -1015,6 +1023,7 @@ class VRClubFixtures extends VRClubEnvironment {
             lightSource.parent = head;
             lightSource.position.y = -0.25;
             const sourceMat = this.materialFactory.createStandardMaterial("sourceMat" + i, {
+                mutable: true, // colour written at runtime
                 emissiveColor: this.currentSpotColor.scale(10.0),
                 disableLighting: true
             });
@@ -1094,6 +1103,7 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // Reuse clamp material for strobe mounts
         const strobeMountMat = this.materialFactory.createPBRMaterial("strobeMountMat", {
+            mutable: true, // colour written at runtime
             baseColor: [0.1, 0.1, 0.1],
             metallic: 0.9,
             roughness: 0.4
@@ -1133,6 +1143,7 @@ class VRClubFixtures extends VRClubEnvironment {
             }, this.scene);
             strobe.position = new BABYLON.Vector3(pos.x, 7.6, pos.z);
             const strobeMat = this.materialFactory.createStandardMaterial("strobeMat" + i, {
+                mutable: true, // colour written at runtime
                 emissiveColor: [0, 0, 0], // Off by default
                 disableLighting: true
             });
@@ -1269,6 +1280,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 clamp.position = new BABYLON.Vector3(pos.x, pos.trussY + 0.25, pos.z);
             }
             const clampMat = this.materialFactory.createPBRMaterial("laserClampMat", {
+                mutable: true, // colour written at runtime
                 baseColor: [0.3, 0.3, 0.3],
                 metallic: 1.0,
                 roughness: 0.4
@@ -1291,6 +1303,7 @@ class VRClubFixtures extends VRClubEnvironment {
             housing.isPickable = false;
             
             const housingMat = this.materialFactory.createPBRMaterial("laserHousingMat", {
+                mutable: true, // colour written at runtime
                 baseColor: [0.05, 0.05, 0.05],
                 metallic: 0.8,
                 roughness: 0.3,

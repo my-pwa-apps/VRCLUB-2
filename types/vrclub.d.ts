@@ -123,7 +123,8 @@ export declare class TextureLoader {
 }
 
 export declare class ModelLoader {
-    constructor(scene: any, materialFactory?: any, logger?: any, maxLights?: number | null);
+    constructor(scene: any, materialFactory?: any, logger?: any, maxLights?: number | null,
+        options?: { lightFactory?: LightFactory | null; textureLoader?: TextureLoader | null });
     init(): Promise<void>;
     loadAllModels(): Promise<void>;
     dispose(): void;
@@ -132,15 +133,21 @@ export declare class ModelLoader {
 export declare class MaterialFactory {
     constructor(scene: any, maxLights: number, logger?: any);
     getPreset(name: string): any;
+    /** Pass `mutable: true` in options when colours are written at runtime (otherwise frozen). */
     createPBRMaterial(name: string, options: any, shared?: boolean): any;
-    createStandardMaterial(name: string, options: any, shared?: boolean): any;
+    createStandardMaterial(name: string, options: any): any;
+    createFullPBRMaterial(name: string, options: any, shared?: boolean): any;
 }
 
 export declare class LightFactory {
-    constructor(scene: any, logger?: any);
-    createLight(name: string, options: any): any;
+    constructor(scene: any, logger?: any, maxLights?: number | null);
+    createPointLight(name: string, position: Vector3Like, config?: any): any;
+    createSpotLight(name: string, position: Vector3Like, direction: Vector3Like, config?: any): any;
+    getPreset(presetName: string, ...args: any[]): any;
+    getGroup(groupName: string): any[];
     disposeLight(name: string): void;
     disposeGroup(groupName: string): void;
+    dispose(): void;
 }
 
 export declare class VJDirector {
@@ -151,9 +158,10 @@ export declare class VJDirector {
     beatNumber: number;
     paletteMode: string;
     update(timeSec: number, audioData: AudioFrameData | null): void;
-    tap(): number;
-    drop(): void;
-    blackout(durationBeats?: number): void;
+    tapTempo(): void;
+    triggerDrop(): void;
+    blackout(durationMs?: number): void;
+    setBPM(bpm: number): void;
 }
 
 export declare class ShowDirector {
@@ -161,6 +169,55 @@ export declare class ShowDirector {
     enabled: boolean;
     isDriving(): boolean;
     update(timeSec: number, audioData: AudioFrameData | null): void;
+}
+
+/** Remote-guest state on the wire. `y` is the sender's EYE height. */
+export interface PeerState { x: number; y: number; z: number; rotY: number; }
+
+export interface SharedMusicState { url: string | null; playing: boolean; position: number; updatedAt?: number; }
+
+export declare class NetworkClient {
+    static CLOSE_ROOM_FULL: number;
+    static CLOSE_FLOODING: number;
+    static isShareableMusicUrl(url: string): boolean;
+    constructor(options?: { serverUrl?: string; room?: string; name?: string });
+    readonly connected: boolean;
+    readonly peerCount: number;
+    status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
+    micEnabled: boolean;
+    isHost(): boolean;
+    connect(): void;
+    disconnect(): void;
+    dispose(): void;
+    sendState(state: PeerState): void;
+    sendEmoji(emoji: string): void;
+    /** Returns false (and sends nothing) unless host and the URL is http(s). */
+    sendMusic(music: SharedMusicState): boolean;
+    enableVoice(): Promise<void>;
+    disableVoice(): void;
+    onStatusChange: (status: string) => void;
+    onPeerJoin: (id: string, name: string) => void;
+    onPeerState: (id: string, state: PeerState) => void;
+    onPeerLeave: (id: string) => void;
+    onEmoji: (id: string, emoji: string) => void;
+    onMusic: (music: SharedMusicState) => void;
+    onHostChange: (hostId: string | null) => void;
+    onRemoteStream: (id: string, stream: MediaStream) => void;
+    onError: (error: Error) => void;
+}
+
+export declare class AvatarManager {
+    static EYE_HEIGHT: number;
+    static shortestAngle(from: number, to: number): number;
+    constructor(club: VRClub);
+    ensurePeer(id: string, name?: string | null): any;
+    updatePeerState(id: string, name: string | null, state: PeerState): void;
+    showEmoji(id: string, emoji: string): void;
+    attachVoice(id: string, stream: MediaStream): void;
+    detachVoice(id: string): void;
+    removePeer(id: string): void;
+    update(dtSeconds: number): void;
+    dispose(): void;
 }
 
 export declare class VRClub {

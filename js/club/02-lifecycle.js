@@ -1,3 +1,4 @@
+'use strict';
 class VRClubLifecycle extends VRClubCore {
     async _createXRExperience(options) {
         if (!navigator.xr || typeof navigator.xr.isSessionSupported !== 'function') return null;
@@ -88,7 +89,10 @@ class VRClubLifecycle extends VRClubCore {
         
         // Initialize model loader for DJ equipment and PA speakers
         log.info('🎸 Initializing 3D model loader...');
-        this.modelLoader = new ModelLoader(this.scene, this.materialFactory, log);
+        this.modelLoader = new ModelLoader(this.scene, this.materialFactory, log, null, {
+            lightFactory: this.lightFactory,
+            textureLoader: this.textureLoader
+        });
         await this.modelLoader.init();
         this._reportInitProgress(0.38, 'Building the club...');
         
@@ -107,6 +111,206 @@ class VRClubLifecycle extends VRClubCore {
             log.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
         });
         
+        this._createDesktopCamera();
+
+        this._createGlowLayer();
+
+        // Add post-processing for cinematic realism
+        this.addPostProcessing();
+        
+        // Build hyperrealistic club (need floor first for VR setup)
+        this.createFloor();
+        
+        const vrHelper = await this._initXRHelper();
+        this._reportInitProgress(0.52, 'Configuring WebXR...');
+        
+        // Configure VR rendering for better quality
+        if (vrHelper && vrHelper.baseExperience) {
+            // Optimize rendering for VR (applies immediately)
+            this.scene.autoClear = false; // Better performance
+            this.scene.autoClearDepthAndStencil = true; // Proper depth handling
+            
+            // Set render state ONLY when XR session is active (not during initialization)
+            // This will be configured when user enters VR via onStateChangedObservable
+        }
+        
+        // Store VR helper for later use
+        this.vrHelper = vrHelper;
+        this.setVRComfortMode(this.vrComfortMode);
+
+        this._setupXRSession(vrHelper);
+        
+        this._buildVenue();
+        this._reportInitProgress(0.72, 'Loading performers...');
+        
+        // Setup UI
+        this.setupUI(vrHelper);
+        this.setupPerformanceMonitor();
+        this.setupVJControlInteraction(); // Add VJ control button clicks
+        
+        // Create dancing NPC avatars on the dancefloor
+        await this.createDancingNPCs();
+        this._reportInitProgress(0.92, 'Finalizing lighting...');
+
+        // === VJ DIRECTOR ===
+        // Beat-locked palette engine + macros. Conducts the existing rig like
+        // a touring VJ would. Reads audioData, writes to existing color/state
+        // vars (spotColorIndex, currentSpotColor, vjDropActive, etc.) so the
+        // existing render code keeps working unchanged.
+        if (typeof VJDirector !== 'undefined') {
+            this.vjDirector = new VJDirector(this);
+        }
+
+        // "NOCTURNE" — the composed light show. A beat-locked cue engine that
+        // becomes the single source of truth for fixture state, replacing the
+        // legacy wall-clock 12-phase cycler and the director's energy-threshold
+        // scene picker (both of which stand down while showDirector.isDriving()).
+        // Depends on the beat grid VJDirector publishes, so it is created after it.
+        if (typeof ShowDirector !== 'undefined' && this.vjDirector) {
+            this.showDirector = new ShowDirector(this);
+        }
+        
+        this._finalizeRenderQuality();
+
+        // Verify scene is ready
+        log.info('🎬 Scene initialization complete:');
+        log.info(`  📷 Camera: ${this.camera.position.toString()}`);
+        log.info(`  🎯 Active camera: ${this.scene.activeCamera ? 'Set' : 'MISSING!'}`);
+        log.info(`  💡 Lights: ${this.scene.lights.length}`);
+        log.info(`  📦 Meshes: ${this.scene.meshes.length}`);
+        log.info(`  🎨 Materials: ${this.scene.materials.length}`);
+        
+        // Start render loop.
+        //
+        // Order matters: updateAnimations() must run BEFORE scene.render(). With
+        // render first, every beam position, spotlight quaternion, LED colour,
+        // head-bob offset and exposure value computed this frame was not seen by the
+        // GPU until the NEXT frame - a permanent one-frame lag (~14 ms at 72 Hz on a
+        // Quest, on top of the compositor's own) and a guaranteed phase error between
+        // the camera matrix and the head-bob written into it.
+        this._renderLoop = () => {
+            this.updateAnimations();
+            this.scene.render();
+            this.updatePerformanceMonitor();
+        };
+        this.engine.runRenderLoop(this._renderLoop);
+
+        this._setupLifecycleListeners();
+
+        this.ready = true;
+        this._reportInitProgress(1, 'Ready');
+    }
+
+    /** WebXR default experience for Quest; resolves to null (desktop mode) when XR is unavailable. */
+    _initXRHelper() {
+        // Enable VR with teleportation on floor - optimized for Quest 3S
+        return this._createXRExperience({
+            floorMeshes: [this.floorMesh],
+            optionalFeatures: true,
+            disableTeleportation: false,
+            // Controller rays drive the quick menu. Babylon otherwise enables hand
+            // tracking by default and downloads hand meshes from third-party URLs,
+            // which violates this app's same-origin CSP and creates noisy XR errors.
+            disableHandTracking: true,
+            // The quick menu uses far pointer rays. Near interaction creates a
+            // decorative touch orb by fetching a material from snippet.babylonjs.com.
+            disableNearInteraction: true,
+            inputOptions: {
+                // Input components, poses, haptics and pointer rays remain active;
+                // only the decorative controller GLB from Babylon's snippet server
+                // is skipped so XR remains entirely same-origin.
+                doNotLoadControllerMeshes: true
+            },
+            // CRITICAL: Configure XR layer with anti-aliasing enabled
+            outputCanvasOptions: {
+                canvasOptions: {
+                    antialias: true, // Enable anti-aliasing in XR layer
+                    depth: true,
+                    stencil: true,
+                    alpha: true,
+                    framebufferScaleFactor: this.vrSettings.vr.framebufferScaleFactor
+                }
+            }
+        }).catch((error) => {
+            // VR not available - continue with desktop mode
+            const message = error && error.message ? error.message : String(error);
+            log.warn('WebXR helper unavailable; continuing in desktop mode:', message);
+            this.recordDiagnostic('xr', 'WebXR helper initialization failed', { error: message });
+            return null;
+        });
+    }
+
+    /** Room, booth, speakers, LED wall, lasers, fixtures, haze, mirror ball and signage (after the floor and XR helper). */
+    _buildVenue() {
+        // Continue building club
+        this.createWalls();
+        this.createCollisionBoundaries(); // Add invisible collision walls
+        this.createCeiling();
+        this.createDJBooth();
+        this.createDJBoothAccessories(); // Add laptop stand with laptop
+        this.createPASpeakers();
+        
+        // Use modular LED wall system
+        if (this.useModularSystems && this.systems.ledWall) {
+            this.systems.ledWall.createLEDWall();
+            log.info('🎨 LED Wall created via LEDWallSystem module');
+        } else {
+            this.createLEDWall(); // Fallback to legacy method
+        }
+        
+        this.createLasers();
+        this.createLaserSheet();
+        this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
+        
+        // Use modular spotlight system if enabled
+        if (this.useModularSystems && this.systems.spotlight) {
+            this.systems.spotlight.setTrussLights(this.trussLights);
+            this.systems.spotlight.createSpotlights();
+            // Store reference for compatibility with VJ controls
+            this.spotlights = this.systems.spotlight.spotlights;
+            log.info('🔦 Spotlights created via SpotlightSystem module');
+        }
+        
+        this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
+        this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
+        this.createMirrorBall(); // Add disco/mirror ball with spotlight
+        // Entrance, bar, and dance floor lighting removed for cleaner look
+        this.createSafetyDetails(); // Exit signs only
+    }
+
+    /** Scene-wide quality passes that must see the finished scene (probe, light budgets, filtering, SSR fallback). */
+    _finalizeRenderQuality() {
+        // UPGRADE: Create frozen reflection probe for the dance floor
+        // Must be called AFTER all geometry is created so the probe captures everything
+        this.createFloorReflectionProbe();
+
+        // Quality passes that must run AFTER all geometry, textures, lights and the
+        // reflection probe exist, because they sweep the finished scene.
+        this._clampMaterialLightBudgets();
+        this._suppressUnlitSpecular();
+        this._applyAnisotropicFiltering();
+        this._applyShadowQuality();
+
+        // Apply the tier's render scale. Below 1.0 this supersamples: the scene renders
+        // above native resolution and is downsampled on present. applyDesktopSettings()
+        // only runs when EXITING VR, so the initial desktop load has to set it here.
+        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
+
+        // The SSR pipeline wants the probe cube map as its miss-fallback. The probe is
+        // only available now, so wire it up (or build SSR if the pipeline was created
+        // before the probe existed).
+        if (this.ssrPipeline && this.floorReflectionProbe) {
+            this.ssrPipeline.environmentTexture = this.floorReflectionProbe.cubeTexture;
+            this.ssrPipeline.environmentTextureIsProbe = true;
+        } else {
+            this._createScreenSpaceReflections();
+        }
+        
+        this.scene.blockMaterialDirtyMechanism = false;
+    }
+
+    /** Desktop FreeCamera: WASD/arrow input, look sensitivity and collision ellipsoid. */
+    _createDesktopCamera() {
         // Setup camera for post-processing pipeline
         // Using FreeCamera (not UniversalCamera) for proper desktop mouse rotation
         // Spawn at dance floor entrance at standing height (1.7m)
@@ -138,7 +342,10 @@ class VRClubLifecycle extends VRClubCore {
         this.camera.maxZ = 100; // Reduced far plane for better performance
         
         this.scene.activeCamera = this.camera;
-        
+    }
+
+    /** Glow layer and the per-mesh-type emissive glow policy. */
+    _createGlowLayer() {
         // Glow layer for dramatic emissive effects (LEDs, lasers, spotlights)
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
             mainTextureFixedSize: 512,
@@ -188,412 +395,10 @@ class VRClubLifecycle extends VRClubCore {
                 result.set(0, 0, 0, 0);
             }
         };
-        
-        // Add post-processing for cinematic realism
-        this.addPostProcessing();
-        
-        // Build hyperrealistic club (need floor first for VR setup)
-        this.createFloor();
-        
-        // Enable VR with teleportation on floor - optimized for Quest 3S
-        const vrHelper = await this._createXRExperience({
-            floorMeshes: [this.floorMesh],
-            optionalFeatures: true,
-            disableTeleportation: false,
-            // Controller rays drive the quick menu. Babylon otherwise enables hand
-            // tracking by default and downloads hand meshes from third-party URLs,
-            // which violates this app's same-origin CSP and creates noisy XR errors.
-            disableHandTracking: true,
-            // The quick menu uses far pointer rays. Near interaction creates a
-            // decorative touch orb by fetching a material from snippet.babylonjs.com.
-            disableNearInteraction: true,
-            inputOptions: {
-                // Input components, poses, haptics and pointer rays remain active;
-                // only the decorative controller GLB from Babylon's snippet server
-                // is skipped so XR remains entirely same-origin.
-                doNotLoadControllerMeshes: true
-            },
-            // CRITICAL: Configure XR layer with anti-aliasing enabled
-            outputCanvasOptions: {
-                canvasOptions: {
-                    antialias: true, // Enable anti-aliasing in XR layer
-                    depth: true,
-                    stencil: true,
-                    alpha: true,
-                    framebufferScaleFactor: this.vrSettings.vr.framebufferScaleFactor
-                }
-            }
-        }).catch((error) => {
-            // VR not available - continue with desktop mode
-            const message = error && error.message ? error.message : String(error);
-            log.warn('WebXR helper unavailable; continuing in desktop mode:', message);
-            this.recordDiagnostic('xr', 'WebXR helper initialization failed', { error: message });
-            return null;
-        });
-        this._reportInitProgress(0.52, 'Configuring WebXR...');
-        
-        // Configure VR rendering for better quality
-        if (vrHelper && vrHelper.baseExperience) {
-            // Optimize rendering for VR (applies immediately)
-            this.scene.autoClear = false; // Better performance
-            this.scene.autoClearDepthAndStencil = true; // Proper depth handling
-            
-            // Set render state ONLY when XR session is active (not during initialization)
-            // This will be configured when user enters VR via onStateChangedObservable
-        }
-        
-        // Store VR helper for later use
-        this.vrHelper = vrHelper;
-        this.setVRComfortMode(this.vrComfortMode);
+    }
 
-        // Subscribe before session entry. Some runtimes publish controller identities
-        // between session creation and the IN_XR state callback below.
-        if (vrHelper?.input) {
-            const trackController = (controller) => {
-                if (this._xrControllers.indexOf(controller) === -1) {
-                    this._xrControllers.push(controller);
-                }
-                if (controller._vrclubTrackingBound) return;
-                controller._vrclubTrackingBound = true;
-                controller.onDisposeObservable.add(() => {
-                    const index = this._xrControllers.indexOf(controller);
-                    if (index >= 0) this._xrControllers.splice(index, 1);
-                });
-            };
-            vrHelper.input.onControllerAddedObservable.add(trackController);
-            vrHelper.input.controllers.forEach(trackController);
-        }
-        
-        // Enable VR controller locomotion (thumbstick movement)
-        // CRITICAL: Must wait for XR session to be active before enabling movement
-        if (vrHelper && vrHelper.baseExperience) {
-            // Enable movement feature AFTER entering XR mode (when controllers are available)
-            vrHelper.baseExperience.onStateChangedObservable.add((state) => {
-                if (state === BABYLON.WebXRState.IN_XR && !this.movementFeature) {
-                    try {
-                        // Enable movement controller feature for smooth locomotion with thumbsticks
-                        // Left thumbstick = move, Right thumbstick = turn (Babylon.js default)
-                        this.movementFeature = vrHelper.baseExperience.featuresManager.enableFeature(
-                            BABYLON.WebXRFeatureName.MOVEMENT,
-                            'latest',
-                            {
-                                xrInput: vrHelper.input,
-                                // Smooth locomotion settings - left stick moves, right stick rotates
-                                movementEnabled: !this.vrComfortMode,
-                                movementSpeed: 1.5, // Slower for realistic walking feel
-                                movementThreshold: 0.2, // Higher threshold to prevent drift
-                                rotationEnabled: !this.vrComfortMode,
-                                rotationSpeed: 0.8, // Slightly slower turning for comfort
-                                rotationThreshold: 0.2, // Higher threshold for rotation
-                                // IMPORTANT: Set to FALSE so movement doesn't follow head pitch (looking up/down)
-                                // This prevents flying when looking up and moving forward
-                                movementOrientationFollowsViewerPose: false,
-                                // Instead follow controller orientation (flattened to XZ plane)
-                                movementOrientationFollowsController: true
-                            }
-                        );
-                        
-                        // GRAVITY & COLLISIONS: Enable physics-like movement
-                        const xrCamera = vrHelper.baseExperience.camera;
-                        xrCamera.applyGravity = !this.vrComfortMode;
-                        xrCamera.checkCollisions = true;
-                        // Set ellipsoid for collision detection (approximate human size)
-                        xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.8, 0.3); // Lower height
-                        xrCamera.inertia = 0.1; // Reduce sliding (default 0.9)
-                        
-                        log.info('🎮 VR controller locomotion enabled with gravity');
-                        
-                        // SPRINT FEATURE: Press thumbstick or Grip button to run
-                        const registerController = (controller) => {
-                            if (this._xrControllers.indexOf(controller) === -1) {
-                                this._xrControllers.push(controller);
-                            }
-                            const bindMotionController = (motionController) => {
-                                if (motionController._vrclubControlsBound) return;
-                                motionController._vrclubControlsBound = true;
-                                // 1. Thumbstick Press (Click)
-                                const thumbstick = motionController.getComponent("xr-standard-thumbstick");
-                                if (thumbstick) {
-                                    thumbstick.onButtonStateChangedObservable.add((component) => {
-                                        if (this.vrComfortMode) return;
-                                        if (component.pressed) {
-                                            if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 3.0; // Sprint (2x normal)
-                                                log.info('🏃 VR Sprint activated');
-                                            }
-                                        } else {
-                                            if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 1.5; // Normal walk
-                                            }
-                                        }
-                                    });
-                                }
-                                
-                                // 2. Squeeze/Grip Button (Alternative Sprint)
-                                const squeeze = motionController.getComponent("xr-standard-squeeze");
-                                if (squeeze) {
-                                    squeeze.onButtonStateChangedObservable.add((component) => {
-                                        if (this.vrComfortMode) return;
-                                        if (component.pressed) {
-                                            if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 4.5; // Fast sprint
-                                            }
-                                        } else {
-                                            if (this.movementFeature) {
-                                                this.movementFeature.movementSpeed = 1.5; // Normal walk speed
-                                            }
-                                        }
-                                    });
-                                }
-
-                                // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump
-                                // Lazy-init the per-frame physics observer ONCE per VRClub instance
-                                // (previous bug: a new observer was added every first jump and never removed,
-                                // accumulating across XR sessions and continuing to raycast every frame.)
-                                if (!this.jumpState) {
-                                    this.jumpState = { active: false, velocity: 0 };
-                                    this._jumpRayDir = new BABYLON.Vector3(0, -1, 0);
-                                    this._jumpRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), this._jumpRayDir, 2.5);
-                                    const meshHasCollisions = (mesh) => mesh.checkCollisions;
-                                    this._jumpObserver = this.scene.onBeforeRenderObservable.add(() => {
-                                        if (!this.jumpState.active || !xrCamera) return;
-                                        // Apply velocity & gravity
-                                        xrCamera.position.y += this.jumpState.velocity;
-                                        this.jumpState.velocity -= 0.006;
-                                        if (this.jumpState.velocity >= 0) return;
-                                        // Falling: raycast down to find ground (reuse cached Ray/Vector3)
-                                        this._jumpRay.origin.copyFrom(xrCamera.position);
-                                        this._jumpRay.direction.copyFrom(this._jumpRayDir);
-                                        this._jumpRay.length = 2.5;
-                                        const pick = this.scene.pickWithRay(this._jumpRay, meshHasCollisions);
-                                        if (pick && pick.hit && pick.distance <= 1.75) {
-                                            this.jumpState.active = false;
-                                            xrCamera.applyGravity = true;
-                                            xrCamera.position.y = pick.pickedPoint.y + 1.7;
-                                        } else if (xrCamera.position.y < 1.7) {
-                                            // Fallback for infinite fall
-                                            this.jumpState.active = false;
-                                            xrCamera.applyGravity = true;
-                                            xrCamera.position.y = 1.7;
-                                        }
-                                    });
-                                }
-                                const jumpBtnIds = ["a-button", "x-button"];
-                                jumpBtnIds.forEach(id => {
-                                    const btn = motionController.getComponent(id);
-                                    if (btn) {
-                                        btn.onButtonStateChangedObservable.add((c) => {
-                                            if (c.pressed && !this.vrComfortMode && !this.jumpState.active) {
-                                                log.info('🦘 VR Jump activated');
-                                                this.jumpState.active = true;
-                                                this.jumpState.velocity = 0.12;
-                                                xrCamera.applyGravity = false;
-                                            }
-                                        });
-                                    }
-                                });
-
-                                // Quest exposes Y as the app-menu button. Some runtimes
-                                // also expose a generic menu component; bind either and
-                                // de-duplicate the press edge when both map to one input.
-                                ['y-button', 'b-button', 'menu'].forEach(id => {
-                                    const menuButton = motionController.getComponent(id);
-                                    if (menuButton) {
-                                        menuButton.onButtonStateChangedObservable.add(component => {
-                                            if (component.pressed && !component._vrclubWasPressed) {
-                                                this.toggleVRQuickMenu();
-                                            }
-                                            component._vrclubWasPressed = component.pressed;
-                                        });
-                                    }
-                                });
-                            };
-                            controller.onMotionControllerInitObservable.add(bindMotionController);
-                            if (controller.motionController) bindMotionController(controller.motionController);
-                        };
-                        vrHelper.input.onControllerAddedObservable.add(registerController);
-                        new Set([...vrHelper.input.controllers, ...this._xrControllers]).forEach(registerController);
-                    } catch (e) {
-                        log.warn('Could not enable VR movement feature:', e);
-                    }
-                }
-            });
-        }
-        
-        // Set VR starting position at dance floor center (below mirror ball).
-        // `baseExperience` can be absent when session creation fails after the helper
-        // object is constructed; without this guard init() throws on those platforms
-        // and drops a plain desktop browser onto the fatal-error retry splash.
-        if (vrHelper && vrHelper.baseExperience) {
-            vrHelper.baseExperience.onStateChangedObservable.add((state) => {
-                if (state === BABYLON.WebXRState.IN_XR) {
-                    // Position user at dance floor center below mirror ball
-                    const xrCamera = vrHelper.baseExperience.camera;
-                    if (xrCamera) {
-                        xrCamera.position.x = 0;
-                        xrCamera.position.z = -12;
-                        
-                        // Configure depth range for better VR rendering (now that session is active)
-                        if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
-                            vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
-                                depthNear: 0.1,
-                                depthFar: 150
-                            }).catch(err => {
-                                log.warn('Could not update render state:', err);
-                            });
-                        }
-                        
-                        // Apply VR-optimized settings
-                        this.applyVRSettings(xrCamera);
-                        log.info('🥽 VR mode activated with optimized settings');
-                    }
-                } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
-                    // CRITICAL: Re-enable frame-skip optimizations on desktop
-                    this.isInVRMode = false;
-
-                    // Clear the feature handle so the IN_XR branch above re-runs on the
-                    // next session. That branch owns the sprint bindings, the jump
-                    // bindings, the controller tracking AND the lazy re-creation of
-                    // _jumpObserver - all of which the teardown below destroys. Leaving
-                    // movementFeature set made the whole block one-shot for the instance
-                    // lifetime, so jump and sprint were dead in every session after the
-                    // first, and xrCamera gravity/collisions were never re-applied.
-                    this.movementFeature = null;
-                    
-                    // Remove Y-lock observer when exiting VR
-                    if (this.vrYLockObserver) {
-                        this.scene.onBeforeRenderObservable.remove(this.vrYLockObserver);
-                        this.vrYLockObserver = null;
-                    }
-
-                    // Remove the per-frame VR jump physics observer (captures stale xrCamera otherwise)
-                    if (this._jumpObserver) {
-                        this.scene.onBeforeRenderObservable.remove(this._jumpObserver);
-                        this._jumpObserver = null;
-                        this.jumpState = null;
-                    }
-                    
-                    // Restore desktop settings
-                    this.applyDesktopSettings();
-                    log.info('🖥️ Desktop mode restored');
-                }
-            });
-        }
-        
-        // Continue building club
-        this.createWalls();
-        this.createCollisionBoundaries(); // Add invisible collision walls
-        this.createCeiling();
-        this.createDJBooth();
-        this.createDJBoothAccessories(); // Add laptop stand with laptop
-        this.createPASpeakers();
-        
-        // Use modular LED wall system
-        if (this.useModularSystems && this.systems.ledWall) {
-            this.systems.ledWall.createLEDWall();
-            log.info('🎨 LED Wall created via LEDWallSystem module');
-        } else {
-            this.createLEDWall(); // Fallback to legacy method
-        }
-        
-        this.createLasers();
-        this.createLaserSheet();
-        this.createTrussMountedLights(); // MUST be before createLights() so fixtures exist
-        
-        // Use modular spotlight system if enabled
-        if (this.useModularSystems && this.systems.spotlight) {
-            this.systems.spotlight.setTrussLights(this.trussLights);
-            this.systems.spotlight.createSpotlights();
-            // Store reference for compatibility with VJ controls
-            this.spotlights = this.systems.spotlight.spotlights;
-            log.info('🔦 Spotlights created via SpotlightSystem module');
-        }
-        
-        this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
-        this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
-        this.createMirrorBall(); // Add disco/mirror ball with spotlight
-        // Entrance, bar, and dance floor lighting removed for cleaner look
-        this.createSafetyDetails(); // Exit signs only
-        this._reportInitProgress(0.72, 'Loading performers...');
-        
-        // Setup UI
-        this.setupUI(vrHelper);
-        this.setupPerformanceMonitor();
-        this.setupVJControlInteraction(); // Add VJ control button clicks
-        
-        // Create dancing NPC avatars on the dancefloor
-        await this.createDancingNPCs();
-        this._reportInitProgress(0.92, 'Finalizing lighting...');
-
-        // === VJ DIRECTOR ===
-        // Beat-locked palette engine + macros. Conducts the existing rig like
-        // a touring VJ would. Reads audioData, writes to existing color/state
-        // vars (spotColorIndex, currentSpotColor, vjDropActive, etc.) so the
-        // existing render code keeps working unchanged.
-        if (typeof VJDirector !== 'undefined') {
-            this.vjDirector = new VJDirector(this);
-        }
-
-        // "NOCTURNE" — the composed light show. A beat-locked cue engine that
-        // becomes the single source of truth for fixture state, replacing the
-        // legacy wall-clock 12-phase cycler and the director's energy-threshold
-        // scene picker (both of which stand down while showDirector.isDriving()).
-        // Depends on the beat grid VJDirector publishes, so it is created after it.
-        if (typeof ShowDirector !== 'undefined' && this.vjDirector) {
-            this.showDirector = new ShowDirector(this);
-        }
-        
-        // UPGRADE: Create frozen reflection probe for the dance floor
-        // Must be called AFTER all geometry is created so the probe captures everything
-        this.createFloorReflectionProbe();
-
-        // Quality passes that must run AFTER all geometry, textures, lights and the
-        // reflection probe exist, because they sweep the finished scene.
-        this._clampMaterialLightBudgets();
-        this._suppressUnlitSpecular();
-        this._applyAnisotropicFiltering();
-        this._applyShadowQuality();
-
-        // Apply the tier's render scale. Below 1.0 this supersamples: the scene renders
-        // above native resolution and is downsampled on present. applyDesktopSettings()
-        // only runs when EXITING VR, so the initial desktop load has to set it here.
-        this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
-
-        // The SSR pipeline wants the probe cube map as its miss-fallback. The probe is
-        // only available now, so wire it up (or build SSR if the pipeline was created
-        // before the probe existed).
-        if (this.ssrPipeline && this.floorReflectionProbe) {
-            this.ssrPipeline.environmentTexture = this.floorReflectionProbe.cubeTexture;
-            this.ssrPipeline.environmentTextureIsProbe = true;
-        } else {
-            this._createScreenSpaceReflections();
-        }
-        
-        this.scene.blockMaterialDirtyMechanism = false;
-
-        // Verify scene is ready
-        log.info('🎬 Scene initialization complete:');
-        log.info(`  📷 Camera: ${this.camera.position.toString()}`);
-        log.info(`  🎯 Active camera: ${this.scene.activeCamera ? 'Set' : 'MISSING!'}`);
-        log.info(`  💡 Lights: ${this.scene.lights.length}`);
-        log.info(`  📦 Meshes: ${this.scene.meshes.length}`);
-        log.info(`  🎨 Materials: ${this.scene.materials.length}`);
-        
-        // Start render loop.
-        //
-        // Order matters: updateAnimations() must run BEFORE scene.render(). With
-        // render first, every beam position, spotlight quaternion, LED colour,
-        // head-bob offset and exposure value computed this frame was not seen by the
-        // GPU until the NEXT frame - a permanent one-frame lag (~14 ms at 72 Hz on a
-        // Quest, on top of the compositor's own) and a guaranteed phase error between
-        // the camera matrix and the head-bob written into it.
-        this._renderLoop = () => {
-            this.updateAnimations();
-            this.scene.render();
-            this.updatePerformanceMonitor();
-        };
-        this.engine.runRenderLoop(this._renderLoop);
-
+    /** Visibility pause, WebGL context loss, resize and window drag/drop guards. Every handler is stored on the instance and removed in dispose(). */
+    _setupLifecycleListeners() {
         // === LIFECYCLE: pause rendering when the page is hidden ===
         // On Quest the browser keeps a backgrounded tab's render loop alive, which
         // burns battery and GPU for content nobody can see. We never pause while an
@@ -656,9 +461,228 @@ class VRClubLifecycle extends VRClubCore {
         };
         window.addEventListener('dragover', this._onWindowDragOver, false);
         window.addEventListener('drop', this._onWindowDrop, false);
+    }
 
-        this.ready = true;
-        this._reportInitProgress(1, 'Ready');
+    /**
+     * XR controller tracking, button bindings (sprint, jump, quick menu), comfort-mode
+     * locomotion and the IN_XR / NOT_IN_XR state handlers. Extracted from init() so the
+     * session wiring is readable on its own; behaviour is unchanged.
+     */
+    _setupXRSession(vrHelper) {
+        // Subscribe before session entry. Some runtimes publish controller identities
+        // between session creation and the IN_XR state callback below.
+        if (vrHelper?.input) {
+            const trackController = (controller) => {
+                if (this._xrControllers.indexOf(controller) === -1) {
+                    this._xrControllers.push(controller);
+                }
+                if (controller._vrclubTrackingBound) return;
+                controller._vrclubTrackingBound = true;
+                controller.onDisposeObservable.add(() => {
+                    const index = this._xrControllers.indexOf(controller);
+                    if (index >= 0) this._xrControllers.splice(index, 1);
+                });
+            };
+            vrHelper.input.onControllerAddedObservable.add(trackController);
+            vrHelper.input.controllers.forEach(trackController);
+        }
+        
+        // VR controller bindings and locomotion. Button bindings (sprint, jump, quick
+        // menu) are registered independently of the locomotion feature: the movement
+        // feature used to be enabled first inside the same try block, and when Babylon
+        // refused it (MOVEMENT and TELEPORTATION are mutually exclusive) every binding
+        // after it - including the only Y/B quick-menu binding - silently never ran.
+        if (vrHelper && vrHelper.baseExperience) {
+            vrHelper.baseExperience.onStateChangedObservable.add((state) => {
+                if (state === BABYLON.WebXRState.IN_XR) {
+                    try {
+                        // GRAVITY & COLLISIONS: gravity itself is owned by the comfort mode.
+                        const xrCamera = vrHelper.baseExperience.camera;
+                        xrCamera.checkCollisions = true;
+                        // Set ellipsoid for collision detection (approximate human size)
+                        xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.8, 0.3); // Lower height
+                        xrCamera.inertia = 0.1; // Reduce sliding (default 0.9)
+                        
+                        // SPRINT FEATURE: Press thumbstick or Grip button to run
+                        const registerController = (controller) => {
+                            if (this._xrControllers.indexOf(controller) === -1) {
+                                this._xrControllers.push(controller);
+                            }
+                            const bindMotionController = (motionController) => this._bindXRMotionController(motionController, xrCamera);
+                            controller.onMotionControllerInitObservable.add(bindMotionController);
+                            if (controller.motionController) bindMotionController(controller.motionController);
+                        };
+                        if (!this._xrButtonBindingObserver) {
+                            this._xrButtonBindingObserver = vrHelper.input.onControllerAddedObservable.add(registerController);
+                        }
+                        new Set([...vrHelper.input.controllers, ...this._xrControllers]).forEach(registerController);
+                    } catch (e) {
+                        log.error('Could not bind VR controller buttons:', e);
+                        this.recordDiagnostic('xr', 'VR controller binding failed', { error: String(e && e.message || e) });
+                    }
+                    // Swaps teleportation <-> smooth movement per the comfort preference
+                    // and applies gravity; failures are reported, never thrown.
+                    this.setVRComfortMode(this.vrComfortMode);
+                }
+            });
+        }
+        
+        // Set VR starting position at dance floor center (below mirror ball).
+        // `baseExperience` can be absent when session creation fails after the helper
+        // object is constructed; without this guard init() throws on those platforms
+        // and drops a plain desktop browser onto the fatal-error retry splash.
+        if (vrHelper && vrHelper.baseExperience) {
+            vrHelper.baseExperience.onStateChangedObservable.add((state) => {
+                if (state === BABYLON.WebXRState.IN_XR) {
+                    // Position user at dance floor center below mirror ball
+                    const xrCamera = vrHelper.baseExperience.camera;
+                    if (xrCamera) {
+                        xrCamera.position.x = 0;
+                        xrCamera.position.z = -12;
+                        
+                        // Configure depth range for better VR rendering (now that session is active)
+                        if (vrHelper.baseExperience.sessionManager && vrHelper.baseExperience.sessionManager.session) {
+                            vrHelper.baseExperience.sessionManager.updateRenderStateAsync({
+                                depthNear: 0.1,
+                                depthFar: 150
+                            }).catch(err => {
+                                log.warn('Could not update render state:', err);
+                            });
+                        }
+                        
+                        // Apply VR-optimized settings
+                        this.applyVRSettings(xrCamera);
+                        log.info('🥽 VR mode activated with optimized settings');
+                    }
+                } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                    // CRITICAL: Re-enable frame-skip optimizations on desktop
+                    this.isInVRMode = false;
+
+                    // Drop the session's movement handle; the IN_XR handler re-derives it
+                    // from the features manager via setVRComfortMode() on the next entry.
+                    this.movementFeature = null;
+                    
+                    // Remove Y-lock observer when exiting VR
+                    if (this.vrYLockObserver) {
+                        this.scene.onBeforeRenderObservable.remove(this.vrYLockObserver);
+                        this.vrYLockObserver = null;
+                    }
+
+                    // Remove the per-frame VR jump physics observer (captures stale xrCamera otherwise)
+                    if (this._jumpObserver) {
+                        this.scene.onBeforeRenderObservable.remove(this._jumpObserver);
+                        this._jumpObserver = null;
+                        this.jumpState = null;
+                    }
+                    
+                    // Restore desktop settings
+                    this.applyDesktopSettings();
+                    log.info('🖥️ Desktop mode restored');
+                }
+            });
+        }
+    }
+
+    /** Sprint (thumbstick/grip), jump (A/X) and quick-menu (Y/B/menu) bindings for one controller. */
+    _bindXRMotionController(motionController, xrCamera) {
+        if (motionController._vrclubControlsBound) return;
+        motionController._vrclubControlsBound = true;
+        // 1. Thumbstick Press (Click)
+        const thumbstick = motionController.getComponent("xr-standard-thumbstick");
+        if (thumbstick) {
+            thumbstick.onButtonStateChangedObservable.add((component) => {
+                if (this.vrComfortMode) return;
+                if (component.pressed) {
+                    if (this.movementFeature) {
+                        this.movementFeature.movementSpeed = 3.0; // Sprint (2x normal)
+                        log.info('🏃 VR Sprint activated');
+                    }
+                } else {
+                    if (this.movementFeature) {
+                        this.movementFeature.movementSpeed = 1.5; // Normal walk
+                    }
+                }
+            });
+        }
+        
+        // 2. Squeeze/Grip Button (Alternative Sprint)
+        const squeeze = motionController.getComponent("xr-standard-squeeze");
+        if (squeeze) {
+            squeeze.onButtonStateChangedObservable.add((component) => {
+                if (this.vrComfortMode) return;
+                if (component.pressed) {
+                    if (this.movementFeature) {
+                        this.movementFeature.movementSpeed = 4.5; // Fast sprint
+                    }
+                } else {
+                    if (this.movementFeature) {
+                        this.movementFeature.movementSpeed = 1.5; // Normal walk speed
+                    }
+                }
+            });
+        }
+
+        // 3. JUMP FEATURE: Press A (Right) or X (Left) to jump
+        // Lazy-init the per-frame physics observer ONCE per VRClub instance
+        // (previous bug: a new observer was added every first jump and never removed,
+        // accumulating across XR sessions and continuing to raycast every frame.)
+        if (!this.jumpState) {
+            this.jumpState = { active: false, velocity: 0 };
+            this._jumpRayDir = new BABYLON.Vector3(0, -1, 0);
+            this._jumpRay = new BABYLON.Ray(BABYLON.Vector3.Zero(), this._jumpRayDir, 2.5);
+            const meshHasCollisions = (mesh) => mesh.checkCollisions;
+            this._jumpObserver = this.scene.onBeforeRenderObservable.add(() => {
+                if (!this.jumpState.active || !xrCamera) return;
+                // Apply velocity & gravity
+                xrCamera.position.y += this.jumpState.velocity;
+                this.jumpState.velocity -= 0.006;
+                if (this.jumpState.velocity >= 0) return;
+                // Falling: raycast down to find ground (reuse cached Ray/Vector3)
+                this._jumpRay.origin.copyFrom(xrCamera.position);
+                this._jumpRay.direction.copyFrom(this._jumpRayDir);
+                this._jumpRay.length = 2.5;
+                const pick = this.scene.pickWithRay(this._jumpRay, meshHasCollisions);
+                if (pick && pick.hit && pick.distance <= 1.75) {
+                    this.jumpState.active = false;
+                    xrCamera.applyGravity = true;
+                    xrCamera.position.y = pick.pickedPoint.y + 1.7;
+                } else if (xrCamera.position.y < 1.7) {
+                    // Fallback for infinite fall
+                    this.jumpState.active = false;
+                    xrCamera.applyGravity = true;
+                    xrCamera.position.y = 1.7;
+                }
+            });
+        }
+        const jumpBtnIds = ["a-button", "x-button"];
+        jumpBtnIds.forEach(id => {
+            const btn = motionController.getComponent(id);
+            if (btn) {
+                btn.onButtonStateChangedObservable.add((c) => {
+                    if (c.pressed && !this.vrComfortMode && !this.jumpState.active) {
+                        log.info('🦘 VR Jump activated');
+                        this.jumpState.active = true;
+                        this.jumpState.velocity = 0.12;
+                        xrCamera.applyGravity = false;
+                    }
+                });
+            }
+        });
+
+        // Quest exposes Y as the app-menu button. Some runtimes
+        // also expose a generic menu component; bind either and
+        // de-duplicate the press edge when both map to one input.
+        ['y-button', 'b-button', 'menu'].forEach(id => {
+            const menuButton = motionController.getComponent(id);
+            if (menuButton) {
+                menuButton.onButtonStateChangedObservable.add(component => {
+                    if (component.pressed && !component._vrclubWasPressed) {
+                        this.toggleVRQuickMenu();
+                    }
+                    component._vrclubWasPressed = component.pressed;
+                });
+            }
+        });
     }
 
     /**

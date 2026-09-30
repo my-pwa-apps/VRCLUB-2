@@ -1,3 +1,4 @@
+'use strict';
 // VR Club - HYPERREALISTIC Babylon.js Implementation
 // Ultra-realistic club environment for Quest 3S VR
 

@@ -133,7 +133,9 @@ export default [
             'js/vendor/**',
             // Build output: minified vendor bundles here are megabytes of generated
             // code that no rule applies to, and linting them cost ~13 s per run.
-            'dist/**'
+            'dist/**',
+            'worker/node_modules/**',
+            '**/.wrangler/**'
         ]
     },
     {
@@ -180,6 +182,9 @@ export default [
                 Buffer: 'readonly',
                 fetch: 'readonly',
                 AbortController: 'readonly',
+                Request: 'readonly',
+                Response: 'readonly',
+                setImmediate: 'readonly',
                 queueMicrotask: 'readonly',
                 URL: 'readonly',
                 setTimeout: 'readonly',
@@ -197,11 +202,31 @@ export default [
         }
     },
     {
+        // Multiplayer relay: a Cloudflare Worker ES module. Previously matched no
+        // config block, so it was linted with no rules at all.
+        files: ['worker/src/**/*.js'],
+        languageOptions: {
+            ecmaVersion: 2023,
+            sourceType: 'module',
+            globals: {
+                WebSocketPair: 'readonly',
+                WebSocket: 'readonly',
+                Request: 'readonly',
+                Response: 'readonly',
+                URL: 'readonly',
+                crypto: 'readonly',
+                console: 'readonly'
+            }
+        },
+        rules: sharedRules
+    },
+    {
         // Playwright evaluate/init callbacks execute in the browser, even though
         // their containing spec is a Node ESM module.
         files: ['test/e2e/**/*.mjs'],
         languageOptions: {
-            globals: browserGlobals
+            // BABYLON is the page's runtime global, used inside evaluate callbacks.
+            globals: { ...browserGlobals, BABYLON: 'readonly' }
         }
     }
 ];

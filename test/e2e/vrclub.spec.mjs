@@ -31,6 +31,8 @@ test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
         localStorage.setItem('vrclub.graphicsTier', 'balanced');
         localStorage.setItem('vrclub.safeMode', '1');
+        // Keep the stream-on-entry path covered (routed to a local silent WAV below).
+        localStorage.setItem('vrclub.radioOnEntry', '1');
     });
     await page.route('https://stream.sunshine-live.de/**', route => route.fulfill({
         status: 200,
@@ -160,7 +162,12 @@ test('production build initializes a rendered club without browser errors', asyn
     const lightingState = await page.evaluate(async () => {
         const club = window.vrClub;
         await club.modelLoadPromise;
-        await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        // The NOCTURNE opener ("eclipse") deliberately runs with every spotlight dark,
+        // so pin a lit look before asserting that the floor can receive spotlights.
+        club.showDirector._applyCue({ look: 'firstLight', bars: 1024 });
+        for (let frame = 0; frame < 3; frame++) {
+            await new Promise(resolve => club.scene.onAfterRenderObservable.addOnce(resolve));
+        }
         const floor = club.scene.getMeshByName('floor');
         const equipmentLights = club.scene.lights.filter(light =>
             /^(djConsoleLight|speakerLight_)/.test(light.name));
@@ -311,7 +318,11 @@ test('production build initializes a rendered club without browser errors', asyn
 
         return {
             laserSheet, sheetVariants, chase, chaseExclusive, safeMode, colorLock,
-            roomBounce: { active: activeRoomBounce, blackout: blackoutRoomBounce }
+            roomBounce: {
+                active: activeRoomBounce,
+                blackout: blackoutRoomBounce,
+                baseAmbient: club.vrSettings.desktop.ambientIntensity
+            }
         };
     });
     expect(showState).toMatchObject({
@@ -357,9 +368,12 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.sheetVariants.right.smokeScatterEmitRate).toBe(0);
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.pitch - showState.sheetVariants.right.start.pitch))
         .toBeGreaterThan(0.015);
-    expect(showState.roomBounce.active).toBeGreaterThanOrEqual(0.19);
-    expect(showState.roomBounce.active).toBeLessThanOrEqual(0.201);
-    expect(showState.roomBounce.blackout).toBeCloseTo(0.06, 4);
+    // Bounce lifts the ambient fill while fixtures run, stays under the desktop cap
+    // (0.28 in updateRoomBounce) and settles back to the configured base on blackout.
+    // Asserted against the live config so a deliberate retune does not break the test.
+    expect(showState.roomBounce.active).toBeGreaterThan(showState.roomBounce.baseAmbient + 0.1);
+    expect(showState.roomBounce.active).toBeLessThanOrEqual(0.2801);
+    expect(showState.roomBounce.blackout).toBeCloseTo(showState.roomBounce.baseAmbient, 3);
 
     await page.evaluate(() => window.vrClub.showDirector._applyLook(
         window.vrClub.showDirector.looks.deepBlue,
@@ -437,19 +451,20 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         inVR: window.vrClub.isInVRMode,
         diagnosticsInVR: window.vrClub.getDiagnostics().isInVR,
         controllerCount: window.vrClub._xrControllers.length,
-        movementEnabled: Boolean(window.vrClub.movementFeature),
+        movementFeatureActive: Boolean(window.vrClub.movementFeature),
         comfortEnabled: window.vrClub.vrComfortMode,
-        continuousMovement: window.vrClub.movementFeature.movementEnabled,
-        continuousRotation: window.vrClub.movementFeature.rotationEnabled,
-        teleportEnabled: window.vrClub.vrHelper.teleportation.teleportationEnabled,
+        teleportEnabled: window.vrClub.vrHelper.teleportation?.teleportationEnabled === true,
+        locomotionFailures: window.vrClub.getDiagnostics().recentLogs.filter(entry => entry.category === 'xr'),
         renderScale: window.vrClub.engine.getHardwareScalingLevel(),
         xrFramebufferScale: window.vrClub.vrSettings.vr.framebufferScaleFactor,
         fxaaEnabled: window.vrClub.renderPipeline.fxaaEnabled,
-        vrBrightness: {
-            exposure: window.vrClub.vrSettings.vr.exposure,
-            bloomWeight: window.vrClub.renderPipeline.bloomWeight,
-            bloomThreshold: window.vrClub.renderPipeline.bloomThreshold,
-            glowIntensity: window.vrClub.glowLayer.intensity
+        // applyVRSettings() must push the VR config into the live pipeline. Compared
+        // with the config (not literals) so tuning vrSettings does not break the test.
+        vrBrightnessApplied: {
+            bloomWeight: window.vrClub.renderPipeline.bloomWeight === window.vrClub.vrSettings.vr.bloomWeight,
+            bloomThreshold: window.vrClub.renderPipeline.bloomThreshold === window.vrClub.vrSettings.vr.bloomThreshold,
+            glowIntensity: window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.vr.glowIntensity,
+            vrDiffersFromDesktop: window.vrClub.vrSettings.vr.exposure !== window.vrClub.vrSettings.desktop.exposure
         },
         vrSmoke: {
             hazeRate: window.vrClub.haze.emitRate,
@@ -473,19 +488,18 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         inVR: true,
         diagnosticsInVR: true,
         controllerCount: 2,
-        movementEnabled: true,
+        movementFeatureActive: false,
         comfortEnabled: true,
-        continuousMovement: false,
-        continuousRotation: false,
         teleportEnabled: true,
+        locomotionFailures: [],
         renderScale: 1,
         xrFramebufferScale: 1.2,
         fxaaEnabled: true,
-        vrBrightness: {
-            exposure: 1.22,
-            bloomWeight: 0.45,
-            bloomThreshold: 0.55,
-            glowIntensity: 1.25
+        vrBrightnessApplied: {
+            bloomWeight: true,
+            bloomThreshold: true,
+            glowIntensity: true,
+            vrDiffersFromDesktop: true
         },
         vrSmoke: {
             hazeRate: 65,
@@ -624,7 +638,6 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             .flatMap(root => root.getChildMeshes())
             .filter(mesh => mesh.name.toLowerCase().includes('truss'));
         const activeMeshes = new Set(club.scene.getActiveMeshes().data);
-        const avatarMaterials = [...new Set(npcMeshes.map(mesh => mesh.material).filter(Boolean))];
         const trussMaterials = [...new Set(trussMeshes.map(mesh => mesh.material).filter(Boolean))];
         const emissiveFloor = material => material.emissiveColor
             ? Math.min(material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b)
@@ -635,7 +648,10 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             npcMeshCount: npcMeshes.length,
             npcMeshesAlwaysActive: npcMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
             npcMeshesActive: npcMeshes.every(mesh => activeMeshes.has(mesh)),
-            avatarEmissiveFloor: Math.min(...avatarMaterials.map(emissiveFloor)),
+            // Avatars keep their authored (zero) emission; in aerial-only cues the
+            // hemispheric ambient floor is what keeps silhouettes above display black.
+            vrAmbientFloor: club.scene.getLightByName('ambient').intensity -
+                club.vrSettings.vr.ambientIntensity,
             nearbyAnimationsRunning: enabledNpcs.every(npc => !npc._animPaused),
             trussMeshCount: trussMeshes.length,
             trussMeshesAlwaysActive: trussMeshes.every(mesh => mesh.alwaysSelectAsActiveMesh),
@@ -648,7 +664,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(sustainedVisibility.npcMeshCount).toBeGreaterThan(0);
     expect(sustainedVisibility.npcMeshesAlwaysActive).toBe(true);
     expect(sustainedVisibility.npcMeshesActive).toBe(true);
-    expect(sustainedVisibility.avatarEmissiveFloor).toBeGreaterThanOrEqual(0.012);
+    expect(sustainedVisibility.vrAmbientFloor).toBeGreaterThanOrEqual(-0.005);
     expect(sustainedVisibility.nearbyAnimationsRunning).toBe(true);
     expect(sustainedVisibility.trussMeshCount).toBeGreaterThanOrEqual(20);
     expect(sustainedVisibility.trussMeshesAlwaysActive).toBe(true);
@@ -684,6 +700,30 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         parentIsXRCamera: true,
         smokeChanged: true,
         manualMode: true
+    });
+
+    // Comfort off swaps teleportation for smooth locomotion in-session (Babylon
+    // forbids both at once), and comfort on swaps back - without re-entering XR.
+    const locomotionSwap = await page.evaluate(() => {
+        const club = window.vrClub;
+        const snapshot = () => ({
+            movement: Boolean(club.movementFeature?.movementEnabled && club.movementFeature?.rotationEnabled),
+            teleport: club.vrHelper.teleportation?.teleportationEnabled === true,
+            gravity: club.vrHelper.baseExperience.camera.applyGravity
+        });
+        club.setVRComfortMode(false);
+        const smooth = snapshot();
+        club.setVRComfortMode(true);
+        const comfort = snapshot();
+        return {
+            smooth, comfort,
+            failures: club.getDiagnostics().recentLogs.filter(entry => entry.category === 'xr')
+        };
+    });
+    expect(locomotionSwap).toEqual({
+        smooth: { movement: true, teleport: false, gravity: true },
+        comfort: { movement: false, teleport: true, gravity: false },
+        failures: []
     });
 
     await page.evaluate(() => document.getElementById('vrButton').click());

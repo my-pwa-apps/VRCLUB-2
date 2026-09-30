@@ -45,3 +45,6 @@ test-results/
 temp_*.js
 temp_*.html
 temp_*.css
+
+# Cloudflare Wrangler local dev state (Durable Object SQLite, caches)
+.wrangler/

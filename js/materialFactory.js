@@ -1,25 +1,13 @@
+'use strict';
 // Material Factory - Centralized material creation and reuse
 // Eliminates code duplication and ensures consistent material settings
 
 class MaterialFactory {
-    /**
-     * Material names whose emissiveColor / albedoColor are written at runtime.
-     * Freezing these would silently no-op every mutation.
-     *
-     * Substring matching on names is fragile (a future `enabledMat` matches 'led'),
-     * but it is the current contract across ~200 call sites. Declared once here
-     * rather than copy-pasted into each creator.
-     */
-    static HOT_MUTATED = Object.freeze([
-        'lens', 'source', 'flare', 'beam', 'gobo', 'strobe',
-        'led', 'pool', 'glow', 'laser', 'mirror',
-        'toggle', 'audiobtn', 'sliderhandle'
-    ]);
-
-    static isHotMutated(name) {
-        const lower = String(name).toLowerCase();
-        return MaterialFactory.HOT_MUTATED.some(tag => lower.includes(tag));
-    }
+    // Freeze policy is explicit: a material whose colours/intensity are written at
+    // runtime passes `mutable: true` in its config; everything else is frozen after
+    // creation (freezing a mutated material silently no-ops every write). This used to
+    // be inferred from substrings in the material NAME ('led', 'beam', ...), so a
+    // rename or a new animated material could silently change runtime behaviour.
 
     constructor(scene, maxLights = 4, logger = null) {
         this.scene = scene;
@@ -300,7 +288,9 @@ class MaterialFactory {
             // Procedural surface-detail finish: 'brushedMetal' | 'castMetal' | 'plastic'.
             // Adds a shared normal + metallicRoughness map pair. See _getDetailMaps().
             detail = null,
-            detailScale = 4
+            detailScale = 4,
+            // true when emissive/base colour is written at runtime (see class header).
+            mutable = false
         } = config;
 
         // Generate cache key for shared materials (includes all config to prevent collisions).
@@ -313,7 +303,7 @@ class MaterialFactory {
         const cacheKey = shareable ? this._cacheKey('pbrmr', {
             baseColor, metallic, roughness, emissiveColor, emissiveIntensity,
             alpha, transparencyMode, backFaceCulling, disableLighting, unlit,
-            detail, detailScale
+            detail, detailScale, mutable
         }) : null;
         
         // Return cached material if available
@@ -365,11 +355,9 @@ class MaterialFactory {
             mat._vrclubShared = true;
         }
 
-        // Freeze material to prevent shader recompilation.
-        // Skip freeze for materials whose emissiveColor / albedoColor is mutated
-        // at runtime (lens, source, flare, beam, gobo, strobe, LED, ...);
-        // freezing those would silently no-op the mutations.
-        if (!MaterialFactory.isHotMutated(name)) {
+        // Freeze material to prevent shader recompilation, unless the caller declared
+        // that it mutates colours at runtime (freezing would no-op those writes).
+        if (!mutable) {
             mat.freeze();
         }
 
@@ -396,7 +384,8 @@ class MaterialFactory {
             alpha = 1.0,
             diffuseTexture = null,
             emissiveTexture = null,
-            opacityTexture = null
+            opacityTexture = null,
+            mutable = false
         } = config;
 
         const mat = new BABYLON.StandardMaterial(name, this.scene);
@@ -443,9 +432,8 @@ class MaterialFactory {
         if (emissiveTexture) mat.emissiveTexture = emissiveTexture;
         if (opacityTexture) mat.opacityTexture = opacityTexture;
 
-        // Freeze material to prevent shader recompilation.
-        // Skip freeze for materials mutated at runtime (emissiveColor / diffuseColor swaps).
-        if (!MaterialFactory.isHotMutated(name)) {
+        // Freeze material to prevent shader recompilation, unless declared mutable.
+        if (!mutable) {
             mat.freeze();
         }
 
@@ -479,7 +467,7 @@ class MaterialFactory {
         const cacheKey = shared ? this._cacheKey('pbr', {
             albedoColor, metallic, roughness, emissiveColor, emissiveIntensity, alpha,
             backFaceCulling, clearCoat, sheen, environmentIntensity, directIntensity,
-            specularIntensity
+            specularIntensity, mutable: !!config.mutable
         }) : null;
 
         // Return cached material if available
@@ -535,8 +523,8 @@ class MaterialFactory {
             mat._vrclubShared = true;
         }
 
-        // Freeze (skip for runtime-mutated materials)
-        if (!MaterialFactory.isHotMutated(name)) {
+        // Freeze unless declared mutable
+        if (!config.mutable) {
             mat.freeze();
         }
         return mat;
@@ -760,6 +748,7 @@ class MaterialFactory {
 
         // Laser/Effects - Enhanced emissive
         laserHousing: () => this.createPBRMaterial('laserHousingMat', {
+            mutable: true, // colour written at runtime
             baseColor: [0.05, 0.05, 0.05],
             metallic: 0.9, // Increased from 0.8
             roughness: 0.33,
@@ -769,6 +758,7 @@ class MaterialFactory {
         }),
 
         laserEmitter: () => this.createStandardMaterial('laserEmitterMat', {
+            mutable: true, // colour written at runtime
             emissiveColor: [3, 0, 0], // Boosted from [2, 0, 0]
             disableLighting: true
         }),
@@ -794,6 +784,7 @@ class MaterialFactory {
 
         // === DANCE FLOOR EDGE LIGHTING ===
         floorEdgeLED: () => this.createStandardMaterial('floorEdgeLEDMat', {
+            mutable: true, // colour written at runtime
             emissiveColor: [0, 0.5, 1], // Cyan LED strip
             disableLighting: true
         }),

@@ -130,3 +130,45 @@ jobs:
 
       - name: Verify vendored bundle integrity
         run: node scripts/check-sri.mjs
+
+  deploy:
+    # Publishes the BUILT site. GitHub Pages previously deployed the raw repository
+    # root on every push - even with CI red - so production ran the unbundled
+    # development sources and the hand-maintained root service worker.
+    # One-time setup: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [verify, e2e, audit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

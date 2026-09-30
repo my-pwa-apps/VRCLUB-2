@@ -1,3 +1,4 @@
+'use strict';
 class VRClubEnvironment extends VRClubRendering {
     createEntranceArea() {
         log.info("🚪 Creating hyperrealistic entrance area...");
@@ -225,6 +226,7 @@ class VRClubEnvironment extends VRClubRendering {
                 strip.z + strip.d / 2
             );
             const mat = this.materialFactory.createStandardMaterial(`danceFloorLEDMat${i}`, {
+                mutable: true, // colour written at runtime
                 emissiveColor: [0, 0.5, 1],
                 disableLighting: true
             });

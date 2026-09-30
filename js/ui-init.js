@@ -1,3 +1,4 @@
+'use strict';
 /**
  * UI Initialization Script
  * Handles splash screen, VJ controls, and audio menu
@@ -19,6 +20,8 @@ const DEFAULT_AUDIO_STREAM = Object.freeze({
 
 /** localStorage key for the last stream the guest actually played. */
 const LAST_STREAM_KEY = 'vrclub.lastStreamUrl';
+// Explicit opt-in for connecting to a stream on ENTER (third party sees the visitor's IP).
+const RADIO_ON_ENTRY_KEY = 'vrclub.radioOnEntry';
 
 /**
  * Every UI timing constant in one place. These were previously six different
@@ -151,6 +154,32 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
+/** The stream ENTER would start: the remembered choice, else the default station. */
+function entryStreamUrl() {
+    try {
+        const remembered = localStorage.getItem(LAST_STREAM_KEY);
+        if (remembered && AudioUtils.isSafeAudioUrl(remembered, window.location.href)) return remembered;
+    } catch (_) { /* ignore */ }
+    return DEFAULT_AUDIO_STREAM.url;
+}
+
+(function initSplashRadioOptIn() {
+    const checkbox = document.getElementById('splashRadioOnEntry');
+    if (!checkbox) return;
+    try { checkbox.checked = localStorage.getItem(RADIO_ON_ENTRY_KEY) === '1'; } catch (_) {}
+    // Name the server that will actually be contacted, including a remembered stream.
+    const url = entryStreamUrl();
+    const nameEl = document.getElementById('splashRadioName');
+    const hostEl = document.getElementById('splashRadioHost');
+    try {
+        if (hostEl) hostEl.textContent = new URL(url).host;
+        if (nameEl && url !== DEFAULT_AUDIO_STREAM.url) nameEl.textContent = 'your last stream';
+    } catch (_) { /* keep the static text */ }
+    checkbox.addEventListener('change', () => {
+        try { localStorage.setItem(RADIO_ON_ENTRY_KEY, checkbox.checked ? '1' : '0'); } catch (_) {}
+    });
+})();
+
 // Enter Club Button
 if (enterClubBtn) {
     enterClubBtn.addEventListener('click', function() {
@@ -172,26 +201,32 @@ if (enterClubBtn) {
         // playback is then blocked by autoplay policy.
         window.vrClub = new VRClub();
 
-        let startUrl = DEFAULT_AUDIO_STREAM.url;
-        try {
-            const remembered = localStorage.getItem(LAST_STREAM_KEY);
-            if (remembered && window.vrClub._isSafeAudioUrl(remembered)) startUrl = remembered;
-        } catch (_) { /* ignore */ }
-
-        window.vrClub.startAudioStream(startUrl).catch((err) => {
-            // Music is atmosphere, not a startup dependency - but failing silently
-            // leaves the guest in a club that looks alive and makes no sound, with no
-            // indication that the fix is behind the audio button.
-            uiLog.warn(`Default stream unavailable: ${err.message}`);
+        const radioOptIn = document.getElementById('splashRadioOnEntry');
+        const playOnEntry = radioOptIn ? radioOptIn.checked : false;
+        const pointAtAudioMenu = () => {
             const audioToggle = document.getElementById('audioToggle');
             if (audioToggle) {
                 audioToggle.classList.add('needs-attention');
                 setTimeout(() => audioToggle.classList.remove('needs-attention'), 6000);
             }
-            if (window.vrClub.showErrorMessage) {
-                window.vrClub.showErrorMessage('No music yet \u2014 open \ud83c\udfb5 to pick a station or play a local file.');
-            }
-        });
+        };
+
+        if (playOnEntry) {
+            window.vrClub.startAudioStream(entryStreamUrl()).catch((err) => {
+                // Music is atmosphere, not a startup dependency - but failing silently
+                // leaves the guest in a club that looks alive and makes no sound, with no
+                // indication that the fix is behind the audio button.
+                uiLog.warn(`Default stream unavailable: ${err.message}`);
+                pointAtAudioMenu();
+                if (window.vrClub.showErrorMessage) {
+                    window.vrClub.showErrorMessage('No music yet \u2014 open \ud83c\udfb5 to pick a station or play a local file.');
+                }
+            });
+        } else {
+            // No third-party connection without an explicit choice. Point at the audio
+            // menu instead so a silent club is not mistaken for a broken one.
+            pointAtAudioMenu();
+        }
         
         // Show loading state
         enterClubBtn.style.display = 'none';
@@ -906,6 +941,25 @@ function initAudioMenu() {
     }
     teardowns.push(() => clearTimeout(statusTimer));
 
+    // Connectivity. The cached club and local files work offline; internet radio does
+    // not. Say so, rather than letting a failed stream look like a broken club.
+    const onConnectivityChange = () => {
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+        if (audioMenu) audioMenu.dataset.offline = String(offline);
+        if (offline) {
+            showStatus('Offline \u2014 radio streams need a connection; local files still play.', 'error');
+        } else {
+            showStatus('Back online \u2014 radio streams are available again.', 'success');
+        }
+    };
+    window.addEventListener('online', onConnectivityChange);
+    window.addEventListener('offline', onConnectivityChange);
+    teardowns.push(() => {
+        window.removeEventListener('online', onConnectivityChange);
+        window.removeEventListener('offline', onConnectivityChange);
+    });
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) onConnectivityChange();
+
     // Volume. There was previously no volume or mute control anywhere in the app.
     if (volume && volumeValue) {
         volume.addEventListener('input', (e) => {
@@ -985,6 +1039,10 @@ function initAudioMenu() {
                     showStatus(`\ud83c\udfb5 Playing: ${file.name}`, 'success');
                     setPlayLabel(true);
                     setNowPlaying(`\u25B6 ${file.name}`);
+                    const net = vrClubInstance.networkManager;
+                    if (net && net.connected && net.isHost()) {
+                        showStatus(`\ud83c\udfb5 Playing: ${file.name} (local files play only for you)`, 'success');
+                    }
                 })
                 .catch(err => showStatus(`Error: ${err.message}`, 'error'));
         });
@@ -1052,6 +1110,9 @@ function initNetworkMenu() {
     const statusEl = document.getElementById('networkStatus');
     const peerCountEl = document.getElementById('networkPeerCount');
     const emojiButtons = [...document.querySelectorAll('#networkEmojiGrid [data-emoji]')];
+    const listenAlongSection = document.getElementById('networkListenAlong');
+    const listenAlongBtn = document.getElementById('networkListenAlongBtn');
+    const musicInfoEl = document.getElementById('networkMusicInfo');
 
     if (!networkToggle || !networkMenu) return;
 
@@ -1114,10 +1175,31 @@ function initNetworkMenu() {
     const setMicEnabled = (enabled) => { if (micBtn) micBtn.disabled = !enabled; };
 
     /** Applies a shared "now playing" announcement from the room host. Guests
-     *  that host their own stream ignore this - they ARE the source of truth. */
+     *  that host their own stream ignore this - they ARE the source of truth.
+     *  A guest's first remote-driven load needs an explicit "Listen along": until
+     *  then the host's stream origin is shown but nothing is fetched. */
+    let listenAlong = false;
+    let pendingMusic = null;
+    const hideListenAlong = () => {
+        if (listenAlongSection) listenAlongSection.hidden = true;
+        pendingMusic = null;
+    };
     const applyMusicState = (music) => {
         const net = vrClubInstance.networkManager;
-        if (!music || !music.url || !net || net.isHost()) return;
+        if (!music || !net || net.isHost()) return;
+        if (!music.url || !NetworkClient.isShareableMusicUrl(music.url)) return;
+        if (!listenAlong) {
+            pendingMusic = music;
+            if (listenAlongSection && musicInfoEl) {
+                let origin = music.url;
+                try { origin = new URL(music.url).host; } catch (_) { /* keep the raw URL */ }
+                musicInfoEl.textContent = music.playing
+                    ? `The host is playing a stream from ${origin}.`
+                    : `The host paused a stream from ${origin}.`;
+                listenAlongSection.hidden = false;
+            }
+            return;
+        }
         const elapsed = music.playing && music.updatedAt ? (Date.now() - music.updatedAt) / 1000 : 0;
         const targetTime = Math.max(0, (Number(music.position) || 0) + elapsed);
 
@@ -1137,16 +1219,22 @@ function initNetworkMenu() {
         }
     };
 
+    if (listenAlongBtn) {
+        listenAlongBtn.addEventListener('click', () => {
+            const music = pendingMusic;
+            listenAlong = true;
+            hideListenAlong();
+            // The click is also the user gesture that autoplay policies require.
+            if (music) applyMusicState(music);
+        });
+    }
+
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {
             const net = vrClubInstance.networkManager;
             if (net && (net.connected || net.status === 'connecting')) {
+                // disconnect() reports every peer through onPeerLeave, which removes avatars.
                 net.disconnect();
-                if (vrClubInstance.avatarManager) {
-                    for (const id of [...vrClubInstance.avatarManager.remotes.keys()]) {
-                        vrClubInstance.avatarManager.removePeer(id);
-                    }
-                }
                 return;
             }
 
@@ -1165,6 +1253,8 @@ function initNetworkMenu() {
             } catch (_) { /* private browsing */ }
 
             if (net) net.dispose();
+            listenAlong = false;
+            hideListenAlong();
             const client = new NetworkClient({ serverUrl, room, name });
             if (!vrClubInstance.avatarManager) vrClubInstance.avatarManager = new AvatarManager(vrClubInstance);
             vrClubInstance.networkManager = client;
@@ -1187,6 +1277,7 @@ function initNetworkMenu() {
                     setEmojiEnabled(false);
                     setMicEnabled(false);
                     setPeerCount(0);
+                    hideListenAlong();
                     if (micBtn) { setToggleState(micBtn, false); if (micBtnLabel) micBtnLabel.textContent = 'Enable Mic'; }
                 }
             };

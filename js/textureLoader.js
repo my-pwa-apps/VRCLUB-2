@@ -1,3 +1,4 @@
+'use strict';
 // Texture Loader with CDN Download and IndexedDB Caching
 // Downloads industrial concrete textures from Polyhaven CDN on first run
 //

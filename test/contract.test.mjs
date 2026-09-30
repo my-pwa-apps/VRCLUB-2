@@ -155,8 +155,9 @@ test('every element id looked up in JS exists in index.html', () => {
         for (const id of ids) {
             if (htmlIds.has(id)) continue;
             if (runtimeIds.has(id)) {
-                // Verify the element really is created somewhere in JS.
-                const created = new RegExp(`id\\s*=\\s*['"]${id}['"]|id=\\\\?["']${id}`).test(allJsSource);
+                // Verify the element really is created somewhere in JS (`el.id = 'x'`,
+                // an `id="x"` template, or an `{ id: 'x' }` property bag).
+                const created = new RegExp(`id\\s*[=:]\\s*['"]${id}['"]|id=\\\\?["']${id}`).test(allJsSource);
                 assert.ok(created, `#${id} is declared as a runtime id but nothing creates it`);
                 continue;
             }
@@ -354,6 +355,41 @@ test('no blocking native dialogs are used for user feedback', () => {
     assert.deepEqual(offenders, [], `use showErrorMessage() instead of a native dialog:\n${offenders.join('\n')}`);
 });
 
+test('every first-party script runs in strict mode in dev exactly as in the bundle', () => {
+    // The production build concatenates every script into one IIFE whose prologue is
+    // strict, so a file relying on sloppy-mode semantics would work in dev and throw
+    // in production. Module-export blocks also made esbuild wrap the whole bundle in
+    // a CommonJS shim. Both are closed by making each classic script strict itself.
+    const notStrict = [];
+    const cjs = [];
+    for (const file of jsFiles) {
+        const source = readFileSync(join(ROOT, file), 'utf8');
+        const withoutComments = source.replace(/^\uFEFF/, '').replace(/^(\s*(\/\/[^\n]*\n|\/\*[\s\S]*?\*\/))*\s*/, '');
+        if (!/^['"]use strict['"];/.test(withoutComments)) notStrict.push(file);
+        if (/\bmodule\.exports\b/.test(source)) cjs.push(file);
+    }
+    assert.deepEqual(notStrict, [], `add 'use strict'; as the first statement of:\n${notStrict.join('\n')}`);
+    assert.deepEqual(cjs, [], `load classic scripts in tests via vm instead of module.exports:\n${cjs.join('\n')}`);
+});
+
+test('first-party code builds DOM without HTML-string sinks', () => {
+    // Names, emoji, stream URLs and file names from other guests or the network reach
+    // the UI; any HTML-string sink next to them is one template literal away from XSS.
+    // (jsFiles excludes js/vendor; Babylon's own loading screen is out of our hands.)
+    const offenders = [];
+    for (const file of jsFiles) {
+        const source = readFileSync(join(ROOT, file), 'utf8');
+        source.split('\n').forEach((line, i) => {
+            const code = line.replace(/\/\/.*$/, '');
+            if (code.trim().startsWith('*')) return;
+            if (/\.(innerHTML|outerHTML)\s*[+]?=|insertAdjacentHTML\s*\(|document\.write\s*\(/.test(code)) {
+                offenders.push(`${file}:${i + 1}  ${line.trim()}`);
+            }
+        });
+    }
+    assert.deepEqual(offenders, [], `use createElement()/textContent instead:\n${offenders.join('\n')}`);
+});
+
 test('global event listeners are registered with removable handler references', () => {
     // A listener added to `window`/`document` with an inline function literal can
     // never be removed, and its closure pins the whole VRClub instance - and with it
@@ -396,6 +432,29 @@ test('every long-lived listener stored on the instance is removed in dispose()',
     assert.deepEqual(leaked, [], `dispose() never removes: ${leaked.join(', ')}`);
 });
 
+test('types/vrclub.d.ts declares only classes and methods that exist', () => {
+    // The declaration file is the editor-facing API contract for a window-global,
+    // 11-layer class chain. Without this check it silently drifted (it declared a
+    // LightFactory.createLight that never existed). Every declared class must be
+    // exported onto window and every declared method must be defined in its source.
+    const dts = readFileSync(join(ROOT, 'types/vrclub.d.ts'), 'utf8');
+    const sources = Object.fromEntries(jsFiles.map(f => [f, readFileSync(join(ROOT, f), 'utf8')]));
+    const allSource = Object.values(sources).join('\n');
+    const problems = [];
+    for (const [, name, body] of dts.matchAll(/export declare class (\w+)[^{]*\{([\s\S]*?)\n\}/g)) {
+        if (!new RegExp(`window\\.${name}\\s*=`).test(allSource)) problems.push(`${name} is not exported on window`);
+        // VRClub is assembled from js/club/* plus the LED pattern mixin.
+        const owner = name === 'VRClub'
+            ? Object.entries(sources).filter(([f]) => f.startsWith('js/club') || f === 'js/ledPatterns.js').map(([, s]) => s).join('\n')
+            : Object.values(sources).find(s => new RegExp(`(class|const) ${name}\\b`).test(s)) || '';
+        for (const [, method] of body.matchAll(/^\s+(?:static\s+)?(\w+)\s*(?:<[^>]*>)?\(/gm)) {
+            if (method === 'constructor') continue;
+            const defined = new RegExp(`^\\s*(?:static\\s+)?(?:async\\s+)?${method}\\s*\\(|\\b${method}\\s*[:(]\\s*(?:async\\s*)?\\(?[^)]*\\)?\\s*=>|^\\s*${method}\\(`, 'm');
+            if (!defined.test(owner)) problems.push(`${name}.${method}() is declared but not defined`);
+        }
+    }
+    assert.deepEqual(problems, [], problems.join('\n'));
+});
 test('README documents every first-party script', () => {
     // The load order in index.html is a hard contract; a file that exists but is
     // undocumented is a file the next contributor will not know to keep in order.

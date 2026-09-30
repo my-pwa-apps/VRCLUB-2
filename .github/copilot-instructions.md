@@ -8,7 +8,8 @@
 ## What this is
 
 A **client-side WebXR nightclub** built with **Babylon.js 8.30.5**, targeting Meta Quest 3S
-and desktop browsers. There is **no backend**. Development sources are classic `<script>`
+and desktop browsers. There is **no application backend**; the only server-side code is the
+optional multiplayer relay in `worker/` (see Multiplayer). Development sources are classic `<script>`
 files that publish classes onto `window`; `npm run build` preserves their tested order and
 emits one minified, content-hashed production bundle with esbuild.
 
@@ -24,9 +25,10 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`
-9. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
-10. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
-11. `js/ui-init.js` — instantiates `new VRClub()`
+9. `js/networkClient.js`, then `js/avatarManager.js` — optional multiplayer (no instance until a guest connects)
+10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
+11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
+12. `js/ui-init.js` — instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
@@ -62,7 +64,10 @@ Any new network-backed asset type should reuse these rather than hand-rolling In
 ### `js/club/` and `js/club_hyperrealistic.js`
 The VRClub implementation is an 11-layer inheritance chain grouped by lifecycle,
 rendering, environment, fixtures, animation, UI, and audio/crowd responsibilities.
-No layer exceeds 1,500 lines. `club_hyperrealistic.js` defines the final public class and
+Layers stay around 1,500 lines (`08-animation-fixtures.js` is the largest at ~1,600), and no
+function in `02-lifecycle.js` / `08-animation-fixtures.js` exceeds ~215 lines. `init()` and
+`updateSpotlights()` are orchestrators over named per-phase methods; add new phases as
+methods rather than growing them again. `club_hyperrealistic.js` defines the final public class and
 mixes `window.LEDPatterns` into its prototype. `updateAnimations()` is a thin orchestrator.
 
 Key lifecycle members:
@@ -271,6 +276,15 @@ Shared materials are keyed by `MaterialFactory._cacheKey()`, which normalises ar
 shared. A cached instance is tagged `_vrclubShared = true`: **never mutate one per-instance**,
 because it is handed out by identity to every other consumer.
 
+Factory materials are **frozen after creation** unless their config says `mutable: true`.
+Pass it for any material whose colour or intensity is written at runtime. Freeze behaviour
+is never inferred from the material's name, and a test guards the migrated call sites.
+
+`ModelLoader` takes `{ lightFactory, textureLoader }` as its fifth argument, so accent lights
+are registered and speaker textures are cached. `_fitAndPlace()` preserves the glTF loader's
+handedness conversion via `ModelLoader._rootHandedness()`. Model configs therefore carry no
+mirror signs in `scale`; never add a `-1` there to "unmirror" a model.
+
 ### Teardown
 Every factory and loader exposes `dispose()` (`TextureLoader`, `ModelLoader`,
 `MaterialFactory`, `LightFactory`). `VRClub.dispose()` calls all four. They own IndexedDB
@@ -291,6 +305,15 @@ the origin quota on a Quest.
 
 `npm run version:bump` rewrites `index.html`, `package.json`, `sw.js` and `serviceworker.js`
 together. A contract test fails if any of the four disagree.
+
+Production is the **built** `dist/`, published by the `deploy` job in
+`.github/workflows/ci.yml` only after `verify`, `e2e` and `audit` pass (GitHub Pages source
+must be set to "GitHub Actions"). GitHub Pages ignores `_headers`, so `frame-ancestors`
+and the immutable asset caching there only apply on Cloudflare Pages or Netlify.
+
+`.gitattributes` pins LF line endings and marks `js/vendor/**` as `-text`. The vendored
+bundles are byte-pinned by sha384, and Windows `core.autocrlf` would otherwise rewrite them
+and fail `npm test`.
 
 ## Assets
 
@@ -345,11 +368,16 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.lastStreamUrl` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.lastStreamUrl`, `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (on unless explicitly `0`).
-`setVRComfortMode()` owns movement/rotation versus teleport/snap-turn enablement.
-Comfort mode suppresses sprint/jump and artificial gravity; XR entry preserves
+`setVRComfortMode()` owns locomotion through `_applyXRLocomotionMode()`. Babylon declares
+MOVEMENT and TELEPORTATION **mutually exclusive** (enabling one while the other is enabled
+throws), so comfort mode *swaps* features: comfort on disables MOVEMENT and (re)enables
+teleportation; comfort off, in-session only, disables teleportation and enables MOVEMENT.
+Never enable either feature directly, and never put controller button bindings behind the
+locomotion call: a thrown `enableFeature()` once silently dropped sprint, jump and the only
+Y/B quick-menu binding. Comfort mode suppresses sprint/jump and artificial gravity; XR entry preserves
 tracked eye height. `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The 14-button quick menu includes comfort, safe mode, haptics, and three destinations;
@@ -371,6 +399,32 @@ writing `instance[attributeValue]` directly.
 Photosensitive Safe Mode is offered on the splash **before** the scene renders and defaults
 to on under `prefers-reduced-motion`. It must never be reachable only after the strobes have
 already fired.
+
+## Multiplayer
+
+Optional and opt-in: nothing connects until a guest clicks **Connect** in the Multiplayer panel.
+
+- `worker/src/index.js` — Cloudflare Worker + `ClubRoom` Durable Object relay, one object per
+  room. It holds sessions, the host id and the shared music state in memory only. The file
+  header documents the JSON protocol. The relay treats every client as hostile. It
+  allow-lists browser `Origin`s (`ALLOWED_ORIGINS` in `wrangler.toml`; loopback and
+  private-LAN origins always pass). It caps rooms at 16, drops frames over 16 KB, applies
+  per-type token buckets and closes flooders. Close codes are `4003` (room full) and
+  `4008` (flooding). Emoji are allow-listed and names are sanitised. Tests: `test/worker.test.mjs`.
+- `js/networkClient.js` — WebSocket presence plus a WebRTC voice mesh using **perfect
+  negotiation** (`negotiationneeded`; the higher id is polite). Either guest may enable the
+  mic first. Muting removes tracks but keeps connections, so the guest still hears others.
+  A dropped socket reports every peer through `onPeerLeave`, because the relay issues new
+  ids per connection. `sendMusic()` refuses non-http(s) URLs, since a host's `blob:` is
+  meaningless to guests.
+- `js/avatarManager.js` — remote guests. `state.y` on the wire is the sender's **eye**
+  height; the avatar root is placed `EYE_HEIGHT` below it. The first sample snaps into
+  place and yaw interpolates along the shortest arc. Each remote voice is also attached to
+  a muted `<audio>` element, because Chromium delivers no samples from a remote WebRTC
+  stream into Web Audio otherwise. Emoji are allow-listed and rate-limited per guest.
+- The host (first socket in the room) drives shared music. A guest's browser fetches the
+  host's stream only after an explicit **Listen along** click, because that request
+  discloses the guest's IP to an arbitrary server.
 
 ## Debugging
 

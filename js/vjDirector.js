@@ -1,3 +1,4 @@
+'use strict';
 /**
  * VJDirector — beat-locked, palette-aware "VJ brain" that conducts the
  * existing lighting rig the way a touring VJ would conduct a real console.

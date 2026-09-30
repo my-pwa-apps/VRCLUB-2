@@ -1,3 +1,4 @@
+'use strict';
 // Final public class assembled from the focused VRClub method layers.
 class VRClub extends VRClubAudioCrowd {}
 

@@ -1,3 +1,4 @@
+'use strict';
 /**
  * Realtime presence, voice and shared-music client for a VR Club session.
  *
@@ -18,6 +19,21 @@ class NetworkClient {
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun.cloudflare.com:3478' }
     ];
+
+    // Application close codes sent by worker/src/index.js.
+    static CLOSE_ROOM_FULL = 4003;
+    static CLOSE_FLOODING = 4008;
+
+    /** Only network-reachable URLs may be shared; a host's blob:/data: URL is meaningless to guests. */
+    static isShareableMusicUrl(url) {
+        if (typeof url !== 'string') return false;
+        try {
+            const parsed = new URL(url);
+            return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password;
+        } catch {
+            return false;
+        }
+    }
 
     constructor({ serverUrl, room = 'lobby', name = 'Guest' } = {}) {
         this.serverUrl = serverUrl;
@@ -70,8 +86,7 @@ class NetworkClient {
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = null;
         this.disableVoice();
-        for (const id of [...this.peers.keys()]) this._teardownPeerConnection(id);
-        this.peers.clear();
+        this._dropAllPeers();
         this.selfId = null;
         this.hostId = null;
         if (this.ws) {
@@ -109,19 +124,38 @@ class NetworkClient {
         ws.addEventListener('message', (evt) => {
             if (this.ws === ws) this._onMessage(evt);
         });
-        ws.addEventListener('close', () => {
-            if (this.ws === ws) this._onSocketClosed();
+        ws.addEventListener('close', (evt) => {
+            if (this.ws === ws) this._onSocketClosed(evt);
         });
         ws.addEventListener('error', () => { /* the close event follows and handles cleanup */ });
     }
 
-    _onSocketClosed() {
-        this.ws = null;
-        for (const id of [...this.peers.keys()]) this._teardownPeerConnection(id, false);
+    /** Tells listeners every known peer is gone (their ids die with this socket). */
+    _dropAllPeers() {
+        for (const id of [...this.peers.keys()]) {
+            this._teardownPeerConnection(id, false);
+            this.onPeerLeave(id);
+        }
         this.peers.clear();
+    }
+
+    _onSocketClosed(evt) {
+        this.ws = null;
+        // The relay assigns a fresh id per connection, so peers from this socket can
+        // never be matched again after a reconnect - without this their avatars and
+        // voice nodes stayed in the scene as frozen duplicates.
+        this._dropAllPeers();
 
         if (this._closedByUser) {
             this._setStatus('disconnected');
+            return;
+        }
+        const code = evt && evt.code;
+        if (code === NetworkClient.CLOSE_ROOM_FULL || code === NetworkClient.CLOSE_FLOODING) {
+            this._setStatus('error');
+            this.onError(new Error(code === NetworkClient.CLOSE_ROOM_FULL
+                ? 'That room is full. Try another room code.'
+                : 'Disconnected by the relay for sending too many messages.'));
             return;
         }
         if (!this._hasConnected || this._reconnectAttempts >= 3) {
@@ -214,9 +248,23 @@ class NetworkClient {
 
     sendState(state) { this._send({ type: 'state', state }); }
     sendEmoji(emoji) { this._send({ type: 'emoji', emoji }); }
-    sendMusic(music) { if (this.isHost()) this._send({ type: 'music', ...music }); }
+
+    /** Host-only. Returns false when nothing was sent (not host, or a local blob:/data: URL). */
+    sendMusic(music) {
+        if (!this.isHost() || !music || !NetworkClient.isShareableMusicUrl(music.url)) return false;
+        this._send({ type: 'music', ...music });
+        return true;
+    }
 
     // ---- WebRTC voice mesh ----
+    //
+    // "Perfect negotiation": whichever side changes its tracks (re)negotiates through
+    // `negotiationneeded`. On glare the POLITE peer (higher id) accepts the remote offer
+    // and the impolite one ignores it. Previously only the lower id ever offered, so a
+    // higher-id guest who enabled the mic first was never heard, and a mic enabled after
+    // a receive-only connection existed was never renegotiated. The wire format
+    // ({kind:'offer'|'answer', sdp} and {kind:'ice', candidate}) is unchanged, so guests
+    // still running the previous build interoperate.
 
     async enableVoice() {
         if (this.micEnabled) return;
@@ -225,37 +273,65 @@ class NetworkClient {
         }
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         this.micEnabled = true;
-        for (const id of this.peers.keys()) this._maybeInitiateVoice(id);
+        for (const id of this.peers.keys()) this._attachLocalTracks(id);
     }
 
+    /** Stops sending; connections stay up so this guest keeps hearing everyone else. */
     disableVoice() {
         this.micEnabled = false;
-        if (this.micStream) {
-            for (const track of this.micStream.getTracks()) track.stop();
-            this.micStream = null;
+        const stream = this.micStream;
+        this.micStream = null;
+        for (const peer of this.peers.values()) {
+            if (!peer.pc) continue;
+            for (const sender of peer.pc.getSenders()) {
+                if (sender.track) {
+                    try { peer.pc.removeTrack(sender); } catch { /* connection already closed */ }
+                }
+            }
         }
-        for (const id of this.peers.keys()) this._teardownPeerConnection(id, true);
+        if (stream) for (const track of stream.getTracks()) track.stop();
     }
 
-    /** Only the lexicographically-lower id offers, so both sides never race a glare. */
+    /** Called for every known peer on welcome/join: connect only if there is something to send. */
     _maybeInitiateVoice(peerId) {
-        if (!this.micEnabled || !this.selfId || !peerId) return;
-        const peer = this.peers.get(peerId);
-        if (!peer || peer.pc) return;
-        if (this.selfId < peerId) this._createPeerConnection(peerId, true);
+        if (this.micEnabled) this._attachLocalTracks(peerId);
     }
 
-    _createPeerConnection(peerId, isOfferer) {
+    _attachLocalTracks(peerId) {
+        if (!this.micStream || !this.selfId || !peerId) return;
+        const peer = this.peers.get(peerId);
+        if (!peer) return;
+        const pc = peer.pc || this._createPeerConnection(peerId);
+        if (!pc) return;
+        const sending = new Set(pc.getSenders().map(sender => sender.track).filter(Boolean));
+        for (const track of this.micStream.getTracks()) {
+            if (!sending.has(track)) pc.addTrack(track, this.micStream);
+        }
+    }
+
+    _isPolite(peerId) { return !!this.selfId && this.selfId > peerId; }
+
+    _createPeerConnection(peerId) {
         const peer = this.peers.get(peerId);
         if (!peer || typeof RTCPeerConnection === 'undefined') return null;
 
         const pc = new RTCPeerConnection({ iceServers: NetworkClient.ICE_SERVERS });
         peer.pc = pc;
+        peer.makingOffer = false;
+        peer.ignoreOffer = false;
 
-        if (this.micStream) {
-            for (const track of this.micStream.getTracks()) pc.addTrack(track, this.micStream);
-        }
-
+        pc.addEventListener('negotiationneeded', async () => {
+            try {
+                peer.makingOffer = true;
+                await pc.setLocalDescription();
+                const description = pc.localDescription;
+                this._send({ type: 'rtc-signal', target: peerId, signal: { kind: description.type, sdp: description } });
+            } catch {
+                // Superseded by a newer negotiation or a closed connection.
+            } finally {
+                peer.makingOffer = false;
+            }
+        });
         pc.addEventListener('icecandidate', (e) => {
             if (e.candidate) {
                 this._send({ type: 'rtc-signal', target: peerId, signal: { kind: 'ice', candidate: e.candidate } });
@@ -266,35 +342,40 @@ class NetworkClient {
             if (stream) this.onRemoteStream(peerId, stream);
         });
         pc.addEventListener('connectionstatechange', () => {
-            if (pc.connectionState === 'failed') this._teardownPeerConnection(peerId, true);
+            if (pc.connectionState !== 'failed') return;
+            if (typeof pc.restartIce === 'function') pc.restartIce();
+            else this._teardownPeerConnection(peerId, true);
         });
-
-        if (isOfferer) {
-            pc.createOffer()
-                .then((offer) => pc.setLocalDescription(offer))
-                .then(() => {
-                    this._send({ type: 'rtc-signal', target: peerId, signal: { kind: 'offer', sdp: pc.localDescription } });
-                })
-                .catch(() => this._teardownPeerConnection(peerId, true));
-        }
         return pc;
     }
 
     async _onSignal(fromId, signal) {
         const peer = this.peers.get(fromId);
-        if (!peer || !signal) return;
-        let pc = peer.pc;
+        if (!peer || !signal || typeof signal !== 'object') return;
         try {
-            if (signal.kind === 'offer') {
-                if (!pc) pc = this._createPeerConnection(fromId, false);
-                await pc.setRemoteDescription(signal.sdp);
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                this._send({ type: 'rtc-signal', target: fromId, signal: { kind: 'answer', sdp: pc.localDescription } });
-            } else if (signal.kind === 'answer') {
-                if (pc) await pc.setRemoteDescription(signal.sdp);
-            } else if (signal.kind === 'ice') {
-                if (pc && signal.candidate) await pc.addIceCandidate(signal.candidate);
+            if (signal.kind === 'offer' || signal.kind === 'answer') {
+                const description = signal.sdp;
+                if (!description || description.type !== signal.kind) return;
+                const pc = peer.pc || (description.type === 'offer' ? this._createPeerConnection(fromId) : null);
+                if (!pc) return;
+
+                const collision = description.type === 'offer'
+                    && (peer.makingOffer || pc.signalingState !== 'stable');
+                peer.ignoreOffer = !this._isPolite(fromId) && collision;
+                if (peer.ignoreOffer) return;
+
+                // On the polite side this implicitly rolls back a colliding local offer.
+                await pc.setRemoteDescription(description);
+                if (description.type === 'offer') {
+                    await pc.setLocalDescription();
+                    this._send({ type: 'rtc-signal', target: fromId, signal: { kind: 'answer', sdp: pc.localDescription } });
+                }
+            } else if (signal.kind === 'ice' && peer.pc && signal.candidate) {
+                try {
+                    await peer.pc.addIceCandidate(signal.candidate);
+                } catch (err) {
+                    if (!peer.ignoreOffer) throw err;
+                }
             }
         } catch {
             // A stale or racing signal for a connection that already moved on - drop it.

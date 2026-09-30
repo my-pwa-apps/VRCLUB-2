@@ -1,3 +1,4 @@
+'use strict';
 class VRClubUI extends VRClubAnimationFinish {
     setupUI(vrHelper) {
         this._setupVRButton(vrHelper);
@@ -706,30 +707,41 @@ class VRClubUI extends VRClubAnimationFinish {
             box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
         `;
         
-        inputDiv.innerHTML = `
-            <h2 style="color: #00ff88; margin: 0 0 20px 0; font-size: 24px;">🎵 Audio Stream</h2>
-            <input type="text" id="audioUrlInput" placeholder="Paste URL or drop audio file here" 
-                style="width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; 
-                background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 10px;">
-            <div style="margin: 10px 0;">
-                <button id="audioFileBrowseBtn" style="padding: 8px 20px; font-size: 14px; 
-                    background: #0088ff; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                    📁 Browse File
-                </button>
-                <input type="file" id="vrAudioFileInput" accept="audio/*" style="display: none;">
-            </div>
-            <div style="margin-top: 15px;">
-                <button id="audioPlayBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
-                    background: #00ff88; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                    ▶️ PLAY
-                </button>
-                <button id="audioCancelBtn" style="padding: 12px 30px; font-size: 16px; margin: 0 10px; 
-                    background: #ff4444; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                    ✖️ CANCEL
-                </button>
-            </div>
-            <p style="color: #888; font-size: 14px; margin-top: 15px;">Stream URL, local file, or drag & drop</p>
-        `;
+        // Built with DOM APIs, not an HTML template: this was the app's only markup
+        // injection sink and the last reason CSP needed style-src 'unsafe-inline'.
+        // CSSOM writes (element.style / cssText) are not restricted by style-src.
+        const el = (tag, props = {}, css = '') => {
+            const node = document.createElement(tag);
+            Object.assign(node, props);
+            if (css) node.style.cssText = css;
+            return node;
+        };
+        const buttonCss = 'border: none; border-radius: 5px; cursor: pointer;';
+        const urlInputEl = el('input', {
+            type: 'text', id: 'audioUrlInput', placeholder: 'Paste URL or drop audio file here'
+        }, 'width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; ' +
+            'background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 10px;');
+        urlInputEl.setAttribute('aria-label', 'Audio stream URL');
+        const browseRow = el('div', {}, 'margin: 10px 0;');
+        browseRow.append(
+            el('button', { type: 'button', id: 'audioFileBrowseBtn', textContent: '📁 Browse File' },
+                `padding: 8px 20px; font-size: 14px; background: #0088ff; color: white; ${buttonCss}`),
+            el('input', { type: 'file', id: 'vrAudioFileInput', accept: 'audio/*' }, 'display: none;')
+        );
+        const actionRow = el('div', {}, 'margin-top: 15px;');
+        actionRow.append(
+            el('button', { type: 'button', id: 'audioPlayBtn', textContent: '▶️ PLAY' },
+                `padding: 12px 30px; font-size: 16px; margin: 0 10px; background: #00ff88; font-weight: bold; ${buttonCss}`),
+            el('button', { type: 'button', id: 'audioCancelBtn', textContent: '✖️ CANCEL' },
+                `padding: 12px 30px; font-size: 16px; margin: 0 10px; background: #ff4444; color: white; font-weight: bold; ${buttonCss}`)
+        );
+        inputDiv.append(
+            el('h2', { textContent: '🎵 Audio Stream' }, 'color: #00ff88; margin: 0 0 20px 0; font-size: 24px;'),
+            urlInputEl,
+            browseRow,
+            actionRow,
+            el('p', { textContent: 'Stream URL, local file, or drag & drop' }, 'color: #888; font-size: 14px; margin-top: 15px;')
+        );
         
         document.body.appendChild(inputDiv);
         
@@ -953,18 +965,7 @@ class VRClubUI extends VRClubAnimationFinish {
     setVRComfortMode(enabled) {
         this.vrComfortMode = !!enabled;
         try { localStorage.setItem('vrclub.vrComfort', this.vrComfortMode ? '1' : '0'); } catch (_) {}
-        if (this.movementFeature) {
-            this.movementFeature.movementEnabled = !this.vrComfortMode;
-            this.movementFeature.rotationEnabled = !this.vrComfortMode;
-            this.movementFeature.movementSpeed = 1.5;
-        }
-        const teleportation = this.vrHelper?.teleportation;
-        if (teleportation) {
-            teleportation.teleportationEnabled = this.vrComfortMode;
-            teleportation.rotationEnabled = this.vrComfortMode;
-            teleportation.rotationAngle = Math.PI / 6;
-            teleportation.backwardsMovementEnabled = false;
-        }
+        this._applyXRLocomotionMode();
         const xrCamera = this.vrHelper?.baseExperience?.camera;
         if (xrCamera) xrCamera.applyGravity = !this.vrComfortMode;
         if (xrCamera && this.vrComfortMode) {
@@ -983,6 +984,77 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         this._refreshVRQuickMenu();
         return this.vrComfortMode;
+    }
+
+    _xrMovementOptions() {
+        return {
+            xrInput: this.vrHelper.input,
+            movementEnabled: true,
+            movementSpeed: 1.5,
+            movementThreshold: 0.2,
+            rotationEnabled: true,
+            rotationSpeed: 0.8,
+            rotationThreshold: 0.2,
+            // Follow the flattened controller direction, not head pitch, so looking up
+            // while pushing forward never lifts the player off the floor.
+            movementOrientationFollowsViewerPose: false,
+            movementOrientationFollowsController: true
+        };
+    }
+
+    /**
+     * Babylon declares MOVEMENT and TELEPORTATION mutually exclusive: enabling one
+     * while the other is enabled throws. Comfort mode therefore swaps features rather
+     * than toggling flags on both. The swap only happens in-session, because the
+     * movement feature needs live XR input; outside XR teleportation stays registered
+     * (the default experience created it) and the IN_XR handler re-applies the mode.
+     */
+    _applyXRLocomotionMode() {
+        const vrHelper = this.vrHelper;
+        const experience = vrHelper && vrHelper.baseExperience;
+        const features = experience && experience.featuresManager;
+        const names = typeof BABYLON !== 'undefined' ? BABYLON.WebXRFeatureName : null;
+        if (!features || !names) return;
+
+        const inXR = experience.state === BABYLON.WebXRState.IN_XR;
+        try {
+            if (this.vrComfortMode) {
+                if (features.getEnabledFeature(names.MOVEMENT)) features.disableFeature(names.MOVEMENT);
+                this.movementFeature = null;
+                let teleport = features.getEnabledFeature(names.TELEPORTATION);
+                if (!teleport) {
+                    teleport = features.enableFeature(names.TELEPORTATION, 'latest', {
+                        xrInput: vrHelper.input,
+                        floorMeshes: this.floorMesh ? [this.floorMesh] : []
+                    });
+                    if (vrHelper.pointerSelection && teleport.setSelectionFeature) {
+                        teleport.setSelectionFeature(vrHelper.pointerSelection);
+                    }
+                }
+                vrHelper.teleportation = teleport;
+                teleport.teleportationEnabled = true;
+                teleport.rotationEnabled = true;
+                teleport.rotationAngle = Math.PI / 6;
+                teleport.backwardsMovementEnabled = false;
+            } else if (inXR) {
+                if (features.getEnabledFeature(names.TELEPORTATION)) features.disableFeature(names.TELEPORTATION);
+                vrHelper.teleportation = null;
+                this.movementFeature = features.getEnabledFeature(names.MOVEMENT)
+                    || features.enableFeature(names.MOVEMENT, 'latest', this._xrMovementOptions());
+                this.movementFeature.movementEnabled = true;
+                this.movementFeature.rotationEnabled = true;
+                this.movementFeature.movementSpeed = 1.5;
+            } else if (vrHelper.teleportation) {
+                vrHelper.teleportation.teleportationEnabled = false;
+                vrHelper.teleportation.rotationEnabled = false;
+            }
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            log.error('Could not apply VR locomotion mode:', message);
+            if (typeof this.recordDiagnostic === 'function') {
+                this.recordDiagnostic('xr', 'VR locomotion mode failed', { error: message });
+            }
+        }
     }
 
     moveCameraToPreset(preset) {

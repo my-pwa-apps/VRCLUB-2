@@ -386,9 +386,3 @@ if (typeof window !== 'undefined') {
     window.fetchBlobWithTimeout = fetchBlobWithTimeout;
     window.ASSET_FETCH_TIMEOUT_MS = ASSET_FETCH_TIMEOUT_MS;
 }
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        IndexedDBAssetCache, InFlightRegistry, fetchWithTimeout,
-        fetchBufferWithTimeout, fetchBlobWithTimeout, ASSET_FETCH_TIMEOUT_MS
-    };
-}

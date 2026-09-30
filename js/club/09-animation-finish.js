@@ -1,3 +1,4 @@
+'use strict';
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
     updateStrobes(ctx) {
         const { time, dt, audio: audioData } = ctx;

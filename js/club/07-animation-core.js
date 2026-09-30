@@ -1,3 +1,4 @@
+'use strict';
 class VRClubAnimationCore extends VRClubEffects {
     updateAnimations() {
         const ctx = this._beginFrame();

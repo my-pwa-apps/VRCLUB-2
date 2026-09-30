@@ -1,3 +1,4 @@
+'use strict';
 // Pure audio URL policy shared by UI and playback code.
 // Kept free of DOM/Babylon dependencies so the security boundary is runtime-testable.
 //
@@ -39,4 +40,3 @@ const AudioUtils = Object.freeze({
 });
 
 if (typeof window !== 'undefined') window.AudioUtils = AudioUtils;
-if (typeof module !== 'undefined' && module.exports) module.exports = AudioUtils;

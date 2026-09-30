@@ -13,3 +13,8 @@ class_name = "ClubRoom"
 [[migrations]]
 tag = "v1"
 new_classes = ["ClubRoom"]
+
+# Comma-separated browser origins allowed to open a relay socket. Loopback and
+# private-LAN origins are always accepted (Quest over LAN IP during development).
+[vars]
+ALLOWED_ORIGINS = "https://my-pwa-apps.github.io"

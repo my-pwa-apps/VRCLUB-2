@@ -6,6 +6,607 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-09-23 — Evidence-driven quality review (V2 protocol)
+
+Scope: repository discovery; every existing validation command; GitHub Actions history; the
+live GitHub Pages deployment; a line-by-line review of the multiplayer stack
+(`worker/src/index.js`, `js/networkClient.js`, `js/avatarManager.js`, the multiplayer and
+shared-music paths in `js/ui-init.js`); the VR session lifecycle in `js/club/02-lifecycle.js`;
+and bounded read-only passes over build/serve/service-worker/asset-cache and UI/audio/lifecycle
+code. Two Playwright probes were run against the production build to diagnose the e2e failures.
+Not executed: a real Quest 3S session, two-device voice or presence tests, and a deployed-relay
+load test.
+
+Validation actually executed:
+
+| Check | Result |
+|-------|--------|
+| `npm run check` | Pass (36 files) |
+| `npm run lint` | **Fail**: 9 `no-undef` errors (`BABYLON` in `test/e2e/vrclub.spec.mjs`), 1 warning |
+| `npm test` | **Fail on Windows checkout**: 65/66; vendor hash mismatch caused by CRLF conversion |
+| `npm run build` | Pass |
+| `npm run check:sri` | **Fail on Windows checkout**: same CRLF cause; upstream `.env` matches |
+| `npm audit` | **Fail**: 3 high (dev-only `sharp` <0.35.4 via `@gltf-transform/cli`); 0 in production deps |
+| `npm run test:e2e` | **Fail**: 2/4 (Quest WebXR locomotion; floor-spotlight assertion) |
+| GitHub Actions CI | **Red on every sampled run from #14 (2026-08-23) to #23**; `Lint` fails in all four `verify` jobs, so tests, build and e2e never run |
+
+Checked and found sound (do not re-raise without new evidence): `scripts/serve.mjs` path
+containment/symlink/method handling; service-worker versioned caches, old-cache eviction,
+non-200/opaque exclusion and IDB-owned exclusions; `assetCache.js` IDB error/abort/quota/TTL
+handling and body-deadline wrappers; DOM output uses `textContent`/canvas text (no HTML
+injection from names, emoji, URLs or toasts); `_isSafeAudioUrl()` applied on every
+`startAudioStream()` entry, including host-shared music; `createMediaElementSource` single-shot
+guard; splash safe-mode offered before rendering.
+
+- [x] **Restore VR locomotion, sprint/jump and the Y/B quick-menu binding**
+
+  **Resolved 2026-09-23.** `setVRComfortMode()` owns an explicit feature swap via
+  `_applyXRLocomotionMode()`. Comfort on disables MOVEMENT and (re)enables teleportation;
+  comfort off, in-session only, disables teleportation and enables MOVEMENT. The controller
+  button bindings moved out of the locomotion `try` into `_setupXRSession()` and
+  `_bindXRMotionController()`. Locomotion failures are logged as errors and recorded as `xr`
+  diagnostics.
+
+  **Verified by:**
+  - The Quest emulation e2e now passes. It asserts no `xr` diagnostics, presses Y through
+    IWER, and toggles comfort both ways in-session.
+  - The unit test models Babylon's conflict rule, where enabling a conflicting feature throws.
+
+  An in-headset Quest 3S smoke test is still recommended.
+
+  **Priority:** Critical  
+  **Category:** Bug  
+  **Confidence:** High  
+  **Area:** WebXR session lifecycle  
+  **Affected files:** `js/club/02-lifecycle.js`, `js/club/10-ui.js`, `test/e2e/vrclub.spec.mjs`  
+  **Evidence:** CONFIRMED. `c1eed78` (2026-09-15) changed `disableTeleportation: true` to `false`.
+  On `IN_XR` the MOVEMENT feature is then enabled and Babylon throws
+  `Feature xr-controller-movement cannot be enabled while xr-controller-teleportation is enabled`
+  (captured under IWER Quest 3 emulation against the production build). The exception is
+  caught and downgraded to `log.warn`. `this.movementFeature` stays `null` while the session
+  reports `IN_XR`, and the e2e test fails with `Cannot read properties of undefined (reading 'movementEnabled')`.  
+  **Problem:** Everything after `enableFeature()` inside that `try` never runs:
+  - gravity and collision setup on the XR camera;
+  - sprint bindings;
+  - jump bindings;
+  - the only `toggleVRQuickMenu()` controller binding (Y/B/menu).
+
+  `setVRComfortMode(false)` cannot recover, because it only mutates an existing `movementFeature`.  
+  **Impact:** On the primary target device, comfort-off users cannot move smoothly or turn, and
+  no user can open the VR quick menu with a controller. This includes access to safe mode,
+  comfort, haptics and travel. It shipped because CI never reached the e2e job.  
+  **Recommended solution:**
+  - Treat teleportation and MOVEMENT as mutually exclusive feature states that `setVRComfortMode()` owns:
+    - on switch, `featuresManager.disableFeature()` the inactive feature and enable the other;
+    - keep one retained handle per feature.
+  - Move controller registration and the sprint, jump and menu bindings out of the
+    movement-feature `try` block, so that button bindings never depend on locomotion
+    succeeding.
+  - Escalate a failed locomotion enable to a visible diagnostic, not only a warning.
+
+  **Regression considerations:** comfort-on teleport and snap-turn, tracked eye-height
+  preservation, `moveCameraToPreset()` XR routing, one-shot observer cleanup on `NOT_IN_XR`,
+  and re-entry in a second session.  
+  **Acceptance criteria:**
+  - The Quest emulation e2e test passes.
+  - No `Could not enable VR movement feature` warning appears in either comfort mode.
+  - Y/B opens the quick menu in both modes.
+  - Toggling comfort in-session switches between smooth movement and teleport without
+    re-entering XR.
+  - All of the above hold for a second XR session as well.
+
+  **Validation:** extend the emulation e2e to toggle comfort in-session and to press Y through
+  the IWER controller; run an in-headset smoke test on Quest 3S.  
+  **Estimated effort:** Small  
+  **Business value:** High  
+  **Technical debt reduction:** Medium
+
+- [x] **Restore a green CI gate (lint, audit, e2e)**
+
+  **Resolved 2026-09-23 (locally verified; confirm on the first push).**
+  - **Lint:** `BABYLON` added to the e2e ESLint globals; the dead `pick` removed.
+  - **Audit:** the `sharp` override raised to 0.35.4, and the `js-yaml` advisory fixed with
+    `npm audit fix`.
+  - **Stale e2e expectations:** the floor-spotlight check now pins a lit look. The
+    brightness, room-bounce and ambient-floor checks compare against the live `vrSettings`
+    instead of copied literals, which went stale when `510af70` retuned lighting.
+  - **Results:** `npm run lint` shows 0 problems, `npm audit` 0 vulnerabilities, `npm test`
+    92/92, and `npm run test:e2e` 4/4.
+
+  **Priority:** High  
+  **Category:** Deployment  
+  **Confidence:** High  
+  **Area:** CI/CD  
+  **Affected files:** `eslint.config.mjs`, `package.json`, `package-lock.json`, `js/club/11-audio-crowd.js`, `test/e2e/vrclub.spec.mjs`  
+  **Evidence:** CONFIRMED.
+  - The GitHub Actions API shows every sampled CI run from #14 (2026-08-23) to #23 failing.
+  - In run #23, `Lint` fails in all four `verify` jobs and `audit` fails.
+  - `test/e2e/vrclub.spec.mjs` uses `BABYLON` inside `page.evaluate`, but the e2e ESLint block
+    only adds `browserGlobals`.
+  - `package.json` pins `overrides.sharp` to `0.35.3`, and GHSA-rgj7-g3m4-5g8c affects <0.35.4.
+  - The e2e floor-spotlight assertion reads live show state at load. The NOCTURNE opener
+    `eclipse` sets `lightsActive: false`, so all six spotlights are legitimately disabled
+    (probe: `spotEnabled: 0`, `driving: true`).
+  - An unused `pick` sits at `11-audio-crowd.js:746`.
+
+  **Problem:** Because lint fails first, `npm test`, the production build, the payload budget
+  and the e2e suite have not gated any change for a month.  
+  **Impact:** Regressions ship unobserved; the Critical VR locomotion defect above is one
+  example.  
+  **Recommended solution:**
+  - Add `BABYLON` to the e2e globals.
+  - Raise the `sharp` override to `^0.35.4` and regenerate the lockfile.
+  - Remove the unused variable.
+  - Make the floor-spotlight test apply a look with `lightsActive: true` (as the mirror test
+    already does via `_applyCue`) before asserting light sources.
+
+  **Regression considerations:** do not weaken `no-undef`, the audit level or the lighting
+  budget assertion itself.  
+  **Acceptance criteria:**
+  - `npm run lint` reports 0 errors and 0 warnings.
+  - `npm audit --audit-level=high` exits 0.
+  - All four e2e tests pass.
+  - A push to `main` produces a fully green CI run on every matrix entry.
+
+  **Validation:** local lint, audit and `npm run test:e2e`, plus the CI run.  
+  **Estimated effort:** Small  
+  **Business value:** High  
+  **Technical debt reduction:** High
+
+- [x] **Pin LF line endings for integrity-checked vendor files**
+
+  **Resolved 2026-09-23.** `.gitattributes` sets `* text=auto eol=lf`, and `js/vendor/** -text`
+  plus binary rules. After re-checkout the vendored files are `w/lf`, and `npm test` and
+  `npm run check:sri` pass on a `core.autocrlf=true` Windows checkout.
+
+  **Priority:** High  
+  **Category:** Developer Experience  
+  **Confidence:** High  
+  **Area:** Repository configuration / supply-chain integrity  
+  **Affected files:** `.gitattributes` (new), `js/vendor/*.js`  
+  **Evidence:** CONFIRMED.
+  - There is no `.gitattributes`, and `git ls-files --eol` reports `i/lf w/crlf` for all three
+    vendored scripts when `core.autocrlf=true`.
+  - The CRLF bytes hash to `y7kfj8…`; LF-normalising them reproduces the manifest hash `Kxab4B…` exactly.
+  - `npm test` and `npm run check:sri` fail on such a checkout; the Linux `sri` CI job passes.
+
+  **Problem:** Git's line-ending conversion rewrites byte-pinned files on Windows checkouts,
+  including GitHub's `windows-latest` runners (LIKELY; masked today because lint fails first).  
+  **Impact:** Windows developers and the Windows CI matrix fail the integrity contract. This
+  trains people to ignore a real tamper signal, and a Windows-built `dist/` ships bytes that no
+  longer match the recorded hashes.  
+  **Recommended solution:**
+  - Add `.gitattributes` with `js/vendor/** -text` (or `binary`) and `* text=auto eol=lf` for
+    sources.
+  - Renormalise the working tree once.
+
+  **Regression considerations:** the vendored bytes and manifest hashes must stay unchanged.  
+  **Acceptance criteria:**
+  - A fresh clone with `core.autocrlf=true` passes `npm test` and `npm run check:sri`.
+  - The `windows-latest` CI jobs pass the Test step.
+
+  **Validation:** fresh Windows clone; CI matrix.  
+  **Estimated effort:** Small  
+  **Business value:** Medium  
+  **Technical debt reduction:** Medium
+
+- [x] **Remote guests float about 1.7 m above the floor**
+
+  **Resolved 2026-09-23.** The wire protocol is unchanged, so older clients still
+  interoperate. `AvatarManager` treats `state.y` as the sender's eye height and places the
+  root `EYE_HEIGHT` (1.7 m) below it, with the voice panner at eye level. The first sample
+  snaps into place instead of sliding in from the origin, and non-finite values are
+  rejected. A unit test covers a standing guest (feet at y = 0) and the booth riser (feet
+  at 0.95 m).
+
+  **Priority:** High  
+  **Category:** Bug  
+  **Confidence:** High  
+  **Area:** Multiplayer presence  
+  **Affected files:** `js/club/07-animation-core.js`, `js/avatarManager.js`, `worker/src/index.js`  
+  **Evidence:** CONFIRMED by code.
+  - `updateNetworkPresence()` sends `cam.position.y`. The desktop `FreeCamera` spawns at
+    `y = 1.7` (`02-lifecycle.js:113`), and the XR camera is also at eye height.
+  - `AvatarManager.updatePeerState()` assigns that value to the avatar root, then offsets the
+    body `+0.9`, the head `+1.75`, the nameplate `+2.05` and the voice panner `+1.6`.
+
+  **Problem:** A standing guest's avatar head renders at about 3.45 m, and their voice
+  originates about 3.3 m up. The 2026-09-18 comparison injected a peer directly and did not
+  exercise the network path.  
+  **Impact:** Every remote guest in every session is visibly and audibly misplaced, which is
+  the primary thing multiplayer users see.  
+  **Recommended solution:**
+  - Transmit floor-relative position plus a separate head height, or subtract the sender's
+    eye height before sending.
+  - Place the avatar root at floor level and derive head, label and panner offsets from the
+    transmitted head height.
+  - Snap, rather than lerp, on a peer's first sample so avatars do not slide in from the
+    origin.
+
+  **Regression considerations:** the booth platform (`y = 0.95`), seated XR height and the
+  interpolation smoothing.  
+  **Acceptance criteria:**
+  - Two connected clients see each other's head within ±0.1 m of the sender's camera height.
+  - Feet sit on the local floor or platform.
+  - Voice originates at the head.
+  - A unit test covers the send→receive transform.
+
+  **Validation:** unit test with a fake `NetworkClient`; two-browser manual check on desktop and Quest.  
+  **Estimated effort:** Small  
+  **Business value:** High  
+  **Technical debt reduction:** Low
+
+- [ ] **Add abuse controls to the public multiplayer relay**
+
+  **Status 2026-09-23: implemented and unit-tested; blocked on deployment.**
+  - **Worker changes:**
+    - `Origin` allow-list: `ALLOWED_ORIGINS`, with loopback and private-LAN origins always
+      allowed.
+    - 16-guest room cap, closed with code 4003.
+    - 16 KB frame limit.
+    - Per-type token buckets; persistent flooders are closed with code 4008.
+    - Emoji allow-list, sanitised names (control characters removed, code-point-safe
+      truncation), finite/bounded/normalised state, and an http(s)-only music URL.
+  - **Client changes:** close codes are surfaced without a reconnect storm, and emoji are
+    allow-listed and rate-limited per guest.
+  - **Tests:** `test/worker.test.mjs`, 11 tests.
+  - **Remaining:** the owner must run `cd worker && npm ci && npm run deploy` (Cloudflare
+    credentials required), then check a live two-guest session. The hosted relay runs the
+    old code until then.
+
+  **Priority:** High  
+  **Category:** Security  
+  **Confidence:** High  
+  **Area:** Cloudflare Worker relay  
+  **Affected files:** `worker/src/index.js`, `js/networkClient.js`, `js/avatarManager.js`  
+  **Evidence:** CONFIRMED by code.
+  - Both the README and `defaultNetworkServerUrl()` point every visitor at
+    `wss://vrclub-network.garfieldapp.workers.dev`, with the default room `lobby`.
+  - The Worker performs no `Origin` check and caps neither sessions per room nor messages per
+    second nor frame size.
+  - It rebroadcasts every `state` frame to all peers unthrottled.
+  - It forwards `rtc-signal.signal` objects of arbitrary size.
+  - Every `emoji` frame makes each receiving client allocate a new mesh, `StandardMaterial` and
+    `DynamicTexture` (`AvatarManager.showEmoji()`).
+  - `name.slice(0, 32)` and `emoji.slice(0, 8)` operate on UTF-16 units and can split surrogate
+    pairs.
+
+  **Problem:** Any web page or script can join any room and flood it.  
+  **Impact:**
+  - **Clients:** CPU, GPU and texture churn in every connected guest.
+  - **Relay:** worker and Durable Object cost and availability.
+  - **Scaling:** O(n²) fan-out in large rooms.
+
+  Severity: medium-high. Likelihood: moderate, because the endpoint is published in the README.  
+  **Recommended solution:**
+  - In the Worker:
+    - allow-list the production and localhost `Origin`s;
+    - cap room size (for example 16);
+    - reject frames above a small byte limit;
+    - apply per-connection token-bucket rate limits (state ≈10 Hz, emoji ≈1 Hz, signals bounded);
+    - validate the `emoji` against an allow-list of the panel's emoji;
+    - strip control characters from names.
+  - On the client, rate-limit emoji rendering per peer.
+
+  **Regression considerations:** keep the 10 Hz presence cadence, WebRTC signaling bursts
+  during ICE gathering, and local `wrangler dev` testing.  
+  **Acceptance criteria:**
+  - Worker unit tests prove oversize, over-rate and wrong-origin connections are dropped.
+  - A full room refuses the next join with a clear close code, which the client surfaces.
+  - Normal two- and four-guest sessions are unaffected.
+
+  **Validation:** Worker tests (Miniflare or `vitest-pool-workers`) plus a scripted flood against `wrangler dev`.  
+  **Estimated effort:** Medium  
+  **Business value:** High  
+  **Technical debt reduction:** Medium
+
+- [x] **Make WebRTC voice negotiate for every mic-enabled guest**
+
+  **Resolved 2026-09-23.** `NetworkClient` now uses perfect negotiation: `negotiationneeded`,
+  with the higher id as the polite peer and glare-safe offer handling. Enabling the mic adds
+  tracks to existing connections, which renegotiates them. Muting removes tracks but keeps
+  connections, so a muted guest still hears others; previously muting tore down every
+  connection. The wire format is unchanged. A unit test joins two clients through an
+  in-memory relay with a fake `RTCPeerConnection`, covering higher-id-first, a later mic
+  and mute; it fails on the old code. A two-device audio check is still recommended.
+
+  **Priority:** Medium  
+  **Category:** Bug  
+  **Confidence:** High  
+  **Area:** Multiplayer voice  
+  **Affected files:** `js/networkClient.js`  
+  **Evidence:** CONFIRMED by code. `_maybeInitiateVoice()` offers only when `selfId < peerId`.
+  - If only the higher-id guest enables the mic, no connection is ever created.
+  - If the lower-id guest offered first, the answerer's connection has no local track. When the
+    answerer later enables the mic, `_maybeInitiateVoice()` returns early because `peer.pc`
+    exists, and no track is added or renegotiated.
+
+  **Problem:** Whether voice works depends on random UUID ordering and on who clicked **Enable
+  Mic** first.  
+  **Impact:** In roughly half of pairings, a guest's voice is silently never heard.  
+  **Recommended solution:**
+  - When a guest enables the mic, add tracks to existing connections and renegotiate:
+    use perfect negotiation with a polite/impolite role and `onnegotiationneeded`.
+  - Alternatively, signal a `voice-request` so the lower-id peer offers.
+
+  **Regression considerations:** keep glare avoidance and receive-only listening.  
+  **Acceptance criteria:** for every enable order among two or three guests, each mic-enabled
+  guest is heard by all others.  
+  **Validation:** unit test with mocked `RTCPeerConnection`; two-browser manual test.  
+  **Estimated effort:** Medium  
+  **Business value:** Medium  
+  **Technical debt reduction:** Low
+
+- [ ] **Remote voice may be silent in Chromium-based browsers**
+
+  **Status 2026-09-23: workaround implemented; awaiting device verification.**
+  `attachVoice()` also binds each remote stream to a muted, detached `<audio>` element,
+  released in `detachVoice()`, while the HRTF panner stays the only audible path. Close
+  this after the two-device Chrome/Quest check in the acceptance criteria.
+
+  **Priority:** Medium  
+  **Category:** Bug  
+  **Confidence:** Medium  
+  **Area:** Multiplayer voice / spatial audio  
+  **Affected files:** `js/avatarManager.js`  
+  **Evidence:** LIKELY. `attachVoice()` routes the remote `MediaStream` only through
+  `createMediaStreamSource()`. Chromium plays no audio from a remote WebRTC stream through
+  Web Audio unless the stream is also attached to a media element (long-standing Chromium
+  issue 933677, still reported with the muted-`<audio>` workaround). Quest Browser is
+  Chromium-based.  
+  **Problem:** Spatial voice may be completely silent on the primary target and on desktop
+  Chrome and Edge.  
+  **Impact:** The voice feature may not function where it matters most.  
+  **Recommended solution:** also attach the stream to a muted, detached `<audio>` element
+  (`srcObject`, `muted = true`, `play()`) per peer. Release it in `detachVoice()`.  
+  **Regression considerations:** avoid double playback: the element must stay muted and the
+  HRTF panner path must remain the only audible one.  
+  **Acceptance criteria:** remote voice is audible and spatialised in Chrome and on Quest
+  Browser.  
+  **Validation:** two-device test on Chrome and Quest; also confirm Firefox and Safari do not
+  double the audio.  
+  **Estimated effort:** Small  
+  **Business value:** Medium  
+  **Technical debt reduction:** Low
+
+- [x] **Clear remote avatars and voice when the relay socket drops**
+
+  **Resolved 2026-09-23.** `_dropAllPeers()` reports every peer through `onPeerLeave` on
+  socket close and on `disconnect()`. The manual avatar-removal loop in `ui-init.js` is
+  gone. Covered by a unit test.
+
+  **Priority:** Medium  
+  **Category:** Reliability  
+  **Confidence:** High  
+  **Area:** Multiplayer lifecycle  
+  **Affected files:** `js/networkClient.js`, `js/ui-init.js`  
+  **Evidence:** CONFIRMED by code.
+  - `_onSocketClosed()` clears `this.peers` without calling `onPeerLeave()`.
+  - The Worker assigns a fresh `crypto.randomUUID()` per connection.
+  - Only the manual **Disconnect** button removes avatars.
+
+  **Problem:** After any network blip, reconnect or terminal error, previous peers remain as
+  frozen avatars, with voice nodes still connected. The same guests reappear as duplicates
+  under new ids.  
+  **Impact:** Ghost guests accumulate for the rest of the session, cost draw calls, and misstate
+  who is present.  
+  **Recommended solution:** emit `onPeerLeave()` for every known peer in `_onSocketClosed()`,
+  or add an `onReset` callback that `AvatarManager` handles by removing all remotes.  
+  **Regression considerations:** keep the bounded-reconnect behaviour; keep `micEnabled`
+  across reconnects.  
+  **Acceptance criteria:** after a forced socket close and automatic reconnect, the scene
+  contains exactly one avatar per live peer.  
+  **Validation:** extend `test/unit.test.mjs` "multiplayer stops initial failures…" with a
+  fake socket close; verify the `AvatarManager` remote count.  
+  **Estimated effort:** Small  
+  **Business value:** Medium  
+  **Technical debt reduction:** Low
+
+- [x] **Shared music: never broadcast `blob:` URLs, and ask before following a host's stream**
+
+  **Resolved 2026-09-23.**
+  - `sendMusic()` refuses anything other than http(s), and returns false.
+  - A host playing a local file is told that it isn't shared.
+  - Guests see the host's stream origin and must click **Listen along**
+    (`#networkListenAlong`) before any remote-driven load. Consent is per connection.
+  - The worker also nulls non-http(s) URLs once deployed.
+  - Covered by unit tests.
+
+  **Priority:** Medium  
+  **Category:** Privacy  
+  **Confidence:** High  
+  **Area:** Multiplayer shared music  
+  **Affected files:** `js/ui-init.js`, `worker/src/index.js`  
+  **Evidence:** CONFIRMED by code.
+  - The host heartbeat sends `audio.src` every 8 s. For an uploaded file that value is a
+    host-local `blob:` URL, which no guest can resolve; the failure is swallowed by
+    `.catch(() => {})`.
+  - `applyMusicState()` automatically calls `startAudioStream()` with any host-chosen
+    `https:` URL.
+  - The host is simply the first socket in the room, and `lobby` is the shared default.
+
+  **Problem:** Uploaded tracks silently never sync. Separately, any stranger who becomes host
+  can make every guest's browser fetch an arbitrary server, disclosing IP address and
+  listening time.  
+  **Impact:** A broken feature path, plus a privacy exposure that guests never consented to.  
+  **Recommended solution:**
+  - Exclude `blob:` and `data:` URLs from `sendMusic()`, and show the host that local files
+    are not shared.
+  - Validate the URL scheme in the Worker.
+  - On guests, show the host's stream origin and require one explicit "Listen along" action
+    before the first remote-driven load.
+
+  **Regression considerations:** keep the heartbeat resync for guests who have opted in.  
+  **Acceptance criteria:**
+  - No `blob:` URL is ever sent.
+  - A guest's first remote-driven stream load requires consent and displays the origin.
+
+  **Validation:** unit tests on the heartbeat filter; manual two-browser check.  
+  **Estimated effort:** Small  
+  **Business value:** Medium  
+  **Technical debt reduction:** Low
+
+- [x] **Bring `worker/` under repository tooling and remove committed Wrangler state**
+
+  **Resolved 2026-09-23.** The change covers:
+  - `worker/.wrangler` untracked, and `.wrangler/` ignored.
+  - An ESLint module block for `worker/src/**` with Workers globals.
+  - `check-syntax` includes the Worker.
+  - A `worker/package-lock.json`, with Wrangler raised to `^4.136.3` because 3.x carried
+    high advisories; the worker audit shows 0 vulnerabilities.
+  - Protocol tests in `test/worker.test.mjs`, run by `npm test`.
+  - Dependabot configured for `/worker`.
+
+  **Priority:** Medium  
+  **Category:** Cleanup  
+  **Confidence:** High  
+  **Area:** Relay worker / repository hygiene  
+  **Affected files:** `worker/.wrangler/**`, `.gitignore`, `eslint.config.mjs`, `scripts/check-syntax.mjs`, `worker/package.json`  
+  **Evidence:** CONFIRMED.
+  - `git ls-files worker` lists three local Durable Object SQLite files under
+    `worker/.wrangler/state/`.
+  - `.gitignore` does not ignore `.wrangler/`.
+  - No ESLint `files` block matches `worker/src/**`, so it is linted with no rules.
+  - `check-syntax.mjs` does not include it.
+  - The Worker has no tests and no lockfile, so `npm install` in `worker/` resolves
+    `wrangler ^3.90` freshly on each deploy.
+
+  **Problem:** Developer-local relay state (which may contain room names and presence data)
+  is versioned. The production relay's source has no automated protection, and its deploys
+  are not reproducible.  
+  **Impact:** A typo in the relay ships unchallenged; leaked local state and churning binary
+  diffs.  
+  **Recommended solution:**
+  - `git rm --cached -r worker/.wrangler` and ignore `.wrangler/`.
+  - Add an ESLint module block for `worker/src/**/*.js` with Workers globals, and include the
+    Worker in `check-syntax`.
+  - Commit `worker/package-lock.json`.
+  - Add protocol tests (host-only `music`, `rtc-signal` routing, host hand-off on close).
+
+  **Regression considerations:** none for runtime behaviour.  
+  **Acceptance criteria:**
+  - No `.wrangler` paths are tracked.
+  - `npm run lint` covers the Worker with rules.
+  - Worker protocol tests run in CI.
+
+  **Validation:** `git ls-files`, lint, CI.  
+  **Estimated effort:** Small  
+  **Business value:** Medium  
+  **Technical debt reduction:** Medium
+
+- [x] **Avatar turn interpolation takes the long way round**
+
+  **Resolved 2026-09-23.** `AvatarManager.shortestAngle()` replaces the sign-preserving `%`
+  wrap. The worker normalises `rotY`, and `update()` takes `dt` from the caller only, with
+  the `0.016` fallback removed. Unit tests cover ±3π/2 and 3→−3 rad.
+
+  **Priority:** Low  
+  **Category:** Bug  
+  **Confidence:** High  
+  **Area:** Multiplayer presence  
+  **Affected files:** `js/avatarManager.js`  
+  **Evidence:** CONFIRMED by code.
+  - `dy = ((dy + π) % 2π) - π` uses JavaScript's sign-preserving `%`, so for `dy < -π` the
+    result stays below `-π`.
+  - The desktop `camera.rotation.y` is unbounded, so large negative differences occur
+    routinely.
+  - `update()` also falls back to a literal `0.016` step, contrary to the frame-rate rule the
+    contract test enforces only in `js/club/*animation*.js`.
+
+  **Problem:** Remote avatars visibly spin almost a full turn instead of the short way.  
+  **Impact:** A minor but conspicuous presence artefact.  
+  **Recommended solution:**
+  - Wrap with `dy - 2π·Math.round(dy / 2π)`.
+  - Normalise the transmitted `rotY`.
+  - Take `dt` from the caller only.
+
+  **Regression considerations:** keep the compounded smoothing constant.  
+  **Acceptance criteria:** a unit test proves the shortest-arc delta for ±3π inputs; no `0.016`
+  literal remains in `avatarManager.js`.  
+  **Validation:** unit test.  
+  **Estimated effort:** Small  
+  **Business value:** Low  
+  **Technical debt reduction:** Low
+
+- [x] **Document multiplayer in the agent instructions and persistence table**
+
+  **Resolved 2026-09-23.** `.github/copilot-instructions.md` now lists both scripts in the
+  load order. It has a Multiplayer section (relay protocol and abuse controls, perfect
+  negotiation, the eye-height convention, listen-along consent) and the three `vrclub.network*`
+  keys. It also documents the locomotion feature-swap rule, the gated deploy and
+  `.gitattributes`. The README covers listen-along, `ALLOWED_ORIGINS`, the room cap, the
+  deploy job and an offline table.
+
+  **Priority:** Low  
+  **Category:** Documentation  
+  **Confidence:** High  
+  **Area:** `.github/copilot-instructions.md`  
+  **Affected files:** `.github/copilot-instructions.md`  
+  **Evidence:** CONFIRMED. The file declares itself an accuracy contract. It never mentions
+  `networkClient.js`, `avatarManager.js` or `worker/`, even though `index.html:464-465` loads
+  them between the loaders and the club layers. Its persistence table omits
+  `vrclub.networkServerUrl`, `vrclub.networkRoom` and `vrclub.networkName`.  
+  **Problem:** The load-order contract and architecture description are stale.  
+  **Impact:** Agents and contributors working from the document will misplace multiplayer code
+  and miss that display names and room codes persist locally.  
+  **Recommended solution:** add the two scripts to the load-order list, add a short Multiplayer
+  architecture section (relay protocol, host model, voice mesh, trust boundaries), and extend
+  the persistence table.  
+  **Regression considerations:** none.  
+  **Acceptance criteria:** the load order and persistence table match `index.html` and
+  `NETWORK_PREFS`.  
+  **Validation:** review against source.  
+  **Estimated effort:** Small  
+  **Business value:** Low  
+  **Technical debt reduction:** Medium
+
+### Updated existing items
+
+- **Add a protected deploy job and dependency update automation** (2026-08-18 carried-forward
+  list) raised from Low to **High**, with new evidence recorded in place.
+- The 2026-08-23 release blocker (asset licensing) was not re-verified in this pass and remains
+  open.
+
+### Implementation pass — 2026-09-23
+
+Every finding above plus 14 older items were implemented. Each item's own entry records how
+it was verified.
+
+Final local validation:
+
+| Check | Result |
+|-------|--------|
+| `npm run check` | Pass |
+| `npm run lint` | 0 problems |
+| `npm test` | 92/92 |
+| `npm audit` (root and `worker/`) | 0 vulnerabilities |
+| `npm run check:sri` | Pass |
+| `npm run build` | Pass |
+| `npm run test:e2e` | 4/4 on the build with everything up to the handedness fix and the `init()`/spotlight extractions |
+| E2E on the final build | Blocked by the host (see below) |
+
+**E2E on the final build.** During the final runs the shared host reported 100% CPU and
+rendered about 0.6 fps; an untouched `HEAD` build measured the same (249 s to ready, 4 frames
+in 5 s). A timeout-scaled run of the production-build test on the final build passed every
+assertion up to the mirror-cue block, including all three equipment lights (so the
+handedness-corrected PA speakers load and configure) and the floor spotlights. It then failed
+only on `reflectionBeams` (0 vs 16). That check waits a fixed 2 s for mirror ray batches to
+accumulate, which is one frame at that speed; the mirror code was not touched after the green
+run. Re-run `npm run test:e2e` on a normally loaded machine, or rely on the first CI run.
+
+**Still open, and why:**
+- **Owner action needed:**
+  - Deploy the hardened relay: `cd worker && npm ci && npm run deploy`.
+  - Set GitHub Pages' Source to "GitHub Actions".
+- **Device checks:**
+  - Chromium remote-voice workaround.
+  - An in-headset Quest 3S smoke test.
+- **Legal:** asset-licensing gaps; creator and source information must come from the owner.
+- **Asset and art work, visual QA required:** GLB/texture optimisation, ORM packing, and the
+  six 2026-09-15/18 presence items.
+
+---
+
 ## Review — 2026-09-18 — Multiplayer presence follow-up
 
 Scope: current source inspection and desktop runtime comparison of an injected remote guest beside
@@ -2612,7 +3213,20 @@ zero console errors and zero WebGL warnings.
 
 ### Carried forward — not addressed in this pass
 
-- [ ] Extract `init()` (561 lines, 9 levels of nesting) and `updateSpotlights()` (~1,030 lines)
+- [x] Extract `init()` (561 lines, 9 levels of nesting) and `updateSpotlights()` (~1,030 lines)
+  Resolved 2026-09-23 (pure extractions; bodies moved verbatim, with data flow computed by
+  `eslint-scope` so every input and output is explicit).
+  - `init()`: 635 lines at nesting 10 → 193 lines at nesting 1. Extracted `_initXRHelper`,
+    `_setupXRSession`, `_bindXRMotionController`, `_createDesktopCamera`,
+    `_createGlowLayer`, `_buildVenue`, `_finalizeRenderQuality` and
+    `_setupLifecycleListeners`.
+  - `updateSpotlights()`: 1,064 lines at nesting 8 → 214 lines at nesting 5. Extracted
+    `_solveSpotDirection`, `_animateMovingHead`, `_resolveSpotSurfaceHit`,
+    `_updateSpotBeamGeometry`, `_updateSpotBeamAppearance`, `_updateSpotLightPool`,
+    `_placeSpotPool`, `_updateSpotPoolGlow` and `_updateSpotGoboProjection`. Per-spot records
+    (`_beamGeom`, `_beamState`, `_surfaceHit`, `_dirOut`) are pooled, so nothing allocates
+    per frame.
+  - Every function in both files is now ≤ ~214 lines and nests ≤ 5 levels.
   Priority: High
   Category: Refactor
   Area: Lifecycle / fixture animation
@@ -2691,7 +3305,14 @@ zero console errors and zero WebGL warnings.
   Business value: High
   Technical debt reduction: Medium
 
-- [ ] Remove `'unsafe-inline'` from `style-src`
+- [x] Remove `'unsafe-inline'` from `style-src`
+  Resolved 2026-09-23 (acceptance criteria met; the header directive intentionally stays).
+  - `showAudioStreamInputUI()` now builds the overlay with `createElement`/`textContent`.
+  - No `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write` remains in `js/`.
+  - A contract test ("first-party code builds DOM without HTML-string sinks") forbids them.
+  - `'unsafe-inline'` cannot be dropped: the pinned Babylon runtime injects `<style>` elements
+    with runtime-computed CSS (WebXR enter/exit button, loading screen, audio unmute), and
+    neither a hash nor a nonce can cover that. The CSP comment in `index.html` records this.
   Priority: Medium
   Category: Security
   Area: CSP
@@ -2727,7 +3348,15 @@ zero console errors and zero WebGL warnings.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Disclose the default third-party audio stream before connecting to it
+- [x] Disclose the default third-party audio stream before connecting to it
+  Resolved 2026-09-23.
+  - The splash has a "Play radio on entry" opt-in, `#splashRadioOnEntry`, unchecked by
+    default; a pre-ticked box is not consent under Planet49. It is persisted as
+    `vrclub.radioOnEntry`.
+  - The note names the station and the host that will be contacted, including a remembered
+    stream.
+  - Without opt-in, ENTER makes no third-party connection and highlights the audio menu.
+  - The e2e suite opts in so the stream path stays covered.
   Priority: Medium
   Category: Security
   Area: Privacy
@@ -2743,7 +3372,13 @@ zero console errors and zero WebGL warnings.
   Business value: Medium
   Technical debt reduction: Low
 
-- [ ] Route ModelLoader's three PointLights through LightFactory
+- [x] Route ModelLoader's three PointLights through LightFactory
+  Resolved 2026-09-23.
+  - `ModelLoader` accepts `{ lightFactory, textureLoader }`, and `VRClub` passes both.
+  - The accent lights are created with `lightFactory.createPointLight()`, keeping the same
+    intensity and range.
+  - `group` is set (`dj` / `speakers`); no club code sweeps those groups.
+  - A unit test asserts no bare `PointLight`, and e2e asserts all three equipment lights exist.
   Priority: Low
   Category: Refactor
   Area: Lighting
@@ -2757,7 +3392,16 @@ zero console errors and zero WebGL warnings.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Investigate whether `_fitAndPlace()` destroys the glTF handedness transform
+- [x] Investigate whether `_fitAndPlace()` destroys the glTF handedness transform
+  Resolved 2026-09-23: CONFIRMED and fixed.
+  - Babylon's loader writes a net `diag(-1, 1, 1)` conversion on `__root__`, which
+    `_fitAndPlace()` reset.
+  - `ModelLoader._rootHandedness()` now captures the axis signs before the reset and folds
+    them into the fit, so the DJ console's `scale.x = -1` workaround is removed.
+  - The runtime probe shows the DJ console transform unchanged (x scale −0.0128, rotation
+    π about Y). The PA speakers now carry the conversion and are no longer mirrored.
+  - A unit test uses Babylon's own matrix maths and asserts that no config carries a mirror
+    sign.
   Priority: Low
   Category: Bug
   Area: Model loading
@@ -2774,7 +3418,16 @@ zero console errors and zero WebGL warnings.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Decide the fate of the unreferenced procedural model fallbacks
+- [x] Decide the fate of the unreferenced procedural model fallbacks
+  Resolved 2026-09-23: deleted.
+  - The ~480 unreachable lines are gone: `createEnhancedProceduralModel`, `createEnhancedCDJ`,
+    `createEnhancedMixer`, `createEnhancedPASpeaker`, and the `useProcedural` flags.
+  - A failed load now logs "unavailable — keeping the club's built-in geometry" and returns
+    null without recording the model as loaded.
+  - The real fallback is the club's own procedural booth and speaker stacks, which are only
+    hidden when a GLB loads.
+  - The live `createSpeakerHangingHardware()` was preserved; e2e caught a first attempt
+    that removed it.
   Priority: Low
   Category: Cleanup
   Area: Model loading
@@ -2792,7 +3445,13 @@ zero console errors and zero WebGL warnings.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Route PA speaker textures through TextureLoader and remove the magenta error state
+- [x] Route PA speaker textures through TextureLoader and remove the magenta error state
+  Resolved 2026-09-23.
+  - All four maps load through `TextureLoader.loadOrDownloadTexture()`, which gives them the
+    IndexedDB cache, body deadline and in-flight de-duplication. A bare `Texture` is used
+    only when the loader runs standalone.
+  - A missing albedo falls back to a near-black finish, with a single warning.
+  - Covered by a unit test.
   Priority: Low
   Category: Bug
   Area: Textures
@@ -2806,7 +3465,16 @@ zero console errors and zero WebGL warnings.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Wire `types/vrclub.d.ts` into a `tsconfig.json` with `checkJs`, or delete it
+- [x] Wire `types/vrclub.d.ts` into a `tsconfig.json` with `checkJs`, or delete it
+  Resolved 2026-09-23 by a third option, which targets the stated problem ("cannot go stale
+  loudly").
+  - A contract test fails if any declared class is not exported on `window`, or any declared
+    method is not defined in its source.
+  - It immediately found three stale declarations (`LightFactory.createLight`,
+    `VJDirector.tap`/`drop`), which are now corrected.
+  - `NetworkClient` and `AvatarManager`, plus the new `ModelLoader` and `MaterialFactory`
+    options, are declared.
+  - Full `checkJs` remains possible later, but is no longer needed to keep the file honest.
   Priority: Low
   Category: Developer Experience
   Area: Tooling
@@ -2822,21 +3490,58 @@ zero console errors and zero WebGL warnings.
   Technical debt reduction: Medium
 
 - [ ] Add a protected deploy job and dependency update automation
-  Priority: Low
-  Category: Developer Experience
+  Status 2026-09-23: implemented; blocked on one repository setting.
+  - `.github/workflows/ci.yml` now has a `deploy` job. It runs only on pushes to `main`,
+    needs `verify`, `e2e` and `audit`, builds `dist/`, and publishes it with
+    `upload-pages-artifact` + `deploy-pages` under the `github-pages` environment.
+  - `.github/dependabot.yml` covers the root, `/worker` and GitHub Actions.
+  - The cache token is bumped to `20260923-1`, so the root-served site refreshes meanwhile.
+  - Remaining: the owner must set Settings → Pages → Source to "GitHub Actions". Until then
+    Pages keeps deploying the raw root on every push.
+  Priority: High (raised from Low 2026-09-23)
+  Category: Deployment
   Area: CI/CD
-  Affected files: `.github/workflows/ci.yml`, `package.json`
+  Affected files: `.github/workflows/ci.yml`, `package.json`, GitHub Pages settings
   Problem: the README's "deploy `dist/` to static hosting" remains a manual step — there is no
   tag-triggered release, environment protection, or automated dependency update policy.
   The redundant `http-server` dependency was removed 2026-08-23; `npm start` and `npm dev` now use
   the hardened dependency-free server with traversal guards, security headers and `$PORT` support.
-  Recommended solution: add a `deploy` job gated on `main` using `actions/deploy-pages`, with an
-  approved production environment; add Dependabot or Renovate.
+  Evidence (2026-09-23, CONFIRMED):
+  - Production is GitHub Pages "pages build and deployment" from the repository root.
+    It succeeded on every push while CI failed.
+  - `https://my-pwa-apps.github.io/VRCLUB-2/` serves the unbuilt sources:
+    - individual `js/*.js?v=20260915-1` scripts, instead of the content-hashed `dist/assets/app-*.js`;
+    - the hand-maintained root `sw.js`.
+  - GitHub Pages ignores `_headers`, so `frame-ancestors`, `X-Frame-Options` and the immutable
+    asset caching are not applied in production.
+  - About 950 lines of multiplayer JavaScript landed after `20260915-1` without a `version:bump`.
+    With the service worker's stale-while-revalidate strategy, a returning visitor's first
+    load can pair fresh `index.html` markup with cached, pre-multiplayer `ui-init.js`.
+  Recommended solution:
+  - Add a `deploy` job gated on `main` that needs `verify` and `e2e`, builds `dist/`, and
+    publishes it with `actions/upload-pages-artifact` + `actions/deploy-pages` under a
+    protected environment.
+  - Switch Pages to "GitHub Actions" as its source.
+  - Because Pages cannot send `_headers`, either host `dist/` on Cloudflare Pages or Netlify,
+    or document that clickjacking protection is absent.
+  - Add Dependabot or Renovate.
+  Acceptance criteria:
+  - The live site loads `assets/app-<hash>.js`.
+  - A red CI run cannot deploy.
+  - A source change always changes the deployed asset URLs.
+  - Dependency updates open PRs automatically.
   Estimated effort: Small
-  Business value: Medium
-  Technical debt reduction: Low
+  Business value: High
+  Technical debt reduction: Medium
 
-- [ ] Close the dev/prod strict-mode divergence
+- [x] Close the dev/prod strict-mode divergence
+  Resolved 2026-09-23.
+  - Every first-party script starts with `'use strict';`. Production was already fully
+    strict, because `assetCache.js`'s directive landed at the top of the concatenation.
+  - Both CommonJS export blocks are removed, so the bundle no longer carries esbuild's
+    CommonJS shim.
+  - Tests load `audioUtils.js` through the VM harness.
+  - A contract test enforces both rules.
   Priority: Low
   Category: Technical Debt
   Area: Build
@@ -3075,7 +3780,16 @@ already fixed or contradicted by source were excluded.
 
 ### New open items
 
-- [ ] Add structural tests for the Web Audio spatial graph
+- [x] Add structural tests for the Web Audio spatial graph
+
+  Resolved 2026-09-23. A Web Audio test double records `connect()` edges. Three tests assert:
+  - both PA panners are HRTF and positioned from `CLUB_POSITIONS`;
+  - the analyser is fed pre-spatial and is never downstream of a panner;
+  - the sub, early-reflection, reverb and occlusion paths reach the bus and the output;
+  - the crowd bed runs spatialised;
+  - `createMediaElementSource` is called once;
+  - the listener follows the camera, and the corridor occludes the PA;
+  - `dispose()` stops every source and closes the context.
 
   Priority: Medium
 
@@ -3103,7 +3817,16 @@ already fixed or contradicted by source were excluded.
 
   Technical debt reduction: Medium
 
-- [ ] Replace name-based material mutability with an explicit factory option
+- [x] Replace name-based material mutability with an explicit factory option
+
+  Resolved 2026-09-23.
+  - All three factory creators take `mutable: true`, which is part of the shared-cache key.
+  - `HOT_MUTATED` and `isHotMutated()` are removed.
+  - All 16 call sites the name heuristic kept unfrozen now opt in explicitly, so no runtime
+    behaviour changed.
+  - Tests prove that names no longer decide freezing, that shared frozen and mutable
+    materials never collide, and (as a migration guard) that every formerly hot-named call
+    site declares `mutable`.
 
   Priority: Medium
 
@@ -3131,7 +3854,12 @@ already fixed or contradicted by source were excluded.
 
   Technical debt reduction: High
 
-- [ ] Expose online/offline state and document the offline capability boundary
+- [x] Expose online/offline state and document the offline capability boundary
+
+  Resolved 2026-09-23. The audio panel announces offline and online transitions through its
+  status line, and sets `data-offline` on `#audioMenu` without blocking local files. The
+  README has an "Offline use" table covering first visit, cached visits, local files,
+  streams and multiplayer.
 
   Priority: Low
 

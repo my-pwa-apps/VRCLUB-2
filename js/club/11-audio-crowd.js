@@ -1,3 +1,4 @@
+'use strict';
 class VRClubAudioCrowd extends VRClubUI {
     _ensureAudioContext() {
         if (!this.audioContext) {
@@ -742,8 +743,7 @@ class VRClubAudioCrowd extends VRClubUI {
             return;
         }
         // Fall back to whatever did load so a single missing file does not leave
-        // holes in the crowd.
-        const pick = index => containers[index] || available[index % available.length];
+        // holes in the crowd (resolved per slot in the population pass below).
         this._crowdSourceContainers = containers;
         this._availableCrowdSources = available;
 

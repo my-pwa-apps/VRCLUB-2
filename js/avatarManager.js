@@ -1,3 +1,4 @@
+'use strict';
 /**
  * Visual and spatial-audio representation of the OTHER guests in a shared
  * session. Driven entirely by `NetworkClient` events wired up in ui-init.js;
@@ -11,6 +12,18 @@
  * snapped, because state arrives far slower than the render loop.
  */
 class AvatarManager {
+    /** Remote `state.y` is the sender's EYE height; the avatar head sits this far above its root. */
+    static EYE_HEIGHT = 1.7;
+    // Mirrors the Multiplayer panel's buttons and the relay's allow-list.
+    static ALLOWED_EMOJI = new Set(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
+    static EMOJI_MIN_INTERVAL = 0.5; // seconds between reactions rendered per guest
+
+    /** Shortest signed angle from `from` to `to`, in (-PI, PI]. */
+    static shortestAngle(from, to) {
+        const tau = Math.PI * 2;
+        return (to - from) - tau * Math.round((to - from) / tau);
+    }
+
     constructor(club) {
         this.club = club;
         this.scene = club.scene;
@@ -54,8 +67,9 @@ class AvatarManager {
 
         peer = {
             root, body, head, nameplate,
-            emojiPlane: null, emojiTimer: 0,
+            emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             target: { x: root.position.x, y: root.position.y, z: root.position.z, rotY: 0 },
+            hasState: false,
             audio: null
         };
         this.remotes.set(id, peer);
@@ -98,19 +112,33 @@ class AvatarManager {
         dynamicTexture.update();
     }
 
-    /** @param {{x:number,y:number,z:number,rotY:number}} state */
+    /** @param {{x:number,y:number,z:number,rotY:number}} state - y is the sender's eye height */
     updatePeerState(id, name, state) {
         if (!state) return;
         const peer = this.ensurePeer(id, name);
-        peer.target.x = state.x;
-        peer.target.y = state.y;
-        peer.target.z = state.z;
-        peer.target.rotY = state.rotY || 0;
+        const finite = value => (Number.isFinite(value) ? value : 0);
+        peer.target.x = finite(state.x);
+        // Place the root on the sender's floor so the head (root + EYE_HEIGHT) lands at
+        // their eye. Using the eye height as the root floated every guest ~1.7 m up.
+        peer.target.y = finite(state.y) - AvatarManager.EYE_HEIGHT;
+        peer.target.z = finite(state.z);
+        peer.target.rotY = finite(state.rotY);
+        if (!peer.hasState) {
+            // Snap on the first sample instead of sliding in from the world origin.
+            peer.hasState = true;
+            peer.root.position.set(peer.target.x, peer.target.y, peer.target.z);
+            peer.root.rotation.y = peer.target.rotY;
+        }
     }
 
     showEmoji(id, emoji) {
         const peer = this.remotes.get(id);
-        if (!peer || !emoji) return;
+        if (!peer || !AvatarManager.ALLOWED_EMOJI.has(emoji)) return;
+        // Each reaction allocates a mesh, material and DynamicTexture, so a flooding
+        // peer must not be able to churn GPU resources on every other guest.
+        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+        if (now - peer.lastEmojiAt < AvatarManager.EMOJI_MIN_INTERVAL) return;
+        peer.lastEmojiAt = now;
         if (peer.emojiPlane) {
             peer.emojiPlane.material.diffuseTexture.dispose();
             peer.emojiPlane.material.dispose();
@@ -172,7 +200,20 @@ class AvatarManager {
         source.connect(panner);
         panner.connect(gain);
         gain.connect(ctx.destination);
-        peer.audio = { source, panner, gain };
+
+        // Chromium (desktop Chrome/Edge and Quest Browser) delivers no samples from a
+        // remote WebRTC stream into Web Audio unless the stream is also attached to a
+        // media element. The element stays muted: the HRTF panner is the only audible path.
+        let element = null;
+        if (typeof Audio !== 'undefined') {
+            element = new Audio();
+            element.muted = true;
+            element.autoplay = true;
+            element.srcObject = mediaStream;
+            const played = element.play();
+            if (played && typeof played.catch === 'function') played.catch(() => { /* muted: allowed */ });
+        }
+        peer.audio = { source, panner, gain, element };
     }
 
     detachVoice(id) {
@@ -180,6 +221,10 @@ class AvatarManager {
         if (!peer || !peer.audio) return;
         for (const node of [peer.audio.source, peer.audio.panner, peer.audio.gain]) {
             try { node.disconnect(); } catch { /* ignore */ }
+        }
+        if (peer.audio.element) {
+            try { peer.audio.element.pause(); } catch { /* ignore */ }
+            peer.audio.element.srcObject = null;
         }
         peer.audio = null;
     }
@@ -202,11 +247,12 @@ class AvatarManager {
         this.remotes.delete(id);
     }
 
-    /** Called once per frame from VRClubAnimationCore.updateAnimations(). */
+    /** Called once per frame from VRClubAnimationCore.updateAnimations() with ctx.dt (seconds). */
     update(dt) {
-        const step = dt || 0.016;
+        if (!(dt > 0)) return;
         // Exponential smoother compounded for frame-rate independence (see
         // .github/copilot-instructions.md - "never scale a bare retention rate").
+        const step = dt;
         const lerpK = 1 - (1 - 0.15) ** (step * 60);
 
         for (const peer of this.remotes.values()) {
@@ -215,13 +261,13 @@ class AvatarManager {
             root.position.y += (peer.target.y - root.position.y) * lerpK;
             root.position.z += (peer.target.z - root.position.z) * lerpK;
 
-            let dy = peer.target.rotY - root.rotation.y;
-            dy = ((dy + Math.PI) % (Math.PI * 2)) - Math.PI;
-            root.rotation.y += dy * lerpK;
+            // JavaScript's % keeps the dividend's sign, so the previous wrap left
+            // differences below -PI unwrapped and avatars spun the long way round.
+            root.rotation.y += AvatarManager.shortestAngle(root.rotation.y, peer.target.rotY) * lerpK;
 
             if (peer.audio && peer.audio.panner) {
                 const p = peer.audio.panner;
-                const headY = root.position.y + 1.6;
+                const headY = root.position.y + AvatarManager.EYE_HEIGHT;
                 if (p.positionX) {
                     p.positionX.value = root.position.x;
                     p.positionY.value = headY;

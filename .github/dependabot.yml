@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        patterns: ['*']
+
+  # The multiplayer relay has its own lockfile (worker/package-lock.json).
+  - package-ecosystem: npm
+    directory: /worker
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

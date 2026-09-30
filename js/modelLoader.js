@@ -1,3 +1,4 @@
+'use strict';
 // 3D Model Loader with CDN Download and IndexedDB Caching
 // Downloads DJ equipment and speaker models from CDN on first run
 //
@@ -14,9 +15,14 @@ class ModelLoader {
      *   value, then to a device-appropriate default - never to a hard-coded number that
      *   would silently under-light loaded models relative to procedural geometry.
      */
-    constructor(scene, materialFactory = null, logger = null, maxLights = null) {
+    constructor(scene, materialFactory = null, logger = null, maxLights = null, { lightFactory = null, textureLoader = null } = {}) {
         this.scene = scene;
         this.materialFactory = materialFactory;
+        // Optional shared factories. With them, the accent lights are registered (so
+        // LightFactory.disposeAll()/getStats() see them) and PA speaker textures get the
+        // IndexedDB cache, download deadline and in-flight de-duplication.
+        this.lightFactory = lightFactory;
+        this.textureLoader = textureLoader;
         this.log = logger || console; // Use provided logger or fallback to console
         this.maxLights = maxLights
             ?? (materialFactory ? materialFactory.maxLights : null)
@@ -67,7 +73,9 @@ class ModelLoader {
                 name: 'Pioneer DJ Console',
                 url: './js/models/djgear/source/pioneer_DJ_console.glb',
                 rotation: new BABYLON.Vector3(0, Math.PI, 0), // Rotated 180° to face the DJ
-                scale: new BABYLON.Vector3(-1, 1, 1), // Sign only — NEGATIVE X unmirrors the model
+                // No sign flip: _fitAndPlace() now preserves the glTF loader's handedness
+                // conversion, which is what the former scale.x = -1 "unmirror" replaced.
+                scale: new BABYLON.Vector3(1, 1, 1),
                 placement: {
                     // 2× CDJ-3000 (329 mm) + DJM-900NXS2 (333 mm) side by side is 991 mm;
                     // 1.02 m leaves a few mm of gap between units. The model's own
@@ -82,7 +90,6 @@ class ModelLoader {
                     centerZ: -18.62,
                     bottomY: 1.42    // djTable top surface: the gear SITS on the plinth
                 },
-                useProcedural: false, // Use real 3D model
                 attribution: 'Pioneer DJ Console by TwoPixels.studio (CC BY 4.0)'
             },
             pa_speaker_left: {
@@ -105,7 +112,6 @@ class ModelLoader {
                 // truss chord centre-line; the chain length is derived from the measured
                 // cabinet, so moving the speaker re-rigs it automatically.
                 rigging: { anchorY: 8.0, yaw: Math.PI / 6 },
-                useProcedural: false, // USE the 3D model
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
                 textureBasePath: './js/models/paspeakers/source/textures/',
@@ -125,7 +131,6 @@ class ModelLoader {
                     topY: CLUB_POSITIONS.paSpeakers.right.y
                 },
                 rigging: { anchorY: 8.0, yaw: -Math.PI / 6 },
-                useProcedural: false, // USE the 3D model
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
                 textureBasePath: './js/models/paspeakers/source/textures/',
@@ -148,14 +153,38 @@ class ModelLoader {
      *
      * @returns {{min: BABYLON.Vector3, max: BABYLON.Vector3, center: BABYLON.Vector3}|null}
      */
+    /**
+     * Per-axis signs of the loader-authored root transform. Babylon's conversion is
+     * an axis-aligned sign flip (rotation of 0 or 180° about Y combined with a ±1
+     * scale), so it is representable as signs on the fit scale. Anything else is left
+     * alone with a warning rather than guessed at.
+     */
+    static _rootHandedness(rootMesh) {
+        const identity = { x: 1, y: 1, z: 1 };
+        if (!rootMesh || typeof rootMesh.computeWorldMatrix !== 'function' || rootMesh.parent) return identity;
+        const m = rootMesh.computeWorldMatrix(true).m;
+        const offDiagonal = [m[1], m[2], m[4], m[6], m[8], m[9]];
+        const unitDiagonal = [m[0], m[5], m[10]].every(v => Math.abs(Math.abs(v) - 1) < 1e-4);
+        if (!unitDiagonal || offDiagonal.some(v => Math.abs(v) > 1e-4)) return identity;
+        return { x: Math.sign(m[0]), y: Math.sign(m[5]), z: Math.sign(m[10]) };
+    }
+
     _fitAndPlace(rootMesh, config, label) {
         const p = config.placement;
         if (!p) return null;
 
+        // Babylon's glTF loader converts right-handed glTF into this left-handed scene
+        // on __root__ (a 180° Y rotation plus scaling.z = -1, i.e. a net X mirror).
+        // Step 1 below resets that transform to measure the model, so its axis signs
+        // are captured first and folded back in. Discarding them used to mirror every
+        // model; the DJ console papered over it with a hand-written scale.x = -1 while
+        // the PA speakers rendered mirrored.
+        const handedness = ModelLoader._rootHandedness(rootMesh);
+
         const sign = v => (v < 0 ? -1 : 1);
-        const sx = config.scale ? sign(config.scale.x) : 1;
-        const sy = config.scale ? sign(config.scale.y) : 1;
-        const sz = config.scale ? sign(config.scale.z) : 1;
+        const sx = (config.scale ? sign(config.scale.x) : 1) * handedness.x;
+        const sy = (config.scale ? sign(config.scale.y) : 1) * handedness.y;
+        const sz = (config.scale ? sign(config.scale.z) : 1) * handedness.z;
 
         // --- 1. Measure the model's own dimensions, rotation and scale removed ---
         rootMesh.rotationQuaternion = null; // Euler below would otherwise be ignored
@@ -288,12 +317,6 @@ class ModelLoader {
     async _loadModelOnce(modelKey, config) {
         this.log.info(`🎸 Loading ${config.name}...`);
 
-        // If configured for procedural, create enhanced model
-        if (config.useProcedural) {
-            this.log.info(`📦 Creating enhanced procedural ${config.name}`);
-            return this.createEnhancedProceduralModel(modelKey, config);
-        }
-
         // PHASE 1 - fetch and parse. A failure here has added nothing to the scene.
         let result;
         try {
@@ -318,22 +341,21 @@ class ModelLoader {
                 URL.revokeObjectURL(blobUrl);
             }
         } catch (error) {
-            this.log.warn(`⚠️ Failed to fetch/parse ${config.name}, using enhanced procedural:`, error);
-            return this.createEnhancedProceduralModel(modelKey, config);
+            this.log.warn(`⚠️ Failed to fetch/parse ${config.name}:`, error);
+            return this._modelUnavailable(modelKey, config);
         }
 
         // PHASE 2 - configure and place. addAllToScene() happens INSIDE this try, so
         // a throw anywhere in the ~200 lines of post-load configuration must roll the
         // geometry back out. Previously a failure here left un-scaled, un-opacified,
-        // over-lit GLB meshes sitting at the origin *alongside* the procedural
-        // fallback that the catch then built.
+        // over-lit GLB meshes sitting at the origin.
         try {
             return await this._configureLoadedModel(modelKey, config, result);
         } catch (error) {
-            this.log.warn(`⚠️ Failed to configure ${config.name}, using enhanced procedural:`, error);
+            this.log.warn(`⚠️ Failed to configure ${config.name}:`, error);
             try { result.removeAllFromScene(); } catch (_) { /* ignore */ }
             try { result.dispose(); } catch (_) { /* ignore */ }
-            return this.createEnhancedProceduralModel(modelKey, config);
+            return this._modelUnavailable(modelKey, config);
         }
     }
 
@@ -483,18 +505,11 @@ class ModelLoader {
             
             // Add a dedicated point light above the DJ console for visibility (VR and desktop)
             if (modelKey === 'dj_console' && rootMesh) {
-                const djLight = new BABYLON.PointLight(
-                    'djConsoleLight',
-                    new BABYLON.Vector3(
-                        focusPoint.x,
-                        focusPoint.y + 1.5,
-                        focusPoint.z
-                    ),
-                    this.scene
-                );
-                djLight.intensity = 2.0; // Increased for better VR visibility
-                djLight.range = 8; // Wider range
-                djLight.diffuse = new BABYLON.Color3(1, 1, 1);
+                const djLight = this._createAccentLight('djConsoleLight', new BABYLON.Vector3(
+                    focusPoint.x,
+                    focusPoint.y + 1.5,
+                    focusPoint.z
+                ), { intensity: 2.0, range: 8, group: 'dj' }); // Increased for better VR visibility
                 djLight.includedOnlyMeshes = result.meshes.slice();
                 this.log.info(`   💡 Added dedicated light above DJ console (intensity: 2.0)`);
                 
@@ -519,18 +534,11 @@ class ModelLoader {
             // Add lights for PA speakers for better visibility
             if ((modelKey === 'pa_speaker_left' || modelKey === 'pa_speaker_right') && rootMesh) {
                 // Position light near the speaker (slightly in front for hung speakers)
-                const speakerLight = new BABYLON.PointLight(
-                    'speakerLight_' + modelKey,
-                    new BABYLON.Vector3(
-                        focusPoint.x,
-                        focusPoint.y + (config.hangFromTruss ? 0 : 2),
-                        focusPoint.z + (config.hangFromTruss ? 1.5 : 0) // In front when flown
-                    ),
-                    this.scene
-                );
-                speakerLight.intensity = 0.8; // Reduced intensity
-                speakerLight.range = 8; // Wider range for hung speakers
-                speakerLight.diffuse = new BABYLON.Color3(1, 1, 1);
+                const speakerLight = this._createAccentLight('speakerLight_' + modelKey, new BABYLON.Vector3(
+                    focusPoint.x,
+                    focusPoint.y + (config.hangFromTruss ? 0 : 2),
+                    focusPoint.z + (config.hangFromTruss ? 1.5 : 0) // In front when flown
+                ), { intensity: 0.8, range: 8, group: 'speakers' });
                 speakerLight.includedOnlyMeshes = result.meshes.slice();
                 this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
@@ -583,6 +591,17 @@ class ModelLoader {
         }
     }
 
+    _createAccentLight(name, position, { intensity, range, group }) {
+        if (this.lightFactory && typeof this.lightFactory.createPointLight === 'function') {
+            return this.lightFactory.createPointLight(name, position, { intensity, range, diffuse: [1, 1, 1], group });
+        }
+        const light = new BABYLON.PointLight(name, position, this.scene);
+        light.intensity = intensity;
+        light.range = range;
+        light.diffuse = new BABYLON.Color3(1, 1, 1);
+        return light;
+    }
+
     _enforceSceneLightBudget() {
         if (!this.scene) return;
         const wasBlocked = this.scene.blockMaterialDirtyMechanism;
@@ -626,347 +645,15 @@ class ModelLoader {
         this._paSpeakerMatCache = null;
     }
 
-    createEnhancedProceduralModel(modelKey, config) {
-        this.log.info(`📦 Creating enhanced procedural model for ${config.name}`);
-        
-        const parent = new BABYLON.TransformNode(modelKey, this.scene);
-        parent.position = (config.position || BABYLON.Vector3.Zero()).clone();
-        parent.rotation = (config.rotation || BABYLON.Vector3.Zero()).clone();
-        parent.scaling = (config.scale || BABYLON.Vector3.One()).clone();
-        
-        let meshes = [];
-        
-        if (config.type === 'cdj') {
-            meshes = this.createEnhancedCDJ(modelKey, parent);
-        } else if (config.type === 'mixer') {
-            meshes = this.createEnhancedMixer(modelKey, parent);
-        } else if (config.type === 'pa_speaker') {
-            meshes = this.createEnhancedPASpeaker(modelKey, parent);
-        }
-        
-        this.loadedModels[modelKey] = {
-            rootMesh: parent,
-            meshes: meshes,
-            config: config
-        };
-        
-        return { meshes: [parent, ...meshes] };
-    }
-
-    createEnhancedCDJ(name, parent) {
-        const meshes = [];
-        
-        // Main body
-        const body = BABYLON.MeshBuilder.CreateBox(name + '_body', {
-            width: 0.45, height: 0.08, depth: 0.35
-        }, this.scene);
-        body.parent = parent;
-        body.position.y = 0.04;
-        
-        let bodyMat;
-        if (this.materialFactory) {
-            bodyMat = this.materialFactory.createStandardMaterial(name + '_body_mat', {
-                diffuseColor: [0.08, 0.08, 0.1],
-                specularColor: [0.2, 0.2, 0.2],
-                roughness: 0.6
-            });
-        } else {
-            bodyMat = new BABYLON.StandardMaterial(name + '_body_mat', this.scene);
-            bodyMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.1);
-            bodyMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
-            bodyMat.roughness = 0.6;
-        }
-        body.material = bodyMat;
-        meshes.push(body);
-        
-        // Jog wheel (platter)
-        const platter = BABYLON.MeshBuilder.CreateCylinder(name + '_platter', {
-            diameter: 0.2, height: 0.02
-        }, this.scene);
-        platter.parent = parent;
-        platter.position.set(0, 0.09, 0.05);
-        
-        let platterMat;
-        if (this.materialFactory) {
-            platterMat = this.materialFactory.createStandardMaterial(name + '_platter_mat', {
-                diffuseColor: [0.02, 0.02, 0.02],
-                emissiveColor: [0, 0.15, 0.3], // Blue glow
-                specularColor: [0.8, 0.8, 0.8]
-            });
-        } else {
-            platterMat = new BABYLON.StandardMaterial(name + '_platter_mat', this.scene);
-            platterMat.diffuseColor = new BABYLON.Color3(0.02, 0.02, 0.02);
-            platterMat.emissiveColor = new BABYLON.Color3(0, 0.15, 0.3);
-            platterMat.specularColor = new BABYLON.Color3(0.8, 0.8, 0.8);
-        }
-        platter.material = platterMat;
-        meshes.push(platter);
-        
-        // Display screen
-        const screen = BABYLON.MeshBuilder.CreatePlane(name + '_screen', {
-            width: 0.25, height: 0.04
-        }, this.scene);
-        screen.parent = parent;
-        screen.position.set(0, 0.085, -0.1);
-        screen.rotation.x = Math.PI / 2;
-        
-        let screenMat;
-        if (this.materialFactory) {
-            screenMat = this.materialFactory.createStandardMaterial(name + '_screen_mat', {
-                diffuseColor: [0, 0, 0],
-                emissiveColor: [0, 0.4, 0.6] // Cyan glow
-            });
-        } else {
-            screenMat = new BABYLON.StandardMaterial(name + '_screen_mat', this.scene);
-            screenMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            screenMat.emissiveColor = new BABYLON.Color3(0, 0.4, 0.6);
-        }
-        screen.material = screenMat;
-        meshes.push(screen);
-        
-        // Control buttons (grid of small boxes)
-        for (let i = 0; i < 8; i++) {
-            const button = BABYLON.MeshBuilder.CreateBox(name + '_btn' + i, {
-                width: 0.025, height: 0.01, depth: 0.025
-            }, this.scene);
-            button.parent = parent;
-            button.position.set(-0.15 + (i * 0.04), 0.085, 0.12);
-            
-            const emissive = i % 2 === 0 ? [0.3, 0, 0] : [0, 0.3, 0];
-            
-            let btnMat;
-            if (this.materialFactory) {
-                btnMat = this.materialFactory.createStandardMaterial(name + '_btn' + i + '_mat', {
-                    diffuseColor: [0.1, 0.1, 0.1],
-                    emissiveColor: emissive
-                });
-            } else {
-                btnMat = new BABYLON.StandardMaterial(name + '_btn' + i + '_mat', this.scene);
-                btnMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-                btnMat.emissiveColor = new BABYLON.Color3(emissive[0], emissive[1], emissive[2]);
-            }
-            button.material = btnMat;
-            meshes.push(button);
-        }
-        
-        return meshes;
-    }
-
-    createEnhancedMixer(name, parent) {
-        const meshes = [];
-        
-        // Main body
-        const body = BABYLON.MeshBuilder.CreateBox(name + '_body', {
-            width: 0.65, height: 0.1, depth: 0.4
-        }, this.scene);
-        body.parent = parent;
-        body.position.y = 0.05;
-        
-        let bodyMat;
-        if (this.materialFactory) {
-            bodyMat = this.materialFactory.createStandardMaterial(name + '_body_mat', {
-                diffuseColor: [0.05, 0.05, 0.06],
-                specularColor: [0.15, 0.15, 0.15],
-                roughness: 0.7
-            });
-        } else {
-            bodyMat = new BABYLON.StandardMaterial(name + '_body_mat', this.scene);
-            bodyMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.06);
-            bodyMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-            bodyMat.roughness = 0.7;
-        }
-        body.material = bodyMat;
-        meshes.push(body);
-        
-        // Channel faders (3 channels)
-        for (let i = 0; i < 3; i++) {
-            const fader = BABYLON.MeshBuilder.CreateBox(name + '_fader' + i, {
-                width: 0.03, height: 0.015, depth: 0.12
-            }, this.scene);
-            fader.parent = parent;
-            fader.position.set(-0.2 + (i * 0.2), 0.108, -0.05);
-            
-            let faderMat;
-            if (this.materialFactory) {
-                faderMat = this.materialFactory.createStandardMaterial(name + '_fader' + i + '_mat', {
-                    diffuseColor: [0.8, 0.8, 0.8],
-                    specularColor: [1, 1, 1]
-                });
-            } else {
-                faderMat = new BABYLON.StandardMaterial(name + '_fader' + i + '_mat', this.scene);
-                faderMat.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
-                faderMat.specularColor = new BABYLON.Color3(1, 1, 1);
-            }
-            fader.material = faderMat;
-            meshes.push(fader);
-        }
-        
-        // EQ knobs (3 per channel)
-        for (let ch = 0; ch < 3; ch++) {
-            for (let eq = 0; eq < 3; eq++) {
-                const knob = BABYLON.MeshBuilder.CreateCylinder(name + '_knob_' + ch + '_' + eq, {
-                    diameter: 0.025, height: 0.015
-                }, this.scene);
-                knob.parent = parent;
-                knob.position.set(-0.2 + (ch * 0.2), 0.115, 0.08 - (eq * 0.04));
-                
-                let knobMat;
-                if (this.materialFactory) {
-                    knobMat = this.materialFactory.createStandardMaterial(name + '_knob_mat', {
-                        diffuseColor: [0.1, 0.1, 0.1],
-                        specularColor: [0.5, 0.5, 0.5]
-                    }, true); // Shared material
-                } else {
-                    knobMat = new BABYLON.StandardMaterial(name + '_knob_mat', this.scene);
-                    knobMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-                    knobMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-                }
-                knob.material = knobMat;
-                meshes.push(knob);
-            }
-        }
-        
-        // Master section with VU meters
-        const vuMeter = BABYLON.MeshBuilder.CreatePlane(name + '_vu', {
-            width: 0.15, height: 0.06
-        }, this.scene);
-        vuMeter.parent = parent;
-        vuMeter.position.set(0, 0.105, 0.15);
-        vuMeter.rotation.x = Math.PI / 2;
-        
-        let vuMat;
-        if (this.materialFactory) {
-            vuMat = this.materialFactory.createStandardMaterial(name + '_vu_mat', {
-                diffuseColor: [0, 0, 0],
-                emissiveColor: [0.8, 0, 0] // Red VU meter
-            });
-        } else {
-            vuMat = new BABYLON.StandardMaterial(name + '_vu_mat', this.scene);
-            vuMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            vuMat.emissiveColor = new BABYLON.Color3(0.8, 0, 0);
-        }
-        vuMeter.material = vuMat;
-        meshes.push(vuMeter);
-        
-        return meshes;
-    }
-
-    createEnhancedPASpeaker(name, parent) {
-        const meshes = [];
-        
-        // Main speaker cabinet
-        const cabinet = BABYLON.MeshBuilder.CreateBox(name + '_cabinet', {
-            width: 0.8, height: 1.8, depth: 0.7
-        }, this.scene);
-        cabinet.parent = parent;
-        
-        let cabinetMat;
-        if (this.materialFactory) {
-            cabinetMat = this.materialFactory.createStandardMaterial(name + '_cabinet_mat', {
-                diffuseColor: [0.12, 0.12, 0.12],
-                specularColor: [0.05, 0.05, 0.05],
-                roughness: 0.9
-            });
-        } else {
-            cabinetMat = new BABYLON.StandardMaterial(name + '_cabinet_mat', this.scene);
-            cabinetMat.diffuseColor = new BABYLON.Color3(0.12, 0.12, 0.12);
-            cabinetMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-            cabinetMat.roughness = 0.9;
-        }
-        cabinet.material = cabinetMat;
-        meshes.push(cabinet);
-        
-        // Woofer (large speaker cone)
-        const woofer = BABYLON.MeshBuilder.CreateCylinder(name + '_woofer', {
-            diameter: 0.5, height: 0.1
-        }, this.scene);
-        woofer.parent = parent;
-        woofer.position.set(0, -0.3, 0.36);
-        woofer.rotation.x = Math.PI / 2;
-        
-        let wooferMat;
-        if (this.materialFactory) {
-            wooferMat = this.materialFactory.createStandardMaterial(name + '_woofer_mat', {
-                diffuseColor: [0.05, 0.05, 0.05],
-                specularColor: [0.1, 0.1, 0.1]
-            });
-        } else {
-            wooferMat = new BABYLON.StandardMaterial(name + '_woofer_mat', this.scene);
-            wooferMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
-            wooferMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        }
-        woofer.material = wooferMat;
-        meshes.push(woofer);
-        
-        // Mid-range speaker
-        const midRange = BABYLON.MeshBuilder.CreateCylinder(name + '_mid', {
-            diameter: 0.25, height: 0.08
-        }, this.scene);
-        midRange.parent = parent;
-        midRange.position.set(0, 0.3, 0.36);
-        midRange.rotation.x = Math.PI / 2;
-        
-        let midMat;
-        if (this.materialFactory) {
-            midMat = this.materialFactory.createStandardMaterial(name + '_mid_mat', {
-                diffuseColor: [0.08, 0.08, 0.08],
-                specularColor: [0.15, 0.15, 0.15]
-            });
-        } else {
-            midMat = new BABYLON.StandardMaterial(name + '_mid_mat', this.scene);
-            midMat.diffuseColor = new BABYLON.Color3(0.08, 0.08, 0.08);
-            midMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        }
-        midRange.material = midMat;
-        meshes.push(midRange);
-        
-        // Tweeter (horn)
-        const tweeter = BABYLON.MeshBuilder.CreateCylinder(name + '_tweeter', {
-            diameterTop: 0.12, diameterBottom: 0.06, height: 0.15
-        }, this.scene);
-        tweeter.parent = parent;
-        tweeter.position.set(0, 0.65, 0.38);
-        tweeter.rotation.x = Math.PI / 2;
-        
-        let tweeterMat;
-        if (this.materialFactory) {
-            tweeterMat = this.materialFactory.createStandardMaterial(name + '_tweeter_mat', {
-                diffuseColor: [0.9, 0.9, 0.9],
-                specularColor: [1, 1, 1]
-            });
-            // StandardMaterial doesn't have metallic property directly, but we can simulate or ignore
-        } else {
-            tweeterMat = new BABYLON.StandardMaterial(name + '_tweeter_mat', this.scene);
-            tweeterMat.diffuseColor = new BABYLON.Color3(0.9, 0.9, 0.9);
-            tweeterMat.specularColor = new BABYLON.Color3(1, 1, 1);
-        }
-        tweeter.material = tweeterMat;
-        meshes.push(tweeter);
-        
-        // Grille mesh effect (multiple bars)
-        for (let i = 0; i < 10; i++) {
-            const bar = BABYLON.MeshBuilder.CreateBox(name + '_bar' + i, {
-                width: 0.7, height: 0.01, depth: 0.01
-            }, this.scene);
-            bar.parent = parent;
-            bar.position.set(0, -0.8 + (i * 0.18), 0.355);
-            
-            let barMat;
-            if (this.materialFactory) {
-                barMat = this.materialFactory.createStandardMaterial(name + '_bar_mat', {
-                    diffuseColor: [0.15, 0.15, 0.15],
-                    alpha: 0.8
-                });
-            } else {
-                barMat = new BABYLON.StandardMaterial(name + '_bar_mat', this.scene);
-                barMat.diffuseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-                barMat.alpha = 0.8;
-            }
-            bar.material = barMat;
-            meshes.push(bar);
-        }
-        
-        return meshes;
+    /**
+     * A GLB could not be fetched, parsed or configured. The club's own procedural
+     * DJ booth and speaker stacks (createDJBooth / createPASpeakers) are only hidden
+     * when a real model loads, so they remain the visible fallback. The loader used to
+     * carry ~480 lines of alternative procedural builders that no config could reach.
+     */
+    _modelUnavailable(modelKey, config) {
+        this.log.warn(`⚠️ ${config.name} unavailable - keeping the club's built-in geometry for ${modelKey}`);
+        return null;
     }
 
     /**
@@ -1165,29 +852,44 @@ class ModelLoader {
             mat.roughness = 0.7;
 
             const sampling = BABYLON.Texture.TRILINEAR_SAMPLINGMODE;
+            let warned = false;
+            // Through TextureLoader when available (IndexedDB cache, body deadline,
+            // in-flight de-duplication); a bare Texture only in the standalone case.
             // invertY=false for GLTF UVs.
-            mat.baseTexture = new BABYLON.Texture(albedoPath, this.scene, false, false, sampling,
-                () => this.log.info(`   ✅ Loaded albedo: ${albedoPath}`),
-                (m) => { this.log.warn(`   ⚠️ Failed to load albedo: ${albedoPath} - ${m}`); mat.baseColor = new BABYLON.Color3(1, 0, 1); }
-            );
-            mat.baseTexture.hasAlpha = false;
-
-            mat.normalTexture = new BABYLON.Texture(normalPath, this.scene, false, false, sampling,
-                () => this.log.info(`   ✅ Loaded normal: ${normalPath}`),
-                (m) => this.log.warn(`   ⚠️ Failed to load normal: ${normalPath} - ${m}`)
-            );
-
+            const loadInto = (slot, path, onFail) => {
+                const fail = (message) => {
+                    this.log.warn(`   ⚠️ Failed to load ${slot}: ${path} - ${message}`);
+                    if (onFail) onFail();
+                    if (!warned) {
+                        warned = true;
+                        this.log.warn('   ⚠️ PA speakers are using an untextured fallback finish');
+                    }
+                };
+                const create = (url) => {
+                    const texture = new BABYLON.Texture(url, this.scene, false, false, sampling,
+                        () => this.log.info(`   ✅ Loaded ${slot}: ${path}`),
+                        (m) => fail(m));
+                    if (slot === 'albedo') texture.hasAlpha = false;
+                    mat[slot === 'albedo' ? 'baseTexture'
+                        : slot === 'normal' ? 'normalTexture'
+                            : slot === 'metallic/roughness' ? 'metallicRoughnessTexture'
+                                : 'occlusionTexture'] = texture;
+                };
+                if (this.textureLoader && typeof this.textureLoader.loadOrDownloadTexture === 'function') {
+                    this.textureLoader.loadOrDownloadTexture(path).then(create, (error) => fail(error && error.message));
+                } else {
+                    create(path);
+                }
+            };
+            // A missing albedo falls back to the speakers' own near-black finish, never
+            // the magenta debug colour that used to reach users on any texture 404.
+            const darkFinish = () => { mat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.022); };
+            loadInto('albedo', albedoPath, darkFinish);
+            loadInto('normal', normalPath);
             // metallicRoughnessTexture: metallic in B, roughness in G (GLTF spec).
             // Texture file in this asset already encodes roughness in G channel.
-            mat.metallicRoughnessTexture = new BABYLON.Texture(roughnessPath, this.scene, false, false, sampling,
-                () => this.log.info(`   ✅ Loaded metallic/roughness: ${roughnessPath}`),
-                (m) => this.log.warn(`   ⚠️ Failed to load metallic/roughness: ${roughnessPath} - ${m}`)
-            );
-
-            mat.occlusionTexture = new BABYLON.Texture(aoPath, this.scene, false, false, sampling,
-                () => this.log.info(`   ✅ Loaded AO: ${aoPath}`),
-                (m) => this.log.warn(`   ⚠️ Failed to load AO: ${aoPath} - ${m}`)
-            );
+            loadInto('metallic/roughness', roughnessPath);
+            loadInto('AO', aoPath);
 
             const maxLights = this.maxLights;
             mat.maxSimultaneousLights = maxLights;

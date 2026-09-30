@@ -145,8 +145,206 @@ test('multiplayer stops initial failures and bounds cancellable reconnects', () 
     assert.equal(client.status, 'disconnected');
 });
 
+// Two NetworkClients joined through an in-memory relay, with a fake
+// RTCPeerConnection that models offer/answer signalling states and fires
+// `negotiationneeded` when tracks change (as browsers do).
+function createMultiplayerHarness() {
+    class FakeSocket {
+        static OPEN = 1;
+        constructor() { this.listeners = {}; this.readyState = 1; this.sent = []; }
+        addEventListener(event, handler) { this.listeners[event] = handler; }
+        send(data) { this.sent.push(JSON.parse(data)); relayFrom(this, JSON.parse(data)); }
+        close() { this.readyState = 3; this.listeners.close?.({ code: 1000 }); }
+        deliver(msg) { this.listeners.message({ data: JSON.stringify(msg) }); }
+    }
+    class FakePC {
+        constructor() { this.listeners = {}; this.senders = []; this.signalingState = 'stable'; this.localDescription = null; this.remoteDescription = null; }
+        addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+        fire(type, event = {}) { for (const fn of this.listeners[type] || []) fn(event); }
+        getSenders() { return this.senders; }
+        addTrack(track) { this.senders.push({ track }); queueMicrotask(() => this.fire('negotiationneeded')); }
+        removeTrack(sender) { sender.track = null; queueMicrotask(() => this.fire('negotiationneeded')); }
+        async setLocalDescription() {
+            const type = this.signalingState === 'have-remote-offer' ? 'answer' : 'offer';
+            this.localDescription = { type, sdp: `${type}:${this.senders.filter(s => s.track).length}` };
+            this.signalingState = type === 'offer' ? 'have-local-offer' : 'stable';
+        }
+        async setRemoteDescription(description) {
+            this.remoteDescription = description;
+            this.signalingState = description.type === 'offer' ? 'have-remote-offer' : 'stable';
+        }
+        async addIceCandidate() {}
+        close() { this.closed = true; }
+    }
+    const sockets = new Map();
+    function relayFrom(socket, msg) {
+        if (msg.type !== 'rtc-signal') return;
+        const from = [...sockets].find(([, s]) => s === socket)[0];
+        sockets.get(msg.target)?.deliver({ type: 'rtc-signal', from, signal: msg.signal });
+    }
+    const { window } = loadClassic('js/networkClient.js', {
+        WebSocket: FakeSocket,
+        RTCPeerConnection: FakePC,
+        queueMicrotask,
+        setTimeout, clearTimeout,
+        navigator: { mediaDevices: { getUserMedia: async () => {
+            const track = { stop() { this.stopped = true; } };
+            return { getTracks: () => [track] };
+        } } }
+    });
+    const join = (id, peers) => {
+        const client = new window.NetworkClient({ serverUrl: 'wss://relay.example' });
+        client.connect();
+        sockets.set(id, client.ws);
+        client.ws.deliver({ type: 'welcome', id, hostId: 'a', peers: peers.map(p => ({ id: p, name: p, state: null })) });
+        for (const [otherId, socket] of sockets) {
+            if (otherId !== id) socket.deliver({ type: 'join', id, name: id });
+        }
+        return client;
+    };
+    const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)); };
+    return { window, join, settle };
+}
+
+test('voice negotiates whichever guest enables the mic first, and renegotiates a later mic', async () => {
+    const { join, settle } = createMultiplayerHarness();
+    const a = join('a', []);
+    const b = join('b', ['a']);
+
+    // The HIGHER id enables the mic first. Previously only the lower id ever offered,
+    // so this guest was never heard.
+    await b.enableVoice();
+    await settle();
+    const aPc = a.peers.get('b').pc;
+    const bPc = b.peers.get('a').pc;
+    assert.ok(aPc, 'the listener must receive an offer and create a connection');
+    assert.equal(aPc.remoteDescription.type, 'offer');
+    assert.equal(bPc.remoteDescription.type, 'answer');
+    assert.equal(bPc.signalingState, 'stable');
+
+    // The listener enables the mic afterwards: its existing receive-only connection
+    // must be renegotiated with the new track.
+    await a.enableVoice();
+    await settle();
+    assert.equal(bPc.remoteDescription.type, 'offer');
+    assert.equal(bPc.remoteDescription.sdp, 'offer:1');
+    assert.equal(aPc.signalingState, 'stable');
+
+    // Muting stops sending but keeps the connection so the guest still hears others.
+    b.disableVoice();
+    await settle();
+    assert.equal(b.peers.get('a').pc, bPc);
+    assert.equal(bPc.closed, undefined);
+});
+
+test('a dropped relay socket reports every peer as gone and shared music never carries local URLs', () => {
+    const { join } = createMultiplayerHarness();
+    const a = join('a', []);
+    join('b', ['a']);
+    const left = [];
+    a.onPeerLeave = id => left.push(id);
+    a.onError = () => {};
+    assert.equal(a.peerCount, 1);
+    a.ws.close();
+    assert.deepEqual(left, ['b']);
+    assert.equal(a.peerCount, 0);
+
+    const host = join('a2', []);
+    host.hostId = host.selfId;
+    const sent = () => host.ws.sent.filter(msg => msg.type === 'music');
+    assert.equal(host.sendMusic({ url: 'blob:https://club.example/1', playing: true, position: 0 }), false);
+    assert.equal(host.sendMusic({ url: 'data:audio/wav;base64,AA', playing: true, position: 0 }), false);
+    assert.equal(sent().length, 0);
+    assert.equal(host.sendMusic({ url: 'https://radio.example/live', playing: true, position: 0 }), true);
+    assert.equal(sent().length, 1);
+    host.hostId = 'someone-else';
+    assert.equal(host.sendMusic({ url: 'https://radio.example/live', playing: true, position: 0 }), false);
+});
+
+test('the relay close codes stop reconnecting and explain why', () => {
+    const { window } = createMultiplayerHarness();
+    const client = new window.NetworkClient({ serverUrl: 'wss://relay.example' });
+    const errors = [];
+    client.onError = error => errors.push(error.message);
+    client.connect();
+    client.ws.listeners.message({ data: JSON.stringify({ type: 'welcome', id: 'x', peers: [] }) });
+    client.ws.listeners.close({ code: window.NetworkClient.CLOSE_ROOM_FULL });
+    assert.equal(client.status, 'error');
+    assert.match(errors[0], /room is full/);
+    assert.equal(client._reconnectTimer, null);
+});
+
+function loadAvatarManager() {
+    class Node3 { constructor() { this.position = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } }; this.rotation = { y: 0 }; } dispose() { this.disposed = true; } }
+    const created = [];
+    const BABYLON = {
+        TransformNode: Node3,
+        MeshBuilder: {
+            CreateCapsule: () => new Node3(),
+            CreateSphere: () => new Node3(),
+            CreatePlane: () => { const m = new Node3(); created.push(m); return m; }
+        },
+        Mesh: { BILLBOARDMODE_ALL: 7 },
+        DynamicTexture: class { getContext() { return { clearRect() {}, fillRect() {}, fillText() {} }; } getSize() { return { width: 256, height: 64 }; } update() {} dispose() {} },
+        StandardMaterial: class { dispose() {} },
+        Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } }
+    };
+    let now = 0;
+    const { window } = loadClassic('js/avatarManager.js', {
+        BABYLON, performance: { now: () => now }
+    });
+    const manager = new window.AvatarManager({ scene: {}, materialFactory: null });
+    return { manager, AvatarManager: window.AvatarManager, created, advance: ms => { now += ms; } };
+}
+
+test('remote avatars stand on the floor under the sender eye and snap on their first sample', () => {
+    const { manager, AvatarManager } = loadAvatarManager();
+    manager.updatePeerState('p', 'Pat', { x: 3, y: 1.7, z: -12, rotY: 0.5 });
+    const peer = manager.remotes.get('p');
+    assert.equal(peer.root.position.y, 0, 'a standing guest (eye 1.7 m) must have feet at y = 0');
+    assert.equal(peer.root.position.x, 3);
+    assert.equal(peer.root.rotation.y, 0.5);
+    assert.equal(peer.root.position.y + AvatarManager.EYE_HEIGHT, 1.7);
+
+    // Booth riser: eye 2.65 m -> feet on the 0.95 m platform.
+    manager.updatePeerState('p', null, { x: 0, y: 2.65, z: -18, rotY: 0 });
+    for (let i = 0; i < 600; i++) manager.update(1 / 72);
+    assert.ok(Math.abs(peer.root.position.y - 0.95) < 1e-6);
+    manager.updatePeerState('p', null, { x: NaN, y: Infinity, z: 0, rotY: 0 });
+    assert.ok(Number.isFinite(peer.target.x) && Number.isFinite(peer.target.y));
+});
+
+test('remote avatar turns follow the shortest arc', () => {
+    const { manager, AvatarManager } = loadAvatarManager();
+    assert.ok(Math.abs(AvatarManager.shortestAngle(3, -3) - (2 * Math.PI - 6)) < 1e-9);
+    assert.ok(Math.abs(AvatarManager.shortestAngle(0, -3 * Math.PI / 2) - Math.PI / 2) < 1e-9);
+    manager.updatePeerState('p', 'Pat', { x: 0, y: 1.7, z: 0, rotY: 3 });
+    const peer = manager.remotes.get('p');
+    manager.updatePeerState('p', null, { x: 0, y: 1.7, z: 0, rotY: -3 });
+    manager.update(1 / 60);
+    assert.ok(peer.root.rotation.y > 3, `expected a short turn through PI, got ${peer.root.rotation.y}`);
+    const before = peer.root.rotation.y;
+    manager.update(0);
+    manager.update(undefined);
+    assert.equal(peer.root.rotation.y, before, 'no frame step means no motion');
+});
+
+test('remote emoji are allow-listed and rate-limited per guest', () => {
+    const { manager, created, advance } = loadAvatarManager();
+    manager.updatePeerState('p', 'Pat', { x: 0, y: 1.7, z: 0, rotY: 0 });
+    const planesBefore = created.length;
+    manager.showEmoji('p', '<script>');
+    assert.equal(created.length, planesBefore);
+    manager.showEmoji('p', '🎉');
+    manager.showEmoji('p', '🔥');
+    assert.equal(created.length, planesBefore + 1, 'second reaction inside the interval is dropped');
+    advance(600);
+    manager.showEmoji('p', '🔥');
+    assert.equal(created.length, planesBefore + 2);
+});
+
 test('audio URL policy accepts supported sources and rejects unsafe inputs', () => {
-    const AudioUtils = require('../js/audioUtils.js');
+    const { AudioUtils } = loadClassic('js/audioUtils.js').window;
     const httpsPage = 'https://vrclub.example/';
     const cases = [
         ['https://radio.example/live.mp3', true],
@@ -347,19 +545,52 @@ test('MaterialFactory cache keys normalize colors and object key order', () => {
     assert.notEqual(arrayKey, other);
 });
 
-test('MaterialFactory freeze policy is driven by one shared list', () => {
+test('MaterialFactory freezes by explicit mutability, never by material name', () => {
     const BABYLON = makeBabylonStub();
+    class FakeMaterial {
+        constructor(name) { this.name = name; this.isFrozen = false; }
+        freeze() { this.isFrozen = true; }
+    }
+    BABYLON.StandardMaterial = FakeMaterial;
+    BABYLON.PBRMetallicRoughnessMaterial = FakeMaterial;
+    BABYLON.PBRMaterial = class extends FakeMaterial {
+        constructor(name) { super(name); this.clearCoat = {}; this.sheen = {}; }
+    };
     const { window } = loadClassic('js/materialFactory.js', { BABYLON });
     const F = window.MaterialFactory;
+    const factory = new F({}, 3, { info() {}, warn() {} });
 
-    assert.equal(F.isHotMutated('ledPanelMat'), true);
-    assert.equal(F.isHotMutated('laserBeamMat'), true);
-    assert.equal(F.isHotMutated('BRICKmat'), false);
-    assert.equal(F.isHotMutated('trussMat'), false);
-    // The list must exist exactly once; three verbatim copies had drifted before.
-    const source = readFileSync(join(ROOT, 'js/materialFactory.js'), 'utf8');
-    assert.equal((source.match(/'sliderhandle'/g) || []).length, 1,
-        'HOT_MUTATED must be declared once, not copy-pasted per creator');
+    for (const create of ['createPBRMaterial', 'createStandardMaterial', 'createFullPBRMaterial']) {
+        // A name that used to match the substring list is frozen without the flag...
+        assert.equal(factory[create]('ledPanelMat', {}).isFrozen, true, `${create}: names must not decide`);
+        // ...and a plain name stays live when the caller declares it mutable.
+        assert.equal(factory[create]('trussMat', { mutable: true }).isFrozen, false, `${create}: mutable opts out`);
+    }
+    assert.equal(F.isHotMutated, undefined, 'the name-matching fallback is gone');
+    assert.equal(F.HOT_MUTATED, undefined);
+
+    // A shared frozen material must never be handed to a caller that mutates it.
+    const frozen = factory.createPBRMaterial('a', { baseColor: [1, 0, 0] }, true);
+    const live = factory.createPBRMaterial('b', { baseColor: [1, 0, 0], mutable: true }, true);
+    assert.notEqual(frozen, live);
+});
+
+test('every runtime-colour-written factory material declares mutable: true', () => {
+    // Migration guard: the call sites that the old name heuristic kept unfrozen must
+    // now opt in explicitly, so removing the heuristic changed no runtime behaviour.
+    const legacyTags = ['lens', 'source', 'flare', 'beam', 'gobo', 'strobe', 'led', 'pool',
+        'glow', 'laser', 'mirror', 'toggle', 'audiobtn', 'sliderhandle'];
+    const missing = [];
+    const files = ['js/materialFactory.js', ...readdirSync(join(ROOT, 'js/club')).map(f => `js/club/${f}`)];
+    for (const file of files) {
+        const lines = readFileSync(join(ROOT, file), 'utf8').split('\n');
+        lines.forEach((line, i) => {
+            const m = line.match(/create(?:PBR|Standard|FullPBR)Material\(\s*(['"`])([^'"`]*)/);
+            if (!m || !legacyTags.some(tag => m[2].toLowerCase().includes(tag))) return;
+            if (!/mutable:\s*true/.test(lines.slice(i, i + 3).join('\n'))) missing.push(`${file}:${i + 1}`);
+        });
+    }
+    assert.deepEqual(missing, []);
 });
 
 // ---------------------------------------------------------------------------
@@ -547,6 +778,250 @@ test('ModelLoader.dispose releases loaded containers and procedural hierarchies'
     ]);
     assert.equal(Object.keys(loader.loadedModels).length, 0);
     assert.equal(loader._paSpeakerMatCache, null);
+});
+
+// ---------------------------------------------------------------------------
+// Web Audio spatial graph (structural; no audio is decoded)
+// ---------------------------------------------------------------------------
+
+function createAudioHarness() {
+    const edges = [];
+    const started = new Set();
+    class Param {
+        constructor(value = 0) { this.value = value; this.targets = []; }
+        setTargetAtTime(v, t, c) { this.value = v; this.targets.push([v, t, c]); }
+    }
+    class Node {
+        constructor(kind) { this.kind = kind; }
+        connect(target) { edges.push([this, target]); return target; }
+        disconnect() { for (let i = edges.length - 1; i >= 0; i--) if (edges[i][0] === this) edges.splice(i, 1); }
+    }
+    class FakeAudioContext {
+        constructor() {
+            this.state = 'running';
+            this.sampleRate = 8000;
+            this.currentTime = 1;
+            this.destination = new Node('destination');
+            this.listener = Object.fromEntries(['positionX', 'positionY', 'positionZ', 'forwardX', 'forwardY',
+                'forwardZ', 'upX', 'upY', 'upZ'].map(k => [k, new Param()]));
+        }
+        createAnalyser() { return Object.assign(new Node('analyser'), { fftSize: 2048, frequencyBinCount: 64 }); }
+        createPanner() {
+            const n = new Node('panner');
+            for (const k of ['positionX', 'positionY', 'positionZ', 'orientationX', 'orientationY', 'orientationZ']) n[k] = new Param();
+            return n;
+        }
+        createBiquadFilter() { return Object.assign(new Node('biquad'), { frequency: new Param(350), Q: new Param(1) }); }
+        createGain() { return Object.assign(new Node('gain'), { gain: new Param(1) }); }
+        createDelay() { return Object.assign(new Node('delay'), { delayTime: new Param() }); }
+        createConvolver() { return new Node('convolver'); }
+        createDynamicsCompressor() {
+            const n = new Node('compressor');
+            for (const k of ['threshold', 'knee', 'ratio', 'attack', 'release']) n[k] = new Param();
+            return n;
+        }
+        createBuffer(channels, length) {
+            const data = Array.from({ length: channels }, () => new Float32Array(length));
+            return { numberOfChannels: channels, length, getChannelData: c => data[c] };
+        }
+        createBufferSource() {
+            const n = new Node('bufferSource');
+            n.start = () => started.add(n);
+            n.stop = () => started.delete(n);
+            return n;
+        }
+        createMediaElementSource(element) {
+            if (element._sourced) throw new Error('InvalidStateError');
+            element._sourced = true;
+            return new Node('mediaSource');
+        }
+        resume() { return Promise.resolve(); }
+        close() { this.state = 'closed'; return Promise.resolve(); }
+    }
+    const positions = {
+        paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } },
+        danceFloor: { x: 0, y: 0, z: -12 }
+    };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        VRClubUI: class {},
+        CLUB_POSITIONS: positions,
+        ROOM_BOUNDS: { z: { min: -21, max: -5 } },
+        log: { info() {}, warn() {} },
+        BABYLON: { Vector3: { Up: () => ({ x: 0, y: 1, z: 0 }) } },
+        Float32Array, Uint8Array
+    });
+    window.AudioContext = FakeAudioContext;
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    club.audioElement = { src: '' };
+    // Reachability over the recorded connect() edges.
+    const downstream = (from) => {
+        const seen = new Set([from]);
+        const queue = [from];
+        while (queue.length) {
+            const node = queue.shift();
+            for (const [a, b] of edges) if (a === node && !seen.has(b)) { seen.add(b); queue.push(b); }
+        }
+        return seen;
+    };
+    const connected = (a, b) => edges.some(([x, y]) => x === a && y === b);
+    return { club, edges, started, downstream, connected, positions, window };
+}
+
+test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and reaches the output', () => {
+    const { club, downstream, connected, positions, started } = createAudioHarness();
+    club._connectAudioSourceOnce();
+    const ctx = club.audioContext;
+
+    for (const [panner, side] of [[club.pannerLeft, 'left'], [club.pannerRight, 'right']]) {
+        assert.ok(panner, `${side} PA panner missing`);
+        assert.equal(panner.panningModel, 'HRTF', `${side} PA must use HRTF`);
+        assert.equal(panner.positionX.value, positions.paSpeakers[side].x);
+        assert.equal(panner.positionY.value, positions.paSpeakers[side].y);
+        assert.equal(panner.positionZ.value, positions.paSpeakers[side].z);
+        assert.ok(connected(club.airAbsorptionFilter, panner));
+        assert.ok(downstream(panner).has(ctx.destination), `${side} PA does not reach the output`);
+    }
+
+    // The analyser is fed straight from the source, never after spatial attenuation,
+    // or walking away from the PA would dim the light show.
+    assert.ok(connected(club.audioSource, club.audioAnalyser));
+    assert.ok(!downstream(club.pannerLeft).has(club.audioAnalyser));
+    assert.equal(club.audioAnalyser.fftSize, 256);
+
+    // Sub channel, early reflection and convolution reverb all land on the master bus.
+    for (const node of [club.subGain, club.roomDelayGain, club.reverbReturn, club.occlusionFilter]) {
+        assert.ok(downstream(node).has(club.audioCompressor));
+    }
+    assert.ok(connected(club.audioCompressor, club.audioMasterGain));
+    assert.ok(connected(club.audioMasterGain, ctx.destination));
+    assert.ok(downstream(club.audioSource).has(club.roomConvolver));
+
+    // The crowd bed runs, spatialised, into the same bus.
+    assert.ok(started.has(club.crowdAmbienceSource));
+    assert.equal(club.crowdAmbiencePanner.panningModel, 'HRTF');
+    assert.ok(downstream(club.crowdAmbienceSource).has(ctx.destination));
+
+    // createMediaElementSource throws if called twice for one element.
+    const source = club.audioSource;
+    club._connectAudioSourceOnce();
+    assert.equal(club.audioSource, source);
+});
+
+test('the Web Audio listener follows the camera and leaving the room occludes the PA', () => {
+    const { club } = createAudioHarness();
+    club._connectAudioSourceOnce();
+    const ctx = club.audioContext;
+    const camera = {
+        globalPosition: { x: 1, y: 1.7, z: -10 },
+        getForwardRay: () => ({ direction: { x: 0, y: 0, z: -1 } }),
+        upVector: { x: 0, y: 1, z: 0 }
+    };
+    club.scene = { activeCamera: camera };
+    club._audioFrameData = { average: 0 };
+    club.updateSpatialAudioListener();
+    assert.equal(ctx.listener.positionX.value, 1);
+    assert.equal(ctx.listener.positionZ.value, -10);
+    assert.equal(ctx.listener.forwardZ.value, -1);
+    const insideCutoff = club.occlusionFilter.frequency.value;
+
+    camera.globalPosition = { x: 0, y: 1.7, z: -1 };
+    club.updateSpatialAudioListener();
+    assert.ok(club.occlusionFilter.frequency.value < insideCutoff, 'the corridor must muffle the PA');
+    assert.ok(club.audioMasterGain.gain.value < 1.15);
+    assert.ok(club.reverbSend.gain.value > 0.08);
+});
+
+test('disposing the club stops every audio source and closes the AudioContext', () => {
+    const { club, started } = createAudioHarness();
+    club.audioElement = { src: 'blob:x', pause() { this.paused = true; }, removeAttribute() {}, load() {} };
+    club._connectAudioSourceOnce();
+    const ctx = club.audioContext;
+    assert.equal(started.size, 1);
+
+    const { window } = loadClassic('js/club/02-lifecycle.js', {
+        VRClubCore: class {}, log: { info() {}, warn() {} }, URL: { revokeObjectURL() {} },
+        document: { removeEventListener() {} }
+    });
+    window.VRClubLifecycle.prototype.dispose.call(club);
+    assert.equal(started.size, 0, 'the crowd ambience source is still running after dispose');
+    assert.equal(ctx.state, 'closed');
+    assert.equal(club.audioContext, null);
+    assert.equal(club.audioSource, null);
+});
+test('ModelLoader registers accent lights with LightFactory and never paints speakers magenta', async () => {
+    const BABYLON = makeBabylonStub();
+    const textures = [];
+    BABYLON.Texture = class {
+        constructor(url, scene, noMipmap, invertY, sampling, onLoad, onError) {
+            Object.assign(this, { url, onLoad, onError });
+            textures.push(this);
+        }
+    };
+    BABYLON.Texture.TRILINEAR_SAMPLINGMODE = 3;
+    BABYLON.PBRMetallicRoughnessMaterial = class { constructor(name) { this.name = name; } };
+    BABYLON.PBRBaseMaterial = { PBRMATERIAL_OPAQUE: 0 };
+    BABYLON.PointLight = class { constructor() { assert.fail('accent lights must go through LightFactory'); } };
+    const { window } = loadClassic('js/modelLoader.js', {
+        BABYLON, navigator: { userAgent: '' }, AbortController,
+        IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+
+    const created = [];
+    const lightFactory = { createPointLight: (name, position, config) => { created.push({ name, config }); return { name }; } };
+    const requested = [];
+    const textureLoader = {
+        loadOrDownloadTexture: (url) => {
+            requested.push(url);
+            return url.includes('albedo') ? Promise.reject(new Error('404')) : Promise.resolve(`blob:${url}`);
+        }
+    };
+    const warnings = [];
+    const loader = Object.create(window.ModelLoader.prototype);
+    Object.assign(loader, {
+        scene: {}, maxLights: 3, loadedModels: {}, lightFactory, textureLoader,
+        log: { info() {}, warn: (...a) => warnings.push(a.join(' ')) }
+    });
+
+    const light = loader._createAccentLight('djConsoleLight', new BABYLON.Vector3(), { intensity: 2, range: 8, group: 'dj' });
+    assert.equal(light.name, 'djConsoleLight');
+    assert.equal(JSON.stringify(created[0].config), JSON.stringify({ intensity: 2, range: 8, diffuse: [1, 1, 1], group: 'dj' }));
+
+    const mesh = { name: 'speaker_body' };
+    loader.applyPASpeakerTextures(mesh, './tex/');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requested.length, 4, 'all four maps go through TextureLoader');
+    assert.ok(textures.every(t => t.url.startsWith('blob:')), 'textures bind the cached object URL');
+    const base = mesh.material.baseColor;
+    assert.ok(!(base.r === 1 && base.g === 0 && base.b === 1), 'no magenta debug colour');
+    assert.ok(base.r < 0.1 && base.g < 0.1 && base.b < 0.1);
+    assert.equal(warnings.filter(w => w.includes('untextured fallback')).length, 1);
+
+    assert.equal(loader._modelUnavailable('dj_console', { name: 'DJ console' }), null);
+    assert.equal(loader.loadedModels.dj_console, undefined, 'an unavailable model is not recorded as loaded');
+});
+
+test('ModelLoader keeps the glTF handedness conversion instead of hand-written mirror signs', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/modelLoader.js', {
+        BABYLON, navigator: { userAgent: '' }, AbortController,
+        IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const ML = window.ModelLoader;
+    // What Babylon's glTF loader writes on __root__ in a left-handed scene.
+    const loaderRoot = {
+        parent: null,
+        computeWorldMatrix: () => BABYLON.Matrix.Compose(
+            new BABYLON.Vector3(1, 1, -1), new BABYLON.Quaternion(0, 1, 0, 0), BABYLON.Vector3.Zero())
+    };
+    assert.deepEqual({ ...ML._rootHandedness(loaderRoot) }, { x: -1, y: 1, z: 1 });
+    const plain = { parent: null, computeWorldMatrix: () => BABYLON.Matrix.Identity() };
+    assert.deepEqual({ ...ML._rootHandedness(plain) }, { x: 1, y: 1, z: 1 });
+    const rotated = { parent: null, computeWorldMatrix: () => BABYLON.Matrix.RotationY(0.3) };
+    assert.deepEqual({ ...ML._rootHandedness(rotated) }, { x: 1, y: 1, z: 1 }, 'non-axis-aligned roots are not guessed at');
+
+    // The sign workaround is gone from every model config.
+    const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    assert.ok(!/scale:\s*new BABYLON\.Vector3\(\s*-1/.test(source), 'no hand-written mirror signs in model configs');
 });
 
 // ---------------------------------------------------------------------------
@@ -1063,23 +1538,49 @@ test('strobe chase randomizes corners and cadence without immediate repeats', ()
     assert.deepEqual(intervals.map(value => Number(value.toFixed(3))), [0.455, 0.975, 0.585, 0.845]);
 });
 
-test('VR comfort switches movement and teleportation together without changing show ownership', () => {
+test('VR comfort swaps mutually exclusive movement and teleportation features without changing show ownership', () => {
     const saved = new Map();
+    const names = { MOVEMENT: 'xr-controller-movement', TELEPORTATION: 'xr-controller-teleportation' };
+    const conflicts = { [names.MOVEMENT]: names.TELEPORTATION, [names.TELEPORTATION]: names.MOVEMENT };
+    // Mirrors Babylon 8.30.5 WebXRFeaturesManager: enabling a conflicting feature throws.
+    const enabled = new Map();
+    const featuresManager = {
+        getEnabledFeature: name => enabled.get(name),
+        disableFeature: name => enabled.delete(name),
+        enableFeature(name, _version, options) {
+            if (enabled.has(conflicts[name])) {
+                throw new Error(`Feature ${name} cannot be enabled while ${conflicts[name]} is enabled.`);
+            }
+            const feature = { name, options, setSelectionFeature(sel) { this.selection = sel; } };
+            enabled.set(name, feature);
+            return feature;
+        }
+    };
     const { window } = loadClassic('js/club/10-ui.js', {
         VRClubAnimationFinish: class {},
-        localStorage: { setItem: (key, value) => saved.set(key, value) }
+        localStorage: { setItem: (key, value) => saved.set(key, value) },
+        BABYLON: { WebXRFeatureName: names, WebXRState: { IN_XR: 2, NOT_IN_XR: 3 } },
+        log: { error: (...args) => { throw new Error(args.join(' ')); } }
     });
+    const originalTeleport = featuresManager.enableFeature(names.TELEPORTATION, 'latest', {});
     const club = {
         vjManualMode: false,
-        movementFeature: {},
-        vrHelper: { teleportation: {}, baseExperience: { camera: {} } },
+        movementFeature: null,
+        floorMesh: { name: 'floor' },
+        vrHelper: {
+            input: { name: 'input' },
+            pointerSelection: { name: 'pointer' },
+            teleportation: originalTeleport,
+            baseExperience: { camera: {}, featuresManager, state: 2 }
+        },
         jumpState: { active: true },
         _refreshVRQuickMenu() {}
     };
-    const setMode = window.VRClubUI.prototype.setVRComfortMode;
-    setMode.call(club, true);
-    assert.equal(club.movementFeature.movementEnabled, false);
-    assert.equal(club.movementFeature.rotationEnabled, false);
+    Object.setPrototypeOf(club, window.VRClubUI.prototype);
+
+    club.setVRComfortMode(true);
+    assert.equal(club.movementFeature, null);
+    assert.equal(club.vrHelper.teleportation, originalTeleport);
     assert.equal(club.vrHelper.teleportation.teleportationEnabled, true);
     assert.equal(club.vrHelper.teleportation.rotationEnabled, true);
     assert.equal(club.vrHelper.teleportation.backwardsMovementEnabled, false);
@@ -1087,13 +1588,28 @@ test('VR comfort switches movement and teleportation together without changing s
     assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false);
     assert.equal(club.jumpState.active, false);
     assert.equal(saved.get('vrclub.vrComfort'), '1');
-    setMode.call(club, false);
+
+    club.setVRComfortMode(false);
+    assert.equal(enabled.has(names.TELEPORTATION), false, 'teleportation must be disabled before movement is enabled');
+    assert.equal(club.vrHelper.teleportation, null);
     assert.equal(club.movementFeature.movementEnabled, true);
     assert.equal(club.movementFeature.rotationEnabled, true);
-    assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
-    assert.equal(club.vrHelper.teleportation.rotationEnabled, false);
+    assert.equal(club.movementFeature.options.xrInput, club.vrHelper.input);
+    assert.equal(club.vrHelper.baseExperience.camera.applyGravity, true);
     assert.equal(saved.get('vrclub.vrComfort'), '0');
+
+    club.setVRComfortMode(true);
+    assert.equal(enabled.has(names.MOVEMENT), false);
+    assert.equal(club.vrHelper.teleportation.options.floorMeshes[0], club.floorMesh);
+    assert.equal(club.vrHelper.teleportation.selection, club.vrHelper.pointerSelection);
     assert.equal(club.vjManualMode, false);
+
+    // Outside a session the preference is stored, teleport is left registered but inert,
+    // and nothing throws; the IN_XR handler re-applies the mode on entry.
+    club.vrHelper.baseExperience.state = 3;
+    club.setVRComfortMode(false);
+    assert.equal(club.movementFeature, null);
+    assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
 });
 
 test('VR viewpoints preserve seated eye height and orientation without moving the desktop camera', () => {

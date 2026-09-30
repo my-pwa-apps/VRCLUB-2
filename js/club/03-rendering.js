@@ -1,3 +1,4 @@
+'use strict';
 class VRClubRendering extends VRClubLifecycle {
     addPostProcessing() {
         const desktop = this.vrSettings.desktop;

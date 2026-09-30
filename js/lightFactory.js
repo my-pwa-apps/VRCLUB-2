@@ -1,3 +1,4 @@
+'use strict';
 // Light Factory - Centralized light creation and management
 // Reduces code duplication and provides consistent light configuration
 

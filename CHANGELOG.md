@@ -11,6 +11,42 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ## [Unreleased]
 
+### Security
+
+- The multiplayer relay now enforces a browser `Origin` allow-list, a 16-guest room cap,
+  a 16 KB frame limit, per-connection rate limits with flood disconnects, an emoji
+  allow-list, sanitised names and http(s)-only shared music URLs (requires a relay redeploy).
+- First-party code no longer builds DOM from HTML strings; a contract test forbids it.
+
+### Privacy
+
+- ENTER no longer connects to the default internet radio unless "Play radio on entry" is
+  ticked on the splash (off by default; names the server that will be contacted).
+- Guests must choose **Listen along** before their browser loads a host's shared stream;
+  hosts' local files (`blob:` URLs) are never broadcast.
+
+### Fixed
+
+- VR smooth locomotion, sprint, jump and the Y/B quick-menu binding work again. Babylon
+  forbids MOVEMENT and TELEPORTATION together, so comfort mode now swaps the features
+  instead of enabling both, and controller bindings no longer depend on locomotion.
+- Remote guests stand on the floor (the wire's `y` is eye height), snap into place on join,
+  turn the short way round, and disappear when the relay connection drops.
+- WebRTC voice connects whichever guest enables the mic first, renegotiates a mic enabled
+  later, and keeps listening while muted; remote voice is also bound to a muted media
+  element for Chromium.
+- PA speakers are no longer mirrored: the glTF handedness conversion is preserved instead of
+  being reset and patched with a `scale.x = -1` on the DJ console.
+- PA speaker textures load through the cached TextureLoader and never fall back to magenta.
+
+### Changed
+
+- Production deploys the built `dist/` from CI only after verify, e2e and audit pass.
+- Material freezing is controlled by an explicit `mutable: true` option, not name matching.
+- Every first-party script runs in strict mode in development, as it already did in the bundle.
+- `init()` and `updateSpotlights()` are split into named per-phase methods.
+- The audio panel reports offline/online transitions; the README documents offline use.
+
 ### Added
 
 - Production browser coverage now verifies laser-sheet exclusivity, the exact moving

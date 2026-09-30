@@ -1,0 +1,16 @@
+# Line endings are pinned so a Windows checkout (core.autocrlf=true, the default on
+# GitHub's windows-latest runners) produces the same bytes as Linux.
+* text=auto eol=lf
+
+# Byte-pinned vendored bundles. Their sha384 hashes are recorded in
+# scripts/vendor.manifest.json and verified by `npm test` and `npm run check:sri`;
+# any line-ending conversion turns a real tamper signal into a false alarm.
+js/vendor/** -text
+
+*.glb binary
+*.env binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.sqlite binary

@@ -6,9 +6,12 @@
     <!-- Content Security Policy.
          There are no inline <script> blocks and no on* handlers in this document, so
          script-src stays strict (no 'unsafe-inline', no 'unsafe-eval').
-         'unsafe-inline' is still required for style-src because js/club/10-ui.js builds
-         the in-VR audio overlay from a template string containing style="" attributes.
-         Removing that one template is what unlocks dropping 'unsafe-inline' here.
+         'unsafe-inline' is still required for style-src, but no longer by app code:
+         first-party JS builds all DOM with createElement/textContent and a contract test
+         forbids innerHTML-family sinks in js/. The vendored Babylon runtime itself
+         injects <style> elements with runtime-computed CSS (WebXR enter/exit button,
+         default loading screen, audio unmute button), which neither a hash nor a nonce
+         can cover without patching the pinned bundle.
          (Note: element.style.foo = ... writes are CSSOM, not blocked by style-src.)
          media-src is deliberately open to https:/blob: because the whole point of the
          app is that the user pastes an arbitrary internet radio URL or drops a local file.
@@ -55,14 +58,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
-    <link rel="preload" href="js/vendor/babylon.js?v=20260915-1" as="script">
+    <link rel="preload" href="js/vendor/babylon.js?v=20260923-1" as="script">
     
     <title>VR Club - Virtual Nightclub Experience</title>
     
-    <link rel="manifest" href="manifest.json?v=20260915-1">
+    <link rel="manifest" href="manifest.json?v=20260923-1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
-    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260915-1">
-    <link rel="stylesheet" href="css/styles.css?v=20260915-1">
+    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20260923-1">
+    <link rel="stylesheet" href="css/styles.css?v=20260923-1">
 </head>
 <body>
     <!-- Splash Screen -->
@@ -89,6 +92,18 @@
                 <input id="splashVRComfort" type="checkbox" checked>
                 VR Comfort: Teleport &amp; Snap Turn
             </label>
+
+            <!-- Off by default: starting the radio connects to a third-party server,
+                 which receives the visitor's IP address and listening time. -->
+            <label class="splash-toggle" for="splashRadioOnEntry">
+                <input id="splashRadioOnEntry" type="checkbox" aria-describedby="splashRadioNote">
+                Play radio on entry
+            </label>
+            <p class="splash-hint" id="splashRadioNote">
+                Streams <span id="splashRadioName">SUNSHINE LIVE</span> from
+                <span id="splashRadioHost">stream.sunshine-live.de</span>, which receives your IP address.
+                Leave it off to choose a station or a local file later.
+            </p>
 
             <button class="splash-button" id="enterClubBtn" type="button">
                 ▶ ENTER CLUB
@@ -364,6 +379,16 @@
                 </button>
             </div>
 
+            <!-- Shared music consent: a guest's browser only fetches the host's stream
+                 after the guest opts in, because it discloses their IP to that server. -->
+            <div class="audio-section" id="networkListenAlong" hidden>
+                <div id="networkMusicInfo" class="audio-file-name" role="status" aria-live="polite"></div>
+                <button class="audio-button" id="networkListenAlongBtn" type="button">
+                    <span aria-hidden="true">🎧</span>
+                    <span>Listen along</span>
+                </button>
+            </div>
+
             <div class="audio-section">
                 <div class="vj-section-title">Say something</div>
                 <div class="vj-button-grid" id="networkEmojiGrid">
@@ -424,63 +449,63 @@
          scripts/vendor.manifest.json. `npm run check:sri` re-verifies these bytes
          against the recorded hashes and against the upstream CDN.
          Refresh with: npm run vendor:babylon -- --force -->
-    <script src="js/vendor/babylon.js?v=20260915-1"></script>
-    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260915-1"></script>
+    <script src="js/vendor/babylon.js?v=20260923-1"></script>
+    <script src="js/vendor/babylonjs.proceduralTextures.min.js?v=20260923-1"></script>
 
     <!-- glTF Loader Plugin (REQUIRED for loading .glb 3D models) -->
-    <script src="js/vendor/babylonjs.loaders.min.js?v=20260915-1"></script>
+    <script src="js/vendor/babylonjs.loaders.min.js?v=20260923-1"></script>
     
     <!-- Shared asset cache primitives (IndexedDB + fetch timeout + in-flight dedup).
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
-    <script src="js/assetCache.js?v=20260915-1"></script>
-    <script src="js/audioUtils.js?v=20260915-1"></script>
+    <script src="js/assetCache.js?v=20260923-1"></script>
+    <script src="js/audioUtils.js?v=20260923-1"></script>
 
     <!-- Texture Loader (loads before club script) -->
-    <script src="js/textureLoader.js?v=20260915-1"></script>
+    <script src="js/textureLoader.js?v=20260923-1"></script>
     
     <!-- Model Loader (CDJs, Mixer, PA Speakers) -->
-    <script src="js/modelLoader.js?v=20260915-1"></script>
+    <script src="js/modelLoader.js?v=20260923-1"></script>
     
     <!-- Material Factory (centralized material creation) -->
-    <script src="js/materialFactory.js?v=20260915-1"></script>
+    <script src="js/materialFactory.js?v=20260923-1"></script>
     
     <!-- Light Factory (centralized light creation) -->
-    <script src="js/lightFactory.js?v=20260915-1"></script>
+    <script src="js/lightFactory.js?v=20260923-1"></script>
 
     <!-- VJ Director (beat-locked palette + macros). MUST load before club script. -->
-    <script src="js/vjDirector.js?v=20260915-1"></script>
+    <script src="js/vjDirector.js?v=20260923-1"></script>
 
     <!-- Show Director ("NOCTURNE" beat-locked cue engine). Depends on the beat
          clock published by VJDirector, so it MUST load after it and before the
          club script that instantiates both. -->
-    <script src="js/showDirector.js?v=20260915-1"></script>
+    <script src="js/showDirector.js?v=20260923-1"></script>
 
     <!-- LED wall pattern library. Mixed into VRClub.prototype by the club script. -->
-    <script src="js/ledPatterns.js?v=20260915-1"></script>
+    <script src="js/ledPatterns.js?v=20260923-1"></script>
 
     <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
          Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
          VRClub only creates instances once a guest connects from the Multiplayer panel. -->
-    <script src="js/networkClient.js?v=20260915-1"></script>
-    <script src="js/avatarManager.js?v=20260915-1"></script>
+    <script src="js/networkClient.js?v=20260923-1"></script>
+    <script src="js/avatarManager.js?v=20260923-1"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
-    <script src="js/club/01-core.js?v=20260915-1"></script>
-    <script src="js/club/02-lifecycle.js?v=20260915-1"></script>
-    <script src="js/club/03-rendering.js?v=20260915-1"></script>
-    <script src="js/club/04-environment.js?v=20260915-1"></script>
-    <script src="js/club/05-fixtures.js?v=20260915-1"></script>
-    <script src="js/club/06-effects.js?v=20260915-1"></script>
-    <script src="js/club/07-animation-core.js?v=20260915-1"></script>
-    <script src="js/club/08-animation-fixtures.js?v=20260915-1"></script>
-    <script src="js/club/09-animation-finish.js?v=20260915-1"></script>
-    <script src="js/club/10-ui.js?v=20260915-1"></script>
-    <script src="js/club/11-audio-crowd.js?v=20260915-1"></script>
+    <script src="js/club/01-core.js?v=20260923-1"></script>
+    <script src="js/club/02-lifecycle.js?v=20260923-1"></script>
+    <script src="js/club/03-rendering.js?v=20260923-1"></script>
+    <script src="js/club/04-environment.js?v=20260923-1"></script>
+    <script src="js/club/05-fixtures.js?v=20260923-1"></script>
+    <script src="js/club/06-effects.js?v=20260923-1"></script>
+    <script src="js/club/07-animation-core.js?v=20260923-1"></script>
+    <script src="js/club/08-animation-fixtures.js?v=20260923-1"></script>
+    <script src="js/club/09-animation-finish.js?v=20260923-1"></script>
+    <script src="js/club/10-ui.js?v=20260923-1"></script>
+    <script src="js/club/11-audio-crowd.js?v=20260923-1"></script>
 
     <!-- VR Club Main Application -->
-    <script src="js/club_hyperrealistic.js?v=20260915-1"></script>
+    <script src="js/club_hyperrealistic.js?v=20260923-1"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
-    <script src="js/ui-init.js?v=20260915-1"></script>
+    <script src="js/ui-init.js?v=20260923-1"></script>
 </body>
 </html>
