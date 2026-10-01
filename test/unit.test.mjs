@@ -1903,7 +1903,7 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     });
 
     assert.ok(material.emissiveColor.r > 0, 'new strobe burst started on a dark frame');
-    assert.equal(flashLight.enabled, true, 'shared strobe flash light did not fire');
+    assert.equal(flashLight.enabled, false, 'strobe flash light must stay disabled so it never takes a slot');
     assert.ok(flashLight.intensity >= 1000, 'shared strobe light was not bright enough');
     assert.ok(club.strobes[0].flashDuration <= 0.09, 'strobe burst was not brief');
     assert.equal(renderPipeline.bloomWeight, 1, 'strobe did not drive full bloom');
@@ -2492,6 +2492,194 @@ test('clear-air test suppresses fog and particles despite smoke cues in both mod
         assert.ok(systems.every(system => system.stops === 1 && system.resets === 1));
         assert.ok(club.fogMachines.every(machine => !machine.isBursting && machine.burstTimer === 0));
     }
+});
+
+test('local player body is planted, follows camera yaw including pitch, and sits behind the eyes', () => {
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {} });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const yawQuat = (yaw, pitch) => {
+        // Babylon YXZ order: yaw about Y, then pitch about X.
+        const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2);
+        const cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);
+        return { w: cy * cp, x: cy * sp, y: sy * cp, z: -sy * sp };
+    };
+    const club = {
+        isInVRMode: false,
+        _localPlayerBody: { root: { position: { x: 0, y: 0, z: 0 }, rotation: { y: 0 } }, footOffset: 0.01 },
+        camera: { position: { x: 2, y: 1.7, z: -9 }, absoluteRotation: yawQuat(0.8, 0.5) },
+        _cameraYaw: proto._cameraYaw
+    };
+    proto._updateLocalPlayerBody.call(club);
+    const root = club._localPlayerBody.root;
+    assert.ok(Math.abs(root.rotation.y - 0.8) < 1e-6, 'pitch skewed the body yaw');
+    assert.ok(Math.abs(root.position.x - (2 - Math.sin(0.8) * 0.1)) < 1e-6);
+    assert.ok(Math.abs(root.position.z - (-9 - Math.cos(0.8) * 0.1)) < 1e-6);
+    assert.equal(root.position.y, 0.01, 'feet must stay on the floor');
+
+    club.camera.position = { x: 0, y: 2.2, z: -18 };
+    proto._updateLocalPlayerBody.call(club);
+    assert.equal(root.position.y, 0.51, 'on the DJ riser the body stands 0.5 m higher');
+});
+
+test('beams light the smoke they cross and dust is only seen inside them', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const vec = (x, y, z) => ({ x, y, z });
+    const spot = {
+        _photoPos: vec(0, 7, -12), _photoDir: vec(0, -1, 0), _photoIntensity: 40, _photoAngle: 0.5,
+        _surfaceHit: { centerDistanceToSurface: 7 }
+    };
+    const club = {
+        lightsActive: true,
+        spotlights: [spot],
+        currentSpotColor: { r: 1, g: 0, b: 0 },
+        scene: { getFrameId: () => 1, activeCamera: { globalPosition: vec(0, 1.7, -4) } },
+        _gatherAirBeams: proto._gatherAirBeams
+    };
+    const particle = (x, y, z, a) => ({ position: vec(x, y, z), size: 1, color: { r: 0.6, g: 0.6, b: 0.7, a } });
+    const inBeam = particle(0, 3, -12, 0.04);
+    const outside = particle(6, 3, -12, 0.04);
+    proto._lightAirParticles.call(club, [inBeam, outside], 'haze');
+    assert.ok(inBeam.color.a > 0.04 * 1.5, 'a puff in the beam must brighten');
+    assert.ok(inBeam.color.r > 0.6 && inBeam.color.g < 0.6, 'a puff in the beam must take the look colour');
+    assert.equal(outside.color.a, 0.04, 'a puff outside every beam must be untouched');
+    assert.ok(spot._mediumDensity > 0, 'the beam must read the medium inside it');
+
+    club.scene.getFrameId = () => 2;
+    const dustIn = particle(0, 3, -12, 0.5);
+    const dustOut = particle(6, 3, -12, 0.5);
+    proto._lightAirParticles.call(club, [dustIn, dustOut], 'dust');
+    assert.ok(dustOut.color.a < 0.2, 'dust outside a beam must be nearly invisible');
+    assert.ok(dustIn.color.a > dustOut.color.a * 3, 'dust must glint inside a beam');
+
+    club.lightsActive = false;
+    club.scene.getFrameId = () => 3;
+    const dark = particle(0, 3, -12, 0.04);
+    proto._lightAirParticles.call(club, [dark], 'haze');
+    assert.equal(dark.color.a, 0.04, 'no beams, no lit smoke');
+
+    // Nothing unmeasured runs in a headset: VR leaves particles and beams neutral.
+    club.lightsActive = true;
+    club.isInVRMode = true;
+    club.scene.getFrameId = () => 4;
+    club._airBeamCount = 1;
+    const vr = particle(0, 3, -12, 0.5);
+    proto._lightAirParticles.call(club, [vr], 'dust');
+    assert.equal(vr.color.a, 0.5, 'VR must not alter particles');
+    assert.equal(spot._mediumDensity, null, 'VR must hand the beams back to neutral');
+});
+
+test('shipped club air keeps fog on and tints toward the look without changing haze alpha', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const colour = (r, g, b, a) => ({ r, g, b, a, set(nr, ng, nb, na) { this.r = nr; this.g = ng; this.b = nb; this.a = na; } });
+    const haze = {
+        started: false,
+        stops: 0,
+        isStarted() { return this.started; },
+        start() { this.started = true; },
+        stop() { this.stops++; },
+        color1: { r: 0.6, g: 0.6, b: 0.7, a: 0.04 },
+        color2: { r: 0.7, g: 0.7, b: 0.8, a: 0.03 }
+    };
+    const stops = [0, 1, 1, 0].map(() => ({ color1: colour(0, 0, 0, 0), color2: colour(0, 0, 0, 0) }));
+    const club = {
+        atmosphereTestDisabled: false,
+        smokeActive: true,
+        lightsActive: true,
+        isInVRMode: false,
+        masterIntensity: 1,
+        currentSpotColor: new BABYLON.Color3(1, 0, 0),
+        vrSettings: {
+            desktop: { fogDensity: 0.028 },
+            vr: { fogDensity: 0.022 }
+        },
+        scene: {
+            fogEnabled: false,
+            fogDensity: 0,
+            fogColor: new BABYLON.Color3(0.015, 0.012, 0.018)
+        },
+        haze,
+        _hazeGradients: stops,
+        _hazeFade: [0, 1, 1, 0],
+        fogMachines: [{ emitter: { emitRate: 0 }, ledMat: {} }],
+        cachedColors: {}
+    };
+    club._tintClubAir = window.VRClubAnimationCore.prototype._tintClubAir;
+    const update = window.VRClubAnimationCore.prototype.updateFogMachines;
+    update.call(club, { time: 1, dt: 1 / 60 });
+    assert.equal(club.scene.fogEnabled, true);
+    assert.equal(club.scene.fogDensity, 0.028);
+    assert.ok(club.scene.fogColor.r > 0.015, 'fog should pick up the red look');
+    assert.equal(haze.color1.a, 0.04, 'asserted haze alpha must not change');
+    assert.equal(haze.started, true);
+    assert.equal(stops[0].color1.a, 0, 'a puff must be born transparent');
+    assert.equal(stops[3].color2.a, 0, 'a puff must die transparent');
+    assert.equal(stops[1].color1.a, 0.04, 'peak alpha must follow color1.a');
+    assert.equal(stops[2].color2.a, 0.03, 'peak alpha must follow color2.a');
+    assert.ok(stops[1].color1.r > 0.42, 'gradient stops must carry the look tint');
+
+    // A smoke-off cue stops the machines, never the hazer, and eases the fog.
+    club.smokeActive = false;
+    update.call(club, { time: 2, dt: 1 / 60 });
+    assert.equal(haze.stops, 0, 'the ambient hazer must keep running');
+    assert.ok(club.scene.fogDensity < 0.028 && club.scene.fogDensity > 0.028 * 0.45,
+        'fog density must ease, not snap');
+});
+
+test('safe mode resolver prefers an explicit store over reduced motion', () => {
+    const store = new Map();
+    const localStorage = {
+        getItem: (key) => (store.has(key) ? store.get(key) : null)
+    };
+    let reduced = true;
+    const { window } = loadClassic('js/club/01-core.js', { localStorage });
+    window.matchMedia = () => ({ matches: reduced });
+    const resolve = window.VRClubCore.resolvePhotosensitiveSafeMode;
+    assert.equal(resolve(), true, 'reduced motion with no store must opt in');
+    store.set('vrclub.safeMode', '0');
+    assert.equal(resolve(), false, 'stored off wins over reduced motion');
+    store.set('vrclub.safeMode', '1');
+    reduced = false;
+    assert.equal(resolve(), true, 'stored on wins when motion is not reduced');
+});
+
+test('photometric slots follow the strongest surface hit without toggling lights', () => {
+    const { window } = loadClassic('js/club/08-animation-fixtures.js', {
+        VRClubAnimationCore: class {}
+    });
+    const vec = (x, y, z) => ({
+        x, y, z,
+        copyFrom(other) { this.x = other.x; this.y = other.y; this.z = other.z; return this; }
+    });
+    const spots = [0, 1, 2, 3].map((index) => ({
+        light: {
+            position: vec(index === 3 ? 9 : index, 7, 0),
+            direction: vec(0, -1, 0),
+            intensity: 1,
+            enabled: true,
+            setEnabled() { throw new Error('slot bind must not toggle lights'); }
+        },
+        _photoPos: vec(index, 6, -1),
+        _photoDir: vec(0, -1, index * 0.1),
+        _photoIntensity: index === 3 ? 40 : 5,
+        _photoAngle: 0.4,
+        _photoRange: 20,
+        _photoExponent: 4,
+        _shadeScore: index === 3 ? 48 : 5
+    }));
+    window.VRClubAnimationFixtures.prototype._bindPhotometricSlots.call({
+        spotlights: spots,
+        maxLights: 3
+    });
+    assert.equal(spots[0].light.position.x, 3, 'slot 0 should carry the strongest head');
+    assert.equal(spots[0].light.intensity, 40);
+    assert.ok(Math.abs(spots[0].light.direction.z - 0.3) < 1e-9);
+    assert.equal(spots[3].light.position.x, 9, 'a non-slot head must keep its own light');
+    assert.equal(spots[3].light.enabled, true);
 });
 
 test('visual-only fixtures contribute bounded room bounce in desktop and VR', () => {

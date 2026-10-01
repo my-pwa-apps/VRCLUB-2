@@ -717,18 +717,35 @@ class VRClubFixtures extends VRClubEnvironment {
         this.haze.minEmitBox = new BABYLON.Vector3(-10, -3, -8);
         this.haze.maxEmitBox = new BABYLON.Vector3(10, 3, 8);
         
-        // Visible ambient haze - makes light beams stand out
+        // Visible ambient haze - makes light beams stand out. color1/color2 carry the
+        // peak alpha (vrSettings.hazeAlpha, asserted by tests and rewritten on a VR/desktop
+        // switch); the gradients below shape each puff's life around that peak so a
+        // puff condenses out of the air and thins away instead of popping into view.
         this.haze.color1 = new BABYLON.Color4(0.6, 0.6, 0.7, this.vrSettings.desktop.hazeAlpha[0]);
         this.haze.color2 = new BABYLON.Color4(0.7, 0.7, 0.8, this.vrSettings.desktop.hazeAlpha[1]);
         this.haze.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
+        this._hazeFade = [0, 1, 1, 0];
+        [0, 0.16, 0.7, 1].forEach((stop, k) => {
+            const fade = this._hazeFade[k];
+            this.haze.addColorGradient(stop,
+                new BABYLON.Color4(0.6, 0.6, 0.7, this.vrSettings.desktop.hazeAlpha[0] * fade),
+                new BABYLON.Color4(0.7, 0.7, 0.8, this.vrSettings.desktop.hazeAlpha[1] * fade));
+        });
+        this._hazeGradients = this.haze.getColorGradients ? this.haze.getColorGradients() : null;
+        // Smoke billows as it disperses.
+        this.haze.addSizeGradient(0, 0.55);
+        this.haze.addSizeGradient(0.25, 1.0);
+        this.haze.addSizeGradient(1, 1.3);
         
-        this.haze.minSize = 1.0;
-        this.haze.maxSize = 3.5;
+        // Smoke, not glow sprites. STANDARD keeps the asserted alphas from
+        // adding a white sheet over the floor; size stays inside the beam volume.
+        this.haze.minSize = 0.8;
+        this.haze.maxSize = 2.2;
         this.haze.minLifeTime = 8.0;
         this.haze.maxLifeTime = 15.0;
         
         this.haze.emitRate = 80; // Thick haze for beam visibility
-        this.haze.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+        this.haze.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
         
         this.haze.gravity = new BABYLON.Vector3(0, 0.02, 0);
         this.haze.direction1 = new BABYLON.Vector3(-0.3, -0.1, -0.3);
@@ -737,6 +754,10 @@ class VRClubFixtures extends VRClubEnvironment {
         this.haze.minEmitPower = 0.05;
         this.haze.maxEmitPower = 0.2;
         this.haze.updateSpeed = 0.005;
+        // A club's air is already hazy when you walk in. Without this the room starts
+        // empty and the medium builds up in front of the guest over ~30 s.
+        this.haze.preWarmCycles = 800;
+        this.haze.preWarmStepOffset = 2;
         
         // Haze is always running when smoke is active
         this.haze.start();
@@ -755,6 +776,14 @@ class VRClubFixtures extends VRClubEnvironment {
         this.dustMotes.color1 = new BABYLON.Color4(1, 0.98, 0.92, 0.5);
         this.dustMotes.color2 = new BABYLON.Color4(0.9, 0.94, 1.0, 0.38);
         this.dustMotes.colorDead = new BABYLON.Color4(0, 0, 0, 0);
+        // Motes drift into the light and out of it; none blink on or off.
+        [[0, 0], [0.18, 1], [0.8, 1], [1, 0]].forEach(([stop, fade]) => {
+            this.dustMotes.addColorGradient(stop,
+                new BABYLON.Color4(1, 0.98, 0.92, 0.5 * fade),
+                new BABYLON.Color4(0.9, 0.94, 1.0, 0.38 * fade));
+        });
+        this.dustMotes.preWarmCycles = 600;
+        this.dustMotes.preWarmStepOffset = 3;
         this.dustMotes.minSize = 0.012;
         this.dustMotes.maxSize = 0.05;
         this.dustMotes.minLifeTime = 6.0;
@@ -769,6 +798,7 @@ class VRClubFixtures extends VRClubEnvironment {
         this.dustMotes.maxEmitPower = 0.05;
         this.dustMotes.updateSpeed = 0.006;
         this.dustMotes.start();
+        if (typeof this._installAirLighting === 'function') this._installAirLighting();
         
         // Initialize fog machine state
         this.smokeActive = false;

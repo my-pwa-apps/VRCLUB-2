@@ -708,7 +708,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             });
         }
 
-        const enabledNpcs = club.npcAvatars.filter(npc => npc.root.isEnabled());
+        // The player's own body hides its head parts on purpose, so it is not crowd.
+        const enabledNpcs = club.npcAvatars.filter(npc => npc.root.isEnabled() && !npc.local);
         const npcMeshes = enabledNpcs.flatMap(npc => npc.meshes || []);
         const trussRoots = [
             ...(club.horizontalTrusses || []),

@@ -145,14 +145,9 @@ const mainExperience = document.getElementById('mainExperience');
     const state = document.getElementById('splashSafeModeState');
     if (!btn || !state) return;
 
-    const read = () => {
-        try {
-            const stored = localStorage.getItem('vrclub.safeMode');
-            if (stored !== null) return stored === '1';
-        } catch (_) { /* private browsing */ }
-        try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
-        catch (_) { return false; }
-    };
+    const read = () => (window.VRClubCore && typeof VRClubCore.resolvePhotosensitiveSafeMode === 'function')
+        ? VRClubCore.resolvePhotosensitiveSafeMode()
+        : false;
 
     const render = (on) => {
         btn.setAttribute('aria-pressed', String(on));

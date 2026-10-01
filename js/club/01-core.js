@@ -130,7 +130,9 @@ class VRClubCore {
             }
         };
         
-        this.atmosphereTestDisabled = true;
+        // Clear-air was a 2026-09 capture switch that shipped by accident. Beams
+        // need a scattering medium; the flag remains so tests can still force it off.
+        this.atmosphereTestDisabled = false;
 
         // VR optimization settings configuration - ENHANCED FOR HYPERREALISM
         this.vrSettings = {
@@ -205,9 +207,7 @@ class VRClubCore {
         // Persists across sessions so a returning user with photosensitive epilepsy
         // never sees a strobe by accident. Honored at the single strobe render gate
         // and at the bloom-spike branch.
-        this.photosensitiveSafeMode = (() => {
-            try { return localStorage.getItem('vrclub.safeMode') === '1'; } catch (_) { return false; }
-        })();
+        this.photosensitiveSafeMode = VRClubCore.resolvePhotosensitiveSafeMode();
         this.vrComfortMode = (() => {
             try { return localStorage.getItem('vrclub.vrComfort') !== '0'; } catch (_) { return true; }
         })();
@@ -1048,6 +1048,20 @@ class VRClubCore {
             log.info('💻 Desktop/laptop detected - using safe light count for PBR materials');
             return 3; // Ultra-safe limit for PBR materials + loaded 3D models + mirror ball (reduced from 4)
         }
+    }
+
+    /**
+     * One resolver for the splash and the constructor. An explicit stored
+     * '1' or '0' wins; otherwise prefers-reduced-motion opts the guest in
+     * before the first lighting update, without requiring a click.
+     */
+    static resolvePhotosensitiveSafeMode() {
+        try {
+            const stored = localStorage.getItem('vrclub.safeMode');
+            if (stored === '1' || stored === '0') return stored === '1';
+        } catch (_) { /* private browsing */ }
+        try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+        catch (_) { return false; }
     }
 
 }

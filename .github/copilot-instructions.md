@@ -217,11 +217,22 @@ DJ-console and PA-speaker accent lights target only their own imported meshes th
 
 A material binds the first `maxSimultaneousLights` enabled lights that can affect its mesh,
 in `scene.lights` creation order (`requireLightSorting` is off). Today that is `ambient`,
-`spot0` and `spot1` (plus `spot2` on Quest); `spot2`–`spot5` shade nothing on desktop.
-The six moving-head `SpotLight`s therefore stay **enabled for life** and are dimmed through
-`intensity`. Never toggle a light's enabled state in the render loop: it re-slots every lit
-material, which measured 17–20 shader compiles (0.4–1.1 s freezes) per cue change and a
-~2 ms scene walk per toggle. `strobeFlash` still toggles per flash (see `BACKLOG.md`).
+`spot0` and `spot1` (plus `spot2` on Quest). `_bindPhotometricSlots()` copies the strongest
+surface-hitting heads into those slots each frame, from a snapshot, so a bright beam on
+`spot4` still shades the floor it hits. Do not "fix" that copy by restoring each slot to
+its own yoke. The six moving-head `SpotLight`s stay **enabled for life** and are dimmed
+through `intensity`. Never toggle a light's enabled state in the render loop: it re-slots
+every lit material, which measured 17–20 shader compiles (0.4–1.1 s freezes) per cue change
+and a ~2 ms scene walk per toggle. `strobeFlash` stays disabled for life; the flash is the
+emissive lamp plus the ambient impulse.
+
+Smoke and dust are unlit sprites, so `_lightAirParticles()` (07, hooked into the haze and
+dust `updateFunction` by `_installAirLighting()`) brightens and tints the ones inside a
+moving-head cone with a Henyey-Greenstein phase term, makes dust visible only inside beams,
+and feeds each beam's `_mediumDensity` back into its alpha. It edits the colour for one
+frame only (the colour gradient recomputes it), allocates nothing, and is **desktop only**:
+~0.3 ms per pass on a desktop CPU, unmeasured on a Quest. Do not enable it in VR without a
+headset capture.
 No light currently owns a `ShadowGenerator`: the two it had sat outside every material's
 slots, so no shadow was ever sampled.
 
@@ -466,8 +477,9 @@ and had silently diverged; a test now enforces the delegation.
 writing `instance[attributeValue]` directly.
 
 Photosensitive Safe Mode is offered on the splash **before** the scene renders and defaults
-to on under `prefers-reduced-motion`. It must never be reachable only after the strobes have
-already fired.
+to on under `prefers-reduced-motion`. Splash and constructor both call
+`VRClubCore.resolvePhotosensitiveSafeMode()`: stored `'1'`/`'0'` wins, otherwise the media
+query. It must never be reachable only after the strobes have already fired.
 
 ## Multiplayer
 

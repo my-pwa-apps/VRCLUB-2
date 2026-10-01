@@ -126,11 +126,11 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         strobe.glareMaterial.emissiveColor = strobe._glareBuf;
                         strobe.glareMaterial.alpha = 0.95;
                     }
-                    // Strobe lights disabled for performance - visual effect only via emissive material
+                    // Per-fixture point lights stay out of the uniform budget. The
+                    // emissive lamp is the fixture; the room fill is the ambient impulse.
                     if (strobe.light) {
                         strobe.light.intensity = intensityVariation * 200;
                         strobe.light.range = 80 + (intensityVariation * 0.8);
-                        strobe.light.setEnabled(true);
                     }
                     
                     if (strobe.flashDuration <= 0) {
@@ -139,11 +139,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             strobe.glareMaterial.emissiveColor.set(0, 0, 0);
                             strobe.glareMaterial.alpha = 0;
                         }
-                        if (strobe.light) {
-                            strobe.light.intensity = 0;
-                            strobe.light.setEnabled(false);
-                        }
-                        
+                        if (strobe.light) strobe.light.intensity = 0;
                     }
                 }
                 });
@@ -167,12 +163,11 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             this.strobeFlashLight.position.set(0, 8, -12);
                         }
                         this.strobeFlashLight.intensity = maxIntensity * 14;
-                        this.strobeFlashLight.setEnabled(true);
-                        // The point light is created disabled and many static room
-                        // materials are frozen after startup, so those shaders cannot
-                        // reliably add it mid-frame. The always-compiled hemispheric
-                        // light carries the short room-fill impulse; the point still
-                        // supplies local falloff on dynamic/unfrozen surfaces.
+                        // Leave the point light disabled for life. Enabling it takes
+                        // slot 0 of every material (it is created before ambient) and
+                        // the measured cost was ~19 ms per flash. Frozen room materials
+                        // cannot see a mid-frame enable anyway. The hemispheric impulse
+                        // below is the room fill.
                         if (ambient) {
                             this._preStrobeAmbientIntensity = ambient.intensity;
                             ambient.intensity = this.isInVRMode ? 3.8 : 3.2;
@@ -194,7 +189,6 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                     } else {
                         this.strobeFlashLight.intensity = 0;
-                        this.strobeFlashLight.setEnabled(false);
                     }
                 }
             } else {
@@ -207,16 +201,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         strobe.glareMaterial.emissiveColor.set(0, 0, 0);
                         strobe.glareMaterial.alpha = 0;
                     }
-                    if (strobe.light) {
-                        strobe.light.intensity = 0;
-                        strobe.light.setEnabled(false);
-                    }
+                    if (strobe.light) strobe.light.intensity = 0;
                     strobe.flashDuration = 0;
                 });
-                if (this.strobeFlashLight) {
-                    this.strobeFlashLight.intensity = 0;
-                    this.strobeFlashLight.setEnabled(false);
-                }
+                if (this.strobeFlashLight) this.strobeFlashLight.intensity = 0;
                 this._nextStrobeBurstTime = undefined;
             }
         }

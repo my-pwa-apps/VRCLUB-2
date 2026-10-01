@@ -56,6 +56,7 @@ class AvatarManager {
         body.position.y = 0.9;
         body.material = this._getMaterial();
         body.isPickable = false;
+        body.checkCollisions = true;
 
         const head = BABYLON.MeshBuilder.CreateSphere(`remoteHead_${id}`, { diameter: 0.32 }, scene);
         head.parent = root;

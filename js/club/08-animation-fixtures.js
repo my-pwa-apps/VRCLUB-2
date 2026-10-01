@@ -573,7 +573,27 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 spot.light.intensity = lightEnabled
                     ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.6)
                     : 0;
+
+                // Photometric origin is the lens, not the yoke. Snapshot before the
+                // slot bind, which overwrites the first maxLights-1 lights.
+                const hit = spot._surfaceHit;
+                if (hit && hit.emissionPoint && spot.light.position) {
+                    spot.light.position.copyFrom(hit.emissionPoint);
+                }
+                if (!spot._photoPos) {
+                    spot._photoPos = new BABYLON.Vector3();
+                    spot._photoDir = new BABYLON.Vector3();
+                }
+                spot._photoPos.copyFrom(spot.light.position);
+                spot._photoDir.copyFrom(spot.light.direction);
+                spot._photoIntensity = spot.light.intensity;
+                spot._photoAngle = spot.light.angle;
+                spot._photoRange = spot.light.range;
+                spot._photoExponent = spot.light.exponent;
+                const floorHit = hit && hit.hitSurface === 'floor';
+                spot._shadeScore = (spot.light.intensity || 0) * (floorHit ? 1.2 : 1);
             });
+            this._bindPhotometricSlots();
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
             this.spotlights.forEach(spot => {
@@ -896,6 +916,45 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             direction.scaleToRef(8, spot._targetPoint);
             spot.basePos.addToRef(spot._targetPoint, spot._targetPoint);
             spot.fixture.lookAt(spot._targetPoint);
+        }
+    }
+
+    /**
+     * Materials only shade ambient + the first maxLights-1 spots. Copy the
+     * strongest surface-hitting heads into those slots from the per-frame
+     * snapshot so a bright beam on spot4 still lights the floor it hits.
+     * Never enables or disables a light.
+     */
+    _bindPhotometricSlots() {
+        const spots = this.spotlights;
+        if (!spots || spots.length < 2) return;
+        const slots = Math.max(1, (this.maxLights || 3) - 1);
+        if (!this._photometricOrder || this._photometricOrder.length < spots.length) {
+            this._photometricOrder = new Array(spots.length);
+        }
+        const order = this._photometricOrder;
+        const n = spots.length;
+        for (let i = 0; i < n; i++) order[i] = i;
+        for (let i = 1; i < n; i++) {
+            const key = order[i];
+            const keyScore = spots[key]._shadeScore || 0;
+            let j = i - 1;
+            while (j >= 0 && (spots[order[j]]._shadeScore || 0) < keyScore) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = key;
+        }
+        for (let s = 0; s < slots && s < n; s++) {
+            const src = spots[order[s]];
+            const dst = spots[s].light;
+            if (!src || !src._photoPos || !dst || !dst.position || !dst.direction) continue;
+            dst.position.copyFrom(src._photoPos);
+            dst.direction.copyFrom(src._photoDir);
+            dst.intensity = src._photoIntensity || 0;
+            if (src._photoAngle != null) dst.angle = src._photoAngle;
+            if (src._photoRange != null) dst.range = src._photoRange;
+            if (src._photoExponent != null) dst.exponent = src._photoExponent;
         }
     }
 
@@ -1272,7 +1331,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
         const scatterBase = this.isInVRMode ? 0.10 : 0.065;
         const scatterVariation = this.isInVRMode ? 0.05 : 0.035;
-        spot.beamMat.alpha = (scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis * (1 + (this.kickPulse || 0));
+        // Beams brighten where the smoke actually is (see _lightAirParticles): ~0.75x
+        // through thin air up to ~1.25x through a thick cloud. 1.0 until measured.
+        const mediumFactor = 0.75 + 0.5 * (spot._mediumDensity == null ? 0.5 : spot._mediumDensity);
+        spot.beamMat.alpha = (scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis * (1 + (this.kickPulse || 0)) * mediumFactor;
         
         const st = spot._beamState || (spot._beamState = {});
         st.beamVisible = beamVisible;

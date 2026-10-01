@@ -539,16 +539,10 @@ class VRClubAudioCrowd extends VRClubUI {
         if (this.photosensitiveSafeMode && this.strobes) {
             this.strobes.forEach((strobe) => {
                 strobe.material.emissiveColor = this.cachedColors.black;
-                if (strobe.light) {
-                    strobe.light.intensity = 0;
-                    strobe.light.setEnabled(false);
-                }
+                if (strobe.light) strobe.light.intensity = 0;
                 strobe.flashDuration = 0;
             });
-            if (this.strobeFlashLight) {
-                this.strobeFlashLight.intensity = 0;
-                this.strobeFlashLight.setEnabled(false);
-            }
+            if (this.strobeFlashLight) this.strobeFlashLight.intensity = 0;
         }
         log.info(`♿ Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'ON (strobes disabled)' : 'OFF'}`);
         return this.photosensitiveSafeMode;
@@ -632,7 +626,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {number} height                    real-world height in metres
      * @param {number} speedRatio                animation playback rate
      */
-    _spawnAvatar(container, name, position, facing, height, speedRatio) {
+    _spawnAvatar(container, name, position, facing, height, speedRatio, options) {
         // doNotInstantiate: these are skinned meshes, so each dancer needs its own
         // skeleton and animation group to move independently. cloneMaterials stays
         // false so the whole crowd still shares one set of materials and textures.
@@ -694,15 +688,95 @@ class VRClubAudioCrowd extends VRClubUI {
             if (span > 0) group.goToFrame(group.from + Math.random() * span);
         });
 
-        this.npcAvatars.push({
+        const local = !!(options && options.local);
+        const npc = {
             name,
             root,
             meshes,
             animations: entry.animationGroups,
-            baseSpeed: speedRatio
-        });
+            baseSpeed: speedRatio,
+            homeYaw: facing,
+            avoidYaw: 0,
+            footOffset: root.position.y - position.y,
+            local
+        };
+        if (!local) npc.collider = this._attachOccupantCollider(root, name);
+        this.npcAvatars.push(npc);
+        if (local) {
+            this._localPlayerBody = npc;
+            this._concealLocalBodyHead(meshes);
+        }
 
         return entry;
+    }
+
+    /**
+     * Solid occupancy without a physics world. A static box at the feet is
+     * enough: dancers do not translate, and the camera already carries an ellipsoid.
+     */
+    _attachOccupantCollider(root, name) {
+        if (!root || !this.scene || !BABYLON.MeshBuilder) return null;
+        const box = BABYLON.MeshBuilder.CreateBox(`${name}_occupant`, {
+            width: 0.46,
+            height: 1.7,
+            depth: 0.46
+        }, this.scene);
+        box.position.set(root.position.x, root.position.y + 0.85, root.position.z);
+        box.isVisible = false;
+        box.isPickable = false;
+        box.checkCollisions = true;
+        return box;
+    }
+
+    _concealLocalBodyHead(meshes) {
+        const pattern = /head|hair|eye|teeth|neck|skull|face|brow|ear|mask|superhero/i;
+        for (let i = 0; i < meshes.length; i++) {
+            if (pattern.test(meshes[i].name || '')) meshes[i].isVisible = false;
+        }
+    }
+
+    _spawnLocalPlayerBody() {
+        if (this._localPlayerBody || !this._availableCrowdSources || !this._availableCrowdSources.length) return;
+        const cam = this.camera;
+        const pos = cam ? (cam.globalPosition || cam.position) : null;
+        const eye = pos ? pos.y : 1.6;
+        const height = Math.min(1.9, Math.max(1.5, eye / 0.92));
+        this._spawnAvatar(
+            this._availableCrowdSources[0],
+            'localPlayer',
+            new BABYLON.Vector3(pos ? pos.x : 0, 0, pos ? pos.z : -8),
+            0,
+            height,
+            0.22,
+            { local: true }
+        );
+    }
+
+    _cameraYaw(cam) {
+        const q = cam.absoluteRotation || cam.rotationQuaternion;
+        if (q && q.w != null) {
+            // Yaw of the forward axis, so pitch and roll do not skew the body.
+            return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.x * q.x + q.y * q.y));
+        }
+        return cam.rotation ? cam.rotation.y : 0;
+    }
+
+    _updateLocalPlayerBody() {
+        const body = this._localPlayerBody;
+        if (!body || !body.root) return;
+        const cam = (this.isInVRMode && this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.camera)
+            || this.camera
+            || (this.scene && this.scene.activeCamera);
+        if (!cam) return;
+        const pos = cam.globalPosition || cam.position;
+        if (!pos) return;
+        const onBooth = pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5;
+        const yaw = this._cameraYaw(cam);
+        // Sit the torso slightly behind the eyes so the neck is not in the lens.
+        body.root.position.x = pos.x - Math.sin(yaw) * 0.1;
+        body.root.position.z = pos.z - Math.cos(yaw) * 0.1;
+        body.root.position.y = (onBooth ? 0.5 : 0) + (body.footOffset || 0);
+        body.root.rotation.y = yaw;
     }
 
     async createDancingNPCs() {
@@ -796,6 +870,7 @@ class VRClubAudioCrowd extends VRClubUI {
             );
         }
 
+        this._spawnLocalPlayerBody();
         this._applyCrowdSize();
         this._refreshShadowCasters();
 
@@ -889,6 +964,17 @@ class VRClubAudioCrowd extends VRClubUI {
                 const dx = rootPos.x - camPos.x;
                 const dz = rootPos.z - camPos.z;
                 const distSq = dx * dx + dz * dz;
+
+                if (!npc.local && npc.homeYaw != null) {
+                    if (distSq < 2.56) {
+                        const step = dx >= 0 ? 0.08 : -0.08;
+                        npc.avoidYaw = Math.max(-0.5, Math.min(0.5, (npc.avoidYaw || 0) + step));
+                    } else if (npc.avoidYaw) {
+                        npc.avoidYaw *= 0.75;
+                        if (Math.abs(npc.avoidYaw) < 0.01) npc.avoidYaw = 0;
+                    }
+                    npc.root.rotation.y = npc.homeYaw + (npc.avoidYaw || 0);
+                }
 
                 if (distSq > 784) {
                     if (!npc._animPaused) {

@@ -271,6 +271,7 @@ class VRClubAnimationCore extends VRClubEffects {
         }
 
         const { time, dt } = ctx;
+        this._tintClubAir(dt);
 
         // === FOG MACHINE SYSTEM CONTROL ===
         if (this.fogMachines && this.fogMachines.length > 0) {
@@ -334,14 +335,193 @@ class VRClubAnimationCore extends VRClubEffects {
                 });
                 
             } else {
-                // Smoke disabled - stop all fog machines
+                // Smoke cue off: the fog MACHINES stop. The ambient hazer keeps running
+                // (real clubs hold a thin haze all night); stopping it drained the room
+                // over ~30 s and it re-materialised from nothing on the next cue.
                 this.fogMachines.forEach(machine => {
                     machine.emitter.emitRate = 0;
                     machine.isBursting = false;
                     machine.ledMat.emissiveColor = this.cachedColors.fogOff; // Gray (off)
                 });
                 
-                if (this.haze && this.haze.isStarted()) this.haze.stop();
+                if (this.haze && !this.haze.isStarted()) this.haze.start();
+            }
+        }
+    }
+
+    /**
+     * Residual club air. Beams are scatter, so EXP2 fog stays on even when the
+     * machines are idle. RGB is nudged toward the current look in place; the
+     * asserted haze alphas are left alone.
+     */
+    _tintClubAir(dt) {
+        const scene = this.scene;
+        if (!scene) return;
+        scene.fogEnabled = true;
+        const settings = this.isInVRMode ? this.vrSettings?.vr : this.vrSettings?.desktop;
+        const designed = settings && settings.fogDensity;
+        if (typeof designed === 'number') {
+            const target = this.smokeActive === false ? designed * 0.45 : designed;
+            const current = scene.fogDensity;
+            if (!(current > 0)) {
+                scene.fogDensity = target;
+            } else if (current !== target) {
+                // Ease: a cue's smoke toggle must not snap the whole room's air.
+                const step = 1 - Math.exp(-(dt > 0 ? dt : 1 / 60) * 0.9);
+                scene.fogDensity = Math.abs(target - current) < 1e-5 ? target : current + (target - current) * step;
+            }
+        }
+        const fog = scene.fogColor;
+        const spot = this.currentSpotColor;
+        const mix = (this.lightsActive && spot) ? 0.07 * (this.masterIntensity == null ? 1 : this.masterIntensity) : 0;
+        if (fog) {
+            fog.r = 0.015 + (spot ? spot.r * mix : 0);
+            fog.g = 0.012 + (spot ? spot.g * mix : 0);
+            fog.b = 0.018 + (spot ? spot.b * mix : 0);
+        }
+        const haze = this.haze;
+        if (!haze || !haze.color1) return;
+        if (spot && this.lightsActive) {
+            haze.color1.r = 0.42 + spot.r * 0.22;
+            haze.color1.g = 0.40 + spot.g * 0.22;
+            haze.color1.b = 0.46 + spot.b * 0.22;
+            if (haze.color2) {
+                haze.color2.r = 0.48 + spot.r * 0.18;
+                haze.color2.g = 0.46 + spot.g * 0.18;
+                haze.color2.b = 0.52 + spot.b * 0.18;
+            }
+        }
+        // The live particles read the gradient stops, not color1/color2, so push the
+        // tint and the peak alpha through them, scaled by each stop's fade weight.
+        const stops = this._hazeGradients;
+        const fade = this._hazeFade;
+        if (stops && fade && haze.color2) {
+            for (let k = 0; k < stops.length && k < fade.length; k++) {
+                const f = fade[k];
+                const stop = stops[k];
+                stop.color1.set(haze.color1.r, haze.color1.g, haze.color1.b, haze.color1.a * f);
+                if (stop.color2) stop.color2.set(haze.color2.r, haze.color2.g, haze.color2.b, haze.color2.a * f);
+            }
+        }
+    }
+
+    /**
+     * Light the air. Sprite particles are unlit in Babylon, so smoke would be the same
+     * brightness in a beam and in the dark. After each particle update, puffs and dust
+     * motes inside a moving-head cone are brightened and tinted, weighted by a
+     * Henyey-Greenstein phase term (smoke glows when the light travels toward the
+     * viewer). The pass only edits this frame's colour: the gradient recomputes it on
+     * the next update, so nothing accumulates. No lights, no shaders, no allocation.
+     */
+    _installAirLighting() {
+        const wrap = (system, mode) => {
+            if (!system || system._airLit || typeof system.updateFunction !== 'function') return;
+            const base = system.updateFunction;
+            system._airLit = true;
+            system.updateFunction = (particles) => {
+                base.call(system, particles);
+                this._lightAirParticles(particles, mode);
+            };
+        };
+        wrap(this.haze, 'haze');
+        wrap(this.dustMotes, 'dust');
+    }
+
+    /** Snapshot of the lit cones for this frame, shared by the haze and dust passes. */
+    _gatherAirBeams() {
+        const frame = this.scene.getFrameId();
+        if (this._airBeamFrame === frame) return this._airBeams;
+        this._airBeamFrame = frame;
+        const beams = this._airBeams || (this._airBeams = []);
+        let n = 0;
+        const spots = this.spotlights;
+        if (this.lightsActive && spots) {
+            for (let i = 0; i < spots.length; i++) {
+                const spot = spots[i];
+                const hit = spot._surfaceHit;
+                const gain = (spot._photoIntensity || 0) / 40;
+                if (!spot._photoPos || !hit || gain <= 0.02) continue;
+                const b = beams[n] || (beams[n] = {});
+                b.spot = spot;
+                b.ox = spot._photoPos.x; b.oy = spot._photoPos.y; b.oz = spot._photoPos.z;
+                b.dx = spot._photoDir.x; b.dy = spot._photoDir.y; b.dz = spot._photoDir.z;
+                b.tan = Math.tan((spot._photoAngle || 0.52) * 0.5);
+                b.len = hit.centerDistanceToSurface;
+                b.gain = Math.min(1.5, gain);
+                b.acc = 0;
+                n++;
+            }
+        }
+        this._airBeamCount = n;
+        return beams;
+    }
+
+    _lightAirParticles(particles, mode) {
+        if (!this.scene || !particles) return;
+        if (this.isInVRMode) {
+            // Desktop only: ~0.3 ms per pass on a desktop CPU, unmeasured on a Quest.
+            // Hand the beams back to their neutral brightness on entering VR.
+            if (this.spotlights && this._airBeamCount) {
+                for (const spot of this.spotlights) spot._mediumDensity = null;
+                this._airBeamCount = 0;
+            }
+            return;
+        }
+        const beams = this._gatherAirBeams();
+        const nBeams = this._airBeamCount || 0;
+        const cam = this.scene.activeCamera;
+        const cp = cam ? (cam.globalPosition || cam.position) : null;
+        const tint = this.currentSpotColor;
+        const isDust = mode === 'dust';
+
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            const pos = p.position;
+            let lit = 0;
+            for (let k = 0; k < nBeams; k++) {
+                const b = beams[k];
+                const vx = pos.x - b.ox, vy = pos.y - b.oy, vz = pos.z - b.oz;
+                const t = vx * b.dx + vy * b.dy + vz * b.dz;
+                if (t < 0.3 || t > b.len) continue;
+                const rad = t * b.tan + p.size * 0.35;
+                const q = (vx * vx + vy * vy + vz * vz - t * t) / (rad * rad);
+                if (q >= 1) continue;
+                const edge = 1 - q;
+                const w = edge * edge * (3 - 2 * edge) * b.gain;
+                let phase = 0.5;
+                if (cp) {
+                    const cx = cp.x - pos.x, cy = cp.y - pos.y, cz = cp.z - pos.z;
+                    const cl = Math.sqrt(cx * cx + cy * cy + cz * cz) || 1;
+                    const cosT = (cx * b.dx + cy * b.dy + cz * b.dz) / cl;
+                    // Henyey-Greenstein g = 0.5, normalised to 1 at cosT = 1
+                    phase = Math.min(1, 0.35 / Math.pow(1.25 - cosT, 1.5));
+                }
+                lit += w * (0.35 + 0.65 * phase);
+                if (!isDust) b.acc += w;
+            }
+            const c = p.color;
+            if (isDust) {
+                // Dust is only seen where light catches it.
+                c.a = Math.min(0.9, c.a * (0.2 + Math.min(1.5, lit) * 1.7));
+            } else if (lit > 0) {
+                c.a *= 1 + Math.min(1.2, lit) * 2.2;
+            }
+            if (lit > 0 && tint) {
+                const m = Math.min(0.7, lit * 0.6);
+                c.r += (tint.r * 1.1 - c.r) * m;
+                c.g += (tint.g * 1.1 - c.g) * m;
+                c.b += (tint.b * 1.1 - c.b) * m;
+            }
+        }
+
+        if (!isDust) {
+            // The beam mesh reads how much medium actually sits in its cone.
+            const ref = Math.max(6, particles.length * 0.02);
+            for (let k = 0; k < nBeams; k++) {
+                const spot = beams[k].spot;
+                const target = Math.min(1, beams[k].acc / ref);
+                const cur = spot._mediumDensity == null ? target : spot._mediumDensity;
+                spot._mediumDensity = cur + (target - cur) * 0.06;
             }
         }
     }
@@ -455,6 +635,7 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.npcAvatars && this.npcAvatars.length > 0) {
             this.updateDancingNPCs(time, audioData);
         }
+        if (typeof this._updateLocalPlayerBody === 'function') this._updateLocalPlayerBody();
     }
 
     /** Mirror ball: rotation, fixture glow, outgoing rays and reflection spots. */

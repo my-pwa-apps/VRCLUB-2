@@ -6,6 +6,119 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-10-01 — Presence, photosafety and coherence
+
+Scope: source inspection of rendering, XR locomotion, spatial audio and crowd, plus
+`npm test` (113/113) and `npm run check` (37 files). No headset capture, no live
+frame-time measurement, and no e2e run this pass. Prior measured baselines in
+`docs/PERFORMANCE_BASELINE.md` are cited only as historical measurements.
+
+Checked and found sound (do not re-raise without new evidence):
+
+- Music is HRTF-spatialised from the two flown PA positions, with inverse-distance
+  attenuation, a sub path, air absorption, a synthesised reverb send and entrance
+  occlusion. This is a designed acoustic model, not listener-glued stereo.
+- Comfort mode still defaults on (teleport + 30° snap). Smooth movement is explicit
+  opt-out. Y/B quick-menu binding is registered independently of locomotion.
+- Shell collision and teleport blockers from the 2026-09-30 pass are still in place.
+  Do not reopen "camera leaves the venue" or "teleport through walls".
+- `_writeExposure()` still bypasses the notifying setter except when the value is
+  exactly 1. The strobe path still calls it; the open cost is the flash-light
+  `setEnabled()` item below, not a new exposure-notification regression.
+- SSR `reflectivityThreshold` above dielectric F0 is an intentional anti-mirror-floor
+  choice. Do not lower it.
+- Worker abuse controls and the Chromium muted-`<audio>` voice workaround are in
+  source and unit-tested. They stay open only for deploy / two-device audition.
+
+Reconfirmed, not duplicated:
+
+- Shipped haze is on again (`atmosphereTestDisabled = false`). EXP2 fog stays up and
+  tints toward the look. See the resolved clear-air item. Bar/entrance methods are still
+  uncalled.
+- Photometric slots now follow the strongest surface hits. The contact-shadow half of
+  the light-mismatch item is still open. Strobe `setEnabled()` is gone; the flash light
+  stays disabled. Crowd skeletal allocation and the missing Quest baseline are unchanged.
+
+### New open items
+
+- [x] **Reduced-motion Safe Mode is shown ON but never applied**
+
+  **Resolved 2026-10-01.** Splash and constructor share `VRClubCore.resolvePhotosensitiveSafeMode()`.
+
+  **Priority:** Critical
+  **Category:** Accessibility
+  **Confidence:** High
+  **Area:** Splash photosafety / strobe gate
+  **Affected files:** `js/ui-init.js`, `js/club/01-core.js`, `index.html`
+  **Evidence:** CONFIRMED by code. `initSplashSafeMode()` renders the splash button ON when
+  `prefers-reduced-motion: reduce` matches and `vrclub.safeMode` is unset, but it writes
+  `localStorage` only on click. `enterClubBtn` then does `new VRClub()`, and the constructor
+  sets `photosensitiveSafeMode` only when `localStorage['vrclub.safeMode'] === '1'`.
+  The two never meet, so the instance starts with strobes allowed while the splash says ON.
+  **Problem:** The product contract is that Safe Mode defaults on under reduced motion and
+  is applied before the scene renders. The control advertises that and does not do it.
+  **User-visible effect:** A reduced-motion user can enter believing flashes are suppressed
+  and still get the full strobe show.
+  **Immersion impact:** Safety, not atmosphere. A false safety control is worse than no control.
+  **Desktop impact:** Same as VR.
+  **VR impact:** Same, and harder to leave once the headset is on.
+  **Performance impact:** None.
+  **Recommended solution:** Resolve Safe Mode once, before `new VRClub()`: stored `'1'`/`'0'`
+  wins; otherwise use `prefers-reduced-motion`. Persist that result and have the constructor
+  read the same function. Add a unit or contract test that a null store plus reduced motion
+  yields `photosensitiveSafeMode === true` on the instance without a click.
+  **Regression considerations:** An explicit stored `'0'` must still win over reduced motion.
+  Do not enable strobes during the splash.
+  **Acceptance criteria:** With no stored choice and reduced motion, entering the club has
+  Safe Mode on before the first lighting update. With stored `'0'`, it stays off.
+  **Validation:** Unit test of the resolver; manual splash check with the media query forced.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **Local dancers occupy no space and do not react to the player**
+
+  **Resolved 2026-10-01.** Dancers and the DJ get a static collision box; remote capsules
+  collide; the nearest dancer yaws away. The local guest has one extra body (not counted
+  in the tier headcount) planted on the floor or the booth riser, head concealed, yaw
+  taken from the camera quaternion without allocating. No Havok world and no desktop gravity.
+
+  **Priority:** High
+  **Category:** Crowd
+  **Confidence:** High
+  **Area:** Dance floor presence
+  **Affected files:** `js/club/11-audio-crowd.js`
+  **Evidence:** CONFIRMED by code. Dancer meshes are `isPickable = false`. Their update uses
+  analyser bass, camera distance (pause beyond 28 m, which the room cannot reach) and a shared
+  playback-rate boost. No collision ellipsoid, physics impostor, gaze, step-aside or personal-space
+  response exists. Remote guests are a separate system (`js/avatarManager.js`) and are also
+  non-colliding; do not conflate the two.
+  **Problem:** The only nearby humans can be walked through. They are scenery, not occupants.
+  **User-visible effect:** The player passes through a dancer with no look, yield or contact.
+  **Immersion impact:** High at social distance. This is a stronger "not a real room" cue than
+  texture repetition.
+  **Desktop impact:** Same collision miss; less visceral than stereo proximity.
+  **VR impact:** High. Close stereo inspection makes the miss immediate.
+  **Performance impact:** Must not add a full physics world or per-frame allocations. The skeletal
+  allocation item already dominates the crowd budget.
+  **Recommended solution:** Soft separation capsules for the nearest 2–3 dancers only, plus one
+  low-rate proximity response (torso yaw or a half-step), driven from the existing camera position.
+  Keep state changes off the per-frame allocation path. Do not raise the tier headcount.
+  **Regression considerations:** Teleport and shell collision must still work. Safe Mode and
+  crowd LOD/pause behaviour stay. Do not duplicate the social-state scheduler in
+  **Replace the looping clone crowd with social micro-behaviours** — that item owns variety;
+  this one owns occupancy.
+  **Acceptance criteria:** From the dance floor the player cannot occupy a dancer's capsule;
+  the nearest dancer changes facing or spacing within one second of approach; balanced-tier
+  skeleton count does not increase.
+  **Validation:** Desktop collision walk-through plus an in-headset approach. No new per-frame
+  `Vector3` allocations in the dancer update.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+---
+
 ## Review — 2026-09-30 (follow-up) — Frame-time spikes, lighting slots and loading
 
 Scope: the same principal review brief, run a second time on the committed first pass
@@ -124,6 +237,10 @@ material freeze in the hot path; image-processing notifications stay at 0.
 
 - [ ] **Only ambient, spot0 and spot1 ever light a surface; grounding shadows do not exist**
 
+  **Partial 2026-10-01.** `_bindPhotometricSlots()` copies the strongest surface-hitting
+  heads into the live slots. Contact shadows are still absent and stay out of scope:
+  adding a generator would change the frozen light UBO.
+
   **Priority:** High
   **Category:** Lighting
   **Confidence:** High
@@ -153,7 +270,11 @@ material freeze in the hot path; image-processing notifications stay at 0.
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [ ] **Each strobe flash costs ~19 ms (the flash light toggles its enabled state)**
+- [x] **Each strobe flash costs ~19 ms (the flash light toggles its enabled state)**
+
+  **Resolved 2026-10-01 in code.** `updateStrobes()` no longer calls `setEnabled`. The
+  flash light stays disabled so it cannot take slot 0. The visible flash is the emissive
+  lamp, the ambient impulse, bloom and the retinal layer. Frame-time was not re-measured.
 
   **Priority:** Medium
   **Category:** Performance
@@ -572,7 +693,17 @@ safe-mode bypass (see the cleanup item).
 
 ### New open items
 
-- [ ] **Decide and document the shipped "clear-air test": haze is off in production**
+- [x] **Decide and document the shipped "clear-air test": haze is off in production**
+
+  **Resolved 2026-10-01.** The switch defaults off. Haze uses STANDARD blending at the
+  existing emit rate and alphas; EXP2 fog stays enabled so beams always have a medium.
+  Each puff fades in and out through colour gradients (peak alpha is still
+  `vrSettings.hazeAlpha`) and grows as it disperses; haze and dust are pre-warmed so the
+  room is already hazy at load, the ambient hazer is never stopped by a smoke cue (only
+  the fog machines are), and fog density eases on a smoke toggle instead of snapping.
+  The flag remains for the clear-air unit test. Smoke is also lit by the beams it sits in
+  (desktop only, `_lightAirParticles()`); real volumetric shadowing of the haze by dancers
+  is still absent.
 
   **Priority:** High
   **Category:** Lighting
