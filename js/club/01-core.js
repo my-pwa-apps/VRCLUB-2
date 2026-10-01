@@ -416,6 +416,10 @@ class VRClubCore {
         this.ledMonochrome = false; // true = wall renders in black & white only
         this.strobesActive = true;
         this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
+        // When the Show Director drives, when a burst fires: 'free' = random timer (legacy),
+        // 'beat' = every kick, 'offbeat' = between kicks, 'bar' = downbeat only,
+        // 'roll' = every kick and every offbeat (the build-up roll).
+        this.strobeSync = 'free';
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
         this.laserSheetActive = false; // Laser sheet effect
         this.laserSheetOrigin = 'ceilingLeft'; // truss mount: 'ceilingLeft' or 'ceilingRight'

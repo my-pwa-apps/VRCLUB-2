@@ -38,7 +38,14 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 const inBuildMode = this.vjBuildIntensity > 0.7;
 
                 const burstActive = this.strobes.some(strobe => strobe.flashDuration > 0);
-                if (!burstActive && (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)) {
+                // Beat-locked when the show drives: a strobe that fires on a random timer
+                // never lands on the kick, which is the whole point of one. null = legacy
+                // free-running timer (manual VJ, no director, or a 'free' look).
+                const syncDue = typeof this._strobeSyncDue === 'function' ? this._strobeSyncDue() : null;
+                const due = syncDue === null
+                    ? (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)
+                    : syncDue;
+                if (!burstActive && due) {
                     let intensityBase = inDropMode ? 100 : 72 + Math.random() * 28;
                     if (bass > 0.6) intensityBase *= 1 + (bass - 0.6) * 0.5;
                     const flashDuration = Math.max(
@@ -50,6 +57,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     if (this.strobePattern === 'chase') {
                         if (this.strobes.length === 1) {
                             chaseIndex = 0;
+                        } else if (syncDue !== null) {
+                            // On the grid the chase must read as a pattern, not a dice roll.
+                            this._strobeChaseStep = ((Number.isInteger(this._strobeChaseStep) ? this._strobeChaseStep : -1) + 1) % this.strobes.length;
+                            chaseIndex = this._strobeChaseStep;
                         } else {
                             // Pick any corner except the previous one. This reads as
                             // improvised without allowing one fixture to double-hit.
@@ -210,6 +221,47 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             }
         }
 
+    }
+
+    /**
+     * Is a beat-locked strobe burst due this frame? Returns null when the strobes run on
+     * their free timer. Must be called every frame while synced: it is what tracks the
+     * beat edge, so skipping frames would swallow a kick.
+     */
+    _strobeSyncDue() {
+        const sync = this.strobeSync;
+        const show = this.showDirector;
+        const vj = this.vjDirector;
+        if (!sync || sync === 'free' || !show || !vj || !show.isDriving() ||
+            typeof vj.beatNumber !== 'number' || !(vj.bpm > 0)) return null;
+
+        const now = performance.now();
+        // After any gap (first use, or the show was on a free-running look) the stored
+        // beat is stale: adopt the current one silently, or the first frame would count
+        // as a beat edge and fire a flash in the middle of a beat.
+        if (!(now - this._strobeSyncSeen <= 250)) {
+            this._strobeSyncBeat = vj.beatNumber;
+            this._strobeHalfDone = now - vj.lastBeatAt >= 30000 / vj.bpm;
+        }
+        this._strobeSyncSeen = now;
+
+        const edge = vj.beatNumber !== this._strobeSyncBeat;
+        if (edge) {
+            this._strobeSyncBeat = vj.beatNumber;
+            this._strobeHalfDone = false;
+        }
+        let offbeat = false;
+        if (!this._strobeHalfDone && now - vj.lastBeatAt >= 30000 / vj.bpm) {
+            this._strobeHalfDone = true;
+            offbeat = true;
+        }
+        switch (sync) {
+            case 'beat': return edge;
+            case 'offbeat': return offbeat;
+            case 'bar': return edge && show._beatInBar === 0;
+            case 'roll': return edge || offbeat;
+            default: return null;
+        }
     }
 
     /** Sub-grille excursion driven by the bass band. */

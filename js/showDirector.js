@@ -389,6 +389,7 @@ class ShowDirector {
         // Specialized cue modes must not leak into the next look when omitted.
         club.laserSheetActive = !!look.laserSheetActive;
         club.strobePattern = look.strobePattern || 'all';
+        club.strobeSync = look.strobeSync || 'free';
         club.colorLockActive = !!look.colorLock;
 
         for (const key in look) {
@@ -776,15 +777,50 @@ class ShowDirector {
                 fogIntensity: 1.6
             },
 
-            // Four corner strobes chase clockwise through the haze. Safe Mode
-            // force-clears strobesActive before this look can render.
+            // Four corner strobes chase clockwise through the haze, one corner per
+            // kick. Safe Mode force-clears strobesActive before this look can render.
             whiteChase: {
                 intensity: 1.0, punch: 0.12, palette: 'analogous',
                 lightsActive: false, lasersActive: false, laserSheetActive: false,
-                strobesActive: true, strobePattern: 'chase', strobeSpeed: 2.4,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'beat', strobeSpeed: 2.4,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true,
                 fogIntensity: 1.4, goboEnabled: false
+            },
+
+            // The heartbeat. Black room, one white hit on each downbeat and nothing
+            // between: in the dark the eye waits for the next bar. Used to thread
+            // tension through a build, where a steady strobe would give the drop away.
+            strobeHeartbeat: {
+                intensity: 0.85, punch: 0.10, palette: 'analogous',
+                lightsActive: false, lasersActive: false, laserSheetActive: false,
+                strobesActive: true, strobePattern: 'all', strobeSync: 'bar', strobeSpeed: 1.2,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: false, ledMonochrome: true,
+                fogIntensity: 1.8, goboEnabled: false
+            },
+
+            // Four on the floor. Every corner fires on every kick over a dark room: the
+            // hard, white, club-night peak. A solo look on purpose: strobes are strongest
+            // when nothing else is competing, and the room is black between hits.
+            strobeFloor: {
+                intensity: 1.0, punch: 0.20, palette: 'analogous',
+                lightsActive: false, lasersActive: false, laserSheetActive: false,
+                strobesActive: true, strobePattern: 'all', strobeSync: 'beat', strobeSpeed: 2.0,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: false, ledMonochrome: true,
+                fogIntensity: 1.6, goboEnabled: false
+            },
+
+            // Between the kicks. The corners chase on the offbeat, so the white hits
+            // answer the kick instead of landing on it: the room syncopates.
+            strobeOffbeat: {
+                intensity: 1.0, punch: 0.20, palette: 'analogous',
+                lightsActive: false, lasersActive: false, laserSheetActive: false,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'offbeat', strobeSpeed: 2.2,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: false, ledMonochrome: true,
+                fogIntensity: 1.6, goboEnabled: false
             },
 
             // ---------------------------------------------------------------
@@ -801,7 +837,7 @@ class ShowDirector {
                 ledWallActive: true, ledMonochrome: false, ledPattern: 17, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
                 goboEnabled: false, laserSpeed: 1.8,
-                strobeSpeed: 2.2, fogIntensity: 1.5
+                strobeSync: 'beat', strobeSpeed: 2.2, fogIntensity: 1.5
             },
 
             // Sustain, not repeat. Everything but lasers drops out at full speed.
@@ -923,7 +959,7 @@ class ShowDirector {
                 ledWallActive: true, ledMonochrome: false, ledPattern: 6, ledWallSpeed: 2.2,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
                 goboEnabled: false, laserSpeed: 2.0,
-                strobeSpeed: 2.0, fogIntensity: 1.8
+                strobeSync: 'beat', strobeSpeed: 2.0, fogIntensity: 1.8
             },
 
             // The terrace at dawn. The wall becomes the sky: a slow amber aurora that
@@ -950,7 +986,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 6, ledWallSpeed: 1.4,
                 spotlightPattern: 1, spotlightMode: 2, spotlightSpeed: 0.3,
-                goboEnabled: false, strobeSpeed: 0.6, fogIntensity: 1.7
+                goboEnabled: false, strobeSync: 'bar', strobeSpeed: 0.6, fogIntensity: 1.7
             },
 
             // Total kill for CUT TO BLACK. Only the haze remains, so the room
@@ -1011,6 +1047,7 @@ class ShowDirector {
                 cues: [
                     { look: 'theClimb',   bars: 8 },
                     { look: 'heldBreath', bars: 8 },
+                    { look: 'strobeHeartbeat', bars: 4 },
                     { look: 'sideways', bars: 4 },
                     { look: 'ceilingDip', bars: 4 },
                     { look: 'theClimb',   bars: 8, punchIn: true }
@@ -1025,9 +1062,11 @@ class ShowDirector {
                     { look: 'firstLight', bars: 8 },
                     { look: 'chromaticRoom', bars: 2 },
                     { look: 'laserStorm', bars: 4 },
+                    { look: 'strobeFloor', bars: 4 },
                     { look: 'deepBlue', bars: 8 },
                     { look: 'whiteChase', bars: 2 },
                     { look: 'afterburn', bars: 2 },
+                    { look: 'strobeOffbeat', bars: 2 },
                     { look: 'ceilingSidewash', bars: 4 },
                     { look: 'firstLight', bars: 8 }
                 ]
@@ -1080,10 +1119,12 @@ class ShowDirector {
                 },
                 onBar(show, bar) {
                     const club = show.club;
-                    // Strobe rate doubles each bar — the audible "ticking clock".
+                    // The ladder climbs the beat grid: once a bar, every kick, every kick
+                    // and offbeat (the roll) - so the audience hears it accelerate.
                     if (!club.photosensitiveSafeMode) {
                         club.strobesActive = true;
                         club.strobeSpeed = 0.6 * Math.pow(2, bar);
+                        club.strobeSync = ['bar', 'beat', 'roll', 'roll'][Math.min(3, bar)];
                     }
                     // The wall winds up alongside it.
                     club.ledWallSpeed = 1.4 + bar * 0.4;

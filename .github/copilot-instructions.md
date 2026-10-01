@@ -99,7 +99,7 @@ scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes in
 The composed light show, and **the single source of truth for fixture state** whenever
 `showDirector.isDriving()` is true (i.e. the show is enabled and `vjManualMode` is off).
 
-Structure: **20 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
+Structure: **23 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
 `afterglow`) → **4 set-pieces** (`countdown`, `cutToBlack`, `breakdown`, `release`). A look
 is a flat map of
 `VRClub` fixture properties; a `[from, to]` value is a ramp resolved across the cue's bar
@@ -141,6 +141,12 @@ two fresh kicks end it with `release`, which re-locks `_beatInBar` to the return
 hands on to IGNITION. Over 4 s of silence hands the breakdown to AFTERGLOW instead; a one-beat
 gap before a drop does not. AFTERGLOW now ends on `sunrise` (amber aurora, 16 bars).
 
+**Strobes are beat-locked.** A look's `strobeSync` (`beat`, `offbeat`, `bar`, `roll`; omitted =
+`free`, the legacy random timer) makes `_strobeSyncDue()` in `09-animation-finish.js` fire a
+burst on the kick, between kicks, on the downbeat, or on both (the build-up roll). A synced
+`chase` steps the corners in order instead of picking randomly. Every strobing look declares a
+sync mode (a unit test enforces it) and the countdown climbs bar → beat → roll → roll. Safe
+Mode still force-clears `strobesActive` first, so none of this can fire under it.
 **Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
 the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —

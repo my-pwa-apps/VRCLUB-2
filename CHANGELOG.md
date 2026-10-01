@@ -97,6 +97,15 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Strobes are now a locked part of the show.** They used to fire on a random timer, so a
+  flash never landed on the kick. Looks can set `strobeSync`: the peak's white chase and
+  detonation hit on every kick (the chase steps the corners in order), a new
+  *strobe floor* fires all four corners on every kick over a black room, a *strobe offbeat*
+  chases between the kicks, and a *heartbeat* look puts one hit on each downbeat inside the
+  build. The countdown's strobe ladder now climbs the grid: downbeat, every kick, then a
+  kick-and-offbeat roll. Measured in the club on a 124 BPM kick: hits land at 0.07 of a beat
+  after the kick (on-beat) and 0.58 (offbeat). Photosensitive Safe Mode still suppresses all
+  of them, and the opening and groove stay strobe-free.
 - **A breakdown arc for progressive sets.** The show now notices when the kick has been gone
   for ~two bars after a groove and plays *The Breakdown* for as long as it lasts: the floor
   drops out (blue mirror ball), a laser-sheet plane drifts over the crowd, the wall opens in

@@ -1257,6 +1257,9 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
         ceilingSidewash: 'laserSheetActive',
         ceilingDip: 'laserSheetActive',
         whiteChase: 'strobesActive',
+        strobeHeartbeat: 'strobesActive',
+        strobeFloor: 'strobesActive',
+        strobeOffbeat: 'strobesActive',
         laserStorm: 'lasersActive',
         theVoid: 'mirrorBallActive'
     };
@@ -1914,6 +1917,161 @@ test('strobe chase randomizes corners and cadence without immediate repeats', ()
     assert.equal(order[0], 3, 'the first burst must be able to select the last fixture');
     assert.ok(order.every((corner, index) => index === 0 || corner !== order[index - 1]));
     assert.deepEqual(intervals.map(value => Number(value.toFixed(3))), [0.455, 0.975, 0.585, 0.845]);
+});
+
+test('strobes fire on the beat grid when the show drives, and on their own timer otherwise', () => {
+    const BABYLON = makeBabylonStub();
+    let clock = 50000;
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON, VRClubAnimationFixtures: class {}, performance: { now: () => clock }
+    });
+    const proto = window.VRClubAnimationFinish.prototype;
+    const makeClub = (sync, pattern = 'all') => {
+        const club = Object.create(proto);
+        Object.assign(club, {
+            strobesActive: true, photosensitiveSafeMode: false, strobePattern: pattern, strobeSync: sync,
+            strobeSpeed: 1, vjDropActive: false, vjBuildIntensity: 0, masterIntensity: 1,
+            cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+            strobes: Array.from({ length: 4 }, () => ({
+                material: { emissiveColor: new BABYLON.Color3() }, light: null, flashDuration: 0, currentIntensity: 0
+            })),
+            strobeFlashLight: { intensity: 0, setEnabled() {} },
+            vjDirector: { beatNumber: 0, bpm: 120, lastBeatAt: clock },
+            showDirector: { isDriving: () => true, _beatInBar: 0 }
+        });
+        return club;
+    };
+    const fires = (club, ms) => {
+        club.strobes.forEach(s => { s.flashDuration = 0; });
+        const before = club.strobes.map(s => s.material.emissiveColor.r);
+        proto.updateStrobes.call(club, { time: clock / 1000, dt: ms / 1000, audio: { bass: 0 } });
+        return club.strobes.some((s, i) => s.material.emissiveColor.r > 0 && before[i] === 0 || s.flashDuration > 0);
+    };
+    // 120 BPM = a beat every 500 ms; step in 50 ms frames and record when bursts fire.
+    const run = (club, beats) => {
+        const hits = [];
+        for (let t = 0; t < beats * 500; t += 50) {
+            clock += 50;
+            if (clock - club.vjDirector.lastBeatAt >= 500) {
+                club.vjDirector.lastBeatAt = clock;
+                club.vjDirector.beatNumber++;
+                club.showDirector._beatInBar = (club.showDirector._beatInBar + 1) % 4;
+            }
+            if (fires(club, 50)) hits.push({ beat: club.vjDirector.beatNumber, sinceBeat: clock - club.vjDirector.lastBeatAt });
+        }
+        return hits;
+    };
+
+    const onBeat = run(makeClub('beat'), 8);
+    assert.ok(onBeat.length >= 7 && onBeat.length <= 8, `beat sync fired ${onBeat.length} times in 8 beats`);
+    assert.ok(onBeat.every(h => h.sinceBeat <= 50), 'a beat-locked strobe fired away from the kick');
+
+    const offbeat = run(makeClub('offbeat'), 8);
+    assert.ok(offbeat.length >= 7 && offbeat.length <= 8, `offbeat sync fired ${offbeat.length} times`);
+    assert.ok(offbeat.every(h => h.sinceBeat >= 250 && h.sinceBeat <= 350), 'an offbeat strobe fired on the kick');
+
+    const bar = run(makeClub('bar'), 16);
+    assert.ok(bar.length >= 3 && bar.length <= 4, `bar sync fired ${bar.length} times in 4 bars`);
+
+    const roll = run(makeClub('roll'), 8);
+    assert.ok(roll.length >= 14, `the roll fired only ${roll.length} times in 8 beats`);
+
+    // A free look keeps the legacy random timer (no beat edges needed).
+    const free = makeClub('free');
+    assert.equal(fires(free, 50), true);
+
+    // Without a driving show the grid is ignored.
+    const manual = makeClub('beat');
+    manual.showDirector.isDriving = () => false;
+    assert.equal(manual._strobeSyncDue(), null);
+});
+
+test('a synced chase steps through the corners in order; Safe Mode never fires a synced strobe', () => {
+    const BABYLON = makeBabylonStub();
+    let clock = 80000;
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON, VRClubAnimationFixtures: class {}, performance: { now: () => clock }
+    });
+    const proto = window.VRClubAnimationFinish.prototype;
+    const club = Object.create(proto);
+    Object.assign(club, {
+        strobesActive: true, photosensitiveSafeMode: false, strobePattern: 'chase', strobeSync: 'beat',
+        strobeSpeed: 1, vjDropActive: false, vjBuildIntensity: 0, masterIntensity: 1,
+        cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+        strobes: Array.from({ length: 4 }, () => ({
+            material: { emissiveColor: new BABYLON.Color3() }, light: null, flashDuration: 0, currentIntensity: 0
+        })),
+        strobeFlashLight: { intensity: 0, setEnabled() {} },
+        vjDirector: { beatNumber: 0, bpm: 120, lastBeatAt: clock },
+        showDirector: { isDriving: () => true, _beatInBar: 0 }
+    });
+    const corners = [];
+    const frame = () => proto.updateStrobes.call(club, { time: clock / 1000, dt: 0.05, audio: { bass: 0 } });
+    frame();                                    // prime: adopt the current beat silently
+    for (let beat = 1; beat <= 8; beat++) {
+        club.strobes.forEach(s => { s.flashDuration = 0; s.material.emissiveColor.set(0, 0, 0); });
+        clock += 50;
+        club.vjDirector.beatNumber = beat;
+        club.vjDirector.lastBeatAt = clock;
+        frame();
+        const lit = club.strobes.flatMap((s, i) => s.material.emissiveColor.r > 0 ? [i] : []);
+        assert.equal(lit.length, 1, `beat ${beat} lit ${lit.length} corners`);
+        corners.push(lit[0]);
+        for (let i = 0; i < 9; i++) { clock += 50; frame(); }   // rest of the beat, no new edge
+    }
+    assert.deepEqual(corners, [0, 1, 2, 3, 0, 1, 2, 3]);
+
+    club.photosensitiveSafeMode = true;
+    club.strobes.forEach(s => { s.material.emissiveColor.set(0, 0, 0); });
+    clock += 50;
+    club.vjDirector.beatNumber++;
+    club.vjDirector.lastBeatAt = clock;
+    frame();
+    assert.ok(club.strobes.every(s => s.material.emissiveColor.r === 0), 'Safe Mode let a synced strobe fire');
+});
+
+test('strobes are a real part of the show, locked to the grid, and the countdown climbs it', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const club = { vjManualMode: false, photosensitiveSafeMode: false, vjDirector: { paletteMode: 'analogous' } };
+    const director = new window.ShowDirector(club);
+
+    // Every strobing look sits on the grid; only the countdown base opens on the bar.
+    for (const [name, look] of Object.entries(director.looks)) {
+        if (look.strobesActive === true) {
+            assert.ok(['beat', 'offbeat', 'bar', 'roll'].includes(look.strobeSync), `strobing look "${name}" is on a random timer`);
+        }
+    }
+    // A look that does not declare a sync mode must not inherit the previous one.
+    director._applyLook(director.looks.strobeFloor);
+    assert.equal(club.strobeSync, 'beat');
+    director._applyLook(director.looks.theWave);
+    assert.equal(club.strobeSync, 'free');
+
+    // Strobes now appear in the build as well as the peak.
+    const barsWithStrobes = (movement) => director.movements[movement].cues
+        .filter(cue => director.looks[cue.look].strobesActive === true)
+        .reduce((sum, cue) => sum + cue.bars, 0);
+    assert.ok(barsWithStrobes('ascent') >= 4, 'the build has no strobe cue');
+    assert.ok(barsWithStrobes('ignition') >= 10, `the peak has only ${barsWithStrobes('ignition')} strobe bars`);
+    assert.equal(barsWithStrobes('arrival'), 0, 'the opening must stay strobe-free');
+    assert.equal(barsWithStrobes('pulse'), 0, 'the groove must stay strobe-free');
+
+    // The countdown ladder: once a bar, every kick, then the kick-and-offbeat roll.
+    const rungs = [];
+    for (let bar = 0; bar < 4; bar++) {
+        director.setPieces.countdown.onBar(director, bar);
+        rungs.push(club.strobeSync);
+    }
+    assert.deepEqual(rungs, ['bar', 'beat', 'roll', 'roll']);
+
+    // Safe Mode: no strobe look strobes, and the countdown does not turn them back on.
+    club.photosensitiveSafeMode = true;
+    for (const name of Object.keys(director.looks)) {
+        director._applyLook(director.looks[name]);
+        assert.equal(club.strobesActive, false, `${name} strobes in Safe Mode`);
+    }
+    director.setPieces.countdown.onBar(director, 3);
+    assert.equal(club.strobesActive, false);
 });
 
 test('VR comfort swaps mutually exclusive movement and teleportation features without changing show ownership', () => {

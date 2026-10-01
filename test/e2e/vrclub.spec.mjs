@@ -301,6 +301,9 @@ test('production build initializes a rendered club without browser errors', asyn
 
         club.photosensitiveSafeMode = false;
         director._applyLook(director.looks.whiteChase, 1);
+        // These blocks force bursts through the free-running scheduler; the beat-locked
+        // path is covered by unit tests against a stubbed beat grid.
+        club.strobeSync = 'free';
         club._strobeChaseStep = 0;
         const chase = [];
         for (let step = 0; step < 4; step++) {
@@ -606,6 +609,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
 
         club.photosensitiveSafeMode = false;
         club.showDirector._applyLook(club.showDirector.looks.whiteChase, 1);
+        club.strobeSync = 'free';
         const preStrobe = {
             ambientIntensity: club.scene.getLightByName('ambient').intensity,
             retinalAlpha: club.strobeRetinalFlash.color.a,
