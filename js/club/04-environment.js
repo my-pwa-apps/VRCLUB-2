@@ -706,9 +706,54 @@ class VRClubEnvironment extends VRClubRendering {
         pipe2.material = pipeMat;
         pipe2.freezeWorldMatrix();
         pipe2.doNotSyncBoundingInfo = true;
+
+        this.createRoofGirders();
         
         // Add lighting truss above dance floor
         this.createLightingTruss();
+    }
+
+    /**
+     * Exposed steel I-beam roof girders spanning the hall, the clearest cue that
+     * this is an old factory rather than a fitted-out club. They are 0.3 m deep so
+     * the wall pipes and the vent duct read as hung from their bottom flanges.
+     * Merged into one static mesh: one draw call for the whole roof structure.
+     */
+    createRoofGirders() {
+        const span = 24.5; // wall to wall, inside the 0.5 m side walls
+        const depth = 0.3;
+        const flange = { width: 0.28, thickness: 0.035 };
+        const web = 0.025;
+        const top = 9.85; // underside of the ceiling slab
+        const parts = [];
+
+        [-2, -6, -10, -14, -18].forEach((z, i) => {
+            const topFlange = BABYLON.MeshBuilder.CreateBox(`roofGirderTop${i}`, {
+                width: span, height: flange.thickness, depth: flange.width
+            }, this.scene);
+            topFlange.position.set(0, top - flange.thickness / 2, z);
+
+            const bottomFlange = BABYLON.MeshBuilder.CreateBox(`roofGirderBottom${i}`, {
+                width: span, height: flange.thickness, depth: flange.width
+            }, this.scene);
+            bottomFlange.position.set(0, top - depth + flange.thickness / 2, z);
+
+            const webPlate = BABYLON.MeshBuilder.CreateBox(`roofGirderWeb${i}`, {
+                width: span, height: depth - 2 * flange.thickness, depth: web
+            }, this.scene);
+            webPlate.position.set(0, top - depth / 2, z);
+
+            parts.push(topFlange, bottomFlange, webPlate);
+        });
+
+        const girders = BABYLON.Mesh.MergeMeshes(parts, true, true);
+        if (!girders) return;
+        girders.name = 'roofGirders';
+        girders.material = this.materialFactory.getPreset('steelGirder');
+        girders.isPickable = false;
+        girders.receiveShadows = false;
+        girders.freezeWorldMatrix();
+        girders.doNotSyncBoundingInfo = true;
     }
 
     createLightingTruss() {

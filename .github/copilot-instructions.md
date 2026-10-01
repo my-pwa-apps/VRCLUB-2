@@ -286,8 +286,16 @@ this.lightFactory.getGroup('dj').forEach(l => l.setEnabled(false));
 ```
 
 Material presets: `cdjBody`, `jogWheel`, `mixer`, `table`, `platform`, `rail`, `floor`,
-`wall`, `ceiling`, `truss`, `brace`, `lightFixture`, `speakerBody`, `speakerGrill`,
-`speakerHorn`, `brick`, `pillar`, `pipe`, `laserHousing`, and more.
+`floorConcrete` (the dance floor: matte, no clear coat), `wall`, `ceiling`, `truss`, `brace`,
+`lightFixture`, `speakerBody`, `speakerGrill`, `speakerHorn`, `brick`, `pillar`, `pipe`,
+`steelGirder`, `laserHousing`, and more.
+
+SSR's `reflectivityThreshold` sits above a dielectric's F0 (~0.04) so only metals trace
+reflections; lowering it makes the concrete floor mirror the room again at grazing angles.
+
+The laser sheet has two truss projectors (`laserSheetSource` at x = -6,
+`laserSheetSourceRight` at x = +6). `configureLaserSheetVariant()` re-parents the fan to the
+one `laserSheetOrigin` selects; `this.laserSheetSource` always points at the active one.
 
 Light presets: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`.
 
@@ -337,8 +345,10 @@ and fail `npm test`.
 
 ## Assets
 
-- **Textures**: local `./textures/{floor,walls,ceiling}/{diff,normal,roughness,ao}.jpg`
-  (originally sourced from Poly Haven). Not fetched from a CDN.
+- **Textures**: local `./textures/{factoryFloor,walls,ceiling}/{diff,normal,roughness,ao}.jpg`
+  (Poly Haven, CC0; normal maps are the DirectX `nor_dx` variant). Not fetched from a CDN.
+  The folder name is part of the IndexedDB cache key, so replacing a set means renaming its
+  folder — overwriting files in place leaves returning visitors on the old maps for 30 days.
 - **Models**: local `./js/models/` — `djgear/source/pioneer_DJ_console.glb`,
   `paspeakers/source/stage_speaker___black.glb`.
 - **PBR environment**: local `./js/vendor/environmentSpecular.env`. It used to be fetched

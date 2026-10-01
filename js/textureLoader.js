@@ -30,16 +30,19 @@ class TextureLoader {
         const baseUrl = './textures';
         
         return {
+            // Worn, patched and oil-stained factory concrete. The folder name is part
+            // of the IndexedDB cache key; renaming it is what retires a cached set.
             floor: {
-                name: 'Large Floor Tiles',
-                baseUrl: `${baseUrl}/floor`,
+                name: 'Damaged Concrete Floor',
+                baseUrl: `${baseUrl}/factoryFloor`,
                 maps: {
                     diffuse: 'diff.jpg',
                     normal: 'normal.jpg',
                     roughness: 'roughness.jpg',
                     ao: 'ao.jpg'
                 },
-                scale: { u: 6, v: 6 }
+                // The source covers 5 x 5 m; the floor is 35 x 45 m.
+                scale: { u: 7, v: 9 }
             },
             walls: {
                 name: 'Red Brick Wall',

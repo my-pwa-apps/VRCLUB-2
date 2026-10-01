@@ -625,6 +625,27 @@ test('MaterialFactory freezes by explicit mutability, never by material name', (
     assert.notEqual(frozen, live);
 });
 
+test('the factory floor is matte concrete, and SSR skips dielectrics', () => {
+    const BABYLON = makeBabylonStub();
+    BABYLON.PBRMaterial = class {
+        constructor(name) { this.name = name; this.clearCoat = { isEnabled: false }; this.sheen = {}; }
+        freeze() { this.isFrozen = true; }
+    };
+    const { window } = loadClassic('js/materialFactory.js', { BABYLON });
+    const factory = new window.MaterialFactory({}, 3, { info() {}, warn() {} });
+    const floor = factory.getPreset('floorConcrete');
+    assert.equal(floor.clearCoat.isEnabled, false, 'a clear coat makes the concrete read as a wet floor');
+    assert.equal(floor.metallic, 0);
+    assert.equal(floor.roughness, 1, 'the roughness map must drive the floor at full strength');
+    assert.ok(floor.environmentIntensity <= 0.25);
+
+    // A dielectric's F0 is ~0.04: the threshold must sit above it or SSR mirrors the
+    // floor at grazing angles regardless of the material.
+    const rendering = readFileSync(join(ROOT, 'js/club/03-rendering.js'), 'utf8');
+    const threshold = Number(rendering.match(/ssr\.reflectivityThreshold\s*=\s*([\d.]+)/)?.[1]);
+    assert.ok(threshold > 0.04, `SSR reflectivityThreshold ${threshold} would trace the concrete floor`);
+});
+
 test('every runtime-colour-written factory material declares mutable: true', () => {
     // Migration guard: the call sites that the old name heuristic kept unfrozen must
     // now opt in explicitly, so removing the heuristic changed no runtime behaviour.

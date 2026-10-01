@@ -280,6 +280,12 @@ test('production build initializes a rendered club without browser errors', asyn
                 origin: club.laserSheetOrigin,
                 motion: club.laserSheetMotion,
                 position: club.laserSheetSource.position.asArray(),
+                emitter: club.laserSheet.parent.name,
+                hazeEmitter: club.laserSheetHaze.parent.name,
+                projectors: ['laserSheetSource', 'laserSheetSourceRight'].map(name => {
+                    const mesh = club.scene.getMeshByName(name);
+                    return mesh ? { position: mesh.position.asArray(), visible: mesh.isVisible } : null;
+                }),
                 smokeScatterEmitRate: club.laserSheetSmokeScatter?.emitRate || 0,
                 start,
                 afterTenSeconds: {
@@ -391,8 +397,17 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.sheetVariants.left).toMatchObject({
         origin: 'ceilingLeft',
         motion: 'lateral',
-        position: [-6, 7.55, -16]
+        position: [-6, 7.55, -16],
+        emitter: 'laserSheetSource',
+        hazeEmitter: 'laserSheetSource'
     });
+    // One projector hangs on each side of the truss; the fan moves between them.
+    for (const variant of [showState.sheetVariants.left, showState.sheetVariants.right]) {
+        expect(variant.projectors).toEqual([
+            { position: [-6, 7.55, -16], visible: true },
+            { position: [6, 7.55, -16], visible: true }
+        ]);
+    }
     expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.pitch - showState.sheetVariants.left.start.pitch))
         .toBeGreaterThan(0.005);
     expect(showState.sheetVariants.left.smokeScatterEmitRate).toBe(0);
@@ -401,7 +416,9 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.sheetVariants.right).toMatchObject({
         origin: 'ceilingRight',
         motion: 'vertical',
-        position: [6, 7.55, -16]
+        position: [6, 7.55, -16],
+        emitter: 'laserSheetSourceRight',
+        hazeEmitter: 'laserSheetSourceRight'
     });
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.yaw - showState.sheetVariants.right.start.yaw))
         .toBeGreaterThan(0.005);

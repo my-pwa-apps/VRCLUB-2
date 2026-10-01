@@ -76,6 +76,13 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- The hall reads as an old factory: the dance floor is worn, patched, oil-stained concrete
+  (Poly Haven `concrete_floor_damaged_01`, CC0) instead of clear-coated "wet" tiles, with
+  no clear coat and a full-strength roughness map. Screen-space reflections now skip
+  dielectrics, so only metal (truss, rails, DJ gear, mirror ball) mirrors the room.
+  Rust-brown steel I-beam girders span the roof.
+- The laser sheet has a projector on each side of the rear truss. Both stay hung; the
+  active look decides which one emits, and the idle one parks with a dark aperture.
 - Production deploys the built `dist/` from CI only after verify, e2e and audit pass.
 - Material freezing is controlled by an explicit `mutable: true` option, not name matching.
 - Every first-party script runs in strict mode in development, as it already did in the bundle.

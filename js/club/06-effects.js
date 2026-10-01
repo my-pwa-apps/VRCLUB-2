@@ -409,31 +409,38 @@ class VRClubEffects extends VRClubFixtures {
 
     createLaserSheet() {
         // === LASER SHEET EFFECT ===
-        // Single truss-mounted source fan scanning the room
+        // Two projectors hang from the rear truss, one each side. The fan is emitted
+        // by whichever one the active look selects (configureLaserSheetVariant()).
         // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
-        // 1. Create the Source/Projector Housing
-        // Hung from the rear truss; configureLaserSheetVariant() picks the left or
-        // right mounting point for the active look.
-        const sourcePos = new BABYLON.Vector3(-6, 7.55, -16);
-        
-        this.laserSheetSource = BABYLON.MeshBuilder.CreateBox("laserSheetSource", {
-            width: 0.5, height: 0.2, depth: 0.4
-        }, this.scene);
-        this.laserSheetSource.position = sourcePos;
-        this.laserSheetSource.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
-        
-        // Aperture (Glowing slit)
-        this.laserAperture = BABYLON.MeshBuilder.CreateBox("laserSheetAperture", {
-            width: 0.4, height: 0.05, depth: 0.02
-        }, this.scene);
-        this.laserAperture.parent = this.laserSheetSource;
-        this.laserAperture.position.z = 0.21; // Front face
-        
-        const apertureMat = new BABYLON.StandardMaterial("apertureMat", this.scene);
-        apertureMat.emissiveColor = new BABYLON.Color3(0, 1, 0);
-        apertureMat.disableLighting = true;
-        this.laserAperture.material = apertureMat;
+        // 1. Create the projector housings. The left mesh keeps its historical name.
+        const createMount = (housingName, apertureName, x) => {
+            const housing = BABYLON.MeshBuilder.CreateBox(housingName, {
+                width: 0.5, height: 0.2, depth: 0.4
+            }, this.scene);
+            housing.position.set(x, 7.55, -16);
+            housing.material = this.materialFactory.getPreset('cdjBody'); // Dark metal
+
+            // Aperture (glowing slit), dark while this projector is idle
+            const aperture = BABYLON.MeshBuilder.CreateBox(apertureName, {
+                width: 0.4, height: 0.05, depth: 0.02
+            }, this.scene);
+            aperture.parent = housing;
+            aperture.position.z = 0.21; // Front face
+
+            const apertureMat = new BABYLON.StandardMaterial(`${apertureName}Mat`, this.scene);
+            apertureMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            apertureMat.disableLighting = true;
+            aperture.material = apertureMat;
+            return { housing, aperture };
+        };
+        this._laserSheetMounts = {
+            ceilingLeft: createMount('laserSheetSource', 'laserSheetAperture', -6),
+            ceilingRight: createMount('laserSheetSourceRight', 'laserSheetApertureRight', 6)
+        };
+        this._laserApertureOff = new BABYLON.Color3(0, 0, 0);
+        this.laserSheetSource = this._laserSheetMounts.ceilingLeft.housing;
+        this.laserAperture = this._laserSheetMounts.ceilingLeft.aperture;
         
         // 2. Create the Laser Sheet Geometry (Triangle Fan)
         // We create a custom mesh for the fan shape
@@ -530,7 +537,9 @@ class VRClubEffects extends VRClubFixtures {
         if (this.glowLayer) {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
             this.glowLayer.addIncludedOnlyMesh(this.laserSheetHaze);
-            this.glowLayer.addIncludedOnlyMesh(this.laserAperture);
+            for (const mount of Object.values(this._laserSheetMounts)) {
+                this.glowLayer.addIncludedOnlyMesh(mount.aperture);
+            }
         }
 
         this.configureLaserSheetVariant();
@@ -541,20 +550,30 @@ class VRClubEffects extends VRClubFixtures {
     configureLaserSheetVariant() {
         if (!this.laserSheetSource) return;
 
-        // The source only ever hangs from the truss. There is no longer a mounting
-        // point behind the LED wall; anything other than 'ceilingRight' uses the left.
-        if (this.laserSheetOrigin === 'ceilingRight') {
-            this.laserSheetSource.position.set(6, 7.55, -16);
-            this._laserSheetBasePitch = 0.44;
-            this._laserSheetBaseYaw = -0.10;
-            this._laserSheetPitchRange = 0.10;
-            this._laserSheetYawRange = 0.16;
-        } else {
-            this.laserSheetSource.position.set(-6, 7.55, -16);
-            this._laserSheetBasePitch = 0.44;
-            this._laserSheetBaseYaw = 0.10;
-            this._laserSheetPitchRange = 0.10;
-            this._laserSheetYawRange = 0.16;
+        // Each truss projector aims slightly inward towards the dance floor. Anything
+        // other than 'ceilingRight' uses the left projector.
+        const side = this.laserSheetOrigin === 'ceilingRight' ? 'ceilingRight' : 'ceilingLeft';
+        const restYaw = mountSide => (mountSide === 'ceilingRight' ? -0.10 : 0.10);
+        this._laserSheetBasePitch = 0.44;
+        this._laserSheetBaseYaw = restYaw(side);
+        this._laserSheetPitchRange = 0.10;
+        this._laserSheetYawRange = 0.16;
+
+        const mounts = this._laserSheetMounts;
+        if (mounts && mounts[side]) {
+            // The idle projector parks at its rest aim with a dark aperture; the fan
+            // geometry moves to the active one and keeps its local offset.
+            for (const [mountSide, mount] of Object.entries(mounts)) {
+                if (mountSide === side) continue;
+                mount.housing.rotation.x = this._laserSheetBasePitch;
+                mount.housing.rotation.y = restYaw(mountSide);
+                mount.aperture.material.emissiveColor = this._laserApertureOff;
+            }
+            const active = mounts[side];
+            this.laserSheetSource = active.housing;
+            this.laserAperture = active.aperture;
+            if (this.laserSheet) this.laserSheet.parent = active.housing;
+            if (this.laserSheetHaze) this.laserSheetHaze.parent = active.housing;
         }
 
         this.laserSheetSource.rotation.x = this._laserSheetBasePitch;

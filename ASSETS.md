@@ -60,7 +60,8 @@ compatible with the intended distribution before a public release.
 
 | Path | Origin | Licence |
 |------|--------|---------|
-| `textures/floor/`, `textures/walls/`, `textures/ceiling/` | Poly Haven | CC0 1.0 (public domain) |
+| `textures/factoryFloor/` | Poly Haven — [Concrete Floor Damaged 01](https://polyhaven.com/a/concrete_floor_damaged_01) by Rob Tuytel (1K JPG: diff, nor_dx, rough, ao) | CC0 1.0 (public domain) |
+| `textures/walls/`, `textures/ceiling/` | Poly Haven | CC0 1.0 (public domain) |
 
 ## Runtime libraries
 

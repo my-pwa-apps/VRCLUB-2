@@ -591,19 +591,18 @@ class MaterialFactory {
             roughness: 0.9
         }),
 
-        // Polished nightclub floor with clearcoat layer (wet/lacquered look)
-        // Uses full PBRMaterial for advanced multi-layer rendering
-        floorPolished: () => this.createFullPBRMaterial('floorPolishedMat', {
-            albedoColor: [0.12, 0.12, 0.15],  // Dark polished tiles
-            metallic: 0.08,
-            roughness: 0.25,                    // Smooth polished surface
-            clearCoat: {
-                intensity: 0.6,                 // Strong clear lacquer/wet layer
-                roughness: 0.12                 // Very smooth clearcoat for sharp reflections
-            },
-            environmentIntensity: 0.65,         // Strong environment reflections off polished surface
-            directIntensity: 1.1,               // Enhanced direct light response
-            specularIntensity: 0.9              // Strong specular highlights
+        // Worn factory-hall concrete: matte, no clear coat. The texture carries the
+        // real albedo, so the tint is near-neutral (slightly warm). Roughness and
+        // metallic scalars multiply the greyscale roughness map (see
+        // applyTexturesToMaterial), so roughness 1 lets the map's smoother worn
+        // patches show a faint sheen and metallic 0 keeps the map out of metal.
+        floorConcrete: () => this.createFullPBRMaterial('floorConcreteMat', {
+            albedoColor: [0.88, 0.85, 0.8],
+            metallic: 0.0,
+            roughness: 1.0,
+            environmentIntensity: 0.2,
+            directIntensity: 1.0,
+            specularIntensity: 0.4
         }),
 
         wall: () => this.createPBRMaterial('wallMat', {
@@ -744,6 +743,15 @@ class MaterialFactory {
             roughness: 0.78,
             detail: 'castMetal',
             detailScale: 3
+        }, true),
+
+        // Old factory roof steel: weathered, rust-brown paint over cast metal
+        steelGirder: () => this.createPBRMaterial('steelGirderMat', {
+            baseColor: [0.16, 0.1, 0.07],
+            metallic: 0.55,
+            roughness: 0.82,
+            detail: 'castMetal',
+            detailScale: 4
         }, true),
 
         // Laser/Effects - Enhanced emissive

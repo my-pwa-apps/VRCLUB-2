@@ -415,11 +415,13 @@ class VRClubAnimationCore extends VRClubEffects {
             
             this.laserSheet.isVisible = true;
             if (this.laserSheetHaze) this.laserSheetHaze.isVisible = true;
-            if (this.laserSheetSource) this.laserSheetSource.isVisible = true;
         } else if (this.laserSheet) {
+            // Both projectors stay hung on the truss; only the beam and slit go dark.
             this.laserSheet.isVisible = false;
             if (this.laserSheetHaze) this.laserSheetHaze.isVisible = false;
-            if (this.laserSheetSource) this.laserSheetSource.isVisible = false;
+            if (this.laserAperture && this.laserAperture.material && this._laserApertureOff) {
+                this.laserAperture.material.emissiveColor = this._laserApertureOff;
+            }
             if (this.laserLight) this.laserLight.intensity = 0;
         }
     }

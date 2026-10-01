@@ -178,19 +178,19 @@ class VRClubRendering extends VRClubLifecycle {
             ssr.selfCollisionNumSkip = 2;         // Avoids the floor reflecting itself as noise
             ssr.clipToFrustum = true;
 
-            // Blur the reflection by surface roughness. The floor is roughness 0.25 —
-            // polished but not a mirror — so reflections should smear slightly.
-            // Without this the floor looks like glass, which reads as fake.
+            // Blur the reflection by surface roughness so brushed and cast metal
+            // smear rather than reading as glass.
             ssr.blurDispersionStrength = 0.035;
             ssr.blurDownsample = highQuality ? 0 : 1;
             ssr.ssrDownsample = highQuality ? 0 : 1;
             ssr.roughnessFactor = 0.18;
 
-            // useFresnel makes grazing angles far more reflective than head-on ones,
-            // which is exactly how a real wet floor behaves: the far end of the room
-            // mirrors brightly while the floor at your feet stays matte.
+            // useFresnel makes grazing angles more reflective than head-on ones. The
+            // threshold sits above a dielectric's F0 (~0.04), so only metals (truss,
+            // rails, DJ gear, mirror ball) trace rays. The matte concrete floor and the
+            // brick would otherwise mirror the room at grazing angles like a wet floor.
             ssr.useFresnel = true;
-            ssr.reflectivityThreshold = 0.02; // Below the floor's 0.08 metallic so it qualifies
+            ssr.reflectivityThreshold = 0.06;
 
             // Soften the inherent SSR failure cases rather than letting them pop.
             ssr.attenuateScreenBorders = true;
@@ -424,39 +424,24 @@ class VRClubRendering extends VRClubLifecycle {
         // Store floor mesh for VR teleportation
         this.floorMesh = floor;
         
-        // ENHANCED Wooden floor panels with PBR - hyperrealistic nightclub aesthetic
-        // Uses full PBRMaterial with clearcoat for polished/wet nightclub floor look
-        const floorMat = this.materialFactory.getPreset('floorPolished');
+        // Old factory hall: worn, patched, oil-stained concrete. Matte by design; the
+        // preset carries no clear coat and the roughness map is used at full strength.
+        const floorMat = this.materialFactory.getPreset('floorConcrete');
         
-        // Apply downloaded wood textures if available
         if (this.concreteTextures && this.concreteTextures.floor) {
-            log.info('🎨 Applying ENHANCED floor textures (Polyhaven - Large Floor Tiles) with clearcoat');
+            log.info('🎨 Applying factory concrete floor textures (Poly Haven - Concrete Floor Damaged 01)');
             this.textureLoader.applyTexturesToMaterial(floorMat, this.concreteTextures.floor);
-            // Dark polished tiles for modern nightclub aesthetic
-            floorMat.albedoColor = new BABYLON.Color3(0.12, 0.12, 0.15); 
-            
-            // Override roughness for polished look (wet floor effect)
-            floorMat.roughness = 0.25; 
-            floorMat.metallic = 0.08;
-            
-            // Reduce roughness map influence to keep polished look
-            if (floorMat.metallicTexture) {
-                floorMat.metallicTexture.level = 0.4; // Reduce roughness map strength for shinier surface
-            }
         } else {
-            // Enhanced fallback to procedural noise texture
-            log.info('🎨 Using ENHANCED procedural floor texture (fallback)');
+            log.info('🎨 Using procedural concrete floor texture (fallback)');
             const noiseTexture = new BABYLON.NoiseProceduralTexture("floorNoise", 512, this.scene); // OPTIMIZED: Reduced from 1024
             noiseTexture.octaves = 6; // More detail layers
             noiseTexture.persistence = 0.9; // Stronger detail retention
             noiseTexture.animationSpeedFactor = 0; // Static texture
             floorMat.bumpTexture = noiseTexture;
-            floorMat.bumpTexture.level = 0.4; // Enhanced bump for realistic surface
-            floorMat.albedoColor = new BABYLON.Color3(0.15, 0.15, 0.18); // Dark polished concrete
+            floorMat.bumpTexture.level = 0.4;
+            floorMat.roughness = 0.85; // No roughness map to modulate it
+            floorMat.albedoColor = new BABYLON.Color3(0.3, 0.29, 0.27); // Untextured concrete
         }
-        
-        // ENHANCED PBR properties for hyperrealistic polished floor
-        // (environmentIntensity, directIntensity, specularIntensity set via preset)
         
         floor.material = floorMat;
         // Floor shadow reception is the strongest single cue that objects are actually
@@ -471,7 +456,7 @@ class VRClubRendering extends VRClubLifecycle {
     /**
      * UPGRADE: Create a frozen ReflectionProbe for realistic floor reflections
      * Captures the club environment (trusses, LED wall, ceiling, walls) into a cube map
-     * and applies it to the polished floor PBR material.
+     * and applies it to the concrete floor PBR material.
      * Uses REFRESHRATE_RENDER_ONCE so it's captured once and never re-rendered (free at runtime).
      * Call this AFTER all geometry is created so the probe captures everything.
      */
@@ -518,9 +503,8 @@ class VRClubRendering extends VRClubLifecycle {
         floorMat.reflectionTexture = probe.cubeTexture;
         floorMat.reflectionTexture.coordinatesMode = BABYLON.Texture.CUBIC_REFLECTION_MODE;
         
-        // Moderate reflection level - polished but not mirror-like
-        // The floor already has roughness 0.25 which naturally blurs the reflection
-        floorMat.environmentIntensity = 0.6; // Subtle ambient reflections
+        // Rough concrete: the probe only adds a faint, heavily blurred ambient tint.
+        floorMat.environmentIntensity = 0.2;
         
         if (wasFrozen && floorMat.freeze) floorMat.freeze();
         
