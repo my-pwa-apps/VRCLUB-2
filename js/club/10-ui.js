@@ -78,13 +78,38 @@ class VRClubUI extends VRClubAnimationFinish {
             ? navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
             : Promise.resolve(false);
 
-        supported.then((ok) => {
+        // The DJ console and PA speaker GLBs are parsed, instanced and compiled on the
+        // main thread for several seconds after the club appears (measured 250-600 ms
+        // stalls). On a desktop that is a rough start; in a headset every stall is a
+        // run of dropped frames. VR entry therefore waits for the background load and
+        // for every material to compile, with a ceiling so a slow network can never
+        // lock VR out.
+        const settled = Promise.resolve(this.modelLoadPromise)
+            .catch(() => {})
+            .then(() => (this.scene && this.scene.whenReadyAsync ? this.scene.whenReadyAsync() : null))
+            .catch(() => {});
+        const ceiling = new Promise(resolve => {
+            this._vrEntryTimer = setTimeout(resolve, VRClubUI.VR_ENTRY_MAX_WAIT_MS);
+        });
+        const entryReady = Promise.race([settled, ceiling]).then(() => {
+            clearTimeout(this._vrEntryTimer);
+            this._vrEntryTimer = null;
+        });
+        if (navigator.xr) {
+            vrButton.disabled = true;
+            setLabel('\u{1F97D} Preparing VR\u2026', false);
+        }
+
+        Promise.all([supported, entryReady]).then(([ok]) => {
             if (this._disposed) return;
             if (!ok || !vrHelper || !vrHelper.baseExperience) {
                 vrButton.disabled = true;
                 vrButton.title = 'No VR headset detected. Connect via Link/Air Link, or open this page in the Quest browser.';
                 setLabel('\u{1F97D} VR unavailable', false);
+                return;
             }
+            vrButton.disabled = false;
+            if (!this.isInVRMode) setLabel('\u{1F97D} Enter VR', false);
         });
 
         this._onVRButtonClick = async () => {
@@ -273,6 +298,15 @@ class VRClubUI extends VRClubAnimationFinish {
     static get TELEPORT_BLOCKERS() {
         return ['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop'];
     }
+
+    /** Longest the Enter VR button waits for background model loading. */
+    static get VR_ENTRY_MAX_WAIT_MS() { return 30000; }
+
+    /** A playing stream whose clock has not advanced this long is reconnected. */
+    static get STREAM_STALL_SECONDS() { return 8; }
+
+    /** Backoff between stream reconnect attempts; its length is the attempt cap. */
+    static get STREAM_RETRY_DELAYS_MS() { return [2000, 5000, 10000]; }
 
     /** Documented defaults for every VJ-controllable property. */
     static get VJ_DEFAULTS() {
@@ -896,11 +930,79 @@ class VRClubUI extends VRClubAnimationFinish {
         audio.style.display = 'none';
         document.body.appendChild(audio);
         this.audioElement = audio;
+        this._watchAudioStream(audio);
         return audio;
+    }
+
+    /**
+     * Internet radio drops mid-session, after which the element simply goes quiet
+     * and the show falls back to synthetic beats with no explanation. Watch for a
+     * media error, or for an un-paused stream whose clock stops advancing, and
+     * reconnect with bounded backoff. Local files and user pauses are left alone.
+     */
+    _watchAudioStream(audio) {
+        const recovery = this._streamRecovery = { attempts: 0, timer: null, lastTime: -1, stalledFor: 0, hasPlayed: false };
+        this._onAudioFault = () => this._recoverAudioStream('error');
+        this._onAudioPlaying = () => { recovery.attempts = 0; recovery.stalledFor = 0; recovery.hasPlayed = true; };
+        audio.addEventListener('error', this._onAudioFault);
+        audio.addEventListener('playing', this._onAudioPlaying);
+        this._audioWatchdog = setInterval(() => {
+            if (this._audioKind !== 'stream' || audio.paused || recovery.timer) {
+                recovery.stalledFor = 0;
+                recovery.lastTime = audio.currentTime;
+                return;
+            }
+            recovery.stalledFor = audio.currentTime === recovery.lastTime ? recovery.stalledFor + 2 : 0;
+            recovery.lastTime = audio.currentTime;
+            if (recovery.stalledFor >= VRClubUI.STREAM_STALL_SECONDS) {
+                recovery.stalledFor = 0;
+                this._recoverAudioStream('stall');
+            }
+        }, 2000);
+    }
+
+    _recoverAudioStream(reason) {
+        const audio = this.audioElement;
+        const recovery = this._streamRecovery;
+        if (!audio || !recovery || this._disposed) return;
+        if (this._audioKind !== 'stream') {
+            if (reason === 'error' && this._audioKind === 'file') {
+                this.showErrorMessage('This audio file cannot be played. Try an MP3, AAC, OGG or WAV file.');
+            }
+            return;
+        }
+        if (recovery.timer) return;
+        // A stream that never started (bad URL, CORS, codec) is reported by the
+        // rejected play() in _playAudio; only a dropped, previously-playing stream
+        // is worth reconnecting.
+        if (!recovery.hasPlayed) return;
+        const delays = VRClubUI.STREAM_RETRY_DELAYS_MS;
+        if (recovery.attempts >= delays.length) {
+            this.showErrorMessage('The stream stopped and could not be reconnected. Choose another station.');
+            return;
+        }
+        const delay = delays[recovery.attempts++];
+        this.showErrorMessage(`Stream interrupted \u2014 reconnecting (attempt ${recovery.attempts} of ${delays.length})\u2026`);
+        log.warn(`🎵 Stream ${reason}; reconnect attempt ${recovery.attempts} in ${delay} ms`);
+        recovery.timer = setTimeout(() => {
+            recovery.timer = null;
+            if (this._disposed || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
+            audio.src = this._audioStreamUrl;
+            audio.load();
+            audio.play().catch(() => this._recoverAudioStream('error'));
+        }, delay);
     }
 
     _playAudio(src, kind, label) {
         const audio = this._ensureAudioElement();
+        this._audioKind = kind;
+        this._audioStreamUrl = kind === 'stream' ? src : null;
+        if (this._streamRecovery) {
+            clearTimeout(this._streamRecovery.timer);
+            this._streamRecovery.timer = null;
+            this._streamRecovery.attempts = 0;
+            this._streamRecovery.hasPlayed = false;
+        }
         this._setAudioSrc(src);
         this._connectAudioSourceOnce();
         audio.load();

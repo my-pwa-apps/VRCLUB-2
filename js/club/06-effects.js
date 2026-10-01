@@ -126,21 +126,21 @@ class VRClubEffects extends VRClubFixtures {
             spot.intensity = 30;
             spot.range = 25;
 
-            // The two rear fixtures give the DJ booth and flown speaker stacks
-            // grounding shadows. Other moving heads remain shadow-free to cap the
-            // render-target count and draw cost.
-            if (i === 2 || i === 5) {
-                const shadowGenerator = new BABYLON.ShadowGenerator(1024, spot);
-                shadowGenerator.bias = 0.0005;
-                shadowGenerator.normalBias = 0.02;
-            }
+            // No shadow generator. With maxSimultaneousLights = 3 (4 on Quest), every lit
+            // material takes ambient + spot0 + spot1 from `scene.lights` order, so the
+            // shadow maps this file used to give spot2/spot5 were rendered every frame
+            // (1024², ~134 casters each) and sampled by no material at all.
             
             // UPGRADE: SpotLight.projectionTexture support (physically correct gobo projection)
             // Near/far define the frustum for texture projection (like shadow mapping)
             spot.projectionTextureLightNear = 0.5;
             spot.projectionTextureLightFar = 25;
             
-            spot.setEnabled(false); // Start disabled - will be enabled by animation loop based on lightsActive state
+            // Enabled for life and dimmed by intensity. Enabling or disabling a light
+            // changes the light slots of every lit material: each cue change recompiled
+            // 17-20 shader variants (measured 0.4-1.1 s freezes), and each toggle walked
+            // the scene. The animation loop drives intensity to 0 when a spot is off.
+            spot.intensity = 0;
             
             // SPOTLIGHT BEAM - Cone that extends FROM fixture DOWN to floor/wall
             // When cylinder points DOWN, its +Y local axis points toward surface
@@ -409,13 +409,13 @@ class VRClubEffects extends VRClubFixtures {
 
     createLaserSheet() {
         // === LASER SHEET EFFECT ===
-        // Single source fan from LED wall scanning the room
+        // Single truss-mounted source fan scanning the room
         // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
         // 1. Create the Source/Projector Housing
-        // Positioned high on the room side of the back wall, centered
-        // Height 5.5m clears the DJ booth and hits the dancefloor nicely
-        const sourcePos = new BABYLON.Vector3(0, 5.5, -20.6);
+        // Hung from the rear truss; configureLaserSheetVariant() picks the left or
+        // right mounting point for the active look.
+        const sourcePos = new BABYLON.Vector3(-6, 7.55, -16);
         
         this.laserSheetSource = BABYLON.MeshBuilder.CreateBox("laserSheetSource", {
             width: 0.5, height: 0.2, depth: 0.4
@@ -541,24 +541,20 @@ class VRClubEffects extends VRClubFixtures {
     configureLaserSheetVariant() {
         if (!this.laserSheetSource) return;
 
-        if (this.laserSheetOrigin === 'ceilingLeft') {
-            this.laserSheetSource.position.set(-6, 7.55, -16);
-            this._laserSheetBasePitch = 0.44;
-            this._laserSheetBaseYaw = 0.10;
-            this._laserSheetPitchRange = 0.10;
-            this._laserSheetYawRange = 0.16;
-        } else if (this.laserSheetOrigin === 'ceilingRight') {
+        // The source only ever hangs from the truss. There is no longer a mounting
+        // point behind the LED wall; anything other than 'ceilingRight' uses the left.
+        if (this.laserSheetOrigin === 'ceilingRight') {
             this.laserSheetSource.position.set(6, 7.55, -16);
             this._laserSheetBasePitch = 0.44;
             this._laserSheetBaseYaw = -0.10;
             this._laserSheetPitchRange = 0.10;
             this._laserSheetYawRange = 0.16;
         } else {
-            this.laserSheetSource.position.set(0, 5.5, -20.6);
-            this._laserSheetBasePitch = 0.27;
-            this._laserSheetBaseYaw = 0;
+            this.laserSheetSource.position.set(-6, 7.55, -16);
+            this._laserSheetBasePitch = 0.44;
+            this._laserSheetBaseYaw = 0.10;
             this._laserSheetPitchRange = 0.10;
-            this._laserSheetYawRange = 0.14;
+            this._laserSheetYawRange = 0.16;
         }
 
         this.laserSheetSource.rotation.x = this._laserSheetBasePitch;

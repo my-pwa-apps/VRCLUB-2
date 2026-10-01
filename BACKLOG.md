@@ -6,6 +6,234 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-09-30 (follow-up) — Frame-time spikes, lighting slots and loading
+
+Scope: the same principal review brief, run a second time on the committed first pass
+(`f4a5873`). This pass measured **spikes rather than averages**: 45–60 s cold captures with
+long-frame attribution (cue, newly compiled shaders, enabled lights, Babylon internal
+timings), forced cue changes, a forced strobe burst, CDP heap snapshots after GC, and a
+CDP allocation-sampling profile. Also: per-material light-slot inspection and the compiled
+material defines. The integrated browser and laptop are the same as the first pass; nothing
+was run on a headset.
+
+Validation actually executed: `npm run check`, `npm run lint`, `npm test` (101/101 across
+unit, contract and worker; 3 new tests), `npm run build`, `npm run test:e2e` 4/4. A first
+e2e run failed two tests. One timed out at 300 s because my concurrent profiling session
+starved the software renderer (it passed once that session was parked). The other was a
+genuine conflict: my crowd-LOD change violated a deliberate XR rule (see below), so it was
+reverted.
+
+Checked and found sound (do not re-raise without new evidence): no JS heap leak (125.6 to
+127.5 MB after forced GC over 60 s, flat after 20 s); no DynamicTexture or per-frame
+material freeze in the hot path; image-processing notifications stay at 0.
+
+### Fixed during this follow-up
+
+- [x] **Cue changes recompiled 17–20 shader variants (0.4–1.1 s freezes)**
+
+  **Resolved 2026-09-30.** The six moving-head `SpotLight`s are enabled for life, and
+  `updateSpotlights()` gates them by `intensity` only. Measured: seven forced cue changes
+  compiled 5 variants in total (before, 20 and 17 for two switches) with no frame over
+  150 ms; steady p50/p99 went from 21.4/268 to 17.5/62 ms.
+
+  **Priority:** High
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Moving-head lights / material light slots
+  **Affected files:** `js/club/06-effects.js`, `js/club/08-animation-fixtures.js`
+  **Evidence:** MEASURED. Long-frame attribution showed `newEffects: 20` on eclipse to firstLight
+  (676 + 1,073 ms) and `17` on the way back (396 ms); `light.setEnabled()` costs ~2 ms each;
+  `spot.beamVisible` toggles at flash rate in spot-strobe modes.
+  **Problem:** Enabling or disabling a light changes which light types occupy every lit
+  material's three slots, so their defines change.
+  **User-visible effect:** The show froze at many of its most important moments.
+  **Immersion impact:** High; in a headset each freeze is a black or smeared frame.
+  **Desktop impact:** Freezes removed.
+  **VR impact:** Same, and at 72–120 Hz the budget is far smaller.
+  **Performance impact:** Removes compiles and scene walks; dark cues now shade 3 slots
+  (as lit cues always did), so the worst case is unchanged.
+  **Recommended solution:** Implemented as above; the rule is documented in the instructions.
+  **Regression considerations:** Spots dim to zero exactly as before; the e2e spotlight,
+  optics and white-foreground tests pass.
+  **Acceptance criteria:** No new shader variant after warm-up on cue changes; no
+  cue-change frame over 150 ms on the measured machine.
+  **Validation:** Runtime capture (recorded in `docs/PERFORMANCE_BASELINE.md`); e2e.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Two shadow maps were rendered every frame and sampled by nothing**
+
+  **Resolved 2026-09-30.** The generators on `spot2`/`spot5` were removed; zero visual change.
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Shadows
+  **Affected files:** `js/club/06-effects.js`
+  **Evidence:** MEASURED. 0 of 168 lit submeshes had any `SHADOWn` define. Every mesh's
+  `lightSources` is `[ambient, spot0 … spot5]` with `maxSimultaneousLights = 3`, so the
+  shadow-casting spots never reached a slot; the two receivers (DJ platform) bind ambient,
+  spot0 and spot1. Each map had 1024² resolution and 134 casters, including skinned dancers,
+  at `REFRESHRATE_RENDER_ONEVERYFRAME` on ultra/high.
+  **Problem:** Two full scene passes per frame with no output.
+  **User-visible effect:** None (which is itself the realism gap tracked below).
+  **Immersion impact:** None.
+  **Desktop impact:** Two render-target passes per frame removed on ultra/high.
+  **VR impact:** VR already disabled them.
+  **Performance impact:** Render-target CPU of ~2.1 ms per frame measured earlier, plus GPU.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** `_applyShadowQuality()` and `_refreshShadowCasters()` are now
+  no-ops and are kept for the grounding-shadow item.
+  **Acceptance criteria:** No shadow render targets exist.
+  **Validation:** Runtime light and shadow-generator inventory.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [x] **VR could be entered during ~12 s of post-load main-thread stalls**
+
+  **Resolved 2026-09-30.** `#vrButton` reads "Preparing VR…" until `modelLoadPromise`
+  settles and `scene.whenReadyAsync()` resolves, with a 30 s ceiling; the timer is cleared
+  in `dispose()`. Babylon's overlay icon is disabled so the gated button is the only entry.
+
+  **Priority:** High
+  **Category:** VR
+  **Confidence:** High
+  **Area:** Loading / XR entry
+  **Affected files:** `js/club/10-ui.js`, `js/club/02-lifecycle.js`, `test/e2e/vrclub.spec.mjs`
+  **Evidence:** MEASURED. After `ready`: 2.8 s and 2.0 s first-render frames (26 variants),
+  then 250–600 ms gaps for ~12 s while Babylon's own frame time stayed 17–40 ms and meshes
+  arrived in +3/+25/+25 steps (DJ console, then the two PA speakers).
+  **Problem:** Main-thread GLB parsing and instancing in an interactive scene.
+  **User-visible effect:** A headset entered early showed sustained dropped frames.
+  **Immersion impact:** High on first impression.
+  **Desktop impact:** Unchanged (the desktop start still stutters; see the open item).
+  **VR impact:** Entry now waits for the load; a slow network waits at most 30 s.
+  **Performance impact:** None.
+  **Recommended solution:** Implemented as above.
+  **Regression considerations:** The Quest emulation e2e now waits up to 60 s for the button.
+  **Acceptance criteria:** The button is disabled while models load and enabled after, or
+  after the ceiling.
+  **Validation:** Unit test (loaded and stalled paths); Quest emulation e2e.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+### New open items
+
+- [ ] **Only ambient, spot0 and spot1 ever light a surface; grounding shadows do not exist**
+
+  **Priority:** High
+  **Category:** Lighting
+  **Confidence:** High
+  **Area:** Moving heads, material light budget, shadows
+  **Affected files:** `js/club/06-effects.js`, `js/club/08-animation-fixtures.js`, `js/club/01-core.js`
+  **Evidence:** MEASURED light-slot inventory (see the fixed items above). On desktop,
+  spot2–spot5 contribute beams, pools and gobos (meshes) but no surface light; which two spots
+  light the room depends only on creation order, not on where they point. The "grounding
+  shadows for the booth" described in code never rendered.
+  **Problem:** Surface lighting is decoupled from the visible fixtures.
+  **User-visible effect:** A beam lands on the floor, yet the floor's real shading follows two
+  other, arbitrary fixtures.
+  **Immersion impact:** High; light that doesn't match its source is a core realism contradiction.
+  **Desktop impact:** Same as VR.
+  **VR impact:** Same (Quest adds spot2).
+  **Performance impact:** Must stay within the 3/4-slot budget.
+  **Recommended solution:** Either (a) give each spot `includedOnlyMeshes` for its zone so
+  every fixture lights what it points at within the budget, or (b) make spot2–spot5
+  visual-only (no `SpotLight`) and let spot0/1 follow the two most visible beams. Then add one
+  shadow generator to a slot-budgeted light, with a booth-only caster list and the platform as
+  receiver.
+  **Regression considerations:** Keep lights enabled for life (no slot churn); white-foreground tests.
+  **Acceptance criteria:** Each visible pool coincides with real surface light; a contact
+  shadow appears under the DJ gear on ultra/high; no shader compiles on cue change.
+  **Validation:** Per-material slot inventory; A/B captures; frame-time capture.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Each strobe flash costs ~19 ms (the flash light toggles its enabled state)**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Strobes
+  **Affected files:** `js/club/09-animation-finish.js`, `js/club/05-fixtures.js`
+  **Evidence:** MEASURED. Flash frames averaged 45.3 ms against 26.1 ms for others over 296
+  frames, with no new shaders. `strobeFlash` is created before `ambient`, so enabling it
+  takes slot 0 of every material.
+  **Problem:** A scene-wide light re-slot on every flash.
+  **User-visible effect:** Strobe cues stutter exactly on the flashes.
+  **Immersion impact:** Medium.
+  **Desktop impact:** About 19 ms on each flash frame.
+  **VR impact:** Likely a dropped frame per flash.
+  **Performance impact:** About 19 ms per flash frame.
+  **Recommended solution:** Keep the flash light permanently enabled at intensity 0 and move it
+  after the spots in `scene.lights` (remove and re-add), or drop it and rely on the ambient
+  impulse the code already fires. Either way is a small visual change needing an A/B.
+  **Regression considerations:** Safe Mode restoration; strobe e2e optics assertions.
+  **Acceptance criteria:** Flash frames within 2 ms of non-flash frames.
+  **Validation:** Forced-burst capture as above.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [ ] **Crowd skeletal interpolation dominates allocation (~15 MB/s)**
+
+  **Priority:** Medium
+  **Category:** Crowd
+  **Confidence:** High
+  **Area:** Dancers / Babylon animation groups
+  **Affected files:** `js/club/11-audio-crowd.js`
+  **Evidence:** MEASURED with CDP allocation sampling: Babylon `_interpolate`, `_animate` and
+  `animate` account for ~146 of ~216 MB allocated per 10 s. The only animation LOD pauses
+  dancers beyond 28 m, a distance that cannot occur inside the 25 x 21 m room. A
+  heading-based pause (beyond 120°) was prototyped and reverted: it violates the 2026-08-23
+  rule, encoded in the Quest e2e test (`nearbyAnimationsRunning`), that every enabled dancer
+  animates in XR after frustum-based pausing froze dancers per eye.
+  **Problem:** GC pressure scales with dancer count and runs regardless of visibility.
+  **User-visible effect:** Periodic GC hitches, most likely on Quest.
+  **Immersion impact:** Medium.
+  **Desktop impact:** Minor on this laptop.
+  **VR impact:** Likely GC pauses on Quest (unmeasured).
+  **Performance impact:** ~15 MB/s of allocation.
+  **Recommended solution:** Bake the dance loops into vertex animation textures
+  (`BakedVertexAnimationManager`) with instancing, which removes per-frame skeletal CPU and
+  allocation while keeping every dancer animating. Remove the dead 28 m rule.
+  **Regression considerations:** Per-dancer phase and speed offsets; `alwaysSelectAsActiveMesh`.
+  **Acceptance criteria:** Allocation below 3 MB/s with the full tier crowd; no dancer ever freezes.
+  **Validation:** CDP allocation sampling; Quest GC trace.
+  **Estimated effort:** Large
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [ ] **The desktop start stutters for ~12 s after the club appears**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Confidence:** High
+  **Area:** Loading
+  **Affected files:** `js/club/02-lifecycle.js`, `js/modelLoader.js`
+  **Evidence:** MEASURED; see the VR-entry item. The first two frames compile 26 variants (2.8 s + 2.0 s).
+  **Problem:** Progressive loading is done synchronously on the main thread in a live scene.
+  **User-visible effect:** Jerky first impression while walking or looking around.
+  **Immersion impact:** Medium.
+  **Desktop impact:** About 12 s of stutter.
+  **VR impact:** Mitigated by the entry gate.
+  **Performance impact:** Loading only.
+  **Recommended solution:** Hold the splash until `scene.whenReadyAsync()` for the base scene
+  (move the first compile behind it), pre-compile the GLB materials with
+  `forceCompilationAsync` before enabling their meshes, and spread instancing across frames.
+  **Regression considerations:** Keep time-to-first-view reasonable; splash progress reporting.
+  **Acceptance criteria:** No frame over 100 ms after the splash hides, on the measured machine.
+  **Validation:** The cold capture used here.
+  **Estimated effort:** Medium
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
 ## Review — 2026-09-30 — Principal experience, rendering and performance review
 
 Scope: every validation command; a runtime session of the production build in desktop
@@ -436,7 +664,14 @@ safe-mode bypass (see the cleanup item).
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [ ] **Live streams that stall or error fail silently**
+- [x] **Live streams that stall or error fail silently**
+
+  **Resolved 2026-09-30 (follow-up).** `_watchAudioStream()` reconnects a previously-playing
+  network stream after a media `error`, or when an un-paused stream's clock stops for 8 s,
+  with 2/5/10 s backoff and a toast per attempt. It never retries a URL that never played,
+  a user pause, or a local file (a decode error is explained instead). The watchdog, the
+  pending retry and the listeners are released in `dispose()` before the `src` is cleared.
+  Covered by a unit test with a fake media element and timers.
 
   **Priority:** Medium
   **Category:** Audio
@@ -485,7 +720,12 @@ safe-mode bypass (see the cleanup item).
   **Product value:** Medium
   **Technical debt reduction:** Low
 
-- [ ] **Remove the 19 unreachable LED patterns (including a 15 Hz full-field strobe)**
+- [x] **Remove the 19 unreachable LED patterns (including a 15 Hz full-field strobe)**
+
+  **Resolved 2026-09-30 (follow-up).** All 19 deleted (`js/ledPatterns.js` 52.9 to 36.9 KB).
+  The remaining 18 methods are exactly the playlist; both shared helpers are still used; the
+  "every LED wall pattern runs" test and the ShowDirector index references pass. The
+  instructions and README no longer say 37.
 
   **Priority:** Low
   **Category:** Cleanup
@@ -510,7 +750,11 @@ safe-mode bypass (see the cleanup item).
   **Product value:** Low
   **Technical debt reduction:** Medium
 
-- [ ] **`dispose()` leaves the XR default experience's input observers attached**
+- [x] **`dispose()` leaves the XR default experience's input observers attached**
+
+  **Resolved 2026-09-30 (follow-up).** `dispose()` removes `_xrButtonBindingObserver` and
+  disposes the whole default experience (input, pointer selection, teleportation), falling
+  back to `baseExperience.dispose()`. The Quest emulation e2e test passes.
 
   **Priority:** Low
   **Category:** Reliability

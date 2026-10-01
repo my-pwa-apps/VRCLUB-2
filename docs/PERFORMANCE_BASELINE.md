@@ -36,6 +36,25 @@ Scene at capture: 1,115 meshes, 493 active, 548 materials, 506 draw calls, 31 sk
 131 alpha-blended active meshes. The remaining mirror-ball cost is Babylon walking every
 scene mesh per pick; see `BACKLOG.md`.
 
+## 2026-09-30 (follow-up) — Frame-time spikes, not averages
+
+Same machine and build as above, `high` tier, 45–60 s captures.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Worst frame over 45 s (cold) | 7,043 ms | startup only (see VR entry gate) |
+| Shader variants compiled by 7 forced cue changes | 20 + 17 for two switches | 5 in total |
+| Frames > 150 ms during cue changes | 676 / 1,073 / 396 ms | none |
+| Steady frame p50 / p99 | 21.4 / 268 ms | 17.5 / 62 ms |
+| Shadow-map passes per frame (both unsampled) | 2 x 1024² | 0 |
+| Strobe flash frame vs other frame | 45.3 vs 26.1 ms | unchanged (open item) |
+| JS heap after forced GC, 60 s steady | — | 125.6 → 127.5 MB (flat; no leak) |
+| Allocation rate, 10 s sample | — | ~21 MB/s, ~68% Babylon skeletal interpolation |
+
+After ENTER the club shows ~12 s of 250–600 ms main-thread stalls while the DJ console and
+PA GLBs parse and instance (Babylon frame time stays 17–40 ms in those gaps). Enter VR now
+waits for that load.
+
 ## Quest Check
 
 On the headset, select the same camera preset, enable the mirror ball, press `D`, and record the overlay after ten seconds. Compare balanced and high only outside immersive VR; entering VR always applies the balanced mirror-spot budget. Target a stable headset refresh rate with no periodic heap-growth hitching.

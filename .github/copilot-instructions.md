@@ -73,7 +73,10 @@ mixes `window.LEDPatterns` into its prototype. `updateAnimations()` is a thin or
 Key lifecycle members:
 - `this.initPromise` — the constructor stores `init()`'s promise; failures surface a retry
   splash via `_handleFatalInitError()`. **Never** drop this promise.
-- `this.ready` — `true` once `init()` resolves.
+- `this.ready` — `true` once `init()` resolves. The DJ console and PA GLBs keep loading after
+  that (`this.modelLoadPromise`); `#vrButton` reads "Preparing VR…" until they settle and
+  `scene.whenReadyAsync()` resolves (30 s ceiling), because their main-thread parsing stalls
+  frames. It is the only XR entry point (`disableDefaultUI: true`).
 - `dispose()` — stops the render loop, removes listeners, closes the `AudioContext`,
   revokes blob URLs, tears down the UI timers and disposes scene + engine.
 - `visibilitychange` stops the render loop when the tab is hidden and not in VR.
@@ -81,7 +84,8 @@ Key lifecycle members:
   `doNotHandleContextLost: true`).
 
 ### `js/ledPatterns.js`
-The LED wall's 37 `pattern*` implementations plus `updateLEDPanel()` and the two stateful
+The LED wall's 18 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
+unreachable patterns were deleted, including a 15 Hz full-field strobe) plus `updateLEDPanel()` and the two stateful
 palette/shape helpers. It publishes `window.LEDPatterns`; `club_hyperrealistic.js` mixes
 that map into `VRClub.prototype` after defining the class, preserving the club instance
 as `this` without wrappers or call-site changes.
@@ -187,6 +191,16 @@ materials may remain frozen. See `_clampMaterialLightBudgets()` and
 DJ-console and PA-speaker accent lights target only their own imported meshes through
 `includedOnlyMeshes`. Do not let them consume the room or crowd's moving-spotlight budget.
 
+A material binds the first `maxSimultaneousLights` enabled lights that can affect its mesh,
+in `scene.lights` creation order (`requireLightSorting` is off). Today that is `ambient`,
+`spot0` and `spot1` (plus `spot2` on Quest); `spot2`–`spot5` shade nothing on desktop.
+The six moving-head `SpotLight`s therefore stay **enabled for life** and are dimmed through
+`intensity`. Never toggle a light's enabled state in the render loop: it re-slots every lit
+material, which measured 17–20 shader compiles (0.4–1.1 s freezes) per cue change and a
+~2 ms scene walk per toggle. `strobeFlash` still toggles per flash (see `BACKLOG.md`).
+No light currently owns a `ShadowGenerator`: the two it had sat outside every material's
+slots, so no shadow was ever sampled.
+
 Keep the ambient preset's small nonzero specular contribution. Babylon 8.30.5's
 clear-coat path can read uninitialized pre-lighting vectors when only a zero-specular
 hemispheric light remains. This produces a white floor/foreground in mirror-only cues,
@@ -235,7 +249,7 @@ Tier-gated features, all **desktop only**:
 | `bloomKernel` | `addPostProcessing()` | 160 | 128 | 96 |
 | SSR (`SSRRenderingPipeline`) | `_createScreenSpaceReflections()` | high | balanced | off |
 | Motion blur | `_createMotionBlur()` | on | off | off |
-| Contact-hardening (PCSS) shadows | `_applyShadowQuality()` | on | on | off |
+| Contact-hardening (PCSS) shadows | `_applyShadowQuality()` (no-op: no generator exists) | on | on | off |
 | Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
 | Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
 | Mirror reflection spots | `updateMirrorBall()` | 140 | 90 | 48 |

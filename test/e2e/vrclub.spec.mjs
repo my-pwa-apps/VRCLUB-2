@@ -486,7 +486,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         hasHelper: true,
         xrDiagnostics: []
     });
-    await expect(vrButton).toBeEnabled();
+    // Entry waits for the background GLB load and shader compile (30 s ceiling).
+    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
     await expect(vrButton).toContainText('Enter VR');
     await vrButton.click();
 

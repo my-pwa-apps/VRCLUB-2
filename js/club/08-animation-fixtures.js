@@ -557,14 +557,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 spot.light.diffuse = spot._diffuseBuf;
                 
                 const lightEnabled = this.lightsActive && spot.beamVisible !== false;
+                // Intensity only: toggling enabled state reshuffles every material's
+                // light slots (shader recompiles on cue changes, a scene walk per
+                // spot-strobe flash). See the note where the spots are created.
                 spot.light.intensity = lightEnabled ? (baseIntensity + smoothPulse) : 0;
-                spot.light.setEnabled(lightEnabled);
             });
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
             this.spotlights.forEach(spot => {
                 spot.light.intensity = 0;
-                spot.light.setEnabled(false);
                 if (spot.beam) spot.beam.visibility = 0;
                 if (spot.beamGlow) spot.beamGlow.visibility = 0;
                 if (spot.lightPoolCore) spot.lightPoolCore.visibility = 0;

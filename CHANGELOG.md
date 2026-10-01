@@ -27,6 +27,21 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- The laser sheet no longer has a source behind the LED wall. It only hangs from the truss:
+  the `liquidPlane` look now uses the left truss mount (vertical sweep), and the default and
+  fallback origin is the left truss.
+- Show cue changes no longer freeze the frame while shaders recompile. The six moving-head
+  lights were enabled and disabled per cue, re-slotting every lit material (17–20 new shader
+  variants and 0.4–1.1 s freezes per switch, measured). They now stay enabled and dim to zero.
+- Two 1024² shadow maps (~134 casters each) are no longer rendered every frame on the ultra
+  and high tiers; no material ever sampled them.
+- Enter VR waits ("Preparing VR…") until the background DJ console and speaker models have
+  loaded and compiled, instead of opening the headset into ~12 s of 250–600 ms stalls.
+- A live stream that drops or stalls mid-session is reported and reconnected (up to three
+  attempts); local files that cannot be decoded say so.
+- Removed 19 LED wall patterns the playlist could never reach, including a 15 Hz full-wall
+  strobe that ignored Safe Mode.
+- Disposing the club releases the whole WebXR default experience and its controller observer.
 - The desktop and VR frame rate is no longer capped below ~10 fps by eye adaptation. Writing
   `imageProcessing.exposure` every frame notified ~550 materials, each of which walked all
   ~1,100 meshes (104–130 ms per write, measured). Exposure now updates the post-process

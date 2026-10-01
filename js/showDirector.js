@@ -633,7 +633,7 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
-                laserSheetOrigin: 'rear', laserSheetMotion: 'vertical',
+                laserSheetOrigin: 'ceilingLeft', laserSheetMotion: 'vertical',
                 laserSpeed: [0.35, 0.65], fogIntensity: 1.9, goboEnabled: false
             },
 

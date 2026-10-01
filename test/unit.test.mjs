@@ -993,6 +993,13 @@ test('the Web Audio listener follows the camera and leaving the room occludes th
 test('disposing the club stops every audio source and closes the AudioContext', () => {
     const { club, started } = createAudioHarness();
     club.audioElement = { src: 'blob:x', pause() { this.paused = true; }, removeAttribute() {}, load() {} };
+    let vrClickRemoved = false;
+    club._vrButtonEl = {
+        removeEventListener(type, handler) {
+            vrClickRemoved = type === 'click' && handler === club._onVRButtonClick;
+        }
+    };
+    club._onVRButtonClick = () => {};
     club._connectAudioSourceOnce();
     const ctx = club.audioContext;
     assert.equal(started.size, 1);
@@ -1006,6 +1013,8 @@ test('disposing the club stops every audio source and closes the AudioContext', 
     assert.equal(ctx.state, 'closed');
     assert.equal(club.audioContext, null);
     assert.equal(club.audioSource, null);
+    assert.equal(vrClickRemoved, true);
+    assert.equal(club._onVRButtonClick, null);
 });
 test('ModelLoader registers accent lights with LightFactory and never paints speakers magenta', async () => {
     const BABYLON = makeBabylonStub();
@@ -1249,8 +1258,12 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
     }
     assert.deepEqual(
         sheetLooks.map(name => [director.looks[name].laserSheetOrigin, director.looks[name].laserSheetMotion]),
-        [['rear', 'vertical'], ['ceilingLeft', 'lateral'], ['ceilingRight', 'vertical']]
+        [['ceilingLeft', 'vertical'], ['ceilingLeft', 'lateral'], ['ceilingRight', 'vertical']]
     );
+    // The source only hangs from the truss; nothing may mount it behind the LED wall.
+    for (const look of Object.values(director.looks)) {
+        if ('laserSheetOrigin' in look) assert.match(look.laserSheetOrigin, /^ceiling(Left|Right)$/);
+    }
 });
 
 test('NOCTURNE color lock aligns the LED wall and mirror ball to the master hue', () => {
@@ -1802,6 +1815,107 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     club.setVRComfortMode(false);
     assert.equal(club.movementFeature, null);
     assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
+});
+
+test('Enter VR waits for background model loading, with a ceiling', async () => {
+    const run = async ({ settleModels }) => {
+        const timers = [];
+        const button = {
+            disabled: false, textContent: '', title: '',
+            classList: { toggle() {} },
+            addEventListener() {}
+        };
+        let resolveModels;
+        const { window } = loadClassic('js/club/10-ui.js', {
+            VRClubAnimationFinish: class {},
+            document: { getElementById: id => (id === 'vrButton' ? button : null) },
+            navigator: { xr: { isSessionSupported: async () => true } },
+            setTimeout: (fn) => { timers.push(fn); return timers.length; },
+            clearTimeout() {},
+            BABYLON: { WebXRState: { IN_XR: 2, NOT_IN_XR: 3 } }
+        });
+        const club = Object.create(window.VRClubUI.prototype);
+        club.modelLoadPromise = new Promise(resolve => { resolveModels = resolve; });
+        club.scene = { whenReadyAsync: async () => {} };
+        club._setupVRButton({ baseExperience: { onStateChangedObservable: { add() {} } } });
+        const flush = () => new Promise(resolve => setImmediate(resolve));
+        await flush();
+        const whileLoading = { disabled: button.disabled, label: button.textContent };
+        if (settleModels) resolveModels(); else timers.forEach(fn => fn());
+        await flush(); await flush();
+        return { whileLoading, after: { disabled: button.disabled, label: button.textContent } };
+    };
+
+    const loaded = await run({ settleModels: true });
+    assert.deepEqual(loaded.whileLoading, { disabled: true, label: '\u{1F97D} Preparing VR\u2026' });
+    assert.deepEqual(loaded.after, { disabled: false, label: '\u{1F97D} Enter VR' });
+
+    const stalled = await run({ settleModels: false });
+    assert.equal(stalled.whileLoading.disabled, true);
+    assert.equal(stalled.after.disabled, false, 'a stalled load must not lock VR out');
+});
+
+test('a dropped live stream reconnects with bounded backoff; files and bad URLs do not', async () => {
+    const timeouts = [];
+    let interval = null;
+    const toasts = [];
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {},
+        setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
+        clearTimeout() {},
+        setInterval: (fn) => { interval = fn; return 1; },
+        log: { warn() {}, info() {}, error() {} }
+    });
+    const listeners = {};
+    const audio = {
+        paused: false, currentTime: 0, src: '', loads: 0, plays: 0,
+        addEventListener(type, fn) { listeners[type] = fn; },
+        load() { this.loads++; },
+        play() { this.plays++; return Promise.resolve(); }
+    };
+    const club = Object.create(window.VRClubUI.prototype);
+    club.audioElement = audio;
+    club.showErrorMessage = message => toasts.push(message);
+    club._watchAudioStream(audio);
+    club._audioKind = 'stream';
+    club._audioStreamUrl = 'https://radio.example/live';
+
+    // A URL that never played is left to the play() rejection path.
+    listeners.error();
+    assert.equal(timeouts.length, 0, 'a stream that never started was retried');
+
+    listeners.playing();
+    listeners.error();
+    assert.deepEqual(timeouts.map(t => t.ms), [2000]);
+    listeners.error();
+    assert.equal(timeouts.length, 1, 'a second fault while a retry is pending scheduled another');
+    timeouts.shift().fn();
+    assert.equal(audio.src, 'https://radio.example/live');
+    assert.equal(audio.loads, 1);
+    assert.equal(audio.plays, 1);
+
+    // An un-paused stream whose clock stops for 8 s is treated as dropped.
+    audio.currentTime = 42;
+    for (let tick = 0; tick < 5; tick++) interval();
+    assert.deepEqual(timeouts.map(t => t.ms), [5000], 'a stalled stream was not reconnected');
+    timeouts.shift().fn();
+    listeners.error();
+    timeouts.shift().fn();
+    listeners.error();
+    assert.equal(timeouts.length, 0, 'retries are not bounded');
+    assert.match(toasts.at(-1), /could not be reconnected/);
+
+    // A successful reconnect resets the budget; user pauses never trigger recovery.
+    listeners.playing();
+    audio.paused = true;
+    for (let tick = 0; tick < 10; tick++) interval();
+    assert.equal(timeouts.length, 0, 'a paused stream was treated as stalled');
+
+    // Local files are never re-fetched; a decode error is explained instead.
+    club._audioKind = 'file';
+    listeners.error();
+    assert.equal(timeouts.length, 0);
+    assert.match(toasts.at(-1), /file cannot be played/);
 });
 
 test('VR viewpoints preserve seated eye height and orientation without moving the desktop camera', () => {

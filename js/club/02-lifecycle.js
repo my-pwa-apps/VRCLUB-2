@@ -215,6 +215,10 @@ class VRClubLifecycle extends VRClubCore {
             // The quick menu uses far pointer rays. Near interaction creates a
             // decorative touch orb by fetching a material from snippet.babylonjs.com.
             disableNearInteraction: true,
+            // #vrButton is the single entry point: it feature-detects, explains
+            // failures and waits for background loading. Babylon's overlay icon
+            // would bypass all three.
+            disableDefaultUI: true,
             inputOptions: {
                 // Input components, poses, haptics and pointer rays remain active;
                 // only the decorative controller GLB from Babylon's snippet server
@@ -752,7 +756,11 @@ class VRClubLifecycle extends VRClubCore {
         if (this._vrButtonEl && this._onVRButtonClick) {
             this._vrButtonEl.removeEventListener('click', this._onVRButtonClick);
             this._vrButtonEl = null;
-            this._onVRButtonClick = null;
+        }
+        this._onVRButtonClick = null;
+        if (this._vrEntryTimer) {
+            clearTimeout(this._vrEntryTimer);
+            this._vrEntryTimer = null;
         }
         // The context-lost handler schedules a page reload. A host that disposes the
         // club must not have its document navigated two seconds later.
@@ -811,6 +819,21 @@ class VRClubLifecycle extends VRClubCore {
         }
 
         // Audio graph — an unclosed AudioContext keeps an audio thread alive.
+        // Stream watchers first: clearing the src below raises an 'error' event.
+        if (this._audioWatchdog) {
+            clearInterval(this._audioWatchdog);
+            this._audioWatchdog = null;
+        }
+        if (this._streamRecovery) {
+            clearTimeout(this._streamRecovery.timer);
+            this._streamRecovery = null;
+        }
+        if (this.audioElement && this._onAudioFault) {
+            this.audioElement.removeEventListener('error', this._onAudioFault);
+            this.audioElement.removeEventListener('playing', this._onAudioPlaying);
+            this._onAudioFault = null;
+            this._onAudioPlaying = null;
+        }
         if (this.audioElement) {
             try {
                 this.audioElement.pause();
@@ -849,7 +872,16 @@ class VRClubLifecycle extends VRClubCore {
         }
         this.isMultiplayer = false;
 
-        if (this.vrHelper && this.vrHelper.baseExperience) {
+        if (this._xrButtonBindingObserver && this.vrHelper?.input?.onControllerAddedObservable) {
+            try { this.vrHelper.input.onControllerAddedObservable.remove(this._xrButtonBindingObserver); } catch (_) { /* ignore */ }
+            this._xrButtonBindingObserver = null;
+        }
+        // The default experience owns input, pointer selection and teleportation as
+        // well as the base experience; disposing only the latter left their observers
+        // holding closures over this instance.
+        if (this.vrHelper && typeof this.vrHelper.dispose === 'function') {
+            try { this.vrHelper.dispose(); } catch (_) { /* ignore */ }
+        } else if (this.vrHelper && this.vrHelper.baseExperience) {
             try { this.vrHelper.baseExperience.dispose(); } catch (_) { /* ignore */ }
         }
         this.vrHelper = null;
