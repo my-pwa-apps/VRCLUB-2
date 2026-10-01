@@ -240,7 +240,7 @@ export declare class VRClub {
     strobesActive: boolean;
     mirrorBallActive: boolean;
     laserSheetActive: boolean;
-    laserSheetOrigin: 'ceilingLeft' | 'ceilingRight';
+    laserSheetOrigin: 'both' | 'ceilingLeft' | 'ceilingRight';
     laserSheetMotion: 'vertical' | 'lateral';
     smokeActive: boolean;
 

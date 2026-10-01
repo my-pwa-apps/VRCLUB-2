@@ -1303,14 +1303,77 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
         assert.ok(movement.cues.some(cue => sheetLooks.includes(cue.look)),
             `${movement.title} has no laser-sheet cue`);
     }
+    // Every sheet look fires BOTH truss projectors; the motion axis is what varies.
     assert.deepEqual(
         sheetLooks.map(name => [director.looks[name].laserSheetOrigin, director.looks[name].laserSheetMotion]),
-        [['ceilingLeft', 'vertical'], ['ceilingLeft', 'lateral'], ['ceilingRight', 'vertical']]
+        [['both', 'vertical'], ['both', 'lateral'], ['both', 'vertical']]
     );
     // The source only hangs from the truss; nothing may mount it behind the LED wall.
     for (const look of Object.values(director.looks)) {
-        if ('laserSheetOrigin' in look) assert.match(look.laserSheetOrigin, /^ceiling(Left|Right)$/);
+        if ('laserSheetOrigin' in look) assert.match(look.laserSheetOrigin, /^(both|ceiling(Left|Right))$/);
     }
+});
+
+test('both truss projectors emit a sheet together, mirrored; a single side parks the other', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const effects = loadClassic('js/club/06-effects.js', { BABYLON, VRClubFixtures: class {} }).window.VRClubEffects.prototype;
+    const core = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} });
+    const animate = core.window.VRClubAnimationCore.prototype.updateLaserSheet;
+
+    const makeMount = x => ({
+        housing: { position: new BABYLON.Vector3(x, 7.55, -16), rotation: new BABYLON.Vector3(0, 0, 0) },
+        aperture: { material: { emissiveColor: null } }
+    });
+    const mat = { alpha: 0, emissiveColor: null, opacityTexture: { vOffset: 0, uOffset: 0 } };
+    const fan = () => ({ isVisible: false, material: mat, parent: null });
+    const club = Object.create(effects);
+    Object.assign(club, {
+        laserSheetActive: true, laserSheetMotion: 'lateral', laserSheetOrigin: 'both',
+        _laserApertureOff: new BABYLON.Color3(0, 0, 0), cachedColors: { red: {}, green: {}, blue: {} },
+        currentColorIndex: 1, currentSpotColor: new BABYLON.Color3(0, 1, 0),
+        _laserSheetMounts: { ceilingLeft: makeMount(-6), ceilingRight: makeMount(6) },
+        laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
+        laserSpeed: 1, kickPulse: 0
+    });
+    club.laserSheetSource = club._laserSheetMounts.ceilingLeft.housing;
+    club.laserAperture = club._laserSheetMounts.ceilingLeft.aperture;
+    const frame = time => animate.call(club, { time, audio: { average: 0.5 } });
+
+    // BOTH: two fans visible, two lit slits, the right projector mirrors the left's yaw.
+    club.configureLaserSheetVariant();
+    frame(3);
+    const left = club._laserSheetMounts.ceilingLeft, right = club._laserSheetMounts.ceilingRight;
+    assert.equal(club.laserSheet.isVisible, true);
+    assert.equal(club._laserSheetFanB.sheet.isVisible, true, 'the right fan never lit');
+    assert.equal(club._laserSheetFanB.haze.isVisible, true);
+    assert.notEqual(left.aperture.material.emissiveColor, club._laserApertureOff);
+    assert.notEqual(right.aperture.material.emissiveColor, club._laserApertureOff, 'the right slit stayed dark');
+    assert.ok(Math.abs(right.housing.rotation.y + left.housing.rotation.y) < 1e-9, 'the right fan does not mirror the left');
+    frame(9);
+    assert.ok(Math.abs(right.housing.rotation.y + left.housing.rotation.y) < 1e-9);
+    // Not a copy: the right projector trails the left's pitch.
+    club.laserSheetMotion = 'vertical';
+    frame(5);
+    assert.notEqual(right.housing.rotation.x, left.housing.rotation.x);
+
+    // One side only: the other fan is hidden and its slit dark.
+    club.laserSheetOrigin = 'ceilingRight';
+    club.configureLaserSheetVariant();
+    frame(3);
+    assert.equal(club.laserSheetSource, right.housing, 'the lead projector did not move to the right');
+    assert.equal(club.laserSheet.parent, right.housing);
+    assert.equal(club._laserSheetFanB.sheet.isVisible, false);
+    assert.equal(left.aperture.material.emissiveColor, club._laserApertureOff);
+
+    // Back to both, then off: every fan and slit goes dark.
+    club.laserSheetOrigin = 'both';
+    club.configureLaserSheetVariant();
+    assert.equal(club.laserSheetSource, left.housing);
+    club.laserSheetActive = false;
+    frame(4);
+    assert.equal(club.laserSheet.isVisible, false);
+    assert.equal(club._laserSheetFanB.sheet.isVisible, false);
+    assert.equal(right.aperture.material.emissiveColor, club._laserApertureOff);
 });
 
 test('NOCTURNE color lock aligns the LED wall and mirror ball to the master hue', () => {

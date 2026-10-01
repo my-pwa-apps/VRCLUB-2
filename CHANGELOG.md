@@ -97,6 +97,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **The laser sheet now fires from both truss projectors at once.** It previously emitted from
+  only one side at a time (the look picked which), so the other projector hung dark. Every
+  sheet look now sends a fan from each side: the right one mirrors the left's sweep and
+  trails it in phase, so the two planes scissor and cross over the dance floor. The fans share
+  materials, so it adds two draw calls and no extra textures. A look can still pick a single
+  side with `laserSheetOrigin: 'ceilingLeft' | 'ceilingRight'`.
 - **Strobes are now a locked part of the show.** They used to fire on a random timer, so a
   flash never landed on the kick. Looks can set `strobeSync`: the peak's white chase and
   detonation hit on every kick (the chase steps the corners in order), a new

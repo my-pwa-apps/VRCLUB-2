@@ -725,7 +725,7 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
-                laserSheetOrigin: 'ceilingLeft', laserSheetMotion: 'vertical',
+                laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
                 laserSpeed: [0.35, 0.65], fogIntensity: 1.9, goboEnabled: false
             },
 
@@ -734,7 +734,7 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
-                laserSheetOrigin: 'ceilingLeft', laserSheetMotion: 'lateral',
+                laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                 laserSpeed: [0.30, 0.55], fogIntensity: 1.8, goboEnabled: false
             },
 
@@ -743,7 +743,7 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
-                laserSheetOrigin: 'ceilingRight', laserSheetMotion: 'vertical',
+                laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
                 laserSpeed: [0.32, 0.60], fogIntensity: 1.9, goboEnabled: false
             },
 
@@ -925,7 +925,7 @@ class ShowDirector {
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
                 smokeActive: true, ledWallActive: false, ledMonochrome: false,
-                laserSheetOrigin: 'ceilingRight', laserSheetMotion: 'lateral',
+                laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                 laserSpeed: [0.25, 0.45], fogIntensity: 1.9, goboEnabled: false
             },
 

@@ -409,8 +409,8 @@ class VRClubEffects extends VRClubFixtures {
 
     createLaserSheet() {
         // === LASER SHEET EFFECT ===
-        // Two projectors hang from the rear truss, one each side. The fan is emitted
-        // by whichever one the active look selects (configureLaserSheetVariant()).
+        // Two projectors hang from the rear truss, one each side. By default BOTH emit
+        // a fan together (see configureLaserSheetVariant()); a look may select one.
         // Hyperrealistic implementation: Triangle fan geometry with smoke texture
         
         // 1. Create the projector housings. The left mesh keeps its historical name.
@@ -524,6 +524,20 @@ class VRClubEffects extends VRClubFixtures {
         hazeMat.alpha = 0.012;
         hazeSheet.material = hazeMat;
         this.laserSheetHaze = hazeSheet;
+
+        // The second truss projector's fan. Same geometry and, deliberately, the same
+        // materials: colour, alpha and smoke flow stay in lockstep with the first fan and
+        // the pair costs two more draw calls, not two more noise textures.
+        const sheetB = sheet.clone("laserSheetRight");
+        sheetB.parent = this._laserSheetMounts.ceilingRight.housing;
+        sheetB.position.set(0, 0, 0.25);
+        const hazeB = hazeSheet.clone("laserSheetHazeRight");
+        hazeB.parent = this._laserSheetMounts.ceilingRight.housing;
+        hazeB.position.set(0, 0.035, 0.25);
+        hazeB.scaling.set(0.985, 1, 0.985);
+        sheetB.isVisible = false;
+        hazeB.isVisible = false;
+        this._laserSheetFanB = { sheet: sheetB, haze: hazeB };
         
         // 4. Light Source (Actual light projection) - DISABLED for performance
         // DISABLED: Laser sheet SpotLight adds to uniform buffer count
@@ -537,6 +551,8 @@ class VRClubEffects extends VRClubFixtures {
         if (this.glowLayer) {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheet);
             this.glowLayer.addIncludedOnlyMesh(this.laserSheetHaze);
+            this.glowLayer.addIncludedOnlyMesh(sheetB);
+            this.glowLayer.addIncludedOnlyMesh(hazeB);
             for (const mount of Object.values(this._laserSheetMounts)) {
                 this.glowLayer.addIncludedOnlyMesh(mount.aperture);
             }
@@ -547,33 +563,51 @@ class VRClubEffects extends VRClubFixtures {
         log.info('✨ Laser sheet effect created with hyperrealistic source');
     }
 
+    /**
+     * Which truss projectors emit, per `laserSheetOrigin`:
+     *   'both' (default) - the left fan leads and the right fan mirrors it, together;
+     *   'ceilingLeft' / 'ceilingRight' - that projector alone, the other stays dark.
+     * `laserSheetSource` / `laserSheet` always describe the LEAD projector;
+     * `_laserSheetFollower` is the second one in 'both' and null otherwise.
+     */
     configureLaserSheetVariant() {
         if (!this.laserSheetSource) return;
 
-        // Each truss projector aims slightly inward towards the dance floor. Anything
-        // other than 'ceilingRight' uses the left projector.
-        const side = this.laserSheetOrigin === 'ceilingRight' ? 'ceilingRight' : 'ceilingLeft';
+        const origin = this.laserSheetOrigin;
+        const both = origin !== 'ceilingLeft' && origin !== 'ceilingRight';
+        const leadSide = origin === 'ceilingRight' ? 'ceilingRight' : 'ceilingLeft';
+        // Each truss projector aims slightly inward towards the dance floor.
         const restYaw = mountSide => (mountSide === 'ceilingRight' ? -0.10 : 0.10);
         this._laserSheetBasePitch = 0.44;
-        this._laserSheetBaseYaw = restYaw(side);
+        this._laserSheetBaseYaw = restYaw(leadSide);
         this._laserSheetPitchRange = 0.10;
         this._laserSheetYawRange = 0.16;
 
         const mounts = this._laserSheetMounts;
-        if (mounts && mounts[side]) {
-            // The idle projector parks at its rest aim with a dark aperture; the fan
-            // geometry moves to the active one and keeps its local offset.
+        this._laserSheetFollower = null;
+        if (mounts && mounts[leadSide]) {
+            const lead = mounts[leadSide];
+            this.laserSheetSource = lead.housing;
+            this.laserAperture = lead.aperture;
+            if (this.laserSheet) this.laserSheet.parent = lead.housing;
+            if (this.laserSheetHaze) this.laserSheetHaze.parent = lead.housing;
+
+            const fanB = this._laserSheetFanB;
+            const followerSide = both ? 'ceilingRight' : null;
+            if (followerSide) this._laserSheetFollower = { mount: mounts[followerSide], fan: fanB };
+            if (fanB && !both) { fanB.sheet.isVisible = false; fanB.haze.isVisible = false; }
+
+            // A projector that is not emitting parks at its rest aim with a dark slit.
             for (const [mountSide, mount] of Object.entries(mounts)) {
-                if (mountSide === side) continue;
+                if (mountSide === leadSide || mountSide === followerSide) continue;
                 mount.housing.rotation.x = this._laserSheetBasePitch;
                 mount.housing.rotation.y = restYaw(mountSide);
                 mount.aperture.material.emissiveColor = this._laserApertureOff;
             }
-            const active = mounts[side];
-            this.laserSheetSource = active.housing;
-            this.laserAperture = active.aperture;
-            if (this.laserSheet) this.laserSheet.parent = active.housing;
-            if (this.laserSheetHaze) this.laserSheetHaze.parent = active.housing;
+            if (followerSide) {
+                mounts[followerSide].housing.rotation.x = this._laserSheetBasePitch;
+                mounts[followerSide].housing.rotation.y = restYaw(followerSide);
+            }
         }
 
         this.laserSheetSource.rotation.x = this._laserSheetBasePitch;

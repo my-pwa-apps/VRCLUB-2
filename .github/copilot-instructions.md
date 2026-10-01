@@ -318,8 +318,12 @@ SSR's `reflectivityThreshold` sits above a dielectric's F0 (~0.04) so only metal
 reflections; lowering it makes the concrete floor mirror the room again at grazing angles.
 
 The laser sheet has two truss projectors (`laserSheetSource` at x = -6,
-`laserSheetSourceRight` at x = +6). `configureLaserSheetVariant()` re-parents the fan to the
-one `laserSheetOrigin` selects; `this.laserSheetSource` always points at the active one.
+`laserSheetSourceRight` at x = +6) and by default BOTH emit (`laserSheetOrigin: 'both'`): the left
+fan leads, the right one mirrors its yaw and trails its pitch in phase so the planes scissor.
+The fans share materials, so the second costs two draw calls and no extra noise textures.
+`'ceilingLeft'` / `'ceilingRight'` fire one projector only. `configureLaserSheetVariant()`
+re-parents the lead fan; `this.laserSheetSource` always points at the lead projector and
+`_laserSheetFollower` at the second (null when single-sided).
 
 Light presets: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`.
 

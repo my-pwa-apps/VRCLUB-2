@@ -282,6 +282,14 @@ test('production build initializes a rendered club without browser errors', asyn
                 position: club.laserSheetSource.position.asArray(),
                 emitter: club.laserSheet.parent.name,
                 hazeEmitter: club.laserSheetHaze.parent.name,
+                fanB: {
+                    visible: club._laserSheetFanB.sheet.isVisible,
+                    hazeVisible: club._laserSheetFanB.haze.isVisible,
+                    emitter: club._laserSheetFanB.sheet.parent.name,
+                    rightYaw: club._laserSheetMounts.ceilingRight.housing.rotation.y,
+                    leftYaw: club._laserSheetMounts.ceilingLeft.housing.rotation.y,
+                    rightSlitLit: club._laserSheetMounts.ceilingRight.aperture.material.emissiveColor.g > 0
+                },
                 projectors: ['laserSheetSource', 'laserSheetSourceRight'].map(name => {
                     const mesh = club.scene.getMeshByName(name);
                     return mesh ? { position: mesh.position.asArray(), visible: mesh.isVisible } : null;
@@ -398,18 +406,20 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(showState.chase.every((burst, index) => index === 0 || burst[0] !== showState.chase[index - 1][0])).toBe(true);
     expect(showState.laserSheet.minimumPitch).toBeGreaterThan(0);
     expect(showState.sheetVariants.left).toMatchObject({
-        origin: 'ceilingLeft',
+        origin: 'both',
         motion: 'lateral',
         position: [-6, 7.55, -16],
         emitter: 'laserSheetSource',
         hazeEmitter: 'laserSheetSource'
     });
-    // One projector hangs on each side of the truss; the fan moves between them.
+    // One projector hangs on each side of the truss, and every sheet look fires both.
     for (const variant of [showState.sheetVariants.left, showState.sheetVariants.right]) {
         expect(variant.projectors).toEqual([
             { position: [-6, 7.55, -16], visible: true },
             { position: [6, 7.55, -16], visible: true }
         ]);
+        expect(variant.fanB).toMatchObject({ visible: true, hazeVisible: true, emitter: 'laserSheetSourceRight', rightSlitLit: true });
+        expect(variant.fanB.rightYaw).toBeCloseTo(-variant.fanB.leftYaw, 6);
     }
     expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.pitch - showState.sheetVariants.left.start.pitch))
         .toBeGreaterThan(0.005);
@@ -417,11 +427,11 @@ test('production build initializes a rendered club without browser errors', asyn
     expect(Math.abs(showState.sheetVariants.left.afterTenSeconds.yaw - showState.sheetVariants.left.start.yaw))
         .toBeGreaterThan(0.015);
     expect(showState.sheetVariants.right).toMatchObject({
-        origin: 'ceilingRight',
+        origin: 'both',
         motion: 'vertical',
-        position: [6, 7.55, -16],
-        emitter: 'laserSheetSourceRight',
-        hazeEmitter: 'laserSheetSourceRight'
+        position: [-6, 7.55, -16],
+        emitter: 'laserSheetSource',
+        hazeEmitter: 'laserSheetSource'
     });
     expect(Math.abs(showState.sheetVariants.right.afterTenSeconds.yaw - showState.sheetVariants.right.start.yaw))
         .toBeGreaterThan(0.005);

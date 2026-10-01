@@ -422,7 +422,7 @@ class VRClubCore {
         this.strobeSync = 'free';
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
         this.laserSheetActive = false; // Laser sheet effect
-        this.laserSheetOrigin = 'ceilingLeft'; // truss mount: 'ceilingLeft' or 'ceilingRight'
+        this.laserSheetOrigin = 'both'; // truss mount: 'both' (default), 'ceilingLeft' or 'ceilingRight'
         this.laserSheetMotion = 'vertical'; // 'vertical' or 'lateral'
         this.colorLockActive = false; // ShowDirector can align every active color system
         

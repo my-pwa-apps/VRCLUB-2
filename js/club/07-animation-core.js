@@ -363,19 +363,24 @@ class VRClubAnimationCore extends VRClubEffects {
             const scanSpeed = 0.32 * Math.sqrt(Math.max(0.2, speedMultiplierLaser));
             if (this.laserSheetSource) {
                 const scanTime = time * scanSpeed;
-                const primaryPhase = Math.sin(scanTime + 0.24 * Math.sin(scanTime * 0.37));
+                const sweep = t => Math.sin(t + 0.24 * Math.sin(t * 0.37));
+                const primaryPhase = sweep(scanTime);
                 const crossPhase = 0.32 * Math.sin(scanTime * 1.71 + 1.1) +
                     0.12 * Math.sin(scanTime * 0.63);
-                if (this.laserSheetMotion === 'lateral') {
-                    this.laserSheetSource.rotation.x = this._laserSheetBasePitch +
-                        crossPhase * this._laserSheetPitchRange;
-                    this.laserSheetSource.rotation.y = this._laserSheetBaseYaw +
-                        primaryPhase * this._laserSheetYawRange;
-                } else {
-                    this.laserSheetSource.rotation.x = this._laserSheetBasePitch +
-                        primaryPhase * this._laserSheetPitchRange;
-                    this.laserSheetSource.rotation.y = this._laserSheetBaseYaw +
-                        crossPhase * this._laserSheetYawRange;
+                const lateral = this.laserSheetMotion === 'lateral';
+                const pitchPhase = lateral ? crossPhase : primaryPhase;
+                const yawPhase = lateral ? primaryPhase : crossPhase;
+                this.laserSheetSource.rotation.x = this._laserSheetBasePitch + pitchPhase * this._laserSheetPitchRange;
+                this.laserSheetSource.rotation.y = this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange;
+
+                // The second projector mirrors the first across the room and trails it
+                // in phase, so the two planes scissor and cross instead of moving as one.
+                const follower = this._laserSheetFollower;
+                if (follower) {
+                    const trail = sweep(scanTime + 0.9);
+                    const trailPitch = lateral ? crossPhase : trail;
+                    follower.mount.housing.rotation.x = this._laserSheetBasePitch + trailPitch * this._laserSheetPitchRange;
+                    follower.mount.housing.rotation.y = -(this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange);
                 }
             }
             
@@ -413,6 +418,8 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.laserAperture && this.laserAperture.material) {
                 this.laserAperture.material.emissiveColor = sheetColor;
             }
+            const follower = this._laserSheetFollower;
+            if (follower) follower.mount.aperture.material.emissiveColor = sheetColor;
             if (this.laserLight) {
                 this.laserLight.diffuse = sheetColor;
                 this.laserLight.intensity = 2.0 * pulse;
@@ -420,12 +427,23 @@ class VRClubAnimationCore extends VRClubEffects {
             
             this.laserSheet.isVisible = true;
             if (this.laserSheetHaze) this.laserSheetHaze.isVisible = true;
+            const fanB = this._laserSheetFanB;
+            if (fanB) {
+                fanB.sheet.isVisible = !!follower;
+                fanB.haze.isVisible = !!follower;
+            }
         } else if (this.laserSheet) {
-            // Both projectors stay hung on the truss; only the beam and slit go dark.
+            // Both projectors stay hung on the truss; only the beams and slits go dark.
             this.laserSheet.isVisible = false;
             if (this.laserSheetHaze) this.laserSheetHaze.isVisible = false;
-            if (this.laserAperture && this.laserAperture.material && this._laserApertureOff) {
-                this.laserAperture.material.emissiveColor = this._laserApertureOff;
+            const fanB = this._laserSheetFanB;
+            if (fanB) { fanB.sheet.isVisible = false; fanB.haze.isVisible = false; }
+            if (this._laserApertureOff) {
+                if (this.laserAperture && this.laserAperture.material) {
+                    this.laserAperture.material.emissiveColor = this._laserApertureOff;
+                }
+                const follower = this._laserSheetFollower;
+                if (follower) follower.mount.aperture.material.emissiveColor = this._laserApertureOff;
             }
             if (this.laserLight) this.laserLight.intensity = 0;
         }
