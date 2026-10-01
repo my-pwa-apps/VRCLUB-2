@@ -52,6 +52,13 @@ class VJDirector {
         this.barPhase = 0;              // 0..1 within current bar
         this.beatNumber = 0;            // Monotonic beat counter (drives phrase boundaries)
 
+        // Kick bookkeeping, used by the Show Director to read musical structure.
+        // A flywheel (below) keeps the bar grid counting through kick-less passages,
+        // so these - not beatNumber - say whether the kick is actually present.
+        this.lastRealOnsetAt = performance.now();
+        this.onsetStreak = 0;           // Consecutive kicks no more than ~1.5 beats apart
+        this.realOnsetCount = 0;        // Monotonic count of detected kicks
+
         // Spectral flux state
         this._lastBassMag = 0;
         this._lastMidMag = 0;
@@ -82,6 +89,7 @@ class VJDirector {
         this.masterHue = 0.0;             // 0..1
         this.paletteMode = 'analogous';
         this.lastPhraseBeat = 0;
+        this.hueLocked = false;           // A look that owns its colour pins the hue
 
         // Reusable Color3 buffers so we never allocate per frame
         this._tmpColorA = new BABYLON.Color3(1, 0, 0);
@@ -125,6 +133,24 @@ class VJDirector {
         // 1. Onset detection on the bass + low-mid bands (kicks live there).
         if (audioData && audioData.hasAudio) {
             this._detectOnset(audioData, now);
+            // FLYWHEEL. Progressive sets drop the kick for 16-64 bars at a time. Beats
+            // came only from detected kicks, so the bar grid stopped dead for the whole
+            // breakdown and every cue froze mid-phrase. Once a beat and a half has
+            // passed without a kick, keep counting at the tracked BPM (soft pulses);
+            // the next real kick re-syncs the phase.
+            const flyDur = 60000 / this.bpm;
+            if (now - this.lastRealOnsetAt > flyDur * 1.5 && now - this.lastBeatAt >= flyDur) {
+                this._registerBeat(now, /*synthetic*/true);
+            }
+            // FLYWHEEL. Progressive sets drop the kick for 16-64 bars at a time. Beats
+            // came only from detected kicks, so the bar grid stopped dead for the whole
+            // breakdown and every cue froze mid-phrase. Once a beat and a half has
+            // passed without a kick, keep counting at the tracked BPM (soft pulses);
+            // the next real kick re-syncs the phase.
+            const beatDur = 60000 / this.bpm;
+            if (now - this.lastRealOnsetAt > beatDur * 1.5 && now - this.lastBeatAt >= beatDur) {
+                this._registerBeat(now, /*synthetic*/true);
+            }
         } else {
             // No audio: gentle pulse on a fixed BPM clock so the lights still
             // move (otherwise the room feels frozen between songs).
@@ -231,6 +257,13 @@ class VJDirector {
 
         // Punch the envelope (synthetic beats hit lighter)
         this.beatEnvelope = synthetic ? 0.35 : 1.0;
+
+        if (!synthetic) {
+            const beatDur = 60000 / this.bpm;
+            this.onsetStreak = (now - this.lastRealOnsetAt < beatDur * 1.5) ? this.onsetStreak + 1 : 1;
+            this.lastRealOnsetAt = now;
+            this.realOnsetCount++;
+        }
 
         // Update BPM estimate from real onsets only
         if (!synthetic && this._lastOnsetForIoi > 0) {
@@ -360,8 +393,9 @@ class VJDirector {
         this.lastPhraseBeat = this.beatNumber;
 
         // Advance the master hue. Golden-angle rotation prevents palette
-        // collisions and gives pleasing distribution over time.
-        this.masterHue = (this.masterHue + 0.381966) % 1.0;
+        // collisions and gives pleasing distribution over time. A look that pins
+        // its hue (see setMasterHue) keeps it for the whole cue.
+        if (!this.hueLocked) this.masterHue = (this.masterHue + 0.381966) % 1.0;
 
         const club = this.club;
         const A = this._hsvToColor(this.masterHue, 1.0, 1.0, this._tmpColorA);
@@ -394,6 +428,22 @@ class VJDirector {
             club.mirrorBallColorIndex = (club.mirrorBallColorIndex + 1) % club.mirrorBallColors.length;
             club.mirrorBallSpotlightColor = club.mirrorBallColors[club.mirrorBallColorIndex];
         }
+    }
+
+    /**
+     * Pin the whole rig to one hue (0..1) until unlockHue(). Used by looks that
+     * carry a colour idea - a dawn amber, a breakdown blue - instead of leaving
+     * it to the golden-angle rotation. Applied on the next frame, not the next phrase.
+     */
+    setMasterHue(hue) {
+        const h = hue % 1;
+        this.masterHue = h < 0 ? h + 1 : h;
+        this.hueLocked = true;
+        this.lastPhraseBeat = this.beatNumber - 16;
+    }
+
+    unlockHue() {
+        this.hueLocked = false;
     }
 
     // HSV → Color3 (in-place into `out` to avoid allocation)

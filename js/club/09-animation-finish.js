@@ -314,6 +314,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         }
         
         this.lastBassLevel = audioData.bass;
+
+        // The wall hits on the kick and shimmers with the hi-hats. Safe Mode halves
+        // the kick term through kickPulse; the shimmer is small and steady.
+        this._ledLift = 1 + (this.kickPulse || 0) * 0.7 + (audioData.hasAudio ? (audioData.treble || 0) * 0.3 : 0);
         
         // Pattern dwell time. The active playlist is now all immersive and
         // continuous, so even the higher-energy visuals need enough time to

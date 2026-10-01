@@ -484,6 +484,12 @@ class VRClubCore {
         this.vjBPM = 128;               // Estimated BPM (will be auto-detected from audio)
         this.vjDropActive = false;      // Currently in a drop sequence
         this.vjBuildActive = false;     // Currently building up
+
+        // Kick punch as the FIXTURES see it: 0..~0.9 lift applied to heads, beams,
+        // lasers, laser sheet, mirror-ball spin and LED wall. kickDepth is the current
+        // look's punch (written by the Show Director); kickPulse is depth x envelope.
+        this.kickDepth = 0.3;
+        this.kickPulse = 0;
         
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;

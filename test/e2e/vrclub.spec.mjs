@@ -591,6 +591,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             audio: { hasAudio: false, average: 0.5, bass: 0.5, mid: 0.5, high: 0.5 }
         };
 
+        // This block pins the VR *base* optics. The kick pulse is a separate, additive
+        // layer, so zero it (the render loop may have left it mid-hit).
+        club.kickPulse = 0;
         club.showDirector._applyLook(club.showDirector.looks.firstLight, 1);
         club.spotlightPattern = 1;
         club.spotlightMode = 3;

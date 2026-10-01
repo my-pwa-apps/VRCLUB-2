@@ -224,6 +224,11 @@ class VRClubAnimationCore extends VRClubEffects {
             this.showDirector.update(time, audioData);
         }
 
+        // Kick punch for the fixtures. Halved under Photosensitive Safe Mode: the
+        // lift tracks the kick (~2 Hz) and Safe Mode exists to keep luminance steady.
+        const kickDepth = (this.showDirector && this.showDirector.isDriving()) ? this.kickDepth : 0.3;
+        this.kickPulse = (this.beatEnvelope || 0) * kickDepth * (this.photosensitiveSafeMode ? 0.5 : 1);
+
         // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
         this._updateBassHaptics(audioData);
 
@@ -382,7 +387,7 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             
             // Pulse intensity with audio
-            const pulse = 0.5 + (audioData.average || 0) * 0.5;
+            const pulse = 0.5 + (audioData.average || 0) * 0.5 + (this.kickPulse || 0) * 0.6;
             sheetMat.alpha = 0.012 + 0.012 * pulse;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 const hazeMat = this.laserSheetHaze.material;
@@ -496,7 +501,7 @@ class VRClubAnimationCore extends VRClubEffects {
             // Apply speed multiplier for VJ control
             if (this.mirrorBall) {
                 const speedMultiplier = this.mirrorBallSpeed || 1.0;
-                this.mirrorBallRotation -= 0.003 * speedMultiplier * dtScale; // Negative rotation - spots now move in same visual direction
+                this.mirrorBallRotation -= 0.003 * speedMultiplier * dtScale * (1 + (this.kickPulse || 0) * 1.2); // the ball lurches on the kick
                 this.mirrorBall.rotation.y = this.mirrorBallRotation;
                 
                 // AUTOMATIC COLOR CYCLING for Mirror Ball (if not manually set).

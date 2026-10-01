@@ -27,6 +27,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- The beat grid no longer stops in a kick-less passage: after 1.5 beats without a kick the
+  tracker keeps counting at the tracked BPM, so cues no longer freeze mid-phrase during
+  breakdowns. Real kicks are counted separately.
+- The Show Director's colours were being overwritten: the spotlight palette cycler kept
+  swapping the heads to the next palette entry every few seconds while the show was driving.
+  It now stands down like the other legacy cyclers.
 - The laser sheet no longer has a source behind the LED wall. It only hangs from the truss:
   the `liquidPlane` look now uses the left truss mount (vertical sweep), and the default and
   fallback origin is the left truss.
@@ -91,6 +97,18 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **A breakdown arc for progressive sets.** The show now notices when the kick has been gone
+  for ~two bars after a groove and plays *The Breakdown* for as long as it lasts: the floor
+  drops out (blue mirror ball), a laser-sheet plane drifts over the crowd, the wall opens in
+  teal aurora, then the rig winds up and the colour turns hot magenta. It is strobe-free.
+  When the kick returns the show re-locks the bar grid to it and fires *The Release* (every
+  system for one bar) straight into IGNITION. A sustained silence ends it in AFTERGLOW.
+- AFTERGLOW now ends on *Sunrise*: a 16-bar amber aurora that warms and brightens.
+- Looks can pin the master colour (`hue`), so a cue's colour is a design decision.
+- **The kick now reaches the fixtures.** The look's punch scales a per-frame kick pulse that
+  lifts the moving heads, their beams, the lasers, the laser sheet and the LED wall, and
+  nudges the mirror ball's spin. Previously it only touched exposure, strobes and the
+  ambient fill. The wall also shimmers slightly with the hi-hats. Halved in Safe Mode.
 - **Latest Resident — Hernan Cattaneo** in the Audio menu plays the newest episode of the
   *Resident* podcast. On click it reads only the first 64 KB of the public RSS feed (one
   range request instead of ~2.6 MB) and streams the Podbean MP3, which sends CORS headers

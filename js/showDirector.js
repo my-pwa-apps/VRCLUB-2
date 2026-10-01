@@ -71,7 +71,16 @@ class ShowDirector {
     static BARS_PER_PHRASE = 4;   // 16 beats
 
     /** Look keys that describe the cue itself and must never be written onto the club. */
-    static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock']);
+    static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue']);
+
+    /** Kicks in a row (no more than ~1.5 beats apart) that count as "the kick is back". */
+    static RELEASE_KICKS = 2;
+    /** Kick-less beats (just under two bars) before a breakdown is declared. */
+    static BREAKDOWN_KICKLESS_BEATS = 7;
+    /** Kicks that must have played since the last breakdown/release: a groove, not an intro. */
+    static GROOVE_KICKS = 32;
+    /** Silence this long (ms) ends a breakdown; a one-beat gap before a drop must not. */
+    static SILENCE_ENDS_BREAKDOWN_MS = 4000;
 
     constructor(club) {
         this.club = club;
@@ -106,6 +115,12 @@ class ShowDirector {
         this._blackoutBeats = 0;       // Counts down in beats
         this._flashHold = 0;           // Frames of white-out remaining
         this._intensity = 1.0;         // Smoothed master level
+
+        // --- Structure reading (breakdown / release)
+        this._hasAudio = false;
+        this._silentSince = 0;
+        this._onsetBase = 0;           // realOnsetCount at the last breakdown / release
+        this._bdKey = null;
 
         this.looks = ShowDirector._buildLooks();
         this.movements = ShowDirector._buildMovements();
@@ -157,8 +172,68 @@ class ShowDirector {
             for (let i = 0; i < beatsAdvanced && i < 8; i++) this._onBeat();
         }
 
+        // --- Read the track's structure: kick gone (breakdown) / kick back (release)
+        this._watchKick(vj, audioData);
+
         // --- Continuous (per-frame) modulation on top of the discrete cue state
         this._applyContinuous(vj, audioData);
+    }
+
+    // =========================================================================
+    // STRUCTURE READING
+    //
+    // The beat grid keeps counting through a kick-less passage (VJDirector's
+    // flywheel), so bars never stall; what changes is whether real kicks are still
+    // arriving. Their absence is the breakdown, their return is the release.
+    // =========================================================================
+
+    /** True once a groove has played and the kick has been gone for ~two bars. */
+    _shouldBreakdown() {
+        const vj = this.club.vjDirector;
+        if (!this._hasAudio || !vj || typeof vj.realOnsetCount !== 'number') return false;
+        if (vj.realOnsetCount - this._onsetBase < ShowDirector.GROOVE_KICKS) return false;
+        const beatMs = 60000 / (vj.bpm || 128);
+        return performance.now() - vj.lastRealOnsetAt > beatMs * ShowDirector.BREAKDOWN_KICKLESS_BEATS;
+    }
+
+    _watchKick(vj, audioData) {
+        const now = performance.now();
+        this._hasAudio = !!(audioData && audioData.hasAudio);
+        const inBreakdown = this._setPiece === this.setPieces.breakdown;
+
+        if (!this._hasAudio) {
+            // Silence is not a breakdown, but a one-beat gap right before a drop is
+            // normal: only a sustained silence hands a breakdown back to the cue list.
+            if (!this._silentSince) this._silentSince = now;
+            if (inBreakdown && now - this._silentSince > ShowDirector.SILENCE_ENDS_BREAKDOWN_MS) {
+                this._endSetPiece();
+            }
+            return;
+        }
+        this._silentSince = 0;
+
+        // A streak is only evidence of a returning kick while it is fresh: it keeps its
+        // last value through a kick-less gap, which would release the breakdown at once.
+        const beatMs = 60000 / (vj.bpm || 128);
+        if (inBreakdown && typeof vj.onsetStreak === 'number' &&
+            vj.onsetStreak >= ShowDirector.RELEASE_KICKS &&
+            now - vj.lastRealOnsetAt < beatMs * 1.2) {
+            this._release(vj);
+        }
+    }
+
+    /**
+     * The kick is back. The track's own downbeat defines the bar, so re-lock the
+     * grid to it (this is the one structural change not made on the existing grid:
+     * it IS the new grid) and fire THE RELEASE, which hands on to IGNITION.
+     */
+    _release(vj) {
+        this._setPiece = null;
+        this._lastBeatNumber = vj.beatNumber;
+        this._beatInBar = Math.max(0, vj.onsetStreak - 1) % ShowDirector.BEATS_PER_BAR;
+        this._barCounter++;
+        this._onsetBase = vj.realOnsetCount;
+        this._beginSetPiece('release', 'ignition');
     }
 
     // =========================================================================
@@ -198,6 +273,11 @@ class ShowDirector {
         }
 
         // Cue exhausted? Advance. On the last bar of a movement, consider moving on.
+        if (this._shouldBreakdown()) {
+            this._onsetBase = this.club.vjDirector.realOnsetCount;
+            this._beginSetPiece('breakdown', 'afterglow');
+            return;
+        }
         if (this._cueBarsElapsed >= this._cue.bars) {
             this._advanceCue();
         }
@@ -331,6 +411,14 @@ class ShowDirector {
         }
 
         if (look.palette && club.vjDirector) club.vjDirector.paletteMode = look.palette;
+
+        // A look that carries a colour idea pins the hue; every other look hands the
+        // colour back to the director's phrase-by-phrase rotation.
+        const vj = club.vjDirector;
+        if (vj) {
+            if (look.hue !== undefined && typeof vj.setMasterHue === 'function') vj.setMasterHue(look.hue);
+            else if (typeof vj.unlockHue === 'function') vj.unlockHue();
+        }
     }
 
     // =========================================================================
@@ -377,6 +465,9 @@ class ShowDirector {
         // peak looks appear dim between beats. Hard blackouts remain separate below.
         const punch = look.punch !== undefined ? look.punch : 0.25;
         const trackedEnvelope = vj.beatEnvelope || 0;
+        // How hard the fixtures themselves (not just the exposure) hit on the kick.
+        // Read by the club's frame update; the look's punch sets the depth.
+        club.kickDepth = Math.min(1, 0.30 + punch * 1.4);
         const envelopeFloor = audioData && audioData.hasAudio ? 0.65 : 0.75;
         const env = envelopeFloor + trackedEnvelope * (1 - envelopeFloor);
         target *= (1 - punch) + punch * env;
@@ -776,6 +867,76 @@ class ShowDirector {
             },
 
             // ---------------------------------------------------------------
+            // THE BREAKDOWN ARC - played by the 'breakdown' set-piece for as long as
+            // the kick is gone. Progressive house lives here: 16-64 bars of melody
+            // over no kick, then the return. The colour tells the story: cold blue
+            // falling away, teal opening up, and a turn to hot magenta as it rises.
+            // Every look is strobe-free and `hue`-pinned.
+            // ---------------------------------------------------------------
+
+            // The floor drops out. Mirror ball alone, deep blue, thick haze.
+            bdFall: {
+                intensity: 0.40, punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.64,
+                lightsActive: false, lasersActive: false, strobesActive: false,
+                mirrorBallActive: true, smokeActive: true,
+                ledWallActive: false, ledMonochrome: false,
+                mirrorBallSpeed: 0.28, fogIntensity: 1.8, goboEnabled: false
+            },
+
+            // One slow volumetric plane drifting over the crowd.
+            bdSheet: {
+                intensity: 0.62, punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.56,
+                lightsActive: false, lasersActive: false, laserSheetActive: true,
+                strobesActive: false, mirrorBallActive: false,
+                smokeActive: true, ledWallActive: false, ledMonochrome: false,
+                laserSheetOrigin: 'ceilingRight', laserSheetMotion: 'lateral',
+                laserSpeed: [0.25, 0.45], fogIntensity: 1.9, goboEnabled: false
+            },
+
+            // The wall opens: slow aurora in teal, alone in the haze.
+            bdAurora: {
+                intensity: [0.55, 0.75], punch: 0.12, palette: 'analogous', colorLock: true, hue: 0.48,
+                lightsActive: false, lasersActive: false, strobesActive: false,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 16, ledWallSpeed: [0.3, 0.55],
+                fogIntensity: 1.7, goboEnabled: false
+            },
+
+            // The rise. Heads pinwheel, spiral gobo and wall vortex all accelerate
+            // together and the colour turns hot. No strobes: the tension is speed.
+            bdRise: {
+                intensity: [0.62, 1.0], punch: 0.30, palette: 'complementary', colorLock: true, hue: 0.90,
+                lightsActive: true, lasersActive: false, strobesActive: false,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 8, ledWallSpeed: [0.6, 2.0],
+                spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.5, 1.8],
+                goboEnabled: true, goboPatternIndex: 5, goboRotationSpeed: [0.3, 1.5],
+                fogIntensity: [1.5, 1.9]
+            },
+
+            // THE RELEASE. The kick is back: everything at once for one bar, then
+            // IGNITION takes over. Strobes drop out under Safe Mode as usual.
+            releaseHit: {
+                intensity: 1.0, punch: 0.60, palette: 'complementary',
+                lightsActive: true, lasersActive: true, strobesActive: true,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 6, ledWallSpeed: 2.2,
+                spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
+                goboEnabled: false, laserSpeed: 2.0,
+                strobeSpeed: 2.0, fogIntensity: 1.8
+            },
+
+            // The terrace at dawn. The wall becomes the sky: a slow amber aurora that
+            // warms and brightens across the cue while everything else stays dark.
+            sunrise: {
+                intensity: [0.35, 0.85], punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.08,
+                lightsActive: false, lasersActive: false, strobesActive: false,
+                mirrorBallActive: false, smokeActive: true,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 16, ledWallSpeed: [0.25, 0.5],
+                fogIntensity: [1.3, 1.6], goboEnabled: false
+            },
+
+            // ---------------------------------------------------------------
             // SET-PIECE LOOKS — driven bar-by-bar by the choreography below.
             // ---------------------------------------------------------------
 
@@ -879,7 +1040,8 @@ class ShowDirector {
                     { look: 'theVoid',   bars: 8 },
                     { look: 'eclipse',   bars: 4 },
                     { look: 'liquidPlane', bars: 8 },
-                    { look: 'driftAway', bars: 12 }
+                    { look: 'driftAway', bars: 12 },
+                    { look: 'sunrise',   bars: 16 }
                 ]
             }
         };
@@ -983,6 +1145,59 @@ class ShowDirector {
                     // Slow bloom back up through the second bar only.
                     return show._setPieceBar === 0 ? 0 : target * 0.35;
                 }
+            },
+
+            /**
+             * THE BREAKDOWN - entered when the kick has been gone for two bars after a
+             * groove was established, and held for as long as it stays gone.
+             *
+             * Progressive house spends 16-64 bars here: melody and atmosphere with no
+             * kick. The room answers with a slow story rather than a loop: the floor
+             * drops out (blue), a plane of light drifts over the crowd (cyan), the wall
+             * opens (teal), then the rig winds up and the colour turns hot (magenta) for
+             * as long as the track keeps building. It ends in exactly one way: the kick
+             * returns and _release() takes over. `bars` is only a safety ceiling for a
+             * track that never brings the kick back; it then hands on to AFTERGLOW.
+             */
+            breakdown: {
+                title: 'THE BREAKDOWN',
+                bars: 96,
+                onStart(show) { show._bdKey = null; },
+                onBar(show, bar) {
+                    let look, span;
+                    if (bar < 4)        { look = 'bdFall';   span = 4;  }
+                    else if (bar < 12)  { look = 'bdSheet';  span = 8;  }
+                    else if (bar < 24)  { look = 'bdAurora'; span = 12; }
+                    else {
+                        // After the opening, breathe: eight bars of rise, eight of aurora.
+                        look = (bar - 24) % 16 < 8 ? 'bdRise' : 'bdAurora';
+                        span = 8;
+                    }
+                    // Look changes only on block boundaries; ramps must not restart.
+                    const key = `${look}:${bar < 24 ? 0 : Math.floor((bar - 24) / 8)}`;
+                    if (show._bdKey === key) return;
+                    show._bdKey = key;
+                    show._applyLook(show.looks[look]);
+                    show._cue = { look, bars: span };
+                    show._cueStartBar = show._barCounter;
+                }
+            },
+
+            /**
+             * THE RELEASE - one bar of everything the moment the kick returns, then
+             * IGNITION. Deliberately no blackout before it: the kick has already landed,
+             * so a dark beat now would arrive after the hit instead of before it.
+             */
+            release: {
+                title: 'THE RELEASE',
+                bars: 1,
+                onStart(show) {
+                    show._applyLook(show.looks.releaseHit);
+                    show._cue = { look: 'releaseHit', bars: 1 };
+                    show._cueStartBar = show._barCounter;
+                    show._blackoutBeats = 0;
+                },
+                onBar() { /* single bar; IGNITION's first cue follows */ }
             }
         };
     }

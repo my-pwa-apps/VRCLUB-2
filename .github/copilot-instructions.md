@@ -99,8 +99,9 @@ scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes in
 The composed light show, and **the single source of truth for fixture state** whenever
 `showDirector.isDriving()` is true (i.e. the show is enabled and `vjManualMode` is off).
 
-Structure: **14 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
-`afterglow`) → **2 set-pieces** (`countdown`, `cutToBlack`). A look is a flat map of
+Structure: **20 looks** → **5 movements** (`arrival`, `pulse`, `ascent`, `ignition`,
+`afterglow`) → **4 set-pieces** (`countdown`, `cutToBlack`, `breakdown`, `release`). A look
+is a flat map of
 `VRClub` fixture properties; a `[from, to]` value is a ramp resolved across the cue's bar
 span. Movements are ordered cue lists; the next movement is chosen from a smoothed audio
 energy EMA, but only on a bar boundary and only after `minBars` have elapsed.
@@ -110,24 +111,41 @@ Rules when editing:
   musical grid is exactly the failure this class exists to fix.
 - Look keys are validated at construction by `_validateLooks()` — a typo warns rather than
   silently doing nothing. Add new fixture properties to a look, not to a special case.
-- `intensity`, `palette` and `punch` are meta keys (`ShowDirector.META_KEYS`) consumed by
-  the director itself. They must never be written onto the club instance.
+- `intensity`, `palette`, `punch`, `colorLock` and `hue` are meta keys (`ShowDirector.META_KEYS`)
+  consumed by the director itself. They must never be written onto the club instance. `hue`
+  (0..1) pins the master colour via `VJDirector.setMasterHue()` for the look; a look without
+  it calls `unlockHue()`, so rotation resumes.
 - `photosensitiveSafeMode` **overrides the designer**: `_applyLook()` force-clears
   `strobesActive`, and the `countdown` set-piece drops its strobe ladder
   and carries the build with intensity and speed alone. Never bypass this.
 - Keep the gobo/laser exclusivity rule — one aerial idea at a time, or the haze turns to soup.
 
-**Three places hand control over. All three must stay gated:**
+**Four places hand control over. All four must stay gated:**
 
 | Gate | File | Guard |
 |------|------|-------|
 | Legacy 12-phase wall-clock cycler | `js/club/07-animation-core.js` | `&& !showDriving` |
 | LED wall private pattern timer | `js/club/09-animation-finish.js` | `if (!showOwnsPattern && …)` |
 | Auto-scene energy-threshold picker | `vjDirector.js` `update()` step 5 | `&& !showDriving` |
+| Spotlight palette cycler (it swapped the heads' colour every few seconds, overriding any look's hue) | `js/club/08-animation-fixtures.js` `updateSpotColorCycle()` | `&& !showDriving` |
 
 VJDirector keeps running throughout — beat tracking, BPM and the colour palette are inputs
 to the show, not competitors. Only the *look decision* is handed over.
 
+**Reading the track's structure.** VJDirector has a *flywheel*: after 1.5 beats without a
+kick it keeps counting beats at the tracked BPM, so the bar grid survives a kick-less
+breakdown. `realOnsetCount`, `lastRealOnsetAt` and `onsetStreak` count only genuine kicks.
+`_watchKick()` uses them: a groove (≥ 32 kicks) followed by ~2 kick-less bars starts the
+`breakdown` set-piece (blue sheet → teal wall → rising magenta, strobe-free, up to 96 bars);
+two fresh kicks end it with `release`, which re-locks `_beatInBar` to the returning kick and
+hands on to IGNITION. Over 4 s of silence hands the breakdown to AFTERGLOW instead; a one-beat
+gap before a drop does not. AFTERGLOW now ends on `sunrise` (amber aurora, 16 bars).
+
+**Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
+director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
+the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —
+via `_ledLift` in `updateLEDPanel()` — the whole LED wall. Unit tests drive these methods on
+bare stubs, so every read is `(this.kickPulse || 0)`.
 ## Non-negotiable rendering rules
 
 ### Frame-rate independence
@@ -388,9 +406,10 @@ to avoid z-fighting.
 
 - `getAudioData()` averages the analyser's 128 bins as bass = bins 0–11, mid = 12–63,
   treble = 64–127. At 48 kHz and `fftSize = 256` that is roughly 0–2.2 kHz, 2.2–12 kHz and
-  12–24 kHz, so "bass" also carries vocals and snare body. Bass drives the mirror ball and
-  onset detection, mids the lasers, highs the LED patterns. Re-banding needs the Show
-  Director's energy thresholds recalibrated (see `BACKLOG.md`).
+  12–24 kHz, so "bass" also carries vocals and snare body. Bass drives onset detection
+  (and so the kick pulse and bar grid) and the show's energy; treble adds a small LED-wall
+  shimmer. The lasers and mirror ball follow the look and the kick pulse, not the bands.
+  Re-banding needs the Show Director's energy thresholds recalibrated (see `BACKLOG.md`).
 - URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
 - A stream served without `Access-Control-Allow-Origin` produces an all-zero analyser.

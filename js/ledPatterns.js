@@ -8,14 +8,18 @@ class LEDPatternMethods {
      */
     updateLEDPanel(panel, color, brightness) {
         const c = panel.colorBuffer;
+        // Per-frame kick/hi-hat lift, set once by updateLEDWall(). Emissive may exceed 1
+        // on purpose: the wall's bloom turns the overshoot into the kick flash.
+        const lift = this._ledLift || 1;
         if (brightness === 0) {
             c.r = 0; c.g = 0; c.b = 0;
-        } else if (brightness >= 0.99) {
+        } else if (brightness >= 0.99 && lift === 1) {
             c.r = color.r; c.g = color.g; c.b = color.b;
         } else {
-            c.r = color.r * brightness;
-            c.g = color.g * brightness;
-            c.b = color.b * brightness;
+            const k = brightness * lift;
+            c.r = color.r * k;
+            c.g = color.g * k;
+            c.b = color.b * k;
         }
         panel.material.emissiveColor = c;
     }

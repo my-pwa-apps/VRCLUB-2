@@ -1401,6 +1401,155 @@ test('VJDirector publishes one phrase palette to the LED wall and mirror ball', 
     assert.equal(club.mirrorBallSpotlightColor, mirrorColors[1]);
 });
 
+test('VJDirector keeps the bar grid counting through a kick-less breakdown', () => {
+    let clock = 10000;
+    const { window } = loadClassic('js/vjDirector.js', {
+        BABYLON: makeBabylonStub(),
+        performance: { now: () => clock }
+    });
+    const director = new window.VJDirector({ vjBPM: 128, dtScale: 1 });
+    const silentKick = { hasAudio: true, bass: 0.05, mid: 0.2, treble: 0.1 };
+
+    // Three seconds of melody with no kick at all.
+    for (let frame = 0; frame < 180; frame++) {
+        clock += 1000 / 60;
+        director.update(clock / 1000, silentKick);
+    }
+    assert.ok(director.beatNumber >= 4 && director.beatNumber <= 7,
+        `the flywheel lost the grid: ${director.beatNumber} beats in 3 s at 128 BPM`);
+    assert.equal(director.realOnsetCount, 0, 'flywheel beats must not count as kicks');
+    assert.equal(director.onsetStreak, 0);
+
+    // Real kicks build a streak; a long gap restarts it.
+    director._registerBeat(clock + 500, false);
+    director._registerBeat(clock + 1000, false);
+    director._registerBeat(clock + 1500, false);
+    assert.equal(director.onsetStreak, 3);
+    assert.equal(director.realOnsetCount, 3);
+    director._registerBeat(clock + 6000, false);
+    assert.equal(director.onsetStreak, 1);
+});
+
+test('a look can pin the master hue until the next look releases it', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const colors = [new BABYLON.Color3(1, 0, 0), new BABYLON.Color3(0, 1, 0)];
+    const club = { vjBPM: 128, cachedColors: {}, spotColorList: colors, mirrorBallColors: colors, mirrorBallColorIndex: 0 };
+    const director = new window.VJDirector(club);
+
+    director.setMasterHue(0.08);
+    director.beatNumber = 16;
+    director._applyPalette();
+    assert.equal(director.masterHue, 0.08, 'a pinned hue was rotated');
+    assert.ok(Math.abs(club.currentSpotColor.r - 1) < 1e-9 && club.currentSpotColor.g < 0.5 && club.currentSpotColor.b === 0,
+        'the pinned hue did not reach the rig as amber');
+
+    director.unlockHue();
+    director.beatNumber = 32;
+    director._applyPalette();
+    assert.notEqual(director.masterHue, 0.08, 'the hue stayed pinned after unlock');
+});
+
+test('NOCTURNE plays a breakdown arc while the kick is gone and releases when it returns', () => {
+    let clock = 100000;
+    const { window } = loadClassic('js/showDirector.js', { performance: { now: () => clock } });
+    const makeShow = (safe = false) => {
+        const vj = {
+            paletteMode: 'analogous', bpm: 120, beatNumber: 0, beatEnvelope: 0, blackoutUntil: 0,
+            realOnsetCount: 64, lastRealOnsetAt: clock, onsetStreak: 8, hue: null,
+            setMasterHue(h) { this.hue = h; }, unlockHue() { this.hue = null; }
+        };
+        const club = { vjManualMode: false, photosensitiveSafeMode: safe, vjDirector: vj };
+        return { vj, club, show: new window.ShowDirector(club) };
+    };
+    const beats = (ctx, n, audio = { hasAudio: true, bass: 0.4, mid: 0.3, treble: 0.1 }, kick = false) => {
+        for (let i = 0; i < n; i++) {
+            clock += 500;                       // 120 BPM
+            ctx.vj.beatNumber++;
+            if (kick) { ctx.vj.lastRealOnsetAt = clock; ctx.vj.realOnsetCount++; }
+            ctx.show.update(clock / 1000, audio);
+        }
+    };
+
+    const ctx = makeShow();
+    // A groove with a kick on every beat, then the kick leaves.
+    beats(ctx, 12, undefined, true);
+    assert.equal(ctx.show._setPiece, null, 'a steady groove was mistaken for a breakdown');
+    beats(ctx, 24);
+    assert.equal(ctx.show._setPiece, ctx.show.setPieces.breakdown, 'two kick-less bars did not start the breakdown');
+    assert.equal(ctx.vj.hue, 0.64, 'the breakdown opens in cold blue');
+
+    // It develops with the bars instead of looping one look.
+    beats(ctx, 4 * 5);
+    assert.equal(ctx.club.laserSheetActive, true, 'the sheet never arrived');
+    beats(ctx, 4 * 20);
+    assert.equal(ctx.show._cue.look, 'bdRise', 'the breakdown never began to rise');
+    assert.equal(ctx.vj.hue, 0.90);
+    assert.equal(ctx.club.strobesActive === true, false, 'the breakdown must stay strobe-free');
+
+    // The kick returns: two in a row release, re-lock the grid and fire the hit.
+    clock += 500;
+    ctx.vj.beatNumber++;
+    ctx.vj.lastRealOnsetAt = clock;
+    ctx.vj.realOnsetCount += 2;
+    ctx.vj.onsetStreak = 2;
+    ctx.show.update(clock / 1000, { hasAudio: true, bass: 0.7, mid: 0.4, treble: 0.2 });
+    assert.equal(ctx.show._setPiece, ctx.show.setPieces.release);
+    assert.equal(ctx.show._beatInBar, 1, 'the grid was not re-locked to the returning kick');
+    assert.equal(ctx.club.strobesActive, true);
+    assert.equal(ctx.club.lasersActive, true);
+    assert.equal(ctx.vj.hue, null, 'the release must hand the colour back to the palette');
+    beats(ctx, 4);
+    assert.equal(ctx.show._setPiece, null);
+    assert.equal(ctx.show._movementName, 'ignition', 'the release must land in the peak');
+
+    // A groove has to be re-established before another breakdown can be declared.
+    beats(ctx, 24);
+    assert.notEqual(ctx.show._setPiece, ctx.show.setPieces.breakdown);
+
+    // Safe Mode: the hit loses its strobes like every other look.
+    const safe = makeShow(true);
+    safe.show._applyLook(safe.show.looks.releaseHit);
+    assert.equal(safe.club.strobesActive, false);
+});
+
+test('a breakdown ends in AFTERGLOW when the music stops, but survives a one-beat gap', () => {
+    let clock = 100000;
+    const { window } = loadClassic('js/showDirector.js', { performance: { now: () => clock } });
+    const vj = {
+        paletteMode: 'analogous', bpm: 120, beatNumber: 0, beatEnvelope: 0, blackoutUntil: 0,
+        realOnsetCount: 64, lastRealOnsetAt: clock, onsetStreak: 8,
+        setMasterHue() {}, unlockHue() {}
+    };
+    const show = new window.ShowDirector({ vjManualMode: false, photosensitiveSafeMode: false, vjDirector: vj });
+    const step = (audio, ms = 500) => { clock += ms; vj.beatNumber++; show.update(clock / 1000, audio); };
+    const music = { hasAudio: true, bass: 0.4, mid: 0.3, treble: 0.1 };
+    const nothing = { hasAudio: false, bass: 0, mid: 0, treble: 0 };
+
+    for (let i = 0; i < 36; i++) step(music);
+    assert.equal(show._setPiece, show.setPieces.breakdown);
+    step(nothing);                              // the classic empty beat before a drop
+    step(music);
+    assert.equal(show._setPiece, show.setPieces.breakdown, 'a one-beat gap ended the breakdown');
+    for (let i = 0; i < 12; i++) step(nothing); // the music really stopped
+    assert.equal(show._setPiece, null);
+    assert.equal(show._movementName, 'afterglow');
+});
+
+test('the LED wall lifts on the kick, and a bare wall renders as before', () => {
+    const { window } = loadClassic('js/ledPatterns.js', { BABYLON: makeBabylonStub() });
+    const panel = () => ({ colorBuffer: { r: 0, g: 0, b: 0 }, material: {} });
+    const paint = (self, brightness) => {
+        const p = panel();
+        window.LEDPatterns.updateLEDPanel.call(self, p, { r: 1, g: 0.5, b: 0 }, brightness);
+        return p.material.emissiveColor;
+    };
+    assert.deepEqual({ ...paint({}, 1) }, { r: 1, g: 0.5, b: 0 });
+    assert.deepEqual({ ...paint({}, 0.5) }, { r: 0.5, g: 0.25, b: 0 });
+    assert.deepEqual({ ...paint({ _ledLift: 1.5 }, 1) }, { r: 1.5, g: 0.75, b: 0 }, 'full-bright panels ignored the kick');
+    assert.deepEqual({ ...paint({ _ledLift: 1.5 }, 0) }, { r: 0, g: 0, b: 0 }, 'a dark panel must stay dark');
+});
+
 test('crowd instances expand to the active tier without duplicating dancers', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', {

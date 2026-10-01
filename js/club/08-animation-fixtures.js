@@ -269,7 +269,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     
                     // Apply color to core beam - pure saturated color
                     if (!beam._emissiveBuf) beam._emissiveBuf = new BABYLON.Color3(0, 0, 0);
-                    currentColor.scaleToRef(this.isInVRMode ? 5.0 : 2.5, beam._emissiveBuf);
+                    currentColor.scaleToRef((this.isInVRMode ? 5.0 : 2.5) * (1 + (this.kickPulse || 0) * 0.7), beam._emissiveBuf);
                     beam.material.emissiveColor = beam._emissiveBuf;
                     beam.mesh.visibility = 1.0;
                     
@@ -391,8 +391,18 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // HYPERREALISTIC: Color change interval varies with energy level
         // High energy (drops) = rapid color changes (2-4s)
         // Low energy (ambient) = slow color changes (8-12s)
+        // The Show Director owns colour while it drives: the director publishes
+        // currentSpotColor itself (one hue per phrase, or a look's pinned hue). This
+        // cycler used to keep swapping the heads to the next palette entry every few
+        // seconds anyway, so a look's colour idea was overwritten with whatever came
+        // next in the list. It stands down exactly like the other legacy cyclers.
+        const showDriving = !!(this.showDirector && this.showDirector.isDriving());
+        if (showDriving) {
+            this.colorTransitionProgress = 1;
+            this.lastColorChange = time;
+        }
         const colorChangeInterval = this.vjDropActive ? 2 : (12 - (this.energyLevel * 8));
-        if (!this.vjManualMode && time - this.lastColorChange > colorChangeInterval) {
+        if (!this.vjManualMode && !showDriving && time - this.lastColorChange > colorChangeInterval) {
             this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
             
             // SMOOTH COLOR TRANSITION: Store previous color for interpolation.
@@ -560,7 +570,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // Intensity only: toggling enabled state reshuffles every material's
                 // light slots (shader recompiles on cue changes, a scene walk per
                 // spot-strobe flash). See the note where the spots are created.
-                spot.light.intensity = lightEnabled ? (baseIntensity + smoothPulse) : 0;
+                spot.light.intensity = lightEnabled
+                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.6)
+                    : 0;
             });
         } else if (this.spotlights) {
             // Turn off spotlights completely when not active
@@ -1243,7 +1255,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // CRITICAL: Use this.currentSpotColor (global) as single source of truth
         // This ensures beam, fixture, and all effects use the EXACT same color
         const spotColor = this.currentSpotColor;
-        const baseIntensity = (this.isInVRMode ? 2.8 : 2.4) + atmosphericNoise;
+        const baseIntensity = ((this.isInVRMode ? 2.8 : 2.4) + atmosphericNoise) * (1 + (this.kickPulse || 0) * 0.8);
         if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
         spotColor.scaleToRef(baseIntensity, spot._beamEmisBuf);
         spot.beamMat.emissiveColor = spot._beamEmisBuf;
@@ -1260,7 +1272,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
         const scatterBase = this.isInVRMode ? 0.10 : 0.065;
         const scatterVariation = this.isInVRMode ? 0.05 : 0.035;
-        spot.beamMat.alpha = (scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis;
+        spot.beamMat.alpha = (scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis * (1 + (this.kickPulse || 0));
         
         const st = spot._beamState || (spot._beamState = {});
         st.beamVisible = beamVisible;
