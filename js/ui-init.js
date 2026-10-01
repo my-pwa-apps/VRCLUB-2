@@ -18,6 +18,34 @@ const DEFAULT_AUDIO_STREAM = Object.freeze({
     url: 'https://stream.sunshine-live.de/techno/mp3-192/stream.sunshine-live.de/'
 });
 
+// On-demand DJ sets: the feed and its Podbean-hosted MP3s both send
+// Access-Control-Allow-Origin: *, which the beat analyser needs. Only fetched on an
+// explicit click (the guest's IP goes to podcast.hernancattaneo.com and podbean.com).
+const RESIDENT_PODCAST = Object.freeze({
+    name: 'Resident by Hernan Cattaneo',
+    feed: 'https://podcast.hernancattaneo.com/feed.xml',
+    // The newest item comes first and is ~4 KB; the whole feed is ~2.6 MB.
+    headBytes: 65535
+});
+
+/** Resolve the newest episode, reading only the head of the feed when the server allows. */
+async function fetchLatestPodcastEpisode(podcast) {
+    const decode = buffer => new TextDecoder('utf-8').decode(buffer);
+    const head = decode(await window.fetchBufferWithTimeout(podcast.feed, {
+        timeoutMs: 15000,
+        cache: 'no-cache',
+        headers: { Range: `bytes=0-${podcast.headBytes}` }
+    }));
+    let episode = window.AudioUtils.parseLatestPodcastEpisode(head);
+    if (!episode) {
+        // The first item did not fit in the range (or the server ignored it).
+        episode = window.AudioUtils.parseLatestPodcastEpisode(
+            decode(await window.fetchBufferWithTimeout(podcast.feed, { timeoutMs: 30000, cache: 'no-cache' })));
+    }
+    if (!episode) throw new Error('No playable episode found in the feed');
+    return episode;
+}
+
 /** localStorage key for the last stream the guest actually played. */
 const LAST_STREAM_KEY = 'vrclub.lastStreamUrl';
 // Explicit opt-in for connecting to a stream on ENTER (third party sees the visitor's IP).
@@ -1002,22 +1030,54 @@ function initAudioMenu() {
                 return;
             }
 
-            vrClubInstance.startAudioStream(url)
-                .then(() => {
-                    showStatus('\ud83c\udfb5 Stream playing!', 'success');
-                    setPlayLabel(true);
-                    setNowPlaying(`\u25B6 ${url}`);
-                    try { localStorage.setItem(LAST_STREAM_KEY, url); } catch (_) { /* ignore */ }
-                    // Broadcast the new "now playing" to the room, if this guest hosts it.
-                    if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
-                        vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: true, position: 0 });
-                    }
-                })
-                .catch(err => {
-                    showStatus(`Error: ${err.message}`, 'error');
-                    setNowPlaying('No audio yet');
-                });
+            playUrl(url, url);
         });
+    }
+
+    // Latest Resident episode: resolve it from the feed, then play it exactly as if
+    // the guest had pasted the MP3 link (remembered, broadcast to the room if hosting).
+    const playPodcastBtn = document.getElementById('playPodcastBtn');
+    if (playPodcastBtn) {
+        playPodcastBtn.addEventListener('click', async () => {
+            if (playPodcastBtn.disabled) return;
+            playPodcastBtn.disabled = true;
+            showStatus(`Finding the latest ${RESIDENT_PODCAST.name} episode\u2026`, 'success');
+            try {
+                const episode = await fetchLatestPodcastEpisode(RESIDENT_PODCAST);
+                const activeAudio = vrClubInstance.audioElement;
+                if (activeAudio && !activeAudio.paused && activeAudio.src === episode.url) {
+                    showStatus(`Already playing: ${episode.title}`, 'success');
+                    return;
+                }
+                if (streamUrl) streamUrl.value = episode.url;
+                await playUrl(episode.url, episode.title);
+            } catch (err) {
+                uiLog.warn('Podcast feed failed:', err);
+                showStatus(`Could not load the podcast: ${err.message}`, 'error');
+            } finally {
+                playPodcastBtn.disabled = false;
+            }
+        });
+    }
+
+    /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
+    function playUrl(url, label) {
+        const requestedUrl = new URL(url, window.location.href).href;
+        return vrClubInstance.startAudioStream(url)
+            .then(() => {
+                showStatus(`\ud83c\udfb5 Playing: ${label}`, 'success');
+                setPlayLabel(true);
+                setNowPlaying(`\u25B6 ${label}`);
+                try { localStorage.setItem(LAST_STREAM_KEY, url); } catch (_) { /* ignore */ }
+                // Broadcast the new "now playing" to the room, if this guest hosts it.
+                if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
+                    vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: true, position: 0 });
+                }
+            })
+            .catch(err => {
+                showStatus(`Error: ${err.message}`, 'error');
+                setNowPlaying('No audio yet');
+            });
     }
     
     // Handle file upload

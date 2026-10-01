@@ -615,6 +615,17 @@ html, body {
     transform: translateY(0);
 }
 
+.audio-podcast-button {
+    width: 100%;
+    justify-content: center;
+}
+
+.audio-podcast-button:disabled {
+    opacity: 0.6;
+    cursor: progress;
+    transform: none;
+}
+
 .audio-file-upload {
     display: flex;
     align-items: center;

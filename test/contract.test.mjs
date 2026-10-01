@@ -260,8 +260,11 @@ test('no first-party code fetches from a third-party origin', () => {
             }
         });
     }
-    // The default radio stream is inherently third-party and user-replaceable.
-    const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de'));
+    // The default radio stream is inherently third-party and user-replaceable. The
+    // Resident podcast feed is read only when the guest clicks its button, never at
+    // startup, and is listed in the CSP's connect-src.
+    const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de') &&
+        !o.includes('https://podcast.hernancattaneo.com/feed.xml'));
     assert.deepEqual(filtered, [],
         `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });

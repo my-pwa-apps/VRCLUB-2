@@ -982,12 +982,18 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
         const delay = delays[recovery.attempts++];
+        // An on-demand episode (finite duration) resumes where it dropped instead of
+        // restarting an hour-long set from zero. Captured now: reloading resets it.
+        const resumeAt = Number.isFinite(audio.duration) ? audio.currentTime : 0;
         this.showErrorMessage(`Stream interrupted \u2014 reconnecting (attempt ${recovery.attempts} of ${delays.length})\u2026`);
         log.warn(`🎵 Stream ${reason}; reconnect attempt ${recovery.attempts} in ${delay} ms`);
         recovery.timer = setTimeout(() => {
             recovery.timer = null;
             if (this._disposed || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
             audio.src = this._audioStreamUrl;
+            if (resumeAt > 0) {
+                audio.addEventListener('loadedmetadata', () => { audio.currentTime = resumeAt; }, { once: true });
+            }
             audio.load();
             audio.play().catch(() => this._recoverAudioStream('error'));
         }, delay);

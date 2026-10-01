@@ -425,6 +425,29 @@ test('audio URL policy accepts supported sources and rejects unsafe inputs', () 
     assert.equal(AudioUtils.isSafeAudioUrl('http://radio.example/live.mp3', 'http://localhost:8000/'), true);
 });
 
+test('podcast feeds resolve the newest https audio episode, even from a truncated head', () => {
+    const { AudioUtils } = loadClassic('js/audioUtils.js').window;
+    const item = (title, enclosure) => `<item>\n<title>${title}</title>\n` +
+        `<description><![CDATA[<p><a href='https://example.com/x.mp3'>x</a></p>]]></description>\n${enclosure}\n</item>`;
+    const feed = '<?xml version="1.0"?><rss><channel><title>Resident</title>' +
+        item('Video &amp; extras', '<enclosure url="https://cdn.example/v.mp4" type="video/mp4"/>') +
+        item('Insecure', '<enclosure url="http://cdn.example/a.mp3" type="audio/mpeg"/>') +
+        item('Resident / Episode 803 &#8211; Sept', '<enclosure url="https://mcdn.example/803.mp3?a=1&amp;b=2" length="1" type="audio/mpeg"/>') +
+        item('Resident / Episode 802', '<enclosure url="https://mcdn.example/802.mp3" type="audio/mpeg"/>');
+
+    assert.deepEqual({ ...AudioUtils.parseLatestPodcastEpisode(feed) }, {
+        title: 'Resident / Episode 803 \u2013 Sept',
+        url: 'https://mcdn.example/803.mp3?a=1&b=2'
+    });
+    // A byte-range head cut mid-way through a later item still resolves the first.
+    const head = feed.slice(0, feed.indexOf('Episode 802') + 5);
+    assert.equal(AudioUtils.parseLatestPodcastEpisode(head).url, 'https://mcdn.example/803.mp3?a=1&b=2');
+    // A head cut before the first item closes yields nothing, so callers fetch the rest.
+    assert.equal(AudioUtils.parseLatestPodcastEpisode(feed.slice(0, feed.indexOf('</item>'))), null);
+    assert.equal(AudioUtils.parseLatestPodcastEpisode('<rss></rss>'), null);
+    assert.equal(AudioUtils.parseLatestPodcastEpisode(null), null);
+});
+
 // ---------------------------------------------------------------------------
 // Asset caching primitives
 // ---------------------------------------------------------------------------
@@ -1937,6 +1960,47 @@ test('a dropped live stream reconnects with bounded backoff; files and bad URLs 
     listeners.error();
     assert.equal(timeouts.length, 0);
     assert.match(toasts.at(-1), /file cannot be played/);
+});
+
+test('a dropped on-demand episode reconnects at its position; live streams restart', () => {
+    const timeouts = [];
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class {},
+        setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
+        clearTimeout() {},
+        setInterval: () => 1,
+        log: { warn() {}, info() {}, error() {} }
+    });
+    const listeners = {};
+    const audio = {
+        paused: false, currentTime: 0, duration: Infinity, src: '',
+        addEventListener(type, fn) { listeners[type] = fn; },
+        load() { this.currentTime = 0; },
+        play() { return Promise.resolve(); }
+    };
+    const club = Object.create(window.VRClubUI.prototype);
+    club.audioElement = audio;
+    club.showErrorMessage = () => {};
+    club._watchAudioStream(audio);
+    club._audioKind = 'stream';
+    club._audioStreamUrl = 'https://mcdn.example/803.mp3';
+    listeners.playing();
+
+    // A live stream (infinite duration) has no position to return to.
+    audio.currentTime = 600;
+    listeners.error();
+    delete listeners.loadedmetadata;
+    timeouts.shift().fn();
+    assert.equal(listeners.loadedmetadata, undefined, 'a live stream tried to seek');
+
+    // An hour-long episode resumes where it dropped, once the reload has metadata.
+    audio.duration = 3565;
+    audio.currentTime = 1834.5;
+    listeners.error();
+    timeouts.shift().fn();
+    assert.equal(audio.currentTime, 0, 'reloading the element resets its position');
+    listeners.loadedmetadata();
+    assert.equal(audio.currentTime, 1834.5);
 });
 
 test('VR viewpoints preserve seated eye height and orientation without moving the desktop camera', () => {

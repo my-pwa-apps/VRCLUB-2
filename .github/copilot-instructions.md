@@ -395,6 +395,12 @@ to avoid z-fighting.
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
 - A stream served without `Access-Control-Allow-Origin` produces an all-zero analyser.
   `getAudioData()` detects this and surfaces a toast rather than failing silently.
+- The Audio menu's **Latest Resident** button (`RESIDENT_PODCAST` in `js/ui-init.js`)
+  range-fetches the head of the podcast RSS feed, resolves the newest episode with
+  `AudioUtils.parseLatestPodcastEpisode()` and plays it through the same path as a
+  pasted URL. The feed origin is in the CSP `connect-src` and in the contract test's
+  third-party allow-list; any other feed needs both. A reconnect of a finite-duration
+  source resumes at its position (`_recoverAudioStream()`).
 
 ## Persistence
 

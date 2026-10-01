@@ -11,7 +11,40 @@
  *  on the UI thread, reachable straight from a paste into a text input). */
 const MAX_AUDIO_URL_LENGTH = 2048;
 
+/** Decode the XML entities an RSS text node can carry. */
+function decodeXmlText(text) {
+    return text
+        .replace(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/, '$1')
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+        .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
+        .trim();
+}
+
 const AudioUtils = Object.freeze({
+    /**
+     * Newest episode of an RSS podcast feed: the first <item> with an https audio
+     * enclosure. Regex, not DOMParser, on purpose: callers fetch only the head of
+     * the feed (a byte range), which is not well-formed XML.
+     * @returns {{ title: string, url: string } | null}
+     */
+    parseLatestPodcastEpisode(xmlText) {
+        if (typeof xmlText !== 'string') return null;
+        for (const [, item] of xmlText.matchAll(/<item[\s>]([\s\S]*?)<\/item>/g)) {
+            const enclosure = /<enclosure\b[^>]*>/.exec(item);
+            const url = enclosure && /\burl\s*=\s*["']([^"']+)["']/.exec(enclosure[0]);
+            const type = enclosure && /\btype\s*=\s*["']([^"']+)["']/.exec(enclosure[0]);
+            if (!url || (type && !type[1].startsWith('audio/'))) continue;
+            const href = decodeXmlText(url[1]);
+            if (!/^https:\/\//i.test(href) || !AudioUtils.isSafeAudioUrl(href)) continue;
+            const title = /<title>([\s\S]*?)<\/title>/.exec(item);
+            return { title: title ? decodeXmlText(title[1]) : 'Latest episode', url: href };
+        }
+        return null;
+    },
+
     isSafeAudioUrl(url, pageHref) {
         if (typeof url !== 'string' || !url.trim()) return false;
         if (url.length > MAX_AUDIO_URL_LENGTH) return false;

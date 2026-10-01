@@ -91,6 +91,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Latest Resident — Hernan Cattaneo** in the Audio menu plays the newest episode of the
+  *Resident* podcast. On click it reads only the first 64 KB of the public RSS feed (one
+  range request instead of ~2.6 MB) and streams the Podbean MP3, which sends CORS headers
+  so the show reacts to it. `connect-src` allows `podcast.hernancattaneo.com` for this.
+- A dropped on-demand episode reconnects at its playback position instead of restarting.
 - Production browser coverage now verifies laser-sheet exclusivity, the exact moving
   strobe sequence, Photosensitive Safe Mode suppression, synchronized room colors,
   and the mounting point and motion axis of both ceiling-sheet variations.

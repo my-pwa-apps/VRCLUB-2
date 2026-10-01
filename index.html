@@ -21,6 +21,10 @@
          is NOT in the startup critical path - blocking it only costs controller models -
          but blocking it also logs a CSP violation on every VR entry.
 
+         connect-src allows podcast.hernancattaneo.com for the "Latest Resident" button:
+         it reads the head of that RSS feed to find the newest episode, only on click.
+         The episode MP3 itself is media and already covered by media-src https:.
+
          connect-src also allows the ws:/wss: schemes (any origin) for the optional
          multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
          the Multiplayer panel / js/networkClient.js), not a fixed origin known at
@@ -45,7 +49,7 @@
         img-src 'self' data: blob:;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
-        connect-src 'self' blob: https://immersive-web.github.io ws: wss:;
+        connect-src 'self' blob: https://immersive-web.github.io https://podcast.hernancattaneo.com ws: wss:;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
@@ -309,6 +313,15 @@
                         <span id="playStreamBtnLabel">Play</span>
                     </button>
                 </div>
+            </div>
+
+            <!-- On-demand DJ set (podcast feed) -->
+            <div class="audio-section">
+                <button class="audio-button audio-podcast-button" id="playPodcastBtn" type="button"
+                        title="Plays the newest episode from podcast.hernancattaneo.com. The audio is served by podbean.com, which receives your IP address.">
+                    <span aria-hidden="true">🎧</span>
+                    <span>Latest Resident &mdash; Hernan Cattaneo</span>
+                </button>
             </div>
             
             <!-- File Upload -->
