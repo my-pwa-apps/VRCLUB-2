@@ -104,6 +104,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- Headset-free VR coverage in the Playwright suite. `test/e2e/vr-session.spec.mjs` checks the
+  spawn pose, headset and controller tracking, a ray-selected menu button, the 30 degree snap
+  turn and teleport landing (including the DJ-platform blockers). `test/e2e/vr-parity.spec.mjs`
+  compares the desktop and VR render state and image at one pose and fails on any
+  undocumented difference. The IWER emulator is patched for its offset-reference-space bug.
 - **The LED wall is now lit through most of the show, as an accompaniment.** It was dark for 76% of the
   show's bars (on for only 24%), so the beams, lasers and sheets played against a black back wall. It is
   now on for about 69%: `firstLight`, `sideways`, `crossfire`, `laserStorm`, `driftAway` and the three

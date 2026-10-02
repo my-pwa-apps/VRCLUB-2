@@ -6,6 +6,201 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-10-02 — VR parity and headset emulation
+
+Scope: new emulator-driven specs, `test/e2e/vr-session.spec.mjs` and
+`test/e2e/vr-parity.spec.mjs`, run in Chromium on SwiftShader with a Quest 3 emulated by
+IWER. The emulator renders mono at 1280x720, so it proves behaviour, not headset frame time,
+stereo comfort or the Quest compositor. Findings that depend on the render output carry
+that caveat in their confidence.
+
+Checked and found sound (do not re-raise without new evidence):
+
+- Spawn is the dance-floor centre (0, 1.6, -12), facing the stage. Headset and controller
+  poses reach the scene at the right place, snap turn is exactly 30 degrees and does not
+  translate the user, and teleport lands on the floor inside the room.
+- The DJ-platform and wall teleport blockers work: with them removed, a 26 degree throw
+  lands on the platform at (-0.50, -18.04) and a 12 degree throw lands outside the room.
+- At the `balanced` tier (what a Quest always runs) the only desktop/VR differences are the
+  documented ones; the show, crowd, fixtures, tone mapping, bloom, glow, FXAA, dithering and
+  reflections are all present in VR. `INTENTIONAL_DIFFERENCES` in the parity spec lists them.
+- The emulator needed a fix: IWER 2.3.0 ignores every origin offset, which silently disables
+  teleport, snap turn and `xrCamera.position` writes. `test/e2e/support.mjs` patches it. This
+  was first misread as an app spawn bug; it is not.
+
+### New open items
+
+- [ ] **The emulated VR frame is about 2.2x darker than the desktop frame at the same pose and cue**
+
+  **Priority:** High
+  **Category:** VR
+  **Confidence:** Medium. Measured and reproducible, but on an emulator whose XR output path is
+  not the Quest compositor. Needs one capture on a real headset before it is called a defect.
+  **Area:** XR render path, post-processing
+  **Affected files:** `js/club/01-core.js` (`applyVRSettings`), `js/club/03-rendering.js`
+  **Evidence:** MEASURED. Same scene, hue-pinned `firstLight` cue, same position and 90 degree
+  vertical FOV, `balanced` tier. Mean luminance of the upper 62% of the frame: desktop
+  0.015-0.025 (varies with the show), VR 0.0073-0.0077 (stable); ratio 0.30-0.51. The ratio
+  map is 0.25-0.77 in every region, median about 0.45, so the loss is global, not limited to
+  the LED wall, the beams or the floor. Structure matches (grid correlation 0.89-0.90).
+  Ruled out one at a time in VR, none restored the brightness: fog and environment at desktop
+  values, desktop haze, bloom off, glow intensity 0 or 3.5, the VR animation boosts
+  (`isInVRMode` false). ACES tone mapping off roughly doubles the VR frame (0.0148), and on
+  desktop it raises 0.0156 to 0.0439, so pre-tone-map radiance is about 3x lower in VR.
+  **Problem:** Every VR boost in the frame update (beam emission x2, lens, flares, mirror
+  beams, room bounce x1.30, higher exposure) is applied, yet the VR image is darker.
+  **User-visible effect:** If it reproduces on a Quest, the club looks roughly half as bright
+  in the headset as on the desktop screen, with far fewer bright highlights.
+  **Immersion impact:** High if confirmed; the light show carries the presence.
+  **Desktop impact:** None.
+  **VR impact:** Whole-scene dimming.
+  **Performance impact:** None expected.
+  **Recommended solution:** First capture the same pose and cue on a Quest 3S (or the Meta
+  Immersive Web Emulator) to confirm. If it is real, compare the XR layer's colour space and
+  tone-map stage with the desktop pipeline, then the post-process chain on the XR camera.
+  **Regression considerations:** Keep VR comfort settings (no vignette, no motion blur), the
+  light budget and the frozen-material rules.
+  **Acceptance criteria:** VR/desktop mean luminance >= 0.75 at the parity spec's pose and cue.
+  **Validation:** `npx playwright test vr-parity.spec.mjs` and a headset capture. Raise the
+  `luma > 0.2` floor in the spec as the gap closes.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Desktop loses SSAO after a VR visit**
+
+  **Priority:** Medium
+  **Category:** Bug
+  **Confidence:** High
+  **Area:** `applyVRSettings` / `applyDesktopSettings`
+  **Affected files:** `js/club/01-core.js`
+  **Evidence:** MEASURED. `ssaoPipeline._cameras` is `["camera"]` before VR, `[]` while in VR
+  and still `[]` after exit. The comment in `applyDesktopSettings()` says SSAO "remains
+  attached to the desktop camera while XR is active, so there is nothing to reattach"; the
+  data says it does not.
+  **Problem:** SSAO is never reattached to the desktop camera.
+  **User-visible effect:** After one VR session the desktop loses ambient occlusion until reload.
+  **Immersion impact:** Low-Medium. Contact darkening around the booth and truss disappears.
+  **Desktop impact:** Yes. **VR impact:** None.
+  **Performance impact:** Slightly cheaper desktop, which hides the bug.
+  **Recommended solution:** Reattach the desktop camera to the `ssao` pipeline in
+  `applyDesktopSettings()` (guarded and in `try/catch`), and find which call detaches it.
+  **Regression considerations:** Do not attach SSAO to the XR camera. Reattaching non-reusable
+  passes logs errors, so verify the console stays clean.
+  **Acceptance criteria:** `ssaoCameras` equals `["camera"]` after exit.
+  **Validation:** Remove `screenSpace.ssaoAttached` and `screenSpace.ssaoCameras` from
+  `KNOWN_DESKTOP_RESTORE_DRIFT` in `vr-parity.spec.mjs`; the spec must still pass.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [ ] **Desktop reflections get 50% stronger after a VR visit**
+
+  **Priority:** Low
+  **Category:** Bug
+  **Confidence:** High
+  **Area:** Scene environment settings
+  **Affected files:** `js/club/02-lifecycle.js`, `js/club/01-core.js`
+  **Evidence:** MEASURED. `init()` sets `environmentIntensity` to 0.4; `vrSettings.desktop`
+  says 0.6 and `applyDesktopSettings()` writes it on exit. The live value goes 0.4 to 0.6.
+  **Problem:** Two sources of truth for one value.
+  **User-visible effect:** The desktop look shifts after the first VR session.
+  **Immersion impact:** Low. **Desktop impact:** Yes. **VR impact:** None.
+  **Performance impact:** None.
+  **Recommended solution:** Decide the intended value, set it in one place, and have `init()`
+  read the config.
+  **Regression considerations:** Reflection brightness on the floor, truss and DJ gear.
+  **Acceptance criteria:** The value is identical before and after a VR visit.
+  **Validation:** Remove `environment.environmentIntensity` from `KNOWN_DESKTOP_RESTORE_DRIFT`.
+  **Estimated effort:** Small
+  **Product value:** Low
+  **Technical debt reduction:** Low
+
+- [ ] **The first trigger pull from the inactive hand does not click**
+
+  **Priority:** Medium
+  **Category:** UX
+  **Confidence:** High for the behaviour, Medium for how often users hit it
+  **Area:** VR pointer selection
+  **Affected files:** `js/club/02-lifecycle.js` (`createDefaultXRExperienceAsync` options)
+  **Evidence:** MEASURED. Opening the menu with the left Y button, then aiming the right
+  controller at a button and pulling its trigger, did not toggle it. The ray hit the right mesh.
+  Babylon's pointer selection routes clicks through one controller (`_attachedController`, the
+  left one here) unless `enablePointerSelectionOnAllControllers` is set; the other hand's first
+  pull only switches the pointer to it. The same select from the left hand worked.
+  **Problem:** Only one hand has a live laser, and nothing tells the user.
+  **User-visible effect:** A right-handed user opens the menu with the left hand, points with
+  the right and pulls the trigger once with no effect.
+  **Immersion impact:** Low. **Desktop impact:** None.
+  **VR impact:** Menu feels unresponsive on the first click.
+  **Performance impact:** One extra laser mesh.
+  **Recommended solution:** Set `enablePointerSelectionOnAllControllers: true`, and check it
+  against teleportation's `setSelectionFeature` hand-off.
+  **Regression considerations:** Teleport arcs, snap turn, and the Y/B menu binding.
+  **Acceptance criteria:** A single right-hand pull toggles a button without a prior left pull.
+  **Validation:** Extend the menu step in `vr-session.spec.mjs` to select with the inactive hand.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
+## Review — 2026-10-02 — Ultrahyperrealism pass
+
+Scope: source inspection of venue build, lighting ownership, spatial audio, crowd and
+embodiment, plus commands run on `e2c49ea`: `npm run check` (38 files), `npm test`
+(135/135), `npm run build`, `npm run check:sri`, `npm run audit:assets` (71.97 MiB,
+30 files) and `npx playwright test` (4/4). No physical Quest capture and no new
+frame-time measurement. Historical numbers in `docs/PERFORMANCE_BASELINE.md` are
+not re-measured here.
+
+Reconfirmed, not duplicated:
+
+- `createEntranceArea()`, `createDanceFloorLighting()` and `createBar()` are still
+  defined and still uncalled. `_buildVenue()` calls `createSafetyDetails()` only.
+- The looping-crowd, Quest baseline, contact-shadow, asset-weight and licensing
+  items remain the highest-value open work.
+- Music is still HRTF-spatialised from the two flown PA positions.
+
+Updated in place, not closed:
+
+- Remote guests: the first four now use `AvatarRig`; later guests and guests who
+  arrive before the crowd loads still fall back to a capsule. The 2026-09-18 item
+  stays open.
+- Local embodiment: `AvatarRig` now poses a body and, in VR, IK arms. Venue contact
+  and a physical control response are still absent, so the 2026-09-15 embodiment
+  item stays open.
+
+### New open items
+
+- [ ] **Neon wall signs are blank emissive rectangles**
+
+  **Priority:** Medium
+  **Category:** Rendering
+  **Confidence:** High
+  **Area:** Perimeter signage
+  **Affected files:** `js/club/04-environment.js`
+  **Evidence:** `createSafetyDetails()` stores `text: 'CLUB' | 'VR' | 'DANCE'` and then
+  never reads `sign.text`. Each sign is a double-sided `StandardMaterial` plane with
+  only an emissive colour. Exit faces use the shared exit-sign preset; these three do not.
+  **Problem:** The only perimeter "signage" cannot be read, and it bypasses the material factory.
+  **User-visible effect:** Eye-level coloured slabs with no lettering, tube geometry or glow falloff.
+  **Immersion impact:** Medium. At VR inspection distance they read as placeholders, not a club.
+  **Desktop impact:** Same, less close.
+  **VR impact:** High at the wall; the planes are large enough to read as missing text.
+  **Performance impact:** Negligible if replaced with one shared dynamic texture or a frozen atlas.
+  **Recommended solution:** Draw the existing strings into one shared dynamic texture, or a small
+  emissive atlas, and route the material through `MaterialFactory`. Do not add a light per sign.
+  **Regression considerations:** Keep the planes frozen, unpickable and inside the existing light budget.
+  **Acceptance criteria:** Each of the three signs shows its authored word at 2 m; no new light;
+  no per-frame texture update.
+  **Validation:** Desktop capture at the right wall, left wall and entrance; `npm test`.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
 ## Review — 2026-10-01 — Presence, photosafety and coherence
 
 Scope: source inspection of rendering, XR locomotion, spatial audio and crowd, plus
@@ -1534,6 +1729,10 @@ assessment remain current and are not duplicated here.
 
 - [ ] **Replace remote guest capsules with expressive low-cost avatars**
 
+  **Partial 2026-10-02.** `AvatarManager` now builds an `AvatarRig` for the first
+  `MAX_RIGS` (4) guests. Later guests, and anyone who arrives before the crowd
+  containers load, still render as a capsule and head. Acceptance criteria are not met.
+
   **Priority:** Medium
   **Category:** Crowd
   **Confidence:** High
@@ -1646,6 +1845,10 @@ pass, so findings that depend on them are not presented as confirmed visual defe
   **Immersion value:** High
 
 - [ ] **Add minimal player embodiment and physical venue response**
+
+  **Partial 2026-10-02.** The local guest now has an `AvatarRig` body, and VR arms
+  are IK'd to the controllers. Near interaction and hand tracking stay disabled.
+  Venue meshes still have no contact response, so the item stays open.
 
   **Priority:** High
   **Category:** Interaction

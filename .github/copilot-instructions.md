@@ -44,7 +44,18 @@ npm run build    # content-hashed production site under dist/
 npm run start:prod  # build + dependency-free dist server honouring $PORT
 npm run check    # node --check every JS file
 npm test         # contract test suite (test/contract.test.mjs)
+npm run test:e2e # Playwright: production build in Chromium, with a Quest 3 emulated by IWER
 ```
+
+The e2e suite needs no headset. `test/e2e/support.mjs` injects IWER (`iwer`, a WebXR runtime
+emulator) as a Quest 3 with two controllers; it also patches IWER 2.3.0's
+`getOffsetReferenceSpace()`, which stores the `XRRigidTransform` instead of its matrix and so
+ignores every origin offset (teleport, snap turn and `xrCamera.position` writes would silently
+do nothing). Drive input with IWER's ids (`thumbstick`, `trigger`, `y-button`), not the
+`xr-standard-*` ids Babylon uses. `test/e2e/vr-session.spec.mjs` covers spawn, tracking, ray
+select, snap turn and teleport; `test/e2e/vr-parity.spec.mjs` compares the desktop and VR
+render state and image at the same pose. The emulator renders mono at 1280x720 on SwiftShader:
+it proves behaviour, not headset frame time or stereo comfort.
 
 HTTPS is not needed locally; the Quest browser allows WebXR over `http://localhost` and
 over your LAN IP.
