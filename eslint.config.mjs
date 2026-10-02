@@ -92,6 +92,7 @@ const projectGlobals = {
     VRClub: 'readonly',
     NetworkClient: 'readonly',
     AvatarManager: 'readonly',
+    AvatarRig: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };

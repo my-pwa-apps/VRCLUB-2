@@ -80,8 +80,10 @@ Reconfirmed, not duplicated:
 
   **Resolved 2026-10-01.** Dancers and the DJ get a static collision box; remote capsules
   collide; the nearest dancer yaws away. The local guest has one extra body (not counted
-  in the tier headcount) planted on the floor or the booth riser, head concealed, yaw
-  taken from the camera quaternion without allocating. No Havok world and no desktop gravity.
+  in the tier headcount): first a dancer clone replaying a slowed dance, now an `AvatarRig`
+  (`js/avatarRig.js`) that walks, turns, crouches and reaches. No Havok world and no desktop
+  gravity. Still open: VR hand roll against real controllers; no finger curl; remote guests
+  do not yet send head pitch or hand poses, so they have a gait but relaxed arms.
 
   **Priority:** High
   **Category:** Crowd

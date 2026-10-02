@@ -626,7 +626,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {number} height                    real-world height in metres
      * @param {number} speedRatio                animation playback rate
      */
-    _spawnAvatar(container, name, position, facing, height, speedRatio, options) {
+    _spawnAvatar(container, name, position, facing, height, speedRatio) {
         // doNotInstantiate: these are skinned meshes, so each dancer needs its own
         // skeleton and animation group to move independently. cloneMaterials stays
         // false so the whole crowd still shares one set of materials and textures.
@@ -688,7 +688,6 @@ class VRClubAudioCrowd extends VRClubUI {
             if (span > 0) group.goToFrame(group.from + Math.random() * span);
         });
 
-        const local = !!(options && options.local);
         const npc = {
             name,
             root,
@@ -696,16 +695,10 @@ class VRClubAudioCrowd extends VRClubUI {
             animations: entry.animationGroups,
             baseSpeed: speedRatio,
             homeYaw: facing,
-            avoidYaw: 0,
-            footOffset: root.position.y - position.y,
-            local
+            avoidYaw: 0
         };
-        if (!local) npc.collider = this._attachOccupantCollider(root, name);
+        npc.collider = this._attachOccupantCollider(root, name);
         this.npcAvatars.push(npc);
-        if (local) {
-            this._localPlayerBody = npc;
-            this._concealLocalBodyHead(meshes);
-        }
 
         return entry;
     }
@@ -728,57 +721,103 @@ class VRClubAudioCrowd extends VRClubUI {
         return box;
     }
 
-    _concealLocalBodyHead(meshes) {
-        const pattern = /head|hair|eye|teeth|neck|skull|face|brow|ear|mask|superhero/i;
-        for (let i = 0; i < meshes.length; i++) {
-            if (pattern.test(meshes[i].name || '')) meshes[i].isVisible = false;
-        }
+    // ───────────────────────── the player's own body ─────────────────────────
+    //
+    // A guest is not a crowd NPC: there is no walk or reach clip to play, and they must
+    // move freely. AvatarRig poses the same dancer skeleton from where the player is and
+    // where they look (and, in VR, where their hands are), so the body walks, turns,
+    // crouches and reaches instead of replaying a dance.
+
+    /** 'female' or 'male': the two UE-skeleton dancer sources the rig can wear. */
+    getLocalAvatarStyle() {
+        try { return localStorage.getItem('vrclub.avatarStyle') === 'male' ? 'male' : 'female'; }
+        catch (_) { return 'female'; }
+    }
+
+    setLocalAvatarStyle(style) {
+        const next = style === 'male' ? 'male' : 'female';
+        try { localStorage.setItem('vrclub.avatarStyle', next); } catch (_) { /* private browsing */ }
+        if (this._localRig) { this._localRig.dispose(); this._localRig = null; }
+        this._spawnLocalPlayerBody();
+        return next;
+    }
+
+    _avatarContainerFor(style) {
+        const list = this._crowdSourceContainers;
+        if (!list) return null;
+        return (style === 'male' ? list[1] : list[0]) || list[0] || list[1] || null;
+    }
+
+    _playerCamera() {
+        return (this.isInVRMode && this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.camera)
+            || this.camera
+            || (this.scene && this.scene.activeCamera);
     }
 
     _spawnLocalPlayerBody() {
-        if (this._localPlayerBody || !this._availableCrowdSources || !this._availableCrowdSources.length) return;
-        const cam = this.camera;
+        if (this._localRig || typeof AvatarRig === 'undefined') return;
+        const container = this._avatarContainerFor(this.getLocalAvatarStyle());
+        if (!container) return;
+        const cam = this._playerCamera();
         const pos = cam ? (cam.globalPosition || cam.position) : null;
-        const eye = pos ? pos.y : 1.6;
-        const height = Math.min(1.9, Math.max(1.5, eye / 0.92));
-        this._spawnAvatar(
-            this._availableCrowdSources[0],
-            'localPlayer',
-            new BABYLON.Vector3(pos ? pos.x : 0, 0, pos ? pos.z : -8),
-            0,
-            height,
-            0.22,
-            { local: true }
-        );
+        // Desktop guests stand at the club's fixed eye height: the camera may not have been
+        // placed yet when the crowd finishes loading, and a stale height would make the body
+        // small and float it. In VR the measured head height is the player's own.
+        const eye = this.isInVRMode && pos && Number.isFinite(pos.y) ? Math.min(2.0, Math.max(1.2, pos.y)) : 1.7;
+        const rig = new AvatarRig(this, container, { eyeHeight: eye, hideHead: true });
+        this._localRig = rig.ok ? rig : null;
     }
 
-    _cameraYaw(cam) {
-        const q = cam.absoluteRotation || cam.rotationQuaternion;
-        if (q && q.w != null) {
-            // Yaw of the forward axis, so pitch and roll do not skew the body.
-            return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.x * q.x + q.y * q.y));
+    /** One controller's hand pose into a reusable object, or null when untracked. */
+    _handPose(side, head) {
+        const hand = side === 'left' ? (this._handL || (this._handL = {})) : (this._handR || (this._handR = {}));
+        const ctrls = this._xrControllers;
+        for (let i = 0; i < ctrls.length; i++) {
+            const c = ctrls[i];
+            if (!c || !c.inputSource || c.inputSource.handedness !== side) continue;
+            const grip = c.grip || c.pointer, aim = c.pointer || c.grip;
+            if (!grip || !aim) return null;
+            const p = grip.getAbsolutePosition();
+            // An untracked controller sits at the origin or far from the head; reaching
+            // for it would drag the arm across the room.
+            const dx = p.x - head.x, dy = p.y - head.y, dz = p.z - head.z;
+            if ((p.x === 0 && p.y === 0 && p.z === 0) || dx * dx + dy * dy + dz * dz > 2.25) return null;
+            const dir = this._handDir || (this._handDir = new BABYLON.Vector3());
+            hand.x = p.x; hand.y = p.y; hand.z = p.z;
+            aim.getDirectionToRef(BABYLON.Axis.Z, dir);
+            hand.fx = dir.x; hand.fy = dir.y; hand.fz = dir.z;
+            aim.getDirectionToRef(BABYLON.Axis.Y, dir);
+            hand.ux = dir.x; hand.uy = dir.y; hand.uz = dir.z;
+            return hand;
         }
-        return cam.rotation ? cam.rotation.y : 0;
+        return null;
     }
 
-    _updateLocalPlayerBody() {
-        const body = this._localPlayerBody;
-        if (!body || !body.root) return;
-        const cam = (this.isInVRMode && this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.camera)
-            || this.camera
-            || (this.scene && this.scene.activeCamera);
-        if (!cam) return;
-        const pos = cam.globalPosition || cam.position;
+    _updateLocalPlayerBody(dt) {
+        const rig = this._localRig;
+        if (!rig || !rig.ok) return;
+        const cam = this._playerCamera();
+        const pos = cam && (cam.globalPosition || cam.position);
         if (!pos) return;
-        const onBooth = pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5;
-        const yaw = this._cameraYaw(cam);
-        // Sit the torso slightly behind the eyes so the neck is not in the lens.
-        body.root.position.x = pos.x - Math.sin(yaw) * 0.1;
-        body.root.position.z = pos.z - Math.cos(yaw) * 0.1;
-        body.root.position.y = (onBooth ? 0.5 : 0) + (body.footOffset || 0);
-        body.root.rotation.y = yaw;
+        const pose = this._localPose || (this._localPose = {
+            x: 0, z: 0, groundY: 0, eyeY: 1.7, headYaw: 0, headPitch: 0, left: null, right: null
+        });
+        const dir = this._localDir || (this._localDir = new BABYLON.Vector3());
+        cam.getDirectionToRef(BABYLON.Axis.Z, dir);
+        pose.headYaw = Math.atan2(dir.x, dir.z);
+        pose.headPitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+        pose.x = pos.x; pose.z = pos.z; pose.eyeY = pos.y;
+        pose.groundY = (pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : 0;
+        if (this.isInVRMode) {
+            if (!this._rigInVR) { this._rigInVR = true; rig.setEyeHeight(Math.min(2.0, Math.max(1.0, pos.y - pose.groundY))); }
+            pose.left = this._handPose('left', pos);
+            pose.right = this._handPose('right', pos);
+        } else {
+            this._rigInVR = false;
+            pose.left = null; pose.right = null;
+        }
+        rig.update(dt, pose);
     }
-
     async createDancingNPCs() {
         // === CROWD + DJ ===
         // The crowd is built by loading each source file ONCE into an AssetContainer and then
@@ -965,7 +1004,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 const dz = rootPos.z - camPos.z;
                 const distSq = dx * dx + dz * dz;
 
-                if (!npc.local && npc.homeYaw != null) {
+                if (npc.homeYaw != null) {
                     if (distSq < 2.56) {
                         const step = dx >= 0 ? 0.08 : -0.08;
                         npc.avoidYaw = Math.max(-0.5, Math.min(0.5, (npc.avoidYaw || 0) + step));

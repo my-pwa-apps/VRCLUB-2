@@ -635,7 +635,7 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.npcAvatars && this.npcAvatars.length > 0) {
             this.updateDancingNPCs(time, audioData);
         }
-        if (typeof this._updateLocalPlayerBody === 'function') this._updateLocalPlayerBody();
+        if (typeof this._updateLocalPlayerBody === 'function') this._updateLocalPlayerBody(ctx.dt);
     }
 
     /** Mirror ball: rotation, fixture glow, outgoing rays and reflection spots. */

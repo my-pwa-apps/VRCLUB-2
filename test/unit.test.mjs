@@ -1693,6 +1693,93 @@ test('avatar materials preserve authored colors while enforcing opacity and dept
 // LED wall
 // ---------------------------------------------------------------------------
 
+test('underground sequence tells all six scenes on bar lines and never flickers', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/ledPatterns.js', { BABYLON });
+    const cols = 21, rows = 10, bpm = 128;
+    const panels = [];
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            panels.push({ col, row, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } });
+        }
+    }
+    const club = {
+        ledPanels: panels, ledCols: cols, ledRows: rows, ledMonochrome: false, bpm,
+        vjDirector: { beatNumber: 0 }, barPhase: 0, beatEnvelope: 0
+    };
+    Object.assign(club, window.LEDPatterns);
+    const colour = new BABYLON.Color3(0.2, 0.5, 1);
+    const audio = { hasAudio: true, bass: 0.7, mid: 0.4, treble: 0.3 };
+    const lum = p => (p.material.emissiveColor.r + p.material.emissiveColor.g + p.material.emissiveColor.b) / 3;
+
+    const fps = 60;
+    const loopSeconds = 38 * 4 * 60 / bpm;
+    const frames = Math.round((loopSeconds + 4) * fps);
+    const prev = new Float32Array(panels.length);
+    const rising = new Int32Array(panels.length);
+    let maxMeanStep = 0, lastMean = 0, worstRate = 0;
+    const sceneMeans = [];
+    for (let f = 0; f < frames; f++) {
+        const t = 100 + f / fps;                       // not zero: the clock must not assume it
+        const beats = (f / fps) * bpm / 60 + 4.5;      // the cue starts mid-bar
+        club.vjDirector.beatNumber = Math.floor(beats);
+        club.barPhase = ((Math.floor(beats) % 4) + (beats - Math.floor(beats))) / 4;
+        club.patternUndergroundSequence(colour, t, audio);
+
+        let mean = 0;
+        for (let i = 0; i < panels.length; i++) {
+            const v = lum(panels[i]);
+            assert.ok(Number.isFinite(v), `non-finite colour at frame ${f}`);
+            mean += v;
+            if (prev[i] < 0.5 && v >= 0.5) rising[i]++;
+            prev[i] = v;
+        }
+        mean /= panels.length;
+        if (f > 0) maxMeanStep = Math.max(maxMeanStep, Math.abs(mean - lastMean));
+        lastMean = mean;
+        // Rising edges per panel over each one-second window.
+        if (f % fps === fps - 1) {
+            for (let i = 0; i < panels.length; i++) { worstRate = Math.max(worstRate, rising[i]); rising[i] = 0; }
+            sceneMeans.push(mean);
+        }
+    }
+    assert.ok(worstRate <= 3, `a panel crossed half brightness ${worstRate}x in one second (flash limit is 3)`);
+    assert.ok(maxMeanStep < 0.06, `whole-wall brightness jumped ${maxMeanStep.toFixed(3)} in one frame`);
+
+    // The film restarts on DESCENT, so a look that gets the wall always sees its opening.
+    club.vjDirector.beatNumber = 400; club.barPhase = 0;
+    club.patternUndergroundSequence(colour, 900, audio);
+    assert.equal(club._ug.b0, 400, 'a new appearance must begin at the current bar line');
+
+    // All six scenes fire: probe the middle of each one directly.
+    const starts = [0, 8, 14, 20, 24, 30];
+    const seen = new Set();
+    for (let s = 0; s < starts.length; s++) {
+        club.vjDirector.beatNumber = 400 + (starts[s] + 2) * 4; club.barPhase = 0;
+        club.patternUndergroundSequence(colour, 900 + s * 10, audio);
+        club.vjDirector.beatNumber += 1; club.barPhase = 0.25;
+        for (let k = 0; k < 20; k++) club.patternUndergroundSequence(colour, 900 + s * 10 + k / 60, audio);
+        const print = panels.map(p => Math.round(lum(p) * 4)).join('');
+        seen.add(print);
+        assert.ok(panels.some(p => lum(p) > 0.05), `scene ${s} rendered a black wall`);
+    }
+    assert.equal(seen.size, 6, 'each scene must look different');
+
+    // A slow frame (or a headset hitch) must not restart the film; a wall that was
+    // handed to another pattern for a while must.
+    let frame = 1000;
+    club.scene = { getFrameId: () => frame };
+    club.vjDirector.beatNumber = 800; club.barPhase = 0;
+    club.patternUndergroundSequence(colour, 2000, audio);
+    const b0 = club._ug.b0;
+    club.vjDirector.beatNumber = 806; frame += 1;
+    club.patternUndergroundSequence(colour, 2003.5, audio);          // 3.5 s later, next frame
+    assert.equal(club._ug.b0, b0, 'a slow frame restarted the sequence');
+    club.vjDirector.beatNumber = 840; frame += 40;
+    club.patternUndergroundSequence(colour, 2010, audio);            // 40 frames skipped
+    assert.equal(club._ug.b0, 840, 'a skipped stretch must restart the sequence at a bar line');
+});
+
 test('every LED wall pattern runs without throwing', () => {
     // 37 pattern functions with zero coverage: a typo in any one of them threw into
     // the render loop's catch and silently blanked the club's flagship element.
@@ -2494,33 +2581,56 @@ test('clear-air test suppresses fog and particles despite smoke cues in both mod
     }
 });
 
-test('local player body is planted, follows camera yaw including pitch, and sits behind the eyes', () => {
-    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {} });
+test('the local body is posed from the camera, the DJ riser and the controllers', () => {
+    const BABYLON = {
+        Axis: { Z: 'Z', Y: 'Y' },
+        Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } }
+    };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { VRClubUI: class {}, BABYLON });
     const proto = window.VRClubAudioCrowd.prototype;
-    const yawQuat = (yaw, pitch) => {
-        // Babylon YXZ order: yaw about Y, then pitch about X.
-        const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2);
-        const cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);
-        return { w: cy * cp, x: cy * sp, y: sy * cp, z: -sy * sp };
+    // A camera looking 0.8 rad right of +Z and 0.5 rad up.
+    const yaw = 0.8, up = 0.5;
+    const forward = { x: Math.sin(yaw) * Math.cos(up), y: Math.sin(up), z: Math.cos(yaw) * Math.cos(up) };
+    const camera = {
+        position: { x: 2, y: 1.7, z: -9 },
+        getDirectionToRef(axis, out) { Object.assign(out, axis === 'Z' ? forward : { x: 0, y: 1, z: 0 }); }
     };
+    const calls = [];
     const club = {
-        isInVRMode: false,
-        _localPlayerBody: { root: { position: { x: 0, y: 0, z: 0 }, rotation: { y: 0 } }, footOffset: 0.01 },
-        camera: { position: { x: 2, y: 1.7, z: -9 }, absoluteRotation: yawQuat(0.8, 0.5) },
-        _cameraYaw: proto._cameraYaw
+        isInVRMode: false, camera, _xrControllers: [],
+        _localRig: { ok: true, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
+        _playerCamera: proto._playerCamera, _handPose: proto._handPose
     };
-    proto._updateLocalPlayerBody.call(club);
-    const root = club._localPlayerBody.root;
-    assert.ok(Math.abs(root.rotation.y - 0.8) < 1e-6, 'pitch skewed the body yaw');
-    assert.ok(Math.abs(root.position.x - (2 - Math.sin(0.8) * 0.1)) < 1e-6);
-    assert.ok(Math.abs(root.position.z - (-9 - Math.cos(0.8) * 0.1)) < 1e-6);
-    assert.equal(root.position.y, 0.01, 'feet must stay on the floor');
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    let pose = calls.at(-1)[2];
+    assert.ok(Math.abs(pose.headYaw - yaw) < 1e-9, 'yaw must come from the camera forward vector');
+    assert.ok(Math.abs(pose.headPitch - up) < 1e-9, 'a camera looking up must give a positive head pitch');
+    assert.equal(pose.groundY, 0);
+    assert.equal(pose.left, null, 'desktop has no hands');
 
-    club.camera.position = { x: 0, y: 2.2, z: -18 };
-    proto._updateLocalPlayerBody.call(club);
-    assert.equal(root.position.y, 0.51, 'on the DJ riser the body stands 0.5 m higher');
+    camera.position = { x: 0, y: 2.2, z: -18 };
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(calls.at(-1)[2].groundY, 0.5, 'on the DJ riser the feet stand 0.5 m higher');
+
+    // VR: eye height is refitted once on entry, hands come from the controllers, and an
+    // untracked controller (at the origin) is ignored rather than reached for.
+    const tracked = (handedness, x, y, z) => ({
+        inputSource: { handedness },
+        grip: { getAbsolutePosition: () => ({ x, y, z }) },
+        pointer: { getDirectionToRef(axis, out) { Object.assign(out, axis === 'Z' ? { x: 0, y: 0, z: 1 } : { x: 0, y: 1, z: 0 }); } }
+    });
+    club.isInVRMode = true;
+    club.vrHelper = { baseExperience: { camera } };
+    camera.globalPosition = { x: 0, y: 1.6, z: -12 };
+    club._xrControllers = [tracked('left', -0.3, 1.2, -11.7), tracked('right', 0, 0, 0)];
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.equal(calls.filter(c => c[0] === 'eye').length, 1, 'the body is refitted once per VR session');
+    pose = calls.at(-1)[2];
+    assert.equal(pose.left.x, -0.3);
+    assert.equal(pose.left.fz, 1);
+    assert.equal(pose.right, null, 'an untracked controller must not drag the arm to the origin');
 });
-
 test('beams light the smoke they cross and dust is only seen inside them', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const proto = window.VRClubAnimationCore.prototype;

@@ -4,11 +4,13 @@
  * session. Driven entirely by `NetworkClient` events wired up in ui-init.js;
  * this class never touches the network itself.
  *
- * Each remote guest gets a simple capsule + head (not the full skinned dancer
- * rig used for atmosphere NPCs - see js/club/11-audio-crowd.js - since real
- * players need low-latency, allocation-free updates every frame, not a dance
- * animation) plus a floating name tag and an emoji reaction bubble. Position
- * and facing are interpolated toward the last network sample rather than
+ * Each remote guest is a person, not a dance clip: an AvatarRig (js/avatarRig.js)
+ * poses the shared dancer skeleton from the interpolated position and facing, so they
+ * walk, turn and stand like the local player's body does. Rigs are skinned characters,
+ * so only the first MAX_RIGS guests get one; the rest, and any guest who arrives before
+ * the crowd has loaded, fall back to a capsule + head. The capsule always stays as an
+ * invisible collision body. A floating name tag and an emoji reaction bubble ride on
+ * top. Position and facing are interpolated toward the last network sample rather than
  * snapped, because state arrives far slower than the render loop.
  */
 class AvatarManager {
@@ -17,6 +19,7 @@ class AvatarManager {
     // Mirrors the Multiplayer panel's buttons and the relay's allow-list.
     static ALLOWED_EMOJI = new Set(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     static EMOJI_MIN_INTERVAL = 0.5; // seconds between reactions rendered per guest
+    static MAX_RIGS = 4;             // skinned bodies for remote guests (each is a skeleton + 4-8 draws)
 
     /** Shortest signed angle from `from` to `to`, in (-PI, PI]. */
     static shortestAngle(from, to) {
@@ -65,9 +68,15 @@ class AvatarManager {
         head.isPickable = false;
 
         const nameplate = this._createLabel(id, name, root);
+        const rig = this._createRig(id);
+        if (rig) {
+            body.isVisible = false;         // stays as the collision body
+            head.isVisible = false;
+        }
 
         peer = {
-            root, body, head, nameplate,
+            root, body, head, nameplate, rig,
+            pose: { x: 0, z: 0, groundY: 0, eyeY: AvatarManager.EYE_HEIGHT, headYaw: 0, headPitch: 0, left: null, right: null },
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             target: { x: root.position.x, y: root.position.y, z: root.position.z, rotY: 0 },
             hasState: false,
@@ -75,6 +84,22 @@ class AvatarManager {
         };
         this.remotes.set(id, peer);
         return peer;
+    }
+
+    /** A person for this guest, or null (rig limit reached, crowd not loaded yet, no AvatarRig). */
+    _createRig(id) {
+        const club = this.club;
+        if (typeof AvatarRig === 'undefined' || !club._crowdSourceContainers || !club._avatarContainerFor) return null;
+        let live = 0;
+        for (const peer of this.remotes.values()) if (peer.rig) live++;
+        if (live >= AvatarManager.MAX_RIGS) return null;
+        const key = String(id);
+        let hash = 0;
+        for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+        const container = club._avatarContainerFor(hash & 1 ? 'male' : 'female');
+        if (!container) return null;
+        const rig = new AvatarRig(club, container, { eyeHeight: AvatarManager.EYE_HEIGHT });
+        return rig.ok ? rig : null;
     }
 
     _createLabel(id, name, root) {
@@ -242,6 +267,7 @@ class AvatarManager {
         peer.nameplate.material.diffuseTexture.dispose();
         peer.nameplate.material.dispose();
         peer.nameplate.dispose();
+        if (peer.rig) peer.rig.dispose();
         peer.body.dispose();
         peer.head.dispose();
         peer.root.dispose();
@@ -265,6 +291,16 @@ class AvatarManager {
             // JavaScript's % keeps the dividend's sign, so the previous wrap left
             // differences below -PI unwrapped and avatars spun the long way round.
             root.rotation.y += AvatarManager.shortestAngle(root.rotation.y, peer.target.rotY) * lerpK;
+
+            if (peer.rig && peer.hasState) {
+                // The guest's feet are the root; their eye is EYE_HEIGHT above it.
+                const pose = peer.pose;
+                pose.x = root.position.x; pose.z = root.position.z;
+                pose.groundY = root.position.y;
+                pose.eyeY = root.position.y + AvatarManager.EYE_HEIGHT;
+                pose.headYaw = root.rotation.y;
+                peer.rig.update(dt, pose);
+            }
 
             if (peer.audio && peer.audio.panner) {
                 const p = peer.audio.panner;

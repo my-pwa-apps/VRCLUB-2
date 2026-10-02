@@ -608,6 +608,8 @@ class ShowDirector {
     //                     5 breathing · 6 shockwave · 7 pulse star · 8 radial
     //                     9 wave collide · 10 cellular · 11 tunnel · 12 kaleidoscope
     //                     13 DNA · 14 infinity · 15 plasma · 16 aurora · 17 rainbow
+    //                     18 underground sequence (38-bar film; restarts at DESCENT
+    //                     whenever a cue hands it the wall)
     //   ledMonochrome     true = wall renders the same shapes in black & white.
     //                     Set it EXPLICITLY on every look — looks only write the
     //                     keys they declare, so an omission silently inherits the
@@ -668,13 +670,14 @@ class ShowDirector {
             // II. PULSE — the groove. Sustained, hypnotic, never peaking.
             // ---------------------------------------------------------------
 
-            // The wall gets a solo: a slow wave with every aerial fixture dark.
-            // This makes its later return behind beams read as a deliberate layer.
+            // The wall gets a solo with every aerial fixture dark: the Underground
+            // Sequence (pattern 18), a 38-bar basement film that opens on DESCENT.
+            // This makes the wall's later return behind beams read as a deliberate layer.
             theWave: {
                 intensity: 0.82, punch: 0.22, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 0, ledWallSpeed: 0.8,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 18, ledWallSpeed: 0.8,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.55, 0.85],
                 goboEnabled: false, goboPatternIndex: 5, goboRotationSpeed: -0.35,
                 fogIntensity: 1.0

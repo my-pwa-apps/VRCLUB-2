@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`
-9. `js/networkClient.js`, then `js/avatarManager.js` — optional multiplayer (no instance until a guest connects)
+9. `js/avatarRig.js` (the procedural player body), then `js/networkClient.js` and `js/avatarManager.js` — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/ui-init.js` — instantiates `new VRClub()`
@@ -84,11 +84,54 @@ Key lifecycle members:
   `doNotHandleContextLost: true`).
 
 ### `js/ledPatterns.js`
-The LED wall's 18 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
+The LED wall's 19 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
 unreachable patterns were deleted, including a 15 Hz full-field strobe) plus `updateLEDPanel()` and the two stateful
 palette/shape helpers. It publishes `window.LEDPatterns`; `club_hyperrealistic.js` mixes
 that map into `VRClub.prototype` after defining the class, preserving the club instance
 as `this` without wrappers or call-site changes.
+
+`patternUndergroundSequence` (index 18, the `theWave` look) is a 38-bar, six-scene film
+(DESCENT, SIGNAL, CONCRETE, HAZARD, DATAFALL, SUB) clocked from `vjDirector.beatNumber` /
+`barPhase`, so scenes change on bar lines. Rules when editing it: every scene writes a shared
+"fresh" buffer and one persistence pass gives the phosphor trail; scenes dip through black
+rather than cut; nothing may flicker above 3 Hz per panel or step the whole field abruptly
+(`test/unit.test.mjs` simulates the full loop and enforces both); and the restart-at-DESCENT
+check keys off the scene frame counter, never wall-clock time, because a slow frame must not
+restart the film. New patterns are appended to the playlist: looks refer to them by index.
+
+### `js/avatarRig.js` — the player's body
+`AvatarRig` poses ONE person on the shared UE-mannequin dancer skeleton (`club-dancer-female`,
+`club-dancer-male`, `club-dj`; the three Mixamo sources are refused). Those GLBs carry only a
+dance or DJ-idle clip, so there is nothing to play for walking, turning or reaching: the rig
+poses the skeleton every frame from where the player is, where they look and (in VR) where
+their hands are. `VRClub._updateLocalPlayerBody()` builds the local pose from the camera and
+the XR controllers; `AvatarManager` builds remote guests' from the interpolated state.
+
+What it does: planted gait (stance feet slide back at exactly the player's speed, swing feet
+lift and step, two-bone IK to the ankles), hips that follow the eyes with a dead-zone and a
+turn-in-place, head/neck/spine sharing the remaining twist and pitch, arm swing against the
+legs, VR arms IK'd to the controllers with the hand taking the controller's orientation,
+crouch and flight from the same root-height maths, and the torso backing off as you look
+down (the body mesh is open at the neck).
+
+Rules when editing it:
+- **World-space rotations only.** Every pose step is "rotate this world vector onto that
+  one", converted to a local quaternion through the parent's world matrix. Never assume which
+  bone axis is forward, and never reintroduce per-bone Euler maths. Facing and which side is
+  "left" are measured from the skeleton at construction (`yaw0`, `yawDir`, `sideL`).
+- **It owns a world-matrix cache** (`W`, `pos`, `Lq`). Calling Babylon's `computeWorldMatrix`
+  per rotation cost ~3,400 calls and 5 ms a frame; the cache costs ~0.25 ms. Only the final
+  quaternions are written back to the nodes, once per frame.
+- **Share the crowd's materials.** Do not clone them: a cloned PBR material clones its
+  textures, which never become ready for an embedded GLB image, so the mesh silently never
+  draws (`Mesh.render` is still called, which is misleading). A per-guest tinted copy was
+  measured at 38 new shader effects and ~3 s of invisibility for three guests.
+- No per-frame allocation, and nothing in it may toggle a light or touch a material.
+- VR hands are written against the WebXR pointer pose (forward and up) and have only been
+  exercised with synthetic poses. Check them on a headset before trusting the roll.
+- `test/rig.test.mjs` runs the real Babylon and the real GLB headless (no stubs, because a
+  stub cannot tell a sliding foot from a planted one) and enforces planted feet, a real
+  stride, rigid limbs, head tracking, the turn dead-zone, crouch, reach and a 2 ms ceiling.
 
 ### `js/vjDirector.js`
 Beat/BPM detection (spectral flux + adaptive median threshold), master colour palette,
@@ -448,7 +491,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.lastStreamUrl`, `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.lastStreamUrl`, `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (on unless explicitly `0`).
 `setVRComfortMode()` owns locomotion through `_applyXRLocomotionMode()`. Babylon declares
@@ -503,6 +546,9 @@ Optional and opt-in: nothing connects until a guest clicks **Connect** in the Mu
   place and yaw interpolates along the shortest arc. Each remote voice is also attached to
   a muted `<audio>` element, because Chromium delivers no samples from a remote WebRTC
   stream into Web Audio otherwise. Emoji are allow-listed and rate-limited per guest.
+  The first `MAX_RIGS` (4) guests are people (`AvatarRig`, see below); later ones, and any
+  guest who arrives before the crowd has loaded, are a capsule + head. The capsule always
+  remains as the invisible collision body.
 - The host (first socket in the room) drives shared music. A guest's browser fetches the
   host's stream only after an explicit **Listen along** click, because that request
   discloses the guest's IP to an arbitrary server.

@@ -37,6 +37,7 @@ js/lightFactory.js         Shared Babylon light creation helpers
 js/vjDirector.js           Beat/BPM detection, colour palette and VJ macros
 js/showDirector.js         "NOCTURNE" — the composed, beat-locked cue engine
 js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
+js/avatarRig.js            Procedural player body on the dancer skeleton: planted gait, turning, head, IK arms and legs
 js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
 js/avatarManager.js        Remote-guest avatars, spatial voice and emoji bubbles driven by networkClient
 js/club/01-core.js         VRClub constructor, shared state, and device settings

@@ -97,6 +97,29 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **A real body for the player, and for other guests.** The local guest was a dancer clone
+  replaying a slowed dance, and remote guests were a capsule and a ball. Both are now people
+  on the same dancer skeleton, posed every frame by a new `AvatarRig` so you can move freely:
+  feet plant and step at your actual speed, the hips follow your eyes (and turn in place),
+  your head, neck and spine share the twist and pitch, arms swing against the legs, and
+  crouching and flying follow your eye height. In VR the arms are IK'd to your controllers
+  and the hands take their orientation. Looking down on desktop shows your chest, arms and
+  boots rather than the inside of the shoulders. `vrclub.avatarStyle` (`female`/`male`)
+  picks the body; `setLocalAvatarStyle()` switches it. Remote guests get the same body
+  (first four; later ones stay capsules). A new headless test runs the real skeleton and
+  fails on sliding feet, stretched limbs, a missing stride, or a rig slower than 2 ms/frame.
+- **Underground Sequence, a basement film for the LED wall.** A 38-bar, six-scene pattern
+  (index 18) replaces the rainbow spiral in the `theWave` look: DESCENT (a service tunnel
+  with lamps rushing past), SIGNAL (an oscilloscope on a CRT graticule), CONCRETE (brutalist
+  tiles igniting on the beat), HAZARD (warning chevrons behind a shutter), DATAFALL (terminal
+  columns) and SUB (a liquid-light surface carried by the bass). Scenes change on the director's
+  bar lines, dip through black, leave a phosphor trail, and restart at DESCENT whenever a cue
+  hands the wall over. Amber appears only in colour looks; monochrome looks stay monochrome. A
+  unit test simulates the whole loop and fails on any panel crossing half brightness more than
+  3 times a second or any abrupt whole-wall step.
+- **Smoke is lit by the beams it sits in (desktop).** Haze puffs and dust motes inside a
+  moving-head cone brighten and take its colour with a forward-scatter phase term; dust is
+  visible only in beams; beams read the density of the medium they cross.
 - **The laser sheet now fires from both truss projectors at once.** It previously emitted from
   only one side at a time (the look picked which), so the other projector hung dark. Every
   sheet look now sends a fan from each side: the right one mirrors the left's sweep and

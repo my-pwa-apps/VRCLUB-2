@@ -1,5 +1,17 @@
 'use strict';
 
+// Underground sequence: scene lengths in bars and the phosphor persistence (seconds)
+// each scene wants. Named here, not inline, so the playlist reads as a storyboard.
+const UNDERGROUND_SCENES = [
+    { bars: 8, tau: 0.10 },   // DESCENT  - POV down a service tunnel toward the club
+    { bars: 6, tau: 0.30 },   // SIGNAL   - oscilloscope trace on a CRT graticule
+    { bars: 6, tau: 0.80 },   // CONCRETE - brutalist tiles igniting on the beat
+    { bars: 4, tau: 0.12 },   // HAZARD   - converging warning chevrons behind a shutter
+    { bars: 6, tau: 0.35 },   // DATAFALL - terminal columns dripping down the wall
+    { bars: 8, tau: 0.45 }    // SUB      - a slow liquid-light surface carried by the bass
+];
+const UNDERGROUND_TOTAL_BARS = 38;
+
 class LEDPatternMethods {
     /**
      * Helper method to update LED panel emissive colors
@@ -827,6 +839,284 @@ class LEDPatternMethods {
             );
 
             this.updateLEDPanel(panel, panel._cellularColor, brightness);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // UNDERGROUND SEQUENCE
+    //
+    // A 38-bar "film" for a basement club rather than a screensaver: restrained,
+    // industrial, mostly dark, and told in scenes that change on real bar lines
+    // (VJDirector's beat grid) instead of a wall-clock timer. It always opens on
+    // DESCENT when the cue begins, so a look that holds the wall gets the whole arc.
+    //
+    // Design rules, all deliberate:
+    //  - Every scene writes into a shared "fresh" buffer; a single persistence pass
+    //    then gives the wall a phosphor tail. Light fades, it does not cut.
+    //  - Scenes dip through black over ~0.3 bar. Nothing flashes; the biggest lit
+    //    area at any instant is a few tiles, a chevron field or a trace.
+    //  - Palette is the show colour plus one hot accent. Amber (sodium/warning) is
+    //    used only where it carries meaning (tunnel lamps, hazard) and only when the
+    //    look is in colour; monochrome looks stay monochrome.
+    //  - 210 panels, no allocation after the first call.
+    // ──────────────────────────────────────────────────────────────────────
+    _ugHash(n) {
+        const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+        return s - Math.floor(s);
+    }
+
+    _ugSmooth(x) {
+        return x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+    }
+
+    patternUndergroundSequence(color, time, audioData) {
+        const panels = this.ledPanels;
+        if (!panels || panels.length === 0) return;
+        const cols = this.ledCols || 21;
+        const rows = this.ledRows || 10;
+        const cells = cols * rows;
+        const hasAudio = !!(audioData && audioData.hasAudio);
+        const bass = hasAudio ? (audioData.bass || 0) : 0;
+        const mid = hasAudio ? (audioData.mid || 0) : 0;
+        const treble = hasAudio ? (audioData.treble || 0) : 0;
+
+        let ug = this._ug;
+        if (!ug || ug.cells !== cells) {
+            const modCols = Math.ceil(cols / 3);
+            const modRows = Math.ceil(rows / 2);
+            ug = this._ug = {
+                cells, modCols, modRows,
+                level: new Float32Array(cells),
+                warm: new Float32Array(cells),
+                fresh: new Float32Array(cells),
+                freshWarm: new Float32Array(cells),
+                trace: new Float32Array(cols),
+                traceLo: new Float32Array(cols),
+                traceHi: new Float32Array(cols),
+                mod: new Float32Array(modCols * modRows),
+                traceAcc: 0, sub: 0.2, lastT: -1e9, lastFrame: -1e9, b0: 0,
+                scratch: new BABYLON.Color3(),
+                accent: new BABYLON.Color3(),
+                amber: new BABYLON.Color3(1, 0.52, 0.1)
+            };
+        }
+
+        // --- Music clock: the director's beat grid, else the BPM estimate --------
+        const bpm = this.bpm || 130;
+        const beatLen = 60 / bpm;
+        const vj = this.vjDirector;
+        const beats = (vj && Number.isFinite(vj.beatNumber))
+            ? vj.beatNumber + (this.barPhase || 0) * 4 - Math.floor((this.barPhase || 0) * 4)
+            : time / beatLen;
+        const dtRaw = time - ug.lastT;
+        // "Another pattern had the wall" is detected from the frame counter skipping,
+        // not from elapsed time: a slow frame or a headset hitch must not restart the film.
+        const frameId = (this.scene && typeof this.scene.getFrameId === 'function') ? this.scene.getFrameId() : null;
+        const wasAway = frameId !== null ? (frameId - ug.lastFrame > 3) : dtRaw > 0.5;
+        if (wasAway || beats < ug.b0) {
+            // First frame, or another pattern held the wall: start again at a bar line.
+            ug.b0 = Math.floor(beats / 4) * 4;
+            ug.level.fill(0); ug.warm.fill(0); ug.trace.fill(0);
+            ug.traceAcc = 0;
+        }
+        if (frameId !== null) ug.lastFrame = frameId;
+        const dt = Math.min(0.1, Math.max(0, dtRaw));
+        ug.lastT = time;
+
+        // --- Which scene, and how far into it ---------------------------------------
+        const loopBars = ((((beats - ug.b0) / 4) % UNDERGROUND_TOTAL_BARS) + UNDERGROUND_TOTAL_BARS) % UNDERGROUND_TOTAL_BARS;
+        let scene = 0, start = 0;
+        while (scene < UNDERGROUND_SCENES.length - 1 && loopBars >= start + UNDERGROUND_SCENES[scene].bars) {
+            start += UNDERGROUND_SCENES[scene].bars;
+            scene++;
+        }
+        const sceneBars = UNDERGROUND_SCENES[scene].bars;
+        const local = loopBars - start;                       // bars into the scene
+        const env = this._ugSmooth(local / 0.3) * this._ugSmooth((sceneBars - local) / 0.3);
+
+        const fresh = ug.fresh, fw = ug.freshWarm;
+        fresh.fill(0); fw.fill(0);
+        const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
+
+        if (scene === 0) {
+            // DESCENT. A rectangular service tunnel; depth is 1/max(|x|,|y|) so lamps
+            // bunch toward the vanishing point exactly like a real perspective.
+            const travel = time * (1.5 + bass * 1.3);
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const idx = panel.row * cols + panel.col;
+                const x = (panel.col - cx) / cx;
+                const y = (panel.row - cy) / cy;
+                const ax = Math.abs(x) * 0.62, ay = Math.abs(y);
+                const m = Math.max(ax, ay, 0.07);
+                const ph = (1 / m) * 0.85 - travel;
+                const f = ph - Math.floor(ph);
+                const lamp = f < 0.2 ? 1 - f / 0.2 : 0;
+                const near = Math.min(1, m * 1.25);        // far end of the tunnel is dark
+                let v = 0, w = 0;
+                if (ay >= ax) {
+                    if (y > 0) { v = lamp * (0.3 + 0.7 * near); w = 1; }              // ceiling strips
+                    else if (Math.abs(x) < 0.14) {                                    // floor centre line
+                        const d = (ph * 2) - Math.floor(ph * 2);
+                        v = d < 0.5 ? 0.3 * near : 0; w = 1;
+                    } else { v = lamp * 0.14 * near; w = 1; }                          // wet-floor reflection
+                } else {
+                    v = (((Math.floor(ph) & 1) === 0) ? lamp * 0.5 : 0) * near + 0.04 * near;  // wall sconces
+                    w = 1;
+                }
+                // The club, a long way ahead: a soft glow that leans on the bass.
+                const g = Math.exp(-(x * x * 0.9 + y * y * 2.2) * 9) * (0.26 + bass * 0.5);
+                if (g > v) { v = g; w = 0; }
+                fresh[idx] = v; fw[idx] = w;
+            }
+        } else if (scene === 1) {
+            // SIGNAL. Samples enter on the right and scroll left like a scope; the
+            // graticule is barely there, the newest columns run hot.
+            ug.traceAcc += dt * 16;
+            while (ug.traceAcc >= 1) {
+                ug.traceAcc -= 1;
+                const tr = ug.trace;
+                for (let c = 0; c < cols - 1; c++) tr[c] = tr[c + 1];
+                const jitter = (this._ugHash(Math.floor(time * 30)) - 0.5) * 0.06;
+                // Slow components only: a trace sweeping a panel faster than ~3 Hz
+                // reads as a flash, and a photosensitive guest cannot opt out of it
+                // by looking away from a 21 m wall.
+                const s = hasAudio
+                    ? (0.12 + bass * 0.95) * Math.sin(time * 6.0) + mid * 0.4 * Math.sin(time * 10.0 + 1.7) + treble * 0.25 * Math.sin(time * 15.0)
+                    : 0.35 * Math.sin(time * 2.3) + 0.15 * Math.sin(time * 5.9);
+                tr[cols - 1] = Math.max(-1, Math.min(1, s + jitter));
+            }
+            for (let c = 0; c < cols; c++) {
+                const a = ug.trace[c], b = ug.trace[c > 0 ? c - 1 : 0];
+                ug.traceLo[c] = (Math.min(a, b) + 1) * 0.5 * (rows - 1);
+                ug.traceHi[c] = (Math.max(a, b) + 1) * 0.5 * (rows - 1);
+            }
+            const midRow = Math.round(cy);
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const idx = panel.row * cols + panel.col;
+                const lo = ug.traceLo[panel.col], hi = ug.traceHi[panel.col];
+                const d = panel.row < lo ? lo - panel.row : (panel.row > hi ? panel.row - hi : 0);
+                let v = Math.max(0, 1 - d * 1.1);
+                if (panel.row === midRow) v = Math.max(v, 0.12);
+                else if (panel.col % 3 === 1) v = Math.max(v, 0.05);
+                fresh[idx] = v;
+                fw[idx] = this._ugSmooth((panel.col - (cols - 5)) / 4);
+            }
+        } else if (scene === 2) {
+            // CONCRETE. 3x2-cell tiles; each beat ignites three of them, chosen by a
+            // hash of the beat number so the same bar never repeats a pattern exactly.
+            const mod = ug.mod;
+            mod.fill(0);
+            const beatIdx = Math.floor(beats);
+            for (let b = beatIdx; b >= beatIdx - 1; b--) {
+                const age = (beats - b) * beatLen;
+                if (age > beatLen * 0.5) continue;
+                const lvl = age < 0.12 ? age / 0.12 : 1;
+                for (let k = 0; k < 3; k++) {
+                    const mi = Math.floor(this._ugHash(b * 7.31 + k * 13.7 + 0.5) * mod.length);
+                    if (lvl > mod[mi]) mod[mi] = lvl;
+                }
+            }
+            const subTile = Math.floor(ug.modCols / 2);     // the bass slab, bottom centre
+            mod[subTile] = Math.max(mod[subTile], bass * 0.9);
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const idx = panel.row * cols + panel.col;
+                const mi = Math.floor(panel.col / 3) + Math.floor(panel.row / 2) * ug.modCols;
+                const inC = panel.col % 3, inR = panel.row % 2;
+                const shade = (inC === 1 ? 1 : 0.72) * (inR === 1 ? 1 : 0.84);
+                fresh[idx] = Math.max(mod[mi] * shade, 0.025);
+                fw[idx] = (inC === 1 && inR === 1) ? 1 : 0;
+            }
+        } else if (scene === 3) {
+            // HAZARD. Chevrons march toward the centre line one cell per beat behind a
+            // shutter that opens, holds and closes; the shutter edges stay lit.
+            const open = this._ugSmooth(local / 1.2) * this._ugSmooth((sceneBars - local) / 1.2);
+            const half = 0.12 + 0.9 * open;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const idx = panel.row * cols + panel.col;
+                const y = Math.abs((panel.row - cy) / cy);
+                // Feathered shutter: a row fades in over ~one row height instead of
+                // popping on the frame its centre crosses the edge.
+                const inside = this._ugSmooth((half - y) / 0.25 + 0.1);
+                const edge = Math.max(0, 1 - Math.abs(y - (half + 0.08)) / 0.2) * 0.55;
+                let v = 0;
+                if (inside > 0) {
+                    const u = (Math.abs(panel.col - cx) + panel.row) * 0.25 - beats * 0.25;
+                    const band = 0.5 + 0.5 * Math.sin(u * 6.2831853);
+                    v = Math.max(0, Math.min(1, (band - 0.45) * 4)) * (0.8 + bass * 0.2) * inside;
+                }
+                v = Math.max(v, edge);
+                fresh[idx] = v; fw[idx] = 1;
+            }
+        } else if (scene === 4) {
+            // DATAFALL. Per-column drops with a long tail and a hot head; roughly a
+            // third of the columns are dormant so it reads as a terminal, not rain.
+            const fall = 1 + bass * 0.5;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const c = panel.col;
+                if (this._ugHash(c * 3.1) < 0.33) continue;
+                const speed = (2.0 + this._ugHash(c + 7.7) * 3.2) * (bpm / 130) * fall;
+                const tail = 4 + this._ugHash(c + 41.3) * 4;
+                const period = rows + tail + 2;
+                const head = ((time * speed + this._ugHash(c + 99.9) * period * 2) % period) - 1;
+                const k = head - (rows - 1 - panel.row);       // rows behind the head
+                if (k < 0 || k > tail) continue;
+                const idx = panel.row * cols + c;
+                const t = 1 - k / tail;
+                fresh[idx] = t * t * (k < 1 ? 1 : 0.8);
+                fw[idx] = k < 1 ? 1 : 0;
+            }
+        } else {
+            // SUB. One slow surface that rises with the low end like a cone settling;
+            // scanlines keep it a screen, and the surface line is the only hot part.
+            const target = hasAudio ? bass : 0.3 + 0.3 * (this.beatEnvelope || 0);
+            ug.sub += (target - ug.sub) * (1 - Math.exp(-dt * (target > ug.sub ? 14 : 3)));
+            const base = 1.6 + ug.sub * 5.2;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const idx = panel.row * cols + panel.col;
+                const hgt = base + 0.55 * Math.sin(time * 0.9 + panel.col * 0.35) + 0.4 * Math.sin(time * 0.55 - panel.col * 0.18);
+                const depth = hgt - panel.row;
+                const line = Math.max(0, 1 - Math.abs(depth) * 1.1);
+                const fill = depth > 0 ? (0.14 + 0.3 * Math.min(1, depth / Math.max(1, hgt))) : 0;
+                const scan = (panel.row & 1) ? 1 : 0.78;
+                fresh[idx] = Math.max(fill * scan, line);
+                fw[idx] = line > fill ? line : 0;
+            }
+        }
+
+        // --- Persistence, then one write per panel ---------------------------------
+        const decay = Math.exp(-dt / UNDERGROUND_SCENES[scene].tau);
+        const level = ug.level, warm = ug.warm;
+        for (let i = 0; i < cells; i++) {
+            const f = fresh[i] * env;
+            const held = level[i] * decay;
+            if (f >= held) { level[i] = f; warm[i] = fw[i]; } else { level[i] = held; }
+        }
+
+        // Accent: amber only where it means something and only in a colour look.
+        const accent = ug.accent;
+        const amber = !this.ledMonochrome && (scene === 0 || scene === 3);
+        if (amber) accent.copyFrom(ug.amber);
+        else accent.set(color.r + (1 - color.r) * 0.65, color.g + (1 - color.g) * 0.65, color.b + (1 - color.b) * 0.65);
+
+        const out = ug.scratch;
+        for (let p = 0; p < panels.length; p++) {
+            const panel = panels[p];
+            const idx = panel.row * cols + panel.col;
+            const v = level[idx];
+            if (v < 0.02) { this.updateLEDPanel(panel, color, 0); continue; }
+            const w = warm[idx];
+            out.set(
+                color.r + (accent.r - color.r) * w,
+                color.g + (accent.g - color.g) * w,
+                color.b + (accent.b - color.b) * w
+            );
+            this.updateLEDPanel(panel, out, Math.min(1, v) * (1.1 - 0.1 * v));
         }
     }
 

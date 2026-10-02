@@ -310,7 +310,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             this.patternInfinityLoop,       // Flowing infinity symbol
             this.patternPlasma,             // Organic plasma flow
             this.patternAurora,             // Northern lights effect
-            this.patternRainbowRave         // Full spectrum rave
+            this.patternRainbowRave,        // Full spectrum rave
+            this.patternUndergroundSequence // [18] Basement film: tunnel, scope, tiles, hazard, data, sub
         ]);
         
         // Palette. In monochrome looks the patterns are handed neutral whites so
