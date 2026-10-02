@@ -27,6 +27,13 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The laser sheets no longer streak across the room, and hang lower.** Each sheet plane turned only
+  ~2 deg/s, but the bright line where the two planes cross ran at a median 1.6 m/s and up to 7.5 m/s,
+  and sat 3-5 m above the dance floor. The two projectors now aim further inward with a smaller
+  phase offset and a lower pitch, so the crossing drifts at ~0.4 m/s (under 1 m/s at worst) and
+  stays 2.0-3.6 m up, just over the crowd. The laser speed slider is capped for the sheets so it
+  cannot undo that. A new test measures the crossing on the real geometry for every sheet look.
+
 - The beat grid no longer stops in a kick-less passage: after 1.5 beats without a kick the
   tracker keeps counting at the tracked BPM, so cues no longer freeze mid-phrase during
   breakdowns. Real kicks are counted separately.
@@ -96,6 +103,15 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - The audio panel reports offline/online transitions; the README documents offline use.
 
 ### Added
+
+- **The LED wall is now lit through most of the show, as an accompaniment.** It was dark for 76% of the
+  show's bars (on for only 24%), so the beams, lasers and sheets played against a black back wall. It is
+  now on for about 69%: `firstLight`, `sideways`, `crossfire`, `laserStorm`, `driftAway` and the three
+  laser-sheet looks keep a lit wall at a reduced `ledLevel` (0.75 to 0.85), in a colour that complements
+  the rig where there is one (teal against red heads). A dimmed wall eases in from dark rather than
+  popping on under a beam cue. It stays dark only for the deliberate solos: the mirror ball, the strobe
+  looks, the laser-sheet solo `liquidPlane`, `beamsOnly`, the comedown and blackout. A test fails if the
+  wall's share of the show falls below 60% or a new look goes dark without being listed as a solo.
 
 - **Warehouse shapes: the LED wall as a flashing, moving club screen.** Eight beat-cut programs - bars,
   blocks, rings, slats, diamonds, a scan, a checker and a radar - chosen on bar lines from the music's

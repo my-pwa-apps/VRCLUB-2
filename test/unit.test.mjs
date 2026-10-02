@@ -1220,6 +1220,105 @@ test('no look writes a ShowDirector meta key onto the club instance', () => {
     }
 });
 
+test('the LED wall is lit for most of the show, and only the deliberate solos go dark', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const looks = window.ShowDirector._buildLooks();
+    const movements = window.ShowDirector._buildMovements();
+
+    // A dark wall is a composition tool for SOLO cues. These are the only looks allowed to keep
+    // it off, each for a stated reason; a new look that goes dark has to be added here on purpose.
+    const darkOnPurpose = {
+        deepBlue: 'negative space: the mirror ball alone',
+        eclipse: 'the mirror ball alone',
+        theVoid: 'near-total collapse of the comedown',
+        bdFall: 'the floor drops out of the breakdown',
+        silence: 'blackout',
+        liquidPlane: 'the laser sheet solo (pinned by the e2e exclusivity check)',
+        beamsOnly: 'pure volumetric geometry; sets up the hit that follows',
+        whiteChase: 'strobe-only: nothing else may add flash area',
+        strobeHeartbeat: 'strobe-only',
+        strobeFloor: 'strobe-only',
+        strobeOffbeat: 'strobe-only'
+    };
+    for (const [name, look] of Object.entries(looks)) {
+        if (!look.ledWallActive) assert.ok(name in darkOnPurpose, `look "${name}" goes dark without being a deliberate solo`);
+        if (look.ledLevel !== undefined) assert.ok(look.ledLevel >= 0 && look.ledLevel <= 1, `${name}: ledLevel is not 0..1`);
+    }
+    // Every look that DOES light the wall as an accompaniment declares its pattern, because a
+    // look that omits it inherits whatever the previous cue left running.
+    for (const [name, look] of Object.entries(looks)) {
+        if (look.ledWallActive && look.ledLevel !== undefined && look.ledLevel < 1) {
+            assert.ok(Number.isInteger(look.ledPattern), `${name}: a dimmed wall must name its pattern`);
+        }
+        // Strobe-only solos must never gain a wall: it would add flash area to the strobes.
+        if (look.strobeSync && !look.lightsActive && !look.lasersActive) {
+            assert.ok(!look.ledWallActive || look.ledLevel !== undefined, `${name}: a strobe look lit the wall at full strength`);
+        }
+    }
+
+    let on = 0, total = 0;
+    for (const [name, movement] of Object.entries(movements)) {
+        let movementOn = 0, movementTotal = 0;
+        for (const cue of movement.cues) {
+            movementTotal += cue.bars;
+            if (looks[cue.look].ledWallActive) movementOn += cue.bars;
+        }
+        on += movementOn; total += movementTotal;
+        assert.ok(movementOn / movementTotal >= 0.4,
+            `${name}: the wall is lit for only ${(100 * movementOn / movementTotal).toFixed(0)}% of the movement`);
+    }
+    assert.ok(on / total >= 0.6, `the wall is lit for only ${(100 * on / total).toFixed(0)}% of the show (was 24%)`);
+});
+
+test('a dimmed wall is an accompaniment: it scales every pattern, eases in, and resets per look', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} });
+    const apply = window.VRClubAnimationFinish.prototype._applyLedLevel;
+    const panels = Array.from({ length: 6 }, () => ({
+        colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3(1, 0.5, 0.25) }
+    }));
+    const club = { ledPanels: panels, ledWallLevel: 0.3 };
+    const paint = () => panels.forEach(p => { p.material.emissiveColor = p.colorBuffer; p.colorBuffer.set(1, 0.5, 0.25); });
+    const brightness = () => panels[0].material.emissiveColor.r;
+
+    // First lit frame of a dimmed look: dark, not a pop. It then eases to the target level.
+    paint(); apply.call(club, 10);
+    assert.ok(brightness() < 0.02, 'a dimmed wall must not pop on');
+    let t = 10;
+    for (let i = 0; i < 60; i++) { t += 1 / 60; paint(); apply.call(club, t); }
+    assert.ok(brightness() > 0.2 && brightness() <= 0.3 + 1e-9, `after a second the wall should be near 0.3, got ${brightness().toFixed(3)}`);
+    for (let i = 0; i < 240; i++) { t += 1 / 60; paint(); apply.call(club, t); }
+    assert.ok(Math.abs(brightness() - 0.3) < 0.01, 'the dimmed wall must settle at its level');
+    assert.ok(Math.abs(panels[0].material.emissiveColor.g - 0.15) < 0.01, 'dimming must scale every channel, keeping the colour');
+
+    // The wall switching off and back on (the pass is not called while it is dark) restarts the ease.
+    t += 5; paint(); apply.call(club, t);
+    assert.ok(brightness() < 0.02, 'a re-lit dimmed wall must fade in again');
+
+    // A full-strength look is exactly as it was: no ease, no scaling, instantly at 1.
+    club.ledWallLevel = 1;
+    t += 0.1; paint(); apply.call(club, t);
+    assert.equal(brightness(), 1, 'a full-strength wall must be untouched');
+    // Going from full strength to a dimmed look EASES down to the level; it does not drop to black.
+    club.ledWallLevel = 0.5;
+    t += 0.016; paint(); apply.call(club, t);
+    assert.ok(brightness() > 0.8 && brightness() < 1, 'a dimmed look after a full-strength one must ease down, not pop');
+    for (let i = 0; i < 300; i++) { t += 1 / 60; paint(); apply.call(club, t); }
+    assert.ok(Math.abs(brightness() - 0.5) < 0.01, 'and settle at its own level');
+});
+
+test('the Show Director resolves ledLevel per look and never leaks the dimmed level', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const club = { vjManualMode: false, photosensitiveSafeMode: false, vjDirector: { paletteMode: 'analogous', setLedHarmony() {}, unlockHue() {} } };
+    const director = new window.ShowDirector(club);
+    director._applyLook(director.looks.sideways);
+    assert.equal(club.ledWallLevel, director.looks.sideways.ledLevel, 'a dimmed look must set the wall level');
+    assert.ok(club.ledWallLevel < 1, 'sideways must be a dimmed accompaniment');
+    director._applyLook(director.looks.theClimb);
+    assert.equal(club.ledWallLevel, 1, 'a look that omits ledLevel must be full strength, not inherit the last dim');
+    assert.equal('ledLevel' in club, false, 'the look key must not be written onto the club');
+});
+
 test('photosensitive safe mode force-clears strobes in every look', () => {
     const { window } = loadClassic('js/showDirector.js');
     const club = {
@@ -1267,9 +1366,14 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
         'lightsActive', 'lasersActive', 'laserSheetActive',
         'strobesActive', 'mirrorBallActive', 'ledWallActive'
     ];
+    // A wall run below full strength (<= 0.85) is an ACCOMPANIMENT (lit and moving, but quiet enough
+    // that the beams stay the subject), not a second headline. This is what lets the wall be on
+    // under a single-subject look without breaking the one-idea-at-a-time rule.
+    const isHeadline = (look, key) => look[key] === true &&
+        !(key === 'ledWallActive' && look.ledLevel !== undefined && look.ledLevel <= 0.85);
 
     for (const [name, expected] of Object.entries(expectedSolo)) {
-        const active = headlineSystems.filter(key => director.looks[name][key] === true);
+        const active = headlineSystems.filter(key => isHeadline(director.looks[name], key));
         assert.deepEqual(active, [expected], `look "${name}" is not an exclusive ${expected} moment`);
     }
 
@@ -1280,7 +1384,7 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
     for (const [name, movement] of Object.entries(director.movements)) {
         for (const cue of movement.cues) {
             const look = director.looks[cue.look];
-            const activeCount = headlineSystems.filter(key => look[key] === true).length;
+            const activeCount = headlineSystems.filter(key => isHeadline(look, key)).length;
             totalBars += cue.bars;
             if (activeCount <= 1) soloBars += cue.bars;
             if (look.mirrorBallActive) assert.equal(activeCount, 1, `${cue.look} crowds out the mirror ball`);
@@ -1333,7 +1437,8 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
         currentColorIndex: 1, currentSpotColor: new BABYLON.Color3(0, 1, 0),
         _laserSheetMounts: { ceilingLeft: makeMount(-6), ceilingRight: makeMount(6) },
         laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
-        laserSpeed: 1, kickPulse: 0
+        laserSpeed: 1, kickPulse: 0,
+        _poseLaserSheet: core.window.VRClubAnimationCore.prototype._poseLaserSheet
     });
     club.laserSheetSource = club._laserSheetMounts.ceilingLeft.housing;
     club.laserAperture = club._laserSheetMounts.ceilingLeft.aperture;
@@ -3157,7 +3262,8 @@ test('laser sheet uses bounded two-axis motion for vertical and lateral cues', (
             red: new BABYLON.Color3(1, 0, 0),
             green: new BABYLON.Color3(0, 1, 0),
             blue: new BABYLON.Color3(0, 0, 1)
-        }
+        },
+        _poseLaserSheet: window.VRClubAnimationCore.prototype._poseLaserSheet
     };
     const update = time => window.VRClubAnimationCore.prototype.updateLaserSheet.call(club, {
         time,

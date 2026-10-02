@@ -450,7 +450,37 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 panel.material.emissiveColor = m;
             }
         }
+        this._applyLedLevel(time);
     }
 
+    /**
+     * ACCOMPANIMENT LEVEL. A look can run the wall quietly (ledWallLevel < 1) so it complements
+     * the beams without taking the room. A final pass, so it holds for every pattern, including
+     * the ones that write their own colours. A dimmed wall eases in from dark when it is first lit
+     * (it must not pop on under a beam cue); a full-strength wall is exactly as it always was,
+     * because the hits depend on it landing at once.
+     */
+    _applyLedLevel(time) {
+        const target = this.ledWallLevel == null ? 1 : this.ledWallLevel;
+        if (target >= 0.999) {
+            this._ledFade = 1;
+        } else {
+            const relit = this._ledFadeT === undefined || time - this._ledFadeT > 0.25;
+            if (relit) this._ledFade = 0;
+            const dtFade = relit ? 0 : Math.min(0.1, Math.max(0, time - this._ledFadeT));
+            this._ledFade += (target - this._ledFade) * (1 - Math.exp(-dtFade * 2.5));
+        }
+        this._ledFadeT = time;
+        const level = this._ledFade;
+        if (level < 0.999) {
+            for (let i = 0; i < this.ledPanels.length; i++) {
+                const panel = this.ledPanels[i];
+                const c = panel.material.emissiveColor;
+                const m = panel.colorBuffer;
+                m.r = c.r * level; m.g = c.g * level; m.b = c.b * level;
+                panel.material.emissiveColor = m;
+            }
+        }
+    }
 }
 window.VRClubAnimationFinish = VRClubAnimationFinish;

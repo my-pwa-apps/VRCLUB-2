@@ -526,6 +526,37 @@ class VRClubAnimationCore extends VRClubEffects {
         }
     }
 
+    /**
+     * Aim the lead projector, and the follower when both fire. Pure pose maths (no
+     * materials, no scene), so it can be measured on the real geometry.
+     */
+    _poseLaserSheet(time) {
+        if (!this.laserSheetSource) return;
+        // The laser speed slider scales the sweep, capped: above ~1.4 the crossing of the
+        // two planes outruns the eye, and a legacy phase sets 2.0.
+        const speed = Math.min(1.4, Math.max(0.2, this.laserSpeed || 1.0));
+        const scanTime = time * 0.32 * Math.sqrt(speed);
+        const sweep = t => Math.sin(t + 0.24 * Math.sin(t * 0.37));
+        const primaryPhase = sweep(scanTime);
+        const crossPhase = 0.32 * Math.sin(scanTime * 1.71 + 1.1) +
+            0.12 * Math.sin(scanTime * 0.63);
+        const lateral = this.laserSheetMotion === 'lateral';
+        const pitchPhase = lateral ? crossPhase : primaryPhase;
+        const yawPhase = lateral ? primaryPhase : crossPhase;
+        this.laserSheetSource.rotation.x = this._laserSheetBasePitch + pitchPhase * this._laserSheetPitchRange;
+        this.laserSheetSource.rotation.y = this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange;
+
+        // The second projector mirrors the first across the room and trails it in phase,
+        // so the two planes scissor and cross instead of moving as one.
+        const follower = this._laserSheetFollower;
+        if (follower) {
+            const trail = sweep(scanTime + (this._laserSheetTrail || 0.5));
+            const trailPitch = lateral ? crossPhase : trail;
+            follower.mount.housing.rotation.x = this._laserSheetBasePitch + trailPitch * this._laserSheetPitchRange;
+            follower.mount.housing.rotation.y = -(this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange);
+        }
+    }
+
     /** Scanning laser sheet: tilt sweep, smoke UV flow, audio-pulsed intensity. */
     updateLaserSheet(ctx) {
         const { time, audio: audioData } = ctx;
@@ -540,30 +571,7 @@ class VRClubAnimationCore extends VRClubEffects {
 
             // Compound, slightly asymmetric motion avoids the mechanical pendulum
             // look of a single sine while keeping the fan inside its calibrated aim.
-            const scanSpeed = 0.32 * Math.sqrt(Math.max(0.2, speedMultiplierLaser));
-            if (this.laserSheetSource) {
-                const scanTime = time * scanSpeed;
-                const sweep = t => Math.sin(t + 0.24 * Math.sin(t * 0.37));
-                const primaryPhase = sweep(scanTime);
-                const crossPhase = 0.32 * Math.sin(scanTime * 1.71 + 1.1) +
-                    0.12 * Math.sin(scanTime * 0.63);
-                const lateral = this.laserSheetMotion === 'lateral';
-                const pitchPhase = lateral ? crossPhase : primaryPhase;
-                const yawPhase = lateral ? primaryPhase : crossPhase;
-                this.laserSheetSource.rotation.x = this._laserSheetBasePitch + pitchPhase * this._laserSheetPitchRange;
-                this.laserSheetSource.rotation.y = this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange;
-
-                // The second projector mirrors the first across the room and trails it
-                // in phase, so the two planes scissor and cross instead of moving as one.
-                const follower = this._laserSheetFollower;
-                if (follower) {
-                    const trail = sweep(scanTime + 0.9);
-                    const trailPitch = lateral ? crossPhase : trail;
-                    follower.mount.housing.rotation.x = this._laserSheetBasePitch + trailPitch * this._laserSheetPitchRange;
-                    follower.mount.housing.rotation.y = -(this._laserSheetBaseYaw + yawPhase * this._laserSheetYawRange);
-                }
-            }
-            
+            this._poseLaserSheet(time);
             // Animate smoke texture flowing OUTWARD from source
             if (sheetMat.opacityTexture) {
                 sheetMat.opacityTexture.vOffset = -time * 0.028 * speedMultiplierLaser;

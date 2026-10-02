@@ -71,7 +71,7 @@ class ShowDirector {
     static BARS_PER_PHRASE = 4;   // 16 beats
 
     /** Look keys that describe the cue itself and must never be written onto the club. */
-    static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue', 'ledHarmony']);
+    static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue', 'ledHarmony', 'ledLevel']);
     // Names only; VJDirector.LED_HARMONIES owns the hue maths (a unit test keeps them in step).
     static LED_HARMONY_NAMES = new Set(['match', 'analogous', 'complement', 'triad', 'follow']);
 
@@ -394,6 +394,9 @@ class ShowDirector {
         club.strobeSync = look.strobeSync || 'free';
         club.colorLockActive = !!look.colorLock;
         club.ledMulti = false;          // a look that wants a multi-colour wall says so
+        // How bright the wall runs (0..1). Reset for every look: a look that omits it is a full-strength
+        // wall, it does not inherit the previous cue's dimmed accompaniment.
+        club.ledWallLevel = look.ledLevel === undefined ? 1 : Math.min(1, Math.max(0, Number(look.ledLevel) || 0));
 
         for (const key in look) {
             if (ShowDirector.META_KEYS.has(key)) continue;
@@ -584,6 +587,7 @@ class ShowDirector {
                 if (ShowDirector.META_KEYS.has(key)) continue;
                 if (!(key in club)) unknown.add(`${name}.${key}`);
             }
+            if (look.ledLevel !== undefined && !(look.ledLevel >= 0 && look.ledLevel <= 1)) unknown.add(`${name}.ledLevel=${look.ledLevel}`);
             if (look.ledHarmony !== undefined && !ShowDirector.LED_HARMONY_NAMES.has(look.ledHarmony)) {
                 unknown.add(`${name}.ledHarmony=${look.ledHarmony}`);
             }
@@ -631,6 +635,10 @@ class ShowDirector {
     //                     follow (the lasers' partner hue for this look's palette).
     //                     Meta key. Unlike the keys above it IS reset for every look.
     //                     colorLock overrides it: a locked wall always matches.
+    //   ledLevel          0..1, how bright the wall runs. Meta key, reset to 1 for every look.
+    //                     A level under 1 makes the wall an ACCOMPANIMENT: lit and moving, in a
+    //                     complementary colour, but quiet enough that the beams stay the subject.
+    //                     (A dark wall is for solo cues only; see the movements note.)
     //   ledMulti          true = shapes alternate the wall colour, its complement and white
     //                     (pattern 19). Reset to false for every look, like ledHarmony.
     //                     One colour = ledMulti false; black and white = ledMonochrome true.
@@ -666,10 +674,10 @@ class ShowDirector {
             // Static beams in haze — pure architecture, with both the mirror ball
             // and wall dark so the moving-head rig gets the room to itself.
             firstLight: {
-                intensity: 0.60, punch: 0.18, palette: 'analogous',
+                intensity: 0.60, punch: 0.18, palette: 'analogous', ledHarmony: 'complement',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, ledMonochrome: true, ledPattern: 11, ledWallSpeed: 0.5,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.5, ledLevel: 0.85,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
                 goboEnabled: true, goboPatternIndex: 4, goboRotationSpeed: 0.18,
                 mirrorBallSpeed: 0.4, fogIntensity: 1.3
@@ -709,7 +717,7 @@ class ShowDirector {
                 intensity: 0.88, punch: 0.30, palette: 'complementary',
                 lightsActive: false, lasersActive: true, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, ledMonochrome: true, ledPattern: 13, ledWallSpeed: 1.0,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 13, ledWallSpeed: 1.0, ledLevel: 0.75,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.4,
                 goboEnabled: false, laserSpeed: [0.6, 1.1],
                 fogIntensity: 1.2
@@ -718,10 +726,10 @@ class ShowDirector {
             // Symmetry cue: heads mirror-sweep in isolation so the coordinated
             // movement reads clearly instead of disappearing against the wall.
             sideways: {
-                intensity: 0.85, punch: 0.25, palette: 'analogous',
+                intensity: 0.85, punch: 0.25, palette: 'analogous', ledHarmony: 'complement',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0,
+                ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0, ledLevel: 0.85,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
                 goboEnabled: true, goboPatternIndex: 2, goboRotationSpeed: 0.5,
                 fogIntensity: 1.0
@@ -756,7 +764,7 @@ class ShowDirector {
                 intensity: 0.90, punch: 0.18, palette: 'analogous', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
-                smokeActive: true, ledWallActive: false, ledMonochrome: false,
+                smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                 laserSpeed: [0.30, 0.55], fogIntensity: 1.8, goboEnabled: false
             },
@@ -765,7 +773,7 @@ class ShowDirector {
                 intensity: 0.94, punch: 0.22, palette: 'complementary', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
-                smokeActive: true, ledWallActive: false, ledMonochrome: false,
+                smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
                 laserSpeed: [0.32, 0.60], fogIntensity: 1.9, goboEnabled: false
             },
@@ -871,7 +879,7 @@ class ShowDirector {
                 intensity: 0.96, punch: 0.40, palette: 'triad',
                 lightsActive: false, lasersActive: true, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, ledMonochrome: false, ledPattern: 15, ledWallSpeed: 1.8,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 11, ledWallSpeed: 1.8, ledLevel: 0.75,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1.5,
                 goboEnabled: false, laserSpeed: 2.0, fogIntensity: 1.5
             },
@@ -916,10 +924,10 @@ class ShowDirector {
             // Slow reassembly — heads fade back in on a drifting wave, flower
             // gobo turning slowly. Sets up ARRIVAL to begin the cycle again.
             driftAway: {
-                intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous',
+                intensity: [0.35, 0.62], punch: 0.15, palette: 'analogous', ledHarmony: 'analogous',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: false, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7],
+                ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7], ledLevel: 0.85,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
                 goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: 0.15,
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
@@ -947,7 +955,7 @@ class ShowDirector {
                 intensity: 0.62, punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.56,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
                 strobesActive: false, mirrorBallActive: false,
-                smokeActive: true, ledWallActive: false, ledMonochrome: false,
+                smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                 laserSpeed: [0.25, 0.45], fogIntensity: 1.9, goboEnabled: false
             },
@@ -1030,10 +1038,14 @@ class ShowDirector {
     // minBars stops the energy picker from abandoning a movement before its
     // internal arc has had time to read.
     //
-    // Every movement carries dark-wall cues. The LED wall is the brightest thing in the room
-    // and the eye goes straight to it, so a wall that is lit for the entire show
-    // flattens everything else into background. Single-focus cues dominate;
-    // layered peak hits last two bars and give way to longer recovery cues.
+    // The LED wall is the brightest thing in the room and the eye goes straight to it, so a wall
+    // that is full-strength for the whole show flattens everything else into background. But a
+    // wall that is DARK for most of it (it was, 76% of the bars) leaves the beams and lasers with
+    // nothing to play against and the room reads as half-built. So the wall is the accompaniment:
+    // lit through most cues at a reduced ledLevel, in a complementary colour, and dark only for
+    // the deliberate solos (mirror ball, strobes, laser sheet, the comedown). A wall at full
+    // strength is a headline and stays rare. Single-focus cues dominate; layered peak hits last
+    // two bars and give way to longer recovery cues.
     // =========================================================================
     static _buildMovements() {
         return {

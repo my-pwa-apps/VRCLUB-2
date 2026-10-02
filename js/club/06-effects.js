@@ -576,12 +576,19 @@ class VRClubEffects extends VRClubFixtures {
         const origin = this.laserSheetOrigin;
         const both = origin !== 'ceilingLeft' && origin !== 'ceilingRight';
         const leadSide = origin === 'ceilingRight' ? 'ceilingRight' : 'ceilingLeft';
-        // Each truss projector aims slightly inward towards the dance floor.
-        const restYaw = mountSide => (mountSide === 'ceilingRight' ? -0.10 : 0.10);
-        this._laserSheetBasePitch = 0.44;
+        // Geometry tuned against the two planes' CROSSING, which is what the eye follows.
+        // Each plane only turns ~2 deg/s, but where two near-parallel planes meet the
+        // crossing line runs far faster (measured median 1.6 m/s, 7.5 m/s peak, 3-5 m over
+        // the floor with the old 0.10 rad inward aim and 0.9 rad trail). A wider inward aim
+        // and a smaller phase trail make the crossing a slow drift (~0.4 m/s, under 1 m/s)
+        // that stays just above head height (2.0-3.6 m at mid-room). test/sheet.test.mjs
+        // measures it on the real Babylon maths; retune against that, not by eye.
+        const restYaw = mountSide => (mountSide === 'ceilingRight' ? -0.20 : 0.20);
+        this._laserSheetBasePitch = 0.53;
         this._laserSheetBaseYaw = restYaw(leadSide);
-        this._laserSheetPitchRange = 0.10;
-        this._laserSheetYawRange = 0.16;
+        this._laserSheetPitchRange = 0.06;
+        this._laserSheetYawRange = 0.12;
+        this._laserSheetTrail = 0.5;
 
         const mounts = this._laserSheetMounts;
         this._laserSheetFollower = null;

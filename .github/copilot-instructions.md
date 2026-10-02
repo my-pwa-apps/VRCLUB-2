@@ -176,6 +176,13 @@ Rules when editing:
   owns it, and aliases `currentSpotColor` only when matching. A wall pattern must paint the
   colour it is handed or no harmony can reach it (`patternBreathing` ignored it until
   2026-10-02; plasma, aurora and rainbow still synthesise their own hues).
+  `ledLevel` (0..1, resolved to `club.ledWallLevel`, reset to 1 per look) runs the wall as a quiet
+  ACCOMPANIMENT: `_applyLedLevel()` scales every pattern in one final pass and eases in from dark.
+  The wall must be lit through most of the show (`test/unit.test.mjs` fails below 60% of bars, and
+  any new look that goes dark must be added to its stated list of deliberate solos). A level
+  <= 0.85 does not count as a second headline in the single-subject rule. Give an accompaniment
+  look a pattern with steady presence (tunnel, kaleidoscope, DNA): sparse ones such as the
+  underground film and warehouse shapes average 0.14-0.24 and vanish when dimmed.
 - `photosensitiveSafeMode` **overrides the designer**: `_applyLook()` force-clears
   `strobesActive`, and the `countdown` set-piece drops its strobe ladder
   and carries the build with intensity and speed alone. Never bypass this.
@@ -393,6 +400,15 @@ The laser sheet has two truss projectors (`laserSheetSource` at x = -6,
 `laserSheetSourceRight` at x = +6) and by default BOTH emit (`laserSheetOrigin: 'both'`): the left
 fan leads, the right one mirrors its yaw and trails its pitch in phase so the planes scissor.
 The fans share materials, so the second costs two draw calls and no extra noise textures.
+
+**Tune the sheets by their crossing, not their planes.** Each plane turns only ~2 deg/s, but the
+bright line where the two planes meet runs many times faster (the old aim measured a median
+1.6 m/s and a 7.5 m/s peak, 3-5 m over the floor). The shipped geometry (inward aim 0.20 rad,
+base pitch 0.53, follower trail 0.5, ranges 0.06 / 0.12) holds the crossing to a ~0.4 m/s drift,
+under 1 m/s at worst, and 2.0-3.6 m high at mid-room. `_poseLaserSheet()` owns the pose maths
+and caps the laser speed at 1.4 so the slider or a legacy phase cannot undo it.
+`test/sheet.test.mjs` measures the crossing on the real Babylon maths for every shipped sheet
+look; retune against it, never by eye.
 `'ceilingLeft'` / `'ceilingRight'` fire one projector only. `configureLaserSheetVariant()`
 re-parents the lead fan; `this.laserSheetSource` always points at the lead projector and
 `_laserSheetFollower` at the second (null when single-sided).

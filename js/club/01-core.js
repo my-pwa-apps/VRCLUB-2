@@ -415,6 +415,7 @@ class VRClubCore {
         this.ledWallActive = true;
         this.ledMonochrome = false; // true = wall renders in black & white only
         this.ledMulti = false;      // true = shapes alternate the wall colour, its complement and white
+        this.ledWallLevel = 1;      // 0..1, how bright the wall runs; the Show Director resolves it from a look's ledLevel
         this.strobesActive = true;
         this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
         // When the Show Director drives, when a burst fires: 'free' = random timer (legacy),
