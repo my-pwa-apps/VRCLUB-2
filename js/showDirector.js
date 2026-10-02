@@ -71,7 +71,9 @@ class ShowDirector {
     static BARS_PER_PHRASE = 4;   // 16 beats
 
     /** Look keys that describe the cue itself and must never be written onto the club. */
-    static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue']);
+    static META_KEYS = new Set(['intensity', 'palette', 'punch', 'colorLock', 'hue', 'ledHarmony']);
+    // Names only; VJDirector.LED_HARMONIES owns the hue maths (a unit test keeps them in step).
+    static LED_HARMONY_NAMES = new Set(['match', 'analogous', 'complement', 'triad', 'follow']);
 
     /** Kicks in a row (no more than ~1.5 beats apart) that count as "the kick is back". */
     static RELEASE_KICKS = 2;
@@ -391,6 +393,7 @@ class ShowDirector {
         club.strobePattern = look.strobePattern || 'all';
         club.strobeSync = look.strobeSync || 'free';
         club.colorLockActive = !!look.colorLock;
+        club.ledMulti = false;          // a look that wants a multi-colour wall says so
 
         for (const key in look) {
             if (ShowDirector.META_KEYS.has(key)) continue;
@@ -419,6 +422,10 @@ class ShowDirector {
         if (vj) {
             if (look.hue !== undefined && typeof vj.setMasterHue === 'function') vj.setMasterHue(look.hue);
             else if (typeof vj.unlockHue === 'function') vj.unlockHue();
+            // Looks only write the keys they declare, so the wall's relation to the beams
+            // is reset here: a look that omits ledHarmony matches the beams, it does not
+            // inherit the previous cue's contrast.
+            if (typeof vj.setLedHarmony === 'function') vj.setLedHarmony(look.ledHarmony || 'match');
         }
     }
 
@@ -577,6 +584,9 @@ class ShowDirector {
                 if (ShowDirector.META_KEYS.has(key)) continue;
                 if (!(key in club)) unknown.add(`${name}.${key}`);
             }
+            if (look.ledHarmony !== undefined && !ShowDirector.LED_HARMONY_NAMES.has(look.ledHarmony)) {
+                unknown.add(`${name}.ledHarmony=${look.ledHarmony}`);
+            }
             // Design rule: aerial beam work and projected floor texture compete
             // for attention. One or the other, never both.
             if (look.lasersActive === true && look.goboEnabled === true) {
@@ -610,10 +620,20 @@ class ShowDirector {
     //                     13 DNA · 14 infinity · 15 plasma · 16 aurora · 17 rainbow
     //                     18 underground sequence (38-bar film; restarts at DESCENT
     //                     whenever a cue hands it the wall)
+    //                     19 warehouse shapes (bars, tiles, rings, slats, diamonds, scan,
+    //                     checker, radar: cut on the beat, chosen by the music's energy)
     //   ledMonochrome     true = wall renders the same shapes in black & white.
     //                     Set it EXPLICITLY on every look — looks only write the
     //                     keys they declare, so an omission silently inherits the
     //                     previous cue's colour state.
+    //   ledHarmony        the wall's colour against the beams: match (default) ·
+    //                     analogous (+30°) · complement (+180°) · triad (+120°) ·
+    //                     follow (the lasers' partner hue for this look's palette).
+    //                     Meta key. Unlike the keys above it IS reset for every look.
+    //                     colorLock overrides it: a locked wall always matches.
+    //   ledMulti          true = shapes alternate the wall colour, its complement and white
+    //                     (pattern 19). Reset to false for every look, like ledHarmony.
+    //                     One colour = ledMulti false; black and white = ledMonochrome true.
     //   ledWallActive     false = wall completely dark. Deliberately used as a
     //                     composition tool, not just an off switch: the wall is
     //                     the brightest object in the room, so killing it is the
@@ -758,10 +778,10 @@ class ShowDirector {
             // shockwave wall accelerating with it, and the star gobo opening out.
             // The audience should feel the room winding up without being told.
             theClimb: {
-                intensity: [0.80, 1.0], punch: 0.35, palette: 'complementary',
+                intensity: [0.80, 1.0], punch: 0.35, palette: 'complementary', ledHarmony: 'complement',
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 6, ledWallSpeed: [0.9, 1.9],
+                ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: [0.9, 1.9],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.8, 2.0],
                 goboEnabled: true, goboPatternIndex: 1, goboRotationSpeed: [0.4, 1.6],
                 fogIntensity: 1.4
@@ -774,7 +794,7 @@ class ShowDirector {
                 intensity: [0.70, 0.95], punch: 0.45, palette: 'complementary',
                 lightsActive: false, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: true, ledPattern: 9, ledWallSpeed: [1.2, 2.0],
+                ledWallActive: true, ledMonochrome: true, ledPattern: 19, ledWallSpeed: [1.2, 2.0],
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
                 goboEnabled: false, laserSpeed: [1.0, 1.8],
                 fogIntensity: 1.6
@@ -837,7 +857,7 @@ class ShowDirector {
                 intensity: 1.0, punch: 0.55, palette: 'triad',
                 lightsActive: true, lasersActive: false, strobesActive: true,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 17, ledWallSpeed: 2.0,
+                ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
                 goboEnabled: false, laserSpeed: 1.8,
                 strobeSync: 'beat', strobeSpeed: 2.2, fogIntensity: 1.5
@@ -861,7 +881,7 @@ class ShowDirector {
                 intensity: 1.0, punch: 0.50, palette: 'triad',
                 lightsActive: false, lasersActive: true, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 2.0,
+                ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 2.0,
                 goboEnabled: false, laserSpeed: 1.6,
                 strobeSpeed: 1.6, fogIntensity: 1.4
@@ -947,7 +967,7 @@ class ShowDirector {
                 intensity: [0.62, 1.0], punch: 0.30, palette: 'complementary', colorLock: true, hue: 0.90,
                 lightsActive: true, lasersActive: false, strobesActive: false,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 8, ledWallSpeed: [0.6, 2.0],
+                ledWallActive: true, ledMonochrome: false, ledPattern: 19, ledWallSpeed: [0.6, 2.0],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.5, 1.8],
                 goboEnabled: true, goboPatternIndex: 5, goboRotationSpeed: [0.3, 1.5],
                 fogIntensity: [1.5, 1.9]
@@ -956,10 +976,10 @@ class ShowDirector {
             // THE RELEASE. The kick is back: everything at once for one bar, then
             // IGNITION takes over. Strobes drop out under Safe Mode as usual.
             releaseHit: {
-                intensity: 1.0, punch: 0.60, palette: 'complementary',
+                intensity: 1.0, punch: 0.60, palette: 'complementary', ledHarmony: 'follow',
                 lightsActive: true, lasersActive: true, strobesActive: true,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: false, ledPattern: 6, ledWallSpeed: 2.2,
+                ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.2,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 1.8,
                 goboEnabled: false, laserSpeed: 2.0,
                 strobeSync: 'beat', strobeSpeed: 2.0, fogIntensity: 1.8
@@ -987,7 +1007,7 @@ class ShowDirector {
                 intensity: 0.85, punch: 0.30, palette: 'complementary',
                 lightsActive: true, lasersActive: false, strobesActive: true,
                 mirrorBallActive: false, smokeActive: true,
-                ledWallActive: true, ledMonochrome: true, ledPattern: 6, ledWallSpeed: 1.4,
+                ledWallActive: true, ledMonochrome: true, ledPattern: 19, ledWallSpeed: 1.4,
                 spotlightPattern: 1, spotlightMode: 2, spotlightSpeed: 0.3,
                 goboEnabled: false, strobeSync: 'bar', strobeSpeed: 0.6, fogIntensity: 1.7
             },

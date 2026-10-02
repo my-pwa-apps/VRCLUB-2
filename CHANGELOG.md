@@ -97,6 +97,22 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Warehouse shapes: the LED wall as a flashing, moving club screen.** Eight beat-cut programs - bars,
+  blocks, rings, slats, diamonds, a scan, a checker and a radar - chosen on bar lines from the music's
+  energy: a quiet groove gets big slow moves, a peak gets flashing shapes on every beat. It runs in one
+  colour, in multi-colour (the wall colour, its complement and white) or in black and white, per look
+  (`ledMulti` / `ledMonochrome`); six peak and breakdown looks now use it. Flashing is governed: at most
+  one flash per 0.4 s whatever the tempo, shapes step at most 2.5 times a second, no program fills the
+  wall, and Photosensitive Safe Mode keeps the motion but removes the flash. A test simulates tempos from
+  96 to 200 BPM and fails if any of those limits is removed.
+- **The LED wall can now complement the beams instead of always copying them.** Every look
+  used to paint the wall in exactly the beams' colour. A look can now set `ledHarmony`
+  (`analogous`, `complement`, `triad`, or `follow` to share the lasers' partner colour) and
+  the wall takes that hue off the beams'. `theClimb` now builds red heads against a cyan
+  wall, and `releaseHit` puts the wall and lasers in one colour against the heads. Looks that
+  say nothing still match, and a colour-locked look always matches. Also fixed: the *breathing*
+  wall ignored the show colour entirely (a fixed blue-to-red), so no harmony or colour lock
+  could reach it; it now paints the colour it is given.
 - **A real body for the player, and for other guests.** The local guest was a dancer clone
   replaying a slowed dance, and remote guests were a capsule and a ball. Both are now people
   on the same dancer skeleton, posed every frame by a new `AvatarRig` so you can move freely:

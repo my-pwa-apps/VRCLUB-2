@@ -414,6 +414,7 @@ class VRClubCore {
         this.lasersActive = false;
         this.ledWallActive = true;
         this.ledMonochrome = false; // true = wall renders in black & white only
+        this.ledMulti = false;      // true = shapes alternate the wall colour, its complement and white
         this.strobesActive = true;
         this.strobePattern = 'all'; // 'all' = synchronized burst, 'chase' = clockwise corners
         // When the Show Director drives, when a burst fires: 'free' = random timer (legacy),

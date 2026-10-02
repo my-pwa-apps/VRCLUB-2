@@ -84,7 +84,7 @@ Key lifecycle members:
   `doNotHandleContextLost: true`).
 
 ### `js/ledPatterns.js`
-The LED wall's 19 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
+The LED wall's 20 `pattern*` implementations (exactly the playlist in `updateLEDWall()`;
 unreachable patterns were deleted, including a 15 Hz full-field strobe) plus `updateLEDPanel()` and the two stateful
 palette/shape helpers. It publishes `window.LEDPatterns`; `club_hyperrealistic.js` mixes
 that map into `VRClub.prototype` after defining the class, preserving the club instance
@@ -98,6 +98,18 @@ rather than cut; nothing may flicker above 3 Hz per panel or step the whole fiel
 (`test/unit.test.mjs` simulates the full loop and enforces both); and the restart-at-DESCENT
 check keys off the scene frame counter, never wall-clock time, because a slow frame must not
 restart the film. New patterns are appended to the playlist: looks refer to them by index.
+
+`patternWarehouse` (index 19) is the wall as a club screen: eight beat-cut shape programs
+(bars, blocks, rings, slats, diamonds, scan, checker, radar) picked on bar lines from the
+music's energy (the Show Director's slow EMA blended with live bass). One colour, multi-colour
+(`ledMulti`: the wall colour, its complement `ledAccentColor`, white-hot) or black and white
+(`ledMonochrome`). It is the only pattern allowed to FLASH, and the flash is governed:
+one governor accepts a flash at most every 0.4 s whatever the tempo, shapes step at most 2.5 times
+a second (every other beat above 150 BPM), no program lights more than ~85% of the wall, and
+Photosensitive Safe Mode keeps the motion but removes the flash (slow attack, lower peak,
+lifted floor; nothing crosses half brightness). `test/unit.test.mjs` enforces all of it with
+failing-when-removed checks on the gap, the stride and Safe Mode. Never raise a rate, add a
+second flash source, or make a program change on every beat of a fast track without re-running it.
 
 ### `js/avatarRig.js` — the player's body
 `AvatarRig` poses ONE person on the shared UE-mannequin dancer skeleton (`club-dancer-female`,
@@ -154,10 +166,16 @@ Rules when editing:
   musical grid is exactly the failure this class exists to fix.
 - Look keys are validated at construction by `_validateLooks()` — a typo warns rather than
   silently doing nothing. Add new fixture properties to a look, not to a special case.
-- `intensity`, `palette`, `punch`, `colorLock` and `hue` are meta keys (`ShowDirector.META_KEYS`)
-  consumed by the director itself. They must never be written onto the club instance. `hue`
-  (0..1) pins the master colour via `VJDirector.setMasterHue()` for the look; a look without
-  it calls `unlockHue()`, so rotation resumes.
+- `intensity`, `palette`, `punch`, `colorLock`, `hue` and `ledHarmony` are meta keys
+  (`ShowDirector.META_KEYS`) consumed by the director itself. They must never be written onto
+  the club instance. `hue` (0..1) pins the master colour via `VJDirector.setMasterHue()` for
+  the look; a look without it calls `unlockHue()`, so rotation resumes. `ledHarmony` sets the
+  wall's colour against the beams (`match` default, `analogous`, `complement`, `triad`,
+  `follow` = the lasers' partner hue); `_applyLook()` resets it to `match` for every look, and
+  `colorLock` wins over it. The wall's colour is `club.ledShowColor`: `VJDirector.refreshLedColor()`
+  owns it, and aliases `currentSpotColor` only when matching. A wall pattern must paint the
+  colour it is handed or no harmony can reach it (`patternBreathing` ignored it until
+  2026-10-02; plasma, aurora and rainbow still synthesise their own hues).
 - `photosensitiveSafeMode` **overrides the designer**: `_applyLook()` force-clears
   `strobesActive`, and the `countdown` set-piece drops its strobe ladder
   and carries the build with intensity and speed alone. Never bypass this.

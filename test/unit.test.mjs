@@ -1427,6 +1427,59 @@ test('VJDirector envelope and intensity follow wall-clock time at any refresh ra
         `master intensity depends on refresh rate: ${at60.intensity} vs ${at120.intensity}`);
 });
 
+test('the LED wall can sit a harmony away from the beams, and the show resets it per look', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const club = { vjBPM: 128, currentSpotColor: new BABYLON.Color3(1, 0, 0) };
+    const vj = new window.VJDirector(club);
+    vj.masterHue = 0;                                 // red beams
+    const near = (c, r, g, b) => Math.abs(c.r - r) < 0.01 && Math.abs(c.g - g) < 0.01 && Math.abs(c.b - b) < 0.01;
+
+    vj.setLedHarmony('match');
+    assert.equal(club.ledShowColor, club.currentSpotColor, 'matching must still alias the beam colour');
+    vj.setLedHarmony('complement');
+    assert.ok(near(club.ledShowColor, 0, 1, 1), 'the complement of red is cyan');
+    const shared = club.ledShowColor;
+    vj.setLedHarmony('triad');
+    assert.ok(near(club.ledShowColor, 0, 1, 0), 'a triad partner of red is green');
+    assert.equal(club.ledShowColor, shared, 'the harmony colour must be one reused object (no per-frame allocation)');
+
+    // `follow` joins the lasers: whatever partner the look's palette gives them.
+    vj.paletteMode = 'complementary'; vj.setLedHarmony('follow');
+    assert.ok(near(club.ledShowColor, 0, 1, 1), 'follow + complementary = the laser partner (cyan)');
+    vj.paletteMode = 'triad'; vj.setLedHarmony('follow');
+    assert.ok(near(club.ledShowColor, 0, 1, 0), 'follow + triad = the laser partner (green)');
+
+    // A hue change from the phrase rotation carries the wall with it.
+    vj.setLedHarmony('complement');
+    vj.masterHue = 0.25;
+    vj.refreshLedColor();
+    assert.ok(near(club.ledShowColor, 0.5, 0, 1), 'the wall must follow the master hue (0.25 + 0.5 = violet)');
+    vj.setLedHarmony('nonsense');
+    assert.equal(vj.ledHarmony, 'match', 'an unknown harmony must fall back to matching');
+
+    // Every look's harmony is a real one, ShowDirector and VJDirector agree on the names,
+    // and every look resets (a look that omits it must not inherit the last cue's contrast).
+    const { window: showWindow } = loadClassic('js/showDirector.js');
+    const names = new Set([...Object.keys(window.VJDirector.LED_HARMONIES), 'follow']);
+    assert.deepEqual([...showWindow.ShowDirector.LED_HARMONY_NAMES].sort(), [...names].sort());
+    const looks = showWindow.ShowDirector._buildLooks();
+    for (const [name, look] of Object.entries(looks)) {
+        if (look.ledHarmony !== undefined) assert.ok(names.has(look.ledHarmony), `${name} has an unknown ledHarmony`);
+        if (look.colorLock) assert.equal(look.ledHarmony, undefined, `${name}: colorLock overrides ledHarmony, so setting both is a lie`);
+    }
+    assert.equal(looks.theClimb.ledHarmony, 'complement');
+    const applied = [];
+    const director = new showWindow.ShowDirector({
+        vjManualMode: false, photosensitiveSafeMode: false,
+        vjDirector: { paletteMode: 'analogous', setLedHarmony: h => applied.push(h), unlockHue() {} }
+    });
+    applied.length = 0;                               // the constructor applies the opening look itself
+    director._applyLook(director.looks.theClimb);
+    director._applyLook(director.looks.theWave);
+    assert.deepEqual(applied, ['complement', 'match'], 'a look without ledHarmony must reset the wall to matching');
+});
+
 test('VJDirector converges on BPM from synthetic onset intervals', () => {
     const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub() });
     const club = { vjBPM: 128 };
@@ -1778,6 +1831,179 @@ test('underground sequence tells all six scenes on bar lines and never flickers'
     club.vjDirector.beatNumber = 840; frame += 40;
     club.patternUndergroundSequence(colour, 2010, audio);            // 40 frames skipped
     assert.equal(club._ug.b0, 840, 'a skipped stretch must restart the sequence at a bar line');
+});
+
+test('the breathing wall paints the show colour, so a harmony can reach it', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/ledPatterns.js', { BABYLON });
+    const panels = [];
+    for (let row = 0; row < 10; row++) {
+        for (let col = 0; col < 21; col++) {
+            panels.push({ col, row, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } });
+        }
+    }
+    const club = { ledPanels: panels, ledCols: 21, ledRows: 10, _ledColor2: new BABYLON.Color3() };
+    Object.assign(club, window.LEDPatterns);
+    const hue = (color) => {
+        let r = 0, g = 0, b = 0;
+        for (const t of [0, 1.3, 2.6, 3.9, 5.2]) {
+            club.patternBreathing(color, t, null);
+            for (const p of panels) { r += p.material.emissiveColor.r; g += p.material.emissiveColor.g; b += p.material.emissiveColor.b; }
+        }
+        return { r, g, b };
+    };
+    const cyan = hue(new BABYLON.Color3(0, 1, 1));
+    assert.ok(cyan.r < cyan.g * 0.4 && cyan.g > 1, 'a cyan wall must be cyan, not the old fixed blue-to-red');
+    const red = hue(new BABYLON.Color3(1, 0, 0));
+    assert.ok(red.g < red.r * 0.4 && red.b < red.r * 0.4, 'a red wall must be red');
+    // It must write through the panel's own buffer, never mutate a shared emissive colour.
+    assert.ok(panels.every(p => p.material.emissiveColor === p.colorBuffer), 'breathing wrote into a shared colour');
+});
+
+test('warehouse shapes flash on the beat but never faster than the photosensitivity limit', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/ledPatterns.js', { BABYLON });
+    const cols = 21, rows = 10;
+    const lum = p => (p.material.emissiveColor.r + p.material.emissiveColor.g + p.material.emissiveColor.b) / 3;
+
+    const run = ({ bpm, energy, bass, safe = false, multi = false, seconds = 40, mono = false }) => {
+        const panels = [];
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                panels.push({ col, row, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } });
+            }
+        }
+        const club = {
+            ledPanels: panels, ledCols: cols, ledRows: rows, ledMonochrome: mono, ledMulti: multi,
+            photosensitiveSafeMode: safe, bpm, vjDirector: { beatNumber: 0 }, barPhase: 0, beatEnvelope: 0,
+            showDirector: { _energy: energy }, ledAccentColor: new BABYLON.Color3(1, 0.3, 0)
+        };
+        Object.assign(club, window.LEDPatterns);
+        const colour = new BABYLON.Color3(0, 0.6, 1);
+        const audio = { hasAudio: true, bass, mid: bass * 0.6, treble: 0.3 };
+        const prev = new Float32Array(panels.length), rising = new Int32Array(panels.length);
+        const peakByProgram = new Map();
+        let worstPanel = 0, lastMean = 0, maxStep = 0, peakMean = 0, finite = true, peakCoverage = 0;
+        // Wall-level flash events: the wall's mean light rising by >= 0.08 within a few frames.
+        // A panel only sees every other flash (shapes alternate), so only the wall-level count
+        // can tell whether the governor is doing its job.
+        const history = [];
+        const events = [];
+        const flashTimes = [];             // every flash the governor ACCEPTED
+        let lastFlashAt = null;
+        let lastEvent = -1, worstEventsPerSecond = 0;
+        const frames = seconds * 60;
+        for (let f = 0; f < frames; f++) {
+            const beats = (f / 60) * bpm / 60 + 2.5;
+            club.vjDirector.beatNumber = Math.floor(beats);
+            club.barPhase = ((Math.floor(beats) % 4) + (beats - Math.floor(beats))) / 4;
+            club.patternWarehouse(colour, 100 + f / 60, audio);
+            let mean = 0;
+            for (let i = 0; i < panels.length; i++) {
+                const v = lum(panels[i]);
+                if (!Number.isFinite(v)) finite = false;
+                mean += v;
+                if (prev[i] < 0.5 && v >= 0.5) rising[i]++;
+                prev[i] = v;
+            }
+            mean /= panels.length;
+            if (f > 60) { maxStep = Math.max(maxStep, Math.abs(mean - lastMean)); peakMean = Math.max(peakMean, mean); }
+            lastMean = mean;
+            if (f > 60) {
+                let litPanels = 0;
+                for (let i = 0; i < panels.length; i++) if (lum(panels[i]) > 0.1) litPanels++;
+                peakCoverage = Math.max(peakCoverage, litPanels / panels.length);
+            }
+            history.push(mean);
+            if (history.length > 4) history.shift();
+            if (f > 60 && mean - Math.min(...history) >= 0.08 && f - lastEvent > 9) {
+                lastEvent = f;
+                events.push(f);
+                const inWindow = events.filter(e => e > f - 60).length;
+                worstEventsPerSecond = Math.max(worstEventsPerSecond, inWindow);
+            }
+            if (club._wh.flashAt !== lastFlashAt) { lastFlashAt = club._wh.flashAt; flashTimes.push(lastFlashAt); }
+            const program = club._wh.program;
+            peakByProgram.set(program, Math.max(peakByProgram.get(program) || 0, mean));
+            if (f % 60 === 59) {
+                for (let i = 0; i < panels.length; i++) { worstPanel = Math.max(worstPanel, rising[i]); rising[i] = 0; }
+            }
+        }
+        return { worstPanel, maxStep, peakMean, finite, peakByProgram, worstEventsPerSecond, flashTimes, stride: club._wh.stride, peakCoverage };
+    };
+
+    // The flash limit holds at every tempo, including ones faster than three beats a second.
+    const programs = new Set();
+    for (const bpm of [96, 128, 150, 174, 200]) {
+        const r = run({ bpm, energy: 0.45, bass: 1 });
+        assert.ok(r.finite, `a non-finite colour at ${bpm} BPM`);
+        assert.ok(r.worstPanel <= 3, `at ${bpm} BPM a panel crossed half brightness ${r.worstPanel}x in one second`);
+        assert.ok(r.worstEventsPerSecond <= 3, `at ${bpm} BPM the wall flashed ${r.worstEventsPerSecond}x in one second`);
+        // Shapes step at most 2.5 times a second: every other beat once the tempo passes 150 BPM.
+        assert.equal(r.stride, bpm > 150 ? 2 : 1, `at ${bpm} BPM the shapes step every ${r.stride} beat(s)`);
+        // The governor itself: no two accepted flashes closer than 0.4 s, whatever the tempo.
+        const gaps = r.flashTimes.slice(1).map((t, i) => t - r.flashTimes[i]).filter(g => g < 1e6);
+        assert.ok(gaps.length > 10, `at ${bpm} BPM the wall almost never flashed`);
+        assert.ok(Math.min(...gaps) >= 0.399, `at ${bpm} BPM two flashes were ${Math.min(...gaps).toFixed(3)} s apart`);
+        assert.ok(r.peakMean > 0.12, `at ${bpm} BPM the wall never lit up (peak mean ${r.peakMean.toFixed(2)})`);
+        assert.ok(r.peakCoverage <= 0.85, `at ${bpm} BPM a program lit ${(r.peakCoverage * 100).toFixed(0)}% of the wall at once`);
+        r.peakByProgram.forEach((_, p) => programs.add(p));
+    }
+    for (const energy of [0.08, 0.25]) {
+        const r = run({ bpm: 128, energy, bass: energy * 2 });
+        r.peakByProgram.forEach((_, p) => programs.add(p));
+        assert.ok(r.peakCoverage <= 0.85, `at energy ${energy} a program lit ${(r.peakCoverage * 100).toFixed(0)}% of the wall at once`);
+    }
+    assert.equal(programs.size, 8, `only ${programs.size} of 8 shape programs ever played`);
+
+    // Every program really lights the wall: none is a blank frame.
+    const all = run({ bpm: 128, energy: 0.45, bass: 1, seconds: 90 });
+    for (const [program, peak] of all.peakByProgram) assert.ok(peak > 0.08, `program ${program} rendered a dark wall`);
+
+    // Energy is read: a loud peak lights far more of the wall than a quiet groove.
+    const quiet = run({ bpm: 128, energy: 0.05, bass: 0.1 });
+    const loud = run({ bpm: 128, energy: 0.45, bass: 1 });
+    assert.ok(loud.peakMean > quiet.peakMean * 1.6, `a loud peak (${loud.peakMean.toFixed(2)}) must outshine a quiet groove (${quiet.peakMean.toFixed(2)})`);
+
+    // Safe Mode keeps the shapes and moves them but removes the flash: nothing crosses half
+    // brightness, the whole wall never steps abruptly, and the peak is lower.
+    for (const bpm of [128, 174]) {
+        const safe = run({ bpm, energy: 0.45, bass: 1, safe: true });
+        assert.equal(safe.worstPanel, 0, `Safe Mode at ${bpm} BPM still flashed a panel`);
+        assert.ok(safe.maxStep < 0.15, `Safe Mode stepped the whole wall by ${safe.maxStep.toFixed(3)} in one frame`);
+        assert.ok(safe.peakMean > 0.05, 'Safe Mode must still show shapes, not a dark wall');
+        assert.ok(safe.peakMean < loud.peakMean, 'Safe Mode must be dimmer at the peak than the normal wall');
+    }
+
+    // Colour modes: one colour stays one hue; multi brings in the accent; mono has no hue rule
+    // here (the wall's monochrome backstop collapses it) but must still render.
+    const hueSums = (opts) => {
+        const panels = [];
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                panels.push({ col, row, colorBuffer: new BABYLON.Color3(), material: { emissiveColor: new BABYLON.Color3() } });
+            }
+        }
+        const club = {
+            ledPanels: panels, ledCols: cols, ledRows: rows, ledMonochrome: false, ledMulti: opts.multi,
+            bpm: 128, vjDirector: { beatNumber: 0 }, barPhase: 0, showDirector: { _energy: 0.45 },
+            ledAccentColor: new BABYLON.Color3(1, 0, 0)
+        };
+        Object.assign(club, window.LEDPatterns);
+        let r = 0, b = 0;
+        for (let f = 0; f < 600; f++) {
+            const beats = (f / 60) * 128 / 60 + 2.5;
+            club.vjDirector.beatNumber = Math.floor(beats);
+            club.barPhase = ((Math.floor(beats) % 4) + (beats - Math.floor(beats))) / 4;
+            club.patternWarehouse(new BABYLON.Color3(0, 0, 1), 100 + f / 60, { hasAudio: true, bass: 0.8, mid: 0.5, treble: 0.3 });
+            for (const p of panels) { const e = p.material.emissiveColor; if (e.r + e.g + e.b < 0.9 * 3 * 0.99) { r += e.r; b += e.b; } }
+        }
+        return { r, b };
+    };
+    const one = hueSums({ multi: false }), multi = hueSums({ multi: true });
+    assert.ok(one.b > 0 && multi.b > 0, 'the wall colour must stay visible, not wash to white, in both colour modes');
+    assert.ok(one.b > one.r * 3, 'a one-colour blue wall must stay blue (white-hot flashes aside)');
+    assert.ok(multi.r > one.r * 2, 'a multi-colour wall must bring in its accent colour');
 });
 
 test('every LED wall pattern runs without throwing', () => {

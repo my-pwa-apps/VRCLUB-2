@@ -12,6 +12,18 @@ const UNDERGROUND_SCENES = [
 ];
 const UNDERGROUND_TOTAL_BARS = 38;
 
+// Warehouse shapes: which programs the wall may pick at each energy band. Indices into the
+// program chain in patternWarehouse(). Low energy keeps to slow, large moves; high energy
+// brings in the programs that hit on every beat.
+const WAREHOUSE_PROGRAMS = {
+    low:  [0, 5, 2, 7],        // bars, scan, rings, radar
+    mid:  [0, 1, 2, 3, 4, 6],  // + blocks, slats, diamonds, checker
+    high: [1, 3, 4, 6, 0, 7]   // blocks, slats, diamonds, checker, bars, radar
+};
+// A flash is a rise and fall of the wall's light. Photosensitivity guidance caps these at
+// three per second; the governor refuses any closer than this, whatever the music does.
+const WAREHOUSE_MIN_FLASH_GAP = 0.40;
+
 class LEDPatternMethods {
     /**
      * Helper method to update LED panel emissive colors
@@ -615,7 +627,7 @@ class LEDPatternMethods {
 
     // === IMMERSIVE PULSATING PATTERNS ===
     
-    patternBreathing(_color, time, _audioData) {
+    patternBreathing(color, time, _audioData) {
         // Slow inhale/exhale - meditative pulsing glow
         const cols = this.ledCols || 28;
         const rows = this.ledRows || 8;
@@ -626,12 +638,18 @@ class LEDPatternMethods {
         // Inhale is slower than exhale (realistic breathing)
         const breath = Math.pow(breathCycle, 0.7); // Ease in the exhale
         
-        // Color shifts from cool (exhale) to warm (inhale)
-        this._ledColor2.r = 0.2 + breath * 0.6;
-        this._ledColor2.g = 0.1 + breath * 0.3;
-        this._ledColor2.b = 0.8 - breath * 0.5;
+        // The colour is the show's (so a harmony or colour lock reaches the wall): dim on
+        // the exhale, full on the inhale, with a little white at the top of the breath.
+        // It used to paint its own blue-to-red and ignore the colour it was handed.
+        const tone = this._ledColor2;
+        const lift = 0.55 + breath * 0.45;
+        const white = breath * breath * 0.18;
+        tone.r = color.r * lift + white;
+        tone.g = color.g * lift + white;
+        tone.b = color.b * lift + white;
         
-        this.ledPanels.forEach(panel => {
+        for (let p = 0; p < this.ledPanels.length; p++) {
+            const panel = this.ledPanels[p];
             // Gentle radial gradient that expands/contracts with breath
             const centerX = cols / 2;
             const centerY = rows / 2;
@@ -642,11 +660,8 @@ class LEDPatternMethods {
             const expandRadius = breath * maxDist * 1.5;
             const brightness = Math.max(0, 1.0 - Math.abs(dist - expandRadius * 0.3) / (3 + breath * 5));
             
-            const scaleFactor = brightness * 0.8 + 0.2;
-            panel.material.emissiveColor.r = this._ledColor2.r * scaleFactor;
-            panel.material.emissiveColor.g = this._ledColor2.g * scaleFactor;
-            panel.material.emissiveColor.b = this._ledColor2.b * scaleFactor;
-        });
+            this.updateLEDPanel(panel, tone, brightness * 0.8 + 0.2);
+        }
     }
     
     patternShockwave(color, time, _audioData) {
@@ -1120,6 +1135,286 @@ class LEDPatternMethods {
         }
     }
 
+
+    // ──────────────────────────────────────────────────────────────────────
+    // WAREHOUSE SHAPES
+    //
+    // The wall as a club screen: bars, tiles, rings, slats, diamonds, a scan, a checker and
+    // a radar, cut hard on the beat. Every bar-aligned program change is chosen from the
+    // music's energy (the Show Director's slow EMA blended with the live bass), so a quiet
+    // groove gets big slow moves and a peak gets every-beat flashing shapes.
+    //
+    // Colour comes from the look: black and white (the monochrome backstop), one colour
+    // (the wall colour with white-hot flashes) or several (`ledMulti`: the wall colour, its
+    // complement and white).
+    //
+    // Photosensitivity is part of the design, not an afterthought:
+    //  - ONE flash governor. Beat edges propose a flash; none is accepted closer than
+    //    WAREHOUSE_MIN_FLASH_GAP, so no panel can flash more than ~3 times a second however
+    //    fast the tempo. Shapes MOVE on every beat; they only FLASH on accepted ones.
+    //  - Photosensitive Safe Mode keeps the movement and removes the flash: a slower attack,
+    //    a lower peak and a lifted floor, so the wall pulses instead of strobing.
+    //  - Coverage is bounded (no program lights more than about half the wall) and program
+    //    changes dip through black over ~0.25 s instead of cutting.
+    // ──────────────────────────────────────────────────────────────────────
+    patternWarehouse(color, time, audioData) {
+        const panels = this.ledPanels;
+        if (!panels || panels.length === 0) return;
+        const cols = this.ledCols || 21;
+        const rows = this.ledRows || 10;
+        const cells = cols * rows;
+        const hasAudio = !!(audioData && audioData.hasAudio);
+        const bass = hasAudio ? (audioData.bass || 0) : 0;
+        const safe = !!this.photosensitiveSafeMode;
+
+        let wh = this._wh;
+        if (!wh || wh.cells !== cells) {
+            wh = this._wh = {
+                cells,
+                modCols: Math.ceil(cols / 3), modRows: Math.ceil(rows / 2),
+                level: new Float32Array(cells), tone: new Uint8Array(cells),
+                fresh: new Float32Array(cells), freshTone: new Uint8Array(cells),
+                mod: new Float32Array(Math.ceil(cols / 3) * Math.ceil(rows / 2)),
+                energy: 0.4, flashAt: -1e9, flashLevel: 0, lastBeat: -1, flashBeat: -1,
+                program: 0, programBar: -1, lastFrame: -1e9, lastT: -1e9, stabLine: 0, stabHorizontal: false,
+                scratch: new BABYLON.Color3(), hot: new BABYLON.Color3()
+            };
+        }
+
+        // --- clock: the director's beat grid, else the BPM estimate -------------------
+        const bpm = this.bpm || 130;
+        const beatLen = 60 / bpm;
+        const vj = this.vjDirector;
+        const beats = (vj && Number.isFinite(vj.beatNumber))
+            ? vj.beatNumber + ((this.barPhase || 0) * 4 - Math.floor((this.barPhase || 0) * 4))
+            : time / beatLen;
+        const frameId = (this.scene && typeof this.scene.getFrameId === 'function') ? this.scene.getFrameId() : null;
+        const away = frameId !== null ? (frameId - wh.lastFrame > 3) : (time - wh.lastT > 0.5);
+        if (away) {
+            wh.level.fill(0); wh.tone.fill(0); wh.lastBeat = -1; wh.programBar = -1; wh.flashAt = -1e9;
+        }
+        if (frameId !== null) wh.lastFrame = frameId;
+        const dt = Math.min(0.1, Math.max(0, time - wh.lastT));
+        wh.lastT = time;
+        const bi = Math.floor(beats);
+        const bar = Math.floor(beats / 4);
+        const beatInBar = bi - bar * 4;
+        // Above ~2.5 beats a second (150 BPM) the shapes step every other beat: a program
+        // that changes on every beat of a fast track would flicker faster than the flash limit.
+        const stride = beatLen < WAREHOUSE_MIN_FLASH_GAP ? 2 : 1;
+        const sb = Math.floor(beats / stride);                        // the beat the SHAPES step on
+        wh.stride = stride;
+
+        // --- energy, 0..1 --------------------------------------------------------------
+        const sd = this.showDirector;
+        const slow = (sd && Number.isFinite(sd._energy))
+            ? Math.min(1, sd._energy / 0.4)
+            : Math.min(1, (this.masterIntensity == null ? 0.7 : this.masterIntensity) * 0.8);
+        const target = Math.min(1, 0.65 * slow + 0.35 * Math.min(1, bass * 1.3));
+        wh.energy += (target - wh.energy) * (1 - Math.exp(-dt * 1.5));
+        const en = wh.energy;
+
+        // --- program: chosen on a bar line from the energy band, never the same twice --
+        const barsPerProgram = en > 0.6 ? 1 : 2;
+        const slot = Math.floor(bar / barsPerProgram);
+        if (wh.programBar !== slot) {
+            wh.programBar = slot;
+            const band = en < 0.3 ? WAREHOUSE_PROGRAMS.low : (en < 0.6 ? WAREHOUSE_PROGRAMS.mid : WAREHOUSE_PROGRAMS.high);
+            let pick = band[Math.floor(this._ugHash(slot * 3.7 + 1.3) * band.length)];
+            if (pick === wh.program) pick = band[(band.indexOf(pick) + 1) % band.length];
+            wh.program = pick;
+        }
+        const local = (beats - slot * barsPerProgram * 4) / 4;          // bars into the program
+        const env = this._ugSmooth(local / 0.12) * this._ugSmooth((barsPerProgram - local) / 0.12);
+
+        // --- flash governor ---------------------------------------------------------------
+        // Beat edges propose; the energy decides how many beats flash; the gap rule disposes.
+        if (bi !== wh.lastBeat) {
+            wh.lastBeat = bi;
+            const every = en < 0.3 ? 4 : (en < 0.6 ? 2 : 1);
+            if (bi % stride === 0 && beatInBar % every === 0 && time - wh.flashAt >= WAREHOUSE_MIN_FLASH_GAP) {
+                wh.flashAt = time;
+                wh.flashBeat = bi;
+                wh.stabLine = Math.floor(this._ugHash(bi * 5.1 + 2.2) * 100);
+                wh.stabHorizontal = this._ugHash(bi * 1.9 + 7.7) > 0.5;
+            }
+        }
+        const since = Math.max(0, time - wh.flashAt);
+        const decay = safe ? 0.38 : 0.20 - 0.09 * en;
+        let fl = Math.exp(-since / decay);
+        if (safe) fl *= this._ugSmooth(since / 0.14);      // a slow attack: a swell, not a hit
+        wh.flashLevel = fl;
+        const lo = safe ? 0.42 : 0.26;                     // resting level of a lit shape
+        const hi = safe ? 0.72 : 1.0;                      // level at the top of a flash
+        const lit = lo + (hi - lo) * fl;
+        const hot = !safe && fl > 0.72;                    // white-hot only at the top of a real flash
+
+        const multi = !!this.ledMulti && !this.ledMonochrome;
+        const fresh = wh.fresh, ft = wh.freshTone;
+        fresh.fill(0); ft.fill(0);
+        const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
+        const ASPECT = 1.2;                                // panels are 1.2 m wide, 1.0 m tall
+        const flip = (bar & 1) ? -1 : 1;
+        // Tone 2 = white-hot, 1 = the accent colour, 0 = the wall colour. At the top of a flash only
+        // the even shapes go white-hot, so the wall colour (and the accent) stays visible on the rest.
+        const tn = (parity) => (hot && (parity & 1) === 0 ? 2 : (multi ? (parity & 1) : 0));
+        const prog = wh.program;
+
+        if (prog === 0) {
+            // BARS: vertical bars march sideways a column a beat; alternate bars take the flash.
+            const spacing = en > 0.6 ? 4 : 5;                      // never more than 40% of the columns
+            const width = en > 0.5 ? 2 : 1;
+            const pos = beats * flip;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const u = panel.col - pos;
+                const m = ((u % spacing) + spacing) % spacing;
+                if (m >= width) continue;
+                const id = Math.floor(u / spacing);
+                const on = ((id & 1) === (sb & 1));
+                fresh[panel.row * cols + panel.col] = on ? lit : lo;
+                ft[panel.row * cols + panel.col] = tn(id);
+            }
+        } else if (prog === 1) {
+            // BLOCKS: 3x2 tiles; each beat lights a handful, more as the energy climbs.
+            const mod = wh.mod;
+            mod.fill(0);
+            const count = 2 + Math.floor(en * 5);
+            for (let b = sb; b >= sb - 1; b--) {
+                for (let k = 0; k < count; k++) {
+                    const mi = Math.floor(this._ugHash(b * 7.31 + k * 13.7 + 0.5) * mod.length);
+                    const level = b === sb ? lit : lo * 0.9;
+                    if (level > mod[mi]) mod[mi] = level;
+                }
+            }
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const mi = Math.floor(panel.col / 3) + Math.floor(panel.row / 2) * wh.modCols;
+                const idx = panel.row * cols + panel.col;
+                fresh[idx] = mod[mi];
+                ft[idx] = tn(mi);
+            }
+        } else if (prog === 2 || prog === 4) {
+            // RINGS (2) expand from the centre and DIAMONDS (4) collapse into it, one per beat.
+            const diamond = prog === 4;
+            const maxR = Math.hypot(cx * ASPECT, cy) + 1;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const dx = (panel.col - cx) * ASPECT, dy = panel.row - cy;
+                const d = diamond ? Math.abs(dx) + Math.abs(dy) * 1.2 : Math.hypot(dx, dy);
+                let best = 0, bestTone = 0;
+                for (let k = 0; k < 3; k++) {
+                    const age = (beats / stride - (sb - k));       // stepped beats since this ring was born
+                    const r = diamond ? maxR * 1.3 * (1 - age / 3) : age * (maxR / 3);
+                    const thick = 1.0 + 0.5 * en;
+                    const off = Math.abs(d - r);
+                    if (off >= thick) continue;
+                    const v = (1 - off / thick) * (k === 0 ? lit : lo * (1 - k * 0.3));
+                    if (v > best) { best = v; bestTone = tn(sb - k); }
+                }
+                if (best > 0) { fresh[panel.row * cols + panel.col] = best; ft[panel.row * cols + panel.col] = bestTone; }
+            }
+        } else if (prog === 3) {
+            // SLATS: horizontal bars that slide up and down; alternate bars take the flash.
+            const spacing = 3;
+            const pos = beats * 0.75 * flip;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const u = panel.row - pos;
+                const m = ((u % spacing) + spacing) % spacing;
+                if (m >= 1) continue;
+                const id = Math.floor(u / spacing);
+                const idx = panel.row * cols + panel.col;
+                fresh[idx] = ((id & 1) === (sb & 1)) ? lit : lo;
+                ft[idx] = tn(id);
+            }
+        } else if (prog === 5) {
+            // SCAN: a vertical line crosses the wall once a bar (the direction alternates),
+            // and at higher energy a horizontal one crosses every two bars.
+            const sweep = (beats / 4 - bar);                      // 0..1 across the bar
+            const x = (flip > 0 ? sweep : 1 - sweep) * (cols - 1);
+            const y = ((beats / 8) % 1) * (rows - 1);
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const idx = panel.row * cols + panel.col;
+                const vx = Math.max(0, 1 - Math.abs(panel.col - x) / 1.1);
+                const vy = en > 0.35 ? Math.max(0, 1 - Math.abs(panel.row - y) / 0.9) : 0;
+                const v = Math.max(vx, vy * 0.85);
+                if (v > 0) { fresh[idx] = v * lit; ft[idx] = tn(vx >= vy ? 0 : 1); }
+            }
+        } else if (prog === 6) {
+            // CHECKER: 2x2 blocks that invert every beat. Half the wall is always lit, so
+            // the total light holds steady while every panel changes at only half the beat rate.
+            // The new half ramps in over the first fifth of the beat while the old half decays, so
+            // an inversion is a cross-fade at constant coverage, not a frame of full wall.
+            const ramp = this._ugSmooth((beats / stride - sb) / 0.2);
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const parity = (Math.floor(panel.col / 2) + Math.floor(panel.row / 2) + sb) & 1;
+                if (parity) continue;
+                const idx = panel.row * cols + panel.col;
+                fresh[idx] = lit * 0.9 * ramp;
+                ft[idx] = tn(sb);
+            }
+        } else {
+            // RADAR: one or two wedges sweeping round the centre, a turn every two bars.
+            const wedges = en > 0.5 ? 2 : 1;
+            const theta = (beats / 8) * Math.PI * 2 * flip;
+            const width = 0.42 + 0.25 * fl;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                const ang = Math.atan2(panel.row - cy, (panel.col - cx) * ASPECT);
+                let best = 0, tone = 0;
+                for (let w = 0; w < wedges; w++) {
+                    let d = Math.abs(ang - (theta + w * Math.PI));
+                    d = Math.min(d % (Math.PI * 2), Math.PI * 2 - (d % (Math.PI * 2)));
+                    const v = Math.max(0, 1 - d / width);
+                    if (v > best) { best = v; tone = w; }
+                }
+                if (best > 0) { const idx = panel.row * cols + panel.col; fresh[idx] = best * lit; ft[idx] = tn(tone); }
+            }
+        }
+
+        // STAB: at higher energy each accepted flash also throws one full row or column
+        // of white across the wall, the kind of single bar an LED strobe-line gives.
+        if (en > 0.5 && !safe && fl > 0.3) {
+            const row = wh.stabHorizontal;
+            const line = row ? wh.stabLine % rows : wh.stabLine % cols;
+            for (let p = 0; p < panels.length; p++) {
+                const panel = panels[p];
+                if ((row ? panel.row : panel.col) !== line) continue;
+                const idx = panel.row * cols + panel.col;
+                if (fl * 0.9 > fresh[idx]) { fresh[idx] = fl * 0.9; ft[idx] = 2; }
+            }
+        }
+
+        // --- persistence, then one write per panel ----------------------------------------
+        // The checker inverts every beat, so a long tail would light both halves at once and
+        // turn a 50% pattern into a 100% wall; it gets a short tail.
+        const tau = Math.max(0.07, 0.22 - 0.12 * en) * (safe ? 1.6 : 1) * (prog === 6 ? 0.45 : 1);
+        const keep = Math.exp(-dt / tau);
+        const level = wh.level, tone = wh.tone;
+        for (let i = 0; i < cells; i++) {
+            const f = fresh[i] * env;
+            const held = level[i] * keep;
+            if (f >= held) { level[i] = f; tone[i] = ft[i]; } else { level[i] = held; }
+        }
+
+        const accent = this.ledAccentColor || color;
+        const hotColor = wh.hot;
+        hotColor.set(color.r + (1 - color.r) * 0.7, color.g + (1 - color.g) * 0.7, color.b + (1 - color.b) * 0.7);
+        const out = wh.scratch;
+        for (let p = 0; p < panels.length; p++) {
+            const panel = panels[p];
+            const idx = panel.row * cols + panel.col;
+            const v = level[idx];
+            if (v < 0.02) { this.updateLEDPanel(panel, color, 0); continue; }
+            const t = tone[idx];
+            const src = t === 2 ? hotColor : (t === 1 && multi ? accent : color);
+            out.set(src.r, src.g, src.b);
+            this.updateLEDPanel(panel, out, Math.min(1, v));
+        }
+    }
 }
 
 window.LEDPatterns = {};

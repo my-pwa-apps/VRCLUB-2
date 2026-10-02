@@ -90,11 +90,16 @@ class VJDirector {
         this.paletteMode = 'analogous';
         this.lastPhraseBeat = 0;
         this.hueLocked = false;           // A look that owns its colour pins the hue
+        // How the LED wall's colour relates to the beams. 'match' is the original
+        // behaviour (wall = beam colour); see VJDirector.LED_HARMONIES.
+        this.ledHarmony = 'match';
 
         // Reusable Color3 buffers so we never allocate per frame
         this._tmpColorA = new BABYLON.Color3(1, 0, 0);
         this._tmpColorB = new BABYLON.Color3(0, 1, 0);
         this._tmpColorC = new BABYLON.Color3(0, 0, 1);
+        this._ledColor = new BABYLON.Color3(1, 0, 0);
+        this._ledAccent = new BABYLON.Color3(0, 1, 1);
 
         // === SCENE ENGINE ===
         // Higher-level than the existing 12-phase cycle. Maps perceived audio
@@ -403,7 +408,8 @@ class VJDirector {
         // Spot color: primary palette color
         if (club.spotColorList && club.cachedColors) {
             club.currentSpotColor = A.clone();
-            club.ledShowColor = A.clone();
+            // The wall is not always the beams' colour: see ledHarmony.
+            this.refreshLedColor();
             // Try to land on the closest palette index so legacy code that
             // reads spotColorIndex (e.g. for sheet color) still works.
             club.spotColorIndex = this._closestPaletteIndex(A, club.spotColorList);
@@ -444,6 +450,43 @@ class VJDirector {
 
     unlockHue() {
         this.hueLocked = false;
+    }
+
+    /**
+     * Hue offsets (0..1 of the colour wheel) the wall can sit from the beams.
+     *   match       wall = beams (the original behaviour, and the default)
+     *   analogous   a neighbour, +30 degrees: same family, a different note
+     *   complement  the opposite, +180 degrees: beams and wall pull against each other
+     *   triad       +120 degrees
+     *   follow      whatever partner hue the look's palette gives the lasers, so wall
+     *               and lasers read as one second colour against the heads
+     */
+    static LED_HARMONIES = { match: 0, analogous: 0.083, complement: 0.5, triad: 0.333 };
+
+    _ledHueOffset() {
+        if (this.ledHarmony === 'follow') {
+            return this.paletteMode === 'complementary' ? 0.5 : (this.paletteMode === 'triad' ? 0.333 : 0.083);
+        }
+        return VJDirector.LED_HARMONIES[this.ledHarmony] || 0;
+    }
+
+    /** Recompute the wall's colour from the master hue and the current harmony. No allocation. */
+    refreshLedColor() {
+        const club = this.club;
+        const offset = this._ledHueOffset();
+        const wallHue = (this.masterHue + offset) % 1.0;
+        if (offset === 0) {
+            if (club.currentSpotColor) club.ledShowColor = club.currentSpotColor;
+        } else {
+            club.ledShowColor = this._hsvToColor(wallHue, 1.0, 1.0, this._ledColor);
+        }
+        // A second colour for multi-colour wall looks: always the wall colour's opposite.
+        club.ledAccentColor = this._hsvToColor((wallHue + 0.5) % 1.0, 1.0, 1.0, this._ledAccent);
+    }
+
+    setLedHarmony(harmony) {
+        this.ledHarmony = harmony in VJDirector.LED_HARMONIES || harmony === 'follow' ? harmony : 'match';
+        this.refreshLedColor();
     }
 
     // HSV → Color3 (in-place into `out` to avoid allocation)
