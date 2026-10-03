@@ -97,16 +97,16 @@
                 VR Comfort: Teleport &amp; Snap Turn
             </label>
 
-            <!-- Off by default: starting the radio connects to a third-party server,
-                 which receives the visitor's IP address and listening time. -->
+            <!-- On by default (the guest can untick it): starting the music connects to the
+                 podcast host and Podbean, which receive the visitor's IP address and listening time. -->
             <label class="splash-toggle" for="splashRadioOnEntry">
-                <input id="splashRadioOnEntry" type="checkbox" aria-describedby="splashRadioNote">
-                Play radio on entry
+                <input id="splashRadioOnEntry" type="checkbox" aria-describedby="splashRadioNote" checked>
+                Play music on entry
             </label>
             <p class="splash-hint" id="splashRadioNote">
-                Streams <span id="splashRadioName">SUNSHINE LIVE</span> from
-                <span id="splashRadioHost">stream.sunshine-live.de</span>, which receives your IP address.
-                Leave it off to choose a station or a local file later.
+                Plays the latest <span id="splashRadioName">Resident by Hernan Cattaneo</span> from
+                <span id="splashRadioHost">podcast.hernancattaneo.com</span> and Podbean, which receive your IP address.
+                Untick it to choose a station or a local file later.
             </p>
 
             <button class="splash-button" id="enterClubBtn" type="button">

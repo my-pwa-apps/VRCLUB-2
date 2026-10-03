@@ -341,7 +341,8 @@ function loadAvatarManager() {
     };
     let now = 0;
     const { window } = loadClassic('js/avatarManager.js', {
-        BABYLON, performance: { now: () => now }
+        BABYLON, performance: { now: () => now },
+        AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils
     });
     const manager = new window.AvatarManager({ scene: {}, materialFactory: null });
     return { manager, AvatarManager: window.AvatarManager, created, advance: ms => { now += ms; } };
@@ -446,6 +447,118 @@ test('podcast feeds resolve the newest https audio episode, even from a truncate
     assert.equal(AudioUtils.parseLatestPodcastEpisode(feed.slice(0, feed.indexOf('</item>'))), null);
     assert.equal(AudioUtils.parseLatestPodcastEpisode('<rss></rss>'), null);
     assert.equal(AudioUtils.parseLatestPodcastEpisode(null), null);
+});
+
+test('podcast feeds list every playable episode newest first, once each', () => {
+    const { AudioUtils } = loadClassic('js/audioUtils.js').window;
+    const item = (title, url, type = 'audio/mpeg') =>
+        `<item><title>${title}</title><enclosure url="${url}" type="${type}"/></item>`;
+    const feed = '<rss><channel>' +
+        item('803', 'https://cdn.example/803.mp3') +
+        item('video', 'https://cdn.example/v.mp4', 'video/mp4') +
+        item('802', 'https://cdn.example/802.mp3') +
+        item('802 again', 'https://cdn.example/802.mp3') +
+        item('insecure', 'http://cdn.example/801.mp3') +
+        item('801', 'https://cdn.example/801.mp3') +
+        '<item><title>cut off</title><enclosure url="https://cdn.example/800.mp3" ';
+    // Spread: the arrays come from a separate VM realm, so compare plain copies.
+    assert.deepEqual([...AudioUtils.parsePodcastEpisodes(feed).map(e => e.title)], ['803', '802', '801']);
+    assert.deepEqual([...AudioUtils.parsePodcastEpisodes('<rss></rss>')], []);
+    assert.deepEqual([...AudioUtils.parsePodcastEpisodes(undefined)], []);
+});
+
+// When an episode finishes the next older one must start, and choosing anything else ends the
+// queue. The queue lives in ui-init.js (a DOM script), so it is driven here with its real source
+// against a fake club and document.
+test('a finished Resident episode is followed by the next older one, and a different choice stops the queue', async () => {
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    // The queue section: from its doc comment to the closing brace of advanceResidentQueue().
+    const start = source.indexOf('/**\n * The Resident episodes in play order');
+    const advance = source.indexOf('async function advanceResidentQueue');
+    assert.ok(start > 0 && advance > start, 'queue code not found');
+    const section = source.slice(start, source.indexOf('\n}\n', advance) + 3);
+    const played = [];
+    const listeners = {};
+    const audio = { addEventListener: (type, fn) => { listeners[type] = fn; } };
+    const club = {
+        audioElement: audio,
+        _audioStreamUrl: null,
+        networkManager: null,
+        startAudioStream(url, options) {
+            if (club.failing.has(url)) return Promise.reject(new Error('404'));
+            played.push({ url, onDemand: options && options.onDemand });
+            club._audioStreamUrl = url;
+            return Promise.resolve();
+        },
+        failing: new Set(),
+        showErrorMessage(message) { club.lastError = message; }
+    };
+    const feedFetches = [];
+    const nowPlaying = { textContent: '' };
+    const context = vm.createContext({
+        console, Promise, Error,
+        document: {
+            getElementById: id => (id === 'audioNowPlaying' ? nowPlaying : null),
+            addEventListener() {}, removeEventListener() {}
+        },
+        uiLog: { warn() {} },
+        entryNowPlaying: '',
+        announceNowPlaying: label => { nowPlaying.textContent = `\u25B6 ${label}`; },
+        RESIDENT_PODCAST: { feed: 'feed' },
+        fetchPodcastEpisodes: async () => {
+            feedFetches.push(true);
+            return [{ title: 'new 900', url: 'https://x/900.mp3' }, { title: '899', url: 'https://x/899.mp3' }];
+        }
+    });
+    vm.runInContext(section + '\nthis.api = { playResidentFrom, advanceResidentQueue, getQueue: () => residentQueue };', context);
+    const api = context.api;
+    const episodes = [
+        { title: '803', url: 'https://x/803.mp3' },
+        { title: '802', url: 'https://x/802.mp3' },
+        { title: '801', url: 'https://x/801.mp3' }
+    ];
+
+    await api.playResidentFrom(club, episodes, 0);
+    assert.deepEqual(played.map(p => p.url), ['https://x/803.mp3']);
+    assert.equal(played[0].onDemand, true, 'an episode must play once, not loop, or it can never end');
+    assert.equal(typeof listeners.ended, 'function', 'the end of an episode is not observed');
+
+    // The episode ends: the next older one starts, and so on.
+    listeners.ended();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(played[1].url, 'https://x/802.mp3');
+    assert.equal(nowPlaying.textContent, '\u25B6 802');
+    listeners.ended();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(played[2].url, 'https://x/801.mp3');
+
+    // Out of older episodes: look at the feed again and start from the newest (a new one may be out).
+    listeners.ended();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(feedFetches.length, 1);
+    assert.equal(played[3].url, 'https://x/900.mp3');
+
+    // A dead episode is skipped in favour of the next older one.
+    club.failing.add('https://x/899.mp3');
+    club.failing.add('https://x/898.mp3');
+    await api.playResidentFrom(club, [
+        { title: '899', url: 'https://x/899.mp3' }, { title: '898', url: 'https://x/898.mp3' },
+        { title: '897', url: 'https://x/897.mp3' }
+    ], 0);
+    assert.equal(played[played.length - 1].url, 'https://x/897.mp3');
+
+    // The guest chooses something else: the old episode ending must not start another.
+    await api.playResidentFrom(club, episodes, 0);
+    const before = played.length;
+    club._audioStreamUrl = 'https://radio.example/live';
+    listeners.ended();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(played.length, before, 'the queue kept playing after the guest chose another stream');
+
+    // An autoplay block is rethrown at once, with the queue left on that episode for a retry.
+    club.startAudioStream = () => Promise.reject(Object.assign(new Error('blocked'), { name: 'NotAllowedError' }));
+    await assert.rejects(() => api.playResidentFrom(club, episodes, 1), { name: 'NotAllowedError' });
+    assert.equal(api.getQueue().index, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -936,12 +1049,27 @@ function createAudioHarness() {
         paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } },
         danceFloor: { x: 0, y: 0, z: -12 }
     };
+    class Vec {
+        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+        static Up() { return new Vec(0, 1, 0); }
+        static Zero() { return new Vec(); }
+        // Row-vector convention, as Babylon: v' = v * M (w = 0).
+        static TransformNormalToRef(v, m, ref) {
+            ref.x = v.x * m[0] + v.y * m[4] + v.z * m[8];
+            ref.y = v.x * m[1] + v.y * m[5] + v.z * m[9];
+            ref.z = v.x * m[2] + v.y * m[6] + v.z * m[10];
+            return ref;
+        }
+        lengthSquared() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+        normalize() { const l = Math.sqrt(this.lengthSquared()) || 1; this.x /= l; this.y /= l; this.z /= l; return this; }
+    }
     const { window } = loadClassic('js/club/11-audio-crowd.js', {
         VRClubUI: class {},
         CLUB_POSITIONS: positions,
         ROOM_BOUNDS: { z: { min: -21, max: -5 } },
         log: { info() {}, warn() {} },
-        BABYLON: { Vector3: { Up: () => ({ x: 0, y: 1, z: 0 }) } },
+        BABYLON: { Vector3: Vec },
+        AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils,
         Float32Array, Uint8Array
     });
     window.AudioContext = FakeAudioContext;
@@ -969,7 +1097,8 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     for (const [panner, side] of [[club.pannerLeft, 'left'], [club.pannerRight, 'right']]) {
         assert.ok(panner, `${side} PA panner missing`);
         assert.equal(panner.panningModel, 'HRTF', `${side} PA must use HRTF`);
-        assert.equal(panner.positionX.value, positions.paSpeakers[side].x);
+        // Web Audio is right-handed and Babylon is left-handed, so X is mirrored on the way in.
+        assert.equal(panner.positionX.value, -positions.paSpeakers[side].x);
         assert.equal(panner.positionY.value, positions.paSpeakers[side].y);
         assert.equal(panner.positionZ.value, positions.paSpeakers[side].z);
         assert.ok(connected(club.airAbsorptionFilter, panner));
@@ -1022,7 +1151,7 @@ test('the Web Audio listener follows the camera and leaving the room occludes th
     club.scene = { activeCamera: camera };
     club._audioFrameData = { average: 0 };
     club.updateSpatialAudioListener();
-    assert.equal(ctx.listener.positionX.value, 1);
+    assert.equal(ctx.listener.positionX.value, -1, 'X is mirrored into right-handed Web Audio space');
     assert.equal(ctx.listener.positionZ.value, -10);
     assert.equal(ctx.listener.forwardZ.value, -1);
     const insideCutoff = club.occlusionFilter.frequency.value;
@@ -1032,6 +1161,77 @@ test('the Web Audio listener follows the camera and leaving the room occludes th
     assert.ok(club.occlusionFilter.frequency.value < insideCutoff, 'the corridor must muffle the PA');
     assert.ok(club.audioMasterGain.gain.value < 1.15);
     assert.ok(club.reverbSend.gain.value > 0.08);
+});
+
+// A source must be heard on the side it appears on screen. Babylon is left-handed
+// (screen-right = up x forward) and Web Audio is right-handed (ear-right = forward x up);
+// this was shipped mirrored, so the left PA played in the right ear.
+test('every sound source is heard on the side it appears on screen', () => {
+    const { club, positions } = createAudioHarness();
+    club._connectAudioSourceOnce();
+    const ctx = club.audioContext;
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+    const listenerAt = { x: 0, y: 1.7, z: -12 };
+    for (const yaw of [0, 40, 90, 180, 250, 330].map(d => d * Math.PI / 180)) {
+        const forward = [Math.sin(yaw), 0, Math.cos(yaw)];
+        club.scene = {
+            activeCamera: {
+                globalPosition: listenerAt,
+                getForwardRay: () => ({ direction: { x: forward[0], y: 0, z: forward[2] } }),
+                upVector: { x: 0, y: 1, z: 0 }
+            }
+        };
+        club._audioFrameData = { average: 0 };
+        club.updateSpatialAudioListener();
+        const L = ctx.listener;
+        const audioForward = [L.forwardX.value, L.forwardY.value, L.forwardZ.value];
+        const audioUp = [L.upX.value, L.upY.value, L.upZ.value];
+        const audioRight = cross(audioForward, audioUp);
+        const screenRight = cross([0, 1, 0], forward);
+
+        for (const [side, panner] of [['left PA', club.pannerLeft], ['right PA', club.pannerRight]]) {
+            const source = positions.paSpeakers[side.startsWith('left') ? 'left' : 'right'];
+            const toSource = sub([source.x, source.y, source.z], [listenerAt.x, listenerAt.y, listenerAt.z]);
+            const onScreen = Math.sign(dot(toSource, screenRight));
+            const heard = Math.sign(dot(sub(
+                [panner.positionX.value, panner.positionY.value, panner.positionZ.value],
+                [L.positionX.value, L.positionY.value, L.positionZ.value]), audioRight));
+            if (Math.abs(dot(toSource, screenRight)) > 0.5) {
+                assert.equal(heard, onScreen, `${side} at yaw ${Math.round(yaw * 180 / Math.PI)} is on the wrong side`);
+            }
+        }
+    }
+});
+
+test('the listener tilts with the head instead of staying upright', () => {
+    const { club } = createAudioHarness();
+    club._connectAudioSourceOnce();
+    const ctx = club.audioContext;
+    // A head rolled 30 degrees about its forward (z) axis: +Y maps to (sin30, cos30, 0), i.e.
+    // tilts towards Babylon +X (row-vector convention, so +Y is row 1).
+    const roll = 30 * Math.PI / 180;
+    const matrix = [
+        Math.cos(roll), -Math.sin(roll), 0, 0,
+        Math.sin(roll), Math.cos(roll), 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ];
+    club.scene = {
+        activeCamera: {
+            globalPosition: { x: 0, y: 1.7, z: -12 },
+            getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }),
+            getWorldMatrix: () => matrix,
+            upVector: { x: 0, y: 1, z: 0 }
+        }
+    };
+    club._audioFrameData = { average: 0 };
+    club.updateSpatialAudioListener();
+    // The matrix tilts +Y towards Babylon +X; Web Audio sees that mirrored.
+    assert.ok(Math.abs(ctx.listener.upX.value - -Math.sin(roll)) < 1e-9, `upX ${ctx.listener.upX.value}`);
+    assert.ok(Math.abs(ctx.listener.upY.value - Math.cos(roll)) < 1e-9);
 });
 
 test('disposing the club stops every audio source and closes the AudioContext', () => {
@@ -1369,8 +1569,13 @@ test('NOCTURNE includes recurring single-subject lighting looks', () => {
     // A wall run below full strength (<= 0.85) is an ACCOMPANIMENT (lit and moving, but quiet enough
     // that the beams stay the subject), not a second headline. This is what lets the wall be on
     // under a single-subject look without breaking the one-idea-at-a-time rule.
+    // A strobe on the bar (one hit per bar, about 0.5 a second) is likewise an ACCENT that builds
+    // tension under another subject; a faster or solo strobe is still a headline.
+    const otherHeadline = (look) => ['lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive']
+        .some(system => look[system] === true);
     const isHeadline = (look, key) => look[key] === true &&
-        !(key === 'ledWallActive' && look.ledLevel !== undefined && look.ledLevel <= 0.85);
+        !(key === 'ledWallActive' && look.ledLevel !== undefined && look.ledLevel <= 0.85) &&
+        !(key === 'strobesActive' && look.strobeSync === 'bar' && otherHeadline(look));
 
     for (const [name, expected] of Object.entries(expectedSolo)) {
         const active = headlineSystems.filter(key => isHeadline(director.looks[name], key));
@@ -2306,6 +2511,7 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
         renderPipeline,
         scene: { getLightByName: name => name === 'ambient' ? ambient : null },
         strobeRetinalFlash: retinalFlash,
+        vrSettings: { vr: { strobeImpulse: { ambient: 1.6, retinal: 0.10, exposure: 1.2 } } },
         isInVRMode: true
     };
     const { window: coreWindow } = loadClassic('js/club/07-animation-core.js', {
@@ -2325,9 +2531,9 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     assert.ok(flashLight.intensity >= 1000, 'shared strobe light was not bright enough');
     assert.ok(club.strobes[0].flashDuration <= 0.09, 'strobe burst was not brief');
     assert.equal(renderPipeline.bloomWeight, 1, 'strobe did not drive full bloom');
-    assert.equal(renderPipeline.imageProcessing.exposure, 2.6, 'VR strobe did not spike exposure');
-    assert.equal(ambient.intensity, 3.8, 'VR strobe did not light the room');
-    assert.equal(retinalFlash.color.a, 0.24, 'VR strobe did not create retinal glare');
+    assert.equal(renderPipeline.imageProcessing.exposure, 1.2, 'VR strobe did not spike exposure to the configured level');
+    assert.equal(ambient.intensity, 1.6, 'VR strobe did not light the room to the configured level');
+    assert.equal(retinalFlash.color.a, 0.10, 'VR strobe did not create the configured retinal glare');
 
     club.photosensitiveSafeMode = true;
     window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
@@ -2339,6 +2545,57 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     assert.equal(renderPipeline.imageProcessing.exposure, 1.22, 'Safe Mode did not restore exposure');
     assert.equal(ambient.intensity, 0.06, 'Safe Mode did not restore room lighting');
     assert.equal(retinalFlash.color.a, 0, 'Safe Mode did not clear retinal glare');
+});
+
+// A burst is only 20-90 ms long, which is shorter than a frame on a loaded headset. The flash
+// timer used to be decremented BEFORE it was checked, so on any frame longer than the burst it
+// was lit and cleared in the same pass and never reached the screen: strobes silently vanished
+// whenever the frame rate dipped. Every burst must be visible for at least one rendered frame.
+test('a strobe burst is visible for at least one frame at any frame time', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {}
+    });
+    const makeClub = (speed) => ({
+        strobesActive: true,
+        photosensitiveSafeMode: false,
+        strobePattern: 'all',
+        strobeSpeed: speed,
+        vjDropActive: false,
+        vjBuildIntensity: 0,
+        masterIntensity: 1,
+        cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1), warmWhite: new BABYLON.Color3(1, 0.9, 0.7) },
+        strobes: Array.from({ length: 4 }, () => ({
+            material: { emissiveColor: new BABYLON.Color3() }, light: null, flashDuration: 0, currentIntensity: 0
+        })),
+        strobeFlashLight: { intensity: 0, setEnabled() {} },
+        _nextStrobeBurstTime: 0
+    });
+    const lit = club => club.strobes.some(s => s.material.emissiveColor.r > 0);
+    const step = (club, time, dt) => window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
+        time, dt, audio: { bass: 0, hasAudio: false }
+    });
+
+    for (const speed of [1, 2.0, 2.4]) {
+        for (const dt of [1 / 90, 1 / 72, 1 / 45, 1 / 36, 1 / 20, 4 / 60]) {
+            const club = makeClub(speed);
+            step(club, 10, dt);
+            assert.ok(lit(club), `speed ${speed}, ${(dt * 1000).toFixed(1)} ms frame: the burst never reached the screen`);
+            let litMs = dt * 1000;
+            let frames = 1;
+            while (lit(club) && frames < 200) {
+                // Keep every later frame inside the burst interval so no second burst starts.
+                club._nextStrobeBurstTime = 1e9;
+                step(club, 10 + frames * dt, dt);
+                if (lit(club)) litMs += dt * 1000;
+                frames++;
+            }
+            assert.ok(!lit(club), `speed ${speed}, ${(dt * 1000).toFixed(1)} ms frame: the burst never ended`);
+            // One frame of grace on top of the designed 90 ms ceiling.
+            assert.ok(litMs <= 90 + dt * 1000 + 1e-6, `speed ${speed}, ${(dt * 1000).toFixed(1)} ms frame: lit for ${litMs.toFixed(0)} ms`);
+        }
+    }
 });
 
 test('strobe chase randomizes corners and cadence without immediate repeats', () => {
@@ -2528,14 +2785,31 @@ test('strobes are a real part of the show, locked to the grid, and the countdown
     director._applyLook(director.looks.theWave);
     assert.equal(club.strobeSync, 'free');
 
-    // Strobes now appear in the build as well as the peak.
+    // Strobes are a real part of the whole show, not only the peak: an accent under the groove and
+    // the build, the headline in the peak. Only the opening stays clean so the room can build.
     const barsWithStrobes = (movement) => director.movements[movement].cues
         .filter(cue => director.looks[cue.look].strobesActive === true)
         .reduce((sum, cue) => sum + cue.bars, 0);
-    assert.ok(barsWithStrobes('ascent') >= 4, 'the build has no strobe cue');
+    assert.ok(barsWithStrobes('ascent') >= 12, 'the build has too few strobe bars');
     assert.ok(barsWithStrobes('ignition') >= 10, `the peak has only ${barsWithStrobes('ignition')} strobe bars`);
+    assert.ok(barsWithStrobes('pulse') >= 16, `the groove has only ${barsWithStrobes('pulse')} strobe bars`);
     assert.equal(barsWithStrobes('arrival'), 0, 'the opening must stay strobe-free');
-    assert.equal(barsWithStrobes('pulse'), 0, 'the groove must stay strobe-free');
+
+    // Every strobe layered under another subject is a once-per-bar accent (about 0.5 flashes a
+    // second at any tempo), so the added tension can never become a fast stutter. Only a strobe
+    // look with nothing else running may use the faster beat grid.
+    const layered = ['lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive'];
+    // The two designed everything-at-once peak hits (a bar or two long) may layer faster hits.
+    const fastLayeredAllowed = new Set(['detonation', 'releaseHit']);
+    for (const [name, look] of Object.entries(director.looks)) {
+        if (look.strobesActive !== true || !layered.some(system => look[system] === true)) continue;
+        if (fastLayeredAllowed.has(name)) continue;
+        assert.equal(look.strobeSync, 'bar', `"${name}" layers a strobe on another subject faster than once a bar`);
+    }
+    // The breakdown arc stays strobe-free.
+    for (const name of ['bdFall', 'bdSheet', 'bdAurora', 'bdRise']) {
+        assert.ok(!director.looks[name] || director.looks[name].strobesActive !== true, `${name} must stay strobe-free`);
+    }
 
     // The countdown ladder: once a bar, every kick, then the kick-and-offbeat roll.
     const rungs = [];
@@ -3071,21 +3345,44 @@ test('shipped club air keeps fog on and tints toward the look without changing h
         'fog density must ease, not snap');
 });
 
-test('safe mode resolver prefers an explicit store over reduced motion', () => {
+test('music on entry is on by default and a Resident episode is never remembered as the default', () => {
+    const { AudioUtils } = loadClassic('js/audioUtils.js').window;
+    assert.equal(AudioUtils.shouldPlayOnEntry(null), true, 'nothing stored: music starts on entry');
+    assert.equal(AudioUtils.shouldPlayOnEntry('1'), true);
+    assert.equal(AudioUtils.shouldPlayOnEntry('0'), false, 'an explicit opt-out is honoured');
+
+    // Episodes are resolved fresh from the feed; remembering one would pin the default to it.
+    assert.equal(AudioUtils.isResidentEpisodeUrl('https://mcdn.podbean.com/mf/web/x/803.mp3?a=1'), true);
+    assert.equal(AudioUtils.isResidentEpisodeUrl('https://podbean.com/e.mp3'), true);
+    assert.equal(AudioUtils.isResidentEpisodeUrl('https://notpodbean.com/e.mp3'), false);
+    assert.equal(AudioUtils.isResidentEpisodeUrl('https://radio.example/live.mp3'), false);
+    assert.equal(AudioUtils.isResidentEpisodeUrl('not a url'), false);
+
+    // The entry flow is wired to them, and the old station is gone from the defaults.
+    const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    assert.ok(!/sunshine-live/i.test(ui), 'the old default station is still referenced');
+    assert.match(ui, /AudioUtils\.shouldPlayOnEntry\(/);
+    assert.match(ui, /fetchPodcastEpisodes\(RESIDENT_PODCAST\)/);
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /<input id="splashRadioOnEntry"[^>]*\bchecked\b/, 'the splash music toggle must default to checked');
+});
+
+test('safe mode is off by default, never inferred from reduced motion, and an explicit choice is honoured', () => {
     const store = new Map();
     const localStorage = {
         getItem: (key) => (store.has(key) ? store.get(key) : null)
     };
-    let reduced = true;
     const { window } = loadClassic('js/club/01-core.js', { localStorage });
-    window.matchMedia = () => ({ matches: reduced });
+    window.matchMedia = () => ({ matches: true }); // the OS asks for reduced motion
     const resolve = window.VRClubCore.resolvePhotosensitiveSafeMode;
-    assert.equal(resolve(), true, 'reduced motion with no store must opt in');
-    store.set('vrclub.safeMode', '0');
-    assert.equal(resolve(), false, 'stored off wins over reduced motion');
+    assert.equal(resolve(), false, 'nothing stored: Safe Mode must not turn itself on, even under reduced motion');
     store.set('vrclub.safeMode', '1');
-    reduced = false;
-    assert.equal(resolve(), true, 'stored on wins when motion is not reduced');
+    assert.equal(resolve(), true, 'an explicit stored on is honoured');
+    store.set('vrclub.safeMode', '0');
+    assert.equal(resolve(), false, 'an explicit stored off is honoured');
+    const throwing = { getItem() { throw new Error('private browsing'); } };
+    assert.equal(loadClassic('js/club/01-core.js', { localStorage: throwing }).window.VRClubCore
+        .resolvePhotosensitiveSafeMode(), false, 'unreadable storage defaults to off');
 });
 
 test('photometric slots follow the strongest surface hit without toggling lights', () => {

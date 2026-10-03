@@ -226,6 +226,13 @@ burst on the kick, between kicks, on the downbeat, or on both (the build-up roll
 `chase` steps the corners in order instead of picking randomly. Every strobing look declares a
 sync mode (a unit test enforces it) and the countdown climbs bar → beat → roll → roll. Safe
 Mode still force-clears `strobesActive` first, so none of this can fire under it.
+**Strobes are an accent, not only a peak.** Under the groove and build, the heads, lasers and
+laser sheets carry a `chase` strobe once per bar (`strobeSync: 'bar'`, about 0.5 flashes a
+second at any tempo) to add tension; the opening, the breakdown arc and the comedown stay
+strobe-free. Any strobe layered under another subject must be bar-synced (a unit test allows
+only `detonation` and `releaseHit` to be faster), which also keeps it clear of the 3-a-second
+limit. A strobe-only solo may use the faster grid. The one-idea-at-a-time rule counts a
+bar-synced strobe as an accent, like a dimmed LED wall.
 **Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
 the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —
@@ -339,6 +346,14 @@ All differences live in the `vrSettings` object in `js/club/01-core.js`.
 Change the config and call `applyVRSettings(xrCamera)` / `applyDesktopSettings()` — never
 set pipeline values inline. Grain and chromatic aberration are disabled on both targets
 (they read as haze); bloom is kept minimal.
+
+**`pipeline.sharpen.colorAmount` is a brightness GAIN, not a sharpness.** Babylon's sharpen shader is
+`colour * colorAmount - edge * edgeAmount` and runs after tone mapping, so a value below 1 darkens the
+whole image and caps peak white at that value. VR shipped at 0.1 (a headset frame at 10% brightness,
+which no amount of fixture boosting could fix); keep it at 1.0 and set brightness with `exposure`.
+Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
+the VR frame is darker than the desktop one. The strobe's whole-room impulse is
+`vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye.
 
 ### Graphics quality tiers
 `vrSettings` covers *desktop vs VR*. A second, orthogonal axis covers *how strong a GPU
@@ -513,6 +528,11 @@ to avoid z-fighting.
 `<audio crossOrigin="anonymous">` → `MediaElementSource` → `AnalyserNode(fftSize=256)` →
 `DynamicsCompressor` → `GainNode` → destination.
 
+- **Web Audio is right-handed, Babylon is left-handed.** Never write a Babylon coordinate to a
+  `PannerNode` or the `AudioListener` directly: use `AudioUtils.setPannerPosition()`,
+  `setPannerOrientation()` and `AudioUtils.audioX()`, which mirror X. Done raw, the PA is heard
+  in the opposite ear to where it appears. `test/e2e/audio-spatial.spec.mjs` plays noise through
+  the real graph and fails if a speaker is louder in the wrong ear.
 - `getAudioData()` averages the analyser's 128 bins as bass = bins 0–11, mid = 12–63,
   treble = 64–127. At 48 kHz and `fftSize = 256` that is roughly 0–2.2 kHz, 2.2–12 kHz and
   12–24 kHz, so "bass" also carries vocals and snare body. Bass drives onset detection
@@ -523,6 +543,18 @@ to avoid z-fighting.
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
 - A stream served without `Access-Control-Allow-Origin` produces an all-zero analyser.
   `getAudioData()` detects this and surfaces a toast rather than failing silently.
+- **Default music.** ENTER starts the latest Resident episode (`startEntryMusic()` in
+  `js/ui-init.js`), unless the guest unticked the splash toggle (`vrclub.radioOnEntry = '0'`;
+  `AudioUtils.shouldPlayOnEntry()`). The AudioContext is created inside the click (autoplay), the
+  feed lookup is the only async part, and a blocked `play()` retries on the next click or key.
+  Episodes play once (`startAudioStream(url, { onDemand: true })` turns `loop` off); when one
+  ends the next older one starts (`playResidentFrom()` / `advanceResidentQueue()`), a dead link
+  is skipped, and past the oldest in the feed head (about 15) it reads the feed again and
+  restarts from the newest. Choosing any other stream or a file ends the queue. Everything else
+  still loops.
+  A stream the guest chose is remembered (`vrclub.lastStreamUrl`) and wins; a Podbean episode URL
+  is never remembered (`AudioUtils.isResidentEpisodeUrl()`), so the default stays "latest".
+  The e2e harness serves a fake feed and episode (`routeResidentFeed()` in `test/e2e/support.mjs`).
 - The Audio menu's **Latest Resident** button (`RESIDENT_PODCAST` in `js/ui-init.js`)
   range-fetches the head of the podcast RSS feed, resolves the newest episode with
   `AudioUtils.parseLatestPodcastEpisode()` and plays it through the same path as a
@@ -536,7 +568,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.lastStreamUrl`, `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (on unless explicitly `0`).
 `setVRComfortMode()` owns locomotion through `_applyXRLocomotionMode()`. Babylon declares
@@ -564,10 +596,11 @@ and had silently diverged; a test now enforces the delegation.
 `data-control` toggles are dispatched through the `TOGGLE_CONTROLS` allow-list, never by
 writing `instance[attributeValue]` directly.
 
-Photosensitive Safe Mode is offered on the splash **before** the scene renders and defaults
-to on under `prefers-reduced-motion`. Splash and constructor both call
-`VRClubCore.resolvePhotosensitiveSafeMode()`: stored `'1'`/`'0'` wins, otherwise the media
-query. It must never be reachable only after the strobes have already fired.
+Photosensitive Safe Mode is offered on the splash **before** the scene renders, next to the
+photosensitivity warning, and is **off by default** (a product decision: it is never switched on
+automatically, not even for `prefers-reduced-motion`). Splash and constructor both call
+`VRClubCore.resolvePhotosensitiveSafeMode()`: only a stored `'1'` turns it on. It must never be
+reachable only after the strobes have already fired.
 
 ## Multiplayer
 

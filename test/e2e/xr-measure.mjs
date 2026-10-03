@@ -32,6 +32,8 @@ export const snapshotRenderState = page => page.evaluate(() => {
             bloomScale: round(pipeline && pipeline.bloomScale),
             sharpen: pipeline && pipeline.sharpenEnabled,
             sharpenEdge: round(pipeline && pipeline.sharpen && pipeline.sharpen.edgeAmount),
+            // The sharpen stage's colour amount is a brightness GAIN on the final image.
+            sharpenGain: round(pipeline && pipeline.sharpen && pipeline.sharpen.colorAmount),
             imageProcessing: pipeline && pipeline.imageProcessingEnabled,
             toneMapping: ip && ip.toneMappingEnabled,
             toneMappingType: ip && ip.toneMappingType,

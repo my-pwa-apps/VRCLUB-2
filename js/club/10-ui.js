@@ -999,8 +999,16 @@ class VRClubUI extends VRClubAnimationFinish {
         }, delay);
     }
 
-    _playAudio(src, kind, label) {
+    /**
+     * @param {string} src
+     * @param {'stream'|'file'} kind
+     * @param {string} label
+     * @param {{ loop?: boolean }} [options] `loop: false` lets an on-demand episode reach its
+     *        end so the caller can queue the next one. Everything else loops, as before.
+     */
+    _playAudio(src, kind, label, options = {}) {
         const audio = this._ensureAudioElement();
+        audio.loop = options.loop !== false;
         this._audioKind = kind;
         this._audioStreamUrl = kind === 'stream' ? src : null;
         if (this._streamRecovery) {
@@ -1027,13 +1035,14 @@ class VRClubUI extends VRClubAnimationFinish {
         });
     }
 
-    startAudioStream(url) {
+    /** @param {{ onDemand?: boolean }} [options] an on-demand episode plays once instead of looping */
+    startAudioStream(url, options = {}) {
         if (!this._isSafeAudioUrl(url)) {
             log.warn(`🎵 Rejected unsafe audio URL: ${url}`);
             this.showErrorMessage('Invalid audio URL. Use http://, https:// or blob: only.');
             return Promise.reject(new TypeError('Unsafe audio URL'));
         }
-        return this._playAudio(url, 'stream', url);
+        return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
     }
 
     startAudioFromFile(file) {

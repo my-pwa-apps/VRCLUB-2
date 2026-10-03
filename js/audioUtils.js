@@ -25,24 +25,88 @@ function decodeXmlText(text) {
 
 const AudioUtils = Object.freeze({
     /**
-     * Newest episode of an RSS podcast feed: the first <item> with an https audio
-     * enclosure. Regex, not DOMParser, on purpose: callers fetch only the head of
-     * the feed (a byte range), which is not well-formed XML.
-     * @returns {{ title: string, url: string } | null}
+     * Babylon, and this scene, are LEFT-handed; Web Audio is RIGHT-handed. Handing Babylon
+     * coordinates straight to a PannerNode or the AudioListener mirrors the whole room: the
+     * left PA is heard in the right ear, and turning your head right moves the stage to your
+     * right ear. Reflecting X converts positions and direction vectors consistently, so every
+     * Web Audio coordinate must go through this (or the setters below).
      */
-    parseLatestPodcastEpisode(xmlText) {
-        if (typeof xmlText !== 'string') return null;
+    audioX(x) { return -x; },
+
+    /** Places a PannerNode at a Babylon-space point. */
+    setPannerPosition(panner, x, y, z) {
+        if (panner.positionX) {
+            panner.positionX.value = -x;
+            panner.positionY.value = y;
+            panner.positionZ.value = z;
+        } else if (panner.setPosition) {
+            panner.setPosition(-x, y, z);
+        }
+    },
+
+    /** Aims a PannerNode along a Babylon-space direction. */
+    setPannerOrientation(panner, x, y, z) {
+        if (panner.orientationX) {
+            panner.orientationX.value = -x;
+            panner.orientationY.value = y;
+            panner.orientationZ.value = z;
+        } else if (panner.setOrientation) {
+            panner.setOrientation(-x, y, z);
+        }
+    },
+
+    /**
+     * Every playable episode of an RSS podcast feed, newest first: each <item> with an https
+     * audio enclosure. Regex, not DOMParser, on purpose: callers fetch only the head of the
+     * feed (a byte range), which is not well-formed XML; an item cut off by the range has no
+     * closing tag and is simply not listed. Duplicate URLs are listed once.
+     * @returns {Array<{ title: string, url: string }>}
+     */
+    parsePodcastEpisodes(xmlText) {
+        const episodes = [];
+        if (typeof xmlText !== 'string') return episodes;
+        const seen = new Set();
         for (const [, item] of xmlText.matchAll(/<item[\s>]([\s\S]*?)<\/item>/g)) {
             const enclosure = /<enclosure\b[^>]*>/.exec(item);
             const url = enclosure && /\burl\s*=\s*["']([^"']+)["']/.exec(enclosure[0]);
             const type = enclosure && /\btype\s*=\s*["']([^"']+)["']/.exec(enclosure[0]);
             if (!url || (type && !type[1].startsWith('audio/'))) continue;
             const href = decodeXmlText(url[1]);
-            if (!/^https:\/\//i.test(href) || !AudioUtils.isSafeAudioUrl(href)) continue;
+            if (!/^https:\/\//i.test(href) || !AudioUtils.isSafeAudioUrl(href) || seen.has(href)) continue;
+            seen.add(href);
             const title = /<title>([\s\S]*?)<\/title>/.exec(item);
-            return { title: title ? decodeXmlText(title[1]) : 'Latest episode', url: href };
+            episodes.push({ title: title ? decodeXmlText(title[1]) : 'Episode', url: href });
         }
-        return null;
+        return episodes;
+    },
+
+    /**
+     * Newest episode of an RSS podcast feed.
+     * @returns {{ title: string, url: string } | null}
+     */
+    parseLatestPodcastEpisode(xmlText) {
+        return AudioUtils.parsePodcastEpisodes(xmlText)[0] || null;
+    },
+
+    /**
+     * Music on entry is ON unless the guest has explicitly turned it off (stored '0'). It
+     * is the product default; the splash names the servers contacted and keeps the opt-out.
+     */
+    shouldPlayOnEntry(stored) {
+        return stored !== '0';
+    },
+
+    /**
+     * Resident episodes live on Podbean. They are resolved fresh from the feed each time, so
+     * one is never remembered as "the last stream": that would pin the default to an old episode.
+     */
+    isResidentEpisodeUrl(url) {
+        try {
+            const host = new URL(url).hostname;
+            return host === 'podbean.com' || host.endsWith('.podbean.com');
+        } catch (_) {
+            return false;
+        }
     },
 
     isSafeAudioUrl(url, pageHref) {

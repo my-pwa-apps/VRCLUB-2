@@ -13,14 +13,10 @@ const uiLog = {
     error: (...args) => console.error('[UI]', ...args)
 };
 
-const DEFAULT_AUDIO_STREAM = Object.freeze({
-    name: 'SUNSHINE LIVE - Techno',
-    url: 'https://stream.sunshine-live.de/techno/mp3-192/stream.sunshine-live.de/'
-});
-
 // On-demand DJ sets: the feed and its Podbean-hosted MP3s both send
-// Access-Control-Allow-Origin: *, which the beat analyser needs. Only fetched on an
-// explicit click (the guest's IP goes to podcast.hernancattaneo.com and podbean.com).
+// Access-Control-Allow-Origin: *, which the beat analyser needs. This is the DEFAULT music: it
+// starts on ENTER (unless the guest turns that off on the splash) and from the Audio menu's
+// "Latest Resident" button. The guest's IP goes to podcast.hernancattaneo.com and podbean.com.
 const RESIDENT_PODCAST = Object.freeze({
     name: 'Resident by Hernan Cattaneo',
     feed: 'https://podcast.hernancattaneo.com/feed.xml',
@@ -28,28 +24,101 @@ const RESIDENT_PODCAST = Object.freeze({
     headBytes: 65535
 });
 
-/** Resolve the newest episode, reading only the head of the feed when the server allows. */
-async function fetchLatestPodcastEpisode(podcast) {
+/**
+ * The playable episodes, newest first, reading only the head of the feed when the server allows
+ * (about 15 episodes, which is also how far back the queue can go before it looks again).
+ */
+async function fetchPodcastEpisodes(podcast) {
     const decode = buffer => new TextDecoder('utf-8').decode(buffer);
     const head = decode(await window.fetchBufferWithTimeout(podcast.feed, {
         timeoutMs: 15000,
         cache: 'no-cache',
         headers: { Range: `bytes=0-${podcast.headBytes}` }
     }));
-    let episode = window.AudioUtils.parseLatestPodcastEpisode(head);
-    if (!episode) {
+    let episodes = window.AudioUtils.parsePodcastEpisodes(head);
+    if (!episodes.length) {
         // The first item did not fit in the range (or the server ignored it).
-        episode = window.AudioUtils.parseLatestPodcastEpisode(
+        episodes = window.AudioUtils.parsePodcastEpisodes(
             decode(await window.fetchBufferWithTimeout(podcast.feed, { timeoutMs: 30000, cache: 'no-cache' })));
     }
-    if (!episode) throw new Error('No playable episode found in the feed');
-    return episode;
+    if (!episodes.length) throw new Error('No playable episode found in the feed');
+    return episodes;
+}
+
+/**
+ * The Resident episodes in play order (newest first) and the one playing. Null while the guest
+ * is on anything else. When an episode ends the next older one starts; choosing another stream
+ * or a file ends the queue (see advanceResidentQueue).
+ */
+let residentQueue = null;
+const RESIDENT_START_ATTEMPTS = 3;
+
+/**
+ * Play episodes[index]. If it will not start, try the next older one (a few times), so one dead
+ * link does not silence the club. A play() blocked by autoplay policy is rethrown at once: the
+ * next episode would be blocked too, and the queue is left on this one for a retry.
+ */
+async function playResidentFrom(club, episodes, index) {
+    let lastError = null;
+    for (let i = index; i < episodes.length && i < index + RESIDENT_START_ATTEMPTS; i++) {
+        residentQueue = { episodes, index: i };
+        try {
+            await club.startAudioStream(episodes[i].url, { onDemand: true });
+        } catch (err) {
+            if (err && err.name === 'NotAllowedError') throw err;
+            lastError = err;
+            continue;
+        }
+        watchEpisodeEnd(club);
+        announceNowPlaying(episodes[i].title);
+        // The URL box follows the episode, so the Play/Pause button controls the one that plays.
+        const input = document.getElementById('streamUrl');
+        if (input) input.value = episodes[i].url;
+        const net = club.networkManager;
+        if (net && net.connected && net.isHost()) net.sendMusic({ url: episodes[i].url, playing: true, position: 0 });
+        return episodes[i];
+    }
+    residentQueue = null;
+    throw lastError || new Error('No playable episode');
+}
+
+/** One 'ended' listener per audio element; it only acts while the queue is still on its episode. */
+function watchEpisodeEnd(club) {
+    const audio = club.audioElement;
+    if (!audio || audio._vrclubEpisodeWatch) return;
+    audio._vrclubEpisodeWatch = true;
+    audio.addEventListener('ended', () => { advanceResidentQueue(club); });
+}
+
+let advancingResidentQueue = false;
+async function advanceResidentQueue(club) {
+    const queue = residentQueue;
+    // The guest chose something else (a stream, a file) while this played: not ours any more.
+    if (advancingResidentQueue || !queue || club._audioStreamUrl !== queue.episodes[queue.index].url) return;
+    advancingResidentQueue = true;
+    try {
+        if (queue.index + 1 < queue.episodes.length) {
+            await playResidentFrom(club, queue.episodes, queue.index + 1);
+        } else {
+            // Out of older episodes: look again (a new one may be out) and start from the newest.
+            await playResidentFrom(club, await fetchPodcastEpisodes(RESIDENT_PODCAST), 0);
+        }
+    } catch (err) {
+        uiLog.warn(`Next episode unavailable: ${err.message}`);
+        residentQueue = null;
+        if (club.showErrorMessage) club.showErrorMessage('The episode finished and the next one could not start. Open \ud83c\udfb5 to pick another.');
+    } finally {
+        advancingResidentQueue = false;
+    }
 }
 
 /** localStorage key for the last stream the guest actually played. */
 const LAST_STREAM_KEY = 'vrclub.lastStreamUrl';
-// Explicit opt-in for connecting to a stream on ENTER (third party sees the visitor's IP).
+// Whether ENTER starts the music. On by default; '0' is the guest's explicit opt-out.
 const RADIO_ON_ENTRY_KEY = 'vrclub.radioOnEntry';
+
+/** Now-playing text for the audio menu, set when the entry music starts (the menu may not exist yet). */
+let entryNowPlaying = '';
 
 /**
  * Every UI timing constant in one place. These were previously six different
@@ -138,8 +207,8 @@ const mainExperience = document.getElementById('mainExperience');
 //
 // Strobes are on by default, so a control that only exists inside a
 // panel the user has to open after entering is not a mitigation - the exposure has
-// already happened. This mirrors VRClubCore's own resolution order: an explicit
-// stored choice wins, otherwise prefers-reduced-motion opts the user in.
+// already happened. This mirrors VRClubCore's own resolution: Safe Mode is on only when
+// the guest has explicitly chosen it; it is never switched on automatically.
 (function initSplashSafeMode() {
     const btn = document.getElementById('splashSafeModeBtn');
     const state = document.getElementById('splashSafeModeState');
@@ -177,27 +246,98 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
-/** The stream ENTER would start: the remembered choice, else the default station. */
-function entryStreamUrl() {
+/** A stream the guest chose themselves and played before, if any. Resident episodes never count. */
+function rememberedStreamUrl() {
     try {
         const remembered = localStorage.getItem(LAST_STREAM_KEY);
-        if (remembered && AudioUtils.isSafeAudioUrl(remembered, window.location.href)) return remembered;
+        if (remembered && AudioUtils.isSafeAudioUrl(remembered, window.location.href) &&
+            !AudioUtils.isResidentEpisodeUrl(remembered)) return remembered;
     } catch (_) { /* ignore */ }
-    return DEFAULT_AUDIO_STREAM.url;
+    return null;
+}
+
+function announceNowPlaying(label) {
+    entryNowPlaying = `\u25B6 ${label}`;
+    const nowPlaying = document.getElementById('audioNowPlaying');
+    if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+    const playLabel = document.getElementById('playStreamBtnLabel');
+    if (playLabel) playLabel.textContent = 'Pause';
+    const playBtn = document.getElementById('playStreamBtn');
+    if (playBtn) playBtn.setAttribute('aria-label', 'Pause audio');
+}
+
+/**
+ * Start the default music from the ENTER click: the guest's own remembered stream, else the
+ * Resident episodes from the newest (the next older one follows each that ends). The
+ * AudioContext is created and resumed synchronously here, while the click's user activation is
+ * fresh; only the feed lookup that follows is asynchronous. If the browser still blocks
+ * playback, the next click or key press starts it, unless the guest has chosen something else.
+ */
+function startEntryMusic(club, pointAtAudioMenu) {
+    try { club._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
+    entryNowPlaying = `Finding the latest ${RESIDENT_PODCAST.name} episode\u2026`;
+    const nowPlaying = document.getElementById('audioNowPlaying');
+    if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+
+    // What a blocked start would resume: the URL to compare against and how to start it.
+    let blocked = null;
+    const retryOnGesture = () => {
+        document.removeEventListener('pointerdown', retryOnGesture);
+        document.removeEventListener('keydown', retryOnGesture);
+        const audio = club.audioElement;
+        if (!blocked || (audio && !audio.paused) || club._audioStreamUrl !== blocked.url()) return;
+        blocked.start().catch(() => { /* toast already shown */ });
+    };
+
+    const remembered = rememberedStreamUrl();
+    let started;
+    if (remembered) {
+        blocked = {
+            url: () => remembered,
+            start: () => club.startAudioStream(remembered).then(() => announceNowPlaying('your last stream'))
+        };
+        started = blocked.start();
+    } else {
+        blocked = {
+            url: () => residentQueue.episodes[residentQueue.index].url,
+            start: () => playResidentFrom(club, residentQueue.episodes, residentQueue.index)
+        };
+        started = fetchPodcastEpisodes(RESIDENT_PODCAST)
+            .then((episodes) => playResidentFrom(club, episodes, 0));
+    }
+
+    started.catch((err) => {
+        // Music is atmosphere, not a startup dependency - but failing silently leaves the
+        // guest in a club that looks alive and makes no sound, with no indication that the
+        // fix is behind the audio button.
+        uiLog.warn(`Default music unavailable: ${err.message}`);
+        entryNowPlaying = 'No audio yet';
+        if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+        pointAtAudioMenu();
+        const canRetry = err && err.name === 'NotAllowedError' && (remembered || residentQueue);
+        if (canRetry) {
+            document.addEventListener('pointerdown', retryOnGesture);
+            document.addEventListener('keydown', retryOnGesture);
+        } else if (club.showErrorMessage) {
+            club.showErrorMessage('No music yet \u2014 open \ud83c\udfb5 to pick a station or play a local file.');
+        }
+    });
 }
 
 (function initSplashRadioOptIn() {
     const checkbox = document.getElementById('splashRadioOnEntry');
     if (!checkbox) return;
-    try { checkbox.checked = localStorage.getItem(RADIO_ON_ENTRY_KEY) === '1'; } catch (_) {}
-    // Name the server that will actually be contacted, including a remembered stream.
-    const url = entryStreamUrl();
+    try { checkbox.checked = AudioUtils.shouldPlayOnEntry(localStorage.getItem(RADIO_ON_ENTRY_KEY)); } catch (_) { checkbox.checked = true; }
+    // Name the servers that will actually be contacted, including a remembered stream.
+    const remembered = rememberedStreamUrl();
     const nameEl = document.getElementById('splashRadioName');
     const hostEl = document.getElementById('splashRadioHost');
-    try {
-        if (hostEl) hostEl.textContent = new URL(url).host;
-        if (nameEl && url !== DEFAULT_AUDIO_STREAM.url) nameEl.textContent = 'your last stream';
-    } catch (_) { /* keep the static text */ }
+    if (remembered) {
+        try {
+            if (hostEl) hostEl.textContent = new URL(remembered).host;
+            if (nameEl) nameEl.textContent = 'your last stream';
+        } catch (_) { /* keep the static text */ }
+    }
     checkbox.addEventListener('change', () => {
         try { localStorage.setItem(RADIO_ON_ENTRY_KEY, checkbox.checked ? '1' : '0'); } catch (_) {}
     });
@@ -225,7 +365,7 @@ if (enterClubBtn) {
         window.vrClub = new VRClub();
 
         const radioOptIn = document.getElementById('splashRadioOnEntry');
-        const playOnEntry = radioOptIn ? radioOptIn.checked : false;
+        const playOnEntry = radioOptIn ? radioOptIn.checked : AudioUtils.shouldPlayOnEntry(null);
         const pointAtAudioMenu = () => {
             const audioToggle = document.getElementById('audioToggle');
             if (audioToggle) {
@@ -235,18 +375,9 @@ if (enterClubBtn) {
         };
 
         if (playOnEntry) {
-            window.vrClub.startAudioStream(entryStreamUrl()).catch((err) => {
-                // Music is atmosphere, not a startup dependency - but failing silently
-                // leaves the guest in a club that looks alive and makes no sound, with no
-                // indication that the fix is behind the audio button.
-                uiLog.warn(`Default stream unavailable: ${err.message}`);
-                pointAtAudioMenu();
-                if (window.vrClub.showErrorMessage) {
-                    window.vrClub.showErrorMessage('No music yet \u2014 open \ud83c\udfb5 to pick a station or play a local file.');
-                }
-            });
+            startEntryMusic(window.vrClub, pointAtAudioMenu);
         } else {
-            // No third-party connection without an explicit choice. Point at the audio
+            // The guest turned music off: no third-party connection. Point at the audio
             // menu instead so a silent club is not mistaken for a broken one.
             pointAtAudioMenu();
         }
@@ -879,14 +1010,13 @@ function initAudioMenu() {
     if (!audioToggle || !audioMenu) return;
 
     if (streamUrl && !streamUrl.value) {
-        // Prefill with whatever the guest last actually played, so the single
+        // Prefill with whatever the guest last chose to play, so the single
         // highest-friction input in the app (a URL typed on a Quest virtual
-        // keyboard) does not have to be re-entered every session.
-        let remembered = null;
-        try { remembered = localStorage.getItem(LAST_STREAM_KEY); } catch (_) { /* ignore */ }
-        streamUrl.value = (remembered && vrClubInstance._isSafeAudioUrl(remembered))
-            ? remembered
-            : DEFAULT_AUDIO_STREAM.url;
+        // keyboard) does not have to be re-entered every session. Left empty when
+        // there is none: the default music is the latest Resident episode, which
+        // has no fixed URL.
+        const remembered = rememberedStreamUrl();
+        if (remembered && vrClubInstance._isSafeAudioUrl(remembered)) streamUrl.value = remembered;
     }
 
     /** Update the play/pause affordance without destroying its icon/label spans. */
@@ -898,7 +1028,7 @@ function initAudioMenu() {
 
     if (vrClubInstance.audioElement && !vrClubInstance.audioElement.paused) {
         setPlayLabel(true);
-        setNowPlaying(`\u25B6 ${DEFAULT_AUDIO_STREAM.name}`);
+        setNowPlaying(entryNowPlaying || '\u25B6 Playing');
     }
     
     const teardowns = uiTeardowns;
@@ -1029,8 +1159,8 @@ function initAudioMenu() {
         });
     }
 
-    // Latest Resident episode: resolve it from the feed, then play it exactly as if
-    // the guest had pasted the MP3 link (remembered, broadcast to the room if hosting).
+    // Latest Resident episode: resolve the feed, then play the newest and keep going to the next
+    // older one each time an episode ends (broadcast to the room if this guest hosts it).
     const playPodcastBtn = document.getElementById('playPodcastBtn');
     if (playPodcastBtn) {
         playPodcastBtn.addEventListener('click', async () => {
@@ -1038,14 +1168,14 @@ function initAudioMenu() {
             playPodcastBtn.disabled = true;
             showStatus(`Finding the latest ${RESIDENT_PODCAST.name} episode\u2026`, 'success');
             try {
-                const episode = await fetchLatestPodcastEpisode(RESIDENT_PODCAST);
+                const episodes = await fetchPodcastEpisodes(RESIDENT_PODCAST);
                 const activeAudio = vrClubInstance.audioElement;
-                if (activeAudio && !activeAudio.paused && activeAudio.src === episode.url) {
-                    showStatus(`Already playing: ${episode.title}`, 'success');
+                if (activeAudio && !activeAudio.paused && activeAudio.src === episodes[0].url) {
+                    showStatus(`Already playing: ${episodes[0].title}`, 'success');
                     return;
                 }
-                if (streamUrl) streamUrl.value = episode.url;
-                await playUrl(episode.url, episode.title);
+                const episode = await playResidentFrom(vrClubInstance, episodes, 0);
+                showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success');
             } catch (err) {
                 uiLog.warn('Podcast feed failed:', err);
                 showStatus(`Could not load the podcast: ${err.message}`, 'error');
@@ -1058,12 +1188,27 @@ function initAudioMenu() {
     /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
     function playUrl(url, label) {
         const requestedUrl = new URL(url, window.location.href).href;
+        // Pressing Play on the Resident episode that was playing resumes the queue, so it still
+        // moves on to the next one when it ends (a plain stream URL would loop it).
+        const queued = residentQueue && residentQueue.episodes[residentQueue.index];
+        if (queued && new URL(queued.url).href === requestedUrl) {
+            return playResidentFrom(vrClubInstance, residentQueue.episodes, residentQueue.index)
+                .then(episode => showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success'))
+                .catch(err => {
+                    showStatus(`Error: ${err.message}`, 'error');
+                    setNowPlaying('No audio yet');
+                });
+        }
         return vrClubInstance.startAudioStream(url)
             .then(() => {
                 showStatus(`\ud83c\udfb5 Playing: ${label}`, 'success');
                 setPlayLabel(true);
                 setNowPlaying(`\u25B6 ${label}`);
-                try { localStorage.setItem(LAST_STREAM_KEY, url); } catch (_) { /* ignore */ }
+                try {
+                    // A Resident episode is resolved fresh each time; remembering it would pin
+                    // the default (and the URL box) to an old one.
+                    if (!AudioUtils.isResidentEpisodeUrl(url)) localStorage.setItem(LAST_STREAM_KEY, url);
+                } catch (_) { /* ignore */ }
                 // Broadcast the new "now playing" to the room, if this guest hosts it.
                 if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
                     vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: true, position: 0 });

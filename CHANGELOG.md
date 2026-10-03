@@ -20,13 +20,40 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Privacy
 
-- ENTER no longer connects to the default internet radio unless "Play radio on entry" is
-  ticked on the splash (off by default; names the server that will be contacted).
+- **Music now starts on entry by default, and the default is the latest *Resident* episode by
+  Hernan Cattaneo.** It replaces the SUNSHINE LIVE radio feed. The splash toggle ("Play music on
+  entry") is ticked by default, still names the servers contacted (the podcast host and Podbean,
+  which receive the guest's IP address) and can be unticked; that choice is remembered. The newest
+  episode is resolved from the feed on every entry, so the default never goes stale, and one is
+  never remembered as the guest's own "last stream" (a stream the guest picked themselves still is).
+  The AudioContext is created inside the ENTER click so browsers allow autoplay; if playback is
+  still blocked, the next click or key press starts it. **When an episode finishes the next older
+  one plays**, and so on (a dead link is skipped); past the oldest one in the feed's first page
+  (about 15) it checks the feed again, so a new release is picked up, and starts from the newest.
+  Picking another stream or a file takes over and ends that chain. Previously a finished episode
+  looped. This reverses the earlier privacy default
+  (off until ticked) because it was asked for.
 - Guests must choose **Listen along** before their browser loads a host's shared stream;
   hosts' local files (`blob:` URLs) are never broadcast.
 
 ### Fixed
 
+- **VR is no longer output at 10% brightness.** Fixtures, lasers and the LED wall looked like flat
+  colour in the headset and did not light the room. The VR pipeline's sharpen stage was given a
+  "colour amount" of 0.1, but that value is a brightness multiplier on the finished image, so the
+  whole headset frame, and its peak white, were capped at a tenth. It is now 1.0, and VR exposure
+  is retuned (1.35 to 0.6) so the headset frame is about 1.8x the desktop's mean luminance with
+  full-scale highlights (it was 0.37x, with peaks around a tenth). Because the strobe impulse had
+  been tuned under that cap it would now be a white-out, so it moved into `vrSettings.vr.strobeImpulse`
+  and was retuned from measurements (flash about 0.3 mean luminance, 0.76 before). The desktop
+  sharpen gain (0.5) has the same defect and is left unchanged for now; see `BACKLOG.md`.
+- **Strobes no longer vanish when the frame rate dips.** A burst is only 20-90 ms long, and the
+  flash timer was counted down before it was drawn, so on any frame longer than the burst (a
+  loaded headset, or the emulator) it was lit and cleared in the same pass and never reached the
+  screen. In the browser, with strobes forced on and Safe Mode off, no frame ever flashed on
+  desktop or in VR; now they do (the VR frame is about 13x brighter while one fires). A burst is
+  drawn for the frame it fires on whatever the frame time, then counts down as before. Cadence,
+  intensity, the cues that use strobes and Photosensitive Safe Mode are unchanged.
 - **The laser sheets no longer streak across the room, and hang lower.** Each sheet plane turned only
   ~2 deg/s, but the bright line where the two planes cross ran at a median 1.6 m/s and up to 7.5 m/s,
   and sat 3-5 m above the dance floor. The two projectors now aim further inward with a smaller
@@ -101,9 +128,24 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - Every first-party script runs in strict mode in development, as it already did in the bundle.
 - `init()` and `updateSpotlights()` are split into named per-phase methods.
 - The audio panel reports offline/online transitions; the README documents offline use.
+- **Photosensitive Safe Mode is never switched on automatically.** It used to turn itself on under
+  `prefers-reduced-motion: reduce`; it is now off unless the guest turns it on. The photosensitivity
+  warning and the opt-in stay on the splash before anything renders, a choice the guest makes is
+  remembered, and the in-headset menu still has a SAFE MODE button. (Product decision; this
+  deliberately reverses the earlier accessibility default.)
+- **Strobes support the rest of the lighting.** They were solos in about 6% of the show's bars; they
+  are now a once-per-bar accent under the heads, lasers and laser sheets through the groove and the
+  build (37% of bars), for tension. The opening, the breakdown arc and the comedown stay strobe-free.
+  Layered strobes stay at about 0.5 flashes a second at any tempo, and a unit test enforces it.
 
 ### Added
 
+- Spatial audio now sounds from the right side. Babylon is left-handed and Web Audio is
+  right-handed, and every coordinate was passed through unconverted, so the PA, the crowd bed
+  and guest voices were heard in the opposite ear to where they appeared (in the headset,
+  turning right moved the stage to the right ear). `AudioUtils` now converts them, and the
+  listener's up vector follows head tilt. Covered by unit tests and by
+  `test/e2e/audio-spatial.spec.mjs`, which plays noise through the real graph.
 - Headset-free VR coverage in the Playwright suite. `test/e2e/vr-session.spec.mjs` checks the
   spawn pose, headset and controller tracking, a ray-selected menu button, the 30 degree snap
   turn and teleport landing (including the DJ-platform blockers). `test/e2e/vr-parity.spec.mjs`

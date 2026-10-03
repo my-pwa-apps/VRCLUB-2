@@ -18,6 +18,7 @@ const INTENTIONAL_DIFFERENCES = new Map([
     ['pipeline.bloomKernel', 'smaller blur kernel in VR'],
     ['pipeline.bloomScale', 'vrSettings.vr'],
     ['pipeline.sharpenEdge', 'vrSettings.vr.edgeSharpness'],
+    ['pipeline.sharpenGain', 'desktop runs a 0.5 gain (BACKLOG: halves the desktop image); VR must be 1.0'],
     ['pipeline.exposure', 'vrSettings.vr, eye-adapted'],
     ['pipeline.contrast', 'vrSettings.vr'],
     ['pipeline.vignette', 'a vignette causes discomfort in a headset'],
@@ -152,9 +153,14 @@ test('VR keeps the desktop rendering features and image structure at the same gr
             type: 'vr-vs-desktop',
             description: `luminance x${luma.toFixed(2)}, structure r=${structure.toFixed(2)}, edge energy x${edges.toFixed(2)}`
         });
-        // Measured on the emulator at x0.30-0.51 (parity would be ~1). These floors stop the
-        // gap from widening; they are not a claim that the gap is acceptable. See BACKLOG.md.
-        expect(luma).toBeGreaterThan(0.2);
+        // The VR image must be at least as bright as the desktop one, with at least its peaks.
+        // It was x0.30-0.51 with peaks capped at about a tenth, because the sharpen stage's colour
+        // amount (a brightness gain) was 0.1. Measured now at about x1.8 (exposure 0.6); the
+        // ceiling stops a regression the other way, into a washed-out headset.
+        expect(vrState.pipeline.sharpenGain, 'sharpen colour amount is a brightness gain: keep it 1.0').toBe(1);
+        expect(luma).toBeGreaterThan(1.0);
+        expect(luma).toBeLessThan(3.5);
+        expect(average(vrImages, 'p99') / average(desktopImages, 'p99'), 'VR peak whites are capped').toBeGreaterThan(1.0);
         expect(structure).toBeGreaterThan(0.75);
     });
 

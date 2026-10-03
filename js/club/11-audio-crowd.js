@@ -22,17 +22,8 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.pannerLeft.coneInnerAngle = 120;
                 this.pannerLeft.coneOuterAngle = 240;
                 this.pannerLeft.coneOuterGain = 0.35;
-                if (this.pannerLeft.positionX) {
-                    this.pannerLeft.positionX.value = CLUB_POSITIONS.paSpeakers.left.x;
-                    this.pannerLeft.positionY.value = CLUB_POSITIONS.paSpeakers.left.y;
-                    this.pannerLeft.positionZ.value = CLUB_POSITIONS.paSpeakers.left.z;
-                    this.pannerLeft.orientationX.value = 0.2;
-                    this.pannerLeft.orientationY.value = -0.5;
-                    this.pannerLeft.orientationZ.value = 1.0;
-                } else if (this.pannerLeft.setPosition) {
-                    this.pannerLeft.setPosition(CLUB_POSITIONS.paSpeakers.left.x, CLUB_POSITIONS.paSpeakers.left.y, CLUB_POSITIONS.paSpeakers.left.z);
-                    this.pannerLeft.setOrientation(0.2, -0.5, 1.0);
-                }
+                AudioUtils.setPannerPosition(this.pannerLeft, CLUB_POSITIONS.paSpeakers.left.x, CLUB_POSITIONS.paSpeakers.left.y, CLUB_POSITIONS.paSpeakers.left.z);
+                AudioUtils.setPannerOrientation(this.pannerLeft, 0.2, -0.5, 1.0);
 
                 // 2. Right Flown PA Speaker Panner
                 this.pannerRight = this.audioContext.createPanner();
@@ -44,17 +35,8 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.pannerRight.coneInnerAngle = 120;
                 this.pannerRight.coneOuterAngle = 240;
                 this.pannerRight.coneOuterGain = 0.35;
-                if (this.pannerRight.positionX) {
-                    this.pannerRight.positionX.value = CLUB_POSITIONS.paSpeakers.right.x;
-                    this.pannerRight.positionY.value = CLUB_POSITIONS.paSpeakers.right.y;
-                    this.pannerRight.positionZ.value = CLUB_POSITIONS.paSpeakers.right.z;
-                    this.pannerRight.orientationX.value = -0.2;
-                    this.pannerRight.orientationY.value = -0.5;
-                    this.pannerRight.orientationZ.value = 1.0;
-                } else if (this.pannerRight.setPosition) {
-                    this.pannerRight.setPosition(CLUB_POSITIONS.paSpeakers.right.x, CLUB_POSITIONS.paSpeakers.right.y, CLUB_POSITIONS.paSpeakers.right.z);
-                    this.pannerRight.setOrientation(-0.2, -0.5, 1.0);
-                }
+                AudioUtils.setPannerPosition(this.pannerRight, CLUB_POSITIONS.paSpeakers.right.x, CLUB_POSITIONS.paSpeakers.right.y, CLUB_POSITIONS.paSpeakers.right.z);
+                AudioUtils.setPannerOrientation(this.pannerRight, -0.2, -0.5, 1.0);
 
                 // 3. Omni-directional Sub-bass Channel (club subs hit physical low end)
                 this.subFilter = this.audioContext.createBiquadFilter();
@@ -224,13 +206,7 @@ class VRClubAudioCrowd extends VRClubUI {
             panner.maxDistance = 40;
             panner.rolloffFactor = 0.8;
             const floor = CLUB_POSITIONS.danceFloor;
-            if (panner.positionX) {
-                panner.positionX.value = floor.x;
-                panner.positionY.value = 1.6;
-                panner.positionZ.value = floor.z;
-            } else if (panner.setPosition) {
-                panner.setPosition(floor.x, 1.6, floor.z);
-            }
+            AudioUtils.setPannerPosition(panner, floor.x, 1.6, floor.z);
 
             source.connect(voiceBand);
             voiceBand.connect(this.crowdAmbienceGain);
@@ -320,6 +296,22 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
+     * The head's up vector. `camera.upVector` is a static +Y, so a tilted head left the
+     * HRTF field upright; this transforms +Y by the same world matrix getForwardRay() uses.
+     * Reuses two vectors, so it allocates nothing per frame.
+     */
+    _listenerUp(cam) {
+        const fallback = cam.upVector || BABYLON.Vector3.Up();
+        if (!cam.getWorldMatrix || !BABYLON.Vector3.TransformNormalToRef || !BABYLON.Vector3.Zero) return fallback;
+        if (!this._listenerUpScratch) {
+            this._listenerUpScratch = { local: BABYLON.Vector3.Up(), world: BABYLON.Vector3.Zero() };
+        }
+        const { local, world } = this._listenerUpScratch;
+        BABYLON.Vector3.TransformNormalToRef(local, cam.getWorldMatrix(), world);
+        return world.lengthSquared() > 1e-6 ? world.normalize() : fallback;
+    }
+
+    /**
      * Update Web Audio listener position, orientation, and acoustic attenuation based on camera.
      */
     updateSpatialAudioListener() {
@@ -331,29 +323,30 @@ class VRClubAudioCrowd extends VRClubUI {
         const now = this.audioContext.currentTime;
         const listener = this.audioContext.listener;
 
-        // Update listener position
+        // Update listener position. Every coordinate goes through AudioUtils.audioX because
+        // Web Audio is right-handed and Babylon is left-handed (see AudioUtils.audioX).
         if (listener.positionX && listener.positionX.setTargetAtTime) {
-            listener.positionX.setTargetAtTime(pos.x, now, 0.03);
+            listener.positionX.setTargetAtTime(AudioUtils.audioX(pos.x), now, 0.03);
             listener.positionY.setTargetAtTime(pos.y, now, 0.03);
             listener.positionZ.setTargetAtTime(pos.z, now, 0.03);
         } else if (listener.setPosition) {
-            listener.setPosition(pos.x, pos.y, pos.z);
+            listener.setPosition(AudioUtils.audioX(pos.x), pos.y, pos.z);
         }
 
         // Update listener orientation
         if (cam.getForwardRay) {
             const ray = cam.getForwardRay();
             const fwd = ray.direction;
-            const up = cam.upVector || BABYLON.Vector3.Up();
+            const up = this._listenerUp(cam);
             if (listener.forwardX && listener.forwardX.setTargetAtTime) {
-                listener.forwardX.setTargetAtTime(fwd.x, now, 0.03);
+                listener.forwardX.setTargetAtTime(AudioUtils.audioX(fwd.x), now, 0.03);
                 listener.forwardY.setTargetAtTime(fwd.y, now, 0.03);
                 listener.forwardZ.setTargetAtTime(fwd.z, now, 0.03);
-                listener.upX.setTargetAtTime(up.x, now, 0.03);
+                listener.upX.setTargetAtTime(AudioUtils.audioX(up.x), now, 0.03);
                 listener.upY.setTargetAtTime(up.y, now, 0.03);
                 listener.upZ.setTargetAtTime(up.z, now, 0.03);
             } else if (listener.setOrientation) {
-                listener.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+                listener.setOrientation(AudioUtils.audioX(fwd.x), fwd.y, fwd.z, AudioUtils.audioX(up.x), up.y, up.z);
             }
         }
 

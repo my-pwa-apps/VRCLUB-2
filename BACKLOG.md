@@ -30,7 +30,125 @@ Checked and found sound (do not re-raise without new evidence):
 
 ### New open items
 
-- [ ] **The emulated VR frame is about 2.2x darker than the desktop frame at the same pose and cue**
+- [x] **Strobes never reached the screen on any frame longer than the burst**
+
+  **Resolved 2026-10-03.** A burst is drawn for the frame it fires on, then counts down.
+
+  **Priority:** High
+  **Category:** Bug
+  **Confidence:** High. Reproduced in the browser and in a unit test.
+  **Area:** Strobe bank
+  **Affected files:** `js/club/09-animation-finish.js`
+  **Evidence:** MEASURED. With strobes forced on and Safe Mode off, 0 of 120 rendered frames
+  flashed on desktop and in VR. After the fix, 60 of 120 do, and the VR frame is about 13x
+  brighter while one fires (0.0056 to 0.0756; desktop about 20x). `updateStrobes()` counted the
+  flash timer down before drawing it; a burst is 20-90 ms (45-90 ms divided by the strobe speed
+  to the power 1.5), so on any frame longer than the burst it was lit and cleared in one pass.
+  At 72 Hz a 24 ms peak burst got a single 14 ms frame; at 36-45 fps or under load it got none.
+  **Problem:** Strobe presence depended on the frame rate, which breaks the frame-rate
+  independence rule, and it disappeared exactly when a headset is under the most load.
+  **User-visible effect:** Strobes looked absent or barely there in VR.
+  **Immersion impact:** High for peak cues. **Desktop impact:** Same on a slow machine.
+  **VR impact:** Worst, the headset runs the heaviest frame.
+  **Performance impact:** None.
+  **Regression considerations:** Cadence, intensity, the cues that use strobes and
+  Photosensitive Safe Mode are unchanged. Flashes that were invisible now render, so Safe Mode
+  matters more, not less.
+  **Acceptance criteria:** A burst is lit for at least one frame at every frame time from 90 Hz
+  to a 4-frame stall and still ends within the designed 90 ms plus one frame.
+  **Validation:** `test/unit.test.mjs` "a strobe burst is visible for at least one frame at any
+  frame time" (fails before the fix at speed 2 on a 50 ms frame).
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **Strobes were rare by design, and absent without music**
+
+  **Resolved 2026-10-03.** Strobes are now an accent through the groove and the build, and Safe
+  Mode is no longer inferred from `prefers-reduced-motion` (product decision). Strobe bars rose from
+  14 of 222 (6%) to 82 of 222 (37%): ARRIVAL 0/36, PULSE 32/56, ASCENT 28/36, IGNITION 22/46,
+  AFTERGLOW 0/48. `sideways`, `crossfire`, `ceilingSidewash`, `ceilingDip`, `theClimb`,
+  `laserStorm`, `afterburn` and `chromaticRoom` now carry a `chase` strobe once per bar
+  (about 0.5 flashes a second at any tempo); the opening, the breakdown arc and the comedown stay
+  strobe-free. A unit test enforces that any strobe layered under another subject is bar-synced
+  (only `detonation` and `releaseHit` may be faster) and `strobe-defaults.spec.mjs` measures it in
+  the browser. The original analysis is kept below.
+
+  **Priority:** Medium
+  **Category:** Lighting
+  **Confidence:** High for the mechanism, Medium for whether it is a defect
+  **Area:** Show Director movement selection
+  **Affected files:** `js/showDirector.js`
+  **Evidence:** Strobes existed only in the 4-bar `strobeHeartbeat` (ASCENT), the IGNITION
+  movement and the countdown set-piece. `_pickMovement()` needs the smoothed energy above 0.34
+  for IGNITION; with no audio the show assumes 0.24, so it can reach ASCENT but never IGNITION.
+  Photosensitive Safe Mode force-disables strobes everywhere. It used to default on under
+  `prefers-reduced-motion`; that default is removed. A stored `vrclub.safeMode = '1'` (set when a
+  guest taps the splash toggle) still keeps it on.
+  **Problem:** A user in VR can legitimately see no strobes for minutes, with no hint why.
+  **User-visible effect:** "The strobes do not work."
+  **Recommended solution:** Show the Safe Mode state in the in-headset menu header.
+  **Acceptance criteria:** A user can tell from the headset why strobes are not firing.
+  **Validation:** Quest menu capture.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **All spatial audio was mirrored left to right (PA, crowd bed and guest voices)**
+
+  **Resolved 2026-10-03.** `AudioUtils.audioX()` / `setPannerPosition()` /
+  `setPannerOrientation()` convert Babylon's left-handed space to Web Audio's right-handed
+  space, and the listener position, forward and up all go through them.
+
+  **Priority:** High
+  **Category:** Spatial Audio
+  **Confidence:** High. Measured in Chromium, not guessed.
+  **Area:** Web Audio listener, PA, crowd bed and remote voices
+  **Affected files:** `js/audioUtils.js`, `js/club/11-audio-crowd.js`, `js/avatarManager.js`
+  **Evidence:** MEASURED with an `OfflineAudioContext` and an HRTF panner: in all four tested
+  poses the PA was heard in the ear opposite to the side it appears on screen (for example,
+  facing the stage, the PA at x=-6 appears on the right and was louder in the LEFT ear,
+  0.049 against 0.014). Babylon is left-handed and Web Audio is right-handed; the code passed
+  Babylon coordinates straight through. The old unit test asserted the unmirrored values.
+  **Problem:** Every positional sound came from the wrong side, and turning the head moved the
+  stage the wrong way in the headset.
+  **User-visible effect:** The sound field contradicted the picture, the strongest possible
+  presence breaker for spatial audio.
+  **Immersion impact:** High. **Desktop impact:** Same. **VR impact:** Worst, since head turns
+  drive the HRTF field continuously.
+  **Performance impact:** None.
+  **Also fixed:** the listener's up vector was a static +Y, so a tilted head left the sound
+  field upright; it now follows the camera's world matrix with no per-frame allocation.
+  **Regression considerations:** Keep the analyser pre-spatial and the occlusion, reverb and
+  sub behaviour unchanged.
+  **Acceptance criteria:** The nearer PA is louder in the ear on its screen side, on desktop
+  and in VR, including after a head turn.
+  **Validation:** `test/unit.test.mjs` (side-of-ear maths for six yaws, head roll) and
+  `test/e2e/audio-spatial.spec.mjs` (noise through the real graph; fails with a left/right
+  ratio of 0.84 if the mirroring is removed).
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [x] **The VR frame was output at 10% brightness (and the desktop at 50%)**
+
+  **Resolved 2026-10-03 for VR.** The cause is not the lighting and not the emulator. The VR
+  pipeline set `sharpen.colorAmount` to 0.1 (`vrSettings.vr.colorSharpness`), and Babylon's
+  sharpen shader is `colour * colorAmount - edge * edgeAmount`: `colorAmount` is a brightness
+  gain on the final, already tone-mapped image, default 1. VR now uses `sharpenGain: 1.0`,
+  exposure is retuned (1.35 to 0.6) and the strobe impulse is moved into config and retuned.
+  Bisected in the browser: with bloom, FXAA and sharpen off together the VR frame rose from
+  0.0072 to 0.0661; switching off sharpen alone gave 0.0713, bloom and FXAA alone changed nothing.
+  A real headset report ("light is just a colour, it does not brighten the room") matched.
+  Measured after the fix, against the same desktop cue: VR mean luminance x1.6-1.9 and peaks
+  (p99) x2.1-2.6 of desktop, where before it was x0.37 with peaks about a tenth.
+  Side effect found and fixed: the old strobe impulse (3.8 / 0.24 / 2.6), tuned under the 10% cap,
+  now measures a 0.76 mean-luminance full-field white-out in VR against 0.22 on desktop. It is now
+  `vrSettings.vr.strobeImpulse` = 1.6 / 0.10 / 1.2, a flash of about 0.3 (about 12x the idle frame).
+  Raw scene radiance was equal or higher in VR throughout (0.0261 against 0.0207), which is why
+  every lighting experiment before the bisect found nothing.
+
+  The remainder of the original analysis is kept below for the record.
 
   **Priority:** High
   **Category:** VR
@@ -46,9 +164,20 @@ Checked and found sound (do not re-raise without new evidence):
   Ruled out one at a time in VR, none restored the brightness: fog and environment at desktop
   values, desktop haze, bloom off, glow intensity 0 or 3.5, the VR animation boosts
   (`isInVRMode` false). ACES tone mapping off roughly doubles the VR frame (0.0148), and on
-  desktop it raises 0.0156 to 0.0439, so pre-tone-map radiance is about 3x lower in VR.
-  **Problem:** Every VR boost in the frame update (beam emission x2, lens, flares, mirror
-  beams, room bounce x1.30, higher exposure) is applied, yet the VR image is darker.
+  desktop it raises 0.0156 to 0.0439.
+  **Narrowed 2026-10-03 (MEASURED): the lighting is not the cause; the loss is after the scene
+  is rendered.** Raw HDR radiance with every post-process off (a float render target, mean
+  linear luma): desktop mode / desktop camera 0.0207; VR mode / desktop camera 0.0255; VR mode /
+  XR rig camera 0.0261. So the XR camera sees a slightly BRIGHTER scene than the desktop one, as
+  designed. On the desktop, applying every VR setting (VR post values, no vignette, SSAO off,
+  `isInVRMode`) raises the final frame from 0.0157 to 0.0532, yet the real VR frame is 0.0074,
+  about 7x lower than the same scene and settings on the desktop. Final-frame alpha is 1.0 in
+  both, so it is not alpha. Two desktop findings fell out of the same run: SSAO costs 0.0157 to
+  0.0205 and the vignette (weight 2.2) 0.0205 to 0.0287 of the desktop frame.
+  **Problem:** Something between the XR camera's post-process chain and the emulator's output
+  loses roughly 7x. Whether that is the emulator or the app's XR pipeline is not yet known.
+  A flat emissive-plane read-back of the output transfer function did not isolate it (the
+  centre pixel did not follow the plane's value in either mode); that probe needs redoing.
   **User-visible effect:** If it reproduces on a Quest, the club looks roughly half as bright
   in the headset as on the desktop screen, with far fewer bright highlights.
   **Immersion impact:** High if confirmed; the light show carries the presence.
@@ -56,8 +185,9 @@ Checked and found sound (do not re-raise without new evidence):
   **VR impact:** Whole-scene dimming.
   **Performance impact:** None expected.
   **Recommended solution:** First capture the same pose and cue on a Quest 3S (or the Meta
-  Immersive Web Emulator) to confirm. If it is real, compare the XR layer's colour space and
-  tone-map stage with the desktop pipeline, then the post-process chain on the XR camera.
+  Immersive Web Emulator) to confirm. If it is real, bisect the XR post-process chain (the
+  `vrPipeline` stages on the XR rig cameras) and the XR layer's colour handling; do not retune
+  the VR light values, which are not the problem.
   **Regression considerations:** Keep VR comfort settings (no vignette, no motion blur), the
   light budget and the frozen-material rules.
   **Acceptance criteria:** VR/desktop mean luminance >= 0.75 at the parity spec's pose and cue.
@@ -66,6 +196,34 @@ Checked and found sound (do not re-raise without new evidence):
   **Estimated effort:** Medium
   **Product value:** High
   **Technical debt reduction:** Medium
+
+- [ ] **Desktop output is halved by the same sharpen gain (0.5)**
+
+  **Priority:** Medium
+  **Category:** Rendering
+  **Confidence:** High for the mechanism, Medium for how much the desktop look relies on it
+  **Area:** Desktop post-processing
+  **Affected files:** `js/club/03-rendering.js`, `js/club/01-core.js` (`vrSettings.desktop.sharpenAmount`)
+  **Evidence:** `pipeline.sharpen.colorAmount = desktop.sharpenAmount` (0.5). It is a gain on the
+  final image (see the resolved VR item), so every desktop pixel is multiplied by 0.5 after tone
+  mapping and peak white is capped at 50%. Desktop strobes reach a mean luminance of 0.22 and the
+  frame peaks at 0.1-0.14, which is why the desktop looks dim and muddy rather than punchy.
+  **Problem:** A "sharpness" setting is silently a -6 dB output gain. The desktop exposure, bloom
+  and the existing tests were tuned against it.
+  **User-visible effect:** A dimmer, lower-contrast desktop than the fixtures are authored for.
+  **Immersion impact:** Medium. **Desktop impact:** Yes. **VR impact:** None.
+  **Performance impact:** None.
+  **Recommended solution:** Set the gain to 1.0 and lower `vrSettings.desktop.exposure` (and re-check
+  the vignette, SSAO strength and strobe impulse) until the mean luminance matches today's, so the
+  look is unchanged but peaks reach full white.
+  **Regression considerations:** Brightness-threshold tests (`mirror-only cues do not turn the
+  foreground into a white layer`), strobe flash level, Photosensitive Safe Mode.
+  **Acceptance criteria:** Desktop peaks reach full scale with no change in mean luminance.
+  **Validation:** `vr-parity.spec.mjs` (remove the `pipeline.sharpenGain` entry from
+  `INTENTIONAL_DIFFERENCES`), the e2e suite, and a side-by-side capture.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
 
 - [ ] **Desktop loses SSAO after a VR visit**
 

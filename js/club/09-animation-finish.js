@@ -79,6 +79,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         strobe.currentIntensity = active ? intensity : 0;
                         strobe.flashDuration = active ? flashDuration : 0;
                         strobe._burstOn = active;
+                        // The burst is shown for the frame it fires on, whatever the frame time.
+                        strobe._holdFrame = active;
                         if (!active) {
                             if (!strobe._emisBuf) strobe._emisBuf = new BABYLON.Color3(0, 0, 0);
                             strobe._emisBuf.set(0, 0, 0);
@@ -98,7 +100,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 this.strobes.forEach((strobe) => {
                     // Handle ongoing flash
                     if (strobe.flashDuration > 0) {
-                        strobe.flashDuration -= dt * strobeSpeedMultiplier;
+                        // A burst is 20-90 ms, shorter than one frame on a loaded headset.
+                        // Counting down before drawing lit and cleared it in the same pass,
+                        // so the flash never reached the screen. The frame a burst fires on
+                        // is therefore drawn untouched; the countdown starts on the next.
+                        if (strobe._holdFrame) strobe._holdFrame = false;
+                        else strobe.flashDuration -= dt * strobeSpeedMultiplier;
                     
                     // Variable intensity - SUPER BRIGHT strobes
                     // BOOST during drops for maximum crowd impact
@@ -157,6 +164,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                     });
                     if (maxIntensity > 0) {
+                        const impulse = VRClubAnimationFinish.strobeImpulse(this);
                         if (this.strobePattern === 'chase' && brightestStrobe && this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.copyFrom(brightestStrobe.mesh.position);
                         } else if (this.strobeFlashLight.position) {
@@ -170,10 +178,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // below is the room fill.
                         if (ambient) {
                             this._preStrobeAmbientIntensity = ambient.intensity;
-                            ambient.intensity = this.isInVRMode ? 3.8 : 3.2;
+                            ambient.intensity = impulse.ambient;
                         }
                         if (this.strobeRetinalFlash?.color) {
-                            this.strobeRetinalFlash.color.a = this.isInVRMode ? 0.24 : 0.18;
+                            this.strobeRetinalFlash.color.a = impulse.retinal;
                         }
                         // Brief bloom spike for blinding strobe effect. Captured per
                         // burst (cleared at the top of this function), so a pipeline swap
@@ -184,7 +192,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                             this.renderPipeline.bloomWeight = 1.0;
                             if (this.renderPipeline.imageProcessing) {
                                 this._preStrobeExposure = this.renderPipeline.imageProcessing.exposure;
-                                this._writeExposure(this.isInVRMode ? 2.6 : 2.1);
+                                this._writeExposure(impulse.exposure);
                             }
                         }
                     } else {
@@ -209,6 +217,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
             }
         }
 
+    }
+
+    /** Room impulse for a strobe burst, from vrSettings (desktop values when the config is absent). */
+    static strobeImpulse(club) {
+        const settings = club.vrSettings && (club.isInVRMode ? club.vrSettings.vr : club.vrSettings.desktop);
+        return (settings && settings.strobeImpulse) || { ambient: 3.2, retinal: 0.18, exposure: 2.1 };
     }
 
     /**

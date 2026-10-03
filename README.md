@@ -66,7 +66,8 @@ js/models/                 Local GLB models and model textures
 - **Move**: `W` `A` `S` `D` or the arrow keys; drag with the mouse to look. `Q`/`E` for down/up.
 - **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. On first load it reads **Preparing VR…** for a few seconds while the DJ console and speakers finish loading, so the headset never opens into dropped frames. In-headset, thumbsticks move and turn; click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump. Press `Y` (or the controller menu button when exposed) to open the lighting menu, then point and trigger to change fixtures, the LED wall, and smoke.
 - **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
-- **🎵 Audio menu** (bottom-right): play an HTTP(S) stream URL or a local audio file, plus volume. The last stream you played is remembered. **🎧 Latest Resident — Hernan Cattaneo** plays the newest episode of that podcast (read from its public RSS feed on click; the MP3 streams from Podbean). A dropped episode reconnects at the same position.
+- **🎵 Audio menu** (bottom-right): play an HTTP(S) stream URL or a local audio file, plus volume. The last stream you chose is remembered. **🎧 Latest Resident — Hernan Cattaneo** plays the newest episode of that podcast (read from its public RSS feed; the MP3 streams from Podbean). A dropped episode reconnects at the same position.
+- **Music on entry:** the latest Resident episode starts when you press ENTER (the splash says which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on.
 - **📷 Camera presets** (bottom-centre): four fixed viewpoints.
 
 ### Keyboard shortcuts
@@ -134,8 +135,9 @@ The audio panel announces when the device goes offline or comes back online.
 ## Accessibility
 
 - **Photosensitive Safe Mode** disables every strobe and bloom flash. It is offered
-  on the splash screen *before* the scene renders, and defaults to **on** when the OS reports
-  `prefers-reduced-motion: reduce`. The preference persists across sessions.
+  on the splash screen *before* the scene renders, next to a photosensitivity warning, and is
+  **off by default**: it is never switched on automatically (not even for
+  `prefers-reduced-motion: reduce`). A guest who turns it on keeps it across sessions.
 - Every control is keyboard reachable, has an accessible name, and exposes its state via
   `aria-pressed` / `aria-valuetext`. Toggle state is signalled by a marker and border weight,
   not by colour alone.

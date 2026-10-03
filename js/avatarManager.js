@@ -303,15 +303,8 @@ class AvatarManager {
             }
 
             if (peer.audio && peer.audio.panner) {
-                const p = peer.audio.panner;
-                const headY = root.position.y + AvatarManager.EYE_HEIGHT;
-                if (p.positionX) {
-                    p.positionX.value = root.position.x;
-                    p.positionY.value = headY;
-                    p.positionZ.value = root.position.z;
-                } else if (p.setPosition) {
-                    p.setPosition(root.position.x, headY, root.position.z);
-                }
+                AudioUtils.setPannerPosition(peer.audio.panner,
+                    root.position.x, root.position.y + AvatarManager.EYE_HEIGHT, root.position.z);
             }
 
             if (peer.emojiPlane) {

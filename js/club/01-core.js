@@ -151,11 +151,16 @@ class VRClubCore {
                 chromaticAberrationEnabled: false,
                 toneMappingEnabled: true,
                 fxaaEnabled: true,
-                sharpenAmount: 0.5,
+                sharpenAmount: 0.5, // NB: a brightness gain, not a sharpness (see vr.sharpenGain); see BACKLOG.md
+                // Whole-room impulse a strobe adds for its few milliseconds (see updateStrobes()).
+                strobeImpulse: { ambient: 3.2, retinal: 0.18, exposure: 2.1 },
                 fogDensity: 0.028 // Haze/smoke density tuned so spot/laser beams are clearly visible
             },
             vr: {
-                exposure: 1.35,
+                // Base exposure. Tuned for the corrected output gain below: about 1.8x the desktop
+                // frame's mean luminance (a headset panel is dimmer than a monitor) with full-scale
+                // peaks. It was 1.35 while the image was being output at 10% brightness.
+                exposure: 0.6,
                 contrast: 1.18,
                 bloomWeight: 0.22,
                 bloomThreshold: 0.85,
@@ -170,7 +175,17 @@ class VRClubCore {
                 toneMappingEnabled: true, // ENABLE — same color/luminance response as desktop
                 framebufferScaleFactor: 1.2, // Moderate supersampling for thin truss and rail edges
                 edgeSharpness: 0.1, // Do not re-amplify residual stair-stepping after FXAA
-                colorSharpness: 0.1,
+                // Babylon's sharpen stage computes `colour * gain - edge * edgeAmount`, so this is a
+                // brightness MULTIPLIER on the final image, not a strength. It was 0.1 ("colorSharpness"),
+                // which output the whole headset image at 10% brightness and capped peak white at 10%.
+                // Keep it at 1.0; set brightness with `exposure`.
+                sharpenGain: 1.0,
+                // Whole-room impulse a strobe adds for its few milliseconds. These were tuned while
+                // the headset image was capped at 10% brightness (old values 3.8 / 0.24 / 2.6 now
+                // measure a 0.76 mean-luminance white-out against 0.22 on desktop). Measured in the
+                // emulator: 1.2/0.08/1.0 matches the desktop flash (0.23), 2.0/0.12/1.4 gives 0.40;
+                // this sits between them, a flash about 12x the idle frame.
+                strobeImpulse: { ambient: 1.6, retinal: 0.10, exposure: 1.2 },
                 fxaaEnabled: true,
                 fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
@@ -598,7 +613,7 @@ class VRClubCore {
             this.renderPipeline.samples = 1; // XR layer provides its own antialiasing
             this.renderPipeline.sharpenEnabled = true;
             this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
-            this.renderPipeline.sharpen.colorAmount = vr.colorSharpness;
+            this.renderPipeline.sharpen.colorAmount = vr.sharpenGain;
             this.renderPipeline.imageProcessingEnabled = true; // Keep for contrast/exposure
             if (this.renderPipeline.imageProcessing) {
                 this.renderPipeline.imageProcessing.exposure = vr.exposure;
@@ -1053,17 +1068,17 @@ class VRClubCore {
     }
 
     /**
-     * One resolver for the splash and the constructor. An explicit stored
-     * '1' or '0' wins; otherwise prefers-reduced-motion opts the guest in
-     * before the first lighting update, without requiring a click.
+     * One resolver for the splash and the constructor. Safe Mode is OFF unless the guest has
+     * explicitly turned it on: a stored '1' wins, a stored '0' is off, and with nothing stored it
+     * is off. It is deliberately NOT inferred from prefers-reduced-motion (a product decision:
+     * the show's strobes are part of the design). The warning and the opt-in remain on the splash
+     * before anything renders.
      */
     static resolvePhotosensitiveSafeMode() {
         try {
-            const stored = localStorage.getItem('vrclub.safeMode');
-            if (stored === '1' || stored === '0') return stored === '1';
+            return localStorage.getItem('vrclub.safeMode') === '1';
         } catch (_) { /* private browsing */ }
-        try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
-        catch (_) { return false; }
+        return false;
     }
 
 }

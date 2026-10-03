@@ -611,6 +611,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
                 glowIncluded: club.glowLayer.hasMesh(laser.mesh)
             },
             strobe,
+            strobeImpulse: club.vrSettings.vr.strobeImpulse,
             preStrobe,
             safeModeRestoration
         };
@@ -630,9 +631,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(opticsState.strobe.glareAlpha).toBe(0.95);
     expect(opticsState.strobe.lightIntensity).toBeGreaterThan(900);
     expect(opticsState.strobe.bloomWeight).toBe(1);
-    expect(opticsState.strobe.exposure).toBe(2.6);
-    expect(opticsState.strobe.ambientIntensity).toBe(3.8);
-    expect(opticsState.strobe.retinalAlpha).toBe(0.24);
+    expect(opticsState.strobe.exposure).toBe(opticsState.strobeImpulse.exposure);
+    expect(opticsState.strobe.ambientIntensity).toBe(opticsState.strobeImpulse.ambient);
+    expect(opticsState.strobe.retinalAlpha).toBe(opticsState.strobeImpulse.retinal);
     expect(opticsState.safeModeRestoration.ambientIntensity)
         .toBeCloseTo(opticsState.preStrobe.ambientIntensity, 6);
     expect(opticsState.safeModeRestoration.retinalAlpha).toBe(0);

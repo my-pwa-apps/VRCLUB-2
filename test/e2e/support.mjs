@@ -48,15 +48,31 @@ export function useQuestHarness() {
         await page.addInitScript(() => {
             localStorage.setItem('vrclub.graphicsTier', 'balanced');
             localStorage.setItem('vrclub.safeMode', '1');
-            // Keep the stream-on-entry path covered (routed to a local silent WAV below).
-            localStorage.setItem('vrclub.radioOnEntry', '1');
         });
-        await page.route('https://stream.sunshine-live.de/**', route => route.fulfill({
-            status: 200,
-            contentType: 'audio/wav',
-            body: silentWav
-        }));
+        // Music plays on entry by default: serve a local Resident feed and a silent episode,
+        // so the real default path runs without touching the network.
+        await routeResidentFeed(page, silentWav);
     });
+}
+
+/** Routes the Resident feed and its episode to local bodies; returns nothing, the routes stay for the page. */
+export async function routeResidentFeed(page, episodeBody) {
+    const feed = '<?xml version="1.0"?><rss><channel><title>Resident</title><item>'
+        + '<title>E2E Episode</title>'
+        + '<enclosure url="https://mcdn.podbean.com/e2e/episode.mp3" type="audio/mpeg" length="1"/>'
+        + '</item></channel></rss>';
+    await page.route('https://podcast.hernancattaneo.com/feed.xml', route => route.fulfill({
+        status: 200,
+        contentType: 'application/rss+xml',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: feed
+    }));
+    await page.route('https://mcdn.podbean.com/**', route => route.fulfill({
+        status: 200,
+        contentType: 'audio/wav',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: episodeBody
+    }));
 }
 
 export async function enterClub(page) {

@@ -715,7 +715,8 @@ class ShowDirector {
             // so the scanning aerial geometry has no competing source.
             crossfire: {
                 intensity: 0.88, punch: 0.30, palette: 'complementary',
-                lightsActive: false, lasersActive: true, strobesActive: false,
+                lightsActive: false, lasersActive: true,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 13, ledWallSpeed: 1.0, ledLevel: 0.75,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.4,
@@ -727,7 +728,8 @@ class ShowDirector {
             // movement reads clearly instead of disappearing against the wall.
             sideways: {
                 intensity: 0.85, punch: 0.25, palette: 'analogous', ledHarmony: 'complement',
-                lightsActive: true, lasersActive: false, strobesActive: false,
+                lightsActive: true, lasersActive: false,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0, ledLevel: 0.85,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
@@ -763,7 +765,8 @@ class ShowDirector {
             ceilingSidewash: {
                 intensity: 0.90, punch: 0.18, palette: 'analogous', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
-                strobesActive: false, mirrorBallActive: false,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
+                mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'lateral',
                 laserSpeed: [0.30, 0.55], fogIntensity: 1.8, goboEnabled: false
@@ -772,7 +775,8 @@ class ShowDirector {
             ceilingDip: {
                 intensity: 0.94, punch: 0.22, palette: 'complementary', colorLock: true,
                 lightsActive: false, lasersActive: false, laserSheetActive: true,
-                strobesActive: false, mirrorBallActive: false,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
+                mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false, ledPattern: 5, ledLevel: 0.75,
                 laserSheetOrigin: 'both', laserSheetMotion: 'vertical',
                 laserSpeed: [0.32, 0.60], fogIntensity: 1.9, goboEnabled: false
@@ -787,7 +791,8 @@ class ShowDirector {
             // The audience should feel the room winding up without being told.
             theClimb: {
                 intensity: [0.80, 1.0], punch: 0.35, palette: 'complementary', ledHarmony: 'complement',
-                lightsActive: true, lasersActive: false, strobesActive: false,
+                lightsActive: true, lasersActive: false,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: [0.9, 1.9],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.8, 2.0],
@@ -877,7 +882,8 @@ class ShowDirector {
             // wasted one.
             laserStorm: {
                 intensity: 0.96, punch: 0.40, palette: 'triad',
-                lightsActive: false, lasersActive: true, strobesActive: false,
+                lightsActive: false, lasersActive: true,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.6,
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: true, ledPattern: 11, ledWallSpeed: 1.8, ledLevel: 0.75,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: 1.5,
@@ -887,7 +893,8 @@ class ShowDirector {
             // Brief second-wind hit: lasers and wall, without heads or strobes.
             afterburn: {
                 intensity: 1.0, punch: 0.50, palette: 'triad',
-                lightsActive: false, lasersActive: true, strobesActive: false,
+                lightsActive: false, lasersActive: true,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar',
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: 2.0,
                 spotlightPattern: 3, spotlightMode: 0, spotlightSpeed: 2.0,
@@ -899,7 +906,8 @@ class ShowDirector {
             chromaticRoom: {
                 intensity: 0.94, punch: 0.28, palette: 'analogous', colorLock: true,
                 lightsActive: true, lasersActive: false, laserSheetActive: false,
-                strobesActive: false, mirrorBallActive: false,
+                strobesActive: true, strobePattern: 'chase', strobeSync: 'bar', strobeSpeed: 1.0,
+                mirrorBallActive: false,
                 smokeActive: true, ledWallActive: true, ledMonochrome: false,
                 ledPattern: 5, ledWallSpeed: 0.65,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
