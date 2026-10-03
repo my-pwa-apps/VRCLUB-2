@@ -46,8 +46,8 @@ Chromium and Quest-emulator harness; nothing here is measured on a real Quest 3S
   light would also light the ceiling and the back of the room, losing the cone-shaped pools the heads
   exist to make. The cost is the number of lights per material, which is already clamped.
 
-- Applies and is tracked below: the large assets (raised to High, with the 1.45 GB GPU-memory finding)
-  and the draw calls (the 210-panel LED wall).
+- Applies, and both are now fixed (see the two resolved items below): the large assets (1.45 GB of GPU
+  texture memory -> 224 MB) and the draw calls (the 210-panel LED wall -> 1 mesh).
 
 ---
 
@@ -4610,61 +4610,47 @@ zero console errors and zero WebGL warnings.
   Business value: High
   Technical debt reduction: Low
 
-- [ ] **The LED wall costs 210 draw calls: half of everything drawn in a frame**
+- [x] **The LED wall costs 210 draw calls: half of everything drawn in a frame**
 
-  **Priority:** Medium
-  **Category:** Performance
-  **Confidence:** High for the count, Medium for the frame-time effect (not measured on a Quest)
-  **Area:** LED wall
-  **Affected files:** `js/club/05-fixtures.js`, `js/ledPatterns.js`, `js/club/08-animation-fixtures.js`
-  **Evidence:** MEASURED in the headset build: 409 draw calls from 392 active meshes, of which
-  `ledPanel_#` is 210 meshes and 210 draws (51%), then the mirror-ball rays, beams and spots (52).
-  Each panel is a separate mesh with its own material (none frozen), and its colour is written per
-  frame. A headset draws the scene once per eye, so the wall is about 420 submissions per frame.
-  **Problem:** the wall is one visual object paid for as 210.
-  **User-visible effect:** none directly; it eats the draw-call budget that the Quest has least of.
-  **Immersion impact:** Indirect. **Desktop impact:** Small. **VR impact:** Medium to High.
-  **Recommended solution:** render the wall as one mesh with per-panel colour: thin instances with an
-  instance colour buffer, or one quad with a small dynamic texture where each texel is a panel. Keep
-  the existing pattern code; only the final write changes.
-  **Regression considerations:** pattern look and brightness, the 37 patterns, glow selection, Safe
-  Mode, the light the wall casts, and the frozen-material rules.
-  **Acceptance criteria:** the wall is 1 to 4 draw calls; the other draws are unchanged; the wall looks
-  the same in a side-by-side capture.
-  **Validation:** a draw-call test in `vr-parity.spec.mjs`, and Quest frame-time before and after.
-  **Estimated effort:** Medium
-  **Product value:** Medium
-  **Technical debt reduction:** Medium
-
-- [ ] Optimise the two 15 MB GLBs and the 8 MB texture PNGs
-  **Updated 2026-10-03, priority raised to High.** The file size is only half the problem. Measured in the
-  headset build: both models carry **4096x4096 textures** (the DJ console has four, the speaker three, and
-  the speaker is loaded twice), and the loader never downsizes them, so the scene holds about **1,450 MB
-  of GPU texture memory** (estimated as width x height x 4 bytes plus the mip chain), of which 16
-  textures at 4096x4096 are about 94%. A Quest 3S shares its memory with the browser, so this is a
-  load-time and crash risk, not just a download. At 2048x2048 the same 16 textures are about 360 MB and
-  at 1024x1024 about 90 MB (estimates, to be re-measured). The 10 MiB normal map and 8 MiB base colour
-  are PNGs; the emissive map is 4096x4096 for 147 KB of content. An external developer's feedback
-  ("big files, PNG textures, optimise") applies to this repo.
+  **Resolved 2026-10-03.** The wall is now ONE mesh (`ledPanel_wall`): the same 210 quads at the same
+  positions with the same dark seams, coloured from a 21x10 float `RawTexture` with one texel per
+  panel (all four corners of a quad share its texel centre, so each panel is a flat colour). The
+  patterns are untouched: they still write `panel.material.emissiveColor`, which is now a plain
+  holder, and `_flushLedWall()` copies those colours into the texture once per frame at the end of
+  `updateLEDWallPass` (all branches: patterns, off state, monochrome, ledWallLevel). The glow
+  selector special-cases the wall (`2.0 x` the texture). Floats keep colours above 1.0 driving the
+  glow; GPUs without float textures fall back to 8-bit.
+  **Measured:** desktop entrance view 564 -> 355 draw calls; the wall 210 -> 1. A side-by-side of a
+  known colour map (per-panel colours including HDR values) matches in desktop and in the emulated
+  headset: same colours, seams and position, and a similar glow contribution.
+  **Guarded by:** `test/e2e/budget.spec.mjs` (wall is one mesh, draws <= 400) and a unit test for
+  the flush (row/column mapping, float and 8-bit paths).
+  **Still open:** 355 draws remain. The biggest groups are the mirror-ball rays, spots and beams (about
+  80, animated every frame) and ~30 static chain links; the rest is a long tail of small fixture parts.
+  Merging static fixture parts or moving the mirror-ball rays to thin instances would take it lower,
+  but the mesh names are load-bearing for cleanup and the rays are animated, so that needs its own
+  pass. Headset frame time before/after has NOT been measured (the emulator is software-rendered).
+- [x] Optimise the two 15 MB GLBs and the 8 MB texture PNGs
+  **Resolved 2026-10-03.** `npm run optimize:models` (`scripts/optimize-models.mjs`, idempotent,
+  `--check` mode enforced by a contract test) did the following, with no Draco/meshopt/KTX2 because
+  their decoders load from a CDN, which the same-origin critical-path rule forbids:
+  - DJ console GLB: 4096 -> 2048 WebP textures (normal and emissive lossless): 15.71 -> 3.20 MiB.
+  - Speaker GLB: embedded textures stripped (the app already replaced them with the external set):
+    15.75 -> 0.32 MiB. External speaker textures resized (normal PNG 10.08 -> 1.93 MiB).
+  - Deleted `js/models/djgear/textures/` (12.7 MB, referenced by nothing) and one unused texture.
+  **Measured:** source asset payload 65.26 -> 21.08 MiB; estimated GPU texture memory **1,450 -> 224 MB**;
+  textures of 2048 px or more 16 -> 6, of 4096 px 16 -> 0. Close-ups of the console and the speaker
+  before and after are visually identical (the only pixel differences are animated avatar/LED/beam
+  content). Guarded by `test/e2e/budget.spec.mjs` and the contract tests.
+  **Not measured:** real headset load time and memory; the GPU figures are estimates
+  (width x height x 4 x 4/3). A second PA speaker still loads its own copy of the textures.
   Priority: High
   Category: Performance
   Area: Assets
-  Affected files: `js/models/`, `scripts/optimize-avatars.mjs`, `scripts/build.mjs`
-  Problem: the source asset payload is 65.26 MiB, and 49.66 MiB of that is two GLBs and two PNG
-  textures. `scripts/optimize-avatars.mjs` exists but is invoked by nothing, only ever touches
-  `js/models/avatars/`, and destructively overwrites the source files in place — so it is not
-  idempotent and re-running re-quantises already-quantised geometry. `@gltf-transform/cli` is a
-  heavy devDependency carried for a script nobody runs.
-  Impact: a cold first load on a Quest over Wi-Fi is dominated by these files.
-  Recommended solution: generalise it to `optimize-models.mjs` covering `djgear` and `paspeakers`,
-  writing to `dist/` and never mutating sources; add Draco/meshopt compression and KTX2 textures;
-  wire it into `npm run build`. Or delete it and the dependency.
-  Acceptance criteria: `dist/` under 25 MB with no visible quality regression. `npm run
-  audit:assets` now reports the total, top ten and type totals in CI so progress is measurable.
+  Affected files: `scripts/optimize-models.mjs`, `js/models/`, `ASSETS.md`
   Estimated effort: Medium
   Business value: High
   Technical debt reduction: Medium
-
 - [x] Remove `'unsafe-inline'` from `style-src`
   Resolved 2026-09-23 (acceptance criteria met; the header directive intentionally stays).
   - `showAudioStreamInputUI()` now builds the overlay with `createElement`/`textContent`.

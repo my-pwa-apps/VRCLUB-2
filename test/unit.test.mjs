@@ -1470,6 +1470,42 @@ test('the LED wall is lit for most of the show, and only the deliberate solos go
     assert.ok(on / total >= 0.6, `the wall is lit for only ${(100 * on / total).toFixed(0)}% of the show (was 24%)`);
 });
 
+test('the LED wall is one mesh whose texels take each panel colour by row and column', () => {
+    const { window } = loadClassic('js/club/08-animation-fixtures.js', { VRClubAnimationCore: class {} });
+    const flush = window.VRClubAnimationFixtures.prototype._flushLedWall;
+    const cols = 4, rows = 3;
+    const makeClub = useFloat => {
+        const updates = [];
+        const wall = {
+            cols, rows, useFloat,
+            buffer: useFloat ? new Float32Array(cols * rows * 4) : new Uint8Array(cols * rows * 4),
+            texture: { update: data => updates.push(data) }
+        };
+        const ledPanels = [];
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                ledPanels.push({ row, col, material: { emissiveColor: { r: col / 4, g: row / 4, b: 1.6 } } });
+            }
+        }
+        return { club: { _ledWall: wall, ledPanels }, wall, updates };
+    };
+
+    // Float texture: values above 1 survive, because they are what drives the glow.
+    let { club, wall, updates } = makeClub(true);
+    flush.call(club);
+    assert.equal(updates.length, 1, 'one texture upload per frame, not one per panel');
+    const texel = (row, col) => Array.from(wall.buffer.slice((row * cols + col) * 4, (row * cols + col) * 4 + 4)).map(v => +v.toFixed(4));
+    assert.deepEqual(texel(2, 3), [0.75, 0.5, 1.6, 1]);
+    assert.deepEqual(texel(0, 0), [0, 0, 1.6, 1]);
+
+    // 8-bit fallback clamps to what the screen shows anyway.
+    ({ club, wall, updates } = makeClub(false));
+    flush.call(club);
+    assert.deepEqual(Array.from(wall.buffer.slice((2 * cols + 3) * 4, (2 * cols + 3) * 4 + 4)), [191, 127, 255, 255]);
+
+    // A club without a wall (modular build, early frames) is a no-op rather than a crash.
+    assert.doesNotThrow(() => flush.call({ ledPanels: [] }));
+});
 test('a dimmed wall is an accompaniment: it scales every pattern, eases in, and resets per look', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} });

@@ -361,7 +361,10 @@ class VRClubLifecycle extends VRClubCore {
         // LED panels and strobes get strong glow, lasers get intense glow, structures get none
         this.glowLayer.customEmissiveColorSelector = (mesh, subMesh, material, result) => {
             const name = mesh.name || '';
-            if (name.startsWith('ledPanel_') || name.startsWith('strobe')) {
+            if (name === 'ledPanel_wall') {
+                // The wall's colours live in its emissive texture, which the glow pass multiplies by this.
+                result.set(2.0, 2.0, 2.0, 1.0);
+            } else if (name.startsWith('ledPanel_') || name.startsWith('strobe')) {
                 // LED panels and strobes: bright emissive glow (visible from across club)
                 result.set(
                     material.emissiveColor.r * 2.0,

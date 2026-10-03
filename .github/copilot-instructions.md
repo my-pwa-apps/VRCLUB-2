@@ -44,6 +44,7 @@ npm run build    # content-hashed production site under dist/
 npm run start:prod  # build + dependency-free dist server honouring $PORT
 npm run check    # node --check every JS file
 npm test         # contract test suite (test/contract.test.mjs)
+npm run optimize:models  # idempotent model/texture shrink; `-- --check` fails if anything would change
 npm run test:e2e # Playwright: production build in Chromium, with a Quest 3 emulated by IWER
 ```
 
@@ -500,7 +501,18 @@ and fail `npm test`.
   The folder name is part of the IndexedDB cache key, so replacing a set means renaming its
   folder — overwriting files in place leaves returning visitors on the old maps for 30 days.
 - **Models**: local `./js/models/` — `djgear/source/pioneer_DJ_console.glb`,
-  `paspeakers/source/stage_speaker___black.glb`.
+  `paspeakers/source/stage_speaker___black.glb`. Both are **optimised derivatives**: run
+  `npm run optimize:models` after replacing or editing either (idempotent; `npm test` runs it with
+  `--check`). Never put a 4096 px texture in the scene — a Quest shares its memory with the browser
+  and each one costs ~85 MB with mips (the budget is in `test/e2e/budget.spec.mjs`). The speaker
+  GLB is deliberately textureless: `ModelLoader.applyPASpeakerTextures()` applies the external
+  `paspeakers/source/textures/small_speaker_1_1001_*` set to every mesh. Do not use Draco, meshopt
+  or KTX2: Babylon fetches their decoders from a CDN, which the same-origin rule forbids.
+- **LED wall**: ONE mesh (`ledPanel_wall`), not one per panel. Patterns still write
+  `panel.material.emissiveColor` (a plain holder, not a Babylon material), and `_flushLedWall()`
+  copies those colours into the wall's 21x10 emissive texture at the end of `updateLEDWallPass`.
+  Do not split it back into per-panel meshes, and do not add a code path that writes a panel colour
+  after that flush.
 - **PBR environment**: local `./js/vendor/environmentSpecular.env`. It used to be fetched
   from `assets.babylonjs.com`; a contract test now forbids any third-party origin in the
   critical path, because one CDN outage silently stripped every reflection in the scene.

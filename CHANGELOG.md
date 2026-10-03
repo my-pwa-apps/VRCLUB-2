@@ -127,6 +127,13 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- Far lighter to load and to draw, with no visible change. The LED wall is one mesh coloured from
+  a 21x10 texture instead of 210 planes (draw calls from the entrance view 564 -> 355; the wall
+  210 -> 1). The two big models are optimised by `npm run optimize:models`: the DJ console's textures
+  are 2048 px WebP instead of 4096, the speaker GLB carries no textures (the app already used
+  external ones, which are resized), and 12.7 MB of unreferenced console textures are gone. Asset
+  payload 65.3 -> 21.1 MiB; estimated GPU texture memory 1,450 -> 224 MB. `test/e2e/budget.spec.mjs`
+  and a contract test guard both.
 - The hall reads as an old factory: the dance floor is worn, patched, oil-stained concrete
   (Poly Haven `concrete_floor_damaged_01`, CC0) instead of clear-coated "wet" tiles, with
   no clear coat and a full-strength roughness map. Screen-space reflections now skip

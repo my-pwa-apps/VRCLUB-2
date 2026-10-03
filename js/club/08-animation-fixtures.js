@@ -24,6 +24,29 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 panel.material.emissiveColor = c;
             }
         }
+        this._flushLedWall();
+    }
+
+    /** Copy each panel's colour into the wall texture (one texel per panel); the wall is a single draw. */
+    _flushLedWall() {
+        const wall = this._ledWall;
+        if (!wall || !this.ledPanels) return;
+        const data = wall.buffer;
+        const panels = this.ledPanels;
+        for (let i = 0; i < panels.length; i++) {
+            const panel = panels[i];
+            const c = panel.material.emissiveColor;
+            const o = (panel.row * wall.cols + panel.col) * 4;
+            if (wall.useFloat) {
+                data[o] = c.r; data[o + 1] = c.g; data[o + 2] = c.b;
+            } else {
+                data[o] = Math.min(255, Math.max(0, c.r * 255));
+                data[o + 1] = Math.min(255, Math.max(0, c.g * 255));
+                data[o + 2] = Math.min(255, Math.max(0, c.b * 255));
+            }
+            data[o + 3] = wall.useFloat ? 1 : 255;
+        }
+        wall.texture.update(data);
     }
 
     /** Perimeter dance-floor LED strip, coloured per lighting phase. */

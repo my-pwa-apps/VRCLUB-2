@@ -424,37 +424,41 @@ class VRClubFixtures extends VRClubEnvironment {
         const wallWidth = cols * panelWidth;
         
         this.ledPanels = [];
-        
+
+        // ONE mesh for the whole wall. It used to be 210 separate planes, each with its own material:
+        // 210 draw calls, half of everything drawn in a frame, and twice that in a headset (once per
+        // eye). The geometry is unchanged: the same 210 quads at the same positions with the same
+        // dark seams between them. What changed is how a panel gets its colour: every panel samples
+        // one texel of a 21x10 texture (all four of its corners share the texel's centre, so the
+        // panel is a flat colour, exactly as before), and the patterns still write
+        // `panel.material.emissiveColor` as they always did; _flushLedWall() copies those colours
+        // into the texture once per frame. The glow layer reads the same emissive texture, so the
+        // wall still glows in each panel's own colour.
+        const quadW = (panelWidth - 0.12) / 2;   // Larger physical gap (was -0.05) so VR bloom can't bridge tiles;
+        const quadH = (panelHeight - 0.12) / 2;  // real walls have a ~6-10 mm bezel per 60 cm tile, so a clear ~6 cm dark seam
+        const count = cols * rows;
+        const positions = new Float32Array(count * 12);
+        const normals = new Float32Array(count * 12);
+        const uvs = new Float32Array(count * 8);
+        const indices = new Uint16Array(count * 6);
+
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
-                const panel = BABYLON.MeshBuilder.CreatePlane("ledPanel_" + row + "_" + col, {
-                    width: panelWidth - 0.12,   // Larger physical gap (was -0.05) so VR bloom can't bridge tiles
-                    height: panelHeight - 0.12  // Real LED video walls have ~6–10 mm bezels per 60cm tile —
-                                                // proportionally we now show a clear ~6cm dark seam
-                }, this.scene);
-                
                 const x = (col * panelWidth) - (wallWidth / 2) + (panelWidth / 2);
                 const y = (row * panelHeight) + (panelHeight / 2) + 0.05; // Start just above floor
                 const z = -20; // Behind DJ booth
-                
-                panel.position = new BABYLON.Vector3(x, y, z);
-                // Plane faces -Z by default, which is toward the dance floor - correct!
-                // No rotation needed (was incorrectly rotating to face the wall)
-                
-                // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible
-                const panelMat = this.materialFactory.createStandardMaterial("ledMat_" + row + "_" + col, {
-                    mutable: true, // colour written at runtime
-                    emissiveColor: [0.1, 0, 0], // MUCH dimmer for contrast
-                    disableLighting: true
-                });
-                panelMat.backFaceCulling = false; // Ensure visible from both sides
-                panel.material = panelMat;
-                
-                // PERFORMANCE: Freeze static geometry (panel position never changes)
-                panel.freezeWorldMatrix();
-                panel.doNotSyncBoundingInfo = true;
-                panel.isPickable = false;
-                
+                const index = row * cols + col;
+                const v = index * 4;
+
+                // Faces -Z, toward the dance floor.
+                const corners = [[-quadW, -quadH], [quadW, -quadH], [quadW, quadH], [-quadW, quadH]];
+                for (let k = 0; k < 4; k++) {
+                    positions.set([x + corners[k][0], y + corners[k][1], z], (v + k) * 3);
+                    normals.set([0, 0, -1], (v + k) * 3);
+                    uvs.set([(col + 0.5) / cols, (row + 0.5) / rows], (v + k) * 2);
+                }
+                indices.set([v, v + 1, v + 2, v, v + 2, v + 3], index * 6);
+
                 // Remove most backlights - only minimal ambient
                 if (row === 3 && col === 5) {
                     const backLight = new BABYLON.PointLight("ledBack_" + row + "_" + col,
@@ -464,10 +468,57 @@ class VRClubFixtures extends VRClubEnvironment {
                     backLight.range = 3;
                     backLight.setEnabled(false); // Start disabled
                 }
-                
+            }
+        }
+
+        const wall = new BABYLON.Mesh('ledPanel_wall', this.scene);
+        const wallData = new BABYLON.VertexData();
+        wallData.positions = positions;
+        wallData.normals = normals;
+        wallData.uvs = uvs;
+        wallData.indices = indices;
+        wallData.applyToMesh(wall);
+
+        // One texel per panel. Float where the GPU samples it (so a colour above 1.0 still drives the
+        // glow as it did), else 8-bit, which the on-screen clamp makes visually identical.
+        const caps = this.engine.getCaps();
+        const useFloat = !!caps.textureFloat;
+        const wallBuffer = useFloat ? new Float32Array(count * 4) : new Uint8Array(count * 4);
+        const wallTexture = new BABYLON.RawTexture(
+            wallBuffer, cols, rows, BABYLON.Constants.TEXTUREFORMAT_RGBA, this.scene,
+            false, false, BABYLON.Constants.TEXTURE_NEAREST_SAMPLINGMODE,
+            useFloat ? BABYLON.Constants.TEXTURETYPE_FLOAT : BABYLON.Constants.TEXTURETYPE_UNSIGNED_BYTE);
+        wallTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        wallTexture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        wallTexture.name = 'ledWallColours';
+
+        // VERY LOW BASE BRIGHTNESS - so blackout patterns are clearly visible. The colour comes
+        // entirely from the texture; the material's own emissive colour stays black.
+        const wallMat = this.materialFactory.createStandardMaterial('ledWallMat', {
+            mutable: true, // the texture is rewritten every frame
+            emissiveColor: [0, 0, 0],
+            emissiveTexture: wallTexture,
+            disableLighting: true
+        });
+        wallMat.backFaceCulling = false; // Ensure visible from both sides
+        wall.material = wallMat;
+
+        // PERFORMANCE: static geometry
+        wall.freezeWorldMatrix();
+        wall.doNotSyncBoundingInfo = true;
+        wall.isPickable = false;
+        this._ledWall = { mesh: wall, texture: wallTexture, buffer: wallBuffer, useFloat, cols, rows };
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
                 this.ledPanels.push({
-                    mesh: panel,
-                    material: panelMat,
+                    mesh: wall,
+                    // What the patterns write to. A plain holder, not a Babylon material: the wall
+                    // has one material, and _flushLedWall() turns these colours into texels.
+                    material: {
+                        emissiveColor: new BABYLON.Color3(0.1, 0, 0), // MUCH dimmer for contrast
+                        unfreeze() {}, freeze() {}
+                    },
                     row: row,
                     col: col,
                     centerX: col - (cols / 2) + 0.5,
@@ -485,6 +536,7 @@ class VRClubFixtures extends VRClubEnvironment {
                 });
             }
         }
+        this._flushLedWall();
         
         this.ledTime = 0;
         this.ledPattern = 0;  // Start with Hypnotic Spiral — the flagship immersive vortex

@@ -5,15 +5,26 @@ import { dirname, extname, join } from 'node:path';
 import { NodeIO } from '@gltf-transform/core';
 import { copyToDocument } from '@gltf-transform/functions';
 
-const [basePath, animationPath, clipName, outputPath, ...options] = process.argv.slice(2);
+// <clip> may name several clips of <animations.glb>, comma separated. `--clips-from=<file.glb>:<clip>,<clip>`
+// (repeatable) adds clips from another library on the same rig. `--exclude=<regex>` drops accessory parts
+// by node name (for example a hood that would hide the hair).
+const [basePath, animationPath, clipArgument, outputPath, ...options] = process.argv.slice(2);
 const headOnly = options.includes('--head-only');
-const accessoryPaths = options.filter(option => option !== '--head-only');
+const excludeOption = options.find(option => option.startsWith('--exclude='));
+const exclude = excludeOption ? new RegExp(excludeOption.slice('--exclude='.length), 'i') : null;
+const extraClipSources = options
+    .filter(option => option.startsWith('--clips-from='))
+    .map(option => {
+        const spec = option.slice('--clips-from='.length);
+        const split = spec.lastIndexOf(':');
+        return { path: spec.slice(0, split), clips: spec.slice(split + 1).split(',') };
+    });
+const accessoryPaths = options.filter(option => !option.startsWith('--'));
 
-if (!basePath || !animationPath || !clipName || !outputPath) {
-    console.error('Usage: node scripts/build-avatar-glb.mjs <base.gltf> <animations.glb> <clip> <output.glb> [accessory.gltf ...]');
+if (!basePath || !animationPath || !clipArgument || !outputPath) {
+    console.error('Usage: node scripts/build-avatar-glb.mjs <base.gltf> <animations.glb> <clip[,clip]> <output.glb> [--head-only] [--exclude=<regex>] [--clips-from=<file.glb>:<clip,clip>] [accessory.gltf ...]');
     process.exit(1);
 }
-
 const io = new NodeIO();
 
 async function readDocument(path) {
@@ -36,7 +47,8 @@ async function readDocument(path) {
 }
 
 const baseDocument = await readDocument(basePath);
-const animationDocument = await io.read(animationPath);
+const clipSources = [{ document: await io.read(animationPath), clips: clipArgument.split(',') }];
+for (const extra of extraClipSources) clipSources.push({ document: await io.read(extra.path), clips: extra.clips });
 const baseSkin = baseDocument.getRoot().listSkins()[0];
 const baseJointNames = baseSkin?.listJoints().map(joint => joint.getName());
 
@@ -79,7 +91,7 @@ if (headOnly) {
 for (const accessoryPath of accessoryPaths) {
     const accessoryDocument = await readDocument(accessoryPath);
     const accessoryNodes = accessoryDocument.getRoot().listNodes()
-        .filter(node => node.getMesh() && node.getSkin());
+        .filter(node => node.getMesh() && node.getSkin() && !(exclude && exclude.test(node.getName())));
     const accessorySkin = accessoryNodes[0]?.getSkin();
     const accessoryJointNames = accessorySkin?.listJoints().map(joint => joint.getName());
 
@@ -100,16 +112,6 @@ for (const accessoryPath of accessoryPaths) {
     }
 }
 
-const sourceAnimation = animationDocument.getRoot().listAnimations()
-    .find(animation => animation.getName() === clipName);
-
-if (!sourceAnimation) {
-    const available = animationDocument.getRoot().listAnimations()
-        .map(animation => animation.getName())
-        .join(', ');
-    throw new Error(`Animation "${clipName}" not found. Available clips: ${available}`);
-}
-
 const targetNodes = new Map();
 for (const node of baseDocument.getRoot().listNodes()) {
     if (node.getName()) targetNodes.set(node.getName(), node);
@@ -117,48 +119,63 @@ for (const node of baseDocument.getRoot().listNodes()) {
 
 for (const animation of baseDocument.getRoot().listAnimations()) animation.dispose();
 
-const targetAnimation = baseDocument.createAnimation(clipName);
-const samplerMap = new Map();
+let channelCount = 0;
+for (const { document: animationDocument, clips } of clipSources) {
+    for (const clipName of clips) {
+        const sourceAnimation = animationDocument.getRoot().listAnimations()
+            .find(animation => animation.getName() === clipName);
 
-for (const sourceSampler of sourceAnimation.listSamplers()) {
-    const sourceInput = sourceSampler.getInput();
-    const sourceOutput = sourceSampler.getOutput();
-    const inputArray = sourceInput.getArray();
-    const outputArray = sourceOutput.getArray();
-    const input = baseDocument.createAccessor(`${clipName}_time`)
-        .setType(sourceInput.getType())
-        .setArray(new inputArray.constructor(inputArray))
-        .setNormalized(sourceInput.getNormalized());
-    const output = baseDocument.createAccessor(`${clipName}_value`)
-        .setType(sourceOutput.getType())
-        .setArray(new outputArray.constructor(outputArray))
-        .setNormalized(sourceOutput.getNormalized());
-    const sampler = baseDocument.createAnimationSampler()
-        .setInput(input)
-        .setOutput(output)
-        .setInterpolation(sourceSampler.getInterpolation());
+        if (!sourceAnimation) {
+            const available = animationDocument.getRoot().listAnimations()
+                .map(animation => animation.getName())
+                .join(', ');
+            throw new Error(`Animation "${clipName}" not found. Available clips: ${available}`);
+        }
 
-    samplerMap.set(sourceSampler, sampler);
-    targetAnimation.addSampler(sampler);
-}
+        const targetAnimation = baseDocument.createAnimation(clipName);
+        const samplerMap = new Map();
 
-for (const sourceChannel of sourceAnimation.listChannels()) {
-    const sourceNode = sourceChannel.getTargetNode();
-    const targetNode = sourceNode && targetNodes.get(sourceNode.getName());
-    if (!targetNode) {
-        throw new Error(`No target joint named "${sourceNode?.getName() || '(unnamed)'}"`);
+        for (const sourceSampler of sourceAnimation.listSamplers()) {
+            const sourceInput = sourceSampler.getInput();
+            const sourceOutput = sourceSampler.getOutput();
+            const inputArray = sourceInput.getArray();
+            const outputArray = sourceOutput.getArray();
+            const input = baseDocument.createAccessor(`${clipName}_time`)
+                .setType(sourceInput.getType())
+                .setArray(new inputArray.constructor(inputArray))
+                .setNormalized(sourceInput.getNormalized());
+            const output = baseDocument.createAccessor(`${clipName}_value`)
+                .setType(sourceOutput.getType())
+                .setArray(new outputArray.constructor(outputArray))
+                .setNormalized(sourceOutput.getNormalized());
+            const sampler = baseDocument.createAnimationSampler()
+                .setInput(input)
+                .setOutput(output)
+                .setInterpolation(sourceSampler.getInterpolation());
+
+            samplerMap.set(sourceSampler, sampler);
+            targetAnimation.addSampler(sampler);
+        }
+
+        for (const sourceChannel of sourceAnimation.listChannels()) {
+            const sourceNode = sourceChannel.getTargetNode();
+            const targetNode = sourceNode && targetNodes.get(sourceNode.getName());
+            if (!targetNode) {
+                throw new Error(`No target joint named "${sourceNode?.getName() || '(unnamed)'}"`);
+            }
+
+            const channel = baseDocument.createAnimationChannel()
+                .setTargetNode(targetNode)
+                .setTargetPath(sourceChannel.getTargetPath())
+                .setSampler(samplerMap.get(sourceChannel.getSampler()));
+            targetAnimation.addChannel(channel);
+        }
+        channelCount += targetAnimation.listChannels().length;
     }
-
-    const channel = baseDocument.createAnimationChannel()
-        .setTargetNode(targetNode)
-        .setTargetPath(sourceChannel.getTargetPath())
-        .setSampler(samplerMap.get(sourceChannel.getSampler()));
-    targetAnimation.addChannel(channel);
 }
-
 const buffers = baseDocument.getRoot().listBuffers();
 const targetBuffer = buffers[0] || baseDocument.createBuffer('avatar');
 for (const accessor of baseDocument.getRoot().listAccessors()) accessor.setBuffer(targetBuffer);
 for (const buffer of buffers.slice(1)) buffer.dispose();
 await io.write(outputPath, baseDocument);
-console.log(`Wrote ${outputPath} with ${targetAnimation.listChannels().length} animation channels.`);
+console.log(`Wrote ${outputPath} with ${baseDocument.getRoot().listAnimations().length} clip(s), ${channelCount} animation channels.`);

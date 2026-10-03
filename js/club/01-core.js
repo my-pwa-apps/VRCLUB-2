@@ -80,6 +80,7 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: true,
                 crowdSize: 14,             // animated skinned dancers on the floor
+                guestSize: 7,            // guests off the floor: talking, on a call, watching
                 mirrorSpots: 140,
                 mirrorRays: 64,
                 mirrorBeamStride: 1
@@ -100,6 +101,7 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: false,
                 crowdSize: 10,
+                guestSize: 5,
                 mirrorSpots: 90,
                 mirrorRays: 52,
                 mirrorBeamStride: 2
@@ -124,6 +126,7 @@ class VRClubCore {
                 // headcount is the first thing to give on weak GPUs. Quest is always
                 // `balanced`, so this is the number a headset actually renders.
                 crowdSize: 6,
+                guestSize: 3,
                 mirrorSpots: 48,
                 mirrorRays: 32,
                 mirrorBeamStride: 3

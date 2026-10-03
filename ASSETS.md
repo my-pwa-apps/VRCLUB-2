@@ -24,8 +24,17 @@ in `index.html`).
 
 | Directory | Belongs to | Licence |
 |-----------|-----------|---------|
-| `js/models/djgear/textures/` | Pioneer DJ Console | CC BY 4.0 (same as the model) |
-| `js/models/paspeakers/source/textures/` | Stage Speaker — Black | CC BY 4.0 (same as the model) |
+| `js/models/djgear/textures/` | *removed — an unreferenced duplicate of the console textures (12.7 MB); the console's textures are embedded in its GLB* | — |
+| `js/models/paspeakers/source/textures/` | Stage Speaker — Black (the GLB itself carries no textures; the app applies these) | CC BY 4.0 (same as the model) |
+
+### Derived files
+
+Both models are **optimised derivatives** of the originals, produced by
+`npm run optimize:models` (`scripts/optimize-models.mjs`, idempotent; `npm test` fails if a
+model drifts back above its budget). The console's embedded textures are resized from 4096 px
+to 2048 px WebP (normal and emissive maps lossless); the speaker GLB's embedded textures are
+stripped because the app replaces them with the external set above, which is also resized.
+Geometry, materials and licences are unchanged.
 
 ## Character models and animations
 

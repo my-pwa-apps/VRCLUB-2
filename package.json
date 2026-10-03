@@ -18,7 +18,8 @@
     "version:bump": "node scripts/bump-version.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "vendor:babylon": "node scripts/fetch-vendor.mjs",
-    "optimize:avatars": "node scripts/optimize-avatars.mjs"
+    "optimize:avatars": "node scripts/optimize-avatars.mjs",
+    "optimize:models": "node scripts/optimize-models.mjs"
   },
   "keywords": [
     "webxr",

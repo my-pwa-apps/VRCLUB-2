@@ -210,6 +210,28 @@ test('every shipped GLB is documented in ASSETS.md', () => {
     }
 });
 
+// The DJ console and PA speaker once shipped 4096x4096 textures: ~1,450 MB of GPU texture memory
+// in the headset, 94% of it those sixteen textures, plus ~48 MB of files nothing drew. The
+// optimiser is idempotent, so `--check` fails exactly when a model or texture has been put back
+// at full size (or an unreferenced copy has returned).
+test('the big models and their textures stay optimised', () => {
+    let output = '';
+    try {
+        output = execFileSync(process.execPath, ['scripts/optimize-models.mjs', '--check'], { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' });
+    } catch (error) {
+        assert.fail(`assets are not optimised; run \`npm run optimize:models\`:\n${error.stdout || ''}${error.stderr || ''}`);
+    }
+    assert.match(output, /already optimised/);
+});
+
+test('no model code reads a texture file that does not exist or is not shipped', () => {
+    const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    const base = './js/models/paspeakers/source/textures/';
+    for (const file of source.matchAll(/textureBasePath \+ '([^']+)'/g).map(m => m[1])) {
+        assert.ok(existsSync(join(ROOT, base, file)), `modelLoader reads ${base}${file}, which is missing`);
+    }
+});
+
 test('cache-busting tokens are consistent across index.html', () => {
     const tokens = new Set([...html.matchAll(/\?v=([A-Za-z0-9._-]+)/g)].map(m => m[1]));
     assert.equal(tokens.size, 1, `index.html mixes cache-busting tokens: ${[...tokens].join(', ')}`);

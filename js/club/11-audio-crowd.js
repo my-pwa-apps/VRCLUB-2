@@ -596,7 +596,7 @@ class VRClubAudioCrowd extends VRClubUI {
             mat.forceDepthWrite = true;
             mat.backFaceCulling = true;
 
-            if (garmentColor && mat.name === 'MI_Peasant' && mat.albedoColor) {
+            if (garmentColor && (mat.name === 'MI_Peasant' || mat.name === 'MI_Ranger') && mat.albedoColor) {
                 mat.albedoColor.copyFrom(garmentColor);
             }
 
@@ -618,8 +618,12 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {number} facing                    world Y rotation, radians
      * @param {number} height                    real-world height in metres
      * @param {number} speedRatio                animation playback rate
+     * @param {object} [options]
+     * @param {string} [options.clip]            which clip to play when the GLB carries several
+     *                                           (default 'Dance_Loop'); the rest are discarded
+     * @param {boolean} [options.reactsToBeat]   false for guests who do not dance (default true)
      */
-    _spawnAvatar(container, name, position, facing, height, speedRatio) {
+    _spawnAvatar(container, name, position, facing, height, speedRatio, options = {}) {
         // doNotInstantiate: these are skinned meshes, so each dancer needs its own
         // skeleton and animation group to move independently. cloneMaterials stays
         // false so the whole crowd still shares one set of materials and textures.
@@ -672,7 +676,19 @@ class VRClubAudioCrowd extends VRClubUI {
             });
         });
 
-        entry.animationGroups.forEach(group => {
+        // A multi-clip GLB (the leather-jacket guests) carries every pose it can strike. Keep the one this guest plays and drop
+        // the others, so no hidden animation group keeps evaluating 60 joints.
+        let groups = entry.animationGroups;
+        if (groups.length > 1) {
+            const prefix = `${name}_`;
+            const clipOf = group => (group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name);
+            const wanted = options.clip || 'Dance_Loop';
+            const chosen = groups.find(group => clipOf(group) === wanted) || groups[0];
+            groups.forEach(group => { if (group !== chosen) group.dispose(); });
+            groups = [chosen];
+        }
+
+        groups.forEach(group => {
             group.start(true);
             group.speedRatio = speedRatio;
             // Offset the phase, otherwise every clone of the same clip hits the same
@@ -685,9 +701,11 @@ class VRClubAudioCrowd extends VRClubUI {
             name,
             root,
             meshes,
-            animations: entry.animationGroups,
+            animations: groups,
             baseSpeed: speedRatio,
-            homeYaw: facing,
+            // Guests who are not dancing keep their pose and their facing: no beat-driven tempo, no turning away.
+            reactsToBeat: options.reactsToBeat !== false,
+            homeYaw: options.reactsToBeat === false ? null : facing,
             avoidYaw: 0
         };
         npc.collider = this._attachOccupantCollider(root, name);
@@ -824,7 +842,12 @@ class VRClubAudioCrowd extends VRClubUI {
             { url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
             { url: './js/models/avatars/Hip Hop Dancing.glb' },
             { url: './js/models/avatars/house.glb' },
-            { url: './js/models/avatars/rumba_dancing_female_character.glb' }
+            { url: './js/models/avatars/rumba_dancing_female_character.glb' },
+            // Leather-jacketed Quaternius guests. They dance with Dance_Loop and, as guests off the floor,
+            // play their talking, phone, arms-folded and nodding clips from the same file.
+            // Tinted dark and cool: the untinted ranger leathers read as a fantasy costume under show lights.
+            { url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.78, 0.6, 0.9) },
+            { url: './js/models/avatars/club-guest-male.glb', garmentColor: new BABYLON.Color3(0.58, 0.68, 0.92) }
         ];
 
         log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
@@ -868,14 +891,14 @@ class VRClubAudioCrowd extends VRClubUI {
             { x:  0.4, z: -10.8, src: 2, height: 1.74, facing:  0.04 },
             { x: -6.0, z: -11.6, src: 3, height: 1.79, facing:  0.28 },
             { x:  5.6, z: -11.0, src: 4, height: 1.71, facing: -0.26 },
-            { x: -1.4, z:  -8.6, src: 1, height: 1.62, facing:  0.08 },
+            { x: -1.4, z:  -8.6, src: 5, height: 1.62, facing:  0.08 },
             { x:  2.6, z: -15.0, src: 2, height: 1.88, facing: -0.06 },
-            { x: -4.6, z: -15.2, src: 3, height: 1.69, facing:  0.16 },
+            { x: -4.6, z: -15.2, src: 6, height: 1.69, facing:  0.16 },
             { x:  6.6, z:  -8.4, src: 4, height: 1.77, facing: -0.34 },
             { x: -6.8, z:  -8.0, src: 0, height: 1.81, facing:  0.36 },
-            { x:  1.6, z:  -7.4, src: 1, height: 1.60, facing: -0.10 },
+            { x:  1.6, z:  -7.4, src: 5, height: 1.60, facing: -0.10 },
             { x: -7.4, z: -13.8, src: 2, height: 1.73, facing:  0.42 },
-            { x:  7.2, z: -13.6, src: 3, height: 1.86, facing: -0.40 },
+            { x:  7.2, z: -13.6, src: 6, height: 1.86, facing: -0.40 },
             { x: -0.6, z:  -6.4, src: 4, height: 1.68, facing:  0.02 }
         ];
         this._crowdSlots = crowdSlots;
@@ -909,6 +932,39 @@ class VRClubAudioCrowd extends VRClubUI {
         log.info(`✅ Crowd ready: ${this.npcAvatars.length} animated characters (incl. the DJ)`);
     }
 
+    /**
+     * Guests who are not on the dance floor: a pair talking by the right wall, someone on a call, someone watching
+     * with folded arms, one nodding along to the music. Clubs are not only dancers, and the side walls were empty.
+     * Same hand-placed ordering rule as the crowd: the first N are already spread around the room, so a lower tier
+     * still looks populated (and its first two are the talking pair). Yaw 0 faces +z (the entrance side), PI faces
+     * the DJ, +PI/2 faces +x. Every slot is well clear of the side walls, the truss legs and the DJ riser.
+     */
+    _guestSlots() {
+        const towardDJ = (x, z) => Math.atan2(-x, -18 - z);
+        return [
+            { src: 6, clip: 'Idle_Talking_Loop', x: 9.6, z: -8.4, yaw: -0.35, height: 1.80 },
+            { src: 5, clip: 'Idle_Talking_Loop', x: 9.6, z: -7.3, yaw: Math.PI + 0.35, height: 1.66 },
+            { src: 6, clip: 'Idle_FoldArms_Loop', x: -9.6, z: -10.6, yaw: Math.PI / 2 - 0.2, height: 1.84 },
+            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: -9.8, z: -6.4, yaw: Math.PI / 2 + 0.6, height: 1.68 },
+            { src: 6, clip: 'Yes', x: 8.6, z: -12.8, yaw: towardDJ(8.6, -12.8), height: 1.77 },
+            { src: 5, clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63 },
+            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: 10.4, z: -12.4, yaw: towardDJ(10.4, -12.4) + 0.4, height: 1.70 }
+        ];
+    }
+    _spawnGuestsTo(target) {
+        if (!this._crowdSourceContainers) return;
+        const existing = new Set(this.npcAvatars.filter(npc => npc.name.startsWith('guest')).map(npc => npc.name));
+        const slots = this._guestSlots();
+        slots.slice(0, Math.min(Math.max(0, target | 0), slots.length)).forEach((slot, index) => {
+            const name = `guest${index}`;
+            const source = this._crowdSourceContainers[slot.src];
+            // Only the multi-clip guest files carry these poses; without them there is nothing sensible to play.
+            if (existing.has(name) || !source) return;
+            this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, 0, slot.z), slot.yaw, slot.height,
+                0.9 + (index % 3) * 0.06, { clip: slot.clip, reactsToBeat: false });
+        });
+    }
+
     _spawnCrowdTo(target) {
         if (!this._crowdSlots || !this._crowdSourceContainers || !this._availableCrowdSources?.length) return;
         const existing = new Set(this.npcAvatars
@@ -936,11 +992,14 @@ class VRClubAudioCrowd extends VRClubUI {
     _applyCrowdSize() {
         if (!this.npcAvatars) return;
         const target = Math.max(0, this.tierSettings.crowdSize | 0);
+        const guestTarget = Math.max(0, this.tierSettings.guestSize | 0);
         this._spawnCrowdTo(target);
+        this._spawnGuestsTo(guestTarget);
         this.npcAvatars.forEach(npc => {
-            if (!npc.name.startsWith('dancer')) return;
-            const index = Number(npc.name.slice('dancer'.length));
-            const enabled = Number.isFinite(index) && index < target;
+            const isGuest = npc.name.startsWith('guest');
+            if (!isGuest && !npc.name.startsWith('dancer')) return;
+            const index = Number(npc.name.slice(isGuest ? 'guest'.length : 'dancer'.length));
+            const enabled = Number.isFinite(index) && index < (isGuest ? guestTarget : target);
             npc.root.setEnabled(enabled);
             npc.animations.forEach(group => {
                 if (enabled) {
@@ -985,7 +1044,7 @@ class VRClubAudioCrowd extends VRClubUI {
             const npc = this.npcAvatars[i];
             if (!npc.animations || !npc.root || !npc.root.isEnabled()) continue;
 
-            if (tempoChanged) {
+            if (tempoChanged && npc.reactsToBeat !== false) {
                 for (let a = 0; a < npc.animations.length; a++) {
                     npc.animations[a].speedRatio = npc.baseSpeed * beatBoost;
                 }
