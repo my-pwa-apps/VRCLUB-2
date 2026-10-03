@@ -180,13 +180,21 @@ class VRClubCore {
                 // which output the whole headset image at 10% brightness and capped peak white at 10%.
                 // Keep it at 1.0; set brightness with `exposure`.
                 sharpenGain: 1.0,
-                // Whole-room impulse a strobe adds for its few milliseconds. These were tuned while
-                // the headset image was capped at 10% brightness (old values 3.8 / 0.24 / 2.6 now
-                // measure a 0.76 mean-luminance white-out against 0.22 on desktop). Measured in the
-                // emulator: 1.2/0.08/1.0 matches the desktop flash (0.23), 2.0/0.12/1.4 gives 0.40;
-                // this sits between them, a flash about 12x the idle frame.
-                strobeImpulse: { ambient: 1.6, retinal: 0.10, exposure: 1.2 },
+                // Whole-room impulse a strobe adds for its few milliseconds. Tuned from measured
+                // flash frames (emulator, mean luminance): the old 3.8 / 0.24 / 2.6 gave 0.76 once
+                // the headset gain was fixed, 1.6 / 0.10 / 1.2 gave 0.33 and read as the room being
+                // lit; this gives about 0.19, level with the desktop flash (0.22) and about 5x the
+                // idle frame, in a burst of about 40 ms.
+                strobeImpulse: { ambient: 1.0, retinal: 0.06, exposure: 0.9 },
                 fxaaEnabled: true,
+                // MSAA on the headset pipeline's render target (1, 2 or 4). The scene is drawn into
+                // this offscreen target before the post chain reaches the XR layer, so the layer's own
+                // `antialias` never touches geometry edges: with 1 only FXAA was running and the DJ,
+                // rails and truss stair-stepped (measured: clean edges at 4, rough at 1). A tiled
+                // mobile GPU resolves MSAA cheaply, but this is NOT measured on a Quest 3S. Clamped to
+                // the GPU's limit; override with localStorage `vrclub.vrMsaa` (1 | 2 | 4) to trade
+                // edge quality for frame time without a rebuild.
+                msaaSamples: 4,
                 fogDensity: 0.022 // Smoke in VR — denser so beams read as 3D volumes, not flat lines
             }
         };
@@ -601,16 +609,18 @@ class VRClubCore {
                 [xrCamera]
             );
             
-            // Selective post-processing for VR - keep bloom for light glow, disable expensive effects
-            // XR antialias support and sample count are compositor-dependent. FXAA is
-            // a cheap per-eye fallback for thin rails and truss tubes that still stair-step.
+            // Selective post-processing for VR - keep bloom for light glow, disable expensive effects.
+            // The XR layer's own `antialias` does not reach this pipeline's offscreen target, so
+            // MSAA is set here (see vrSettings.vr.msaaSamples); FXAA then cleans up shader aliasing
+            // on the thin rails and truss tubes that MSAA does not reach.
             this.renderPipeline.fxaaEnabled = vr.fxaaEnabled;
             this.renderPipeline.bloomEnabled = true; // KEEP bloom - essential for light glow in dark club
             this.renderPipeline.bloomWeight = vr.bloomWeight; // Subtle bloom
             this.renderPipeline.bloomThreshold = vr.bloomThreshold;
             this.renderPipeline.bloomKernel = 32; // Smaller kernel for VR performance
             this.renderPipeline.bloomScale = vr.bloomScale;
-            this.renderPipeline.samples = 1; // XR layer provides its own antialiasing
+            this.renderPipeline.samples = VRClubCore.resolveVRMsaaSamples(
+                vr.msaaSamples, this.engine.getCaps().maxMSAASamples);
             this.renderPipeline.sharpenEnabled = true;
             this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
             this.renderPipeline.sharpen.colorAmount = vr.sharpenGain;
@@ -1065,6 +1075,20 @@ class VRClubCore {
             log.info('💻 Desktop/laptop detected - using safe light count for PBR materials');
             return 3; // Ultra-safe limit for PBR materials + loaded 3D models + mirror ball (reduced from 4)
         }
+    }
+
+    /**
+     * MSAA samples for the headset pipeline: the stored override (`vrclub.vrMsaa` = 1, 2 or 4),
+     * else the configured default, never above what the GPU supports. Pure so it can be tested.
+     */
+    static resolveVRMsaaSamples(configured, maxSupported) {
+        let stored = NaN;
+        try { stored = parseInt(localStorage.getItem('vrclub.vrMsaa'), 10); } catch (_) { /* private browsing */ }
+        const wanted = [1, 2, 4].includes(stored) ? stored : configured;
+        const cap = Number.isFinite(maxSupported) ? maxSupported : 1;
+        let samples = 1;
+        for (const candidate of [2, 4]) if (candidate <= wanted && candidate <= cap) samples = candidate;
+        return samples;
     }
 
     /**

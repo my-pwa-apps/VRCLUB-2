@@ -6,6 +6,51 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-10-03 — Strobe feel, headset antialiasing and external performance feedback
+
+Scope: strobe timing and brightness, the headset antialiasing path, and a check of an outside
+developer's feedback (big assets, draw calls, spot lights) against this repo. Measured in the
+Chromium and Quest-emulator harness; nothing here is measured on a real Quest 3S.
+
+- [x] **Strobes read as the room being lit when switched on from the menu**
+
+  **Resolved 2026-10-03.** Switching strobes on by hand puts the club in manual VJ mode, so they run on
+  the free-running timer, not the beat grid. There a burst's real length was `0.09 / speed^1.5`: 90 ms
+  (7 frames at 72 Hz) at speed 1, and the speed left behind by the last cue (2.4, or 4.8 after the
+  countdown) also set the rate, which could reach 7 to 9 flashes a second. The earlier "bursts never
+  reach the screen" fix made all of them visible. Now a burst is about 40 ms (3 frames at 72 Hz, shorter
+  at higher speed, never under 22 ms), the free timer can never exceed 3 flashes a second, switching
+  strobes on by hand while the show is driving resets the speed to the default, and the VR flash level
+  is measured against the desktop one (0.19 against 0.22 mean luminance, was 0.33).
+  **Evidence:** MEASURED. A 72 Hz simulation of the previous code gave "one burst lasted 97 ms"; the new
+  unit test fails on it and passes now. `test/unit.test.mjs`: "strobes are short stabs, and the
+  free-running timer never exceeds three flashes a second" (72, 90, 120 and 45 Hz, five speed and drop
+  combinations), and "switching strobes on by hand resets a leftover show speed".
+  **Not verified:** how the new level feels in a headset.
+
+- [x] **The headset ran with no MSAA, so edges stair-stepped**
+
+  **Resolved 2026-10-03, with an unmeasured frame-time cost.** The VR pipeline set `samples = 1` on the
+  comment "the XR layer provides its own antialiasing". The layer's `antialias` only affects content
+  drawn straight onto it; the scene is drawn into the pipeline's offscreen target first, so only FXAA
+  was running. It now uses MSAA from `vrSettings.vr.msaaSamples` (4), clamped to the GPU's limit, with a
+  stored override `vrclub.vrMsaa` (1, 2 or 4). Crops of the DJ and thin lines were rough at 1x and
+  clean at 4x.
+  **Risk:** 4x MSAA on a half-float target costs bandwidth, and a tiled mobile GPU resolves it cheaply
+  but this has not been measured on a Quest 3S. If frame time suffers, set `vrclub.vrMsaa` to 2 and
+  report back; the default can then be lowered. The desktop `balanced` tier still uses no MSAA.
+
+- **Not applicable: "swap spot lights for point lights".** There are 6 spot lights, 3 point lights on
+  and 3 off, and 1 hemispheric. Only 3 to 4 lights reach a surface at a time (the photometric slots), no
+  shadow generator runs in VR, and a spot light's cost over a point light is a few instructions. A point
+  light would also light the ceiling and the back of the room, losing the cone-shaped pools the heads
+  exist to make. The cost is the number of lights per material, which is already clamped.
+
+- Applies and is tracked below: the large assets (raised to High, with the 1.45 GB GPU-memory finding)
+  and the draw calls (the 210-panel LED wall).
+
+---
+
 ## Review — 2026-10-02 — VR parity and headset emulation
 
 Scope: new emulator-driven specs, `test/e2e/vr-session.spec.mjs` and
@@ -4565,8 +4610,43 @@ zero console errors and zero WebGL warnings.
   Business value: High
   Technical debt reduction: Low
 
+- [ ] **The LED wall costs 210 draw calls: half of everything drawn in a frame**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Confidence:** High for the count, Medium for the frame-time effect (not measured on a Quest)
+  **Area:** LED wall
+  **Affected files:** `js/club/05-fixtures.js`, `js/ledPatterns.js`, `js/club/08-animation-fixtures.js`
+  **Evidence:** MEASURED in the headset build: 409 draw calls from 392 active meshes, of which
+  `ledPanel_#` is 210 meshes and 210 draws (51%), then the mirror-ball rays, beams and spots (52).
+  Each panel is a separate mesh with its own material (none frozen), and its colour is written per
+  frame. A headset draws the scene once per eye, so the wall is about 420 submissions per frame.
+  **Problem:** the wall is one visual object paid for as 210.
+  **User-visible effect:** none directly; it eats the draw-call budget that the Quest has least of.
+  **Immersion impact:** Indirect. **Desktop impact:** Small. **VR impact:** Medium to High.
+  **Recommended solution:** render the wall as one mesh with per-panel colour: thin instances with an
+  instance colour buffer, or one quad with a small dynamic texture where each texel is a panel. Keep
+  the existing pattern code; only the final write changes.
+  **Regression considerations:** pattern look and brightness, the 37 patterns, glow selection, Safe
+  Mode, the light the wall casts, and the frozen-material rules.
+  **Acceptance criteria:** the wall is 1 to 4 draw calls; the other draws are unchanged; the wall looks
+  the same in a side-by-side capture.
+  **Validation:** a draw-call test in `vr-parity.spec.mjs`, and Quest frame-time before and after.
+  **Estimated effort:** Medium
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
 - [ ] Optimise the two 15 MB GLBs and the 8 MB texture PNGs
-  Priority: Medium
+  **Updated 2026-10-03, priority raised to High.** The file size is only half the problem. Measured in the
+  headset build: both models carry **4096x4096 textures** (the DJ console has four, the speaker three, and
+  the speaker is loaded twice), and the loader never downsizes them, so the scene holds about **1,450 MB
+  of GPU texture memory** (estimated as width x height x 4 bytes plus the mip chain), of which 16
+  textures at 4096x4096 are about 94%. A Quest 3S shares its memory with the browser, so this is a
+  load-time and crash risk, not just a download. At 2048x2048 the same 16 textures are about 360 MB and
+  at 1024x1024 about 90 MB (estimates, to be re-measured). The 10 MiB normal map and 8 MiB base colour
+  are PNGs; the emissive map is 4096x4096 for 147 KB of content. An external developer's feedback
+  ("big files, PNG textures, optimise") applies to this repo.
+  Priority: High
   Category: Performance
   Area: Assets
   Affected files: `js/models/`, `scripts/optimize-avatars.mjs`, `scripts/build.mjs`

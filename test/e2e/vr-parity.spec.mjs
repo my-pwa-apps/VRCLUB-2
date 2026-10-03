@@ -13,6 +13,7 @@ const SPAWN = { position: [0, 1.6, -12], target: [0, 1.6, -13], vfov: Math.PI / 
  */
 const INTENTIONAL_DIFFERENCES = new Map([
     ['pipeline.kind', 'VR builds its own pipeline on the XR camera'],
+    ['pipeline.samples', 'VR runs MSAA on its own pipeline (vrSettings.vr.msaaSamples); desktop balanced does not'],
     ['pipeline.bloomWeight', 'vrSettings.vr'],
     ['pipeline.bloomThreshold', 'vrSettings.vr'],
     ['pipeline.bloomKernel', 'smaller blur kernel in VR'],
@@ -136,7 +137,10 @@ test('VR keeps the desktop rendering features and image structure at the same gr
         expect(vrState.screenSpace).toMatchObject({ ssaoAttached: false, ssrActive: false, motionBlur: false });
         expect(vrState.lighting.shadowCasters).toBe(0);
         expect(vrState.environment.probeRefreshRate).toBe(0);
-        expect(vrState.pipeline.samples).toBe(1);
+        // MSAA is on in the headset (the XR layer's own antialias does not reach this pipeline's
+        // offscreen target), up to what the GPU supports.
+        const maxMsaa = await page.evaluate(() => window.vrClub.engine.getCaps().maxMSAASamples);
+        expect(vrState.pipeline.samples).toBe(Math.min(4, maxMsaa || 1));
         expect(vrState.resolution.hardwareScaling).toBe(1);
     });
 

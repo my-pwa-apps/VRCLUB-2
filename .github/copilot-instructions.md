@@ -353,7 +353,15 @@ whole image and caps peak white at that value. VR shipped at 0.1 (a headset fram
 which no amount of fixture boosting could fix); keep it at 1.0 and set brightness with `exposure`.
 Sharpening strength is `edgeAmount` only. `test/e2e/vr-parity.spec.mjs` fails if the VR gain drifts or
 the VR frame is darker than the desktop one. The strobe's whole-room impulse is
-`vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye.
+`vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye. A strobe burst is
+about 40 ms in REAL seconds (`STROBE_FLASH_S` in `09-animation-finish.js`, not scaled by
+`strobeSpeed`) and the free-running timer is floored at 0.34 s (three flashes a second); a unit test
+simulates 45 to 120 Hz and fails on a longer burst or a faster timer.
+
+**The XR layer's `antialias` does not antialias the scene.** The headset renders into the pipeline's
+offscreen target first, so MSAA must be set on that pipeline: `vrSettings.vr.msaaSamples` through
+`VRClubCore.resolveVRMsaaSamples()` (clamped to `maxMSAASamples`, overridable with `localStorage`
+`vrclub.vrMsaa` = 1, 2 or 4). It was 1 and only FXAA ran. Its Quest 3S cost is unmeasured.
 
 ### Graphics quality tiers
 `vrSettings` covers *desktop vs VR*. A second, orthogonal axis covers *how strong a GPU

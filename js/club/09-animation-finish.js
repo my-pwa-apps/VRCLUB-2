@@ -1,4 +1,10 @@
 'use strict';
+// Strobe timing, in real seconds. See updateStrobes().
+const STROBE_FLASH_S = 0.040;       // one burst at strobeSpeed 1
+const STROBE_DROP_FLASH_S = 0.032;  // during a drop
+const STROBE_MIN_FLASH_S = 0.022;   // however fast the strobe runs
+const STROBE_MIN_INTERVAL_S = 0.34; // free-running timer floor: under three flashes a second
+
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
     updateStrobes(ctx) {
         const { time, dt, audio: audioData } = ctx;
@@ -48,9 +54,14 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 if (!burstActive && due) {
                     let intensityBase = inDropMode ? 100 : 72 + Math.random() * 28;
                     if (bass > 0.6) intensityBase *= 1 + (bass - 0.6) * 0.5;
+                    // A strobe is a stab of light, not a lamp: about 40 ms (3 frames at 72 Hz), a
+                    // little shorter the faster the strobe runs. The countdown below is in REAL
+                    // seconds (not scaled by strobeSpeed), so the length does not depend on the
+                    // speed twice. It was 90 ms at speed 1 (7 frames), long enough that a
+                    // free-running strobe read as the room being lit most of the time.
                     const flashDuration = Math.max(
-                        0.045,
-                        (inDropMode ? 0.07 : 0.09) / Math.sqrt(strobeSpeedMultiplier)
+                        STROBE_MIN_FLASH_S,
+                        (inDropMode ? STROBE_DROP_FLASH_S : STROBE_FLASH_S) / Math.sqrt(strobeSpeedMultiplier)
                     );
                     const intensity = Math.min(100, intensityBase);
                     let chaseIndex = -1;
@@ -93,8 +104,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     });
                     const baseInterval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
                     const intervalVariation = 0.6 + Math.random() * 1.0;
-                    this._nextStrobeBurstTime = time +
-                        (baseInterval * intervalVariation) / strobeSpeedMultiplier;
+                    // Never faster than the three-flashes-a-second limit, whatever the speed or
+                    // drop state: the free-running timer used to reach 9 a second in a drop.
+                    this._nextStrobeBurstTime = time + Math.max(
+                        STROBE_MIN_INTERVAL_S,
+                        (baseInterval * intervalVariation) / strobeSpeedMultiplier
+                    );
                 }
                 
                 this.strobes.forEach((strobe) => {
@@ -105,7 +120,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // so the flash never reached the screen. The frame a burst fires on
                         // is therefore drawn untouched; the countdown starts on the next.
                         if (strobe._holdFrame) strobe._holdFrame = false;
-                        else strobe.flashDuration -= dt * strobeSpeedMultiplier;
+                        else strobe.flashDuration -= dt;
                     
                     // Variable intensity - SUPER BRIGHT strobes
                     // BOOST during drops for maximum crowd impact

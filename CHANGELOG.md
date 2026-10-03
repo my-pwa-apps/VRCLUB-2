@@ -38,6 +38,17 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **Strobes no longer read as the room being lit.** Switching strobes on from the menu hands the show
+  over to manual mode, where they run on a free-running timer: a burst lasted 90 ms (7 frames in a
+  headset) and the speed left behind by the last cue could fire them 7 to 9 times a second. A burst is
+  now about 40 ms (3 frames at 72 Hz), the free timer never exceeds 3 flashes a second, turning
+  strobes on by hand resets any leftover show speed to the default, and the headset flash level is
+  matched to the desktop one (0.19 mean luminance, was 0.33).
+- **The headset now antialiases geometry.** The VR pipeline ran with no MSAA ("the XR layer does its
+  own"), but the layer's antialiasing never reaches the offscreen target the scene is drawn into, so
+  only FXAA ran and the DJ, rails and truss stair-stepped. It now uses 4x MSAA (clamped to the GPU
+  limit; `localStorage` `vrclub.vrMsaa` = 1, 2 or 4 overrides it). Not yet measured on a Quest 3S: if
+  frame time suffers, set it to 2.
 - **VR is no longer output at 10% brightness.** Fixtures, lasers and the LED wall looked like flat
   colour in the headset and did not light the room. The VR pipeline's sharpen stage was given a
   "colour amount" of 0.1, but that value is a brightness multiplier on the finished image, so the

@@ -2511,7 +2511,7 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
         renderPipeline,
         scene: { getLightByName: name => name === 'ambient' ? ambient : null },
         strobeRetinalFlash: retinalFlash,
-        vrSettings: { vr: { strobeImpulse: { ambient: 1.6, retinal: 0.10, exposure: 1.2 } } },
+        vrSettings: { vr: { strobeImpulse: { ambient: 1.0, retinal: 0.06, exposure: 0.9 } } },
         isInVRMode: true
     };
     const { window: coreWindow } = loadClassic('js/club/07-animation-core.js', {
@@ -2531,9 +2531,10 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     assert.ok(flashLight.intensity >= 1000, 'shared strobe light was not bright enough');
     assert.ok(club.strobes[0].flashDuration <= 0.09, 'strobe burst was not brief');
     assert.equal(renderPipeline.bloomWeight, 1, 'strobe did not drive full bloom');
-    assert.equal(renderPipeline.imageProcessing.exposure, 1.2, 'VR strobe did not spike exposure to the configured level');
-    assert.equal(ambient.intensity, 1.6, 'VR strobe did not light the room to the configured level');
-    assert.equal(retinalFlash.color.a, 0.10, 'VR strobe did not create the configured retinal glare');
+    const impulse = club.vrSettings.vr.strobeImpulse;
+    assert.equal(renderPipeline.imageProcessing.exposure, impulse.exposure, 'VR strobe did not spike exposure to the configured level');
+    assert.equal(ambient.intensity, impulse.ambient, 'VR strobe did not light the room to the configured level');
+    assert.equal(retinalFlash.color.a, impulse.retinal, 'VR strobe did not create the configured retinal glare');
 
     club.photosensitiveSafeMode = true;
     window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
@@ -2596,6 +2597,103 @@ test('a strobe burst is visible for at least one frame at any frame time', () =>
             assert.ok(litMs <= 90 + dt * 1000 + 1e-6, `speed ${speed}, ${(dt * 1000).toFixed(1)} ms frame: lit for ${litMs.toFixed(0)} ms`);
         }
     }
+});
+
+// A strobe is a stab of light. At 72 Hz it must be lit for about 3 frames, and the free-running
+// timer (manual VJ mode, drops) must stay under three flashes a second at any speed: it used to
+// run 90 ms bursts, and up to 9 a second in a drop, so the room read as lit most of the time.
+test('strobes are short stabs, and the free-running timer never exceeds three flashes a second', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {}
+    });
+    const simulate = ({ speed, drop, hz, seconds }) => {
+        const club = {
+            strobesActive: true, photosensitiveSafeMode: false, strobePattern: 'all',
+            strobeSpeed: speed, vjDropActive: drop, vjBuildIntensity: 0, masterIntensity: 1,
+            cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+            strobes: Array.from({ length: 4 }, () => ({
+                material: { emissiveColor: new BABYLON.Color3() }, light: null, flashDuration: 0, currentIntensity: 0
+            })),
+            strobeFlashLight: { intensity: 0, setEnabled() {} }
+        };
+        const dt = 1 / hz;
+        let bursts = 0, litFrames = 0, wasLit = false, longestRun = 0, run = 0;
+        for (let frame = 0; frame < seconds * hz; frame++) {
+            window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
+                time: 10 + frame * dt, dt, audio: { bass: 0, hasAudio: false }
+            });
+            const lit = club.strobes.some(s => s.material.emissiveColor.r > 0);
+            if (lit) { litFrames++; run++; longestRun = Math.max(longestRun, run); } else run = 0;
+            if (lit && !wasLit) bursts++;
+            wasLit = lit;
+        }
+        return { perSecond: bursts / seconds, duty: litFrames / (seconds * hz), longestMs: longestRun * dt * 1000 };
+    };
+
+    for (const hz of [72, 90, 120, 45]) {
+        for (const [speed, drop] of [[1, false], [2.4, false], [3, false], [1, true], [3, true]]) {
+            const label = `${hz} Hz, speed ${speed}${drop ? ', drop' : ''}`;
+            const result = simulate({ speed, drop, hz, seconds: 30 });
+            assert.ok(result.perSecond <= 3.0, `${label}: ${result.perSecond.toFixed(2)} flashes a second`);
+            // One burst is at most ~3 frames plus the frame it fires on: about 55 ms at 72 Hz.
+            assert.ok(result.longestMs <= Math.max(60, 4 * 1000 / hz) + 1e-6, `${label}: one burst lasted ${result.longestMs.toFixed(0)} ms`);
+            assert.ok(result.duty <= 0.15, `${label}: the room is lit ${(result.duty * 100).toFixed(0)}% of the time`);
+        }
+    }
+});
+
+test('headset MSAA follows the config, never exceeds the GPU, and can be overridden', () => {
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null) };
+    const { window } = loadClassic('js/club/01-core.js', { localStorage });
+    const resolve = window.VRClubCore.resolveVRMsaaSamples;
+    assert.equal(resolve(4, 4), 4, 'the default is 4x where the GPU supports it');
+    assert.equal(resolve(4, 8), 4);
+    assert.equal(resolve(4, 2), 2, 'clamped to what the GPU supports');
+    assert.equal(resolve(4, 1), 1);
+    assert.equal(resolve(4, undefined), 1, 'unknown capability falls back to no MSAA');
+    assert.equal(resolve(4, 0), 1);
+    assert.equal(resolve(3, 4), 2, 'only powers of two are used');
+    store.set('vrclub.vrMsaa', '2');
+    assert.equal(resolve(4, 4), 2, 'a stored override wins');
+    store.set('vrclub.vrMsaa', '1');
+    assert.equal(resolve(4, 4), 1);
+    store.set('vrclub.vrMsaa', '16');
+    assert.equal(resolve(4, 4), 4, 'an invalid override is ignored');
+    assert.equal(loadClassic('js/club/01-core.js', { localStorage: { getItem() { throw new Error('private'); } } })
+        .window.VRClubCore.resolveVRMsaaSamples(4, 4), 4, 'unreadable storage uses the default');
+
+    // The headset pipeline must use it: the XR layer's own antialias never reaches the offscreen target.
+    const core = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
+    assert.match(core, /renderPipeline\.samples = VRClubCore\.resolveVRMsaaSamples\(/);
+    assert.ok(!/renderPipeline\.samples = 1;/.test(core.slice(core.indexOf('applyVRSettings('), core.indexOf('applyDesktopSettings()'))),
+        'the headset pipeline is back to no MSAA');
+});
+
+test('switching strobes on by hand resets a leftover show speed, but never a guest-chosen one', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
+    const apply = window.VRClubUI.prototype.applyFixtureExclusivity;
+    const club = (driving, speed) => ({
+        strobesActive: true, strobeSpeed: speed,
+        showDirector: { isDriving: () => driving }
+    });
+    // After the countdown the show leaves 4.8 behind; the next free-running burst would be a stutter.
+    const handedOver = club(true, 4.8);
+    assert.equal(apply.call(handedOver, 'strobesActive'), null);
+    assert.equal(handedOver.strobeSpeed, 1, 'the show speed leaked into the manual strobe');
+    // Already in manual mode: the speed is the guest's own (slider), so it stays.
+    const manual = club(false, 1.7);
+    apply.call(manual, 'strobesActive');
+    assert.equal(manual.strobeSpeed, 1.7);
+    // Switching strobes OFF changes nothing.
+    const off = club(true, 4.8);
+    off.strobesActive = false;
+    apply.call(off, 'strobesActive');
+    assert.equal(off.strobeSpeed, 4.8);
+    // No director at all must not throw.
+    assert.doesNotThrow(() => apply.call({ strobesActive: true, strobeSpeed: 2 }, 'strobesActive'));
 });
 
 test('strobe chase randomizes corners and cadence without immediate repeats', () => {

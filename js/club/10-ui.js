@@ -230,6 +230,16 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {string|null}
      */
     applyFixtureExclusivity(control) {
+        if (control === 'strobesActive' && this.strobesActive) {
+            // The show leaves its per-look strobe speed behind (2.4 for the peak, up to 4.8 after
+            // the countdown). Switching strobes on by hand is a deliberate effect at the default
+            // speed, not whatever the last cue was doing; the speed slider takes over from there.
+            // Only when the show is handing over, so a speed the guest chose is never overwritten.
+            if (this.showDirector && this.showDirector.isDriving()) {
+                this.strobeSpeed = VRClubUI.VJ_DEFAULTS.strobeSpeed;
+            }
+            return null;
+        }
         if (control === 'mirrorBallActive' && this.mirrorBallActive) {
             this.lasersActive = false;
             this.laserSheetActive = false;
