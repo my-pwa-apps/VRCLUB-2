@@ -127,6 +127,15 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **Babylon.js 8.30.5 -> 9.28.0** (vendored; the manifest hashes match the npm tarballs as well as the
+  CDN). The 9.0 breaking change (TC39 decorators) only affects code that applies Babylon decorators to
+  its own classes, which this app does not. With animation frozen, a desktop and an emulated-headset
+  frame are pixel-equivalent to 8.30.5 (mean luma 6.12 vs 6.25 and 3.95 vs 3.97; the render-state
+  snapshot is identical), the contract and unit tests pass, and the browser suite passes (the desktop-vs-VR image-structure check read r=0.67 once under load, then 0.87-0.89 on four reruns, as before). The cost
+  is size: `babylon.js` 7.2 -> 8.4 MB and the glTF loader bundle 338 -> 829 KB. Dev tooling moved up too:
+  Playwright 1.63, IWER 2.5 (its offset-reference-space bug is still there, so the harness shim stays),
+  glTF Transform 4.5, ESLint 10 (needs Node 20.19+, so `engines` now says so) and Wrangler 4.141 in the
+  worker lockfile. The cache token is bumped so returning visitors fetch the new runtime.
 - Far lighter to load and to draw, with no visible change. The LED wall is one mesh coloured from
   a 21x10 texture instead of 210 planes (draw calls from the entrance view 564 -> 355; the wall
   210 -> 1). The two big models are optimised by `npm run optimize:models`: the DJ console's textures
@@ -158,6 +167,16 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Realism pass, phase 1.** The three wall signs now read CLUB, VR and DANCE (they were blank slabs, and none of them faced the room) and the two exit signs read EXIT; all five are one atlas and two meshes. Every character has a soft contact shadow, so people no longer hover. The reflection environment is a dim industrial interior (Poly Haven, CC0) instead of Babylon's sample sky, so metal picks up a believable cool reflection. The wall, floor and ceiling use one packed occlusion/roughness/metallic map each. Draw calls 347 -> 329, texture memory 224 -> 210 MB. `scripts/pack-orm.mjs` is new.
+- **Guests off the dance floor.** Two new Quaternius characters (CC0, leather jackets, ~2.8 MB each,
+  from Universal Animation Library 1 and 2) fill dance-floor slots and also stand by the side walls:
+  a pair talking, someone on a call, someone watching with folded arms, one nodding along. They use
+  the clips `Idle_Talking_Loop`, `Idle_TalkingPhone_Loop`, `Idle_FoldArms_Loop`, `Yes` and `Idle_Loop`;
+  each character evaluates only the clip its slot asks for. 2 guests on the balanced tier (Quest), 4
+  on high, 7 on ultra. The headset cost of the extra skeletons is unmeasured.
+- Quaternius characters are cheaper to draw: the optimiser merges skinned parts that share a skin and
+  a material, so a character is 6 meshes instead of about 12, and the existing dancers and DJ are
+  smaller files (1.3-1.6 MB instead of 1.8-2.2 MB). Draw calls from the entrance view: 355 -> 347 even with the two guests added. A contract test keeps them that way.
 - Spatial audio now sounds from the right side. Babylon is left-handed and Web Audio is
   right-handed, and every coordinate was passed through unconverted, so the PA, the crowd bed
   and guest voices were heard in the opposite ear to where they appeared (in the headset,

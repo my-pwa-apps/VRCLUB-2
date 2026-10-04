@@ -989,6 +989,72 @@ class VRClubAudioCrowd extends VRClubUI {
         });
     }
 
+    /**
+     * Grounding: every character gets a soft dark blob on the floor beneath it. The club is lit from above by a
+     * few narrow beams and nothing else casts a shadow on the floor, so without this people hover (the shadow
+     * generators cover only the DJ gear). One quad with a thin instance per enabled character: one draw call,
+     * no light, no per-frame work. Characters do not translate, so it is rebuilt only when the set of enabled
+     * ones changes (_applyCrowdSize).
+     */
+    _refreshContactShadows() {
+        if (!this.scene || !this.npcAvatars || typeof BABYLON.MeshBuilder === 'undefined') return;
+        let shadows = this._contactShadows;
+        if (!shadows) {
+            const size = 128;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+            // A soft Gaussian-ish falloff: dense under the feet, gone at the edge.
+            for (const [stop, alpha] of [[0, 0.9], [0.2, 0.78], [0.4, 0.5], [0.6, 0.22], [0.8, 0.06], [1, 0]]) {
+                gradient.addColorStop(stop, `rgba(255,255,255,${alpha})`);
+            }
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            const texture = new BABYLON.DynamicTexture('contactShadowGradient', canvas, this.scene, false);
+            texture.hasAlpha = true;
+            texture.update();
+
+            const material = new BABYLON.StandardMaterial('contactShadowMat', this.scene);
+            material.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            material.specularColor = new BABYLON.Color3(0, 0, 0);
+            material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            material.opacityTexture = texture;
+            material.alpha = 0.8;
+            material.alphaMode = BABYLON.Engine.ALPHA_COMBINE;
+            material.disableLighting = true;
+            material.backFaceCulling = false;
+            material.disableDepthWrite = true;
+            material.depthFunction = BABYLON.Constants.LEQUAL;
+            material.freeze();
+
+            const mesh = BABYLON.MeshBuilder.CreateGround('contactShadows', { width: 1, height: 1 }, this.scene);
+            mesh.material = material;
+            mesh.isPickable = false;
+            mesh.alwaysSelectAsActiveMesh = true; // instances live far from the base mesh's bounds
+            mesh.renderingGroupId = 0;
+            shadows = this._contactShadows = { mesh, buffer: new Float32Array(32 * 16) };
+        }
+
+        let count = 0;
+        const scale = new BABYLON.Vector3(1, 1, 1);
+        const translation = new BABYLON.Vector3();
+        const matrix = new BABYLON.Matrix();
+        for (const npc of this.npcAvatars) {
+            if (!npc.root || !npc.root.isEnabled() || (count + 1) * 16 > shadows.buffer.length) continue;
+            const diameter = npc.name === 'djPerformer' ? 1.0 : 1.15;
+            scale.set(diameter, 1, diameter);
+            translation.set(npc.root.position.x, npc.root.position.y + 0.02, npc.root.position.z);
+            BABYLON.Matrix.ComposeToRef(scale, BABYLON.Quaternion.Identity(), translation, matrix);
+            matrix.copyToArray(shadows.buffer, count * 16);
+            count++;
+        }
+        shadows.mesh.thinInstanceSetBuffer('matrix', shadows.buffer, 16, false);
+        shadows.mesh.thinInstanceCount = count;
+        shadows.mesh.setEnabled(count > 0);
+    }
+
     _applyCrowdSize() {
         if (!this.npcAvatars) return;
         const target = Math.max(0, this.tierSettings.crowdSize | 0);
@@ -1009,6 +1075,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 }
             });
         });
+        this._refreshContactShadows();
     }
     
     /**

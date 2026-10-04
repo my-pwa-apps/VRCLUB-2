@@ -210,6 +210,25 @@ test('every shipped GLB is documented in ASSETS.md', () => {
     }
 });
 
+// A modular character used to be a dozen skinned meshes: a dozen draw calls per dancer, in both eyes. The
+// optimiser now merges parts that share a skin and a material. A fresh export dropped into the folder, or a
+// new accessory in build-avatar-glb, silently undoes that, so count the primitives and the texture sizes.
+test('the Quaternius character GLBs stay merged and 512 px', () => {
+    const dir = join(ROOT, 'js/models/avatars');
+    const files = readdirSync(dir).filter(file => /^club-.*\.glb$/.test(file));
+    assert.ok(files.length >= 5, 'expected the dancers, the DJ and the guests');
+    for (const file of files) {
+        const buffer = readFileSync(join(dir, file));
+        const json = JSON.parse(buffer.subarray(20, 20 + buffer.readUInt32LE(12)).toString('utf8'));
+        const primitives = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0);
+        assert.ok(primitives <= 6, `${file} has ${primitives} primitives; run \`npm run optimize:avatars -- ${file}\``);
+        assert.equal(json.skins.length, 1, `${file} must keep one shared skin`);
+        for (const image of json.images || []) {
+            assert.ok(image.mimeType === 'image/webp', `${file} carries a non-WebP texture`);
+        }
+    }
+});
+
 // The DJ console and PA speaker once shipped 4096x4096 textures: ~1,450 MB of GPU texture memory
 // in the headset, 94% of it those sixteen textures, plus ~48 MB of files nothing drew. The
 // optimiser is idempotent, so `--check` fails exactly when a model or texture has been put back
@@ -264,6 +283,16 @@ test('the Babylon runtime is vendored, not fetched from a third-party CDN', () =
     }
 });
 
+test('the reflection environment is a shipped, same-origin, documented file', () => {
+    const source = readFileSync(join(ROOT, 'js/club/02-lifecycle.js'), 'utf8');
+    const match = /CreateFromPrefilteredData\(\s*["']\.\/(textures\/environment\/[^"']+\.env)["']/.exec(source);
+    assert.ok(match, 'the scene environment must be loaded from textures/environment/ (same origin)');
+    assert.ok(existsSync(join(ROOT, match[1])), `${match[1]} does not exist`);
+    // Babylon .env files start with a fixed 8-byte magic number; anything else is not a prefiltered environment.
+    const header = [...readFileSync(join(ROOT, match[1])).subarray(0, 8)];
+    assert.deepEqual(header, [0x86, 0x16, 0x87, 0x96, 0xf6, 0xd6, 0x96, 0x36], 'not a Babylon .env file');
+    assert.ok(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8').includes(`\`${match[1]}\``), `${match[1]} is missing from ASSETS.md`);
+});
 test('no first-party code fetches from a third-party origin', () => {
     // A CDN 502 was observed live and silently stripped every .glb from the scene.
     // The Babylon runtime was vendored in response - but the PBR environment texture

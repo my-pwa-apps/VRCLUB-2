@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const iwerEntry = require.resolve('iwer');
 const iwerBundle = readFileSync(join(dirname(iwerEntry), '..', 'build', 'iwer.min.js'), 'utf8');
-// IWER 2.3.0 stores the XRRigidTransform object itself as the offset matrix in
+// IWER 2.3.0 to 2.5.0 (re-checked 2026-10-03) store the XRRigidTransform object itself as the offset matrix in
 // getOffsetReferenceSpace(), so every origin offset is silently ignored. Babylon's
 // teleport, snap turn and `xrCamera.position` writes all go through that call, so none
 // of them would move the emulated user. Real browsers implement it correctly; this

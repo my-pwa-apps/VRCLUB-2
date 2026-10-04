@@ -6,6 +6,61 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review — 2026-10-03 — Phase 1 of the realism plan
+
+Done: neon and exit signs (see the resolved item below), a contact shadow under every character, a
+dark industrial reflection environment, packed ORM surface maps. Measured from the entrance view: draw
+calls 347 -> 329, texture memory 224 -> 210 MB.
+
+- [x] **People and gear floated: nothing grounded them**
+  **Resolved 2026-10-03 for characters.** One quad with a thin instance per enabled character (a soft
+  radial blob, alpha-blended, no depth write, no light): one draw call, rebuilt only when the set of
+  enabled characters changes. Checked on a lit floor with the characters hidden. **Still open:** the DJ
+  console, the booth and the speakers are not covered (the shadow generators handle them on the
+  desktop tiers only), and a blob does not follow a moving light.
+- [x] **Reflections came from a generic sample sky**
+  **Resolved 2026-10-03.** The scene environment is now Poly Haven's *Empty Warehouse 01* (CC0, Sergej
+  Majboroda), prefiltered to 256 px (152 KB, was 268 KB), loaded from `textures/environment/`. On the
+  DJ booth, the truss and the speakers the metal now takes a cool industrial reflection with real shape,
+  at the same mean brightness. The mirror ball's mirror facets read as silver instead of blue-purple.
+  A contract test checks the file, its magic bytes and its ASSETS.md row. **Not measured:** how it reads
+  in a headset; the 256 px size is a guess and 128 px would halve it again.
+- [ ] **Mirror-ball rays, spots and beams are still about 80 animated draws**
+  **Priority:** Medium. Left out of this pass on purpose: they move every frame, are found by name for
+  cleanup and are gated per tier, so thin-instancing them needs its own careful change and a visual
+  A/B. Likely 80 -> about 4 draws.
+
+---
+## Review — 2026-10-03 — Engine and tooling upgrade
+
+Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
+
+- [ ] **Clustered lighting could lift the 3 to 4 lights per surface cap**
+  **Priority:** Medium. **Category:** Lighting. **Confidence:** Low until tried.
+  Babylon 9 ships `ClusteredLightContainer` (and many more light-related changes). The cap in
+  `VRClub.detectMaxLights()` is the single biggest limit on how much of the moving-head rig actually
+  lights surfaces (only ambient, spot0 and spot1 ever do). Clustering would let every head and the LED
+  wall light the room. **Risk:** it changes the light uniform layout, which the frozen PBR materials, the
+  `includedOnlyMeshes` fixture lights and `_clampMaterialLightBudgets()` all depend on, and Quest cost is
+  unknown. **Acceptance criteria:** a prototype behind a flag on the high tier, side-by-side captures, and a
+  Quest frame-time comparison before it goes near the balanced tier.
+- [ ] **The runtime grew 1.7 MB**
+  **Priority:** Low. `babylon.js` is 8.4 MB (was 7.2) and the glTF loader bundle 829 KB (was 338 KB).
+  The production bundle does not tree-shake the vendored files. **Option:** a custom Babylon build (ES
+  modules and esbuild) that includes only what the club uses; it would also cut parse time on Quest.
+  Measure parse and start-up on a headset before deciding.
+- [ ] **Entering XR logs about 250 "Framebuffer is incomplete: Attachment has zero size" warnings**
+  **Priority:** Low. Seen in the IWER emulator on 8.30.5 and 9.28.0 alike, all during the first frames of
+  the session (none during load or desktop rendering), each a draw into a render target that has no size
+  yet. Cheap to find (log the render-target names while XR starts); check whether a real Quest does it too.
+- Not adopted: `fixedFoveation` is exposed on the XR session manager in both versions (not new in 9);
+  setting it changes the headset's sharpness against its cost, so it belongs with the Quest baseline.
+- Dev tooling: `npm audit` reports 3 high advisories in `@gltf-transform/cli` (via `braces`) and the worker's
+  Wrangler (via `undici` in miniflare). All are dev-only, not in the shipped site, and upstream's suggested
+  "fix" is a downgrade. The shipped dependency set is clean (`npm audit --omit=dev`).
+
+---
+
 ## Review — 2026-10-03 — Strobe feel, headset antialiasing and external performance feedback
 
 Scope: strobe timing and brightness, the headset antialiasing path, and a check of an outside
@@ -376,7 +431,9 @@ Updated in place, not closed:
 
 ### New open items
 
-- [ ] **Neon wall signs are blank emissive rectangles**
+- [x] **Neon wall signs are blank emissive rectangles**
+
+  **Resolved 2026-10-03.** `createSignage()` draws CLUB, VR, DANCE and EXIT into one 1024x512 atlas (outline tubes with a halo and a hot core; an exit sign with a tinted panel) and renders all five signs as one additive quad mesh plus one merged backing-plate mesh. While doing it I found the old signs could not be seen at all: they sat on the wall's centre line, inside the front wall or facing into it. They are now on the inner faces, clear of the brick fins and pillars, and the glow layer gives them a halo. 13 meshes became 3 (including the step lights), no light added, no per-frame update.
 
   **Priority:** Medium
   **Category:** Rendering
@@ -1974,6 +2031,12 @@ pass, so findings that depend on them are not presented as confirmed visual defe
 
 - [ ] **Restore distinct entrance and bar presence zones**
 
+  **Note 2026-10-03.** Evaluated Quaternius's Modular Sci-Fi MegaKit and Sci-Fi Essentials Kit (both CC0) as
+  props for this: they are chunky sci-fi pieces (chair 0.9 x 1.6 x 1.1 m, desks 2 m, crates 4-6k vertices each,
+  four trim texture sets), and none is a bar stool, glass or bottle. Not used. The Universal Animation
+  Library's sitting and rail-leaning clips would suit a bar, but were left out of the guest files until
+  there is furniture to match their seat height (about 0.45 m).
+
   **Priority:** High
   **Category:** Environment
   **Confidence:** High
@@ -1998,6 +2061,15 @@ pass, so findings that depend on them are not presented as confirmed visual defe
   **Immersion value:** High
 
 - [ ] **Replace the looping clone crowd with social micro-behaviours**
+
+  **Partly done 2026-10-03.** Static social states now exist: `_guestSlots()` stands a talking pair, a
+  caller, an arms-folded watcher, a head-nodder and a standing idler by the side walls, using clips from
+  Quaternius Universal Animation Library 1 and 2 (`Idle_Talking_Loop`, `Idle_TalkingPhone_Loop`,
+  `Idle_FoldArms_Loop`, `Yes`, `Idle_Loop`). Still open: a scheduler that changes state over time
+  (the guests hold one pose indefinitely), transit/walking, and gaze. The balanced tier now has 2 more
+  skeletons than before, which breaks this item's own "skeleton counts do not increase" criterion until
+  the headset baseline says it is affordable. Quaternius's free libraries have no second dance clip;
+  the Mixamo files remain the only extra dance motion.
 
   **Priority:** High
   **Category:** Crowd
@@ -4916,6 +4988,7 @@ zero console errors and zero WebGL warnings.
   Impact: works only because every consumer's `metallic` scalar is ~0–0.2; raising it anywhere
   produces a wrong surface response. The assumption is now commented but not enforced.
   Recommended solution: pack a real occlusion/roughness/metallic map.
+  **Resolved 2026-10-03** for the three environment surface sets: `scripts/pack-orm.mjs` packs `ao.jpg` and `roughness.jpg` into `orm.jpg` (R occlusion, G roughness, B metallic = 0, 4:4:4 chroma), the loader binds it as one texture, and the old two-map path remains for an unpacked set. Four maps per set became three (GPU texture memory 224 -> 210 MB). Not changed: the DJ console and speaker, whose materials come from their GLBs.
   Estimated effort: Medium
   Business value: Low
   Technical debt reduction: Medium

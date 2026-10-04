@@ -59,9 +59,11 @@ class VRClubLifecycle extends VRClubCore {
         // Vendored under js/vendor/ for the same reason the Babylon runtime is: a CDN
         // outage here silently strips every PBR reflection in the scene, and it is the
         // last third-party origin that would otherwise sit in the critical path.
-        // Provenance + integrity live in scripts/vendor.manifest.json.
+        // The environment is Poly Haven's "Empty Warehouse 01" (CC0, Sergej Majboroda), a dim industrial interior,
+        // prefiltered to a 256 px .env: a room like this one reflects a room, not Babylon's generic sample sky,
+        // which gave the truss, speakers and mirror ball a blue-purple cast. See ASSETS.md for how it is made.
         this.scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
-            "./js/vendor/environmentSpecular.env",
+            "./textures/environment/empty_warehouse_01_256.env",
             this.scene
         );
         this.scene.environmentIntensity = 0.4; // Enhanced PBR reflections for hyperrealistic surfaces
@@ -364,6 +366,9 @@ class VRClubLifecycle extends VRClubCore {
             if (name === 'ledPanel_wall') {
                 // The wall's colours live in its emissive texture, which the glow pass multiplies by this.
                 result.set(2.0, 2.0, 2.0, 1.0);
+            } else if (name === 'signageGlow') {
+                // Neon and exit lettering live in the atlas; the glow pass multiplies it by this.
+                result.set(1.0, 1.0, 1.0, 1.0);
             } else if (name.startsWith('ledPanel_') || name.startsWith('strobe')) {
                 // LED panels and strobes: bright emissive glow (visible from across club)
                 result.set(

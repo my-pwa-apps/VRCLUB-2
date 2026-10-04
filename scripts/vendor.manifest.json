@@ -1,26 +1,20 @@
 {
-  "babylonVersion": "8.30.5",
+  "babylonVersion": "9.28.0",
   "files": [
     {
-      "url": "https://cdn.babylonjs.com/v8.30.5/babylon.js",
+      "url": "https://cdn.babylonjs.com/v9.28.0/babylon.js",
       "file": "babylon.js",
-      "integrity": "sha384-Kxab4BZmBEE10FDD1UeQ4bSI+PBgQrW8EiClwr8JO43k8OmK8lTLXn8sgt0RizQF"
+      "integrity": "sha384-4Kbm3nj4VMzMufY0FYM9DactmO8CluLjEAe0W1BzVo7hlKEswOLkl46FLI6mxZmx"
     },
     {
-      "url": "https://cdn.babylonjs.com/v8.30.5/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js",
+      "url": "https://cdn.babylonjs.com/v9.28.0/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js",
       "file": "babylonjs.proceduralTextures.min.js",
-      "integrity": "sha384-0e9259x/mTgaVTUPl7qzeUhG49D9PtcTzoAGsh/l6OUnms7mzjey/pXyVKJ2SOZn"
+      "integrity": "sha384-4AK0LxKO9YwPTwOtoa8raKUoSfxAQpl75u/PZZTqJnjuyfvqFk/LX+9djVfQhEh/"
     },
     {
-      "url": "https://cdn.babylonjs.com/v8.30.5/loaders/babylonjs.loaders.min.js",
+      "url": "https://cdn.babylonjs.com/v9.28.0/loaders/babylonjs.loaders.min.js",
       "file": "babylonjs.loaders.min.js",
-      "integrity": "sha384-08lzOJD9h7SvlsNvZVYdhN6WvmK1TgUQOGcWdpCIBM86wOvyGJo7vy8PJiJcRs7e"
-    },
-    {
-      "url": "https://assets.babylonjs.com/environments/environmentSpecular.env",
-      "file": "environmentSpecular.env",
-      "kind": "asset",
-      "integrity": "sha384-uRMvqV7R7tQDiwSvfRmjixvLSt3BezZM/A7KxYMgGzp8XPqeHE5TUnNDqMWzjmkp"
+      "integrity": "sha384-4FQhr/DrxLfjm5tCJq7Cs1uJIC29544DNb4rVCt4qVzXM7rw07KsDYgdH8/ayoss"
     }
   ]
 }

@@ -273,93 +273,186 @@ class VRClubEnvironment extends VRClubRendering {
     createSafetyDetails() {
         log.info("🚨 Creating safety and atmosphere details...");
         
-        // === EXIT SIGNS ===
-        const exitSignMat = this.materialFactory.getPreset('exitSign');
-        
-        const exitPositions = [
-            { x: 0, y: 3.2, z: 1.8, rotY: Math.PI },      // Front entrance (facing in)
-            { x: -12.0, y: 3.2, z: -15, rotY: Math.PI/2 } // Side exit (facing in)
-        ];
-        
-        exitPositions.forEach((pos, i) => {
-            // Exit sign housing
-            const signHousing = BABYLON.MeshBuilder.CreateBox(`exitHousing${i}`, {
-                width: 0.6, height: 0.25, depth: 0.08
-            }, this.scene);
-            signHousing.position = new BABYLON.Vector3(pos.x, pos.y, pos.z);
-            signHousing.rotation.y = pos.rotY;
-            signHousing.material = this.materialFactory.createPBRMaterial(`exitHousingMat${i}`, {
-                baseColor: [0.1, 0.1, 0.1],
-                metallic: 0.5,
-                roughness: 0.5
-            });
-            signHousing.freezeWorldMatrix(); // OPTIMIZATION: Static
-            
-            // Glowing EXIT text (simplified as plane)
-            const signFace = BABYLON.MeshBuilder.CreatePlane(`exitSign${i}`, {
-                width: 0.5, height: 0.18
-            }, this.scene);
-            signFace.position = new BABYLON.Vector3(pos.x, pos.y, pos.z + (pos.rotY === Math.PI ? -0.05 : 0));
-            signFace.position.x += pos.rotY === Math.PI/2 ? 0.05 : 0;
-            signFace.rotation.y = pos.rotY;
-            signFace.material = exitSignMat;
-            signFace.freezeWorldMatrix(); // OPTIMIZATION: Static
-        });
-        
-        // OPTIMIZATION: Freeze exit sign material
-        if (exitSignMat.freeze) exitSignMat.freeze();
-        
-        // === NEON WALL SIGNS ===
-        // Decorative neon tube art on walls (club atmosphere)
-        const neonSigns = [
-            { text: 'CLUB', pos: new BABYLON.Vector3(12.4, 4, -10), rot: -Math.PI/2, color: [1, 0, 0.4], w: 2.0, h: 0.5 },
-            { text: 'VR', pos: new BABYLON.Vector3(-12.4, 3.5, -14), rot: Math.PI/2, color: [0, 0.5, 1], w: 1.2, h: 0.5 },
-            { text: 'DANCE', pos: new BABYLON.Vector3(0, 3, 1.7), rot: Math.PI, color: [1, 0.2, 1], w: 2.5, h: 0.5 }
-        ];
-        
-        neonSigns.forEach((sign, i) => {
-            const neonPlane = BABYLON.MeshBuilder.CreatePlane(`neonSign${i}`, {
-                width: sign.w, height: sign.h
-            }, this.scene);
-            neonPlane.position = sign.pos;
-            neonPlane.rotation.y = sign.rot;
-            
-            const neonMat = new BABYLON.StandardMaterial(`neonMat${i}`, this.scene);
-            neonMat.emissiveColor = new BABYLON.Color3(sign.color[0] * 0.95, sign.color[1] * 0.95, sign.color[2] * 0.95);
-            neonMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            neonMat.specularColor = new BABYLON.Color3(0, 0, 0);
-            neonMat.disableLighting = true;
-            neonMat.backFaceCulling = false;
-            neonMat.alpha = 1.0;
-            neonPlane.material = neonMat;
-            neonPlane.isPickable = false;
-            neonPlane.freezeWorldMatrix();
-            neonPlane.doNotSyncBoundingInfo = true;
-        });
-        
+        this.createSignage();
+
         // === PLATFORM STEP LIGHTS ===
-        // Small emissive discs along DJ platform edge (safety + atmosphere)
+        // Small emissive discs along DJ platform edge (safety + atmosphere), merged into one draw.
         const platformEdgeZ = -16; // Front edge of DJ platform
+        const stepMat = new BABYLON.StandardMaterial('stepLightMat', this.scene);
+        stepMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 1); // Cool blue
+        stepMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        stepMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        stepMat.disableLighting = true;
+        stepMat.freeze();
+        const stepDiscs = [];
         for (let x = -2.5; x <= 2.5; x += 1.0) {
             const stepLight = BABYLON.MeshBuilder.CreateDisc(`stepLight_${x}`, {
                 radius: 0.06, tessellation: 8
             }, this.scene);
             stepLight.position = new BABYLON.Vector3(x, 0.52, platformEdgeZ);
             stepLight.rotation.x = -Math.PI / 2; // Face upward
-            
-            const stepMat = new BABYLON.StandardMaterial(`stepLightMat_${x}`, this.scene);
-            stepMat.emissiveColor = new BABYLON.Color3(0.2, 0.3, 1); // Cool blue
-            stepMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            stepMat.disableLighting = true;
-            stepLight.material = stepMat;
-            stepLight.isPickable = false;
-            stepLight.freezeWorldMatrix();
-            stepLight.doNotSyncBoundingInfo = true;
+            stepDiscs.push(stepLight);
         }
-        
-        log.info("✅ Created safety details (exit signs, neon signs, step lights) - frozen for performance");
-    }
+        const stepLights = BABYLON.Mesh.MergeMeshes(stepDiscs, true);
+        if (stepLights) {
+            stepLights.name = 'stepLights';
+            stepLights.material = stepMat;
+            stepLights.isPickable = false;
+            stepLights.freezeWorldMatrix();
+            stepLights.doNotSyncBoundingInfo = true;
+        }
 
+        log.info("✅ Created safety details (signage, step lights) - merged and frozen for performance");    }
+
+    /**
+     * Wall signage: the three neon signs and two exit signs, in two draw calls (it was thirteen with the
+     * step lights). The words are drawn once into one atlas, every sign is a quad that samples its cell, and a
+     * second merged mesh holds the dark backing plates they are mounted on.
+     *
+     * Everything sits on the INSIDE face of a wall, facing the room. The old signs were placed at the wall's
+     * centre line, in the front wall's far side, or facing into the wall, so none could be seen from the room.
+     * Positions avoid the brick fins (z -10, -20) and pillars (z -5, -15, -21) of createIndustrialWallDetails.
+     * The glow layer's selector gives `signageGlow` a glow (see _createGlowLayer).
+     */
+    createSignage() {
+        const WALL_RIGHT = 12.25, WALL_LEFT = -12.25, WALL_FRONT = -0.25; // inner faces of the shell
+        const PLATE = 0.06;
+        // yaw: a plane faces (-sin yaw, -cos yaw), so PI/2 faces -x (the right wall looks into the room).
+        const signs = [
+            { cell: 'club', kind: 'neon', color: [1, 0.1, 0.45], w: 2.0, h: 0.5, wall: WALL_RIGHT, axis: 'x', y: 4.0, along: -7.5, yaw: Math.PI / 2 },
+            { cell: 'vr', kind: 'neon', color: [0.1, 0.55, 1], w: 1.2, h: 0.5, wall: WALL_LEFT, axis: 'x', y: 3.5, along: -12.5, yaw: -Math.PI / 2 },
+            { cell: 'dance', kind: 'neon', color: [1, 0.25, 1], w: 2.5, h: 0.5, wall: WALL_FRONT, axis: 'z', y: 3.7, along: 0, yaw: 0 },
+            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 2.75, along: 0, yaw: 0 },
+            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.8, along: -17.5, yaw: -Math.PI / 2 }
+        ];
+
+        // Atlas cells in pixels: x, y, w, h. Aspect ratios match the signs they feed.
+        const W = 1024, H = 512;
+        const cells = {
+            dance: [0, 0, 800, 160, 'DANCE'],
+            club: [0, 176, 640, 160, 'CLUB'],
+            vr: [640, 176, 384, 160, 'VR'],
+            exit: [0, 352, 444, 160, 'EXIT']
+        };
+        const atlas = new BABYLON.DynamicTexture('signageAtlas', { width: W, height: H }, this.scene, true);
+        atlas.anisotropicFilteringLevel = this.tierSettings ? this.tierSettings.anisotropy : 4;
+        const ctx = atlas.getContext();
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+        const rgb = (c, k = 1) => `rgb(${Math.round(255 * Math.min(1, c[0] * k))},${Math.round(255 * Math.min(1, c[1] * k))},${Math.round(255 * Math.min(1, c[2] * k))})`;
+        const drawn = new Set();
+        for (const sign of signs) {
+            if (drawn.has(sign.cell)) continue;
+            drawn.add(sign.cell);
+            const [x, y, w, h, text] = cells[sign.cell];
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.clip();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineJoin = 'round';
+            let size = h * 0.7;
+            ctx.font = `bold ${size}px "Arial Rounded MT Bold", Arial, Helvetica, sans-serif`;
+            while (ctx.measureText(text).width > w * 0.86 && size > 12) {
+                size -= 4;
+                ctx.font = `bold ${size}px "Arial Rounded MT Bold", Arial, Helvetica, sans-serif`;
+            }
+            const cx = x + w / 2, cy = y + h / 2 + size * 0.04;
+            if (sign.kind === 'exit') {
+                ctx.fillStyle = rgb(sign.color, 0.18);
+                ctx.fillRect(x + 6, y + 6, w - 12, h - 12);
+                ctx.shadowColor = rgb(sign.color);
+                ctx.shadowBlur = size * 0.12;
+                ctx.fillStyle = rgb(sign.color);
+                ctx.fillText(text, cx, cy);
+            } else {
+                // A neon tube follows the outline of each letter: a wide soft halo, the coloured tube, a hot core.
+                ctx.shadowColor = rgb(sign.color);
+                ctx.strokeStyle = rgb(sign.color, 0.9);
+                ctx.lineWidth = size * 0.07;
+                ctx.shadowBlur = size * 0.34;
+                ctx.strokeText(text, cx, cy);
+                ctx.shadowBlur = size * 0.14;
+                ctx.strokeText(text, cx, cy);
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = size * 0.028;
+                ctx.strokeStyle = rgb([1, 1, 1], 0.92);
+                ctx.strokeText(text, cx, cy);
+            }
+            ctx.restore();
+        }
+        atlas.update();
+
+        const positions = [], normals = [], uvs = [], indices = [];
+        const plates = [];
+        signs.forEach((sign, i) => {
+            const [cx0, cy0, cw, ch] = cells[sign.cell];
+            const u0 = cx0 / W, u1 = (cx0 + cw) / W, vTop = 1 - cy0 / H, vBottom = 1 - (cy0 + ch) / H;
+            const right = [Math.cos(sign.yaw), 0, -Math.sin(sign.yaw)];
+            const normal = [-Math.sin(sign.yaw), 0, -Math.cos(sign.yaw)];
+            // Face centre: on the wall, in front of the plate.
+            const lateral = sign.axis === 'x' ? [0, sign.along] : [sign.along, 0];
+            const depth = sign.wall + (sign.axis === 'x' ? normal[0] : normal[2]) * (PLATE + 0.004);
+            const centre = sign.axis === 'x'
+                ? [depth, sign.y, lateral[1]]
+                : [lateral[0], sign.y, depth];
+            const hw = sign.w / 2, hh = sign.h / 2;
+            const base = positions.length / 3;
+            for (const [sx, sy, u, v] of [[-1, -1, u0, vBottom], [1, -1, u1, vBottom], [1, 1, u1, vTop], [-1, 1, u0, vTop]]) {
+                positions.push(centre[0] + right[0] * hw * sx, centre[1] + sy * hh, centre[2] + right[2] * hw * sx);
+                normals.push(normal[0], 0, normal[2]);
+                uvs.push(u, v);
+            }
+            indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+
+            const plate = BABYLON.MeshBuilder.CreateBox(`signPlate${i}`, {
+                width: sign.w + 0.12, height: sign.h + 0.12, depth: PLATE
+            }, this.scene);
+            plate.rotation.y = sign.yaw;
+            plate.position.set(
+                centre[0] - normal[0] * (PLATE / 2 + 0.002),
+                sign.y,
+                centre[2] - normal[2] * (PLATE / 2 + 0.002));
+            plates.push(plate);
+        });
+
+        const glow = new BABYLON.Mesh('signageGlow', this.scene);
+        const data = new BABYLON.VertexData();
+        data.positions = positions;
+        data.normals = normals;
+        data.uvs = uvs;
+        data.indices = indices;
+        data.applyToMesh(glow);
+        const glowMat = this.materialFactory.createStandardMaterial('signageNeonMat', {
+            emissiveTexture: atlas,
+            diffuseColor: [0, 0, 0],
+            disableLighting: true,
+            mutable: true // frozen below, once the blend state is set
+        });
+        // Additive: the black around the lettering adds nothing, so only the light of the tubes shows.
+        // Alpha just under 1 is what makes Babylon use blending at all.
+        glowMat.alpha = 0.999;
+        glowMat.alphaMode = BABYLON.Constants.ALPHA_ADD;
+        glowMat.backFaceCulling = false;
+        atlas.level = 1.6; // neon should read as a light source in a dark room
+        glowMat.freeze();
+        glow.material = glowMat;
+        glow.isPickable = false;
+        glow.freezeWorldMatrix();
+        glow.doNotSyncBoundingInfo = true;
+
+        const backing = BABYLON.Mesh.MergeMeshes(plates, true);
+        if (backing) {
+            backing.name = 'signagePlates';
+            backing.material = this.materialFactory.createPBRMaterial('signPlateMat', {
+                baseColor: [0.035, 0.035, 0.04], metallic: 0.6, roughness: 0.5
+            }, true);
+            backing.isPickable = false;
+            backing.freezeWorldMatrix();
+            backing.doNotSyncBoundingInfo = true;
+        }
+    }
     createBar() {
         // === NIGHTCLUB BAR (right wall) ===
         // Every real club has a bar area with warm lighting contrast
@@ -663,6 +756,8 @@ class VRClubEnvironment extends VRClubRendering {
             ceilingMat.environmentIntensity = 0.15; // Subtle light reflections from below
         }
         
+        // One 3 m square tile of concrete, not one stretched across 25 x 45 m (see _applyWorldUVs).
+        this._applyWorldUVs(ceiling, 3, this.textureLoader && this.textureLoader.textureConfigs.ceiling.scale || { u: 1, v: 1 });
         ceiling.material = ceilingMat;
         ceiling.receiveShadows = false; // Optimization Phase 3: Disable shadows on ceiling
         ceiling.freezeWorldMatrix(); // OPTIMIZATION: Freeze static ceiling

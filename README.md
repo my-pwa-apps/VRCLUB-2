@@ -199,7 +199,7 @@ What the build produces:
 
 CI enforces a 75 MB payload budget on `dist/`.
 
-The Babylon.js `8.30.5` runtime and the PBR environment texture are vendored under
+The Babylon.js `9.28.0` runtime and the PBR environment texture are vendored under
 `js/vendor/` and verified against `scripts/vendor.manifest.json`. There is **no** CDN
 fallback — the critical path is deliberately same-origin, and a contract test enforces it.
 

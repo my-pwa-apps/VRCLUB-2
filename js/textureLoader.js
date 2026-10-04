@@ -38,8 +38,7 @@ class TextureLoader {
                 maps: {
                     diffuse: 'diff.jpg',
                     normal: 'normal.jpg',
-                    roughness: 'roughness.jpg',
-                    ao: 'ao.jpg'
+                    orm: 'orm.jpg' // R occlusion, G roughness, B metallic (scripts/pack-orm.mjs)
                 },
                 // The source covers 5 x 5 m; the floor is 35 x 45 m.
                 scale: { u: 7, v: 9 }
@@ -50,8 +49,7 @@ class TextureLoader {
                 maps: {
                     diffuse: 'diff.jpg',
                     normal: 'normal.jpg',
-                    roughness: 'roughness.jpg',
-                    ao: 'ao.jpg'
+                    orm: 'orm.jpg' // R occlusion, G roughness, B metallic (scripts/pack-orm.mjs)
                 },
                 scale: { u: 4, v: 2 }
             },
@@ -61,8 +59,7 @@ class TextureLoader {
                 maps: {
                     diffuse: 'diff.jpg',
                     normal: 'normal.jpg',
-                    roughness: 'roughness.jpg',
-                    ao: 'ao.jpg'
+                    orm: 'orm.jpg' // R occlusion, G roughness, B metallic (scripts/pack-orm.mjs)
                 },
                 scale: { u: 3, v: 3 }
             }
@@ -284,13 +281,27 @@ class TextureLoader {
             material.invertNormalMapX = false;
             material.invertNormalMapY = false;
         }
+        if (textures.orm) {
+            // One packed map: R = occlusion, G = roughness, B = metallic (0 for these dielectrics).
+            if (isMetallicRoughness) {
+                material.metallicRoughnessTexture = textures.orm;
+                material.occlusionTexture = textures.orm;
+                // The occlusion sampler must read only R; read as a colour it would tint by G and B.
+                material._useAmbientInGrayScale = true;
+            } else {
+                material.metallicTexture = textures.orm;
+                material.useAmbientOcclusionFromMetallicTextureRed = true;
+                material.useRoughnessFromMetallicTextureGreen = true;
+                material.useMetallnessFromMetallicTextureBlue = true;
+                material.useRoughnessFromMetallicTextureAlpha = false;
+            }
+        }
+        // Separate maps still work for any set that has not been packed.
         if (textures.roughness) {
             if (isMetallicRoughness) {
-                // NOTE: PBRMetallicRoughnessMaterial reads roughness from G and metallic
-                // from B. These source maps are greyscale (G === B), so the roughness
-                // value is also multiplied into metallic. That is only harmless because
-                // every consumer's `metallic` scalar is ~0-0.2; pack a real ORM map
-                // before raising it.
+                // PBRMetallicRoughnessMaterial reads roughness from G and metallic from B. A greyscale
+                // map is therefore also multiplied into metallic; harmless only while the metallic scalar
+                // is ~0-0.2. Pack an ORM map instead.
                 material.metallicRoughnessTexture = textures.roughness;
             } else {
                 material.metallicTexture = textures.roughness;
@@ -306,8 +317,7 @@ class TextureLoader {
                 material.useAmbientInGrayScale = true;
             }
         }
-        
-        if (wasFrozen) material.freeze();
+                if (wasFrozen) material.freeze();
         
         this.log.info(`✅ Applied textures to material: ${material.name} (${material.getClassName()})`);
     }

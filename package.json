@@ -1,7 +1,7 @@
 {
   "name": "vrclub",
   "version": "1.1.0",
-  "cacheToken": "20260923-1",
+  "cacheToken": "20261004-1",
   "description": "Hyperrealistic Babylon.js WebXR VR Club with music streaming for Meta Quest 3S",
   "scripts": {
     "start": "node scripts/serve.mjs",
@@ -37,16 +37,16 @@
     "url": "https://github.com/my-pwa-apps/VRCLUB-2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
-    "@gltf-transform/cli": "^4.4.1",
+    "@gltf-transform/cli": "^4.5.0",
+    "@playwright/test": "^1.63.0",
     "esbuild": "^0.28.2",
-    "eslint": "^9.32.0",
-    "iwer": "^2.3.0"
+    "eslint": "^10.11.0",
+    "iwer": "^2.5.0"
   },
   "overrides": {
     "sharp": "0.35.4"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   }
 }

@@ -525,6 +525,37 @@ class VRClubRendering extends VRClubLifecycle {
         }
     }
 
+    /**
+     * Make a box's tiling texture repeat at a real-world size. A CreateBox face maps the whole texture
+     * once (0..1) whatever its size, and the material's uScale/vScale multiply that, so a 45 x 10 m wall
+     * stretched each brick about 2x sideways and the 25 m back wall about 1.25x. This rescales every
+     * face's UVs by its real width and height so one tile covers `tileMeters` square on any surface.
+     *
+     * @param {BABYLON.Mesh} mesh      an unrotated box (its local axes are the world axes)
+     * @param {number} tileMeters      side of one texture tile in metres
+     * @param {{u:number,v:number}} textureScale the uScale/vScale the texture set already carries
+     */
+    _applyWorldUVs(mesh, tileMeters, textureScale) {
+        const uvs = mesh.getVerticesData(BABYLON.VertexBuffer.UVKind);
+        const normals = mesh.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+        if (!uvs || !normals) return;
+        mesh.refreshBoundingInfo();
+        const size = mesh.getBoundingInfo().boundingBox.extendSize.scale(2);
+        const perMeterU = 1 / (tileMeters * (textureScale.u || 1));
+        const perMeterV = 1 / (tileMeters * (textureScale.v || 1));
+        for (let i = 0; i < uvs.length / 2; i++) {
+            const ax = Math.abs(normals[i * 3]), ay = Math.abs(normals[i * 3 + 1]), az = Math.abs(normals[i * 3 + 2]);
+            // x faces run along z, z faces along x, and the top and bottom run x by z.
+            let across, up;
+            if (ax >= ay && ax >= az) { across = size.z; up = size.y; }
+            else if (az >= ay) { across = size.x; up = size.y; }
+            else { across = size.x; up = size.z; }
+            uvs[i * 2] *= across * perMeterU;
+            uvs[i * 2 + 1] *= up * perMeterV;
+        }
+        mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
+    }
+
     createWalls() {
         // PBR material for walls
         const wallMat = this.materialFactory.getPreset('wall');
@@ -538,6 +569,10 @@ class VRClubRendering extends VRClubLifecycle {
             wallMat.environmentIntensity = 0.25; // Subtle reflections for moist brick surface
         }
         
+        // One tile of the brick texture is 1.5 m square on every wall (see _applyWorldUVs).
+        const wallTile = 1.5;
+        const wallScale = this.textureLoader && this.textureLoader.textureConfigs.walls.scale || { u: 1, v: 1 };
+
         // Back wall
         const backWall = BABYLON.MeshBuilder.CreateBox("backWall", {
             width: 25,
@@ -545,6 +580,7 @@ class VRClubRendering extends VRClubLifecycle {
             depth: 0.5
         }, this.scene);
         backWall.position = new BABYLON.Vector3(0, 5, -21);
+        this._applyWorldUVs(backWall, wallTile, wallScale);
         backWall.material = wallMat;
         backWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         backWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -557,6 +593,7 @@ class VRClubRendering extends VRClubLifecycle {
             depth: 45
         }, this.scene);
         leftWall.position = new BABYLON.Vector3(-12.5, 5, -10);
+        this._applyWorldUVs(leftWall, wallTile, wallScale);
         leftWall.material = wallMat;
         leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         leftWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -569,6 +606,7 @@ class VRClubRendering extends VRClubLifecycle {
             depth: 45
         }, this.scene);
         rightWall.position = new BABYLON.Vector3(12.5, 5, -10);
+        this._applyWorldUVs(rightWall, wallTile, wallScale);
         rightWall.material = wallMat;
         rightWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
         rightWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -581,6 +619,7 @@ class VRClubRendering extends VRClubLifecycle {
             depth: 0.5
         }, this.scene);
         frontWall.position = new BABYLON.Vector3(0, 5, 0);
+        this._applyWorldUVs(frontWall, wallTile, wallScale);
         frontWall.material = wallMat;
         frontWall.receiveShadows = false; // Optimization: disable shadows on walls
         frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
@@ -635,6 +674,7 @@ class VRClubRendering extends VRClubLifecycle {
                 depth: 0.6
             }, this.scene);
             pillar.position = new BABYLON.Vector3(pos.x, 5, pos.z);
+            this._applyWorldUVs(pillar, 3, this.textureLoader && this.textureLoader.textureConfigs.ceiling.scale || { u: 1, v: 1 });
             pillar.material = pillarMat;
             pillar.receiveShadows = false;
             pillarsToMerge.push(pillar);
@@ -657,6 +697,7 @@ class VRClubRendering extends VRClubLifecycle {
         }
         
         // Add exposed brick sections between pillars
+        const brickScale = this.textureLoader && this.textureLoader.textureConfigs.walls.scale || { u: 1, v: 1 };
         const brickSections = [
             { x: -12.0, z: -10, width: 1, height: 4 },
             { x: -12.0, z: -20, width: 1, height: 3 },
@@ -673,6 +714,7 @@ class VRClubRendering extends VRClubLifecycle {
                 depth: 0.3
             }, this.scene);
             brick.position = new BABYLON.Vector3(section.x, 2 + section.height/2, section.z);
+            this._applyWorldUVs(brick, 1.5, brickScale);
             brick.material = brickMat;
             brick.receiveShadows = false;
             bricksToMerge.push(brick);

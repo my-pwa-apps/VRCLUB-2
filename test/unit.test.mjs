@@ -2042,6 +2042,84 @@ test('crowd instances expand to the active tier without duplicating dancers', ()
     assert.deepEqual(club.npcAvatars.map(npc => npc.name), ['dancer0', 'dancer1', 'dancer2']);
 });
 
+/** The JSON chunk of a GLB, without loading it into a 3D engine. */
+function readGlbJson(relativePath) {
+    const buffer = readFileSync(join(ROOT, relativePath));
+    const length = buffer.readUInt32LE(12);
+    return JSON.parse(buffer.subarray(20, 20 + length).toString('utf8'));
+}
+
+test('every guest slot asks for a clip its character file carries, inside the room and apart from the others', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const slots = window.VRClubAudioCrowd.prototype._guestSlots.call({});
+    const clipsOf = file => new Set(readGlbJson(`js/models/avatars/${file}`).animations.map(animation => animation.name));
+    // Source indices 5 and 6 are the guest files (see avatarSources in createDancingNPCs).
+    const files = { 5: clipsOf('club-guest-female.glb'), 6: clipsOf('club-guest-male.glb') };
+
+    for (const clips of Object.values(files)) {
+        assert.ok(clips.has('Dance_Loop'), 'the guest characters also fill dance-floor slots, so they must dance');
+    }
+    slots.forEach((slot, index) => {
+        assert.ok(files[slot.src], `slot ${index} points at a source that is not a guest file`);
+        assert.ok(files[slot.src].has(slot.clip), `slot ${index} wants "${slot.clip}", which that file does not carry`);
+        assert.ok(Math.abs(slot.x) <= 11.5 && slot.z >= -20 && slot.z <= -5.8, `slot ${index} is outside the room`);
+        assert.ok(Number.isFinite(slot.yaw) && slot.height > 1.5 && slot.height < 2, `slot ${index} has an odd pose or height`);
+    });
+    for (let a = 0; a < slots.length; a++) {
+        for (let b = a + 1; b < slots.length; b++) {
+            const apart = Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z);
+            assert.ok(apart >= 0.9, `guests ${a} and ${b} overlap (${apart.toFixed(2)} m apart)`);
+        }
+    }
+
+    const tiers = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
+    const sizes = [...tiers.matchAll(/guestSize:\s*(\d+)/g)].map(match => Number(match[1]));
+    assert.equal(sizes.length, 3, 'every graphics tier must set guestSize');
+    assert.ok(sizes.every(size => size <= slots.length) && sizes[0] >= sizes[1] && sizes[1] >= sizes[2],
+        'guestSize must not exceed the slots and must fall with the tier');
+});
+
+test('a multi-clip character plays only its own clip, and does not react to the beat when it is a guest', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const spawn = window.VRClubAudioCrowd.prototype._spawnAvatar;
+    const makeGroup = name => ({
+        name, from: 0, to: 1, started: false, disposed: false, speedRatio: 1,
+        start() { this.started = true; }, goToFrame() {}, dispose() { this.disposed = true; }
+    });
+    const make = names => {
+        const groups = names.map(makeGroup);
+        const root = {
+            name: '', rotation: { y: 0 }, rotationQuaternion: {},
+            position: { x: 0, y: 0, z: 0, copyFrom(v) { this.x = v.x; this.y = v.y; this.z = v.z; } },
+            scaling: { setAll() {} }, computeWorldMatrix() {},
+            getHierarchyBoundingVectors: () => ({ min: { y: 0 }, max: { y: 1.8 } }),
+            getChildMeshes: () => []
+        };
+        const container = { instantiateModelsToScene: () => ({ rootNodes: [root], animationGroups: groups }) };
+        const club = { npcAvatars: [], _attachOccupantCollider: () => null };
+        return { groups, container, club };
+    };
+
+    let { groups, container, club } = make(['g_Dance_Loop', 'g_Idle_Talking_Loop', 'g_Yes']);
+    spawn.call(club, container, 'g', new BABYLON.Vector3(), 0, 1.8, 1, { clip: 'Idle_Talking_Loop', reactsToBeat: false });
+    assert.deepEqual(groups.map(group => group.started), [false, true, false]);
+    assert.deepEqual(groups.map(group => group.disposed), [true, false, true], 'unused clips must be disposed');
+    assert.equal(club.npcAvatars[0].animations.length, 1);
+    assert.equal(club.npcAvatars[0].reactsToBeat, false);
+    assert.equal(club.npcAvatars[0].homeYaw, null, 'a guest must not swing round when the camera nears');
+
+    // Without a clip a multi-clip file dances, and a one-clip file (the Mixamo characters) is untouched.
+    ({ groups, container, club } = make(['d_Idle_Talking_Loop', 'd_Dance_Loop']));
+    spawn.call(club, container, 'd', new BABYLON.Vector3(), 0, 1.8, 1);
+    assert.deepEqual(groups.map(group => group.started), [false, true]);
+    assert.equal(club.npcAvatars[0].reactsToBeat, true);
+
+    ({ groups, container, club } = make(['Armature|mixamo.com|Layer0']));
+    spawn.call(club, container, 'm', new BABYLON.Vector3(), 0, 1.8, 1);
+    assert.deepEqual(groups.map(group => [group.started, group.disposed]), [[true, false]]);
+});
 test('avatar materials preserve authored colors while enforcing opacity and depth', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', {
@@ -2967,7 +3045,7 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     const saved = new Map();
     const names = { MOVEMENT: 'xr-controller-movement', TELEPORTATION: 'xr-controller-teleportation' };
     const conflicts = { [names.MOVEMENT]: names.TELEPORTATION, [names.TELEPORTATION]: names.MOVEMENT };
-    // Mirrors Babylon 8.30.5 WebXRFeaturesManager: enabling a conflicting feature throws.
+    // Mirrors Babylon 8.30.5 (and 9.28.0) WebXRFeaturesManager: enabling a conflicting feature throws.
     const enabled = new Map();
     const featuresManager = {
         getEnabledFeature: name => enabled.get(name),
@@ -2978,7 +3056,7 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
             }
             const feature = {
                 name, options, setSelectionFeature(sel) { this.selection = sel; },
-                // Babylon 8.30.5 WebXRMotionControllerTeleportation blocker API.
+                // Babylon 8.30.5 (and 9.28.0) WebXRMotionControllerTeleportation blocker API.
                 addBlockerMesh(mesh) { (this.options.pickBlockerMeshes ||= []).push(mesh); },
                 removeBlockerMesh(mesh) {
                     const list = this.options.pickBlockerMeshes || [];

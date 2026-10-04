@@ -7,7 +7,7 @@
 
 ## What this is
 
-A **client-side WebXR nightclub** built with **Babylon.js 8.30.5**, targeting Meta Quest 3S
+A **client-side WebXR nightclub** built with **Babylon.js 9.28.0**, targeting Meta Quest 3S
 and desktop browsers. There is **no application backend**; the only server-side code is the
 optional multiplayer relay in `worker/` (see Multiplayer). Development sources are classic `<script>`
 files that publish classes onto `window`; `npm run build` preserves their tested order and
@@ -17,7 +17,7 @@ emits one minified, content-hashed production bundle with esbuild.
 
 `index.html` loads scripts synchronously in this exact order:
 
-1. `js/vendor/babylon.js` — pinned Babylon 8.30.5 runtime
+1. `js/vendor/babylon.js` — pinned Babylon 9.28.0 runtime
 2. `js/vendor/babylonjs.proceduralTextures.min.js`
 3. `js/vendor/babylonjs.loaders.min.js` — **required** for `.glb`
 4. `js/assetCache.js` — `IndexedDBAssetCache`, `InFlightRegistry`, `fetchWithTimeout`
@@ -323,8 +323,8 @@ headset capture.
 No light currently owns a `ShadowGenerator`: the two it had sat outside every material's
 slots, so no shadow was ever sampled.
 
-Keep the ambient preset's small nonzero specular contribution. Babylon 8.30.5's
-clear-coat path can read uninitialized pre-lighting vectors when only a zero-specular
+Keep the ambient preset's small nonzero specular contribution. Babylon's (observed on 8.30.5;
+the mirror-only e2e still guards it on 9.28.0) clear-coat path can read uninitialized pre-lighting vectors when only a zero-specular
 hemispheric light remains. This produces a white floor/foreground in mirror-only cues,
 not extra fog. The ambient specular term keeps `SPECULARTERM` enabled without another light.
 
@@ -501,13 +501,23 @@ and fail `npm test`.
   The folder name is part of the IndexedDB cache key, so replacing a set means renaming its
   folder — overwriting files in place leaves returning visitors on the old maps for 30 days.
 - **Models**: local `./js/models/` — `djgear/source/pioneer_DJ_console.glb`,
-  `paspeakers/source/stage_speaker___black.glb`. Both are **optimised derivatives**: run
+  `paspeakers/source/stage_speaker___black.glb`, and the characters in `avatars/`.
+  Characters: the Quaternius `club-*.glb` files share one UE-mannequin rig and carry their clips
+  inside the file. `club-guest-*.glb` hold six clips; `_spawnAvatar(..., { clip })` keeps one and
+  disposes the rest, and `_guestSlots()` says who plays what. After building or replacing one, run
+  `npm run optimize:avatars -- <file>` (it merges skinned parts that share a skin and material, so a
+  character is ~6 draws, and a contract test fails above 6). Add every new GLB to `ASSETS.md`. The three
+  Mixamo GLBs are a known licensing gap; Quaternius's free libraries have ONE dance clip (`Dance_Loop`),
+  so they are not simply replaceable. The two Quaternius sci-fi prop packs were evaluated and not used:
+  chunky pieces (a 1.6 m chair, 2 m desks, 4-6k-vertex crates) that do not fit this club.
+  The DJ console and PA speaker are **optimised derivatives**: run
   `npm run optimize:models` after replacing or editing either (idempotent; `npm test` runs it with
   `--check`). Never put a 4096 px texture in the scene — a Quest shares its memory with the browser
   and each one costs ~85 MB with mips (the budget is in `test/e2e/budget.spec.mjs`). The speaker
   GLB is deliberately textureless: `ModelLoader.applyPASpeakerTextures()` applies the external
   `paspeakers/source/textures/small_speaker_1_1001_*` set to every mesh. Do not use Draco, meshopt
   or KTX2: Babylon fetches their decoders from a CDN, which the same-origin rule forbids.
+- **Environment and surfaces**: the reflection environment is `textures/environment/empty_warehouse_01_256.env` (Poly Haven, CC0; how it is made is in ASSETS.md); do not go back to a bright or coloured sky, it tints every metal surface. Floor, wall and ceiling use a packed `orm.jpg` (R occlusion, G roughness, B metallic): add a new surface set with `node scripts/pack-orm.mjs`. Signs are `createSignage()` (one atlas, one additive mesh), and every character gets a contact shadow from `_refreshContactShadows()`; call `_applyCrowdSize()` after enabling or moving characters.
 - **LED wall**: ONE mesh (`ledPanel_wall`), not one per panel. Patterns still write
   `panel.material.emissiveColor` (a plain holder, not a Babylon material), and `_flushLedWall()`
   copies those colours into the wall's 21x10 emissive texture at the end of `updateLEDWallPass`.
