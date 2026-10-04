@@ -1506,6 +1506,25 @@ test('the LED wall is one mesh whose texels take each panel colour by row and co
     // A club without a wall (modular build, early frames) is a no-op rather than a crash.
     assert.doesNotThrow(() => flush.call({ ledPanels: [] }));
 });
+test('box UVs are metric and upright: a tile covers the same metres on every wall, whatever its size', () => {
+    const BABYLON = makeBabylonStub();
+    BABYLON.VertexBuffer = { PositionKind: 'position', NormalKind: 'normal', UVKind: 'uv' };
+    const { window } = loadClassic('js/club/03-rendering.js', { BABYLON, VRClubLifecycle: class {} });
+    const apply = window.VRClubRendering.prototype._applyWorldUVs;
+    // A 0.5 x 10 x 45 m side wall: the +x face has normal (1,0,0) and spans z -22.5..22.5, y -5..5.
+    const positions = [0.25, 5, 22.5, 0.25, -5, 22.5, 0.25, -5, -22.5, 0.25, 5, -22.5];
+    const normals = [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
+    let uvs = null;
+    const mesh = {
+        getVerticesData: kind => (kind === 'position' ? positions : normals),
+        setVerticesData: (kind, data) => { if (kind === 'uv') uvs = Array.from(data); }
+    };
+    apply.call({}, mesh, 1.5, { u: 4, v: 2 });
+    const [u0, v0, , , u2, v2] = [uvs[0], uvs[1], uvs[2], uvs[3], uvs[4], uvs[5]];
+    // 45 m along the wall at 1.5 m per tile and a texture scale of 4 is 7.5 texture units; 10 m up is 3.33.
+    assert.ok(Math.abs((u0 - u2) - 45 / (1.5 * 4)) < 1e-6, `U must follow the 45 m run, got ${u0 - u2}`);
+    assert.ok(Math.abs((v0 - v2) - 10 / (1.5 * 2)) < 1e-6, `V must follow the 10 m height, got ${v0 - v2}`);
+});
 test('a dimmed wall is an accompaniment: it scales every pattern, eases in, and resets per look', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} });

@@ -38,6 +38,7 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The brick walls were stretched.** A box gives each face the whole texture once, however big the face, and on the side faces the texture ran sideways. The 45 m side walls smeared each brick about 3x and turned the courses vertical. The walls, brick fins, pillars and ceiling now get UVs from their real size (`_applyWorldUVs`): a 1.5 m tile on the walls, 3 m on the concrete, upright.
 - **Strobes no longer read as the room being lit.** Switching strobes on from the menu hands the show
   over to manual mode, where they run on a free-running timer: a burst lasted 90 ms (7 frames in a
   headset) and the speed left behind by the last cue could fire them 7 to 9 times a second. A burst is

@@ -526,36 +526,36 @@ class VRClubRendering extends VRClubLifecycle {
     }
 
     /**
-     * Make a box's tiling texture repeat at a real-world size. A CreateBox face maps the whole texture
-     * once (0..1) whatever its size, and the material's uScale/vScale multiply that, so a 45 x 10 m wall
-     * stretched each brick about 2x sideways and the 25 m back wall about 1.25x. This rescales every
-     * face's UVs by its real width and height so one tile covers `tileMeters` square on any surface.
+     * Make a box's tiling texture repeat at a real-world size, upright. CreateBox gives every face the
+     * whole texture once (0..1) however big the face is, and which axis U follows differs by face (on the
+     * side faces U runs UP the wall), so a 45 x 10 m wall came out stretched and the brick courses ran
+     * the wrong way. This rebuilds the UVs from the vertex positions: U along the horizontal axis, V up
+     * (or along z on a roof), so one tile covers `tileMeters` square on every surface.
      *
-     * @param {BABYLON.Mesh} mesh      an unrotated box (its local axes are the world axes)
+     * @param {BABYLON.Mesh} mesh      a box that is not rotated (its local axes are the world axes)
      * @param {number} tileMeters      side of one texture tile in metres
-     * @param {{u:number,v:number}} textureScale the uScale/vScale the texture set already carries
+     * @param {{u:number,v:number}} textureScale the uScale/vScale the texture set already carries; they
+     *                                 multiply the UVs again, so they are divided out here
      */
     _applyWorldUVs(mesh, tileMeters, textureScale) {
-        const uvs = mesh.getVerticesData(BABYLON.VertexBuffer.UVKind);
+        const positions = mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
         const normals = mesh.getVerticesData(BABYLON.VertexBuffer.NormalKind);
-        if (!uvs || !normals) return;
-        mesh.refreshBoundingInfo();
-        const size = mesh.getBoundingInfo().boundingBox.extendSize.scale(2);
+        if (!positions || !normals) return;
         const perMeterU = 1 / (tileMeters * (textureScale.u || 1));
         const perMeterV = 1 / (tileMeters * (textureScale.v || 1));
-        for (let i = 0; i < uvs.length / 2; i++) {
+        const uvs = new Float32Array((positions.length / 3) * 2);
+        for (let i = 0; i < positions.length / 3; i++) {
+            const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
             const ax = Math.abs(normals[i * 3]), ay = Math.abs(normals[i * 3 + 1]), az = Math.abs(normals[i * 3 + 2]);
-            // x faces run along z, z faces along x, and the top and bottom run x by z.
             let across, up;
-            if (ax >= ay && ax >= az) { across = size.z; up = size.y; }
-            else if (az >= ay) { across = size.x; up = size.y; }
-            else { across = size.x; up = size.z; }
-            uvs[i * 2] *= across * perMeterU;
-            uvs[i * 2 + 1] *= up * perMeterV;
+            if (ax >= ay && ax >= az) { across = z; up = y; }      // side faces run along z
+            else if (az >= ay) { across = x; up = y; }             // front and back faces run along x
+            else { across = x; up = z; }                           // top and bottom: x by z
+            uvs[i * 2] = across * perMeterU;
+            uvs[i * 2 + 1] = up * perMeterV;
         }
         mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
     }
-
     createWalls() {
         // PBR material for walls
         const wallMat = this.materialFactory.getPreset('wall');
