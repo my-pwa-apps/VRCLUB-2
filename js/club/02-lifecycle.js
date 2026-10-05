@@ -103,6 +103,7 @@ class VRClubLifecycle extends VRClubCore {
         this.modelLoadPromise = this.modelLoader.loadAllModels().then(() => {
             // A ~15 MB GLB can still be in flight when the host disposes the club.
             if (this._disposed) return;
+            this._blockBassBins();
             this._refreshShadowCasters();
             // Meshes that only exist once the GLB lands: drop caches keyed on them,
             // and sweep anisotropy over the textures the loader just created.
@@ -280,8 +281,10 @@ class VRClubLifecycle extends VRClubCore {
         this.createLights(); // Creates other lights (ambient, etc.) - skips spotlights if modular
         this.createHyperrealisticSmoke(); // Add volumetric smoke/fog
         this.createMirrorBall(); // Add disco/mirror ball with spotlight
-        // Entrance, bar, and dance floor lighting removed for cleaner look
         this.createSafetyDetails(); // Exit signs only
+        this.createEntranceArea(); // Door, vestibule and street door (after createLights: its accent light sorts first)
+        this.createBar(); // Counter, back bar, bottles, stools (the bartender joins with the crowd)
+        this.createMezzanine(); // Steel balcony and stair along the left wall
     }
 
     /** Scene-wide quality passes that must see the finished scene (probe, light budgets, filtering, SSR fallback). */

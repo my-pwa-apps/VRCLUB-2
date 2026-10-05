@@ -8,6 +8,7 @@ const STROBE_MIN_INTERVAL_S = 0.34; // free-running timer floor: under three fla
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
     updateStrobes(ctx) {
         const { time, dt, audio: audioData } = ctx;
+        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // Update strobes - respects strobesActive control
         // Strobe lights animation (with speed multiplier)
@@ -185,7 +186,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         } else if (this.strobeFlashLight.position) {
                             this.strobeFlashLight.position.set(0, 8, -12);
                         }
-                        this.strobeFlashLight.intensity = maxIntensity * 14;
+                        this.strobeFlashLight.intensity = maxIntensity * 14 * master;
                         // Leave the point light disabled for life. Enabling it takes
                         // slot 0 of every material (it is created before ambient) and
                         // the measured cost was ~19 ms per flash. Frozen room materials
@@ -193,10 +194,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // below is the room fill.
                         if (ambient) {
                             this._preStrobeAmbientIntensity = ambient.intensity;
-                            ambient.intensity = impulse.ambient;
+                            ambient.intensity = ambient.intensity + (impulse.ambient - ambient.intensity) * master;
                         }
                         if (this.strobeRetinalFlash?.color) {
-                            this.strobeRetinalFlash.color.a = impulse.retinal;
+                            this.strobeRetinalFlash.color.a = impulse.retinal * master;
                         }
                         // Brief bloom spike for blinding strobe effect. Captured per
                         // burst (cleared at the top of this function), so a pipeline swap
@@ -204,10 +205,12 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         // freshly created VR pipeline.
                         if (this.renderPipeline && this.renderPipeline.bloomEnabled) {
                             this._preStrobeBloom = this.renderPipeline.bloomWeight;
-                            this.renderPipeline.bloomWeight = 1.0;
+                            this.renderPipeline.bloomWeight = this._preStrobeBloom +
+                                (1.0 - this._preStrobeBloom) * master;
                             if (this.renderPipeline.imageProcessing) {
                                 this._preStrobeExposure = this.renderPipeline.imageProcessing.exposure;
-                                this._writeExposure(impulse.exposure);
+                                this._writeExposure(this._preStrobeExposure +
+                                    (impulse.exposure - this._preStrobeExposure) * master);
                             }
                         }
                     } else {
@@ -490,7 +493,8 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      * because the hits depend on it landing at once.
      */
     _applyLedLevel(time) {
-        const target = this.ledWallLevel == null ? 1 : this.ledWallLevel;
+        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
+        const target = (this.ledWallLevel == null ? 1 : this.ledWallLevel) * master;
         if (target >= 0.999) {
             this._ledFade = 1;
         } else {

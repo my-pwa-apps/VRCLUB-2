@@ -570,7 +570,7 @@ class AvatarRig {
         if (this.root) this.root.setEnabled(!!visible);
     }
 
-    /** Re-fit the body when the player's measured eye height changes (VR session start). */
+    /** Re-fit the body when the active mode's eye-height calibration changes. */
     setEyeHeight(eyeHeight) {
         if (!this.ok || !(eyeHeight > 0.8) || Math.abs(eyeHeight - this.standEye) < 0.04) return;
         const yaw = this.root.rotation.y, pos = this.root.position.clone();

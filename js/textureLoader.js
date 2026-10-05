@@ -62,6 +62,32 @@ class TextureLoader {
                     orm: 'orm.jpg' // R occlusion, G roughness, B metallic (scripts/pack-orm.mjs)
                 },
                 scale: { u: 3, v: 3 }
+            },
+            // Poly Haven "Dark Wood" (CC0): the bar counter, back bar and ticket desk.
+            // Normal map is the DirectX variant; orm is Poly Haven's `arm` (R occlusion, G roughness, B metallic).
+            barWood: {
+                name: 'Dark Bar Wood',
+                baseUrl: `${baseUrl}/barWood`,
+                maps: {
+                    diffuse: 'diff.jpg',
+                    normal: 'normal.jpg',
+                    orm: 'orm.jpg'
+                },
+                scale: { u: 1, v: 1 }
+            },
+            // Poly Haven "Metal Plate" (CC0) tread plate: the mezzanine deck and stair treads.
+            steelDeck: {
+                name: 'Steel Tread Plate',
+                baseUrl: `${baseUrl}/steelDeck`,
+                maps: { diffuse: 'diff.jpg', normal: 'normal.jpg', orm: 'orm.jpg' },
+                scale: { u: 1, v: 1 }
+            },
+            // Poly Haven "Metal Plate 02" (CC0) worn panels: mezzanine fascia, columns and stringers.
+            steelPanel: {
+                name: 'Worn Steel Panels',
+                baseUrl: `${baseUrl}/steelPanel`,
+                maps: { diffuse: 'diff.jpg', normal: 'normal.jpg', orm: 'orm.jpg' },
+                scale: { u: 1, v: 1 }
             }
         };
     }
@@ -212,23 +238,19 @@ class TextureLoader {
         const startTime = performance.now();
         
         try {
-            const results = await Promise.allSettled([
-                this.loadTextureSet('floor'),
-                this.loadTextureSet('walls'),
-                this.loadTextureSet('ceiling')
-            ]);
+            // Every configured set, so a new surface only needs a config entry.
+            const types = Object.keys(this.textureConfigs);
+            const results = await Promise.allSettled(types.map(type => this.loadTextureSet(type)));
 
-            const textures = {
-                floor: results[0].status === 'fulfilled' ? results[0].value : null,
-                walls: results[1].status === 'fulfilled' ? results[1].value : null,
-                ceiling: results[2].status === 'fulfilled' ? results[2].value : null
-            };
+            const textures = {};
+            types.forEach((type, index) => {
+                textures[type] = results[index].status === 'fulfilled' ? results[index].value : null;
+            });
 
             // Report failures
             results.forEach((result, index) => {
                 if (result.status === 'rejected') {
-                    const type = ['floor', 'walls', 'ceiling'][index];
-                    this.log.error(`❌ Failed to load ${type} textures:`, result.reason);
+                    this.log.error(`❌ Failed to load ${types[index]} textures:`, result.reason);
                 }
             });
 

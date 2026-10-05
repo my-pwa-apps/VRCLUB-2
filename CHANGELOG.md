@@ -168,6 +168,21 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Bass bins under the PA.** Sketchfab's *Bass Bin 3 - Subwoofer* (CC BY 4.0, darksoundlab) now hangs on chains under each flown speaker,
+  facing the room, shaded by the speaker's own accent light and credited in the product. The optimiser shrinks it from 4.7 MB to 1.6 MB and
+  joins its 12 meshes to 6, so the two bins cost 12 draws. The loader derives their placement from each speaker's measured underside.
+- **A steel mezzanine and stair.** A balcony along the left wall (deck at 3 m, rails, columns, X-bracing) overlooks the dance
+  floor and is reached by a 16-step steel stair from the floor near the entrance; a high table and two stools stand on the
+  deck, and a BALCONY camera preset (key 5, desktop panel, VR quick menu) puts you on it. Textures are Poly Haven *Metal Plate*
+  and *Metal Plate 02* (CC0); the stools reuse the bar's model. Five merged meshes, one scoped accent light.
+  `js/mezzanine.js` is new; `node scripts/build-mezzanine-assets.mjs` rebuilds the textures.
+- **A bar and an entrance.** The front wall now has a 4 m doorway into a lit vestibule (red carpet, brass queue
+  ropes, ticket desk, coat check, street door, ENTER/EXIT neon); the ENTRANCE destination puts you there. On the right wall
+  stands a bar: a dark-wood counter (Poly Haven *Dark Wood*, CC0) with five Poly Haven *Metal Stool 03* stools, a
+  back bar with three backlit shelves holding twelve recognisable bottle shapes (vodka, gin, rum, whisky, bourbon,
+  tequila, champagne, three liqueurs, lager, wine) as one draw call, pendant lamps, a BAR neon sign and a female bartender
+  (the Quaternius female guest in a black outfit). The talking pair of guests moved off the counter.
+  `js/barProps.js` and `js/venueDressing.js` are new; `node scripts/build-bar-assets.mjs` rebuilds the Poly Haven assets.
 - **Realism pass, phase 1.** The three wall signs now read CLUB, VR and DANCE (they were blank slabs, and none of them faced the room) and the two exit signs read EXIT; all five are one atlas and two meshes. Every character has a soft contact shadow, so people no longer hover. The reflection environment is a dim industrial interior (Poly Haven, CC0) instead of Babylon's sample sky, so metal picks up a believable cool reflection. The wall, floor and ceiling use one packed occlusion/roughness/metallic map each. Draw calls 347 -> 329, texture memory 224 -> 210 MB. `scripts/pack-orm.mjs` is new.
 - **Guests off the dance floor.** Two new Quaternius characters (CC0, leather jackets, ~2.8 MB each,
   from Universal Animation Library 1 and 2) fill dance-floor slots and also stand by the side walls:

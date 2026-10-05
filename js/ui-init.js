@@ -952,9 +952,17 @@ window.addEventListener('pagehide', teardownVJUI);
  * modifier is held (so Ctrl+B, Cmd+1 etc. reach the browser unchanged).
  */
 function initKeyboardShortcuts() {
+    const isInteractiveTarget = (target) => {
+        if (!target) return false;
+        if (target.isContentEditable) return true;
+        if (/^(INPUT|TEXTAREA|SELECT|BUTTON|SUMMARY)$/.test(target.tagName)) return true;
+        if (target.tagName === 'A' && target.href) return true;
+        return typeof target.closest === 'function'
+            && !!target.closest('[role="button"], [role="link"], [contenteditable="true"]');
+    };
     const onKey = (e) => {
         const t = e.target;
-        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        if (e.defaultPrevented || isInteractiveTarget(t)) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         const club = vrClubInstance;
         if (!club) return;
@@ -973,8 +981,8 @@ function initKeyboardShortcuts() {
             case 'f': case 'F':
                 if (vjMacros.drop) { e.preventDefault(); vjMacros.drop(); }
                 break;
-            case '1': case '2': case '3': case '4': {
-                const presets = ['arrival', 'danceFloor', 'djBooth', 'lightingGallery'];
+            case '1': case '2': case '3': case '4': case '5': {
+                const presets = ['arrival', 'danceFloor', 'djBooth', 'lightingGallery', 'balcony'];
                 e.preventDefault();
                 club.moveCameraToPreset(presets[Number(e.key) - 1]);
                 break;
@@ -1006,6 +1014,8 @@ function initAudioMenu() {
     const nowPlaying = document.getElementById('audioNowPlaying');
     const volume = document.getElementById('audioVolume');
     const volumeValue = document.getElementById('audioVolumeValue');
+    const ambience = document.getElementById('crowdAmbience');
+    const ambienceValue = document.getElementById('crowdAmbienceValue');
     
     if (!audioToggle || !audioMenu) return;
 
@@ -1025,6 +1035,11 @@ function initAudioMenu() {
         if (playStreamBtn) playStreamBtn.setAttribute('aria-label', playing ? 'Pause audio' : 'Play audio');
     };
     const setNowPlaying = (text) => { if (nowPlaying) nowPlaying.textContent = text; };
+    const setSliderText = (slider, valueEl, value) => {
+        const text = `${Math.round(value * 100)}%`;
+        if (valueEl) valueEl.textContent = text;
+        if (slider) slider.setAttribute('aria-valuetext', text);
+    };
 
     if (vrClubInstance.audioElement && !vrClubInstance.audioElement.paused) {
         setPlayLabel(true);
@@ -1113,14 +1128,30 @@ function initAudioMenu() {
     });
     if (typeof navigator !== 'undefined' && navigator.onLine === false) onConnectivityChange();
 
-    // Volume. There was previously no volume or mute control anywhere in the app.
+    // Music playback level: this controls only the chosen stream/file, not generated ambience.
     if (volume && volumeValue) {
+        const current = Number.isFinite(vrClubInstance._audioVolume)
+            ? vrClubInstance._audioVolume
+            : (vrClubInstance.audioElement ? vrClubInstance.audioElement.volume : 1);
+        volume.value = String(current);
+        setSliderText(volume, volumeValue, current);
         volume.addEventListener('input', (e) => {
             const v = parseFloat(e.target.value);
             if (vrClubInstance.setAudioVolume) vrClubInstance.setAudioVolume(v);
-            const text = `${Math.round(v * 100)}%`;
-            volumeValue.textContent = text;
-            volume.setAttribute('aria-valuetext', text);
+            setSliderText(volume, volumeValue, v);
+        });
+    }
+
+    // User-owned crowd-bed level. Kept distinct from the per-frame acoustic ducking.
+    if (ambience && ambienceValue && typeof vrClubInstance.getCrowdAmbienceLevel === 'function') {
+        const current = vrClubInstance.getCrowdAmbienceLevel();
+        if (vrClubInstance.setCrowdAmbienceLevel) vrClubInstance.setCrowdAmbienceLevel(current);
+        ambience.value = String(current);
+        setSliderText(ambience, ambienceValue, current);
+        ambience.addEventListener('input', (e) => {
+            const v = parseFloat(e.target.value);
+            if (vrClubInstance.setCrowdAmbienceLevel) vrClubInstance.setCrowdAmbienceLevel(v);
+            setSliderText(ambience, ambienceValue, v);
         });
     }
 
@@ -1630,5 +1661,4 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         window.location.reload();
     });
 }
-
 

@@ -130,6 +130,32 @@ test('crouching lowers the pelvis with the feet still on the floor', async () =>
     assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'the feet left the floor in a crouch');
 });
 
+test('re-fitting eye height across XR and desktop transitions keeps the feet grounded', async () => {
+    const { rig } = await loadRig();
+    const pose = makePose();
+    for (let i = 0; i < 30; i++) rig.update(DT, pose);
+
+    rig.setEyeHeight(1.0);
+    pose.eyeY = 1.0;
+    for (let i = 0; i < 30; i++) rig.update(DT, pose);
+    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.0) < 0.02, 'the seated XR fit missed 1.00 m eyes');
+    assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'the seated XR fit lifted a foot off the floor');
+
+    rig.setEyeHeight(1.7);
+    pose.eyeY = 1.7;
+    for (let i = 0; i < 30; i++) rig.update(DT, pose);
+    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.7) < 0.02, 'desktop refit did not restore 1.70 m eyes');
+    assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'desktop refit left the feet floating');
+
+    rig.setEyeHeight(1.0);
+    pose.eyeY = 1.5;
+    pose.groundY = 0.5;
+    pose.z = -18;
+    for (let i = 0; i < 30; i++) rig.update(DT, pose);
+    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.5) < 0.02, 'the seated booth fit missed the measured head height');
+    assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.01, 'the seated booth fit ignored the riser floor');
+});
+
 test('hands: a reachable target is met, an unreachable one straightens the arm without stretching it', async () => {
     const { rig } = await loadRig();
     const pose = makePose();

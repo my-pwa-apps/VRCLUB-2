@@ -4,6 +4,85 @@ export const renderFrames = (page, count) => page.evaluate(async n => {
     }
 }, count);
 
+/**
+ * Resource-budget snapshot for the current render mode.
+ * Labels describe exactly what is counted: an active-submesh proxy, the engine's own
+ * scene-submission counter, and separate RGBA+mip estimates for ordinary 2D textures
+ * versus cube/render-target textures.
+ */
+export const snapshotResourceBudget = (page, sampleFrames = 20) => page.evaluate(async count => {
+    const club = window.vrClub;
+    const scene = club.scene;
+    const engine = club.engine;
+    const drawCalls = engine && engine._drawCalls ? engine._drawCalls : null;
+    const before = drawCalls ? drawCalls.current : null;
+    for (let i = 0; i < count; i++) {
+        await new Promise(resolve => scene.onAfterRenderObservable.addOnce(resolve));
+    }
+    const after = drawCalls ? drawCalls.current : null;
+    const rgbaBytesOf = texture => {
+        if (!texture.getSize || !texture.isReady()) return 0;
+        const { width, height } = texture.getSize();
+        if (!(width > 0) || !(height > 0)) return 0;
+        const mipFactor = texture.noMipmap ? 1 : 4 / 3;
+        return width * height * 4 * mipFactor * (texture.isCube ? 6 : 1);
+    };
+
+    let activeSubmeshProxyDraws = 0;
+    const activeMeshes = scene.getActiveMeshes();
+    for (let i = 0; i < activeMeshes.length; i++) {
+        const mesh = activeMeshes.data[i];
+        activeSubmeshProxyDraws += mesh.subMeshes ? mesh.subMeshes.length : 1;
+    }
+
+    let ordinaryRgbaBytes = 0;
+    let cubeAndRenderTargetRgbaBytes = 0;
+    let ordinaryTexturesAtLeast2048 = 0;
+    let ordinaryTexturesAtLeast4096 = 0;
+    let cubeTextureCount = 0;
+    let renderTargetTextureCount = 0;
+    for (const texture of scene.textures) {
+        const bytes = rgbaBytesOf(texture);
+        if (bytes === 0) continue;
+        const { width, height } = texture.getSize();
+        const maxEdge = Math.max(width, height);
+        if (texture.isCube || texture.isRenderTarget) {
+            cubeAndRenderTargetRgbaBytes += bytes;
+            if (texture.isCube) cubeTextureCount++;
+            if (texture.isRenderTarget) renderTargetTextureCount++;
+            continue;
+        }
+        ordinaryRgbaBytes += bytes;
+        if (maxEdge >= 2048) ordinaryTexturesAtLeast2048++;
+        if (maxEdge >= 4096) ordinaryTexturesAtLeast4096++;
+    }
+
+    return {
+        mode: club.isInVRMode ? 'xr' : 'desktop',
+        engineSceneSubmissionsPerFrame: before === null || after === null
+            ? null
+            : Math.round((after - before) / count),
+        activeSubmeshProxyDraws,
+        ledWallMeshes: scene.meshes.filter(mesh => /^ledPanel_/.test(mesh.name)).length,
+        ledPanels: club.ledPanels.length,
+        signage: ['signageGlow', 'signagePlates', 'stepLights'].map(name => !!scene.getMeshByName(name)),
+        oldSignMeshes: scene.meshes.filter(mesh => /^(neonSign|exitSign|exitHousing)\d|^stepLight_/.test(mesh.name)).length,
+        contactShadows: club._contactShadows ? club._contactShadows.mesh.thinInstanceCount : 0,
+        enabledCharacters: club.npcAvatars.filter(npc => npc.root.isEnabled()).length,
+        guests: club.npcAvatars.filter(npc => npc.name.startsWith('guest') && npc.root.isEnabled()).length,
+        // Every enabled character: a skinned mesh per primitive, so this is its draw-call proxy cost.
+        mostDrawsPerCharacter: Math.max(
+            ...club.npcAvatars.filter(npc => npc.root.isEnabled()).map(npc => npc.meshes.length)
+        ),
+        ordinaryRgbaTextureEstimateMB: Math.round(ordinaryRgbaBytes / 1048576),
+        cubeAndRenderTargetRgbaEstimateMB: Math.round(cubeAndRenderTargetRgbaBytes / 1048576),
+        ordinaryTexturesAtLeast2048,
+        ordinaryTexturesAtLeast4096,
+        cubeTextureCount,
+        renderTargetTextureCount
+    };
+}, sampleFrames);
+
 /** Every setting that decides how the club looks, read from the live engine. */
 export const snapshotRenderState = page => page.evaluate(() => {
     const club = window.vrClub;

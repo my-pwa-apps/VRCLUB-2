@@ -1,194 +1,5 @@
 'use strict';
 class VRClubEnvironment extends VRClubRendering {
-    createEntranceArea() {
-        log.info("🚪 Creating hyperrealistic entrance area...");
-        
-        // Materials
-        const stanchionPostMat = this.materialFactory.getPreset('stanchionPost');
-        const stanchionBaseMat = this.materialFactory.getPreset('stanchionBase');
-        const velvetRopeMat = this.materialFactory.getPreset('velvetRope');
-        
-        // === ENTRANCE ARCHWAY ===
-        const archMat = this.materialFactory.createPBRMaterial('entranceArchMat', {
-            baseColor: [0.02, 0.02, 0.02],
-            metallic: 0.95,
-            roughness: 0.2
-        }, true);
-        
-        // Left arch pillar
-        const leftArchPillar = BABYLON.MeshBuilder.CreateBox("leftArchPillar", {
-            width: 0.4, height: 3.5, depth: 0.4
-        }, this.scene);
-        leftArchPillar.position = new BABYLON.Vector3(-3, 1.75, 0);
-        leftArchPillar.material = archMat;
-        leftArchPillar.checkCollisions = true;
-        leftArchPillar.freezeWorldMatrix();
-        
-        // Right arch pillar
-        const rightArchPillar = BABYLON.MeshBuilder.CreateBox("rightArchPillar", {
-            width: 0.4, height: 3.5, depth: 0.4
-        }, this.scene);
-        rightArchPillar.position = new BABYLON.Vector3(3, 1.75, 0);
-        rightArchPillar.material = archMat;
-        rightArchPillar.checkCollisions = true;
-        rightArchPillar.freezeWorldMatrix();
-        
-        // Arch top beam
-        const archTop = BABYLON.MeshBuilder.CreateBox("archTop", {
-            width: 6.4, height: 0.3, depth: 0.4
-        }, this.scene);
-        archTop.position = new BABYLON.Vector3(0, 3.65, 0);
-        archTop.material = archMat;
-        const mergedArch = BABYLON.Mesh.MergeMeshes(
-            [leftArchPillar, rightArchPillar, archTop],
-            true,
-            true,
-            undefined,
-            false,
-            false
-        );
-        if (mergedArch) {
-            mergedArch.name = 'entranceArch';
-            mergedArch.material = archMat;
-            mergedArch.checkCollisions = true;
-            mergedArch.freezeWorldMatrix();
-        }
-        
-        // === VELVET ROPE QUEUE SYSTEM ===
-        const stanchionPositions = [
-            // Left queue line
-            { x: -5, z: -7.5 }, { x: -5, z: -5.5 }, { x: -5, z: -3.5 },
-            // Right queue line  
-            { x: -3.5, z: -7.5 }, { x: -3.5, z: -5.5 }, { x: -3.5, z: -3.5 },
-            // Entrance guide right side
-            { x: 5, z: -7.5 }, { x: 5, z: -5.5 }
-        ];
-        
-        const stanchions = [];
-        const stanchionBases = [];
-        const stanchionPosts = [];
-        const velvetRopes = [];
-        stanchionPositions.forEach((pos, i) => {
-            // Base (weighted round base)
-            const base = BABYLON.MeshBuilder.CreateCylinder(`stanchionBase${i}`, {
-                diameter: 0.4, height: 0.08, tessellation: 24
-            }, this.scene);
-            base.position = new BABYLON.Vector3(pos.x, 0.04, pos.z);
-            base.material = stanchionBaseMat;
-            
-            // Post (polished brass pole)
-            const post = BABYLON.MeshBuilder.CreateCylinder(`stanchionPost${i}`, {
-                diameter: 0.05, height: 1.0, tessellation: 16
-            }, this.scene);
-            post.position = new BABYLON.Vector3(pos.x, 0.58, pos.z);
-            post.material = stanchionPostMat;
-            
-            // Decorative top ball
-            const topBall = BABYLON.MeshBuilder.CreateSphere(`stanchionTop${i}`, {
-                diameter: 0.12, segments: 12
-            }, this.scene);
-            topBall.position = new BABYLON.Vector3(pos.x, 1.14, pos.z);
-            topBall.material = stanchionPostMat;
-            
-            // Rope hook ring
-            const hookRing = BABYLON.MeshBuilder.CreateTorus(`ropeHook${i}`, {
-                diameter: 0.08, thickness: 0.015, tessellation: 16
-            }, this.scene);
-            hookRing.position = new BABYLON.Vector3(pos.x, 0.95, pos.z);
-            hookRing.rotation.x = Math.PI / 2;
-            hookRing.material = stanchionPostMat;
-            
-            stanchions.push({ base, post, topBall, hookRing, pos });
-            stanchionBases.push(base);
-            stanchionPosts.push(post, topBall, hookRing);
-        });
-        
-        // Create velvet ropes between stanchions
-        const createVelvetRope = (start, end, name) => {
-            const dx = end.x - start.x;
-            const dz = end.z - start.z;
-            const length = Math.sqrt(dx * dx + dz * dz);
-            const angle = Math.atan2(dx, dz);
-            
-            // Main rope (thick velvet)
-            const rope = BABYLON.MeshBuilder.CreateCylinder(name, {
-                diameter: 0.045, height: length, tessellation: 12
-            }, this.scene);
-            rope.position = new BABYLON.Vector3(
-                (start.x + end.x) / 2,
-                0.95,
-                (start.z + end.z) / 2
-            );
-            rope.rotation.x = Math.PI / 2;
-            rope.rotation.y = angle;
-            rope.material = velvetRopeMat;
-            
-            // Add subtle catenary sag with middle point
-            const midRope = BABYLON.MeshBuilder.CreateCylinder(name + "_sag", {
-                diameter: 0.048, height: length * 0.3, tessellation: 10
-            }, this.scene);
-            midRope.position = new BABYLON.Vector3(
-                (start.x + end.x) / 2,
-                0.92, // Slight sag
-                (start.z + end.z) / 2
-            );
-            midRope.rotation.x = Math.PI / 2;
-            midRope.rotation.y = angle;
-            midRope.material = velvetRopeMat;
-            velvetRopes.push(rope, midRope);
-        };
-        
-        // Connect ropes on left queue line
-        createVelvetRope(stanchionPositions[0], stanchionPositions[1], "velvetRope_L1");
-        createVelvetRope(stanchionPositions[1], stanchionPositions[2], "velvetRope_L2");
-        
-        // Connect ropes on right queue line
-        createVelvetRope(stanchionPositions[3], stanchionPositions[4], "velvetRope_R1");
-        createVelvetRope(stanchionPositions[4], stanchionPositions[5], "velvetRope_R2");
-        
-        // Cross rope at entrance
-        createVelvetRope(stanchionPositions[6], stanchionPositions[7], "velvetRope_entrance");
-        
-        const mergeStaticGroup = (meshes, name, material) => {
-            const merged = BABYLON.Mesh.MergeMeshes(meshes, true, true, undefined, false, false);
-            if (!merged) return;
-            merged.name = name;
-            merged.material = material;
-            merged.isPickable = false;
-            merged.freezeWorldMatrix();
-            merged.doNotSyncBoundingInfo = true;
-        };
-        mergeStaticGroup(stanchionBases, 'mergedStanchionBases', stanchionBaseMat);
-        mergeStaticGroup(stanchionPosts, 'mergedStanchionPosts', stanchionPostMat);
-        mergeStaticGroup(velvetRopes, 'mergedVelvetRopes', velvetRopeMat);
-        
-        // Freeze stanchion materials
-        if (stanchionBaseMat.freeze) stanchionBaseMat.freeze();
-        if (stanchionPostMat.freeze) stanchionPostMat.freeze();
-        if (velvetRopeMat.freeze) velvetRopeMat.freeze();
-        
-        // === STEP LIGHTING (LED strips) ===
-        const stepLightMat = this.materialFactory.getPreset('floorEdgeLED');
-        
-        const stepLights = [
-            { x: -2.5, z: 0, w: 5, c: [0, 0.5, 1] },    // Entrance step cyan
-            { x: -2.5, z: -2, w: 5, c: [1, 0, 0.5] },   // Second step magenta
-        ];
-        
-        stepLights.forEach((light, i) => {
-            const strip = BABYLON.MeshBuilder.CreateBox(`stepLight${i}`, {
-                width: light.w, height: 0.02, depth: 0.1
-            }, this.scene);
-            strip.position = new BABYLON.Vector3(light.x + light.w/2, 0.01, light.z);
-            const mat = stepLightMat.clone(`stepLightMat${i}`);
-            mat.emissiveColor = new BABYLON.Color3(...light.c);
-            strip.material = mat;
-            strip.freezeWorldMatrix(); // Static step lighting
-        });
-        
-        log.info("✅ Created hyperrealistic entrance with velvet ropes and stanchions - frozen for performance");
-    }
-
     // === DANCE FLOOR EDGE LIGHTING ===
     createDanceFloorLighting() {
         log.info("💃 Creating dance floor edge lighting...");
@@ -319,20 +130,26 @@ class VRClubEnvironment extends VRClubRendering {
         const PLATE = 0.06;
         // yaw: a plane faces (-sin yaw, -cos yaw), so PI/2 faces -x (the right wall looks into the room).
         const signs = [
-            { cell: 'club', kind: 'neon', color: [1, 0.1, 0.45], w: 2.0, h: 0.5, wall: WALL_RIGHT, axis: 'x', y: 4.0, along: -7.5, yaw: Math.PI / 2 },
-            { cell: 'vr', kind: 'neon', color: [0.1, 0.55, 1], w: 1.2, h: 0.5, wall: WALL_LEFT, axis: 'x', y: 3.5, along: -12.5, yaw: -Math.PI / 2 },
+            { cell: 'club', kind: 'neon', color: [1, 0.1, 0.45], w: 2.0, h: 0.5, wall: WALL_RIGHT, axis: 'x', y: 4.2, along: -16.4, yaw: Math.PI / 2 },
+            { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
+            { cell: 'vr', kind: 'neon', color: [0.1, 0.55, 1], w: 1.2, h: 0.5, wall: WALL_LEFT, axis: 'x', y: 5.6, along: -17.0, yaw: -Math.PI / 2 },
             { cell: 'dance', kind: 'neon', color: [1, 0.25, 1], w: 2.5, h: 0.5, wall: WALL_FRONT, axis: 'z', y: 3.7, along: 0, yaw: 0 },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 2.75, along: 0, yaw: 0 },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.8, along: -17.5, yaw: -Math.PI / 2 }
+            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
+            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
+            // The vestibule: ENTER over the doorway on the street side, EXIT over the street door.
+            { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
+            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: 3.2, along: 0, yaw: 0 }
         ];
 
         // Atlas cells in pixels: x, y, w, h. Aspect ratios match the signs they feed.
         const W = 1024, H = 512;
         const cells = {
             dance: [0, 0, 800, 160, 'DANCE'],
+            bar: [800, 0, 224, 160, 'BAR'],
             club: [0, 176, 640, 160, 'CLUB'],
             vr: [640, 176, 384, 160, 'VR'],
-            exit: [0, 352, 444, 160, 'EXIT']
+            exit: [0, 352, 444, 160, 'EXIT'],
+            enter: [448, 352, 576, 160, 'ENTER']
         };
         const atlas = new BABYLON.DynamicTexture('signageAtlas', { width: W, height: H }, this.scene, true);
         atlas.anisotropicFilteringLevel = this.tierSettings ? this.tierSettings.anisotropy : 4;
@@ -452,159 +269,6 @@ class VRClubEnvironment extends VRClubRendering {
             backing.freezeWorldMatrix();
             backing.doNotSyncBoundingInfo = true;
         }
-    }
-    createBar() {
-        // === NIGHTCLUB BAR (right wall) ===
-        // Every real club has a bar area with warm lighting contrast
-        log.info('🍹 Creating bar area...');
-        
-        // Bar counter (long L-shaped counter along right wall)
-        const barTop = BABYLON.MeshBuilder.CreateBox("barTop", {
-            width: 0.8, height: 0.05, depth: 8
-        }, this.scene);
-        barTop.position = new BABYLON.Vector3(12, 1.1, -8);
-        const barTopMat = this.materialFactory.createPBRMaterial("barTopMat", {
-            baseColor: [0.08, 0.06, 0.04],
-            metallic: 0.1,
-            roughness: 0.15 // Glossy bar top
-        });
-        barTopMat.clearCoat.isEnabled = true;
-        barTopMat.clearCoat.intensity = 0.8;
-        barTopMat.clearCoat.roughness = 0.1;
-        barTop.material = barTopMat;
-        barTop.receiveShadows = true;
-        barTop.checkCollisions = true;
-        barTop.freezeWorldMatrix();
-        barTop.doNotSyncBoundingInfo = true;
-        
-        // Bar front panel (facing dancefloor)
-        const barFront = BABYLON.MeshBuilder.CreateBox("barFront", {
-            width: 0.08, height: 1.1, depth: 8
-        }, this.scene);
-        barFront.position = new BABYLON.Vector3(11.6, 0.55, -8);
-        const barFrontMat = this.materialFactory.createPBRMaterial("barFrontMat", {
-            baseColor: [0.06, 0.06, 0.08],
-            metallic: 0.05,
-            roughness: 0.6
-        });
-        barFront.material = barFrontMat;
-        barFront.freezeWorldMatrix();
-        barFront.doNotSyncBoundingInfo = true;
-        
-        // LED strip under bar counter (accent lighting)
-        const barLedStrip = BABYLON.MeshBuilder.CreateBox("barLedStrip", {
-            width: 0.6, height: 0.02, depth: 7.8
-        }, this.scene);
-        barLedStrip.position = new BABYLON.Vector3(11.8, 0.05, -8);
-        const barLedMat = new BABYLON.StandardMaterial("barLedMat", this.scene);
-        barLedMat.emissiveColor = new BABYLON.Color3(0.1, 0.3, 0.8); // Cool blue underglow
-        barLedMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        barLedMat.disableLighting = true;
-        barLedMat.alpha = 0.9;
-        barLedStrip.material = barLedMat;
-        barLedStrip.freezeWorldMatrix();
-        barLedStrip.doNotSyncBoundingInfo = true;
-        
-        // Bar stools (simple cylinder + disc)
-        for (let z = -11; z <= -5; z += 1.5) {
-            const stoolLeg = BABYLON.MeshBuilder.CreateCylinder(`barStoolLeg_${z}`, {
-                diameter: 0.08, height: 0.75, tessellation: 8
-            }, this.scene);
-            stoolLeg.position = new BABYLON.Vector3(11.2, 0.375, z);
-            stoolLeg.material = barFrontMat;
-            stoolLeg.freezeWorldMatrix();
-            stoolLeg.doNotSyncBoundingInfo = true;
-            
-            const stoolSeat = BABYLON.MeshBuilder.CreateCylinder(`barStoolSeat_${z}`, {
-                diameter: 0.35, height: 0.06, tessellation: 12
-            }, this.scene);
-            stoolSeat.position = new BABYLON.Vector3(11.2, 0.78, z);
-            stoolSeat.material = barTopMat;
-            stoolSeat.freezeWorldMatrix();
-            stoolSeat.doNotSyncBoundingInfo = true;
-        }
-        
-        // Bottle shelf (backbar with LED backlight)
-        const shelf = BABYLON.MeshBuilder.CreateBox("bottleShelf", {
-            width: 0.3, height: 1.5, depth: 6
-        }, this.scene);
-        shelf.position = new BABYLON.Vector3(12.6, 1.8, -8);
-        shelf.material = barFrontMat;
-        shelf.freezeWorldMatrix();
-        shelf.doNotSyncBoundingInfo = true;
-        
-        // Backlit shelf glow (warm amber behind bottles)
-        const shelfGlow = BABYLON.MeshBuilder.CreatePlane("shelfGlow", {
-            width: 6, height: 1.4
-        }, this.scene);
-        shelfGlow.position = new BABYLON.Vector3(12.75, 1.8, -8);
-        shelfGlow.rotation.y = -Math.PI / 2;
-        const shelfGlowMat = new BABYLON.StandardMaterial("shelfGlowMat", this.scene);
-        shelfGlowMat.emissiveColor = new BABYLON.Color3(1, 0.6, 0.2); // Warm amber
-        shelfGlowMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        shelfGlowMat.disableLighting = true;
-        shelfGlowMat.alpha = 0.4;
-        shelfGlow.material = shelfGlowMat;
-        shelfGlow.freezeWorldMatrix();
-        shelfGlow.doNotSyncBoundingInfo = true;
-        
-        // Bottles on shelf (simple colored cylinders)
-        const bottleColors = [
-            [0.8, 0.2, 0.1], [0.1, 0.6, 0.2], [0.9, 0.7, 0.1],
-            [0.3, 0.2, 0.7], [0.1, 0.4, 0.8], [0.8, 0.4, 0.1],
-            [0.6, 0.1, 0.3], [0.2, 0.7, 0.6]
-        ];
-        bottleColors.forEach((col, i) => {
-            const bottle = BABYLON.MeshBuilder.CreateCylinder(`bottle_${i}`, {
-                diameter: 0.08, height: 0.35, tessellation: 8
-            }, this.scene);
-            bottle.position = new BABYLON.Vector3(12.55, 1.85 + (i % 2) * 0.5, -10.5 + i * 0.9);
-            const bottleMat = new BABYLON.StandardMaterial(`bottleMat_${i}`, this.scene);
-            bottleMat.emissiveColor = new BABYLON.Color3(col[0] * 0.3, col[1] * 0.3, col[2] * 0.3);
-            bottleMat.diffuseColor = new BABYLON.Color3(col[0], col[1], col[2]);
-            bottleMat.alpha = 0.7;
-            bottle.material = bottleMat;
-            bottle.freezeWorldMatrix();
-            bottle.doNotSyncBoundingInfo = true;
-        });
-        
-        // Warm downlights over bar (atmospheric contrast with dark dancefloor)
-        // Using emissive disc spotlights instead of PointLights (no light budget impact)
-        for (let z = -10.5; z <= -5.5; z += 2.5) {
-            const downlight = BABYLON.MeshBuilder.CreateDisc(`barDownlight_${z}`, {
-                radius: 0.15, tessellation: 12
-            }, this.scene);
-            downlight.position = new BABYLON.Vector3(12, 3, z);
-            downlight.rotation.x = Math.PI / 2; // Face downward
-            const downlightMat = new BABYLON.StandardMaterial(`barDownlightMat_${z}`, this.scene);
-            downlightMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0.5); // Warm white
-            downlightMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            downlightMat.disableLighting = true;
-            downlight.material = downlightMat;
-            downlight.isPickable = false;
-            downlight.freezeWorldMatrix();
-            downlight.doNotSyncBoundingInfo = true;
-            
-            // Light cone visual (warm pool of light)
-            const cone = BABYLON.MeshBuilder.CreateCylinder(`barLightCone_${z}`, {
-                diameterTop: 0.1, diameterBottom: 1.2,
-                height: 2.5, tessellation: 12
-            }, this.scene);
-            cone.position = new BABYLON.Vector3(12, 1.75, z);
-            const coneMat = new BABYLON.StandardMaterial(`barConeMat_${z}`, this.scene);
-            coneMat.emissiveColor = new BABYLON.Color3(1, 0.7, 0.3);
-            coneMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-            coneMat.disableLighting = true;
-            coneMat.alpha = 0.04; // Very subtle light cone
-            coneMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            coneMat.backFaceCulling = false;
-            cone.material = coneMat;
-            cone.isPickable = false;
-            cone.freezeWorldMatrix();
-            cone.doNotSyncBoundingInfo = true;
-        }
-        
-        log.info('🍹 Bar area created (counter, stools, bottles, lighting)');
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===

@@ -18,14 +18,49 @@ in `index.html`).
 | File | Title | Creator | Licence | Attribution shown in-app |
 |------|-------|---------|---------|--------------------------|
 | `js/models/djgear/source/pioneer_DJ_console.glb` | Pioneer DJ Console | TwoPixels.studio (<https://sketchfab.com/twopixels.studio>) | CC BY 4.0 | Yes |
-| `js/models/paspeakers/source/stage_speaker___black.glb` | Stage Speaker — Black | *unrecorded — see gap below* | CC BY 4.0 | Partial |
+| `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
+| `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
+| `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
 
 | Directory | Belongs to | Licence |
 |-----------|-----------|---------|
 | `js/models/djgear/textures/` | *removed — an unreferenced duplicate of the console textures (12.7 MB); the console's textures are embedded in its GLB* | — |
-| `js/models/paspeakers/source/textures/` | Stage Speaker — Black (the GLB itself carries no textures; the app applies these) | CC BY 4.0 (same as the model) |
+| `js/models/paspeakers/source/authored/textures/` | Stage Speaker — Black (recovered from its original embedded GLB images; applied externally) | CC BY 4.0 (same as the model) |
+| `textures/barWood/` | Poly Haven [Dark Wood](https://polyhaven.com/a/dark_wood) by Rob Tuytel (1K: diffuse, DirectX normal, and the `arm` map used as the packed `orm.jpg`), for the bar counter, back bar and vestibule desks | CC0 1.0 |
+| `textures/steelDeck/` | Poly Haven [Metal Plate](https://polyhaven.com/a/metal_plate) by Rob Tuytel (1K, same three maps): mezzanine deck and stair treads | CC0 1.0 |
+| `textures/steelPanel/` | Poly Haven [Metal Plate 02](https://polyhaven.com/a/metal_plate_02) by Rob Tuytel (resized to 512 px, same three maps): mezzanine fascia, columns and stringers | CC0 1.0 |
+
+### The bass bins
+
+One *Bass Bin 3 - Subwoofer* (CC BY 4.0, darksoundlab; 20,561 triangles) hangs under each flown PA speaker. It is an **optimised derivative**,
+produced by `npm run optimize:models`: its three 1024 px maps become 512 px WebP and its 12 meshes are flattened and joined to 6 (one per
+material), so a bin is 6 draws; the source was 4.7 MB and the shipped file is 1.6 MB. Geometry and materials are otherwise unchanged. At run
+time the loader sizes it to 1.2 m wide, hangs it from the speaker's measured underside, faces its mouth the way the speaker faces,
+and rigs two chains to its lifting eyes (`createBassBinHangingHardware`). Its albedo is darkened to 55% and its emissive floor lowered so
+the carpet reads black like the cabinet above it. The model's colours of the folded horn (a red bracing) are as authored.
+
+### The mezzanine
+
+A steel balcony along the left wall (deck 2.7 x 8.6 m at y 3) with a 16-step stair, rails, columns and X-bracing, a high table and
+two stools. Textures are the two Poly Haven sets above; the rails use the project's own `steelGirder` preset; the stools are
+the bar's *Metal Stool 03* instances (no extra download). Everything else is procedural. `node scripts/build-mezzanine-assets.mjs`
+regenerates both texture sets.
+
+### The bar
+
+The bar and entrance are built from these third-party pieces plus procedural geometry:
+
+- **Stools**: Poly Haven *Metal Stool 03* (CC0), geometry untouched (6,576 triangles), its 1K textures re-encoded as 512 px
+  WebP. Five instances stand at the counter.
+- **Wood**: Poly Haven *Dark Wood* (CC0), above.
+- **Bartender**: the Quaternius female guest (`club-guest-female.glb`, CC0) loaded as a second container so she can wear a
+  black outfit, playing its `Idle_Talking_Loop`.
+- **Bottles**: procedural (`js/barProps.js`), twelve generic shapes (vodka, gin, rum, whisky, bourbon, tequila, champagne,
+  three liqueurs, lager, wine) whose labels are drawn at runtime from descriptive words. They are not real brands.
+
+`node scripts/build-bar-assets.mjs` regenerates the wood textures and the stool from their Poly Haven sources.
 
 ### Derived files
 
@@ -34,7 +69,20 @@ Both models are **optimised derivatives** of the originals, produced by
 model drifts back above its budget). The console's embedded textures are resized from 4096 px
 to 2048 px WebP (normal and emissive maps lossless); the speaker GLB's embedded textures are
 stripped because the app replaces them with the external set above, which is also resized.
-Geometry, materials and licences are unchanged.
+Geometry and licences are unchanged. The speaker retains the source's 6,940 triangles.
+Its albedo and normal maps are 2048 px; its original packed ORM (R=occlusion,
+G=roughness, B=metallic) is 1024 px, with full-resolution JPEG chroma.
+These images were recovered from the original download preserved in commit `475c46f`,
+without changing their glTF UV orientation. The older loose maps had the opposite
+vertical orientation and incorrectly substituted grayscale roughness for packed ORM.
+The new directory invalidates returning visitors' IndexedDB texture caches.
+Runtime material factors are the original 1/1 metallic/roughness multipliers, with
+glTF normal-map handedness and no uniform emissive visibility floor. The existing
+speaker-only accent light receives a material slot without increasing the light budget.
+The flown cabinets keep the horn above the two drivers, with the existing downward
+and inward aim; the old X-axis half-turn had hung them upside down.
+When replacing the speaker with its original textured GLB, the optimizer exports
+these three images before stripping the embedded copies.
 
 ## Character models and animations
 
@@ -97,7 +145,7 @@ Provenance URLs and SHA-384 integrity hashes for all four are recorded in
 
 These are tracked in `BACKLOG.md` and must be closed before any public release:
 
-1. **Stage Speaker — Black**: the creator name and the source URL were never
-   recorded. CC BY 4.0 §3(a)(1) requires identifying the creator, the title, a
-   link to the material and a link to the licence. Until the original download is
-   located, this asset is **not** compliantly attributed.
+1. **Mixamo characters**: redistribution clearance for the three raw GLBs remains
+   unconfirmed; see the character section above. The Stage Speaker creator/source
+   gap is resolved: the user supplied the original listing, identifying Sousinho
+   and CC BY 4.0, and the in-app credit includes both links and the derivative notice.

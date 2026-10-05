@@ -95,9 +95,8 @@ class ModelLoader {
             pa_speaker_left: {
                 name: 'PA Speaker (Left)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                // Flipped 180° (the model's geometry sits above its rigging pivot) plus a
-                // 30° down-tilt and 30° inward toe — aimed at the far side of the floor.
-                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, Math.PI / 6, 0),
+                // Face the floor with a 30° down-tilt/inward toe, keeping the horn on top.
+                rotation: new BABYLON.Vector3(-Math.PI / 6, Math.PI + Math.PI / 6, 0),
                 scale: new BABYLON.Vector3(1, 1, 1), // Sign only — no mirroring needed
                 placement: {
                     // Cabinet height of a large-format flown club main (Funktion-One Res 4
@@ -114,14 +113,14 @@ class ModelLoader {
                 rigging: { anchorY: 8.0, yaw: Math.PI / 6 },
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
-                textureBasePath: './js/models/paspeakers/source/textures/',
+                textureBasePath: './js/models/paspeakers/source/authored/textures/',
                 hangFromTruss: true,
-                attribution: 'Stage Speaker (CC BY 4.0)'
+                attribution: 'Stage Speaker - black by Sousinho (CC BY 4.0; optimized textures)'
             },
             pa_speaker_right: {
                 name: 'PA Speaker (Right)',
                 url: './js/models/paspeakers/source/stage_speaker___black.glb',
-                rotation: new BABYLON.Vector3(Math.PI + Math.PI / 6, -Math.PI / 6, 0),
+                rotation: new BABYLON.Vector3(-Math.PI / 6, Math.PI - Math.PI / 6, 0),
                 scale: new BABYLON.Vector3(1, 1, 1),
                 placement: {
                     fitAxis: 'y',
@@ -133,9 +132,46 @@ class ModelLoader {
                 rigging: { anchorY: 8.0, yaw: -Math.PI / 6 },
                 makeBlack: false, // Disable black override to use textures
                 applyExternalTextures: true, // Enable external textures
-                textureBasePath: './js/models/paspeakers/source/textures/',
+                textureBasePath: './js/models/paspeakers/source/authored/textures/',
                 hangFromTruss: true,
-                attribution: 'Stage Speaker (CC BY 4.0)'
+                attribution: 'Stage Speaker - black by Sousinho (CC BY 4.0; optimized textures)'
+            },
+            // Bass Bin 3 by darksoundlab (CC BY 4.0), one under each flown PA. Placed from the speaker's real underside
+            // (_resolveHangPlacement); its mouth faces the way the speaker does.
+            bass_bin_left: {
+                name: 'Bass Bin (Left)',
+                url: './js/models/bassbin/source/bass_bin_3.glb',
+                hangFrom: 'pa_speaker_left',
+                hangGap: 0.42,
+                rotation: new BABYLON.Vector3(0, 0, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                // A real folded-horn bass bin is about 1.2 m wide; the model is 12.6 x 6.2 x 8.1 units.
+                placement: { fitAxis: 'x', fitSize: 1.2 },
+                emissiveFloor: 0.03,
+                albedoTint: 0.55,
+                attribution: 'Bass Bin 3 - Subwoofer by darksoundlab (CC BY 4.0; optimized textures)'
+            },
+            bass_bin_right: {
+                name: 'Bass Bin (Right)',
+                url: './js/models/bassbin/source/bass_bin_3.glb',
+                hangFrom: 'pa_speaker_right',
+                hangGap: 0.42,
+                rotation: new BABYLON.Vector3(0, 0, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'x', fitSize: 1.2 },
+                emissiveFloor: 0.03,
+                albedoTint: 0.55,
+                attribution: 'Bass Bin 3 - Subwoofer by darksoundlab (CC BY 4.0; optimized textures)'
+            },
+            // Bar stool: Poly Haven "Metal Stool 03" (CC0, Flo Tasser). Only the first stool is placed here; the
+            // club instantiates the rest along the counter (VRClubEnvironment._furnishBarStools).
+            bar_stool: {
+                name: 'Bar Stool',
+                url: './js/models/barstool/source/bar_stool.glb',
+                rotation: new BABYLON.Vector3(0, 0, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'y', fitSize: 1.12, centerX: 9.2, centerZ: -12.9, bottomY: 0 },
+                attribution: 'Metal Stool 03 by Flo Tasser, Poly Haven (CC0)'
             }
         };
     }
@@ -229,7 +265,14 @@ class ModelLoader {
             `y[${f(box.min.y)}..${f(box.max.y)}] z[${f(box.min.z)}..${f(box.max.z)}]`
         );
 
-        return { min: box.min, max: box.max, center: BABYLON.Vector3.Center(box.min, box.max) };
+        // Middle of the model's underside (its lowest face in its own frame), in world space: where a flown
+        // cabinet is hung from, even when it is tilted.
+        rootMesh.computeWorldMatrix(true);
+        const bottomCentre = BABYLON.Vector3.TransformCoordinates(
+            new BABYLON.Vector3((local.min.x + local.max.x) / 2, local.min.y, (local.min.z + local.max.z) / 2),
+            rootMesh.getWorldMatrix());
+
+        return { min: box.min, max: box.max, center: BABYLON.Vector3.Center(box.min, box.max), bottomCentre };
     }
 
     async init() {
@@ -359,7 +402,28 @@ class ModelLoader {
         }
     }
 
+    /**
+     * A model that hangs from another (a bass bin under a flown PA): derive its placement from where the host
+     * really ended up, and face it the way the host faces. The bin's mouth is local +z.
+     */
+    _resolveHangPlacement(modelKey, config) {
+        const host = this.loadedModels[config.hangFrom];
+        if (!host || !host.placed || !host.placed.bottomCentre || !host.rootMesh) {
+            throw new Error(`${modelKey} hangs from ${config.hangFrom}, which is not loaded`);
+        }
+        const hang = host.placed.bottomCentre;
+        const front = BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(0, 0, -1), host.rootMesh.getWorldMatrix());
+        const yaw = Math.atan2(front.x, front.z);
+        return {
+            ...config,
+            rotation: new BABYLON.Vector3(0, yaw, 0),
+            placement: { ...config.placement, centerX: hang.x, centerZ: hang.z, topY: hang.y - config.hangGap },
+            hang: { point: hang.clone(), yaw }
+        };
+    }
+
     async _configureLoadedModel(modelKey, config, result) {
+        if (config.hangFrom) config = this._resolveHangPlacement(modelKey, config);
         {
             // Add to scene
             result.addAllToScene();
@@ -394,6 +458,9 @@ class ModelLoader {
                         anchorY: config.rigging.anchorY,
                         yaw: config.rigging.yaw || 0
                     });
+                }
+                if (config.hang && placedBox) {
+                    this.createBassBinHangingHardware(modelKey, { hangPoint: config.hang.point, topY: placedBox.max.y, yaw: config.hang.yaw, width: config.placement.fitSize });
                 }
             }
             const focusPoint = placedBox ? placedBox.center : (config.position || BABYLON.Vector3.Zero());
@@ -458,7 +525,8 @@ class ModelLoader {
                     if (!mesh.material._isExternallyTextured) {
                         // Add subtle ambient brightness - reduced to avoid washed-out VR appearance
                         if (mesh.material.emissiveColor !== undefined) {
-                            mesh.material.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Minimal glow
+                            const glow = Math.min(0.1, config.emissiveFloor ?? 0.1);
+                            mesh.material.emissiveColor = new BABYLON.Color3(glow, glow, glow); // Minimal glow
                         }
                         // Moderate ambient for visibility without washing out
                         if (mesh.material.ambientColor !== undefined) {
@@ -469,13 +537,20 @@ class ModelLoader {
                     // Show cues deliberately extinguish the moving fixtures for several
                     // bars. Keep imported subjects above the headset display's black level
                     // so a lighting blackout does not read as unloaded geometry.
-                    if (mesh.material.emissiveColor !== undefined) {
-                        const visibilityFloor = 0.12;
+                    if (!mesh.material._isExternallyTextured && mesh.material.emissiveColor !== undefined) {
+                        // Black carpet and plastic turn pale grey under the generic floor, so a model can lower it.
+                        const visibilityFloor = config.emissiveFloor ?? 0.12;
                         mesh.material.emissiveColor.r = Math.max(mesh.material.emissiveColor.r, visibilityFloor);
                         mesh.material.emissiveColor.g = Math.max(mesh.material.emissiveColor.g, visibilityFloor);
                         mesh.material.emissiveColor.b = Math.max(mesh.material.emissiveColor.b, visibilityFloor);
                     }
                     
+                    // A model can darken its own albedo (the bass bin's carpet is a mid grey, the PA above it is near black).
+                    if (config.albedoTint !== undefined && mesh.material.albedoColor && !mesh.material._vrclubTinted) {
+                        mesh.material.albedoColor.scaleInPlace(config.albedoTint);
+                        mesh.material._vrclubTinted = true;
+                    }
+
                     // CRITICAL: Ensure materials are fully opaque in VR
                     if (mesh.material.alpha !== undefined) {
                         mesh.material.alpha = 1.0; // Fully opaque
@@ -510,7 +585,9 @@ class ModelLoader {
                     focusPoint.y + 1.5,
                     focusPoint.z
                 ), { intensity: 2.0, range: 8, group: 'dj' }); // Increased for better VR visibility
+                djLight.renderPriority = 1;
                 djLight.includedOnlyMeshes = result.meshes.slice();
+                result.meshes.forEach(mesh => mesh._resyncLightSources());
                 this.log.info(`   💡 Added dedicated light above DJ console (intensity: 2.0)`);
                 
                 // Hide procedural CDJs when real model loads (they conflict)
@@ -539,7 +616,10 @@ class ModelLoader {
                     focusPoint.y + (config.hangFromTruss ? 0 : 2),
                     focusPoint.z + (config.hangFromTruss ? 1.5 : 0) // In front when flown
                 ), { intensity: 0.8, range: 8, group: 'speakers' });
+                speakerLight.renderPriority = 1;
                 speakerLight.includedOnlyMeshes = result.meshes.slice();
+                // Priority sorts scene.lights, not existing meshes' cached light lists.
+                result.meshes.forEach(mesh => mesh._resyncLightSources());
                 this.log.info(`   💡 Added light for ${config.name} (${config.hangFromTruss ? 'truss-flown' : 'floor-standing'})`);
                 
                 // Ensure PA speakers are fully opaque and render properly
@@ -573,9 +653,20 @@ class ModelLoader {
                 this.log.info(`   🔒 Enforced opaque rendering for PA speakers${config.makeBlack ? ' (BLACK)' : ''}`);
             }
             
+            // A hung model joins its host's accent light, so it takes the same first material slot.
+            if (config.hangFrom && rootMesh) {
+                const light = this.scene.getLightByName('speakerLight_' + config.hangFrom);
+                if (light) {
+                    const current = light.includedOnlyMeshes ? light.includedOnlyMeshes.slice() : [];
+                    light.includedOnlyMeshes = current.concat(result.meshes.filter(mesh => !current.includes(mesh)));
+                    result.meshes.forEach(mesh => mesh._resyncLightSources && mesh._resyncLightSources());
+                }
+            }
+
             this.loadedModels[modelKey] = {
                 container: result,
                 rootMesh: rootMesh,
+                placed: placedBox,
                 config: config
             };
             
@@ -817,15 +908,67 @@ class ModelLoader {
     }
 
     /**
-     * Apply external PBR textures to PA speaker meshes.
-     * One shared material is created per (texture-set, model) and reused across
-     * every mesh of the speaker — the previous version built an entire PBR
-     * material + 5 texture loads PER MESH (~10 meshes × 2 speakers = ~100
-     * texture downloads of the same files).
+     * Rig a bass bin under its speaker: a master link on the speaker's underside, two chains down to lifting eyes
+     * on the bin's top, one merged mesh. The chains are straight lines, so they read as taut under the bin's weight.
      *
-     * Also: we now use PBRMetallicRoughnessMaterial.metallicRoughnessTexture
-     * (instead of PBRMaterial.microSurfaceTexture, which expects smoothness =
-     * 1 - roughness and was producing inverted glossiness on the speakers).
+     * @param {string} modelKey
+     * @param {{hangPoint: BABYLON.Vector3, topY: number, yaw: number, width: number}} rig
+     *        hangPoint is the speaker's underside; topY the bin's top face; yaw its facing; width its width in metres.
+     */
+    createBassBinHangingHardware(modelKey, { hangPoint, topY, yaw, width }) {
+        const scene = this.scene;
+        const mat = this.materialFactory
+            ? this.materialFactory.createPBRMaterial('rigMat_' + modelKey, { baseColor: [0.08, 0.08, 0.08], metallic: 0.9, roughness: 0.35 }, true)
+            : new BABYLON.StandardMaterial('rigMat_' + modelKey, scene);
+        const right = new BABYLON.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)); // the bin's own x axis
+        const parts = [];
+        const add = mesh => { mesh.material = mat; parts.push(mesh); return mesh; };
+
+        const top = new BABYLON.Vector3(hangPoint.x, hangPoint.y - 0.02, hangPoint.z);
+        const master = add(BABYLON.MeshBuilder.CreateTorus(`binMaster_${modelKey}`, { diameter: 0.09, thickness: 0.014, tessellation: 14 }, scene));
+        master.position.copyFrom(top);
+        master.rotation.y = yaw;
+        master.rotation.x = Math.PI / 2;
+        // Where the chains meet the speaker: a small steel plate flush with the underside.
+        const plate = add(BABYLON.MeshBuilder.CreateBox(`binPlate_${modelKey}`, { width: 0.2, height: 0.02, depth: 0.12 }, scene));
+        plate.position.set(hangPoint.x, hangPoint.y + 0.005, hangPoint.z);
+        plate.rotation.y = yaw;
+
+        for (const side of [-1, 1]) {
+            const eye = new BABYLON.Vector3(
+                hangPoint.x + right.x * side * width * 0.32, topY + 0.03, hangPoint.z + right.z * side * width * 0.32);
+            const eyeBolt = add(BABYLON.MeshBuilder.CreateTorus(`binEye_${modelKey}_${side}`, { diameter: 0.05, thickness: 0.009, tessellation: 10 }, scene));
+            eyeBolt.position.copyFrom(eye);
+            eyeBolt.rotation.y = yaw;
+            eyeBolt.rotation.x = Math.PI / 2;
+
+            const direction = top.subtract(eye);
+            const length = direction.length();
+            const links = Math.max(3, Math.round(length / 0.055));
+            direction.normalize();
+            for (let i = 1; i < links; i++) {
+                const link = add(BABYLON.MeshBuilder.CreateTorus(`binLink_${modelKey}_${side}_${i}`, { diameter: 0.04, thickness: 0.008, tessellation: 8 }, scene));
+                link.position.copyFrom(eye).addInPlace(direction.scale(length * i / links));
+                // The ring lies in its local xz plane, which contains local z: aim z along the chain, then roll alternate links.
+                link.rotationQuaternion = BABYLON.Quaternion.FromLookDirectionLH(direction, BABYLON.Vector3.Up());
+                if (i % 2) link.rotate(BABYLON.Axis.Z, Math.PI / 2, BABYLON.Space.LOCAL);
+            }
+        }
+
+        const merged = BABYLON.Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+        if (merged) {
+            merged.name = `binRig_${modelKey}`;
+            merged.material = mat;
+            merged.isPickable = false;
+            merged.freezeWorldMatrix();
+            merged.doNotSyncBoundingInfo = true;
+        }
+        this.log.info(`   ⛓️ Rigged ${modelKey}: ${(hangPoint.y - topY).toFixed(2)} m of chain under its speaker`);
+    }
+    /**
+     * Apply external PBR textures to PA speaker meshes.
+     * One material and three maps are shared by both speakers. Images retain the
+     * original GLB's UV orientation; ORM is R=AO, G=roughness, B=metallic.
      */
     applyPASpeakerTextures(mesh, textureBasePath) {
         if (!mesh || mesh.name === '__root__') return;
@@ -839,17 +982,20 @@ class ModelLoader {
 
             const albedoPath    = textureBasePath + 'small_speaker_1_1001_albedo.jpg';
             const normalPath    = textureBasePath + 'small_speaker_1_1001_normal.png';
-            // No separate metallic map: the metallic channel lives in the
-            // metallicRoughness texture per the glTF convention.
-            const roughnessPath = textureBasePath + 'small_speaker_1_1001_roughness.jpg';
-            const aoPath        = textureBasePath + 'small_speaker_1_1001_AO.jpg';
+            const ormPath       = textureBasePath + 'small_speaker_1_1001_orm.jpg';
 
             // Use PBRMetallicRoughnessMaterial: roughness map plugs in directly without
             // the inverted-smoothness pitfall of the legacy PBRMaterial.microSurfaceTexture.
-            mat = new BABYLON.PBRMetallicRoughnessMaterial('paSpeakerSharedMat', this.scene);
+            mat = this.materialFactory
+                ? this.materialFactory.createPBRMaterial('paSpeakerSharedMat', {
+                    baseColor: [1, 1, 1], metallic: 1, roughness: 1, mutable: true
+                })
+                : new BABYLON.PBRMetallicRoughnessMaterial('paSpeakerSharedMat', this.scene);
             mat.baseColor = new BABYLON.Color3(1, 1, 1);
-            mat.metallic = 0.1;
-            mat.roughness = 0.7;
+            mat.metallic = 1;
+            mat.roughness = 1;
+            mat.invertNormalMapX = !this.scene.useRightHandedSystem;
+            mat.invertNormalMapY = !!this.scene.useRightHandedSystem;
 
             const sampling = BABYLON.Texture.TRILINEAR_SAMPLINGMODE;
             let warned = false;
@@ -870,10 +1016,11 @@ class ModelLoader {
                         () => this.log.info(`   ✅ Loaded ${slot}: ${path}`),
                         (m) => fail(m));
                     if (slot === 'albedo') texture.hasAlpha = false;
+                    texture.gammaSpace = slot === 'albedo';
                     mat[slot === 'albedo' ? 'baseTexture'
                         : slot === 'normal' ? 'normalTexture'
-                            : slot === 'metallic/roughness' ? 'metallicRoughnessTexture'
-                                : 'occlusionTexture'] = texture;
+                            : 'metallicRoughnessTexture'] = texture;
+                    if (slot === 'ORM') mat.occlusionTexture = texture;
                 };
                 if (this.textureLoader && typeof this.textureLoader.loadOrDownloadTexture === 'function') {
                     this.textureLoader.loadOrDownloadTexture(path).then(create, (error) => fail(error && error.message));
@@ -886,10 +1033,7 @@ class ModelLoader {
             const darkFinish = () => { mat.baseColor = new BABYLON.Color3(0.02, 0.02, 0.022); };
             loadInto('albedo', albedoPath, darkFinish);
             loadInto('normal', normalPath);
-            // metallicRoughnessTexture: metallic in B, roughness in G (GLTF spec).
-            // Texture file in this asset already encodes roughness in G channel.
-            loadInto('metallic/roughness', roughnessPath);
-            loadInto('AO', aoPath);
+            loadInto('ORM', ormPath);
 
             const maxLights = this.maxLights;
             mat.maxSimultaneousLights = maxLights;
@@ -930,6 +1074,12 @@ class ModelLoader {
             // Then load speakers in parallel
             const speakers = modelKeys.filter(k => k.startsWith('pa_speaker'));
             await Promise.allSettled(speakers.map(key => this.loadModel(key)));
+
+            // Bass bins hang from the speakers' real undersides, so they load once those have been placed.
+            await Promise.allSettled(modelKeys.filter(k => k.startsWith('bass_bin')).map(key => this.loadModel(key)));
+
+            // Set dressing (bar stools) is last: nothing waits on it
+            await Promise.allSettled(modelKeys.filter(k => k.startsWith('bar_')).map(key => this.loadModel(key)));
             
             const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
             this.log.info(`✅ All models loaded in ${loadTime}s`);

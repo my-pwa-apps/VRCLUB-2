@@ -24,7 +24,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance vestibule and bar) and `js/mezzanine.js` (steel balcony and stair), both mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the procedural player body), then `js/networkClient.js` and `js/avatarManager.js` — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -161,6 +161,8 @@ Rules when editing it:
 Beat/BPM detection (spectral flux + adaptive median threshold), master colour palette,
 scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes into the
 `VRClub` instance (`beatEnvelope`, `masterIntensity`, `barPhase`, `spotColorIndex`, …).
+`masterIntensity` is a REAL show dimmer: render code must multiply it into show-owned
+emission, wall level and flash impulses; zero means blackout except explicit safety practicals.
 
 ### `js/showDirector.js` — "NOCTURNE"
 The composed light show, and **the single source of truth for fixture state** whenever
@@ -303,7 +305,10 @@ DJ-console and PA-speaker accent lights target only their own imported meshes th
 `includedOnlyMeshes`. Do not let them consume the room or crowd's moving-spotlight budget.
 
 A material binds the first `maxSimultaneousLights` enabled lights that can affect its mesh,
-in `scene.lights` creation order (`requireLightSorting` is off). Today that is `ambient`,
+in its cached eligible-light order. DJ and PA accents use `renderPriority = 1`, enabling
+`requireLightSorting`; the loader resynchronizes their meshes once after assigning the
+scoped accent. Room/crowd order remains creation order because those accents cannot affect
+them. Today their slots are `ambient`,
 `spot0` and `spot1` (plus `spot2` on Quest). `_bindPhotometricSlots()` copies the strongest
 surface-hitting heads into those slots each frame, from a snapshot, so a bright beam on
 `spot4` still shades the floor it hits. Do not "fix" that copy by restoring each slot to
@@ -357,7 +362,9 @@ the VR frame is darker than the desktop one. The strobe's whole-room impulse is
 `vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye. A strobe burst is
 about 40 ms in REAL seconds (`STROBE_FLASH_S` in `09-animation-finish.js`, not scaled by
 `strobeSpeed`) and the free-running timer is floored at 0.34 s (three flashes a second); a unit test
-simulates 45 to 120 Hz and fails on a longer burst or a faster timer.
+simulates 45 to 120 Hz and fails on a longer burst or a faster timer. The separate manual
+moving-head beam strobe uses the same 0.34 s ceiling (2.93 complete off→on cycles a second
+at 45/60/72/90/120 Hz), and Safe Mode removes those transitions entirely.
 
 **The XR layer's `antialias` does not antialias the scene.** The headset renders into the pipeline's
 offscreen target first, so MSAA must be set on that pipeline: `vrSettings.vr.msaaSamples` through
@@ -441,7 +448,9 @@ bright line where the two planes meet runs many times faster (the old aim measur
 1.6 m/s and a 7.5 m/s peak, 3-5 m over the floor). The shipped geometry (inward aim 0.20 rad,
 base pitch 0.53, follower trail 0.5, ranges 0.06 / 0.12) holds the crossing to a ~0.4 m/s drift,
 under 1 m/s at worst, and 2.0-3.6 m high at mid-room. `_poseLaserSheet()` owns the pose maths
-and caps the laser speed at 1.4 so the slider or a legacy phase cannot undo it.
+and caps the laser speed at 1.4 so the slider or a legacy phase cannot undo it. It integrates
+clamped elapsed time × speed into a stored phase; never go back to absolute time × current speed
+or a late cue ramp will teleport the crossing.
 `test/sheet.test.mjs` measures the crossing on the real Babylon maths for every shipped sheet
 look; retune against it, never by eye.
 `'ceilingLeft'` / `'ceilingRight'` fire one projector only. `configureLaserSheetVariant()`
@@ -515,7 +524,11 @@ and fail `npm test`.
   `--check`). Never put a 4096 px texture in the scene — a Quest shares its memory with the browser
   and each one costs ~85 MB with mips (the budget is in `test/e2e/budget.spec.mjs`). The speaker
   GLB is deliberately textureless: `ModelLoader.applyPASpeakerTextures()` applies the external
-  `paspeakers/source/textures/small_speaker_1_1001_*` set to every mesh. Do not use Draco, meshopt
+  `paspeakers/source/authored/textures/small_speaker_1_1001_*` set to every mesh: original-GLB
+  albedo/normal (2048 px) and shared packed ORM (1024 px). Keep `invertY=false`, normal-map
+  handedness matching glTF, metallic/roughness factors at 1, and no uniform emissive floor.
+  The optimizer recovers these images before stripping a replacement's embedded copies.
+  Do not use Draco, meshopt
   or KTX2: Babylon fetches their decoders from a CDN, which the same-origin rule forbids.
 - **Environment and surfaces**: the reflection environment is `textures/environment/empty_warehouse_01_256.env` (Poly Haven, CC0; how it is made is in ASSETS.md); do not go back to a bright or coloured sky, it tints every metal surface. Floor, wall and ceiling use a packed `orm.jpg` (R occlusion, G roughness, B metallic): add a new surface set with `node scripts/pack-orm.mjs`. Signs are `createSignage()` (one atlas, one additive mesh), and every character gets a contact shadow from `_refreshContactShadows()`; call `_applyCrowdSize()` after enabling or moving characters.
 - **LED wall**: ONE mesh (`ledPanel_wall`), not one per panel. Patterns still write
@@ -538,11 +551,60 @@ and fail `npm test`.
 ### Layout coordinates (`CLUB_POSITIONS` in `js/club/01-core.js`)
 - DJ booth: `{ x: 0, y: 0.95, z: -18 }`
 - Dance floor centre: around `z = -12`
-- Entrance: `z = 0`
+- Entrance: a 4 m doorway in the front wall at `z = 0` (x -2..2, 3.4 m high) into the vestibule, `z 0.25..6`
+- Bar: along the right wall, `x 9.7..12.25`, `z -13.8..-6`
 - PA speakers: flown from the rear truss at `x = ±6`, cabinet top `y = 7.1`, `z = -16`
 
 Treat `CLUB_POSITIONS` and `ROOM_BOUNDS` as the source of truth; do not re-derive
-coordinates from documentation.
+coordinates from documentation. The bar and vestibule numbers live in `window.VenueLayout`
+(`js/venueDressing.js`); the guest slots, the bartender and the tests read them from there.
+
+### Entrance and bar (`js/venueDressing.js`, `js/barProps.js`)
+`VenueDressing` is a mixin like `LEDPatterns`: `createEntranceArea()` and `createBar()` run at the end of
+`_buildVenue()`, after `createLights()`. Rules:
+- **One draw per material.** Boxes and cylinders are collected per material by `_dressingBuilder()` and merged.
+  Do not add per-bottle or per-prop meshes. The 130+ bottles are ONE vertex-coloured mesh (`barBottles`): glass tint is
+  the vertex colour, labels, caps and roughness come from a 512 px atlas painted at runtime (`BarProps.paintAtlas`).
+  Bottle shapes are generic and the label words descriptive; do not paint real brand names or logos.
+- **Two scoped accent lights** (`entranceLight`, `barLight`) reach only their own meshes (`includedOnlyMeshes`) and take the
+  first material slot through `renderPriority = 1` plus `_resyncLightSources()`, exactly like the DJ and PA accents. Anything
+  added to the bar later (the bartender, the stools) joins through `_extendAccentLight()`. No light budget changes.
+- **Walls**: the front wall is three boxes (`frontWall`, `frontWallRight`, `frontWallLintel`) around the doorway. The vestibule
+  is closed by its own walls and a `entranceRearWall` collider; the visitor can walk in but not out of the shell.
+- **Bartender**: the Quaternius female guest in her own container (`avatarSources[7]`, black outfit), `Idle_Talking_Loop`,
+  named `bartender` (not `guest*` or `dancer*`, so no tier removes her). The guest slots keep out of the bar footprint (tested).
+- **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
+  times by `_furnishBarStools()`; its emissive floor is lowered there because the loader's generic 0.12 reads as pale paint.
+- `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
+- Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
+  unmeasured on a headset.
+
+### Bass bins under the PA
+One Sketchfab *Bass Bin 3* (CC BY 4.0, darksoundlab) hangs under each flown speaker (`bass_bin_left` / `bass_bin_right` in `getModelConfigs()`).
+- **Placement is derived, never hand-tuned.** `hangFrom` names the host; `_resolveHangPlacement()` hangs the bin from the host's
+  measured `placed.bottomCentre` (`_fitAndPlace` returns it, so it is right for a tilted cabinet), `hangGap` below it, and faces it
+  the way the host faces (yaw only: it hangs LEVEL, as a real bin on its own chains does). The bin's mouth is local +z. Bins load after
+  the speakers (`loadAllModels`); a missing host throws and the bin is simply not shown.
+- **Rigging**: `createBassBinHangingHardware()` draws a master link and two chains to the bin's lifting eyes as one merged mesh.
+- **Lighting**: a hung model joins its host's `speakerLight_*` accent (first slot, budget unchanged). `emissiveFloor` and `albedoTint`
+  are per-model config options: the generic 0.12 emissive floor turned the black carpet grey.
+- **Cost**: the optimiser joins the bin's 12 meshes to 6 (one per material), so 2 bins are 12 draws, ~41k triangles, 1.6 MB shipped.
+  Two invisible blocks (`_blockBassBins`) fence them. Headset cost is unmeasured.
+
+### Mezzanine (`js/mezzanine.js`)
+A steel balcony (deck at y 3.0, x -12.2..-9.5, z -19..-10.4) on the left wall with a 16-step stair climbing along that wall
+from z -6.2. It reuses `_dressingBuilder()` and `_createScopedAccent()` from `venueDressing.js`, so it is four merged meshes
+(`mezzDeck`, `mezzPanel`, `mezzRails`, `mezzGlowCyan`), one accent light (`balconyLight`, first slot, no budget change) and the
+bar's stool GLB instanced twice. Textures are Poly Haven `steelDeck` / `steelPanel` (`textureLoader` configs, CC0).
+- **Walking**: `MezzanineLayout.walkLevel()` decides the surface a walker stands on. The collision system carries the desktop
+  camera UP the stair (no gravity there), so `_updateWalkSurface()` only records the level on ascent and lowers the eye on
+  descent. It never snaps anyone onto the deck from beneath: a candidate surface more than 0.5 m from the current level is
+  ignored. `this._walkLevel` feeds the player body's `groundY` and the `balcony` camera preset (`level`). In VR the level only
+  sizes the body; Babylon's teleport is not taught the deck (teleport targets only `floorMesh`), so VR reaches it through the
+  BALCONY quick-menu button or by walking with comfort off. Teleporting onto the deck is open work.
+- The deck guest is guest slot 3 (`y: 3.0`), so only the ultra and high tiers seat it. Keep floor guests out of the
+  footprint (a unit test enforces it).
+- `node scripts/build-mezzanine-assets.mjs` regenerates both texture sets.
 
 ## Mesh naming
 
@@ -571,8 +633,9 @@ to avoid z-fighting.
   Re-banding needs the Show Director's energy thresholds recalibrated (see `BACKLOG.md`).
 - URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
-- A stream served without `Access-Control-Allow-Origin` produces an all-zero analyser.
-  `getAudioData()` detects this and surfaces a toast rather than failing silently.
+- A stream served without `Access-Control-Allow-Origin` can produce an all-zero analyser.
+  `getAudioData()` warns only after a sustained, unmuted silent window and phrases it as a
+  heuristic ("silent so far; may be a server CORS restriction"), not as proof.
 - **Default music.** ENTER starts the latest Resident episode (`startEntryMusic()` in
   `js/ui-init.js`), unless the guest unticked the splash toggle (`vrclub.radioOnEntry = '0'`;
   `AudioUtils.shouldPlayOnEntry()`). The AudioContext is created inside the click (autoplay), the
@@ -591,6 +654,10 @@ to avoid z-fighting.
   pasted URL. The feed origin is in the CSP `connect-src` and in the contract test's
   third-party allow-list; any other feed needs both. A reconnect of a finite-duration
   source resumes at its position (`_recoverAudioStream()`).
+- The Audio menu separates **Music** (the chosen stream/file only) from **Ambience** (the
+  generated crowd bed). `setAudioVolume()` writes only the media element; the crowd bed has
+  its own persisted `vrclub.crowdAmbience` gain, and the per-frame acoustic ducking never
+  overwrites that user setting.
 
 ## Persistence
 
@@ -598,7 +665,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (on unless explicitly `0`).
 `setVRComfortMode()` owns locomotion through `_applyXRLocomotionMode()`. Babylon declares
@@ -610,7 +677,7 @@ locomotion call: a thrown `enableFeature()` once silently dropped sprint, jump a
 Y/B quick-menu binding. Comfort mode suppresses sprint/jump and artificial gravity; XR entry preserves
 tracked eye height. `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
-The 14-button quick menu includes comfort, safe mode, haptics, and three destinations;
+The 15-button quick menu includes comfort, safe mode, haptics, and four destinations (entrance, dance floor, DJ booth, balcony);
 Y/B or the runtime menu component opens it. Haptics are opt-in for new visitors and
 the same preference gates both bass pulses and UI feedback. These preference and
 travel actions must not force VJ manual mode.
@@ -625,6 +692,9 @@ and had silently diverged; a test now enforces the delegation.
 
 `data-control` toggles are dispatched through the `TOGGLE_CONTROLS` allow-list, never by
 writing `instance[attributeValue]` directly.
+
+Global keyboard shortcuts ignore focused interactive controls and `defaultPrevented` events,
+so Space still activates a focused button instead of being stolen for audio play/pause.
 
 Photosensitive Safe Mode is offered on the splash **before** the scene renders, next to the
 photosensitivity warning, and is **off by default** (a product decision: it is never switched on

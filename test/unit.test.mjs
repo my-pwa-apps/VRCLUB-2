@@ -94,6 +94,149 @@ test('multiplayer defaults to the hosted relay and migrates legacy local URLs', 
     assert.equal(vm.runInContext('defaultNetworkServerUrl()', context), hosted);
 });
 
+test('keyboard shortcuts leave focused buttons to native Space activation but still control scene audio', async () => {
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const start = source.indexOf('function initKeyboardShortcuts()');
+    const end = source.indexOf('// =============================================================================\n// AUDIO MENU', start);
+    const listeners = {};
+    const audio = {
+        paused: true,
+        playCalls: 0,
+        pauseCalls: 0,
+        play() { this.paused = false; this.playCalls++; return Promise.resolve(); },
+        pause() { this.paused = true; this.pauseCalls++; }
+    };
+    const context = vm.createContext({
+        Promise,
+        document: {
+            addEventListener(type, handler) { listeners[type] = handler; },
+            removeEventListener() {}
+        },
+        uiTeardowns: [],
+        vrClubInstance: { audioElement: audio, moveCameraToPreset() {} },
+        vjMacros: {}
+    });
+    vm.runInContext(source.slice(start, end), context);
+    vm.runInContext('initKeyboardShortcuts()', context);
+    const onKey = listeners.keydown;
+    assert.equal(typeof onKey, 'function', 'keydown shortcut handler was not registered');
+
+    let prevented = false;
+    onKey({
+        key: ' ',
+        target: { tagName: 'BUTTON' },
+        defaultPrevented: false,
+        ctrlKey: false, metaKey: false, altKey: false,
+        preventDefault() { prevented = true; }
+    });
+    assert.equal(prevented, false, 'Space on a focused button should keep the button\'s native activation');
+    assert.equal(audio.playCalls, 0, 'focused button Space unexpectedly toggled audio');
+
+    onKey({
+        key: ' ',
+        target: { tagName: 'DIV', closest() { return null; } },
+        defaultPrevented: false,
+        ctrlKey: false, metaKey: false, altKey: false,
+        preventDefault() { prevented = true; }
+    });
+    await Promise.resolve();
+    assert.equal(prevented, true, 'scene-focused Space should still be claimed by the audio shortcut');
+    assert.equal(audio.playCalls, 1);
+
+    onKey({
+        key: ' ',
+        target: { tagName: 'DIV', closest() { return null; } },
+        defaultPrevented: true,
+        ctrlKey: false, metaKey: false, altKey: false,
+        preventDefault() { assert.fail('default-prevented keys must be ignored'); }
+    });
+    assert.equal(audio.pauseCalls, 0, 'a default-prevented Space should not pause audio');
+});
+
+test('the audio menu exposes a separate ambience slider and labels both ranges by scope', () => {
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const start = source.indexOf('function initAudioMenu()');
+    const end = source.indexOf('// =============================================================================\n// MULTIPLAYER', start);
+    const makeEl = () => ({
+        value: '',
+        textContent: '',
+        className: '',
+        style: {},
+        dataset: {},
+        attributes: {},
+        listeners: {},
+        files: [],
+        classList: {
+            add() {},
+            remove() {},
+            contains() { return false; },
+            toggle() { return false; }
+        },
+        addEventListener(type, handler) { this.listeners[type] = handler; },
+        removeEventListener(type) { delete this.listeners[type]; },
+        setAttribute(name, value) { this.attributes[name] = String(value); },
+        focus() {},
+        querySelector() { return null; },
+        setCustomValidity() {},
+        reportValidity() { return true; }
+    });
+    const elements = Object.fromEntries([
+        'audioToggle', 'audioMenu', 'audioMinimize', 'audioClose', 'streamUrl',
+        'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
+        'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
+        'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue'
+    ].map(id => [id, makeEl()]));
+    elements.audioToggle.attributes['aria-expanded'] = 'false';
+    elements.audioVolume.value = '1';
+    elements.crowdAmbience.value = '1';
+
+    const calls = [];
+    const context = vm.createContext({
+        Promise,
+        document: {
+            getElementById(id) { return elements[id] || null; },
+            addEventListener() {},
+            removeEventListener() {}
+        },
+        window: { addEventListener() {}, removeEventListener() {} },
+        navigator: { onLine: true },
+        uiTeardowns: [],
+        entryNowPlaying: '',
+        uiLog: { info() {}, warn() {} },
+        rememberedStreamUrl: () => '',
+        UI_TIMING: { statusMs: 3000 },
+        AudioUtils: { isResidentEpisodeUrl: () => false },
+        localStorage: { setItem() {} },
+        setTimeout() { return 1; },
+        clearTimeout() {},
+        vrClubInstance: {
+            _audioVolume: 0.6,
+            audioElement: null,
+            scene: null,
+            _isSafeAudioUrl() { return true; },
+            setAudioVolume(value) { calls.push(['music', value]); },
+            getCrowdAmbienceLevel() { calls.push(['getAmbience']); return 0.25; },
+            setCrowdAmbienceLevel(value) { calls.push(['ambience', value]); }
+        }
+    });
+    vm.runInContext(source.slice(start, end), context);
+    vm.runInContext('initAudioMenu()', context);
+
+    assert.equal(elements.audioVolumeValue.textContent, '60%');
+    assert.equal(elements.audioVolume.attributes['aria-valuetext'], '60%');
+    assert.equal(elements.crowdAmbience.value, '0.25');
+    assert.equal(elements.crowdAmbienceValue.textContent, '25%');
+    assert.equal(elements.crowdAmbience.attributes['aria-valuetext'], '25%');
+    assert.deepEqual(calls.slice(0, 2), [['getAmbience'], ['ambience', 0.25]],
+        'the ambience slider should initialize from the club preference and push it back to the instance');
+
+    elements.audioVolume.listeners.input({ target: { value: '0.4' } });
+    elements.crowdAmbience.listeners.input({ target: { value: '0.1' } });
+    assert.deepEqual(calls.slice(-2), [['music', 0.4], ['ambience', 0.1]]);
+    assert.equal(elements.audioVolumeValue.textContent, '40%');
+    assert.equal(elements.crowdAmbienceValue.textContent, '10%');
+});
+
 test('multiplayer stops initial failures and bounds cancellable reconnects', () => {
     const sockets = [];
     const timers = new Map();
@@ -991,7 +1134,10 @@ test('ModelLoader.dispose releases loaded containers and procedural hierarchies'
 // Web Audio spatial graph (structural; no audio is decoded)
 // ---------------------------------------------------------------------------
 
-function createAudioHarness() {
+function createAudioHarness(options = {}) {
+    const localStorage = options.localStorage || { getItem: () => null, setItem() {} };
+    const clock = options.performance || { now: () => 0 };
+    const testLog = options.log || { info() {}, warn() {} };
     const edges = [];
     const started = new Set();
     class Param {
@@ -1067,14 +1213,17 @@ function createAudioHarness() {
         VRClubUI: class {},
         CLUB_POSITIONS: positions,
         ROOM_BOUNDS: { z: { min: -21, max: -5 } },
-        log: { info() {}, warn() {} },
+        log: testLog,
         BABYLON: { Vector3: Vec },
         AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils,
+        localStorage,
+        performance: clock,
         Float32Array, Uint8Array
     });
     window.AudioContext = FakeAudioContext;
     const club = Object.create(window.VRClubAudioCrowd.prototype);
-    club.audioElement = { src: '' };
+    club.audioElement = options.audioElement || { src: '' };
+    club._audioFrameData = { bass: 0, mid: 0, treble: 0, average: 0, hasAudio: false };
     // Reachability over the recorded connect() edges.
     const downstream = (from) => {
         const seen = new Set([from]);
@@ -1086,7 +1235,7 @@ function createAudioHarness() {
         return seen;
     };
     const connected = (a, b) => edges.some(([x, y]) => x === a && y === b);
-    return { club, edges, started, downstream, connected, positions, window };
+    return { club, edges, started, downstream, connected, positions, window, localStorage };
 }
 
 test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and reaches the output', () => {
@@ -1161,6 +1310,80 @@ test('the Web Audio listener follows the camera and leaving the room occludes th
     assert.ok(club.occlusionFilter.frequency.value < insideCutoff, 'the corridor must muffle the PA');
     assert.ok(club.audioMasterGain.gain.value < 1.15);
     assert.ok(club.reverbSend.gain.value > 0.08);
+});
+
+test('crowd ambience keeps a persisted user level separate from room ducking', () => {
+    const store = new Map([['vrclub.crowdAmbience', '0']]);
+    const { club } = createAudioHarness({
+        localStorage: {
+            getItem: key => (store.has(key) ? store.get(key) : null),
+            setItem: (key, value) => store.set(key, value)
+        }
+    });
+    club._connectAudioSourceOnce();
+    assert.equal(club.crowdAmbienceUserGain.gain.value, 0, 'stored ambience level was not applied to the user gain');
+
+    club.setCrowdAmbienceLevel(0.35);
+    assert.equal(store.get('vrclub.crowdAmbience'), '0.35');
+
+    club.scene = {
+        activeCamera: {
+            globalPosition: { x: 0, y: 1.7, z: -1 },
+            getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }),
+            upVector: { x: 0, y: 1, z: 0 }
+        }
+    };
+    club._audioFrameData.average = 0.2;
+    club.updateSpatialAudioListener();
+
+    assert.ok(club.crowdAmbienceGain.gain.value < 0.085, 'the crowd bed did not duck under the music');
+    assert.equal(club.crowdAmbienceUserGain.gain.value, 0.35, 'room acoustics overwrote the user ambience level');
+});
+
+test('silent analyser warnings are elapsed-time based, mute-aware and phrased as a heuristic', () => {
+    const makeClub = () => {
+        let now = 0;
+        const warnings = [];
+        const { club } = createAudioHarness({
+            performance: { now: () => now },
+            log: { info() {}, warn(message) { warnings.push(message); } }
+        });
+        club._connectAudioSourceOnce();
+        Object.assign(club.audioElement, { paused: false, ended: false, currentTime: 3, volume: 1, muted: false });
+        club.showErrorMessage = message => { club.lastError = message; };
+        club.audioAnalyser.getByteFrequencyData = array => array.fill(0);
+        const run = (hz, seconds) => {
+            const frames = Math.ceil(hz * seconds);
+            for (let i = 0; i < frames; i++) {
+                now += 1000 / hz;
+                club.getAudioData();
+            }
+        };
+        return { club, warnings, run, setNow: value => { now = value; } };
+    };
+
+    const silent = makeClub();
+    silent.run(120, 2.9);
+    assert.equal(silent.club.lastError, undefined, 'the warning fired before 3 seconds had elapsed');
+    silent.run(45, 0.2);
+    assert.match(silent.club.lastError, /silent so far/i);
+    assert.match(silent.club.lastError, /possible cause is a stream server CORS restriction/i);
+    assert.doesNotMatch(silent.club.lastError, /does not send an Access-Control-Allow-Origin header/i);
+    assert.match(silent.warnings[0], /may be blocked from analysis by CORS/i);
+
+    const muted = makeClub();
+    muted.club.audioElement.volume = 0;
+    muted.run(60, 6.5);
+    assert.equal(muted.club.lastError, undefined, 'muted playback must not raise a CORS warning');
+
+    const recovered = makeClub();
+    recovered.club.audioAnalyser.getByteFrequencyData = array => { array.fill(0); array[0] = 32; };
+    recovered.run(60, 0.1);
+    recovered.club.audioAnalyser.getByteFrequencyData = array => array.fill(0);
+    recovered.run(60, 5.5);
+    assert.equal(recovered.club.lastError, undefined, 'recent real analyser activity should defer the warning');
+    recovered.run(60, 0.7);
+    assert.match(recovered.club.lastError, /silent so far/i, 'a long silent window after real audio should still warn once');
 });
 
 // A source must be heard on the side it appears on screen. Babylon is left-handed
@@ -1265,7 +1488,7 @@ test('ModelLoader registers accent lights with LightFactory and never paints spe
     const textures = [];
     BABYLON.Texture = class {
         constructor(url, scene, noMipmap, invertY, sampling, onLoad, onError) {
-            Object.assign(this, { url, onLoad, onError });
+            Object.assign(this, { url, invertY, onLoad, onError });
             textures.push(this);
         }
     };
@@ -1301,8 +1524,21 @@ test('ModelLoader registers accent lights with LightFactory and never paints spe
     const mesh = { name: 'speaker_body' };
     loader.applyPASpeakerTextures(mesh, './tex/');
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(requested.length, 4, 'all four maps go through TextureLoader');
+    assert.equal(requested.length, 3, 'the original albedo, normal and packed ORM go through TextureLoader');
+    assert.ok(requested.some(url => url.endsWith('_orm.jpg')));
     assert.ok(textures.every(t => t.url.startsWith('blob:')), 'textures bind the cached object URL');
+    assert.ok(textures.every(t => t.invertY === false), 'recovered images retain their glTF orientation');
+    assert.equal(mesh.material.metallic, 1);
+    assert.equal(mesh.material.roughness, 1);
+    assert.equal(mesh.material.invertNormalMapX, true);
+    assert.equal(mesh.material.invertNormalMapY, false);
+    assert.equal(mesh.material.normalTexture.gammaSpace, false);
+    assert.equal(mesh.material.metallicRoughnessTexture.gammaSpace, false);
+    assert.equal(mesh.material.occlusionTexture, mesh.material.metallicRoughnessTexture);
+    const secondMesh = { name: 'second_speaker' };
+    loader.applyPASpeakerTextures(secondMesh, './tex/');
+    assert.equal(secondMesh.material, mesh.material);
+    assert.equal(requested.length, 3, 'both cabinets share the same material and maps');
     const base = mesh.material.baseColor;
     assert.ok(!(base.r === 1 && base.g === 0 && base.b === 1), 'no magenta debug colour');
     assert.ok(base.r < 0.1 && base.g < 0.1 && base.b < 0.1);
@@ -1334,6 +1570,65 @@ test('ModelLoader keeps the glTF handedness conversion instead of hand-written m
     // The sign workaround is gone from every model config.
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
     assert.ok(!/scale:\s*new BABYLON\.Vector3\(\s*-1/.test(source), 'no hand-written mirror signs in model configs');
+});
+
+test('equipment accent priorities only reorder the imported meshes they can light', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/modelLoader.js', {
+        BABYLON, navigator: { userAgent: '' }, AbortController,
+        IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const loader = Object.create(window.ModelLoader.prototype);
+    loader.scene = new BABYLON.Scene(new BABYLON.NullEngine());
+
+    const room = BABYLON.MeshBuilder.CreateBox('room', { size: 1 }, loader.scene);
+    const consoleMesh = BABYLON.MeshBuilder.CreateBox('console', { size: 1 }, loader.scene);
+    room.material = new BABYLON.PBRMetallicRoughnessMaterial('roomMat', loader.scene);
+    consoleMesh.material = new BABYLON.PBRMetallicRoughnessMaterial('consoleMat', loader.scene);
+
+    new BABYLON.HemisphericLight('ambient', new BABYLON.Vector3(0, 1, 0), loader.scene);
+    for (let i = 0; i < 4; i++) {
+        new BABYLON.SpotLight(`spot${i}`,
+            new BABYLON.Vector3(0, 8, -12),
+            new BABYLON.Vector3(0, -1, 0),
+            Math.PI / 3,
+            2,
+            loader.scene);
+    }
+
+    const accent = window.ModelLoader.prototype._createAccentLight.call(
+        loader,
+        'djConsoleLight',
+        new BABYLON.Vector3(0, 2, -18),
+        { intensity: 2, range: 8, group: 'dj' }
+    );
+    accent.renderPriority = 1;
+    accent.includedOnlyMeshes = [consoleMesh];
+
+    consoleMesh._resyncLightSources();
+    room._resyncLightSources();
+
+    assert.equal(loader.scene.requireLightSorting, true, 'accent priority did not enable Babylon light sorting');
+    assert.deepEqual(
+        room._lightSources.map(light => light.name).slice(0, 4),
+        ['ambient', 'spot0', 'spot1', 'spot2'],
+        'room lighting order changed after adding the console accent'
+    );
+    assert.deepEqual(
+        consoleMesh._lightSources.map(light => light.name).slice(0, 5),
+        ['djConsoleLight', 'ambient', 'spot0', 'spot1', 'spot2'],
+        'console mesh did not receive the accent ahead of the room heads'
+    );
+    assert.deepEqual(
+        consoleMesh._lightSources.map(light => light.name).slice(0, 3),
+        ['djConsoleLight', 'ambient', 'spot0'],
+        'the 3-light budget would still starve the console accent'
+    );
+    assert.deepEqual(
+        consoleMesh._lightSources.map(light => light.name).slice(0, 4),
+        ['djConsoleLight', 'ambient', 'spot0', 'spot1'],
+        'the 4-light budget would still starve the console accent'
+    );
 });
 
 // ---------------------------------------------------------------------------
@@ -1693,7 +1988,12 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
     const club = Object.create(effects);
     Object.assign(club, {
         laserSheetActive: true, laserSheetMotion: 'lateral', laserSheetOrigin: 'both',
-        _laserApertureOff: new BABYLON.Color3(0, 0, 0), cachedColors: { red: {}, green: {}, blue: {} },
+        _laserApertureOff: new BABYLON.Color3(0, 0, 0),
+        cachedColors: {
+            red: new BABYLON.Color3(1, 0, 0),
+            green: new BABYLON.Color3(0, 1, 0),
+            blue: new BABYLON.Color3(0, 0, 1)
+        },
         currentColorIndex: 1, currentSpotColor: new BABYLON.Color3(0, 1, 0),
         _laserSheetMounts: { ceilingLeft: makeMount(-6), ceilingRight: makeMount(6) },
         laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
@@ -2608,6 +2908,55 @@ test('safe mode keeps the dance-floor strip from strobing in the legacy strobe p
     assert.equal(hardSwitches(true), 0, 'Safe Mode let the floor strip strobe');
 });
 
+test('master dimming keeps the LED wall live below the old blackout threshold', () => {
+    const BABYLON = makeBabylonStub();
+    const { window: fixturesWindow } = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON,
+        VRClubAnimationCore: class {}
+    });
+    const { window: finishWindow } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {}
+    });
+    const panel = {
+        row: 0,
+        col: 0,
+        colorBuffer: new BABYLON.Color3(),
+        material: { emissiveColor: new BABYLON.Color3() }
+    };
+    const club = {
+        ledWallActive: true,
+        masterIntensity: 0.01,
+        ledWallLevel: 1,
+        ledPanels: [panel],
+        _flushLedWall() {},
+        _applyLedLevel: finishWindow.VRClubAnimationFinish.prototype._applyLedLevel,
+        updateLEDWall(time) {
+            panel.colorBuffer.set(1, 0.5, 0.25);
+            panel.material.emissiveColor = panel.colorBuffer;
+            this._applyLedLevel(time);
+        }
+    };
+
+    for (let frame = 0; frame < 90; frame++) {
+        fixturesWindow.VRClubAnimationFixtures.prototype.updateLEDWallPass.call(club, {
+            time: frame / 60,
+            audio: { hasAudio: false }
+        });
+    }
+    assert.ok(panel.material.emissiveColor.r > 0, 'the wall still blacked out below the old threshold');
+    assert.ok(panel.material.emissiveColor.r < 0.02, 'the wall ignored the low master level');
+
+    club.masterIntensity = 0;
+    for (let frame = 90; frame < 180; frame++) {
+        fixturesWindow.VRClubAnimationFixtures.prototype.updateLEDWallPass.call(club, {
+            time: frame / 60,
+            audio: { hasAudio: false }
+        });
+    }
+    assert.ok(panel.material.emissiveColor.r < 1e-3, 'zero master did not black the wall');
+});
+
 test('strobe bursts light immediately and safe mode restores the scene', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/09-animation-finish.js', {
@@ -2679,6 +3028,77 @@ test('strobe bursts light immediately and safe mode restores the scene', () => {
     assert.equal(renderPipeline.imageProcessing.exposure, 1.22, 'Safe Mode did not restore exposure');
     assert.equal(ambient.intensity, 0.06, 'Safe Mode did not restore room lighting');
     assert.equal(retinalFlash.color.a, 0, 'Safe Mode did not clear retinal glare');
+});
+
+test('master dimming scales the strobe room impulse from blackout to full', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', {
+        BABYLON,
+        VRClubAnimationFixtures: class {}
+    });
+    const { window: coreWindow } = loadClassic('js/club/07-animation-core.js', {
+        BABYLON,
+        VRClubEffects: class {}
+    });
+    const renderImpulse = (master) => {
+        const material = { emissiveColor: new BABYLON.Color3() };
+        const flashLight = { intensity: 0, setEnabled() {} };
+        const renderPipeline = {
+            bloomEnabled: true,
+            bloomWeight: 0.45,
+            imageProcessing: { exposure: 1.22 }
+        };
+        const ambient = { intensity: 0.06 };
+        const retinalFlash = { color: { a: 0 } };
+        const club = {
+            strobesActive: true,
+            photosensitiveSafeMode: false,
+            strobePattern: 'all',
+            strobeSpeed: 1,
+            vjDropActive: false,
+            vjBuildIntensity: 0,
+            masterIntensity: master,
+            cachedColors: {
+                black: new BABYLON.Color3(0, 0, 0),
+                ledMonoWhite: new BABYLON.Color3(1, 1, 1),
+                warmWhite: new BABYLON.Color3(1, 0.9, 0.7)
+            },
+            strobes: [{ material, light: null, flashDuration: 0, currentIntensity: 0 }],
+            strobeFlashLight: flashLight,
+            renderPipeline,
+            scene: { getLightByName: name => name === 'ambient' ? ambient : null },
+            strobeRetinalFlash: retinalFlash,
+            vrSettings: { vr: { strobeImpulse: { ambient: 1.0, retinal: 0.06, exposure: 0.9 } } },
+            isInVRMode: true,
+            _writeExposure: coreWindow.VRClubAnimationCore.prototype._writeExposure
+        };
+        window.VRClubAnimationFinish.prototype.updateStrobes.call(club, {
+            time: 10,
+            dt: 1 / 60,
+            audio: { bass: 0, hasAudio: false }
+        });
+        return {
+            light: flashLight.intensity,
+            ambient: ambient.intensity,
+            retinal: retinalFlash.color.a,
+            exposure: renderPipeline.imageProcessing.exposure,
+            bloom: renderPipeline.bloomWeight
+        };
+    };
+
+    const off = renderImpulse(0);
+    const half = renderImpulse(0.5);
+    const full = renderImpulse(1);
+    assert.equal(off.light, 0, 'zero master still lit the shared strobe flash');
+    assert.equal(off.ambient, 0.06, 'zero master still lit the room impulse');
+    assert.equal(off.retinal, 0, 'zero master still applied retinal glare');
+    assert.equal(off.exposure, 1.22, 'zero master still spiked exposure');
+    assert.equal(off.bloom, 0.45, 'zero master still spiked bloom');
+    assert.ok(half.light > 0 && half.light < full.light, 'half master did not dim the shared strobe flash');
+    assert.ok(half.ambient > off.ambient && half.ambient < full.ambient, 'half master did not dim the room impulse');
+    assert.ok(half.retinal > 0 && half.retinal < full.retinal, 'half master did not dim the retinal flash');
+    assert.ok(half.exposure < off.exposure && half.exposure > full.exposure, 'half master did not dim the exposure spike');
+    assert.ok(half.bloom > off.bloom && half.bloom < full.bloom, 'half master did not dim the bloom spike');
 });
 
 // A burst is only 20-90 ms long, which is shorter than a frame on a loaded headset. The flash
@@ -3466,6 +3886,21 @@ test('the local body is posed from the camera, the DJ riser and the controllers'
     assert.equal(pose.left.x, -0.3);
     assert.equal(pose.left.fz, 1);
     assert.equal(pose.right, null, 'an untracked controller must not drag the arm to the origin');
+
+    // Back on desktop the fixed standing calibration must be restored, even on the DJ riser.
+    club.isInVRMode = false;
+    delete camera.globalPosition;
+    camera.position = { x: 0, y: 2.2, z: -18 };
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.deepEqual(calls.filter(c => c[0] === 'eye').map(c => c[1]), [1.6, 1.7]);
+    pose = calls.at(-1)[2];
+    assert.equal(pose.groundY, 0.5, 'desktop booth placement still needs the riser offset');
+
+    // Re-entering VR keeps the measured seated/standing height again.
+    club.isInVRMode = true;
+    camera.globalPosition = { x: 0, y: 1.5, z: -18 };
+    proto._updateLocalPlayerBody.call(club, 1 / 60);
+    assert.deepEqual(calls.filter(c => c[0] === 'eye').map(c => c[1]), [1.6, 1.7, 1.0]);
 });
 test('beams light the smoke they cross and dust is only seen inside them', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
@@ -3816,6 +4251,300 @@ test('laser sheet uses bounded two-axis motion for vertical and lateral cues', (
     assert.ok(Math.abs(source.rotation.y - club._laserSheetBaseYaw) <= club._laserSheetYawRange);
 });
 
+test('master dimming scales moving heads, ceiling lasers and the laser sheet continuously', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures.prototype;
+    const core = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} }).window.VRClubAnimationCore.prototype;
+
+    const makeSpotClub = (master) => {
+        const beam = {
+            visibility: 0,
+            rotationQuaternion: new BABYLON.Quaternion(),
+            position: new BABYLON.Vector3(),
+            scaling: new BABYLON.Vector3(1, 1, 1)
+        };
+        const beamGlow = {
+            parent: null,
+            position: new BABYLON.Vector3(),
+            rotationQuaternion: new BABYLON.Quaternion(),
+            scaling: new BABYLON.Vector3(1, 1, 1),
+            visibility: 0,
+            setParent(parent) { this.parent = parent; }
+        };
+        const spot = {
+            light: {
+                direction: new BABYLON.Vector3(),
+                position: new BABYLON.Vector3(),
+                angle: 0,
+                range: 20,
+                exponent: 1,
+                intensity: 0
+            },
+            beam,
+            beamGlow,
+            beamMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+            beamGlowMat: { emissiveColor: new BABYLON.Color3() },
+            lens: { material: { isFrozen: false, emissiveColor: new BABYLON.Color3() } },
+            lightSource: { material: { isFrozen: false, emissiveColor: new BABYLON.Color3() } },
+            flareMat: { emissiveColor: new BABYLON.Color3(), alpha: 1 }
+        };
+        return {
+            masterIntensity: master,
+            useModularSystems: false,
+            systems: {},
+            lightsActive: true,
+            spotlightSpeed: 1,
+            spotlightMode: 1,
+            spotlightPattern: 1,
+            spotStrobeActive: false,
+            currentSpotColor: new BABYLON.Color3(1, 0.5, 0.25),
+            kickPulse: 0,
+            isInVRMode: false,
+            lastActivePhase: 0,
+            vecPool: { direction: new BABYLON.Vector3() },
+            spotlights: [spot],
+            _solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier, out) { out.x = 0; out.z = 0; return out; },
+            _animateMovingHead() {},
+            _updateSpotBeamGeometry() {
+                return {
+                    cosTheta: 1,
+                    beamMidpoint: new BABYLON.Vector3(0, 4, -12),
+                    beamLength: 7.3,
+                    baseScale: 1,
+                    tiltStretch: 1
+                };
+            },
+            _updateSpotBeamAppearance: fixtures._updateSpotBeamAppearance,
+            _updateSpotLightPool() {},
+            _updateSpotGoboProjection() {},
+            _bindPhotometricSlots() {}
+        };
+    };
+
+    const renderSpot = (master) => {
+        const club = makeSpotClub(master);
+        fixtures.updateSpotlights.call(club, { time: 1, dtScale: 1, audio: { hasAudio: false } });
+        const spot = club.spotlights[0];
+        return {
+            beam: spot.beamMat.emissiveColor.r,
+            beamAlpha: spot.beamMat.alpha,
+            light: spot.light.intensity,
+            lens: spot.lens.material.emissiveColor.r,
+            source: spot.lightSource.material.emissiveColor.r,
+            flare: spot.flareMat.emissiveColor.r
+        };
+    };
+
+    const fullSpot = renderSpot(1);
+    const halfSpot = renderSpot(0.5);
+    const offSpot = renderSpot(0);
+    assert.equal(offSpot.light, 0, 'zero master left the moving-head SpotLight on');
+    assert.equal(offSpot.lens, 0, 'zero master left the moving-head lens glowing');
+    assert.equal(offSpot.source, 0, 'zero master left the moving-head source glowing');
+    assert.equal(offSpot.flare, 0, 'zero master left the moving-head flare glowing');
+    assert.equal(offSpot.beamAlpha, 0, 'zero master left the moving-head beam visible');
+    assert.ok(Math.abs(halfSpot.light / fullSpot.light - 0.5) < 0.02, 'half master did not halve the moving-head light');
+    assert.ok(Math.abs(halfSpot.lens / fullSpot.lens - 0.5) < 0.02, 'half master did not halve the moving-head lens glow');
+    assert.ok(Math.abs(halfSpot.beam / fullSpot.beam - 0.5) < 0.02, 'half master did not halve the moving-head beam glow');
+
+    const renderLasers = (master) => {
+        const beam = {
+            beamIndex: 0,
+            mesh: {
+                scaling: new BABYLON.Vector3(1, 1, 1),
+                position: new BABYLON.Vector3(),
+                rotationQuaternion: new BABYLON.Quaternion(),
+                visibility: 0
+            },
+            material: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+            innerGlowMat: { emissiveColor: new BABYLON.Color3() },
+            glowMat: { emissiveColor: new BABYLON.Color3() },
+            innerGlow: {
+                visibility: 0,
+                scaling: new BABYLON.Vector3(1, 1, 1),
+                position: new BABYLON.Vector3(),
+                rotationQuaternion: new BABYLON.Quaternion()
+            },
+            beamGlow: {
+                visibility: 0,
+                scaling: new BABYLON.Vector3(1, 1, 1),
+                position: new BABYLON.Vector3(),
+                rotationQuaternion: new BABYLON.Quaternion()
+            }
+        };
+        const laser = {
+            type: 'single',
+            rotation: 0,
+            tiltPhase: 0,
+            originPos: new BABYLON.Vector3(0, 7, -12),
+            beams: [beam],
+            lights: [{ diffuse: null, intensity: 0 }],
+            housingMat: { emissiveColor: new BABYLON.Color3() },
+            emitterMat: { emissiveColor: new BABYLON.Color3() }
+        };
+        const club = {
+            masterIntensity: master,
+            lasersActive: true,
+            lightingMode: 'synchronized',
+            vjManualMode: true,
+            colorSwitchTime: 0,
+            currentColorIndex: 0,
+            colorLockActive: false,
+            kickPulse: 0,
+            isInVRMode: false,
+            cachedColors: {
+                red: new BABYLON.Color3(1, 0, 0),
+                green: new BABYLON.Color3(0, 1, 0),
+                blue: new BABYLON.Color3(0, 0, 1),
+                black: new BABYLON.Color3(0, 0, 0)
+            },
+            cachedLaserGlowColors: {
+                redInner: new BABYLON.Color3(0.8, 0.1, 0.1),
+                redOuter: new BABYLON.Color3(0.4, 0.05, 0.05),
+                redEmissive: new BABYLON.Color3(0.3, 0, 0),
+                redBright: new BABYLON.Color3(0.9, 0.1, 0.1),
+                greenInner: new BABYLON.Color3(0.1, 0.8, 0.1),
+                greenOuter: new BABYLON.Color3(0.05, 0.4, 0.05),
+                greenEmissive: new BABYLON.Color3(0, 0.3, 0),
+                greenBright: new BABYLON.Color3(0.1, 0.9, 0.1),
+                blueInner: new BABYLON.Color3(0.1, 0.1, 0.8),
+                blueOuter: new BABYLON.Color3(0.05, 0.05, 0.4),
+                blueEmissive: new BABYLON.Color3(0, 0, 0.3),
+                blueBright: new BABYLON.Color3(0.1, 0.1, 0.9)
+            },
+            vecPool: {
+                laserDir: new BABYLON.Vector3(),
+                laserTmp: new BABYLON.Vector3(),
+                up: new BABYLON.Vector3(),
+                laserAxis: new BABYLON.Vector3()
+            },
+            _quatIdentity: BABYLON.Quaternion.Identity(),
+            _quatFlipX: BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, Math.PI),
+            lasers: [laser]
+        };
+        fixtures.updateLasers.call(club, { time: 1, dtScale: 1 });
+        return {
+            beam: beam.material.emissiveColor.r,
+            beamAlpha: beam.material.alpha,
+            light: laser.lights[0].intensity,
+            housing: laser.housingMat.emissiveColor.r,
+            emitter: laser.emitterMat.emissiveColor.r
+        };
+    };
+
+    const fullLaser = renderLasers(1);
+    const halfLaser = renderLasers(0.5);
+    const offLaser = renderLasers(0);
+    assert.equal(offLaser.light, 0, 'zero master left the ceiling laser light on');
+    assert.equal(offLaser.beamAlpha, 0, 'zero master left the ceiling laser beam visible');
+    assert.equal(offLaser.housing, 0, 'zero master left the ceiling laser housing glowing');
+    assert.equal(offLaser.emitter, 0, 'zero master left the ceiling laser emitter glowing');
+    assert.ok(Math.abs(halfLaser.light / fullLaser.light - 0.5) < 0.02, 'half master did not halve the ceiling laser light');
+    assert.ok(Math.abs(halfLaser.beam / fullLaser.beam - 0.5) < 0.02, 'half master did not halve the ceiling laser beam');
+
+    const renderSheet = (master) => {
+        const club = {
+            masterIntensity: master,
+            laserSheetActive: true,
+            laserSpeed: 1,
+            laserSheetMotion: 'vertical',
+            kickPulse: 0,
+            colorLockActive: false,
+            currentColorIndex: 0,
+            cachedColors: {
+                red: new BABYLON.Color3(1, 0, 0),
+                green: new BABYLON.Color3(0, 1, 0),
+                blue: new BABYLON.Color3(0, 0, 1)
+            },
+            laserSheet: { material: { alpha: 0, emissiveColor: new BABYLON.Color3(), opacityTexture: { uOffset: 0, vOffset: 0 } }, isVisible: false },
+            laserSheetHaze: { material: { alpha: 0, emissiveColor: new BABYLON.Color3(), opacityTexture: { uOffset: 0, vOffset: 0 } }, isVisible: false },
+            laserAperture: { material: { emissiveColor: new BABYLON.Color3() } },
+            _laserSheetFollower: { mount: { aperture: { material: { emissiveColor: new BABYLON.Color3() } } } },
+            laserLight: { diffuse: null, intensity: 0 },
+            _poseLaserSheet() {}
+        };
+        core.updateLaserSheet.call(club, { time: 1, audio: { average: 0 } });
+        return {
+            alpha: club.laserSheet.material.alpha,
+            haze: club.laserSheetHaze.material.alpha,
+            aperture: club.laserAperture.material.emissiveColor.r,
+            follower: club._laserSheetFollower.mount.aperture.material.emissiveColor.r,
+            light: club.laserLight.intensity
+        };
+    };
+
+    const fullSheet = renderSheet(1);
+    const halfSheet = renderSheet(0.5);
+    const offSheet = renderSheet(0);
+    assert.equal(offSheet.alpha, 0, 'zero master left the laser sheet visible');
+    assert.equal(offSheet.haze, 0, 'zero master left the laser-sheet haze visible');
+    assert.equal(offSheet.aperture, 0, 'zero master left the laser-sheet aperture glowing');
+    assert.equal(offSheet.follower, 0, 'zero master left the follower aperture glowing');
+    assert.equal(offSheet.light, 0, 'zero master left the laser-sheet light on');
+    assert.ok(Math.abs(halfSheet.alpha / fullSheet.alpha - 0.5) < 0.02, 'half master did not halve the laser-sheet alpha');
+    assert.ok(Math.abs(halfSheet.light / fullSheet.light - 0.5) < 0.02, 'half master did not halve the laser-sheet light');
+});
+
+test('moving-head spot strobes stay under the flash ceiling at every refresh rate and Safe Mode removes the transitions', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures.prototype;
+    const g = {
+        cosTheta: 1,
+        beamMidpoint: new BABYLON.Vector3(0, 4, -12),
+        beamLength: 7.3,
+        baseScale: 1,
+        tiltStretch: 1
+    };
+    const makeSpot = () => ({
+        beam: {
+            visibility: 0,
+            rotationQuaternion: new BABYLON.Quaternion(),
+            position: new BABYLON.Vector3(),
+            scaling: new BABYLON.Vector3(1, 1, 1)
+        },
+        beamGlow: {
+            parent: null,
+            position: new BABYLON.Vector3(),
+            rotationQuaternion: new BABYLON.Quaternion(),
+            scaling: new BABYLON.Vector3(1, 1, 1),
+            visibility: 0,
+            setParent(parent) { this.parent = parent; }
+        },
+        beamMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+        beamGlowMat: { emissiveColor: new BABYLON.Color3() }
+    });
+    const countRises = (hz, safe) => {
+        const club = {
+            masterIntensity: 1,
+            lightsActive: true,
+            photosensitiveSafeMode: safe,
+            spotlightMode: 0,
+            spotStrobeActive: true,
+            currentSpotColor: new BABYLON.Color3(1, 1, 1),
+            kickPulse: 0,
+            isInVRMode: false,
+            _sampleSpotFlash: fixtures._sampleSpotFlash
+        };
+        const spot = makeSpot();
+        let previous = null;
+        let rises = 0;
+        const frames = hz * 30;
+        for (let frame = 0; frame < frames; frame++) {
+            fixtures._updateSpotBeamAppearance.call(club, spot, 0, frame / hz, frame / hz, 1.5, g);
+            const lit = spot.beamVisible === true;
+            if (previous !== null && !previous && lit) rises++;
+            previous = lit;
+        }
+        return rises / 30;
+    };
+
+    for (const hz of [45, 60, 72, 90, 120]) {
+        const flashes = countRises(hz, false);
+        assert.ok(flashes <= 3.0, `${hz} Hz: moving-head strobes flashed ${flashes.toFixed(2)} times a second`);
+        assert.equal(countRises(hz, true), 0, `${hz} Hz: Safe Mode still allowed moving-head flash transitions`);
+    }
+});
+
 // ---------------------------------------------------------------------------
 // Cross-file invariants that no other check can enforce
 // ---------------------------------------------------------------------------
@@ -3904,4 +4633,224 @@ test('PWA manifest declares an installable configuration', () => {
     assert.ok(manifest.id, 'manifest.json must declare an `id`');
     assert.ok(manifest.scope, 'manifest.json must declare a `scope`');
     assert.ok(Array.isArray(manifest.icons) && manifest.icons.length > 0, 'manifest.json declares no icons');
+});
+
+
+// ---------------------------------------------------------------------------
+// Bar and entrance
+// ---------------------------------------------------------------------------
+
+test('every bar bottle style is a closed, outward-facing lathe sampled inside its atlas cell', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/barProps.js');
+    const { BarProps } = window;
+    assert.equal(Object.keys(BarProps.STYLES).length, 12);
+    for (const style of Object.keys(BarProps.STYLES)) {
+        const g = BarProps.bottleGeometry(style);
+        const vertices = g.positions.length / 3;
+        assert.equal(g.normals.length, g.positions.length);
+        assert.equal(g.uvs.length / 2, vertices);
+        assert.equal(g.colors.length / 4, vertices);
+        assert.ok(g.positions.every(Number.isFinite) && g.normals.every(Number.isFinite), `${style} has non-finite data`);
+        assert.ok(g.uvs.every(value => value >= 0 && value <= 1), `${style} samples outside the atlas`);
+        assert.ok(Math.max(...g.indices) < vertices && g.indices.length % 3 === 0);
+        const ys = g.positions.filter((_, index) => index % 3 === 1);
+        assert.ok(Math.min(...ys) >= -1e-9, `${style} reaches below its base`);
+        assert.ok(Math.max(...ys) > 0.2 && Math.max(...ys) < 0.34, `${style} is not bottle sized (${Math.max(...ys)})`);
+
+        // The winding must agree with Babylon's own face normals, or back-face culling would hide the glass.
+        const derived = new Array(g.positions.length).fill(0);
+        BABYLON.VertexData.ComputeNormals(g.positions, g.indices, derived);
+        let agree = 0, counted = 0;
+        for (let i = 0; i < derived.length; i += 3) {
+            const own = Math.hypot(g.normals[i], g.normals[i + 1], g.normals[i + 2]);
+            const theirs = Math.hypot(derived[i], derived[i + 1], derived[i + 2]);
+            if (own < 0.5 || theirs < 0.5) continue;
+            counted++;
+            if (g.normals[i] * derived[i] + g.normals[i + 1] * derived[i + 1] + g.normals[i + 2] * derived[i + 2] > 0) agree++;
+        }
+        assert.ok(counted > vertices * 0.8 && agree / counted > 0.97, `${style} faces inward (${agree}/${counted})`);
+    }
+});
+
+test('shelves are stocked deterministically, inside their span, without overlaps, below the next board', () => {
+    const { window } = loadClassic('js/barProps.js');
+    const layout = loadClassic('js/venueDressing.js').window.VenueLayout.bar;
+    const { BarProps } = window;
+    const spacing = layout.backBar.shelves[1] - layout.backBar.shelves[0];
+    const tallest = Math.max(...Object.values(BarProps.STYLES).map(style => style.capTop));
+    assert.ok(tallest < spacing - 0.05, `a ${tallest} m bottle does not fit a ${spacing} m shelf bay`);
+
+    const shelf = { x: 12.06, y: 1.44, z0: -13.55, z1: -6.25, styles: ['vodka', 'gin', 'whisky', 'champagne'], yaw: -Math.PI / 2, seed: 7,
+        avoid: [{ z: -9.9, half: 0.03 }, { z: -12.0, half: 0.03 }] };
+    const first = BarProps.stockShelf(shelf);
+    assert.deepEqual(BarProps.stockShelf(shelf), first, 'the shelf must look the same on every load');
+    assert.ok(first.length >= 12, 'a back-bar shelf needs a stocked look');
+    for (const bottle of first) {
+        const radius = BarProps.STYLES[bottle.style].r;
+        assert.ok(bottle.z - radius >= shelf.z0 - 1e-9 && bottle.z + radius <= shelf.z1 + 1e-9, 'a bottle overhangs the shelf');
+        for (const zone of shelf.avoid) {
+            assert.ok(bottle.z + radius <= zone.z - zone.half + 1e-9 || bottle.z - radius >= zone.z + zone.half - 1e-9,
+                `a bottle stands across the upright at ${zone.z}`);
+        }
+    }
+    for (let i = 1; i < first.length; i++) {
+        const gap = first[i].z - first[i - 1].z - BarProps.STYLES[first[i].style].r - BarProps.STYLES[first[i - 1].style].r;
+        assert.ok(gap > -1e-6, `bottles ${i - 1} and ${i} intersect`);
+    }
+    const merged = BarProps.mergePlacements(first);
+    const expected = first.reduce((sum, bottle) => sum + BarProps.bottleGeometry(bottle.style).positions.length / 3, 0);
+    assert.equal(merged.positions.length / 3, expected);
+});
+
+test('the bar layout leaves room for guests, stools and the bartender', () => {
+    const BABYLON = makeBabylonStub();
+    const layout = loadClassic('js/venueDressing.js').window.VenueLayout.bar;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const { counter, backBar, stoolX, stoolZ, bartender } = layout;
+    assert.ok(bartender.x > counter.xBack + 0.3 && bartender.x < backBar.xFront - 0.2, 'the bartender must stand between counter and back bar');
+    assert.ok(bartender.z > counter.z0 && bartender.z < counter.z1, 'the bartender must be behind the counter, not beside it');
+    assert.ok(stoolZ.every(z => z > counter.z0 && z < counter.z1) && stoolX < counter.xFront - 0.3, 'stools stand in front of the counter');
+    for (let i = 1; i < stoolZ.length; i++) assert.ok(stoolZ[i] - stoolZ[i - 1] >= 1.0, 'stools are too close together to sit at');
+    // Counter, stools and back bar end well inside the right wall's pillars at z -5 and -15.
+    assert.ok(counter.z1 < -5.8 && backBar.z0 > -14.5);
+
+    const slots = window.VRClubAudioCrowd.prototype._guestSlots.call({});
+    for (const slot of slots) {
+        const inFootprint = slot.x > stoolX - 0.7 && slot.z > backBar.z0 - 0.5 && slot.z < backBar.z1 + 0.5;
+        assert.ok(!inFootprint, `a guest at ${slot.x}, ${slot.z} stands in the bar`);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Mezzanine
+// ---------------------------------------------------------------------------
+
+test('the walking-surface follow climbs the stair and the deck but never snaps walkers off the floor', () => {
+    const M = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    const S = M.stairs, D = M.deck;
+    const mid = (S.x0 + S.x1) / 2;
+
+    // Climbing in small steps from the bottom lands exactly on the deck, level at every step.
+    let level = 0;
+    const heights = [];
+    for (let z = S.zBottom; z >= S.zTop - 0.5; z -= 0.05) {
+        const next = M.walkLevel(mid, z, level);
+        assert.ok(Math.abs(next - level) < 0.1, `a ${Math.abs(next - level)} m jump at z=${z.toFixed(2)}`);
+        level = next;
+        heights.push(level);
+    }
+    assert.equal(level, D.top);
+    assert.ok(heights.every((value, index) => index === 0 || value >= heights[index - 1] - 1e-9), 'the climb must be monotonic');
+    // Back down the other way.
+    for (let z = S.zTop; z <= S.zBottom + 0.5; z += 0.05) level = M.walkLevel(mid, Math.min(z, S.zBottom), level);
+    assert.equal(level, 0);
+
+    // Walking beneath the deck or the stair stays on the floor: the candidate surface is more than a step away.
+    assert.equal(M.walkLevel(-11, -15, 0), 0);
+    assert.equal(M.walkLevel(mid, -9.5, 0), 0);
+    assert.equal(M.walkLevel(mid, S.zBottom, 0), 0);
+    // Standing on the deck, then stepping off its edge, drops to the floor.
+    assert.equal(M.walkLevel(-11, -15, D.top), D.top);
+    assert.equal(M.walkLevel(-8, -15, D.top), 0);
+});
+
+test('mezzanine beams point from one end to the other and the stair rises to the deck', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    // The same call the mezzanine's beam() makes: a box of the segment's length, centred, aimed with lookAt.
+    for (const [from, to] of [[[0, 0.2, -6], [0, 3, -10.4]], [[-9.5, 0.2, -18.8], [-9.5, 2.6, -14.7]], [[-9.5, 4, -19], [-9.5, 4, -10.4]], [[-12, 1, -5], [-10, 2, -9]]]) {
+        const length = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+        const mesh = BABYLON.MeshBuilder.CreateBox('beam', { width: 0.05, height: 0.05, depth: length }, scene);
+        mesh.position.set((from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
+        mesh.lookAt(new BABYLON.Vector3(...to));
+        const world = mesh.computeWorldMatrix(true);
+        const a = BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(0, 0, -length / 2), world);
+        const z = BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(0, 0, length / 2), world);
+        assert.ok(a.subtractFromFloats(...from).length() < 1e-4 && z.subtractFromFloats(...to).length() < 1e-4, `a beam does not run from ${from} to ${to}`);
+    }
+    scene.dispose();
+    const M = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    const run = M.stairs.zBottom - M.stairs.zTop;
+    const riser = M.deck.top / M.stairs.steps;
+    const tread = run / (M.stairs.steps - 1);
+    assert.ok(riser >= 0.15 && riser <= 0.2 && tread >= 0.25 && tread <= 0.32, `the stair is not comfortable (${riser} / ${tread})`);
+    assert.ok(2 * riser + tread >= 0.6 && 2 * riser + tread <= 0.66, 'the 2R+T rule of thumb fails');
+    assert.ok(M.stairs.x1 - M.stairs.x0 >= 1.2, 'the stair is too narrow to pass a rail with the camera ellipsoid');
+});
+
+test('guests and the dance-floor crowd stay out of the mezzanine and its stair', () => {
+    const BABYLON = makeBabylonStub();
+    const M = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const slots = window.VRClubAudioCrowd.prototype._guestSlots.call({});
+    const clear = 0.8;
+    let onDeck = 0;
+    for (const slot of slots) {
+        const underOrBeside = slot.x < M.deck.x1 + clear && slot.z < M.stairs.zBottom + clear && slot.z > M.deck.z0 - clear;
+        if (slot.y) {
+            onDeck++;
+            assert.equal(slot.y, M.deck.top);
+            assert.ok(slot.x > M.deck.x0 + 0.4 && slot.x < M.deck.x1 - 0.3 && slot.z > M.deck.z0 + 0.4 && slot.z < M.deck.z1 - 0.4, 'the deck guest must stand on the deck');
+        } else {
+            assert.ok(!underOrBeside, `a floor guest at ${slot.x}, ${slot.z} stands in the mezzanine's footprint`);
+        }
+    }
+    assert.equal(onDeck, 1);
+    // The deck guest belongs to the high tier, not the balanced one.
+    const index = slots.findIndex(slot => slot.y);
+    const tiers = [...readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8').matchAll(/guestSize:\s*(\d+)/g)].map(match => Number(match[1]));
+    assert.ok(index >= tiers[2] && index < tiers[1], `the deck guest is slot ${index}; tiers ${tiers}`);
+});
+
+// ---------------------------------------------------------------------------
+// Bass bins under the PA
+// ---------------------------------------------------------------------------
+
+test('a bass bin hangs from its speaker: below it, facing the way it faces, and in the same accent light', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const CLUB_POSITIONS = { paSpeakers: { left: { x: -6, y: 7.1, z: -16 }, right: { x: 6, y: 7.1, z: -16 } } };
+    const { window } = loadClassic('js/modelLoader.js', {
+        BABYLON, CLUB_POSITIONS, navigator: { userAgent: '' }, AbortController, IndexedDBAssetCache: class {}, InFlightRegistry: class {}
+    });
+    const configs = window.ModelLoader.prototype.getModelConfigs.call({});
+    for (const side of ['left', 'right']) {
+        const bin = configs[`bass_bin_${side}`];
+        assert.equal(bin.hangFrom, `pa_speaker_${side}`);
+        assert.ok(bin.hangGap > 0.3 && bin.hangGap < 0.6, 'the chain gap must be visible but short');
+        assert.equal(bin.placement.fitAxis, 'x');
+        assert.ok(bin.placement.fitSize >= 1 && bin.placement.fitSize <= 1.4, 'a folded-horn bin is about 1.2 m wide');
+    }
+    assert.ok(Object.keys(configs).indexOf('bass_bin_left') > Object.keys(configs).indexOf('pa_speaker_right'),
+        'bins are configured after the speakers they hang from');
+
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    for (const [side, yaw] of [['left', Math.PI + Math.PI / 6], ['right', Math.PI - Math.PI / 6]]) {
+        // A host standing in for the placed speaker: a tilted box with a known underside.
+        const host = BABYLON.MeshBuilder.CreateBox('host', { width: 0.6, height: 1.45, depth: 0.6 }, scene);
+        host.rotation.set(-Math.PI / 6, yaw, 0);
+        host.position.set(side === 'left' ? -6 : 6, 6.4, -16);
+        host.computeWorldMatrix(true);
+        const bottomCentre = BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(0, -0.725, 0), host.getWorldMatrix());
+        const loader = Object.create(window.ModelLoader.prototype);
+        loader.loadedModels = { [`pa_speaker_${side}`]: { rootMesh: host, placed: { bottomCentre } } };
+        const resolved = loader._resolveHangPlacement(`bass_bin_${side}`, configs[`bass_bin_${side}`]);
+        assert.ok(Math.abs(resolved.placement.centerX - bottomCentre.x) < 1e-9 && Math.abs(resolved.placement.centerZ - bottomCentre.z) < 1e-9,
+            'the bin must hang from the speaker\'s underside, not its centre');
+        assert.ok(Math.abs(resolved.placement.topY - (bottomCentre.y - configs[`bass_bin_${side}`].hangGap)) < 1e-9);
+        const front = BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(0, 0, -1), host.getWorldMatrix());
+        assert.ok(Math.abs(Math.sin(resolved.rotation.y) - front.x / Math.hypot(front.x, front.z)) < 1e-9, 'the bin faces the way the speaker does');
+        assert.equal(resolved.rotation.x, 0, 'the bin hangs level, not tilted with the speaker');
+        assert.throws(() => Object.assign(Object.create(window.ModelLoader.prototype), { loadedModels: {} })._resolveHangPlacement('bass_bin_left', configs.bass_bin_left), /not loaded/);
+    }
+});
+
+test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is in the product', () => {
+    const json = readGlbJson('js/models/bassbin/source/bass_bin_3.glb');
+    assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 6, 'a bin must cost six draws');
+    assert.equal(json.materials.length, 6);
+    assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /Bass Bin 3 - Subwoofer[\s\S]{0,400}darksoundlab[\s\S]{0,300}CC BY 4\.0/, 'the CC BY credit must name title, creator and licence');
+    assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /bass_bin_3\.glb/);
 });

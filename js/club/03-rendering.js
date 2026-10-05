@@ -612,23 +612,30 @@ class VRClubRendering extends VRClubLifecycle {
         rightWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
         rightWall.doNotSyncBoundingInfo = true;
         
-        // Front wall
-        const frontWall = BABYLON.MeshBuilder.CreateBox("frontWall", {
-            width: 25,
-            height: 10,
-            depth: 0.5
-        }, this.scene);
-        frontWall.position = new BABYLON.Vector3(0, 5, 0);
-        this._applyWorldUVs(frontWall, wallTile, wallScale);
-        frontWall.material = wallMat;
-        frontWall.receiveShadows = false; // Optimization: disable shadows on walls
-        frontWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
-        frontWall.doNotSyncBoundingInfo = true;
+        // Front wall: a 4 m doorway (x -2..2, 3.4 m high) leads to the entrance vestibule (see
+        // VenueDressing.createEntranceArea). The first piece keeps the name `frontWall`.
+        const doorHalf = 2.0, doorHeight = 3.4;
+        const frontPieces = [
+            { name: 'frontWall', width: 12.5 - doorHalf, height: 10, x: -(12.5 + doorHalf) / 2, y: 5 },
+            { name: 'frontWallRight', width: 12.5 - doorHalf, height: 10, x: (12.5 + doorHalf) / 2, y: 5 },
+            { name: 'frontWallLintel', width: 2 * doorHalf, height: 10 - doorHeight, x: 0, y: (10 + doorHeight) / 2 }
+        ].map(piece => {
+            const mesh = BABYLON.MeshBuilder.CreateBox(piece.name, {
+                width: piece.width, height: piece.height, depth: 0.5
+            }, this.scene);
+            mesh.position = new BABYLON.Vector3(piece.x, piece.y, 0);
+            this._applyWorldUVs(mesh, wallTile, wallScale);
+            mesh.material = wallMat;
+            mesh.receiveShadows = false; // Optimization: disable shadows on walls
+            mesh.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
+            mesh.doNotSyncBoundingInfo = true;
+            return mesh;
+        });
 
         // The visible shell is the venue boundary. The invisible collisionWall band is
         // only 4 m tall and open at the entrance, so without this a desktop visitor
         // walked out through the front wall or flew over the band and through a side wall.
-        for (const wall of [backWall, leftWall, rightWall, frontWall]) wall.checkCollisions = true;
+        for (const wall of [backWall, leftWall, rightWall, ...frontPieces]) wall.checkCollisions = true;
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
@@ -699,9 +706,8 @@ class VRClubRendering extends VRClubLifecycle {
         // Add exposed brick sections between pillars
         const brickScale = this.textureLoader && this.textureLoader.textureConfigs.walls.scale || { u: 1, v: 1 };
         const brickSections = [
-            { x: -12.0, z: -10, width: 1, height: 4 },
+            // No fins at x=±12, z=-10: the bar's back bar and the mezzanine stair stand against those walls.
             { x: -12.0, z: -20, width: 1, height: 3 },
-            { x: 12.0, z: -10, width: 1, height: 4 },
             { x: 12.0, z: -20, width: 1, height: 3 }
         ];
         
@@ -808,7 +814,7 @@ class VRClubRendering extends VRClubLifecycle {
         const artPieces = [[], []];
         [-1, 1].forEach((side, artIndex) => {
             const wallX = side * 12.18;
-            const zCenter = artIndex === 0 ? -10 : -18.6;
+            const zCenter = artIndex === 0 ? -13.0 : -18.6;
             const facing = side < 0 ? Math.PI / 2 : -Math.PI / 2;
 
             [1.45, 0.9].forEach((diameter, ringIndex) => {

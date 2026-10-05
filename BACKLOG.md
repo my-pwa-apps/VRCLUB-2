@@ -6,6 +6,307 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Implementation - 2026-10-05 - Bass bins under the PA
+
+Shipped: one bin hung under each flown speaker (see [CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Open item:
+
+- [ ] **Measure the bass bins on a Quest 3S and re-check the PA sound image**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Evidence:** Two bins add 12 draws and ~41k triangles above the dance floor; only desktop software rendering and the IWER harness were run.
+  The speaker's spatial audio still sits at the cabinet, not the combined stack.
+  **Recommended solution:** Capture frame time with the bins in the headset; if over budget, simplify the 14.6k-triangle metal part.
+  **Acceptance criteria:** No frame-time regression versus the dance-floor baseline on the balanced tier.
+
+---
+
+## Implementation - 2026-10-04 - Steel mezzanine and stair
+
+Shipped: a steel balcony on the left wall, a 16-step stair, a table and two stools, a BALCONY preset (see
+[CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Open items:
+
+- [ ] **Let VR teleport onto the mezzanine**
+
+  **Priority:** Medium
+  **Category:** VR
+  **Evidence:** Babylon's teleport targets only `floorMesh`, so the deck and stair are not valid targets; the deck is reached
+  with the BALCONY quick-menu button or by walking with comfort off. The walking level (`_walkLevel`) is recorded for the body
+  but is not driven by VR movement.
+  **Recommended solution:** add `mezzDeck` and the stair treads to the teleport floor meshes, then drive `_walkLevel` from
+  the XR camera's height above the picked ground.
+  **Acceptance criteria:** From comfort mode a guest can teleport onto the deck and back, and the body stands on it.
+
+- [ ] **Walk the stair with a gravity-driven XR camera**
+
+  **Priority:** Medium
+  **Category:** VR
+  **Evidence:** Desktop climbing relies on the collision slide; the IWER harness does not exercise comfort-off movement on the stair.
+  **Acceptance criteria:** A headset capture climbing and descending without clipping or floating.
+
+---
+
+## Implementation - 2026-10-04 - Bar and entrance
+
+Shipped: doorway and vestibule, bar with a female bartender, five stools and a 134-bottle back bar (see
+[CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Validated on desktop SwiftShader and the IWER Quest harness
+(`test/e2e/bar.spec.mjs`, `budget.spec.mjs`); desktop submissions 304 and XR 281 per frame, no 4096 textures. Open items:
+
+- [ ] **Measure the bar's triangle cost on a Quest 3S**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Evidence:** The bar adds about 48k bottle triangles (one draw), 33k stool triangles (five instances of 6.6k) and a 33k-triangle
+  bartender; only desktop software rendering has been run.
+  **Recommended solution:** Capture frame time at the bar and at the entrance on the headset. If it is over budget, drop to
+  three stools, 10 radial bottle segments (`BarProps.SEGMENTS`) or thin the top shelf; every one is a constant.
+  **Acceptance criteria:** No frame-time regression versus the dance-floor baseline at the bar on balanced tier.
+
+- [ ] **Give the bartender a job**
+
+  **Priority:** Low
+  **Category:** Animation
+  **Evidence:** She plays the shared `Idle_Talking_Loop`; the Quaternius libraries carry no pour or wipe clip.
+  **Recommended solution:** Author or source a CC0 bartending clip for the shared UE skeleton; until then she is a convincing
+  presence behind the counter, not a performer.
+
+- [ ] **Add glassware and a till**
+
+  **Priority:** Low
+  **Category:** Art
+  **Evidence:** Opaque glass reads wrongly and the club forbids blended surfaces in VR, so no drinking glasses were added;
+  Poly Haven *Cash Register 01* carries a blended glass material and was left out for the same reason.
+  **Recommended solution:** Author opaque or alpha-tested glass props, or bake a frosted look, then place them on the counter.
+
+---
+
+## Review - 2026-10-04 - Principal experience and engineering assessment
+
+Review mode only; no runtime behaviour was changed. Full assessment and validation:
+[Principal review](docs/REVIEW_2026-10-04.md). Source revision: `8a5ab33`.
+New findings below are separate root causes, not repetitions of the existing Quest baseline,
+audio-band calibration, desktop restore, crowd behaviour or licensing items.
+The existing CI-gate item is reopened below; its historical resolution is preserved.
+Historical frame-time and allocation measurements elsewhere in this file were not remeasured.
+
+- [x] **Apply master dimming to every show-owned fixture and flash impulse**
+
+  **Resolution:** Master dimming now scales moving heads, ceiling lasers, laser sheets, the LED wall and strobe room impulses continuously: a live wall still renders at master 0.01 (~0.00975 panel red after easing), master 0 fades it below 0.001, and the VR strobe probe now blends ambient/exposure/retinal from 0.06/1.22/0 through 0.53/1.06/0.03 at master 0.5 to 1.00/0.90/0.06 at full.
+
+  **Priority:** High
+  **Category:** Lighting
+  **Confidence:** High for isolated fixture output; countdown image not yet validated
+  **Area:** NOCTURNE intensity, dimmer and blackout
+  **Affected files:** [08-animation-fixtures.js](js/club/08-animation-fixtures.js), [07-animation-core.js](js/club/07-animation-core.js), [09-animation-finish.js](js/club/09-animation-finish.js), [showDirector.js](js/showDirector.js)
+  **Evidence:** Moving-head, laser and sheet output do not consistently consume `masterIntensity`; the wall uses a threshold. An isolated real-method strobe probe at master zero still emits [10,10,10], ambient intensity 3.2 and retinal alpha 0.18 using the desktop fallback impulse. This is not a capture of the countdown, which smooths toward zero.
+  **Problem:** A director or macro intensity of zero is not a global show dimmer.
+  **User-visible effect:** Some sources remain bright through an intended dark interval.
+  **Immersion impact:** Breaks the contrast and anticipation of authored drops.
+  **Desktop impact:** Fixture and room-flash output.
+  **VR impact:** Same fixture mismatch, including peripheral flash output.
+  **Performance impact:** No new lights or passes are necessary.
+  **Recommended solution:** Compose the master multiplicatively into final fixture output, including every flash impulse, with named exemptions for safety practicals.
+  **Regression considerations:** Preserve enabled light slots, Safe Mode, look punch and wall accompaniment; do not solve this by toggling lights.
+  **Acceptance criteria:** Zero master suppresses all show-owned emission and impulses; intermediate levels dim continuously; exempt safety signage remains.
+  **Validation:** Real-method tests at zero/intermediate/full master, an actual countdown run and image-level blackout tests in desktop and emulated XR.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Govern the separate moving-head flash source**
+
+  **Resolution:** Manual moving-head strobes now use the same 0.34 s flash ceiling as the bank, measuring 2.93 complete off→on cycles per second at 45/60/72/90/120 Hz at maximum audio speed, and Safe Mode removes the on/off transitions entirely.
+
+  **Priority:** High
+  **Category:** Accessibility
+  **Confidence:** High
+  **Area:** Manual spotlight strobe modes
+  **Affected files:** [08-animation-fixtures.js](js/club/08-animation-fixtures.js), [unit.test.mjs](test/unit.test.mjs)
+  **Evidence:** `Math.sin(time * 50 * audioSpeed) > 0` is a separate moving-head square wave. Its nominal rate is 50/(2*pi), about 8 flashes/s, reaching about 12 at `audioSpeed = 1.5`. It is outside the bank's governed timer.
+  **Problem:** The existing short-burst/rate tests do not constrain this reachable flash source.
+  **User-visible effect:** Manual modes can flash synchronized heads and their surface lighting rapidly.
+  **Immersion impact:** Uncomfortable visual exposure, not merely an artistic preference.
+  **Desktop impact:** Ungoverned moving-head flashing.
+  **VR impact:** The same source occupies the immersive field.
+  **Performance impact:** A bounded timing policy is inexpensive.
+  **Recommended solution:** Apply an explicit shared or equivalent bounded flash policy to this source; do not add a second independent flash allowance.
+  **Regression considerations:** Safe Mode already suppresses this path and must continue to do so. Preserve sweep-only looks and musical timing.
+  **Acceptance criteria:** All manual spotlight modes respect the documented flash ceiling at maximum audio input; Safe Mode yields no on/off flash transitions.
+  **Validation:** Count complete off-to-on flash cycles at 45/60/72/90/120 Hz, including maximum speed, and run image-level flash assessment. Rate alone is not WCAG certification.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Integrate sheet phase so speed ramps cannot teleport the crossing**
+
+  **Resolution:** `_poseLaserSheet()` now integrates clamped elapsed time into a persistent phase; the shipped ramps measure worst-case p95 0.411 m/s and max 0.430 m/s (`liquidPlane`, 120 Hz, 600 s uptime) instead of the prior 2.49 m single-frame jump at 600 s.
+
+  **Priority:** High
+  **Category:** Animation
+  **Confidence:** High
+  **Area:** Laser-sheet cue ramps
+  **Affected files:** [07-animation-core.js](js/club/07-animation-core.js), [showDirector.js](js/showDirector.js), [sheet.test.mjs](test/sheet.test.mjs)
+  **Evidence:** Phase is absolute time multiplied by the current speed, while cue ramps change speed in beat-sized steps. A pinned-Babylon maths probe at 600 s moved the crossing 2.49 m in one 60 Hz frame for a normal `liquidPlane` ramp increment; fixed speed moved it 0.0054 m.
+  **Problem:** A speed change changes accumulated phase retrospectively; the jump grows with uptime.
+  **User-visible effect:** The bright crossing snaps instead of drifting during a cue ramp.
+  **Immersion impact:** Violates the calm, physically coherent sheet-motion contract.
+  **Desktop impact:** Visible discontinuity.
+  **VR impact:** The same sudden spatial motion in the headset.
+  **Performance impact:** A persistent phase accumulator is negligible.
+  **Recommended solution:** Integrate clamped elapsed time times speed into a continuous phase. Audit the analogous moving-head sweep expression before extending the same helper.
+  **Regression considerations:** Preserve both-projector geometry, crossing height, follower lag, speed caps and frame-rate independence.
+  **Acceptance criteria:** Actual shipped ramps and cue transitions retain crossing p95 speed <= 1 m/s and maximum <= 1.5 m/s at several uptimes and refresh rates.
+  **Validation:** Extend the real-Babylon sheet test to run ramps, not separate constant-speed endpoint runs, at 0/60/600 s and 45-120 Hz.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Reserve an effective material slot for equipment accent lights**
+
+  **Resolution:** DJ and PA accents now both reserve an eligible-light slot with `renderPriority = 1` plus one mesh resync: the room stays `[ambient, spot0, spot1, spot2]`, while the console compiles `[djConsoleLight, ambient, spot0]` at budget 3 and `[djConsoleLight, ambient, spot0, spot1]` at budget 4 without raising any light budget.
+
+  **Priority:** Medium
+  **Category:** Rendering
+  **Confidence:** High
+  **Area:** Imported console and PA lighting
+  **Affected files:** [modelLoader.js](js/modelLoader.js), [06-effects.js](js/club/06-effects.js), [vrclub.spec.mjs](test/e2e/vrclub.spec.mjs)
+  **Evidence:** Globally affecting room spots precede the mesh-local point lights. A real Babylon light-defines probe at budgets 3 and 4 contains no equipment point-light slot, even with earlier spots at intensity zero.
+  **Problem:** `includedOnlyMeshes` prevents spill but does not reserve a slot on those meshes.
+  **User-visible effect:** Dedicated console and speaker illumination contributes nothing to the compiled material.
+  **Immersion impact:** Equipment loses authored local lighting and legibility.
+  **Desktop impact:** Three-slot budget.
+  **VR impact:** Four-slot budget has the same starvation.
+  **Performance impact:** Reassign existing slots; do not raise the light budget.
+  **Recommended solution:** Reserve a bounded equipment slot through explicit mesh/light membership or a compatible priority strategy, retaining intended room-head contribution.
+  **Regression considerations:** No real mirror light, slot churn, room spill or per-frame light enable changes.
+  **Acceptance criteria:** The local point light participates in equipment shader defines at both budgets and visibly lights equipment with heads dark.
+  **Validation:** Compiled-light-slot assertions plus controlled equipment captures; retain the existing locality assertions.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [x] **Restore desktop body calibration after seated XR**
+
+  **Resolution:** `_updateLocalPlayerBody()` now restores the 1.7 m desktop fit on XR exit, preserves measured XR height on re-entry, and the unit/real-rig tests cover seated, standing and DJ-riser transitions.
+
+  **Priority:** Medium
+  **Category:** VR
+  **Confidence:** High
+  **Area:** Local body mode transitions
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js), [avatarRig.js](js/avatarRig.js), [rig.test.mjs](test/rig.test.mjs), [unit.test.mjs](test/unit.test.mjs)
+  **Evidence:** The adapter refits standing-eye calibration on XR entry but only clears its XR-refit flag on exit. A real shipped-skeleton/rig transition from 1.0 m seated XR to the 1.7 m desktop camera retained 1.0 m calibration and measured feet 0.700000 m above the floor.
+  **Problem:** A seated/short XR calibration persists into the standing desktop pose.
+  **User-visible effect:** The returning desktop body can be small and float above the floor.
+  **Immersion impact:** Breaks grounded embodiment after a normal mode switch.
+  **Desktop impact:** After a seated or short-height XR session.
+  **VR impact:** Re-entry must still preserve measured eye height.
+  **Performance impact:** Refit once per transition, not per frame.
+  **Recommended solution:** Restore the intended desktop calibration on exit and explicitly own mode-transition body sizing.
+  **Regression considerations:** Do not resize genuine crouching or confuse the DJ-riser offset with player height.
+  **Acceptance criteria:** Standing/seated XR -> desktop -> XR preserves grounded feet, intended body scale and seated tracking.
+  **Validation:** Real-rig transition tests at two heights and on the booth riser, then seated/standing headset inspection.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [x] **Give guests a way to silence crowd ambience**
+
+  **Resolution:** The Audio menu now separates **Music** from persisted **Ambience** (`vrclub.crowdAmbience`), and the generated crowd bed uses a user gain the per-frame acoustic ducking never overwrites.
+
+  **Priority:** Medium
+  **Category:** Audio
+  **Confidence:** High
+  **Area:** User volume and generated crowd bed
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js), [ui-init.js](js/ui-init.js), [audio-spatial.spec.mjs](test/e2e/audio-spatial.spec.mjs)
+  **Evidence:** `setAudioVolume()` changes only the media element. The independently generated crowd source reaches the compressor/master bus directly. Real browser master-bus RMS remained 0.003584 with user volume zero, crowd gain 0.05 and no music element.
+  **Problem:** The UI's only Volume control cannot silence app-generated ambience.
+  **User-visible effect:** Setting volume to 0% still leaves audible noise.
+  **Immersion impact:** Sound control feels unreliable; users cannot opt out of the ambient bed.
+  **Desktop impact:** After AudioContext creation.
+  **VR impact:** Same, with fewer readily accessible browser controls.
+  **Performance impact:** One persistent user gain or an explicit ambience control is negligible.
+  **Recommended solution:** Provide a user-owned output gain distinct from acoustic gain, or clearly label music volume and add an ambience mute. Keep voice control explicit rather than silently changing its semantics.
+  **Regression considerations:** Spatial attenuation, reverb and the per-frame acoustic master must not overwrite the user setting.
+  **Acceptance criteria:** A discoverable control silences generated ambience; control labels accurately describe scope; user gain remains stable during movement.
+  **Validation:** Real Web Audio output meter with music absent, music present, volume/mute zero and changing acoustic zones.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [x] **Do not steal native Space activation from focused buttons**
+
+  **Resolution:** Global keyboard shortcuts now ignore focused interactive targets and `defaultPrevented` events, so Space still activates the focused control while scene-focused Space keeps the audio shortcut.
+
+  **Priority:** Medium
+  **Category:** Accessibility
+  **Confidence:** High
+  **Area:** DOM keyboard shortcuts
+  **Affected files:** [ui-init.js](js/ui-init.js), [vrclub.spec.mjs](test/e2e/vrclub.spec.mjs)
+  **Evidence:** The shortcut guard excludes text fields but not buttons. With an audio element present, focusing Close audio panel and pressing Space leaves it open; Enter closes it in the same browser session.
+  **Problem:** The global audio shortcut prevents the focused button's native Space action.
+  **User-visible effect:** Keyboard activation of buttons unexpectedly controls music instead.
+  **Immersion impact:** Breaks reliable menu interaction.
+  **Desktop impact:** Keyboard and assistive input.
+  **VR impact:** DOM keyboard accessibility outside immersive XR.
+  **Performance impact:** None.
+  **Recommended solution:** Respect interactive targets and default-prevented events, allowing global shortcuts only in their intended non-interactive context.
+  **Regression considerations:** Keep Space play/pause on the scene and existing text-field/modifier guards; preserve Enter activation and focus restoration.
+  **Acceptance criteria:** Focused buttons activate once with Space without changing unrelated audio state; scene-focused Space still controls playback.
+  **Validation:** Browser keyboard tests for close, Safe Mode and disclosure buttons with an existing audio element, plus canvas-focused playback.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+- [x] **Report silent analysis as a heuristic, not proof of a missing CORS header**
+
+  **Resolution:** `getAudioData()` now gates the warning by elapsed unmuted silence, resets on real analyser activity, and reports a CORS restriction as one possible cause instead of as proof.
+
+  **Priority:** Medium
+  **Category:** Reliability
+  **Confidence:** High for the predicate and message
+  **Area:** Audio diagnostics
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js), [unit.test.mjs](test/unit.test.mjs)
+  **Evidence:** The real `getAudioData()` method emits a categorical missing-header toast after 181 zero-valued reads whenever a playing element's clock exceeds 2 s. A browser analyser/media stub reproduced it without any network or CORS failure.
+  **Problem:** Legitimate silence is indistinguishable from blocked analysis, and the threshold is counted in render frames.
+  **User-visible effect:** Silent intros, breaks or muted input can receive misleading server-blame feedback at refresh-dependent times.
+  **Immersion impact:** False error feedback interrupts otherwise valid playback.
+  **Desktop impact:** Same diagnostic.
+  **VR impact:** Same predicate at different render rates; DOM toast is not an in-world diagnostic.
+  **Performance impact:** Negligible elapsed-time bookkeeping.
+  **Recommended solution:** Use elapsed-time gating, account for user mute and prior nonzero samples, and describe sustained silence with CORS as one possible cause unless independently established.
+  **Regression considerations:** Keep actionable notification for genuinely blocked/failed streams; do not silently swallow media errors.
+  **Acceptance criteria:** Legitimate silence is never described as proven missing CORS; timing is consistent at 45-120 Hz; a blocked source still receives useful guidance.
+  **Validation:** Same-origin silent audio, nonzero-then-silent audio, muted playback and failed cross-origin playback, with frame-rate-varied unit tests.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+- [x] **Measure render submissions and label texture-budget scope accurately**
+
+  **Resolution:** `snapshotResourceBudget()` (test/e2e/xr-measure.mjs) now records engine-counted scene submissions beside the active-submesh proxy and reports ordinary and cube/render-target texture memory separately; the budget spec also takes an XR-entered snapshot. With the bar: desktop 304 submissions (proxy 284), XR 281, 228 MB ordinary textures plus 10-13 MB cube/render-target, zero 4096 textures.
+
+  **Priority:** Medium
+  **Category:** Testing
+  **Confidence:** High
+  **Area:** Browser resource budgets
+  **Affected files:** [budget.spec.mjs](test/e2e/budget.spec.mjs), [xr-measure.mjs](test/e2e/xr-measure.mjs), [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md)
+  **Evidence:** The budget adds active submesh counts, not submitted draws, and skips cube/render-target textures. A real high-tier entrance `firstLight` frame had 299 active-submesh proxy draws versus 321 engine-counted scene submissions; 11 cube/render-target textures were outside the estimate.
+  **Problem:** Complexity proxies are presented as full draw-call/GPU-memory budgets, and the budget spec never enters XR.
+  **User-visible effect:** No immediate rendering change, but expensive passes can regress without violating the advertised budget.
+  **Immersion impact:** Missed regressions undermine frame pacing.
+  **Desktop impact:** Glow, post-processing, probes and other passes need explicit coverage.
+  **VR impact:** XR render-target/MSAA costs are not covered by this desktop snapshot.
+  **Performance impact:** Test instrumentation only; do not add production per-frame readbacks.
+  **Recommended solution:** Retain the active-content proxy with an honest name, assert engine submission deltas on pinned cues, and separately budget ordinary texture estimates and mode-owned render targets.
+  **Regression considerations:** Do not reinterpret SwiftShader time as headset performance or claim exact driver allocation from RGBA estimates.
+  **Acceptance criteria:** Added render passes change the submission budget; render-target growth changes its own estimate; desktop and emulated XR shapes are validated separately.
+  **Validation:** Mutation checks adding a pass/render target, pinned mirror/strobe/sheet cues, and XR entry; actual Quest timing remains in the existing headset-baseline item.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** High
+
+---
+
 ## Review — 2026-10-03 — Phase 1 of the realism plan
 
 Done: neon and exit signs (see the resolved item below), a contact shadow under every character, a
@@ -16,8 +317,9 @@ calls 347 -> 329, texture memory 224 -> 210 MB.
   **Resolved 2026-10-03 for characters.** One quad with a thin instance per enabled character (a soft
   radial blob, alpha-blended, no depth write, no light): one draw call, rebuilt only when the set of
   enabled characters changes. Checked on a lit floor with the characters hidden. **Still open:** the DJ
-  console, the booth and the speakers are not covered (the shadow generators handle them on the
-  desktop tiers only), and a blob does not follow a moving light.
+  console, the booth and the speakers are not covered, and a blob does not follow a moving light.
+  **Correction 2026-10-04:** no light currently owns a shadow generator; tier shadow settings
+  therefore do not provide equipment coverage. Retain this gap in the existing grounding item.
 - [x] **Reflections came from a generic sample sky**
   **Resolved 2026-10-03.** The scene environment is now Poly Haven's *Empty Warehouse 01* (CC0, Sergej
   Majboroda), prefiltered to 256 px (152 KB, was 268 KB), loaded from `textures/environment/`. On the
@@ -1205,7 +1507,7 @@ safe-mode bypass (see the cleanup item).
   `smoothingTimeConstant` applies per `getByteFrequencyData()` call, i.e. per render frame,
   so flux dynamics also vary with refresh rate.
   **Problem:** Onset detection and "bass" reactivity respond to vocals, snare and synth leads.
-  **User-visible effect:** Lights hit on the wrong musical events; the mirror ball follows vocals.
+  **User-visible effect:** Onset tracking and energy-driven lighting can respond to vocals and snare body rather than isolating kicks. Mirror-ball look selection is now director-owned, so the earlier claim that it directly follows vocals is stale.
   **Immersion impact:** High; audiovisual coherence is the club's core promise.
   **Desktop impact:** Same as VR.
   **VR impact:** Same as desktop.
@@ -1477,7 +1779,28 @@ guard; splash safe-mode offered before rendering.
 
 - [x] **Restore a green CI gate (lint, audit, e2e)**
 
-  **Resolved 2026-09-23 (locally verified; confirm on the first push).**
+  **Resolution 2026-10-04:** the vulnerable chain was the unused `@gltf-transform/cli` dev dependency; it was replaced by the three `@gltf-transform` libraries the scripts import. `npm audit` (full and production-only) reports 0 vulnerabilities, `eslint` is clean, `npm test` passes 166/166 and the full Chromium/IWER suite passes (15 tests; three specs were rerun after fixing calibration that the master-dimming and sheet-phase fixes legitimately changed).
+
+  **Reopened 2026-10-04:** local syntax, lint and all 152 Node tests pass, but live
+  `npm audit --json` exits 1 with three high dependency nodes (`braces`, `micromatch`,
+  `@gltf-transform/cli`) from one dev-tool dependency chain, GHSA-vfj7-8cjw-p6xm.
+  The current CI audit gate uses `npm audit --audit-level=high`, and deploy depends on it.
+  This is a deployment/tooling blocker, not evidence of a shipped-browser exploit.
+  npm's offered downgrade to CLI 2.0.5 is not a validated compatible remedy.
+  **User-visible effect:** a compliant new production deployment cannot pass the current gate.
+  **Immersion impact:** Indirect; fixes cannot be shipped through the intended path.
+  **Desktop impact:** Deployment, not runtime.
+  **VR impact:** Deployment, not runtime.
+  **Performance impact:** None.
+  **Current recommended solution:** resolve the advisory through a verified compatible
+  upstream fix/replacement, or document a narrowly justified reviewed exception under the
+  repository's security process. Do not force a major downgrade or weaken the audit
+  threshold without approval.
+  **Current acceptance criteria:** the unchanged high-severity gate exits zero and the
+  model-optimization contracts and clean-install build still pass; confirm the actual CI run.
+  **Current validation:** live npm advisory report and inspected CI dependency graph.
+
+  **Historical resolution 2026-09-23 (locally verified; confirm on the first push):**
   - **Lint:** `BABYLON` added to the e2e ESLint globals; the dead `pick` removed.
   - **Audit:** the `sharp` override raised to 0.35.4, and the `js-yaml` advisory fixed with
     `npm audit fix`.
@@ -4677,7 +5000,9 @@ zero console errors and zero WebGL warnings.
   out of version control and fetch at build time.
   Acceptance criteria: every entry in ASSETS.md has a creator, a source URL and a licence; the
   "Known gaps" section is empty. The contract test requiring every `.glb` to appear in ASSETS.md
-  was added 2026-08-23; creator/source recovery and Mixamo redistribution clearance remain open.
+  was added 2026-08-23. The PA creator/source gap is now resolved: Sousinho's original
+  Sketchfab listing is recorded in ASSETS.md and linked in-app with the CC BY 4.0 licence
+  and optimization notice. Mixamo redistribution clearance remains open.
   Estimated effort: Medium
   Business value: High
   Technical debt reduction: Low

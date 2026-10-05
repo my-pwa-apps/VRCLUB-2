@@ -187,13 +187,16 @@ test('production build initializes a rendered club without browser errors', asyn
         const throughRoof = push(new BABYLON.Vector3(0, 1.7, -12), new BABYLON.Vector3(0, 0.25, 0), 80);
         camera.position.copyFrom(start);
         const bounds = name => window.vrClub.scene.getMeshByName(name).getBoundingInfo().boundingBox;
+        const vestibule = window.VenueLayout.vestibule;
         return {
-            z: outEntrance.z, frontWallInner: bounds('frontWall').minimumWorld.z,
+            z: outEntrance.z, vestibuleFar: vestibule.farZ, doorwayWalked: outEntrance.z > vestibule.wallZ,
             x: throughSideWall.x, leftWallInner: bounds('leftWall').maximumWorld.x,
             y: throughRoof.y, roofUnderside: bounds('ceiling').minimumWorld.y
         };
     });
-    expect(escape.z).toBeLessThan(escape.frontWallInner);
+    // The front wall now has a doorway: the visitor walks through it and stops at the street door.
+    expect(escape.doorwayWalked).toBe(true);
+    expect(escape.z).toBeLessThan(escape.vestibuleFar);
     expect(escape.x).toBeGreaterThan(escape.leftWallInner);
     expect(escape.y).toBeLessThanOrEqual(escape.roofUnderside);
 
@@ -220,7 +223,10 @@ test('production build initializes a rendered club without browser errors', asyn
             director._applyLook(director.looks[lookName], 1);
             club.updateLaserSheet({ time: 0, dtScale: 1, audio: { average: 0 } });
             const start = { pitch: club.laserSheetSource.rotation.x, yaw: club.laserSheetSource.rotation.y };
-            club.updateLaserSheet({ time: 10, dtScale: 1, audio: { average: 0 } });
+            // The phase integrates elapsed frames now, not the absolute clock: run ten real seconds at 60 Hz.
+            for (let frame = 1; frame <= 600; frame++) {
+                club.updateLaserSheet({ time: frame / 60, dtScale: 1, audio: { average: 0 } });
+            }
             return {
                 origin: club.laserSheetOrigin,
                 motion: club.laserSheetMotion,
@@ -549,21 +555,25 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             audio: { hasAudio: false, average: 0.5, bass: 0.5, mid: 0.5, high: 0.5 }
         };
 
-        // This block pins the VR *base* optics. The kick pulse is a separate, additive
-        // layer, so zero it (the render loop may have left it mid-hit).
+        // This block pins the VR *base* optics at full master. The kick pulse is a separate, additive
+        // layer, so zero it (the render loop may have left it mid-hit), and every look re-derives the master
+        // from its own intensity, which now scales the fixtures, so it is pinned to 1 after each one.
         club.kickPulse = 0;
         club.showDirector._applyLook(club.showDirector.looks.firstLight, 1);
+        club.masterIntensity = 1;
         club.spotlightPattern = 1;
         club.spotlightMode = 3;
         club.updateSpotlights(frame);
         const spot = club.spotlights[0];
 
         club.showDirector._applyLook(club.showDirector.looks.beamsOnly, 1);
+        club.masterIntensity = 1;
         club.updateLasers(frame);
         const laser = club.lasers[0].beams[0];
 
         club.photosensitiveSafeMode = false;
         club.showDirector._applyLook(club.showDirector.looks.whiteChase, 1);
+        club.masterIntensity = 1;
         club.strobeSync = 'free';
         const preStrobe = {
             ambientIntensity: club.scene.getLightByName('ambient').intensity,
@@ -721,7 +731,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(menuState).toEqual({
         enabled: true,
-        buttonCount: 14,
+        buttonCount: 15,
         textureOnlyEmission: true,
         parentIsXRCamera: true,
         smokeChanged: true,

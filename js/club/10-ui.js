@@ -306,7 +306,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Visible geometry the VR teleport arc must not pass through. */
     static get TELEPORT_BLOCKERS() {
-        return ['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop'];
+        return ['frontWall', 'frontWallRight', 'frontWallLintel', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop'];
     }
 
     /** Longest the Enter VR button waits for background model loading. */
@@ -501,6 +501,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ['ENTRANCE', 'arrival', 'travel'],
             ['DANCE FLOOR', 'danceFloor', 'travel'],
             ['DJ BOOTH', 'djBooth', 'travel'],
+            ['BALCONY', 'balcony', 'travel'],
             ['SPOTS', 'lightsActive'],
             ['LASERS', 'lasersActive'],
             ['MIRROR', 'mirrorBallActive'],
@@ -1203,23 +1204,26 @@ class VRClubUI extends VRClubAnimationFinish {
 
     moveCameraToPreset(preset) {
         const presets = {
-            arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, 1.7, -3), target: new BABYLON.Vector3(0, 2.2, -17) },
+            arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, 1.7, 5.0), target: new BABYLON.Vector3(0, 1.9, -12) },
             danceFloor: { label: 'Dance Floor', pos: new BABYLON.Vector3(-2.8, 1.7, -9.2), target: new BABYLON.Vector3(0, 2.6, -18.5) },
             // Eye height for someone standing on the 0.5 m riser, inside the 1 m
             // gap between the LED wall (z=-20) and the deck plinth (z=-19), facing out.
             djBooth: { label: 'DJ Booth', pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10) },
-            lightingGallery: { label: 'Lighting Gallery', pos: new BABYLON.Vector3(10, 5.2, -6.5), target: new BABYLON.Vector3(0, 2.4, -15.5) }
+            lightingGallery: { label: 'Lighting Gallery', pos: new BABYLON.Vector3(10, 5.2, -6.5), target: new BABYLON.Vector3(0, 2.4, -15.5) },
+            // Standing on the steel mezzanine (deck at y 3), looking across the dance floor to the booth.
+            balcony: { label: 'Balcony', pos: new BABYLON.Vector3(-10.9, 4.7, -12.4), target: new BABYLON.Vector3(1, 2.7, -16), level: 3.0 }
         };
         
         const p = presets[preset];
         if (p) {
+            this._walkLevel = p.level || 0;
             const xrCamera = this.isInVRMode ? this.vrHelper?.baseExperience?.camera : null;
             if (xrCamera) {
                 const height = Number.isFinite(xrCamera.realWorldHeight) && xrCamera.realWorldHeight > 0
                     ? xrCamera.realWorldHeight : xrCamera.position.y;
                 xrCamera.position.x = p.pos.x;
                 xrCamera.position.z = p.pos.z;
-                xrCamera.position.y = height + (preset === 'djBooth' ? 0.5 : 0);
+                xrCamera.position.y = height + (preset === 'djBooth' ? 0.5 : (p.level || 0));
                 if (this.jumpState) this.jumpState.active = false;
             } else {
                 this.camera.position.copyFrom(p.pos);

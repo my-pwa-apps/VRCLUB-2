@@ -108,6 +108,27 @@ function measure(sb, motion, speed, seconds = 90) {
     };
 }
 
+function summarizeCrossing(club, hz, runFrame) {
+    const speeds = [];
+    let prev = null;
+    let inRoom = 0;
+    let frames = 0;
+    for (let frame = 0; runFrame(frame); frame++) {
+        frames++;
+        const q = crossingAt(club, -9);
+        if (!q) { prev = null; continue; }
+        inRoom++;
+        if (prev) speeds.push(Math.hypot(q.x - prev.x, q.y - prev.y) * hz);
+        prev = q;
+    }
+    speeds.sort((a, b) => a - b);
+    return {
+        p95: speeds[Math.floor(speeds.length * 0.95)],
+        max: speeds[speeds.length - 1],
+        inRoom: inRoom / frames
+    };
+}
+
 test('the crossing of the two laser sheets drifts slowly and stays just above head height', () => {
     const sb = load();
     // Every shipped sheet look, at both ends of its speed ramp.
@@ -158,4 +179,38 @@ test('the old tuning would fail these limits (the test is measuring the right th
     speeds.sort((a, b) => a - b);
     assert.ok(speeds[Math.floor(speeds.length * 0.95)] > 3, 'the old crossing was supposed to be fast');
     assert.ok(Math.max(...heights) > 4.5, 'the old crossing was supposed to be high');
+});
+
+test('shipped sheet ramps stay continuous across uptime and refresh rates', () => {
+    const sb = load();
+    const looks = sb.window.ShowDirector._buildLooks();
+    const cases = Object.entries(looks)
+        .filter(([, look]) => look.laserSheetActive && Array.isArray(look.laserSpeed))
+        .map(([name, look]) => ({
+            name,
+            motion: look.laserSheetMotion || 'vertical',
+            from: look.laserSpeed[0],
+            to: look.laserSpeed[1]
+        }));
+    assert.ok(cases.length >= 4, 'expected the shipped sheet looks to include ramps');
+
+    for (const startTime of [0, 60, 600]) {
+        for (const hz of [45, 60, 72, 90, 120]) {
+            for (const c of cases) {
+                const club = makeSheets(sb, { motion: c.motion, speed: c.from });
+                club._B = sb.BABYLON;
+                const durationFrames = Math.max(1, Math.round((4 * 4 * 60 / 130) * hz));
+                const metrics = summarizeCrossing(club, hz, frame => {
+                    const t = durationFrames <= 1 ? 1 : frame / (durationFrames - 1);
+                    club.laserSpeed = c.from + (c.to - c.from) * t;
+                    club._poseLaserSheet(startTime + frame / hz);
+                    return frame + 1 < durationFrames;
+                });
+                const label = `${c.name}, ${hz} Hz, start ${startTime}s`;
+                assert.ok(metrics.inRoom > 0.8, `${label}: the crossing left the room ${(100 - metrics.inRoom * 100).toFixed(0)}% of the time`);
+                assert.ok(metrics.p95 <= 1.0, `${label}: ramping drove the crossing at ${metrics.p95.toFixed(2)} m/s (p95)`);
+                assert.ok(metrics.max <= 1.5, `${label}: a speed ramp teleported the crossing to ${metrics.max.toFixed(2)} m/s`);
+            }
+        }
+    }
 });

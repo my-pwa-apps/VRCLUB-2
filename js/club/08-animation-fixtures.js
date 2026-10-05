@@ -1,4 +1,7 @@
 'use strict';
+const SPOT_FLASH_BASE_S = 0.040;
+const SPOT_FLASH_MIN_S = 0.022;
+const SPOT_FLASH_MIN_INTERVAL_S = 0.34;
 class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLEDWallPass(ctx) {
         const { time, audio: audioData } = ctx;
@@ -8,11 +11,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (this.useModularSystems && this.systems.ledWall) {
             this.systems.ledWall.setActive(this.ledWallActive);
             this.systems.ledWall.update(time, audioData);
-        } else if (this.ledWallActive && (this.masterIntensity == null || this.masterIntensity > 0.02)) {
-            // Legacy update method (skipped during VJ Director BLACKOUT)
+        } else if (this.ledWallActive) {
+            // Legacy update method; final brightness is applied in _applyLedLevel().
             this.updateLEDWall(time, audioData);
-        } else if (this.ledPanels && this.ledPanels.length > 0 &&
-                   (!this.ledWallActive || (this.masterIntensity != null && this.masterIntensity <= 0.02))) {
+        } else if (this.ledPanels && this.ledPanels.length > 0 && !this.ledWallActive) {
             // LED Wall is OFF — drive every panel to true black, not just paused.
             // Written through each panel's own buffer rather than a shared cached
             // black, so a pattern that mutates emissiveColor in place on a later
@@ -114,6 +116,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     /** Ceiling laser projectors: beam aiming, floor intersection and colouring. */
     updateLasers(ctx) {
         const { time, dtScale } = ctx;
+        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // ALWAYS SYNCHRONIZED MODE - no random mode
         // Spotlights always move together in coordinated patterns
@@ -292,13 +295,15 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     
                     // Apply color to core beam - pure saturated color
                     if (!beam._emissiveBuf) beam._emissiveBuf = new BABYLON.Color3(0, 0, 0);
-                    currentColor.scaleToRef((this.isInVRMode ? 5.0 : 2.5) * (1 + (this.kickPulse || 0) * 0.7), beam._emissiveBuf);
+                    currentColor.scaleToRef(((this.isInVRMode ? 5.0 : 2.5) * (1 + (this.kickPulse || 0) * 0.7)) * master, beam._emissiveBuf);
                     beam.material.emissiveColor = beam._emissiveBuf;
                     beam.mesh.visibility = 1.0;
                     
                     // Apply inner glow color (tight halo)
                     if (beam.innerGlowMat) {
-                        beam.innerGlowMat.emissiveColor = innerGlowColor;
+                        if (!beam._innerGlowBuf) beam._innerGlowBuf = new BABYLON.Color3(0, 0, 0);
+                        innerGlowColor.scaleToRef(master, beam._innerGlowBuf);
+                        beam.innerGlowMat.emissiveColor = beam._innerGlowBuf;
                     }
                     if (beam.innerGlow) {
                         beam.innerGlow.visibility = 1.0;
@@ -306,7 +311,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     
                     // Apply outer glow color (atmospheric scatter)
                     if (beam.glowMat) {
-                        beam.glowMat.emissiveColor = outerGlowColor;
+                        if (!beam._outerGlowBuf) beam._outerGlowBuf = new BABYLON.Color3(0, 0, 0);
+                        outerGlowColor.scaleToRef(master, beam._outerGlowBuf);
+                        beam.glowMat.emissiveColor = beam._outerGlowBuf;
                     }
                     if (beam.beamGlow) {
                         beam.beamGlow.visibility = 1.0;
@@ -340,18 +347,30 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 laser.lights.forEach((light) => {
                     if (light) {
                         light.diffuse = currentLaserColor;
-                        light.intensity = this.lasersActive ? 5 : 0;
+                        light.intensity = this.lasersActive ? 5 * master : 0;
                     }
                 });
                 
                 // Update housing glow with current color
                 if (laser.housingMat) {
-                    laser.housingMat.emissiveColor = this.lasersActive ? currentEmissiveColor : this.cachedColors.black;
+                    if (this.lasersActive) {
+                        if (!laser._housingEmissiveBuf) laser._housingEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                        currentEmissiveColor.scaleToRef(master, laser._housingEmissiveBuf);
+                        laser.housingMat.emissiveColor = laser._housingEmissiveBuf;
+                    } else {
+                        laser.housingMat.emissiveColor = this.cachedColors.black;
+                    }
                 }
                 
                 // Update emitter to match beam color - this is the visible light source
                 if (laser.emitterMat) {
-                    laser.emitterMat.emissiveColor = this.lasersActive ? currentBrightColor : this.cachedColors.black;
+                    if (this.lasersActive) {
+                        if (!laser._emitterEmissiveBuf) laser._emitterEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                        currentBrightColor.scaleToRef(master, laser._emitterEmissiveBuf);
+                        laser.emitterMat.emissiveColor = laser._emitterEmissiveBuf;
+                    } else {
+                        laser.emitterMat.emissiveColor = this.cachedColors.black;
+                    }
                 }
             });
         } else if (this.lasers) {
@@ -385,7 +404,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     // Only show beams if laser is actively spinning AND lasersActive is true
                     if (laser.isSpinning && this.lasersActive) {
                         beam.mesh.visibility = 1;
-                        beam.material.alpha = 0.6;
+                        beam.material.alpha = 0.6 * master;
                         if (beam.innerGlow) beam.innerGlow.visibility = 1;
                         if (beam.beamGlow) beam.beamGlow.visibility = 1;
                     } else {
@@ -481,6 +500,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     /** Moving-head spotlights: pan/tilt, beams, floor pools, gobos and fixtures. */
     updateSpotlights(ctx) {
         const { time, dtScale, audio: audioData } = ctx;
+        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // === MODULAR SPOTLIGHT SYSTEM UPDATE ===
         // When useModularSystems is enabled, delegate to SpotlightSystem module
@@ -594,7 +614,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // light slots (shader recompiles on cue changes, a scene walk per
                 // spot-strobe flash). See the note where the spots are created.
                 spot.light.intensity = lightEnabled
-                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.6)
+                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.6) * master
                     : 0;
 
                 // Photometric origin is the lens, not the yoke. Snapshot before the
@@ -651,7 +671,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 if (!spot) continue;
 
                 // Fixture should be lit when lights are active
-                const fixtureVisible = this.lightsActive;
+                const fixtureVisible = this.lightsActive && master > 0.001;
 
                 // QC O2: use cached refs on the spot object instead of two
                 // scene.getMeshByName() calls per spot per frame (~720 hash
@@ -672,9 +692,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     }
                     if (fixtureVisible) {
                         mat.emissiveColor.copyFromFloats(
-                            targetColor.r * lensIntensity,
-                            targetColor.g * lensIntensity,
-                            targetColor.b * lensIntensity
+                            targetColor.r * lensIntensity * master,
+                            targetColor.g * lensIntensity * master,
+                            targetColor.b * lensIntensity * master
                         );
                     } else {
                         mat.emissiveColor.copyFromFloats(0, 0, 0);
@@ -691,9 +711,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     }
                     if (fixtureVisible) {
                         mat.emissiveColor.copyFromFloats(
-                            targetColor.r * sourceIntensity,
-                            targetColor.g * sourceIntensity,
-                            targetColor.b * sourceIntensity
+                            targetColor.r * sourceIntensity * master,
+                            targetColor.g * sourceIntensity * master,
+                            targetColor.b * sourceIntensity * master
                         );
                     } else {
                         mat.emissiveColor.copyFromFloats(0, 0, 0);
@@ -703,9 +723,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 if (spot.flareMat) {
                     if (fixtureVisible) {
                         spot.flareMat.emissiveColor.copyFromFloats(
-                            flareWhiteCore + targetColor.r * flareColorIntensity,
-                            flareWhiteCore + targetColor.g * flareColorIntensity,
-                            flareWhiteCore + targetColor.b * flareColorIntensity
+                            (flareWhiteCore + targetColor.r * flareColorIntensity) * master,
+                            (flareWhiteCore + targetColor.g * flareColorIntensity) * master,
+                            (flareWhiteCore + targetColor.b * flareColorIntensity) * master
                         );
                     } else {
                         spot.flareMat.emissiveColor.copyFromFloats(0, 0, 0);
@@ -715,6 +735,36 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             }
         }
         } // End of legacy inline spotlight animation else block
+    }
+
+    _sampleSpotFlash(time, audioSpeedMultiplier) {
+        const maxRateHz = 1 / SPOT_FLASH_MIN_INTERVAL_S;
+        const requestedHz = Math.min(maxRateHz, Math.max(1.6, audioSpeedMultiplier * 2.0));
+        const interval = Math.max(SPOT_FLASH_MIN_INTERVAL_S, 1 / requestedHz);
+        const duration = Math.max(
+            SPOT_FLASH_MIN_S,
+            SPOT_FLASH_BASE_S / Math.sqrt(Math.max(1, requestedHz / 2.0))
+        );
+        let state = this._spotFlashState;
+        if (!state || time < state.lastTime) {
+            state = this._spotFlashState = {
+                lastTime: time,
+                nextBurstAt: time,
+                onUntil: -1,
+                sampleTime: NaN,
+                visible: false
+            };
+        }
+        if (state.sampleTime !== time) {
+            state.lastTime = time;
+            while (time >= state.nextBurstAt) {
+                state.onUntil = state.nextBurstAt + duration;
+                state.nextBurstAt += interval;
+            }
+            state.sampleTime = time;
+            state.visible = time < state.onUntil;
+        }
+        return state.visible;
     }
 
     /** Pan/tilt target for one spotlight from the active VJ pattern (writes out.x / out.z). */
@@ -1273,21 +1323,17 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     /** Beam visibility (strobe), glow beam and emissive colour/alpha. Returns the per-spot beam state. */
     _updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g) {
         const { cosTheta, beamMidpoint, beamLength, baseScale, tiltStretch } = g;
+        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
         // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
         // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
         // Strobe is controlled by both toggle button AND spotlight mode
-        const sweepPhase = globalPhase * audioSpeedMultiplier;
-        
         // Strobe is active when: button is on AND mode includes strobe (0 or 2)
         const isStrobeMode = (this.spotlightMode === 0 || this.spotlightMode === 2);
         const isStrobeEnabled = !this.photosensitiveSafeMode && this.spotStrobeActive && isStrobeMode;
         
-        let beamVisible = this.lightsActive;
+        let beamVisible = this.lightsActive && master > 0.001;
         if (isStrobeEnabled) {
-            // STROBE: Rapid on/off flashing at 8Hz (8 flashes per second)
-            const flashPhase = sweepPhase * 2.5;
-            const flashOn = Math.floor(flashPhase * 8) % 2 === 0;
-            beamVisible = beamVisible && flashOn;
+            beamVisible = beamVisible && this._sampleSpotFlash(time, audioSpeedMultiplier);
         }
         
         // Store beamVisible on spot for fixture sync
@@ -1320,7 +1366,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
             // Use global color for perfect sync
             if (!spot._beamGlowEmisBuf) spot._beamGlowEmisBuf = new BABYLON.Color3();
-            this.currentSpotColor.scaleToRef(0.15, spot._beamGlowEmisBuf);
+            this.currentSpotColor.scaleToRef(0.15 * master, spot._beamGlowEmisBuf);
             spot.beamGlowMat.emissiveColor = spot._beamGlowEmisBuf;
         }
         // Remember whether the beam is currently lit. The authoritative
@@ -1339,7 +1385,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const spotColor = this.currentSpotColor;
         const baseIntensity = ((this.isInVRMode ? 2.8 : 2.4) + atmosphericNoise) * (1 + (this.kickPulse || 0) * 0.8);
         if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
-        spotColor.scaleToRef(baseIntensity, spot._beamEmisBuf);
+        spotColor.scaleToRef(baseIntensity * master, spot._beamEmisBuf);
         spot.beamMat.emissiveColor = spot._beamEmisBuf;
         
         // CRITICAL: Store the actual beam color for fixture sync (BASE color, not scaled)
@@ -1357,12 +1403,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // Beams brighten where the smoke actually is (see _lightAirParticles): ~0.75x
         // through thin air up to ~1.25x through a thick cloud. 1.0 until measured.
         const mediumFactor = 0.75 + 0.5 * (spot._mediumDensity == null ? 0.5 : spot._mediumDensity);
-        spot.beamMat.alpha = (scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis * (1 + (this.kickPulse || 0)) * mediumFactor;
+        spot.beamMat.alpha = ((scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis * (1 + (this.kickPulse || 0)) * mediumFactor) * master;
         
         const st = spot._beamState || (spot._beamState = {});
         st.beamVisible = beamVisible;
         st.physicsIntensity = physicsIntensity;
         st.spotColor = spotColor;
+        st.master = master;
         return st;
     }
 
@@ -1370,6 +1417,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
     _updateSpotLightPool(spot, i, direction, time, g, st) {
         const { centerBeamLength, hitSurface, surfaceIntersection } = g;
         const { beamVisible, spotColor } = st;
+        const master = st.master == null ? 1 : st.master;
         let { physicsIntensity } = st;
         // Update HYPERREALISTIC floor light pool - Physics-accurate projection
         if (spot.lightPool) {
@@ -1424,7 +1472,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 const clampedInvSq = Math.min(2.0, Math.max(0.25, invSqFalloff));
                 
                 // Combined physics-based intensity
-                physicsIntensity = lambertFactor * clampedInvSq;
+                physicsIntensity = lambertFactor * clampedInvSq * master;
                 
                 // Subtle atmospheric shimmer (dust particles in beam)
                 const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;

@@ -80,7 +80,7 @@ class VRClubCore {
                 ssaoExpensiveBlur: true,
                 floorShadows: true,
                 crowdSize: 14,             // animated skinned dancers on the floor
-                guestSize: 7,            // guests off the floor: talking, on a call, watching
+                guestSize: 8,            // guests off the floor: talking, on a call, watching
                 mirrorSpots: 140,
                 mirrorRays: 64,
                 mirrorBeamStride: 1

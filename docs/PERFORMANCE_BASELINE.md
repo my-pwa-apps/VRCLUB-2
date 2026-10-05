@@ -1,6 +1,11 @@
 # Performance Baseline
 
-Use the in-app debug overlay (`D`) to capture FPS, estimated draw calls per frame, active/total meshes, and material count from the same camera preset and show state.
+Use the in-app debug overlay (`D`) to capture FPS, engine-reported scene submissions per
+sampled frame, active/total meshes, and material count from the same camera preset and show
+state. The e2e browser-resource budget tracks a different set of figures on purpose:
+active-submesh proxy draws, ordinary 2D RGBA texture estimates, and cube/render-target RGBA
+estimates are logged separately and should not be compared one-for-one with the overlay's
+submission counter.
 
 ## 2026-07-29 Desktop Chromium
 
@@ -11,9 +16,12 @@ Configuration: production bundle, 1280 x 800, default outside camera, all local 
 | Total meshes | 1,003 | 968 |
 | Active meshes | 609 | 639 |
 | Materials | 495 | 489 |
-| Estimated draws/frame | not instrumented | 1,628 |
+| Engine-reported submissions/frame | not instrumented | 1,628 |
 
-Active mesh counts are camera- and show-dependent, so only compare them from the same preset. The integrated browser ran at 4 FPS under automation and is not representative of desktop or headset performance; its draw count is a reproducible complexity baseline, not a frame-rate target.
+Active mesh counts are camera- and show-dependent, so only compare them from the same preset.
+The integrated browser ran at 4 FPS under automation and is not representative of desktop or
+headset performance; its submission count is a reproducible complexity baseline, not a
+frame-rate target.
 
 Static material-group merging removes 56 potential submissions from the entrance and dance-floor grid. Mirror reflection spots are tiered to 140/90/48 for ultra/high/balanced; Quest uses balanced with every third beam enabled, cutting 92 raycasts per mirror update and up to 216 enabled spot/beam meshes relative to ultra.
 
@@ -54,6 +62,27 @@ Same machine and build as above, `high` tier, 45–60 s captures.
 After ENTER the club shows ~12 s of 250–600 ms main-thread stalls while the DJ console and
 PA GLBs parse and instance (Babylon frame time stays 17–40 ms in those gaps). Enter VR now
 waits for that load.
+
+## 2026-10-04 Browser resource snapshot semantics
+
+The current browser resource-budget evidence intentionally separates the figures below instead
+of labelling them all "draw calls" or "GPU memory":
+
+- **Active-submesh proxy draws:** geometry-visible work only. The 2026-10-04 review's balanced
+  browser snapshot logged **330** from the e2e budget spec.
+- **Engine-reported scene submissions/frame:** full Babylon submission count, including
+  additional passes. A pinned high-tier entrance probe logged **321** submissions against
+  **299** active-submesh proxy draws.
+- **Ordinary 2D RGBA texture estimate:** approximate `width * height * 4 * mip-factor` for
+  ready non-cube, non-render-target textures. The balanced browser snapshot logged **210 MiB**,
+  **6** ordinary textures at least 2048 px, and **0** at least 4096 px.
+- **Cube/render-target RGBA estimate:** logged separately because probes, post-process targets
+  and XR eye buffers are mode-owned allocations, not ordinary content textures. The 2026-10-04
+  review observed **11** cube/render-target textures outside the old ordinary-texture figure.
+
+The updated [budget.spec.mjs](../test/e2e/budget.spec.mjs) now captures both a desktop snapshot
+and an XR-entered snapshot with the existing IWER harness, but this task did not run Playwright,
+so the next checked numbers must come from the owner's e2e run rather than being invented here.
 
 ## Quest Check
 

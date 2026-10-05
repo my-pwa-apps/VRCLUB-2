@@ -535,7 +535,16 @@ class VRClubAnimationCore extends VRClubEffects {
         // The laser speed slider scales the sweep, capped: above ~1.4 the crossing of the
         // two planes outruns the eye, and a legacy phase sets 2.0.
         const speed = Math.min(1.4, Math.max(0.2, this.laserSpeed || 1.0));
-        const scanTime = time * 0.32 * Math.sqrt(speed);
+        const phaseRate = 0.32 * Math.sqrt(speed);
+        const lastTime = this._laserSheetLastPoseTime;
+        if (!Number.isFinite(this._laserSheetScanTime) || !Number.isFinite(lastTime) || time < lastTime) {
+            this._laserSheetScanTime = time * phaseRate;
+        } else {
+            const dt = Math.min(0.1, Math.max(0, time - lastTime));
+            this._laserSheetScanTime += dt * phaseRate;
+        }
+        this._laserSheetLastPoseTime = time;
+        const scanTime = this._laserSheetScanTime;
         const sweep = t => Math.sin(t + 0.24 * Math.sin(t * 0.37));
         const primaryPhase = sweep(scanTime);
         const crossPhase = 0.32 * Math.sin(scanTime * 1.71 + 1.1) +
@@ -561,6 +570,7 @@ class VRClubAnimationCore extends VRClubEffects {
     updateLaserSheet(ctx) {
         const { time, audio: audioData } = ctx;
         const speedMultiplierLaser = this.laserSpeed || 1.0;
+        const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // ANIMATE LASER SHEET (Hyperrealism)
         if (this.laserSheet && this.laserSheetActive) {
@@ -581,10 +591,10 @@ class VRClubAnimationCore extends VRClubEffects {
             
             // Pulse intensity with audio
             const pulse = 0.5 + (audioData.average || 0) * 0.5 + (this.kickPulse || 0) * 0.6;
-            sheetMat.alpha = 0.012 + 0.012 * pulse;
+            sheetMat.alpha = (0.012 + 0.012 * pulse) * master;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
                 const hazeMat = this.laserSheetHaze.material;
-                hazeMat.alpha = 0.006 + 0.008 * pulse;
+                hazeMat.alpha = (0.006 + 0.008 * pulse) * master;
                 if (hazeMat.opacityTexture) {
                     hazeMat.opacityTexture.vOffset = time * 0.017 * speedMultiplierLaser;
                     hazeMat.opacityTexture.uOffset = -0.055 * Math.sin(time * 0.13) +
@@ -599,18 +609,28 @@ class VRClubAnimationCore extends VRClubEffects {
             else if (this.currentColorIndex === 1) sheetColor = this.cachedColors.green;
             else sheetColor = this.cachedColors.blue;
 
-            sheetMat.emissiveColor = sheetColor;
+            if (!this._laserSheetEmissiveBuf) this._laserSheetEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+            sheetColor.scaleToRef(master, this._laserSheetEmissiveBuf);
+            sheetMat.emissiveColor = this._laserSheetEmissiveBuf;
             if (this.laserSheetHaze && this.laserSheetHaze.material) {
-                this.laserSheetHaze.material.emissiveColor = sheetColor;
+                if (!this._laserSheetHazeEmissiveBuf) this._laserSheetHazeEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                sheetColor.scaleToRef(master, this._laserSheetHazeEmissiveBuf);
+                this.laserSheetHaze.material.emissiveColor = this._laserSheetHazeEmissiveBuf;
             }
             if (this.laserAperture && this.laserAperture.material) {
-                this.laserAperture.material.emissiveColor = sheetColor;
+                if (!this._laserSheetApertureEmissiveBuf) this._laserSheetApertureEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                sheetColor.scaleToRef(master, this._laserSheetApertureEmissiveBuf);
+                this.laserAperture.material.emissiveColor = this._laserSheetApertureEmissiveBuf;
             }
             const follower = this._laserSheetFollower;
-            if (follower) follower.mount.aperture.material.emissiveColor = sheetColor;
+            if (follower) {
+                if (!this._laserSheetFollowerApertureEmissiveBuf) this._laserSheetFollowerApertureEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                sheetColor.scaleToRef(master, this._laserSheetFollowerApertureEmissiveBuf);
+                follower.mount.aperture.material.emissiveColor = this._laserSheetFollowerApertureEmissiveBuf;
+            }
             if (this.laserLight) {
                 this.laserLight.diffuse = sheetColor;
-                this.laserLight.intensity = 2.0 * pulse;
+                this.laserLight.intensity = 2.0 * pulse * master;
             }
             
             this.laserSheet.isVisible = true;

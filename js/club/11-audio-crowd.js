@@ -198,6 +198,9 @@ class VRClubAudioCrowd extends VRClubUI {
 
             this.crowdAmbienceGain = ctx.createGain();
             this.crowdAmbienceGain.gain.value = 0.05;
+            // User-owned ambience level, distinct from the per-frame ducking above.
+            this.crowdAmbienceUserGain = ctx.createGain();
+            this.crowdAmbienceUserGain.gain.value = this.getCrowdAmbienceLevel();
 
             const panner = ctx.createPanner();
             panner.panningModel = 'HRTF';
@@ -210,7 +213,8 @@ class VRClubAudioCrowd extends VRClubUI {
 
             source.connect(voiceBand);
             voiceBand.connect(this.crowdAmbienceGain);
-            this.crowdAmbienceGain.connect(panner);
+            this.crowdAmbienceGain.connect(this.crowdAmbienceUserGain);
+            this.crowdAmbienceUserGain.connect(panner);
             panner.connect(this.audioCompressor || ctx.destination);
             source.start(0);
 
@@ -444,28 +448,40 @@ class VRClubAudioCrowd extends VRClubUI {
         
         // Check if audio is actually playing
         const hasAudio = average > 0.01;
+        const audioEl = this.audioElement;
+        const muted = !!(audioEl && (audioEl.muted || audioEl.volume === 0));
+        const nowMs = typeof performance !== 'undefined' && performance && typeof performance.now === 'function'
+            ? performance.now()
+            : 0;
 
-        // === CORS-TAINTED STREAM DETECTION ===
+        // === SILENT-ANALYSER HEURISTIC ===
         // A cross-origin stream WITHOUT `Access-Control-Allow-Origin` still plays
         // through <audio>, but the Web Audio graph receives a tainted (silent)
         // source, so every FFT bin reads 0 forever. Previously this looked exactly
         // like "the club just isn't reacting to the music" with nothing in the
-        // console. Detect it and tell the user once.
-        if (!this._corsWarningShown && this.audioElement &&
-            !this.audioElement.paused && this.audioElement.currentTime > 2) {
+        // console. Detect it and tell the user once, but describe it as a
+        // heuristic: a legitimately silent stream intro can look the same.
+        if (average > 0) {
+            this._analyserHadNonZero = true;
+            this._silentAnalyserSinceMs = null;
+        } else if (!this._corsWarningShown && audioEl &&
+            !audioEl.paused && !audioEl.ended && !muted && audioEl.currentTime > 2) {
             if (average === 0) {
-                this._silentAnalyserFrames = (this._silentAnalyserFrames || 0) + 1;
-                if (this._silentAnalyserFrames > 180) { // ~3 s of audible-but-silent analysis
+                if (this._silentAnalyserSinceMs == null) this._silentAnalyserSinceMs = nowMs;
+                const windowMs = this._analyserHadNonZero ? 6000 : 3000;
+                if (nowMs - this._silentAnalyserSinceMs >= windowMs) {
                     this._corsWarningShown = true;
-                    log.warn('🎚️ Analyser is receiving silence while audio is playing — the stream is likely blocked by CORS.');
+                    log.warn('🎚️ Analyser has been silent so far while audio is playing — the stream may be blocked from analysis by CORS.');
                     this.showErrorMessage(
-                        'Audio is playing but the visuals cannot react to it. ' +
-                        'The stream server does not send an Access-Control-Allow-Origin header.'
+                        'Audio is playing but the analyser has been silent so far; ' +
+                        'one possible cause is a stream server CORS restriction. ' +
+                        'If the visuals never react, try another station or a stream ' +
+                        'that sends Access-Control-Allow-Origin.'
                     );
                 }
-            } else {
-                this._silentAnalyserFrames = 0;
             }
+        } else {
+            this._silentAnalyserSinceMs = null;
         }
         
         frame.bass = bass;
@@ -542,7 +558,7 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Set playback volume (0..1).
+     * Set music playback volume (0..1).
      *
      * Written to the <audio> element rather than `audioMasterGain`, because the
      * gain node is driven every frame by the room-acoustics occlusion model
@@ -556,6 +572,33 @@ class VRClubAudioCrowd extends VRClubUI {
         this._audioVolume = v;
         if (this.audioElement) this.audioElement.volume = v;
         return v;
+    }
+
+    /**
+     * User-owned crowd-bed level (0..1), persisted separately from the PA/music volume.
+     */
+    getCrowdAmbienceLevel() {
+        if (Number.isFinite(this.crowdAmbienceLevel)) return this.crowdAmbienceLevel;
+        let stored = null;
+        try { stored = localStorage.getItem('vrclub.crowdAmbience'); } catch (_) { /* private browsing */ }
+        const parsed = Number(stored);
+        this.crowdAmbienceLevel = Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 1;
+        return this.crowdAmbienceLevel;
+    }
+
+    setCrowdAmbienceLevel(value) {
+        const level = Math.min(1, Math.max(0, Number(value)));
+        if (!Number.isFinite(level)) return this.getCrowdAmbienceLevel();
+        this.crowdAmbienceLevel = level;
+        try { localStorage.setItem('vrclub.crowdAmbience', String(level)); } catch (_) { /* private browsing */ }
+        if (this.crowdAmbienceUserGain && this.crowdAmbienceUserGain.gain) {
+            if (this.audioContext && this.audioContext.currentTime != null && this.crowdAmbienceUserGain.gain.setTargetAtTime) {
+                this.crowdAmbienceUserGain.gain.setTargetAtTime(level, this.audioContext.currentTime, 0.05);
+            } else {
+                this.crowdAmbienceUserGain.gain.value = level;
+            }
+        }
+        return level;
     }
 
     /**
@@ -818,12 +861,13 @@ class VRClubAudioCrowd extends VRClubUI {
         pose.headYaw = Math.atan2(dir.x, dir.z);
         pose.headPitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
         pose.x = pos.x; pose.z = pos.z; pose.eyeY = pos.y;
-        pose.groundY = (pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : 0;
+        pose.groundY = (pos.x > -3 && pos.x < 3 && pos.z < -16 && pos.z > -20.5) ? 0.5 : (this._walkLevel || 0);
         if (this.isInVRMode) {
             if (!this._rigInVR) { this._rigInVR = true; rig.setEyeHeight(Math.min(2.0, Math.max(1.0, pos.y - pose.groundY))); }
             pose.left = this._handPose('left', pos);
             pose.right = this._handPose('right', pos);
         } else {
+            if (this._rigInVR) rig.setEyeHeight(1.7);
             this._rigInVR = false;
             pose.left = null; pose.right = null;
         }
@@ -847,7 +891,10 @@ class VRClubAudioCrowd extends VRClubUI {
             // play their talking, phone, arms-folded and nodding clips from the same file.
             // Tinted dark and cool: the untinted ranger leathers read as a fantasy costume under show lights.
             { url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.78, 0.6, 0.9) },
-            { url: './js/models/avatars/club-guest-male.glb', garmentColor: new BABYLON.Color3(0.58, 0.68, 0.92) }
+            { url: './js/models/avatars/club-guest-male.glb', garmentColor: new BABYLON.Color3(0.58, 0.68, 0.92) },
+            // The bartender: the female guest file again, as its own container so it can carry a black work outfit
+            // without recolouring the guests who share the first copy's materials.
+            { url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.16, 0.16, 0.19) }
         ];
 
         log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
@@ -925,6 +972,18 @@ class VRClubAudioCrowd extends VRClubUI {
             );
         }
 
+        // === THE BARTENDER ===
+        // Behind the counter, facing the stools and chatting: the talking clip of the female guest file. She is
+        // not a guest slot (no tier removes her) and she takes the bar's accent light like the stools do.
+        const barCrew = containers[7];
+        if (barCrew) {
+            const spot = window.VenueLayout.bar.bartender;
+            this._spawnAvatar(barCrew, 'bartender', new BABYLON.Vector3(spot.x, 0, spot.z), -Math.PI / 2, 1.70, 0.95,
+                { clip: 'Idle_Talking_Loop', reactsToBeat: false });
+            const bartender = this.npcAvatars.find(npc => npc.name === 'bartender');
+            if (bartender) this._extendAccentLight(this._barLight, bartender.meshes);
+        }
+
         this._spawnLocalPlayerBody();
         this._applyCrowdSize();
         this._refreshShadowCasters();
@@ -942,13 +1001,16 @@ class VRClubAudioCrowd extends VRClubUI {
     _guestSlots() {
         const towardDJ = (x, z) => Math.atan2(-x, -18 - z);
         return [
-            { src: 6, clip: 'Idle_Talking_Loop', x: 9.6, z: -8.4, yaw: -0.35, height: 1.80 },
-            { src: 5, clip: 'Idle_Talking_Loop', x: 9.6, z: -7.3, yaw: Math.PI + 0.35, height: 1.66 },
-            { src: 6, clip: 'Idle_FoldArms_Loop', x: -9.6, z: -10.6, yaw: Math.PI / 2 - 0.2, height: 1.84 },
-            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: -9.8, z: -6.4, yaw: Math.PI / 2 + 0.6, height: 1.68 },
-            { src: 6, clip: 'Yes', x: 8.6, z: -12.8, yaw: towardDJ(8.6, -12.8), height: 1.77 },
+            // The talking pair stands off the counter (x 9.7 is its front, the stools are at x 9.2).
+            { src: 6, clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80 },
+            { src: 5, clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66 },
+            { src: 6, clip: 'Idle_FoldArms_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84 },
+            // Leaning on the mezzanine rail, watching the floor (y is the deck the guest stands on).
+            { src: 5, clip: 'Idle_FoldArms_Loop', x: -10.1, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
+            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68 },
+            { src: 6, clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
             { src: 5, clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63 },
-            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: 10.4, z: -12.4, yaw: towardDJ(10.4, -12.4) + 0.4, height: 1.70 }
+            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
         ];
     }
     _spawnGuestsTo(target) {
@@ -960,7 +1022,7 @@ class VRClubAudioCrowd extends VRClubUI {
             const source = this._crowdSourceContainers[slot.src];
             // Only the multi-clip guest files carry these poses; without them there is nothing sensible to play.
             if (existing.has(name) || !source) return;
-            this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, 0, slot.z), slot.yaw, slot.height,
+            this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, slot.y || 0, slot.z), slot.yaw, slot.height,
                 0.9 + (index % 3) * 0.06, { clip: slot.clip, reactsToBeat: false });
         });
     }
