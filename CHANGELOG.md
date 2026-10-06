@@ -128,6 +128,10 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **Signage**: the generic CLUB, VR and DANCE neons are gone. The club's name, NOCTURNE, now hangs over
+  the doorway inside the club as one 6 m neon piece facing the DJ and the dance floor: widely tracked pink
+  outline lettering, an ice-blue crescent moon and star, and an underline broken by a small diamond. It is
+  drawn into the existing signage atlas, so the signs remain two draw calls with no added light.
 - **Babylon.js 8.30.5 -> 9.28.0** (vendored; the manifest hashes match the npm tarballs as well as the
   CDN). The 9.0 breaking change (TC39 decorators) only affects code that applies Babylon decorators to
   its own classes, which this app does not. With animation frozen, a desktop and an emulated-headset

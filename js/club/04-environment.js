@@ -116,9 +116,9 @@ class VRClubEnvironment extends VRClubRendering {
         log.info("✅ Created safety details (signage, step lights) - merged and frozen for performance");    }
 
     /**
-     * Wall signage: the three neon signs and two exit signs, in two draw calls (it was thirteen with the
-     * step lights). The words are drawn once into one atlas, every sign is a quad that samples its cell, and a
-     * second merged mesh holds the dark backing plates they are mounted on.
+     * Wall signage: the NOCTURNE neon, the BAR neon, ENTER and the exit signs, in two draw calls. The artwork
+     * is drawn once into one atlas, every sign is a quad that samples its cell, and a second merged mesh holds
+     * the dark backing plates the smaller signs hang on (NOCTURNE is mounted straight onto the brick).
      *
      * Everything sits on the INSIDE face of a wall, facing the room. The old signs were placed at the wall's
      * centre line, in the front wall's far side, or facing into the wall, so none could be seen from the room.
@@ -130,10 +130,9 @@ class VRClubEnvironment extends VRClubRendering {
         const PLATE = 0.06;
         // yaw: a plane faces (-sin yaw, -cos yaw), so PI/2 faces -x (the right wall looks into the room).
         const signs = [
-            { cell: 'club', kind: 'neon', color: [1, 0.1, 0.45], w: 2.0, h: 0.5, wall: WALL_RIGHT, axis: 'x', y: 4.2, along: -16.4, yaw: Math.PI / 2 },
+            // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
+            { cell: 'nocturne', kind: 'nocturne', w: 6.0, h: 6.0 * 272 / 1024, wall: WALL_FRONT, axis: 'z', y: 5.2, along: 0, yaw: 0, plate: false },
             { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
-            { cell: 'vr', kind: 'neon', color: [0.1, 0.55, 1], w: 1.2, h: 0.5, wall: WALL_LEFT, axis: 'x', y: 5.6, along: -17.0, yaw: -Math.PI / 2 },
-            { cell: 'dance', kind: 'neon', color: [1, 0.25, 1], w: 2.5, h: 0.5, wall: WALL_FRONT, axis: 'z', y: 3.7, along: 0, yaw: 0 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
             // The vestibule: ENTER over the doorway on the street side, EXIT over the street door.
@@ -144,12 +143,10 @@ class VRClubEnvironment extends VRClubRendering {
         // Atlas cells in pixels: x, y, w, h. Aspect ratios match the signs they feed.
         const W = 1024, H = 512;
         const cells = {
-            dance: [0, 0, 800, 160, 'DANCE'],
-            bar: [800, 0, 224, 160, 'BAR'],
-            club: [0, 176, 640, 160, 'CLUB'],
-            vr: [640, 176, 384, 160, 'VR'],
-            exit: [0, 352, 444, 160, 'EXIT'],
-            enter: [448, 352, 576, 160, 'ENTER']
+            nocturne: [0, 0, 1024, 272, 'NOCTURNE'],
+            bar: [0, 288, 179, 128, 'BAR'],
+            exit: [193, 288, 356, 128, 'EXIT'],
+            enter: [563, 288, 461, 128, 'ENTER']
         };
         const atlas = new BABYLON.DynamicTexture('signageAtlas', { width: W, height: H }, this.scene, true);
         atlas.anisotropicFilteringLevel = this.tierSettings ? this.tierSettings.anisotropy : 4;
@@ -176,7 +173,9 @@ class VRClubEnvironment extends VRClubRendering {
                 ctx.font = `bold ${size}px "Arial Rounded MT Bold", Arial, Helvetica, sans-serif`;
             }
             const cx = x + w / 2, cy = y + h / 2 + size * 0.04;
-            if (sign.kind === 'exit') {
+            if (sign.kind === 'nocturne') {
+                this._drawNocturneNeon(ctx, x, y, w, h, rgb);
+            } else if (sign.kind === 'exit') {
                 ctx.fillStyle = rgb(sign.color, 0.18);
                 ctx.fillRect(x + 6, y + 6, w - 12, h - 12);
                 ctx.shadowColor = rgb(sign.color);
@@ -223,6 +222,7 @@ class VRClubEnvironment extends VRClubRendering {
             }
             indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
 
+            if (sign.plate === false) return;
             const plate = BABYLON.MeshBuilder.CreateBox(`signPlate${i}`, {
                 width: sign.w + 0.12, height: sign.h + 0.12, depth: PLATE
             }, this.scene);
@@ -269,6 +269,106 @@ class VRClubEnvironment extends VRClubRendering {
             backing.freezeWorldMatrix();
             backing.doNotSyncBoundingInfo = true;
         }
+    }
+
+    /**
+     * The club's name as a neon piece, drawn into its atlas cell: an ice-blue crescent moon and star, the
+     * word in widely tracked pink outline tubes, and a pink underline that breaks around a small blue
+     * diamond. Every tube is a wide soft halo, the coloured glass and a hot near-white core.
+     */
+    _drawNocturneNeon(ctx, x, y, w, h, rgb) {
+        const PINK = [1, 0.16, 0.6], PINK_CORE = [1, 0.78, 0.92];
+        const ICE = [0.35, 0.78, 1], ICE_CORE = [0.86, 0.96, 1];
+        const tube = (color, core, width, stroke) => {
+            ctx.shadowColor = rgb(color);
+            ctx.strokeStyle = rgb(color, 0.9);
+            ctx.lineWidth = width;
+            ctx.shadowBlur = width * 5;
+            stroke();
+            ctx.shadowBlur = width * 2;
+            stroke();
+            ctx.shadowBlur = 0;
+            ctx.lineWidth = width * 0.4;
+            ctx.strokeStyle = rgb(core);
+            stroke();
+        };
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Crescent: the outer circle minus an offset inner circle, traced between their two intersections.
+        const mx = x + 118, my = y + 124, R = 84;
+        const dx = R * 0.48, dy = -R * 0.16, r = R * 0.9;
+        const d = Math.hypot(dx, dy);
+        const a = (R * R - r * r + d * d) / (2 * d);
+        const k = Math.sqrt(Math.max(0, R * R - a * a));
+        const px = mx + a * dx / d, py = my + a * dy / d;
+        const p1 = [px + k * dy / d, py - k * dx / d];
+        const p2 = [px - k * dy / d, py + k * dx / d];
+        const angle = (cx, cy, p) => Math.atan2(p[1] - cy, p[0] - cx);
+        tube(ICE, ICE_CORE, 8, () => {
+            ctx.beginPath();
+            ctx.arc(mx, my, R, angle(mx, my, p1), angle(mx, my, p2), true);
+            ctx.arc(mx + dx, my + dy, r, angle(mx + dx, my + dy, p2), angle(mx + dx, my + dy, p1), false);
+            ctx.closePath();
+            ctx.stroke();
+        });
+        // A four-point star in the crescent's mouth.
+        const sx = mx + 52, sy = my - 30, s = 20;
+        tube(ICE, ICE_CORE, 5, () => {
+            ctx.beginPath();
+            ctx.moveTo(sx, sy - s);
+            ctx.quadraticCurveTo(sx, sy, sx + s, sy);
+            ctx.quadraticCurveTo(sx, sy, sx, sy + s);
+            ctx.quadraticCurveTo(sx, sy, sx - s, sy);
+            ctx.quadraticCurveTo(sx, sy, sx, sy - s);
+            ctx.stroke();
+        });
+
+        // The word, letter by letter so the tracking does not depend on canvas letterSpacing support.
+        const text = 'NOCTURNE';
+        const left = x + 232, right = x + w - 24;
+        const fontFor = size => `600 ${size}px "Futura", "Century Gothic", "Avenir Next", "Trebuchet MS", Arial, sans-serif`;
+        let size = 150, widths = [], tracking = 0, total = Infinity;
+        while (size > 40) {
+            ctx.font = fontFor(size);
+            widths = [...text].map(ch => ctx.measureText(ch).width);
+            tracking = size * 0.2;
+            total = widths.reduce((sum, v) => sum + v, 0) + tracking * (text.length - 1);
+            if (total <= right - left) break;
+            size -= 4;
+        }
+        ctx.font = fontFor(size);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const wordLeft = left + (right - left - total) / 2;
+        const wordY = y + h * 0.43;
+        tube(PINK, PINK_CORE, size * 0.065, () => {
+            let pen = wordLeft;
+            for (let i = 0; i < text.length; i++) {
+                ctx.strokeText(text[i], pen, wordY);
+                pen += widths[i] + tracking;
+            }
+        });
+
+        // Underline, broken around a small diamond at its centre.
+        const lineY = y + h * 0.83, mid = wordLeft + total / 2, gap = 22;
+        tube(PINK, PINK_CORE, 5, () => {
+            ctx.beginPath();
+            ctx.moveTo(wordLeft + 6, lineY);
+            ctx.lineTo(mid - gap, lineY);
+            ctx.moveTo(mid + gap, lineY);
+            ctx.lineTo(wordLeft + total - 6, lineY);
+            ctx.stroke();
+        });
+        tube(ICE, ICE_CORE, 4, () => {
+            ctx.beginPath();
+            ctx.moveTo(mid, lineY - 10);
+            ctx.lineTo(mid + 10, lineY);
+            ctx.lineTo(mid, lineY + 10);
+            ctx.lineTo(mid - 10, lineY);
+            ctx.closePath();
+            ctx.stroke();
+        });
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===
