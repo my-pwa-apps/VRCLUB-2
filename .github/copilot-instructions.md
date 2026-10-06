@@ -706,7 +706,11 @@ throws), so comfort mode *swaps* features: comfort on disables MOVEMENT and (re)
 teleportation; comfort off, in-session only, disables teleportation and enables MOVEMENT.
 Never enable either feature directly, and never put controller button bindings behind the
 locomotion call: a thrown `enableFeature()` once silently dropped sprint, jump and the only
-Y/B quick-menu binding. Comfort mode suppresses sprint/jump and artificial gravity; XR entry preserves
+Y/B quick-menu binding. Comfort mode suppresses sprint/jump. The XR camera NEVER uses camera
+gravity (its collision ellipsoid hangs from the eye, so gravity sank the eye and blocked every stair);
+height in the headset belongs to `_updateVRWalkSurface()`, and `_guardVRCameraSteps()` wraps the XR
+camera's own `_updatePosition` so a smooth-locomotion step is level, at most 25 cm (frame hitches), and
+collisions cannot slide it upward. Babylon's defaults: the RIGHT stick walks, the LEFT stick turns. XR entry preserves
 tracked eye height. `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The 15-button quick menu includes comfort, safe mode, haptics, and four destinations (entrance, dance floor, DJ booth, balcony);

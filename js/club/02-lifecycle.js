@@ -707,14 +707,13 @@ class VRClubLifecycle extends VRClubCore {
         const ground = this._pickJumpGround(xrCamera, state.eyeHeight + 0.8);
         if (ground && ground.distance <= state.eyeHeight + 0.05) {
             state.active = false;
-            xrCamera.applyGravity = true;
             xrCamera.position.y = ground.pickedPoint.y + state.eyeHeight;
         } else if (xrCamera.position.y < state.startY - 1.0) {
             // No collidable ground below: never fall forever.
             state.active = false;
-            xrCamera.applyGravity = true;
             xrCamera.position.y = state.startY;
         }
+        // Gravity stays off after landing: the walking-surface follow owns the headset's height.
     }
 
     _pickJumpGround(xrCamera, length) {

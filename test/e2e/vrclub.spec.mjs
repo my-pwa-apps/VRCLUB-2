@@ -775,7 +775,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         };
     });
     expect(locomotionSwap).toEqual({
-        smooth: { movement: true, teleport: false, gravity: true },
+        smooth: { movement: true, teleport: false, gravity: false },
         comfort: { movement: false, teleport: true, gravity: false },
         failures: []
     });

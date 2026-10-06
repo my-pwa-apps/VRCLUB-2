@@ -142,7 +142,7 @@ test('in VR the balcony and its stair can be reached by teleport, stood on, and 
 });
 
 test('in VR with comfort off the stair can be walked up onto the balcony and back down with the thumbstick', async ({ page }) => {
-    test.setTimeout(900_000);
+    test.setTimeout(1_500_000);
     await enterClub(page);
     const vrButton = page.locator('#vrButton');
     await expect(vrButton).toBeEnabled({ timeout: 60_000 });
@@ -150,33 +150,30 @@ test('in VR with comfort off the stair can be walked up onto the balcony and bac
     await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
     await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
     await page.evaluate(() => window.vrClub.setVRComfortMode(false));
-    const sample = () => page.evaluate(() => new Promise(resolve => {
+    // Walk with the right stick (Babylon's default: right moves, left turns), inside the page so no frame is lost to
+    // a round trip, until the walker passes `stopZ` in the walking direction or the frames run out.
+    const walk = (stickY, stopZ) => page.evaluate(async ([y, limit]) => {
         const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
-        club.scene.onAfterRenderObservable.addOnce(() => resolve({
-            x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight()
-        }));
-    }));
-    // Walk the left stick until the walker has gone `until` or the frames run out; returns every sample.
-    const walk = async (stickY, until, maxFrames = 120) => {
+        const right = window.__iwerDevice.controllers.right;
         const trace = [];
-        await page.evaluate(y => window.__iwerDevice.controllers.left.updateAxes('thumbstick', 0, y), stickY);
-        for (let i = 0; i < maxFrames; i++) {
-            const s = await sample();
-            trace.push(s);
-            if (until(s)) break;
+        right.updateAxes('thumbstick', 0, y);
+        for (let i = 0; i < 600; i++) {
+            await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+            trace.push({ x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight() });
+            if (y < 0 ? cam.position.z < limit : cam.position.z > limit) break;
         }
-        await page.evaluate(() => window.__iwerDevice.controllers.left.updateAxes('thumbstick', 0, 0));
+        right.updateAxes('thumbstick', 0, 0);
         return trace;
-    };
+    }, [stickY, stopZ]);
 
     // Stand on the floor at the foot of the stair, facing up it (-z, the way the headset faces).
-    await page.evaluate(() => {
-        const cam = window.vrClub.vrHelper.baseExperience.camera;
-        cam.position.x = -11.4; cam.position.z = -5.4;
+    await page.evaluate(async () => {
+        const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+        cam.position.x = -11.4; cam.position.z = -5.6;
+        await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
     });
-    await sample();
 
-    const up = await walk(-1, s => s.z < -12.5);
+    const up = await walk(-1, -12.5);
     const top = up[up.length - 1];
     expect(top.level, `walked to z ${top.z.toFixed(2)} but stood at ${top.level}`).toBe(3);
     expect(top.y - top.eye).toBeCloseTo(3, 1);
@@ -186,7 +183,7 @@ test('in VR with comfort off the stair can be walked up onto the balcony and bac
         expect(up[i].level).toBeGreaterThanOrEqual(up[i - 1].level - 1e-6);
     }
 
-    const down = await walk(1, s => s.z > -5.0);
+    const down = await walk(1, -5.4);
     const bottom = down[down.length - 1];
     expect(bottom.level, `walked back to z ${bottom.z.toFixed(2)} but stood at ${bottom.level}`).toBe(0);
     expect(bottom.y - bottom.eye).toBeCloseTo(0, 1);

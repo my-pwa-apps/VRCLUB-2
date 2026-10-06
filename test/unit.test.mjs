@@ -3558,7 +3558,7 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     assert.equal(club.movementFeature.movementEnabled, true);
     assert.equal(club.movementFeature.rotationEnabled, true);
     assert.equal(club.movementFeature.options.xrInput, club.vrHelper.input);
-    assert.equal(club.vrHelper.baseExperience.camera.applyGravity, true);
+    assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false, 'the walking-surface follow owns VR height, not camera gravity');
     assert.equal(saved.get('vrclub.vrComfort'), '0');
 
     club.setVRComfortMode(true);
@@ -3797,7 +3797,7 @@ test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own e
     assert.ok(at72.apex - 1.15 > 0.35 && at72.apex - 1.15 < 0.55, `unrealistic jump height ${at72.apex - 1.15}`);
     assert.equal(at72.landedAt, 1.15, 'a seated player was re-seated at a different eye height');
     assert.equal(at120.landedAt, 1.15);
-    assert.equal(at72.gravity, true);
+    assert.equal(at72.gravity, false, 'landing must not re-enable camera gravity (it fights the walking-surface follow)');
 });
 
 test('disabled haptics also suppress VR menu feedback pulses', () => {
@@ -4814,15 +4814,20 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     const follow = window.Mezzanine._updateVRWalkSurface;
     const D = window.MezzanineLayout.deck, S = window.MezzanineLayout.stairs;
     const eye = 1.62;
-    const club = { jumpState: { active: false }, _walkLevel: 0, _xrHeadHeight: () => camera.realWorldHeight };
+    const club = Object.assign(Object.create(window.Mezzanine), { jumpState: { active: false }, _walkLevel: 0, _xrHeadHeight: () => camera.realWorldHeight });
     const camera = { realWorldHeight: eye, position: { x: 0, y: eye, z: -12 } };
     const at = (x, z, feet) => { camera.position.x = x; camera.position.z = z; if (feet !== undefined) camera.position.y = feet + eye; follow.call(club, camera); return +(camera.position.y - eye).toFixed(3); };
 
     // A teleport lands the feet on the deck: they stay there, and the body is told.
     assert.equal(at(-10.9, -14.7, D.top), D.top);
     assert.equal(club._walkLevel, D.top);
-    // Room-scale or smooth walking off the open edge drops the headset to the floor.
+    // Room-scale or smooth walking off the open edge drops the headset to the floor, falling rather than snapping.
+    const firstFallFrame = at(-8.5, -14.7);
+    assert.ok(firstFallFrame < D.top && firstFallFrame > 0, `stepping off the deck snapped to ${firstFallFrame}`);
+    let fallFrames = 1;
+    while (at(-8.5, -14.7) > 0 && fallFrames < 400) fallFrames++;
     assert.equal(at(-8.5, -14.7), 0);
+    assert.ok(fallFrames > 20 && fallFrames < 80, `a 3 m fall took ${fallFrames} frames at 60 Hz`);
     // Walking up the stair from the floor carries the headset tread by tread onto the deck.
     const mid = (S.x0 + S.x1) / 2;
     at(mid, S.zBottom + 0.5, 0);
@@ -4848,6 +4853,29 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     camera.position.y = 2.6;
     at(0, -12);
     assert.equal(camera.position.y, 2.6);
+    club.jumpState.active = false;
+    // Smooth locomotion aimed upward walks level, at the same speed; a hitch never takes more than 25 cm at once.
+    const shape = window.Mezzanine._shapeVRStep;
+    const level = { x: 0, y: 0.06, z: -0.08 };
+    shape(level);
+    assert.equal(level.y, 0);
+    assert.ok(Math.abs(Math.hypot(level.x, level.z) - 0.1) < 1e-9);
+    const hitch = { x: 3, y: 0, z: -4 };
+    shape(hitch);
+    assert.ok(Math.abs(Math.hypot(hitch.x, hitch.z) - 0.25) < 1e-9);
+    // The guard wraps the camera's own step once, and collisions can no longer lift the walker.
+    const stepper = {
+        position: { y: 1.6 }, cameraDirection: { x: 0, y: 0.3, z: -0.4 },
+        _updatePosition() { this.position.y += 2; this.moved = { ...this.cameraDirection }; }
+    };
+    const vrClub = Object.assign(Object.create(window.Mezzanine), { isInVRMode: true });
+    vrClub._guardVRCameraSteps(stepper);
+    const wrapped = stepper._updatePosition;
+    vrClub._guardVRCameraSteps(stepper);
+    assert.equal(stepper._updatePosition, wrapped, 'wrapped twice');
+    stepper._updatePosition();
+    assert.equal(stepper.position.y, 1.6);
+    assert.equal(stepper.moved.y, 0);
 });
 
 test('the walking-surface follow climbs the stair and the deck but never snaps walkers off the floor', () => {

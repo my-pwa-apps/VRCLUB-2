@@ -234,6 +234,7 @@ const Mezzanine = {
      * and the tracked height together, so it leaves the feet, and this, alone. A jump owns the height in flight.
      */
     _updateVRWalkSurface(camera) {
+        this._guardVRCameraSteps(camera);
         if (this.jumpState && this.jumpState.active) return;
         const eye = this._xrHeadHeight();
         const feet = camera.position.y - eye;
@@ -243,8 +244,55 @@ const Mezzanine = {
         // destination puts it there.
         const R = DJ_RISER;
         if (next === 0 && x > R.x0 && x < R.x1 && z > R.z0 && z < R.z1 && Math.abs(feet - R.top) < 0.3) next = R.top;
-        if (Math.abs(feet - next) > 0.02) camera.position.y = next + eye;
-        this._walkLevel = next;
+        // Up a stair or a riser: step straight onto it. Down more than a stair's step in one frame (off an edge, not a
+        // slow frame on the stair, which walkLevel allows up to 0.5 m): fall, under gravity.
+        let target = next;
+        if (next < feet - 0.45) {
+            const frameMs = this.engine && this.engine.getDeltaTime ? this.engine.getDeltaTime() : 16.667;
+            const dt = Math.min(0.1, Math.max(0.001, frameMs / 1000));
+            this._vrFallSpeed = (this._vrFallSpeed || 0) + 9.81 * dt;
+            target = Math.max(next, feet - this._vrFallSpeed * dt);
+        } else {
+            this._vrFallSpeed = 0;
+        }
+        if (this._vrFallSpeed > 0 || Math.abs(feet - target) > 0.02) camera.position.y = target + eye;
+        this._walkLevel = target;
+    },
+
+    /**
+     * Shape every smooth-locomotion step of the XR camera, at the one point it is applied: the camera's own position
+     * update, which consumes `cameraDirection` (the movement feature fills it before any scene observer runs).
+     *  - Level: Babylon steers by the controller's full aim, so pointing up while walking flew the player upward.
+     *  - At most 25 cm: the step scales with frame time, so a hitch (shader compile, model landing) took metres at once.
+     *    A normal 72 Hz walking step is about 2 cm.
+     *  - No vertical slide: with gravity off, the collision solver slid a walker up the stair's slope and into the
+     *    ceiling. Collisions still stop the walker at rails and walls; the surface underfoot sets the height.
+     * Wrapped once per camera instance; the desktop camera is untouched.
+     */
+    _guardVRCameraSteps(camera) {
+        if (!camera || camera._vrclubStepGuard || typeof camera._updatePosition !== 'function') return;
+        camera._vrclubStepGuard = true;
+        const club = this;
+        const update = camera._updatePosition;
+        camera._updatePosition = function () {
+            club._shapeVRStep(this.cameraDirection);
+            const y = this.position.y;
+            update.call(this);
+            if (club.isInVRMode) this.position.y = y;
+        };
+    },
+
+    /** Level the step (keeping its length) and cap it at 25 cm. Pure, for the guard above. */
+    _shapeVRStep(step) {
+        if (!step) return;
+        if (step.y !== 0) {
+            const length = Math.hypot(step.x, step.y, step.z);
+            const flat = Math.hypot(step.x, step.z);
+            if (flat > 1e-6) { step.x *= length / flat; step.z *= length / flat; }
+            step.y = 0;
+        }
+        const flat = Math.hypot(step.x, step.z);
+        if (flat > 0.25) { step.x *= 0.25 / flat; step.z *= 0.25 / flat; }
     },
 
     /**

@@ -144,7 +144,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   adaptation no longer brightens a dark room. Mirror-ball reflected shafts are about twice as visible.
 - **The balcony and its stair work in VR**: the deck and every tread are teleport floors, and the headset is
   held on whatever surface is under its feet. The previous follow read `realWorldHeight` outside the XR
-  frame, which throws, so it never ran. Covered by a Quest-emulator test.
+  frame, which throws, so it never ran. With comfort off you can also walk up and down the stair and on and
+  off the balcony with the thumbstick: camera gravity (which sank the eye against a collision ellipsoid hung
+  from it, so no stair could be climbed) is gone in the headset, walking steps are level and capped at
+  25 cm so a frame hitch cannot launch you up the stair slope, and stepping off an edge falls under gravity.
+  Covered by Quest-emulator tests for teleporting and for walking.
 - **Laser sheet**: the bright line where the fan met the floor is removed.
 - **The VR quick menu stays put**: it opens 1.8 m ahead where you are looking, upright and facing you, and is
   then fixed in the room instead of following every head movement.

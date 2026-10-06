@@ -1104,7 +1104,10 @@ class VRClubUI extends VRClubAnimationFinish {
         try { localStorage.setItem('vrclub.vrComfort', this.vrComfortMode ? '1' : '0'); } catch (_) {}
         this._applyXRLocomotionMode();
         const xrCamera = this.vrHelper?.baseExperience?.camera;
-        if (xrCamera) xrCamera.applyGravity = !this.vrComfortMode;
+        // Never camera gravity in the headset: its collision ellipsoid hangs from the EYE, so gravity sank the eye
+        // to 0.8 m and fought the walking-surface follow every frame (no stair could be climbed). The follow
+        // (_updateVRWalkSurface) owns the headset's height on the floor, the stair, the balcony and the DJ riser.
+        if (xrCamera) xrCamera.applyGravity = false;
         if (xrCamera && this.vrComfortMode) {
             xrCamera.cameraDirection?.set(0, 0, 0);
             xrCamera.cameraRotation?.set(0, 0);
