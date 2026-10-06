@@ -380,15 +380,15 @@ this is*: `this.qualityTiers` (constructor, next to `vrSettings`) with `ultra` /
 `balanced`.
 
 - `detectGraphicsTier()` picks the tier from `WEBGL_debug_renderer_info`,
-  `navigator.hardwareConcurrency` and `navigator.deviceMemory`. Quest/mobile always get
-  `balanced`. A `localStorage` override (`vrclub.graphicsTier`) always wins.
+  `navigator.hardwareConcurrency` and `navigator.deviceMemory`. Quest/mobile auto-detection
+  starts at `balanced`. A `localStorage` override (`vrclub.graphicsTier`) always wins.
 - `this.tierSettings` is a getter for the active tier's config.
 - `setGraphicsTier(tier)` switches at runtime, persists the choice and rebuilds the
-  tier-owned pipelines. Wired to the `cycleGraphicsQuality` VJ button.
+  tier-owned pipelines. Wired to the `cycleGraphicsQuality` VJ button and the VR quick menu.
   After rebuilding it unfreezes and invalidates material effects once, because
   pre-pass outputs can change when motion blur or SSR is attached or removed.
 
-Tier-gated features, all **desktop only**:
+Tier-gated desktop features:
 
 | Feature | Where | Ultra | High | Balanced |
 |---------|-------|-------|------|----------|
@@ -405,6 +405,22 @@ Tier-gated features, all **desktop only**:
 | SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
 | Floor `receiveShadows` | `createFloor()` | on | off | off |
 
+The same selection also scales headset-safe features without enabling desktop-only SSR,
+SSAO, motion blur or shadows in XR:
+
+| VR feature | Ultra | High | Balanced |
+|------------|-------|------|----------|
+| Bloom kernel | 64 | 48 | 32 |
+| Pipeline MSAA default | 4 | 4 | 2 |
+| Anisotropic filtering | 12× | 8× | 4× |
+| Haze / dust rates | 90 / 50 | 78 / 40 | 65 / 30 |
+| Fixed foveation | 0.2 | 0.3 | 0.4 |
+| Crowd / guests | 14 / 8 | 10 / 4 | 6 / 2 |
+| Mirror spots / rays | 280 / 64 | 180 / 52 | 96 / 32 |
+
+Quest/mobile auto-detection starts on `balanced`, but a saved or in-menu user selection
+may opt into `high` or `ultra`. High and Ultra remain unmeasured on a Quest 3S.
+
 Rules when touching this:
 - Mirror reflection spots and outgoing rays are two thin-instanced meshes backed by
   preallocated matrix buffers. `_intersectRoomInterior()` analytically clips them to
@@ -415,7 +431,7 @@ Rules when touching this:
   `try/catch` — there is no build step or browser test to catch a missing API.
 - **Every new pipeline must be detached in `applyVRSettings()` and re-attached in
   `applyDesktopSettings()`**, mirroring the existing SSAO and SSR blocks. VR performance
-  is the hard constraint; nothing tier-gated may run in a headset.
+  is the hard constraint; no desktop-only tier feature may run in a headset.
 - **Every new pipeline must be disposed in `dispose()`** — post-process render targets are
   not always reclaimed by `scene.dispose()`.
 - `applyDesktopSettings()` only runs when *exiting* VR. Anything that must be true on the
@@ -729,7 +745,8 @@ Teleport blockers are derived from enabled collidable scene meshes, excluding th
 and refreshed on every comfort reapplication. XR entry preserves tracked eye height.
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
-The 15-button quick menu includes comfort, safe mode, haptics, and four destinations (entrance, dance floor, DJ booth, balcony);
+The paged quick menu includes quality, lighting, effects, show/reset, comfort, safe mode,
+haptics, and four destinations (entrance, dance floor, DJ booth, balcony);
 Y/B or the runtime menu component opens it, world-locked where the player is looking
 (`_placeVRQuickMenu()`); never parent it to the XR camera. Haptics are opt-in for new visitors and
 the same preference gates both bass pulses and UI feedback. These preference and

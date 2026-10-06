@@ -40,6 +40,7 @@ js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
 js/barProps.js             Bar bottles: lathe shapes, shelf stocking and the label atlas (pure data)
 js/venueDressing.js        Entrance vestibule and bar (counter, back bar, stools, lights) mixed into VRClub.prototype
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
+js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
 js/avatarRig.js            Procedural player body on the dancer skeleton: planted gait, turning, head, IK arms and legs
 js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
 js/avatarManager.js        Remote-guest avatars, spatial voice and emoji bubbles driven by networkClient
@@ -58,6 +59,7 @@ js/club_hyperrealistic.js  Public VRClub class assembled from the focused layers
 js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring; constructs VRClub
 scripts/serve.mjs          Dependency-free static server honouring $PORT (used by Procfile)
 scripts/build.mjs          Production bundler and static-asset copier
+scripts/build-city-assets.mjs Bakes the street from the Quaternius Downtown City MegaKit into js/models/city/downtown.glb
 test/contract.test.mjs     Contract tests — load order, wiring, assets, hygiene
 test/unit.test.mjs         Runtime unit tests for security, caching, materials, and show logic
 textures/                  Local PBR environment textures
@@ -67,9 +69,9 @@ js/models/                 Local GLB models and model textures
 ## Controls
 
 - **Move**: `W` `A` `S` `D` or the arrow keys; drag with the mouse to look. `Q`/`E` for down/up.
-- **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. On first load it reads **Preparing VR…** while the background models finish loading. By default, the **left stick walks in the direction you look** (without flying when you look up/down), and the **right stick turns smoothly**. Walk up/down the left-hand stairs to reach or leave the balcony. Click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump. **VR Comfort** on the splash or menu switches to teleport and snap turn, disabling sprint/jump; an existing saved preference is preserved. Press `Y`/`B` (or the controller menu button when exposed) for the world-locked quick menu.
+- **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. On first load it reads **Preparing VR…** while the background models finish loading. By default, the **left stick walks in the direction you look** (without flying when you look up/down), and the **right stick turns smoothly**. Walk up/down the left-hand stairs to reach or leave the balcony. Click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump. **VR Comfort** switches to teleport and snap turn, disabling sprint/jump. Press `Y`/`B` (or the controller menu button when exposed) for the world-locked, paged quick menu. It provides headset-friendly pages for lighting, effects, the automatic show, comfort and safety, travel, reset, and live **Balanced / High / Ultra** quality switching.
 - **Laser speed**: rotating ceiling beams now move at one quarter of their previous rate. The VJ laser-speed slider still changes their speed; laser-sheet motion is unchanged.
-- **Mirror ball**: 96 surface spots on Balanced/Quest, 180 on High, 280 on Ultra. Outgoing-ray counts and the two-batch rendering layout are unchanged; additional headset GPU cost is not yet measured.
+- **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
 - **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
 - **🎵 Audio menu** (bottom-right): play an HTTP(S) stream URL or a local audio file, plus volume. The last stream you chose is remembered. **🎧 Latest Resident — Hernan Cattaneo** plays the newest episode of that podcast (read from its public RSS feed; the MP3 streams from Podbean). A dropped episode reconnects at the same position.
 - **Music on entry:** the latest Resident episode starts when you press ENTER (the splash says which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on.
@@ -82,7 +84,7 @@ js/models/                 Local GLB models and model textures
 | `Space` | Play / pause audio |
 | `B` | Blackout |
 | `F` | Fire the drop |
-| `1`–`4` | Camera presets (arrival / floor / booth / lights) |
+| `1`–`6` | Camera presets (arrival / floor / booth / lights / balcony / street) |
 | `Esc` | Close the focused panel |
 | `Ctrl+Shift+D` | FPS / diagnostics overlay |
 

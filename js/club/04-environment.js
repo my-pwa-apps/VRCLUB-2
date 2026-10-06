@@ -433,11 +433,11 @@ class VRClubEnvironment extends VRClubRendering {
 
     createCeiling() {
         const ceiling = BABYLON.MeshBuilder.CreateBox("ceiling", {
-            width: 35,
+            width: 26,
             height: 0.3,
-            depth: 45
+            depth: 22
         }, this.scene);
-        ceiling.position = new BABYLON.Vector3(0, 10, -10);
+        ceiling.position = new BABYLON.Vector3(0, 10, -10.75);
         // Q/E and look-up-and-walk fly the desktop camera; it must stop at the roof.
         ceiling.checkCollisions = true;
         

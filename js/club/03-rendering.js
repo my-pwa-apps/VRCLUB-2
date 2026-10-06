@@ -138,8 +138,14 @@ class VRClubRendering extends VRClubLifecycle {
     _applyTierToPipeline() {
         const tier = this.tierSettings;
         if (this.renderPipeline) {
-            this.renderPipeline.samples = tier.pipelineSamples;
-            this.renderPipeline.bloomKernel = tier.bloomKernel;
+            this.renderPipeline.samples = this.isInVRMode
+                ? VRClubCore.resolveVRMsaaSamples(
+                    tier.vrMsaaSamples || this.vrSettings.vr.msaaSamples,
+                    this.engine.getCaps().maxMSAASamples)
+                : tier.pipelineSamples;
+            this.renderPipeline.bloomKernel = this.isInVRMode
+                ? tier.vrBloomKernel
+                : tier.bloomKernel;
         }
         if (this.ssaoPipeline) {
             this.ssaoPipeline.samples = tier.ssaoSamples;
@@ -431,12 +437,26 @@ class VRClubRendering extends VRClubLifecycle {
     }
 
     createFloor() {
+        // The floor ends at the club's front wall (z 0.25): the street outside is a separate surface (see
+        // CityDistrict). It used to be 35 x 45 m centred on z -10, which ran 12 m out past the facade.
         const floor = BABYLON.MeshBuilder.CreateGround("floor", {
-            width: 35,
-            height: 45,
+            width: 26,
+            height: 22,
             subdivisions: 20
         }, this.scene);
-        floor.position.z = -10;
+        floor.position.z = -10.75;
+        // Keep the old texel density: UVs as they were on the 35 x 45 m plane centred on z -10, so the concrete
+        // looks exactly as it did and only the part past the front wall is gone.
+        {
+            const positions = floor.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+            const uvs = new Float32Array((positions.length / 3) * 2);
+            for (let i = 0; i < positions.length / 3; i++) {
+                const x = positions[i * 3], zWorld = positions[i * 3 + 2] + floor.position.z;
+                uvs[i * 2] = (x + 17.5) / 35;
+                uvs[i * 2 + 1] = 1 - ((zWorld + 10) + 22.5) / 45;
+            }
+            floor.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
+        }
         
         // CRITICAL: Ensure floor is pickable for laser/spotlight raycasts
         floor.isPickable = true;
@@ -605,13 +625,13 @@ class VRClubRendering extends VRClubLifecycle {
         backWall.freezeWorldMatrix(); // OPTIMIZATION: Freeze static wall
         backWall.doNotSyncBoundingInfo = true;
         
-        // Left wall
+        // Left wall: ends at the front wall's outer face (z 0.25); it used to run on 12 m past it.
         const leftWall = BABYLON.MeshBuilder.CreateBox("leftWall", {
             width: 0.5,
             height: 10,
-            depth: 45
+            depth: 21.5
         }, this.scene);
-        leftWall.position = new BABYLON.Vector3(-12.5, 5, -10);
+        leftWall.position = new BABYLON.Vector3(-12.5, 5, -10.5);
         this._applyWorldUVs(leftWall, wallTile, wallScale);
         leftWall.material = wallMat;
         leftWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls
@@ -622,9 +642,9 @@ class VRClubRendering extends VRClubLifecycle {
         const rightWall = BABYLON.MeshBuilder.CreateBox("rightWall", {
             width: 0.5,
             height: 10,
-            depth: 45
+            depth: 21.5
         }, this.scene);
-        rightWall.position = new BABYLON.Vector3(12.5, 5, -10);
+        rightWall.position = new BABYLON.Vector3(12.5, 5, -10.5);
         this._applyWorldUVs(rightWall, wallTile, wallScale);
         rightWall.material = wallMat;
         rightWall.receiveShadows = false; // Optimization Phase 3: Disable shadows on walls

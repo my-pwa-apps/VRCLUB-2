@@ -68,10 +68,14 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.reverbReturn = this.audioContext.createGain();
                 this.reverbReturn.gain.value = 0.9;
 
-                // 7. Occlusion filter — walking out of the room muffles the PA.
+                // 7. Occlusion filter — walking out of the room muffles the PA. Two stages in series: indoors only
+                // the first works (the corridor's single pole); on the street both close to a bass-only 24 dB/oct.
                 this.occlusionFilter = this.audioContext.createBiquadFilter();
                 this.occlusionFilter.type = 'lowpass';
                 this.occlusionFilter.frequency.value = 22050;
+                this.occlusionFilter2 = this.audioContext.createBiquadFilter();
+                this.occlusionFilter2.type = 'lowpass';
+                this.occlusionFilter2.frequency.value = 22050;
 
                 // === CLUB MASTERING CHAIN ===
                 // Real club PAs run a hard limiter + master gain so the room stays loud
@@ -270,7 +274,11 @@ class VRClubAudioCrowd extends VRClubUI {
                 const busIn = this.occlusionFilter || this.audioCompressor;
                 this.pannerLeft.connect(busIn);
                 this.pannerRight.connect(busIn);
-                if (this.occlusionFilter) this.occlusionFilter.connect(this.audioCompressor);
+                if (this.occlusionFilter) {
+                    // The second stage (street) sits after the first; either alone reaches the bus.
+                    this.occlusionFilter.connect(this.occlusionFilter2 || this.audioCompressor);
+                    if (this.occlusionFilter2) this.occlusionFilter2.connect(this.audioCompressor);
+                }
 
                 // Sub-bass Channel
                 if (this.subFilter && this.subGain) {
@@ -357,10 +365,17 @@ class VRClubAudioCrowd extends VRClubUI {
         // Real-world acoustic zone attenuation:
         // Dance floor center is at (0, 0, -12); PA speakers flown at z = -16; entrance is at z = 0.
         const distToStage = Math.sqrt(pos.x * pos.x + Math.pow(pos.z - (-14), 2));
+
+        // How far outdoors the listener is (0 in the club and vestibule, 1 on the street) and how far from the door.
+        const city = typeof window !== 'undefined' ? window.CityLayout : null;
+        const exterior = city ? city.exteriorAmount(pos.x, pos.z) : 0;
+        const doorDistance = city ? city.doorDistance(pos.x, pos.z) : 0;
         
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
         if (this.subGain && this.subGain.gain) {
-            const subLevel = Math.max(0.45, Math.min(1.15, 1.15 - (distToStage / 22) * 0.55));
+            let subLevel = Math.max(0.45, Math.min(1.15, 1.15 - (distToStage / 22) * 0.55));
+            // Through the wall the sub is what carries: the thump stays present at the door and fades down the street.
+            if (exterior > 0) subLevel += (Math.max(0.5, 0.95 - doorDistance * 0.018) - subLevel) * exterior;
             this.subGain.gain.setTargetAtTime(subLevel, now, 0.05);
         }
 
@@ -371,29 +386,43 @@ class VRClubAudioCrowd extends VRClubUI {
         }
 
         // Reverb send rises with distance. Standing in front of the PA you hear the
-        // box; at the back of the room you mostly hear the room.
+        // box; at the back of the room you mostly hear the room. The room's tail and its early
+        // reflection stay inside it: on the street neither is heard.
         if (this.reverbSend && this.reverbSend.gain) {
-            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30));
+            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * (1 - exterior);
             this.reverbSend.gain.setTargetAtTime(wet, now, 0.12);
+        }
+        if (this.roomDelayGain && this.roomDelayGain.gain) {
+            this.roomDelayGain.gain.setTargetAtTime(0.18 * (1 - exterior), now, 0.12);
         }
 
         // Occlusion: the club room spans z -21..-5. Walking out toward the entrance
         // (z -> 0) puts a wall between the listener and the PA, so the top end goes
-        // and the level drops - the "stepping into the corridor" moment.
+        // and the level drops - the "stepping into the corridor" moment. Past the street door
+        // the whole building is between the listener and the music: only the low bass comes through,
+        // a little more of it right at the door than down the street.
         if (this.occlusionFilter && this.occlusionFilter.frequency) {
             const outsideBy = Math.max(0, pos.z - ROOM_BOUNDS.z.max);
             const occluded = outsideBy > 0;
-            const cutoff = occluded ? Math.max(700, 20000 - outsideBy * 3800) : 20000;
-            this.occlusionFilter.frequency.setTargetAtTime(cutoff, now, 0.08);
+            const corridorCutoff = occluded ? Math.max(700, 20000 - outsideBy * 3800) : 20000;
+            const leak = Math.max(0, 1 - doorDistance / 14);
+            const streetCutoff = 90 + 90 * leak * leak;
+            // Interpolate in log-frequency so the sweep is even to the ear.
+            const lerpLog = (from, to) => Math.exp(Math.log(from) + (Math.log(to) - Math.log(from)) * exterior);
+            this.occlusionFilter.frequency.setTargetAtTime(lerpLog(corridorCutoff, streetCutoff), now, 0.08);
+            if (this.occlusionFilter2 && this.occlusionFilter2.frequency) {
+                this.occlusionFilter2.frequency.setTargetAtTime(lerpLog(22050, streetCutoff), now, 0.08);
+            }
             if (this.audioMasterGain && this.audioMasterGain.gain) {
-                this.audioMasterGain.gain.setTargetAtTime(occluded ? 0.72 : 1.15, now, 0.15);
+                const indoorGain = occluded ? 0.72 : 1.15;
+                this.audioMasterGain.gain.setTargetAtTime(indoorGain + (1.25 - indoorGain) * exterior, now, 0.15);
             }
         }
 
-        // Crowd bed ducks under a loud PA and comes up in the gaps between tracks.
+        // Crowd bed ducks under a loud PA and comes up in the gaps between tracks. Nobody is chattering on the street.
         if (this.crowdAmbienceGain && this.crowdAmbienceGain.gain) {
             const energy = this._audioFrameData ? this._audioFrameData.average : 0;
-            const level = Math.max(0.012, 0.085 - energy * 0.14);
+            const level = Math.max(0.012, 0.085 - energy * 0.14) * (1 - exterior);
             this.crowdAmbienceGain.gain.setTargetAtTime(level, now, 0.4);
         }
     }

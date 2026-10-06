@@ -112,6 +112,10 @@ class VRClubLifecycle extends VRClubCore {
             log.info('✅ All 3D models loaded successfully');
         }).catch(error => {
             log.warn('⚠️ Some models failed to load, using procedural fallbacks:', error);
+        }).then(() => {
+            // The street outside loads last and never blocks anything: if it fails the street door stays shut.
+            if (this._disposed || typeof this.createCityDistrict !== 'function') return;
+            return this.createCityDistrict();
         });
         
         this._createDesktopCamera();
@@ -889,6 +893,9 @@ class VRClubLifecycle extends VRClubCore {
             this.avatarManager = null;
         }
         this.isMultiplayer = false;
+
+        // The street's container, sky and skyline textures, and colliders (its two lights belong to lightFactory).
+        if (typeof this._disposeCityDistrict === 'function') this._disposeCityDistrict();
 
         if (this._xrButtonBindingObserver && this.vrHelper?.input?.onControllerAddedObservable) {
             try { this.vrHelper.input.onControllerAddedObservable.remove(this._xrButtonBindingObserver); } catch (_) { /* ignore */ }

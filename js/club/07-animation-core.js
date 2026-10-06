@@ -235,6 +235,9 @@ class VRClubAnimationCore extends VRClubEffects {
         // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
         this._updateBassHaptics(audioData);
 
+        // The street outside: show it only near the entrance and ease the guest's "outdoors" amount (fog keys off it).
+        if (this.updateCityDistrict) this.updateCityDistrict(dt);
+
         // Update 3D spatial audio listener position & room acoustics attenuation
         if (this.updateSpatialAudioListener) {
             this.updateSpatialAudioListener();
@@ -363,8 +366,10 @@ class VRClubAnimationCore extends VRClubEffects {
         scene.fogEnabled = true;
         const settings = this.isInVRMode ? this.vrSettings?.vr : this.vrSettings?.desktop;
         const designed = settings && settings.fogDensity;
+        // Outdoors the air is thin: the club's haze is a room effect, and the street needs to see down the block.
+        const outdoors = this._exterior || 0;
         if (typeof designed === 'number') {
-            const target = this.smokeActive === false ? designed * 0.45 : designed;
+            const target = (this.smokeActive === false ? designed * 0.45 : designed) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
                 scene.fogDensity = target;
@@ -378,9 +383,11 @@ class VRClubAnimationCore extends VRClubEffects {
         const spot = this.currentSpotColor;
         const mix = (this.lightsActive && spot) ? 0.07 * (this.masterIntensity == null ? 1 : this.masterIntensity) : 0;
         if (fog) {
-            fog.r = 0.015 + (spot ? spot.r * mix : 0);
-            fog.g = 0.012 + (spot ? spot.g * mix : 0);
-            fog.b = 0.018 + (spot ? spot.b * mix : 0);
+            // The club tints its air with the show; the street's is a cool night blue.
+            const indoors = 1 - outdoors;
+            fog.r = (0.015 + (spot ? spot.r * mix : 0)) * indoors + 0.024 * outdoors;
+            fog.g = (0.012 + (spot ? spot.g * mix : 0)) * indoors + 0.032 * outdoors;
+            fog.b = (0.018 + (spot ? spot.b * mix : 0)) * indoors + 0.07 * outdoors;
         }
         const haze = this.haze;
         if (!haze || !haze.color1) return;

@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body,canvas{margin:0;width:100%;height:100%;display:block;background:#000}</style></head>
+<body><canvas id="c"></canvas>
+<script src="/js/vendor/babylon.js"></script>
+<script src="/js/vendor/babylonjs.loaders.min.js"></script>
+<script>
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const vec = (key, d) => (q.get(key) || d).split(',').map(Number);
+  const engine = new BABYLON.Engine(document.getElementById('c'), true, { preserveDrawingBuffer: true, stencil: true });
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.02, 0.025, 0.06, 1);
+  const [px, py, pz] = vec('pos', '0,1.7,7');
+  const [tx, ty, tz] = vec('target', '0,6,30');
+  const camera = new BABYLON.FreeCamera('cam', new BABYLON.Vector3(px, py, pz), scene);
+  camera.setTarget(new BABYLON.Vector3(tx, ty, tz));
+  camera.fov = Number(q.get('fov') || 1.2);
+  camera.minZ = 0.1; camera.maxZ = 400;
+  const mood = q.get('light') || 'night';
+  const hemi = new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0, 1, 0), scene);
+  hemi.diffuse = new BABYLON.Color3(0.45, 0.5, 0.75); hemi.groundColor = new BABYLON.Color3(0.12, 0.1, 0.14);
+  hemi.intensity = mood === 'day' ? 1.4 : 0.9;
+  const sun = new BABYLON.DirectionalLight('d', new BABYLON.Vector3(-0.3, -0.7, -0.6), scene);
+  sun.diffuse = new BABYLON.Color3(0.55, 0.65, 1.0); sun.intensity = mood === 'day' ? 1.6 : 0.8;
+  scene.fogMode = BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity = Number(q.get('fog') || 0.008); scene.fogColor = new BABYLON.Color3(0.03, 0.04, 0.09);
+  const t0 = performance.now();
+  const result = await BABYLON.SceneLoader.ImportMeshAsync('', '', '/js/models/city/downtown.glb', scene);
+  window.__loadMs = performance.now() - t0;
+  for (const m of result.meshes) m.freezeWorldMatrix();
+  window.__tris = result.meshes.reduce((s, m) => s + (m.getTotalIndices ? m.getTotalIndices() / 3 : 0), 0);
+  window.__meshes = result.meshes.filter(m => m.getTotalVertices && m.getTotalVertices()).map(m => m.name + ':' + m.subMeshes.length);
+  engine.runRenderLoop(() => scene.render());
+  await scene.whenReadyAsync();
+  for (let i = 0; i < 4; i++) await new Promise(r => scene.onAfterRenderObservable.addOnce(r));
+  window.__ready = true;
+})();
+</script></body></html>

@@ -719,6 +719,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
 
     const menuState = await page.evaluate(async () => {
         const club = window.vrClub;
+        club._showVRQuickMenuPage('effects');
         const smokeButton = club._vrQuickMenuButtons.find(button => button.control === 'smokeActive');
         const smokeBefore = club.smokeActive;
         club.scene.onPointerDown({}, { hit: true, pickedMesh: smokeButton.mesh });
@@ -748,7 +749,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     });
     expect(menuState).toEqual({
         enabled: true,
-        buttonCount: 15,
+        buttonCount: 12,
         textureOnlyEmission: true,
         worldLocked: true,
         stillAfterHeadTurn: true,

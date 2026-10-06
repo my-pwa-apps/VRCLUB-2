@@ -75,13 +75,19 @@ class VRClubCore {
         this.graphicsTier = this.detectGraphicsTier();
         log.info(`🎨 Graphics tier: ${this.graphicsTier}`);
 
-        // Per-tier switches. Nothing here applies in VR — headsets always use the
-        // conservative VR path regardless of tier (see applyVRSettings).
+        // Per-tier switches. Desktop-only pipelines stay out of XR, while the
+        // vr* values let a headset user explicitly trade frame time for fidelity.
         this.qualityTiers = {
             ultra: {
                 renderScale: 0.8,          // <1.0 = supersample, then downsample (huge sharpness win)
                 pipelineSamples: 4,        // MSAA on the pipeline render target
                 bloomKernel: 160,
+                vrBloomKernel: 64,
+                vrMsaaSamples: 4,
+                vrAnisotropy: 12,
+                vrHazeEmitRate: 90,
+                vrDustEmitRate: 50,
+                vrFoveation: 0.2,
                 ssr: true,
                 ssrQuality: 'high',
                 motionBlur: true,
@@ -103,6 +109,12 @@ class VRClubCore {
                 renderScale: 1.0,
                 pipelineSamples: 4,
                 bloomKernel: 128,
+                vrBloomKernel: 48,
+                vrMsaaSamples: 4,
+                vrAnisotropy: 8,
+                vrHazeEmitRate: 78,
+                vrDustEmitRate: 40,
+                vrFoveation: 0.3,
                 ssr: true,
                 ssrQuality: 'balanced',
                 motionBlur: false,
@@ -124,6 +136,12 @@ class VRClubCore {
                 renderScale: 1.0,
                 pipelineSamples: 1,
                 bloomKernel: 96,
+                vrBloomKernel: 32,
+                vrMsaaSamples: 2,
+                vrAnisotropy: 4,
+                vrHazeEmitRate: 65,
+                vrDustEmitRate: 30,
+                vrFoveation: 0.4,
                 ssr: false,
                 ssrQuality: 'balanced',
                 motionBlur: false,
@@ -208,6 +226,8 @@ class VRClubCore {
                 // idle frame, in a burst of about 40 ms.
                 strobeImpulse: { ambient: 1.0, retinal: 0.06, exposure: 0.9 },
                 fxaaEnabled: true,
+                // Fallback MSAA for older callers. The active graphics tier supplies the normal
+                // headset value; a localStorage override still wins over both.
                 // MSAA on the headset pipeline's render target (1, 2 or 4). The scene is drawn into
                 // this offscreen target before the post chain reaches the XR layer, so the layer's own
                 // `antialias` never touches geometry edges: with 1 only FXAA was running and the DJ,
@@ -634,10 +654,11 @@ class VRClubCore {
             this.renderPipeline.bloomEnabled = true; // KEEP bloom - essential for light glow in dark club
             this.renderPipeline.bloomWeight = vr.bloomWeight; // Subtle bloom
             this.renderPipeline.bloomThreshold = vr.bloomThreshold;
-            this.renderPipeline.bloomKernel = 32; // Smaller kernel for VR performance
+            this.renderPipeline.bloomKernel = this.tierSettings.vrBloomKernel;
             this.renderPipeline.bloomScale = vr.bloomScale;
             this.renderPipeline.samples = VRClubCore.resolveVRMsaaSamples(
-                vr.msaaSamples, this.engine.getCaps().maxMSAASamples);
+                this.tierSettings.vrMsaaSamples || vr.msaaSamples,
+                this.engine.getCaps().maxMSAASamples);
             this.renderPipeline.sharpenEnabled = true;
             this.renderPipeline.sharpen.edgeAmount = vr.edgeSharpness;
             this.renderPipeline.sharpen.colorAmount = vr.sharpenGain;
@@ -740,19 +761,18 @@ class VRClubCore {
             }
         });
 
-        // Drop anisotropy for VR. 4x still keeps the floor readable into the distance
-        // but costs a fraction of 16x across two eyes.
-        const vrAniso = Math.min(4, this.engine.getCaps().maxAnisotropy || 1);
+        // Scale texture clarity with the explicitly selected headset tier.
+        const vrAniso = Math.min(this.tierSettings.vrAnisotropy, this.engine.getCaps().maxAnisotropy || 1);
         this.scene.textures.forEach(tex => {
             if (!tex || tex.isCube || tex.isRenderTarget) return;
-            if (tex.anisotropicFilteringLevel > vrAniso) tex.anisotropicFilteringLevel = vrAniso;
+            tex.anisotropicFilteringLevel = vrAniso;
         });
         
         // #8 OPTIMIZED: Reduce particle systems for VR performance
         // Retain enough layered haze to survive the headset's higher bloom threshold.
         // Cutting these rates in half made smoke disappear between machine bursts.
         if (this.haze) {
-            this.haze.emitRate = 65;
+            this.haze.emitRate = this.tierSettings.vrHazeEmitRate;
             this.haze.color1.a = vr.hazeAlpha[0];
             this.haze.color2.a = vr.hazeAlpha[1];
             log.info('⚡ Reduced haze emit rate for VR');
@@ -764,7 +784,7 @@ class VRClubCore {
             });
         }
         if (this.dustMotes) {
-            this.dustMotes.emitRate = 30; // Motes still glint in the beams, at a third the cost
+            this.dustMotes.emitRate = this.tierSettings.vrDustEmitRate;
         }
         
         // Keep the configured VR haze. Halving this a second time made volumetric
@@ -785,8 +805,8 @@ class VRClubCore {
                 // Check if XR layer supports foveated rendering
                 const xrLayer = session.renderState.baseLayer;
                 if (xrLayer && 'fixedFoveation' in xrLayer) {
-                    xrLayer.fixedFoveation = 0.4;
-                    log.info('⚡ Fixed Foveated Rendering enabled at moderate strength (0.4)');
+                    xrLayer.fixedFoveation = this.tierSettings.vrFoveation;
+                    log.info(`⚡ Fixed Foveated Rendering set to ${this.tierSettings.vrFoveation}`);
                 }
             }
         } catch (err) {
@@ -992,8 +1012,10 @@ class VRClubCore {
         if (this.motionBlur) { this.motionBlur.dispose(); this.motionBlur = null; }
 
         this._applyTierToPipeline();
-        this._createScreenSpaceReflections();
-        this._createMotionBlur();
+        if (!this.isInVRMode) {
+            this._createScreenSpaceReflections();
+            this._createMotionBlur();
+        }
         this._suppressUnlitSpecular();
         this._applyAnisotropicFiltering();
         this._applyShadowQuality();
@@ -1001,9 +1023,13 @@ class VRClubCore {
         this._rebuildFloorReflectionProbe();
         this._applyCrowdSize();
 
-        // Re-run the desktop path so render scale / attachments match the new tier.
-        // In VR the conservative VR path already owns these values, so leave it alone.
-        if (!this.isInVRMode) this.applyDesktopSettings();
+        // Re-run the active target's settings so the quality change is visible immediately.
+        if (this.isInVRMode) {
+            const xrCamera = this.vrHelper?.baseExperience?.camera;
+            if (xrCamera) this._applyVRQualityTier(xrCamera);
+        } else {
+            this.applyDesktopSettings();
+        }
 
         this.scene.materials.forEach(material => {
             if (material.isFrozen) material.unfreeze();
@@ -1012,6 +1038,28 @@ class VRClubCore {
 
         log.info(`🎨 Graphics tier switched to: ${tier}`);
         this.showErrorMessage(`Graphics quality: ${tier.toUpperCase()}`);
+    }
+
+    _applyVRQualityTier() {
+        const tier = this.tierSettings;
+        const vr = this.vrSettings.vr;
+        if (this.renderPipeline) {
+            this.renderPipeline.bloomKernel = tier.vrBloomKernel;
+            this.renderPipeline.samples = VRClubCore.resolveVRMsaaSamples(
+                tier.vrMsaaSamples || vr.msaaSamples,
+                this.engine.getCaps().maxMSAASamples);
+        }
+        const anisotropy = Math.min(tier.vrAnisotropy, this.engine.getCaps().maxAnisotropy || 1);
+        this.scene.textures.forEach(texture => {
+            if (!texture || texture.isCube || texture.isRenderTarget) return;
+            texture.anisotropicFilteringLevel = anisotropy;
+        });
+        if (this.haze) this.haze.emitRate = tier.vrHazeEmitRate;
+        if (this.dustMotes) this.dustMotes.emitRate = tier.vrDustEmitRate;
+
+        const session = this.vrHelper?.baseExperience?.sessionManager?.session;
+        const xrLayer = session?.renderState?.baseLayer;
+        if (xrLayer && 'fixedFoveation' in xrLayer) xrLayer.fixedFoveation = tier.vrFoveation;
     }
 
     /** Current tier's settings object. */

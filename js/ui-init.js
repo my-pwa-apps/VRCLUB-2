@@ -981,8 +981,8 @@ function initKeyboardShortcuts() {
             case 'f': case 'F':
                 if (vjMacros.drop) { e.preventDefault(); vjMacros.drop(); }
                 break;
-            case '1': case '2': case '3': case '4': case '5': {
-                const presets = ['arrival', 'danceFloor', 'djBooth', 'lightingGallery', 'balcony'];
+            case '1': case '2': case '3': case '4': case '5': case '6': {
+                const presets = ['arrival', 'danceFloor', 'djBooth', 'lightingGallery', 'balcony', 'street'];
                 e.preventDefault();
                 club.moveCameraToPreset(presets[Number(e.key) - 1]);
                 break;

@@ -21,6 +21,7 @@ in `index.html`).
 | `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
 
@@ -47,6 +48,22 @@ A steel balcony along the left wall (deck 2.7 x 8.6 m at y 3) with a 16-step sta
 two stools. Textures are the two Poly Haven sets above; the rails use the project's own `steelGirder` preset; the stools are
 the bar's *Metal Stool 03* instances (no extra download). Everything else is procedural. `node scripts/build-mezzanine-assets.mjs`
 regenerates both texture sets.
+
+### The street
+
+The avenue outside the club's street door is one **baked derivative** of the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
+not in this repository (153 pieces and 78 MB of PNG). `node scripts/build-city-assets.mjs --kit "<unzipped kit>/Exports/glTF (Godot)"`
+rebuilds `js/models/city/downtown.glb` from it. The script lays the three whole buildings out as two rows facing each other across a
+four-lane avenue (a far row of six, a near row of two either side of the club), with street and sidewalk tiles, crosswalks, planters and
+bollards. It drops the interior floors, makes the transparent glass an opaque dark pane, lifts the kit's "fake interior" room pictures a
+few centimetres in front of the glass so lit rooms show, bakes the kit's per-instance tints into vertex colour (so brick, trim and
+asphalt are one material each), and packs the three room pictures plus a black glass tile into one 1024 px atlas. Each building is
+simplified by its distance from the door (meshoptimizer: the topological simplifier alone stops near 50% because a facade is thousands
+of separate window-frame islands; beyond about 22 m the window-frame material also goes through the sloppy simplifier), merged per
+building and per material, and quantised (14-bit positions, 8-bit normals). Textures become WebP: base colour 1024 px, packed ORM and
+normals 512 px. Result: 148k triangles in 10 buildings plus the street, 7 materials, 6.7 MB, about 5 to 6 draws per building. It is only
+drawn while a guest is near the entrance. The sky dome and the distant towers are procedural (`js/cityDistrict.js`). The kit's licence
+file asks for nothing, but the creator is credited here.
 
 ### The bar
 

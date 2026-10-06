@@ -132,6 +132,7 @@ test('Quest session: headset, controllers, snap turn, teleport and the lighting 
         const hand = await activePointerHand(page);
         const target = await page.evaluate(() => {
             const club = window.vrClub;
+            club._showVRQuickMenuPage('effects');
             const button = club._vrQuickMenuButtons.find(item => item.control === 'smokeActive');
             button.mesh.computeWorldMatrix(true);
             return { world: button.mesh.getAbsolutePosition().asArray(), before: club.smokeActive };

@@ -388,31 +388,170 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _drawVRQuickMenuButton(button) {
         const context = button.texture.getContext();
-        const active = !button.action && button.control && button.control !== 'cycleLedPattern'
-            ? !!this[button.control]
-            : true;
+        const active = this._isVRQuickMenuButtonActive(button);
         context.clearRect(0, 0, 512, 192);
-        context.fillStyle = button.action === 'close'
-            ? '#641f2c'
+        const isNavigation = button.action === 'page' || button.action === 'back';
+        context.fillStyle = button.action === 'close' ? '#641f2c'
+            : button.action === 'quality' ? '#5b3fa3'
+            : isNavigation ? '#173e58'
             : (active ? '#087f75' : '#252a35');
         context.fillRect(0, 0, 512, 192);
-        context.strokeStyle = active ? '#8fffee' : '#6f7787';
+        const gradient = context.createLinearGradient(0, 0, 512, 192);
+        gradient.addColorStop(0, 'rgba(255,255,255,0.10)');
+        gradient.addColorStop(0.5, 'rgba(255,255,255,0)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.18)');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 512, 192);
+        context.strokeStyle = active || isNavigation ? '#8fffee' : '#6f7787';
         context.lineWidth = 8;
         context.strokeRect(4, 4, 504, 184);
         context.fillStyle = '#ffffff';
-        context.font = 'bold 48px sans-serif';
+        context.font = 'bold 44px sans-serif';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
-        const suffix = !button.action && button.control && button.control !== 'cycleLedPattern'
-            ? (active ? '  ON' : '  OFF')
-            : '';
-        context.fillText(button.label + suffix, 256, 96);
+        const value = this._vrQuickMenuButtonValue(button, active);
+        context.fillText(button.label, 256, value ? 70 : 96);
+        if (value) {
+            context.fillStyle = active ? '#b9fff5' : '#c5cad4';
+            context.font = 'bold 32px sans-serif';
+            context.fillText(value, 256, 132);
+        }
         button.texture.update();
+    }
+
+    _isVRQuickMenuButtonActive(button) {
+        if (button.action === 'autoShow') return !this.vjManualMode;
+        if (button.action === 'quality' || button.action === 'cycle') return true;
+        if (button.control) return !!this[button.control];
+        return false;
+    }
+
+    _vrQuickMenuButtonValue(button, active) {
+        if (button.action === 'quality') return this.graphicsTier.toUpperCase();
+        if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
+            return `PATTERN ${(this.ledPattern || 0) + 1}`;
+        }
+        if (button.action === 'cycle' && button.control === 'changeColor') {
+            return `COLOUR ${(this.spotColorIndex || 0) + 1}`;
+        }
+        if (button.action === 'cycle' && button.control === 'changeMirrorBallColor') {
+            return `COLOUR ${(this.mirrorBallColorIndex || 0) + 1}`;
+        }
+        if (button.action === 'cycle' && button.control === 'cycleSpotMode') {
+            return `MODE ${(this.spotlightMode || 0) + 1}`;
+        }
+        if (button.action === 'cycle' && button.control === 'cyclePattern') {
+            return `PATTERN ${(this.spotlightPattern || 0) + 1}`;
+        }
+        if (button.action === 'cycle' && button.control === 'cycleGoboPattern') {
+            return `GOBO ${(this.goboPatternIndex || 0) + 1}`;
+        }
+        if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
+        if (button.control) return active ? 'ON' : 'OFF';
+        return '';
+    }
+
+    _vrQuickMenuPageDefinitions(page) {
+        const common = {
+            back: { label: '\u2190 BACK', action: 'back' },
+            close: { label: 'CLOSE', action: 'close' }
+        };
+        const pages = {
+            home: [
+                { label: 'LIGHTING', action: 'page', target: 'lighting' },
+                { label: 'EFFECTS', action: 'page', target: 'effects' },
+                { label: 'SHOW', action: 'page', target: 'show' },
+                { label: 'QUALITY', action: 'quality' },
+                { label: 'COMFORT', action: 'page', target: 'comfort' },
+                { label: 'TRAVEL', action: 'page', target: 'travel' },
+                { label: 'RESET SHOW', action: 'reset' },
+                common.close
+            ],
+            lighting: [
+                { label: 'SPOTS', control: 'lightsActive' },
+                { label: 'LASERS', control: 'lasersActive' },
+                { label: 'LASER SHEET', control: 'laserSheetActive' },
+                { label: 'MIRROR BALL', control: 'mirrorBallActive' },
+                { label: 'LED WALL', control: 'ledWallActive' },
+                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
+                { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
+                { label: 'SPOT PATTERN', control: 'cyclePattern', action: 'cycle' },
+                { label: 'GOBO', control: 'cycleGoboPattern', action: 'cycle' },
+                common.back,
+                common.close
+            ],
+            effects: [
+                { label: 'STROBES', control: 'strobesActive' },
+                { label: 'SPOT STROBE', control: 'spotStrobeActive' },
+                { label: 'SMOKE', control: 'smokeActive' },
+                { label: 'LED MONO', control: 'ledMonochrome' },
+                { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
+                { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
+                common.back,
+                common.close
+            ],
+            comfort: [
+                { label: 'LOCOMOTION', control: 'vrComfortMode' },
+                { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
+                { label: 'HAPTICS', control: 'bassHapticsEnabled' },
+                { label: 'QUALITY', action: 'quality' },
+                common.back,
+                common.close
+            ],
+            travel: [
+                { label: 'ENTRANCE', control: 'arrival', action: 'travel' },
+                { label: 'DANCE FLOOR', control: 'danceFloor', action: 'travel' },
+                { label: 'DJ BOOTH', control: 'djBooth', action: 'travel' },
+                { label: 'BALCONY', control: 'balcony', action: 'travel' },
+                { label: 'STREET', control: 'street', action: 'travel' },
+                common.back,
+                common.close
+            ],
+            show: [
+                { label: 'AUTO SHOW', action: 'autoShow' },
+                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
+                { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                { label: 'RESET SHOW', action: 'reset' },
+                common.back,
+                common.close
+            ]
+        };
+        return pages[page] || pages.home;
+    }
+
+    _showVRQuickMenuPage(page) {
+        this._vrQuickMenuPage = page;
+        const definitions = this._vrQuickMenuPageDefinitions(page);
+        this._vrQuickMenuButtons.forEach((button, index) => {
+            const definition = definitions[index];
+            button.mesh.setEnabled(!!definition);
+            if (!definition) return;
+            button.label = '';
+            button.control = null;
+            button.action = null;
+            button.target = null;
+            Object.assign(button, definition);
+            this._drawVRQuickMenuButton(button);
+        });
+        if (this._vrQuickMenuHeaderTexture) {
+            const context = this._vrQuickMenuHeaderTexture.getContext();
+            context.clearRect(0, 0, 1024, 192);
+            context.fillStyle = '#8fffee';
+            context.font = 'bold 66px sans-serif';
+            context.textAlign = 'left';
+            context.textBaseline = 'middle';
+            context.fillText(page === 'home' ? 'VR CLUB' : page.toUpperCase(), 54, 72);
+            context.fillStyle = '#a7afbf';
+            context.font = '30px sans-serif';
+            context.fillText(`${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
+            this._vrQuickMenuHeaderTexture.update();
+        }
     }
 
     _refreshVRQuickMenu() {
         if (!this._vrQuickMenuButtons) return;
-        this._vrQuickMenuButtons.forEach(button => this._drawVRQuickMenuButton(button));
+        this._showVRQuickMenuPage(this._vrQuickMenuPage || 'home');
     }
 
     _activateVRQuickMenuButton(button) {
@@ -421,9 +560,39 @@ class VRClubUI extends VRClubAnimationFinish {
             this.toggleVRQuickMenu(false);
             return;
         }
+        if (button.action === 'page') {
+            this._showVRQuickMenuPage(button.target);
+            this.pulseHaptic(0.45, 25);
+            return;
+        }
+        if (button.action === 'back') {
+            this._showVRQuickMenuPage('home');
+            this.pulseHaptic(0.35, 20);
+            return;
+        }
         if (button.action === 'travel') {
             this.moveCameraToPreset(button.control);
             this.toggleVRQuickMenu(false);
+            return;
+        }
+        if (button.action === 'quality') {
+            const tiers = ['balanced', 'high', 'ultra'];
+            this.setGraphicsTier(tiers[(tiers.indexOf(this.graphicsTier) + 1) % tiers.length]);
+            this.pulseHaptic(0.7, 35);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'reset') {
+            this.resetVJControls();
+            this.showErrorMessage('Light show reset to defaults');
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'autoShow') {
+            this.vjManualMode = false;
+            this.lastVJInteraction = 0;
+            this.showErrorMessage('NOCTURNE auto show resumed');
+            this._refreshVRQuickMenu();
             return;
         }
         if (button.control === 'vrComfortMode') {
@@ -444,6 +613,16 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.control === 'cycleLedPattern') {
             const patternCount = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 18;
             this.ledPattern = (this.ledPattern + 1) % patternCount;
+        } else if (button.control === 'changeColor') {
+            this.cycleSpotColor();
+        } else if (button.control === 'changeMirrorBallColor') {
+            this.cycleMirrorBallColor();
+        } else if (button.control === 'cycleSpotMode') {
+            this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_COLORS.length;
+        } else if (button.control === 'cyclePattern') {
+            this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_COLORS.length;
+        } else if (button.control === 'cycleGoboPattern') {
+            if (typeof this.nextGoboPattern === 'function') this.nextGoboPattern();
         } else if (button.control) {
             if (this.photosensitiveSafeMode && button.control === 'strobesActive') {
                 this.showErrorMessage('Photosensitive Safe Mode blocks strobes.');
@@ -464,8 +643,8 @@ class VRClubUI extends VRClubAnimationFinish {
         if (this._vrQuickMenuRoot) return;
         const root = new BABYLON.TransformNode('vrQuickMenuRoot', this.scene);
         const panel = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuPanel', {
-            width: 1.42,
-            height: 1.8,
+            width: 1.62,
+            height: 1.72,
             sideOrientation: BABYLON.Mesh.DOUBLESIDE
         }, this.scene);
         panel.parent = root;
@@ -478,34 +657,40 @@ class VRClubUI extends VRClubAnimationFinish {
         panelMaterial.alpha = 0.96;
         panel.material = panelMaterial;
 
-        const definitions = [
-            ['COMFORT', 'vrComfortMode'],
-            ['SAFE MODE', 'photosensitiveSafeMode'],
-            ['HAPTICS', 'bassHapticsEnabled'],
-            ['ENTRANCE', 'arrival', 'travel'],
-            ['DANCE FLOOR', 'danceFloor', 'travel'],
-            ['DJ BOOTH', 'djBooth', 'travel'],
-            ['BALCONY', 'balcony', 'travel'],
-            ['SPOTS', 'lightsActive'],
-            ['LASERS', 'lasersActive'],
-            ['MIRROR', 'mirrorBallActive'],
-            ['STROBES', 'strobesActive'],
-            ['LED WALL', 'ledWallActive'],
-            ['LED NEXT', 'cycleLedPattern'],
-            ['SMOKE', 'smokeActive'],
-            ['CLOSE', null, 'close']
-        ];
+        const header = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuHeader', {
+            width: 1.48,
+            height: 0.28,
+            sideOrientation: BABYLON.Mesh.DOUBLESIDE
+        }, this.scene);
+        header.parent = root;
+        header.position.set(0, 0.65, -0.012);
+        header.isPickable = false;
+        const headerTexture = new BABYLON.DynamicTexture(
+            'vrQuickMenuHeaderTexture',
+            { width: 1024, height: 192 },
+            this.scene,
+            false
+        );
+        const headerMaterial = this.materialFactory.createStandardMaterial('vrQuickMenuHeaderMat', {
+            emissiveColor: [0, 0, 0],
+            emissiveTexture: headerTexture,
+            disableLighting: true
+        });
+        headerMaterial.backFaceCulling = false;
+        header.material = headerMaterial;
+        this._vrQuickMenuHeaderTexture = headerTexture;
+
         this._vrQuickMenuButtons = [];
-        definitions.forEach((definition, index) => {
+        for (let index = 0; index < 12; index++) {
             const col = index % 3;
             const row = Math.floor(index / 3);
             const mesh = BABYLON.MeshBuilder.CreatePlane(`vrQuickMenuButton${index}`, {
-                width: 0.40,
-                height: 0.25,
+                width: 0.46,
+                height: 0.27,
                 sideOrientation: BABYLON.Mesh.DOUBLESIDE
             }, this.scene);
             mesh.parent = root;
-            mesh.position.set((col - 1) * 0.45, 0.68 - row * 0.34, -0.012);
+            mesh.position.set((col - 1) * 0.50, 0.36 - row * 0.36, -0.012);
             mesh.isPickable = true;
             mesh.renderingGroupId = 2;
 
@@ -528,13 +713,13 @@ class VRClubUI extends VRClubAnimationFinish {
                 mesh,
                 texture,
                 material,
-                label: definition[0],
-                control: definition[1],
-                action: definition[2] || null
+                label: '',
+                control: null,
+                action: null
             };
             this._vrQuickMenuButtons.push(button);
-            this._drawVRQuickMenuButton(button);
-        });
+        }
+        this._showVRQuickMenuPage('home');
         root.setEnabled(false);
         this._vrQuickMenuRoot = root;
     }
@@ -1121,9 +1306,9 @@ class VRClubUI extends VRClubAnimationFinish {
         return this.vrComfortMode;
     }
 
-    /** Surfaces the VR teleport arc may land on: the club floor, plus the balcony deck and its stair treads. */
+    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the vestibule and the street. */
     _teleportFloorMeshes() {
-        return [this.floorMesh, this._mezzDeck].filter(Boolean);
+        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, ...(this._cityGround || [])].filter(Boolean);
     }
 
     _teleportBlockerMeshes() {
@@ -1232,10 +1417,16 @@ class VRClubUI extends VRClubAnimationFinish {
             djBooth: { label: 'DJ Booth', pos: new BABYLON.Vector3(0, 2.2, -19.4), target: new BABYLON.Vector3(0, 1.7, -10) },
             lightingGallery: { label: 'Lighting Gallery', pos: new BABYLON.Vector3(10, 5.2, -6.5), target: new BABYLON.Vector3(0, 2.4, -15.5) },
             // Standing on the steel mezzanine (deck at y 3), looking across the dance floor to the booth.
-            balcony: { label: 'Balcony', pos: new BABYLON.Vector3(-10.9, 4.7, -12.4), target: new BABYLON.Vector3(1, 2.7, -16), level: 3.0 }
+            balcony: { label: 'Balcony', pos: new BABYLON.Vector3(-10.9, 4.7, -12.4), target: new BABYLON.Vector3(1, 2.7, -16), level: 3.0 },
+            // On the pavement outside the street door, looking across the avenue at the far row of buildings.
+            street: { label: 'Street', pos: new BABYLON.Vector3(0, 1.7, 8.2), target: new BABYLON.Vector3(0, 8, 30) }
         };
         
         const p = presets[preset];
+        if (preset === 'street' && !(this._streetDoor && this._streetDoor.open)) {
+            this.showErrorMessage('The street is not available yet.');
+            return;
+        }
         if (p) {
             const xrCamera = this.isInVRMode ? this.vrHelper?.baseExperience?.camera : null;
             if (xrCamera) {

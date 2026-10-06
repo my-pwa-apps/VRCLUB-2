@@ -21,7 +21,9 @@ const VENUE_VESTIBULE = {
     halfWidth: 3.85,
     wallZ: 0.25,     // outer face of the front wall
     farZ: 6.0,       // inner face of the street wall
-    height: 3.7
+    height: 3.7,
+    doorHalfWidth: 1.66, // the street door's opening, outer edge of its frame
+    doorHeight: 3.06
 };
 
 const VenueDressing = {
@@ -156,7 +158,13 @@ const VenueDressing = {
         const walls = b.group('Walls', wallMat);
         b.box(walls, 0.3, H, length, -(VW + 0.15), H / 2, midZ, brick);
         b.box(walls, 0.3, H, length, VW + 0.15, H / 2, midZ, brick);
-        b.box(walls, 2 * (VW + 0.3), H, 0.3, 0, H / 2, ZF + 0.15, brick);
+        // The street wall has a doorway (the width of the street door's frame) so the club has a way out to the
+        // city: a pier either side and a lintel over the top.
+        const { doorHalfWidth: DW, doorHeight: DH } = VENUE_VESTIBULE;
+        const pier = VW + 0.3 - DW;
+        b.box(walls, pier, H, 0.3, -(DW + pier / 2), H / 2, ZF + 0.15, brick);
+        b.box(walls, pier, H, 0.3, DW + pier / 2, H / 2, ZF + 0.15, brick);
+        b.box(walls, 2 * DW, H - DH, 0.3, 0, DH + (H - DH) / 2, ZF + 0.15, brick);
 
         const ceiling = b.group('Ceiling', factory.getPreset('ceiling'));
         b.box(ceiling, 2 * (VW + 0.3), 0.12, length, 0, H + 0.06, midZ, mesh => this._applyWorldUVs(mesh, 3, ceilingScale));
@@ -182,20 +190,23 @@ const VenueDressing = {
         b.box(frame, 4.0, 0.14, 0.56, 0, 3.33, 0);
         b.box(frame, 0.07, 3.2, 0.95, -1.82, 1.62, -0.725);
         b.box(frame, 0.07, 3.2, 0.95, 1.82, 1.62, -0.725);
-        // Street door at the far end: black frame around two lit panes.
+        // Street door at the far end: a black frame around the opening. Two lit glass leaves close it until the street
+        // outside has loaded (see CityDistrict._openStreetDoor); without the street there is nothing to walk out to.
         b.box(frame, 0.12, 3.0, 0.1, -1.6, 1.5, ZF - 0.05);
         b.box(frame, 0.12, 3.0, 0.1, 1.6, 1.5, ZF - 0.05);
-        b.box(frame, 0.12, 3.0, 0.1, 0, 1.5, ZF - 0.05);
         b.box(frame, 3.32, 0.12, 0.1, 0, 3.0, ZF - 0.05);
         const street = b.group('StreetGlass', this._emissive('vestibuleStreetMat', [0.2, 0.3, 0.55]));
-        b.box(street, 1.44, 2.88, 0.02, -0.8, 1.44, ZF - 0.02);
-        b.box(street, 1.44, 2.88, 0.02, 0.8, 1.44, ZF - 0.02);
+        b.box(street, 1.5, 2.88, 0.02, -0.78, 1.44, ZF - 0.02);
+        b.box(street, 1.5, 2.88, 0.02, 0.78, 1.44, ZF - 0.02);
+        const doorMullion = b.group('StreetDoorMullion', steelMat);
+        b.box(doorMullion, 0.06, 3.0, 0.1, 0, 1.5, ZF - 0.05);
 
         const brass = factory.getPreset('stanchionPost');
         const metal = b.group('Brass', brass);
-        // Push bars on the street door.
-        b.cylinder(metal, 0.035, 1.0, -0.8, 1.05, ZF - 0.14, 'x');
-        b.cylinder(metal, 0.035, 1.0, 0.8, 1.05, ZF - 0.14, 'x');
+        // Push bars on the street door's leaves.
+        const doorBars = b.group('StreetDoorBars', brass);
+        b.cylinder(doorBars, 0.035, 1.0, -0.8, 1.05, ZF - 0.14, 'x');
+        b.cylinder(doorBars, 0.035, 1.0, 0.8, 1.05, ZF - 0.14, 'x');
         // Queue rope line along the carpet: brass posts, weighted bases, velvet rope.
         const baseMat = factory.getPreset('stanchionBase');
         const ropeMat = factory.getPreset('velvetRope');
@@ -261,8 +272,15 @@ const VenueDressing = {
         this._entranceLight = this._createScopedAccent('entranceLight', new BABYLON.Vector3(0, 3.0, 3.1),
             { intensity: 1.3, range: 7.5, diffuse: [1, 0.86, 0.7], group: 'entrance' }, scoped);
 
-        // The shell's open far end and the vestibule's own volume are sealed so nobody flies around the back.
-        this._collisionBlock('entranceRearWall', 25, 10, 0.5, 0, 5, 12.4);
+        // The street door is shut (glass leaves plus an invisible block) until the street outside has loaded.
+        // The vestibule's own walls, ceiling and this block seal the club in the meantime.
+        this._vestibuleFloor = built.Floor || null;
+        this._streetDoor = {
+            open: false,
+            meshes: [built.StreetGlass, built.StreetDoorMullion, built.StreetDoorBars],
+            block: this._collisionBlock('streetDoorBlock', 2 * DW, 3.4, 0.5, 0, 1.7, ZF + 0.15)
+        };
+        if (this._cityRoot) this._openStreetDoor(); // the street finished loading before the vestibule was built
         log.info('✅ Entrance vestibule created');
     },
 
