@@ -39,6 +39,9 @@ const MEZZANINE = {
 };
 window.MezzanineLayout = MEZZANINE;
 
+// The DJ riser's walkable top (djPlatform in createDJBooth: 6 x 4 m centred on z -18, 0.5 m high).
+const DJ_RISER = { x0: -3, x1: 3, z0: -20, z1: -16, top: 0.5 };
+
 const Mezzanine = {
     _steelMaterial(name, textures, fallback) {
         const mat = this.materialFactory.createPBRMaterial(name, {
@@ -164,10 +167,13 @@ const Mezzanine = {
 
         const built = b.finish({ collide: ['Deck', 'Panel', 'Rails'] });
         this._mezzMeshes = Object.values(built);
+        // Deck plate and every stair tread, in one mesh: the VR teleport accepts it as a floor (see
+        // VRClubUI._teleportFloorMeshes), so the balcony and the stair can be reached from the headset.
+        this._mezzDeck = built.Deck || null;
         this._mezzLight = this._createScopedAccent('balconyLight', new BABYLON.Vector3(-10.9, 4.7, -14.7),
             { intensity: 1.2, range: 8, diffuse: [1, 0.92, 0.8], group: 'mezzanine' }, this._mezzMeshes);
 
-        // Walkers follow the stair and the deck (desktop moves the camera; VR only records the level for the body).
+        // Walkers follow the stair and the deck, on the desktop and in the headset alike.
         this._walkLevel = this._walkLevel || 0;
         this._walkSurfaceObserver = scene.onBeforeRenderObservable.add(() => this._updateWalkSurface());
 
@@ -203,14 +209,41 @@ const Mezzanine = {
         const camera = this.isInVRMode && this.vrHelper && this.vrHelper.baseExperience
             ? this.vrHelper.baseExperience.camera : this.camera;
         if (!camera) return;
+        if (this.isInVRMode) {
+            this._updateVRWalkSurface(camera);
+            return;
+        }
         const level = this._walkLevel || 0;
         const next = MEZZANINE.walkLevel(camera.position.x, camera.position.z, level);
         if (next === level) return;
         // Desktop has no gravity. Climbing, the collision system already slides the camera up the stair, so only the
-        // level is recorded; descending, nothing pulls the eye down, so it follows the surface. In VR the
-        // collision/gravity system owns height, and the level only sizes the player's body.
-        if (!this.isInVRMode && next < level) camera.position.y += next - level;
-        else if (!this.isInVRMode && camera.position.y < next + 1.0) camera.position.y = next + 1.7;
+        // level is recorded; descending, nothing pulls the eye down, so it follows the surface.
+        if (next < level) camera.position.y += next - level;
+        else if (camera.position.y < next + 1.0) camera.position.y = next + 1.7;
+        this._walkLevel = next;
+    },
+
+    /**
+     * The headset stands on whatever is under its feet. Nothing else carries an XR camera up a stair or holds it on
+     * a deck (its collision ellipsoid hangs from the eye and the teleport only knows the surface it landed on), so
+     * this owns the height: smooth locomotion climbs the stair tread by tread, a teleport onto the deck or the stair
+     * is kept there, and walking off the edge drops the headset to the floor.
+     *
+     * The surface is looked up from where the FEET are now (eye minus tracked eye height), not stepped from the
+     * last recorded level, because a teleport moves the feet a whole storey in one frame. Crouching lowers the eye
+     * and the tracked height together, so it leaves the feet, and this, alone. A jump owns the height in flight.
+     */
+    _updateVRWalkSurface(camera) {
+        if (this.jumpState && this.jumpState.active) return;
+        const eye = Number.isFinite(camera.realWorldHeight) && camera.realWorldHeight > 0.3 ? camera.realWorldHeight : 1.6;
+        const feet = camera.position.y - eye;
+        const x = camera.position.x, z = camera.position.z;
+        let next = MEZZANINE.walkLevel(x, z, feet);
+        // The DJ riser (djPlatform: 6 x 4 m, top 0.5) is the other raised floor a headset can stand on: the DJ Booth
+        // destination puts it there.
+        const R = DJ_RISER;
+        if (next === 0 && x > R.x0 && x < R.x1 && z > R.z0 && z < R.z1 && Math.abs(feet - R.top) < 0.3) next = R.top;
+        if (Math.abs(feet - next) > 0.02) camera.position.y = next + eye;
         this._walkLevel = next;
     }
 };

@@ -534,59 +534,6 @@ class VRClubEffects extends VRClubFixtures {
         hazeB.isVisible = false;
         this._laserSheetFanB = { sheet: sheetB, haze: hazeB };
 
-        // Where a fan meets the floor, every point of the swept beam lands on one line: the bright scan
-        // line a light sheet draws across the dance floor. One quad per projector, rewritten each frame
-        // by _updateLaserSheetScanLines(); one draw call for both.
-        const scanTex = new BABYLON.DynamicTexture('laserScanLineProfile', { width: 64, height: 4 }, this.scene, false);
-        const scanCtx = scanTex.getContext();
-        const scanImg = scanCtx.createImageData(64, 4);
-        for (let y = 0; y < 4; y++) {
-            for (let x = 0; x < 64; x++) {
-                const s = ((x + 0.5) / 64) * 2 - 1;
-                const o = (y * 64 + x) * 4;
-                scanImg.data[o] = scanImg.data[o + 1] = scanImg.data[o + 2] = 255;
-                const core = (s / 0.18) * (s / 0.18), halo = (s / 0.6) * (s / 0.6);
-                scanImg.data[o + 3] = Math.round(255 * Math.min(1, Math.exp(-core) + 0.25 * Math.exp(-halo)));
-            }
-        }
-        scanCtx.putImageData(scanImg, 0, 0);
-        scanTex.update();
-        scanTex.hasAlpha = true;
-        scanTex.wrapU = scanTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-
-        const scanLines = new BABYLON.Mesh('laserSheetScanLines', this.scene);
-        const scanData = new BABYLON.VertexData();
-        scanData.positions = new Float32Array(24);
-        scanData.normals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
-        scanData.uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1]);
-        scanData.colors = new Float32Array(32);
-        scanData.indices = new Uint16Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
-        scanData.applyToMesh(scanLines, true);
-        scanLines.hasVertexAlpha = true;
-        scanLines.isPickable = false;
-        scanLines.alwaysSelectAsActiveMesh = true;
-        scanLines.isVisible = false;
-        const scanMat = new BABYLON.StandardMaterial('laserSheetScanLineMat', this.scene);
-        scanMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        scanMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        scanMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-        scanMat.opacityTexture = scanTex;
-        scanMat.disableLighting = true;
-        scanMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-        scanMat.backFaceCulling = false;
-        scanMat.disableDepthWrite = true;
-        scanMat.fogEnabled = false;
-        scanMat.zOffset = -2; // lies on the floor: win the depth test against the concrete it marks
-        scanLines.material = scanMat;
-        this._laserScanLines = {
-            mesh: scanLines,
-            material: scanMat,
-            positions: scanData.positions,
-            colors: scanData.colors,
-            apex: new BABYLON.Vector3(),
-            left: new BABYLON.Vector3(),
-            right: new BABYLON.Vector3()
-        };
         
         // 4. Light Source (Actual light projection) - DISABLED for performance
         // DISABLED: Laser sheet SpotLight adds to uniform buffer count
@@ -602,7 +549,6 @@ class VRClubEffects extends VRClubFixtures {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheetHaze);
             this.glowLayer.addIncludedOnlyMesh(sheetB);
             this.glowLayer.addIncludedOnlyMesh(hazeB);
-            this.glowLayer.addIncludedOnlyMesh(scanLines);
             for (const mount of Object.values(this._laserSheetMounts)) {
                 this.glowLayer.addIncludedOnlyMesh(mount.aperture);
             }
@@ -1159,7 +1105,8 @@ class VRClubEffects extends VRClubFixtures {
         this.mirrorBallSpotlightColor.scaleToRef(1.2 * master * (1 + (this.kickPulse || 0) * 0.35), batch.spotMat.emissiveColor);
         this.mirrorBallSpotlightColor.scaleToRef(master, batch.rayMat.emissiveColor);
         const haze = this.smokeActive ? Math.min(1, (this.fogIntensity || 0) / 1.5) : 0;
-        batch.rayMat.alpha = 0.06 + 0.18 * haze;
+        // Reflected shafts are the mirror ball's signature; they need to hold their own against the room.
+        batch.rayMat.alpha = 0.14 + 0.26 * haze;
     }
     
     /**

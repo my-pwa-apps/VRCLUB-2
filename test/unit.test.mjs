@@ -1999,8 +1999,7 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
         laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
         laserSpeed: 1, kickPulse: 0,
         _poseLaserSheet: core.window.VRClubAnimationCore.prototype._poseLaserSheet,
-        _laserColor: core.window.VRClubAnimationCore.prototype._laserColor,
-        _updateLaserSheetScanLines: core.window.VRClubAnimationCore.prototype._updateLaserSheetScanLines
+        _laserColor: core.window.VRClubAnimationCore.prototype._laserColor
     });
     club.laserSheetSource = club._laserSheetMounts.ceilingLeft.housing;
     club.laserAperture = club._laserSheetMounts.ceilingLeft.aperture;
@@ -3503,6 +3502,13 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
                     const list = this.options.pickBlockerMeshes || [];
                     const index = list.indexOf(mesh);
                     if (index !== -1) list.splice(index, 1);
+                },
+                // ...and its floor API.
+                addFloorMesh(mesh) { (this.options.floorMeshes ||= []).push(mesh); },
+                removeFloorMesh(mesh) {
+                    const list = this.options.floorMeshes || [];
+                    const index = list.indexOf(mesh);
+                    if (index !== -1) list.splice(index, 1);
                 }
             };
             enabled.set(name, feature);
@@ -3522,6 +3528,7 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
         vjManualMode: false,
         movementFeature: null,
         floorMesh: { name: 'floor' },
+        _mezzDeck: { name: 'mezzDeck' },
         scene: { getMeshByName: name => sceneMeshes.get(name) || null },
         vrHelper: {
             input: { name: 'input' },
@@ -3567,6 +3574,9 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
         [...sceneMeshes.keys()].sort()
     );
     assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size);
+    // The balcony deck (with its stair treads) is a teleport floor alongside the club floor, registered once.
+    assert.deepEqual([...club.vrHelper.teleportation.options.floorMeshes].map(mesh => mesh.name), ['floor', 'mezzDeck']);
+    assert.deepEqual([...originalTeleport.options.floorMeshes].map(mesh => mesh.name).sort(), ['floor', 'mezzDeck']);
 
     // Outside a session the preference is stored, teleport is left registered but inert,
     // and nothing throws; the IN_XR handler re-applies the mode on entry.
@@ -4143,7 +4153,7 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
         scene: { getLightByName: () => ambient },
         vrSettings: {
             desktop: { ambientIntensity: 0.08 },
-            vr: { ambientIntensity: 0.10 }
+            vr: { ambientIntensity: 0.05 }
         },
         cachedColors: { white: new BABYLON.Color3(1, 1, 1) },
         currentSpotColor: new BABYLON.Color3(0.2, 0.4, 1),
@@ -4165,9 +4175,11 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
     assert.ok(Math.abs(settle({ vr: false, mirror: true }) - 0.16) < 0.001);
     assert.ok(Math.abs(settle({ vr: false, lasers: true }) - 0.15) < 0.001);
     assert.ok(Math.abs(settle({ vr: false, spots: true }) - 0.20) < 0.001);
-    assert.ok(Math.abs(settle({ vr: true, mirror: true }) - 0.204) < 0.001);
-    assert.ok(Math.abs(settle({ vr: true, lasers: true }) - 0.191) < 0.001);
-    assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.34) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, mirror: true }) - 0.13) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, lasers: true }) - 0.12) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.22) < 0.001);
+    // The headset must never be lit more flatly than the desktop for the same rig.
+    assert.ok(settle({ vr: true, spots: true }) <= settle({ vr: false, spots: true }));
 });
 
 test('mirror reflections use analytic room hits and thin-instance tier counts', () => {
@@ -4288,8 +4300,7 @@ test('laser sheet uses bounded two-axis motion for vertical and lateral cues', (
             blue: new BABYLON.Color3(0, 0, 1)
         },
         _poseLaserSheet: window.VRClubAnimationCore.prototype._poseLaserSheet,
-        _laserColor: window.VRClubAnimationCore.prototype._laserColor,
-        _updateLaserSheetScanLines: window.VRClubAnimationCore.prototype._updateLaserSheetScanLines
+        _laserColor: window.VRClubAnimationCore.prototype._laserColor
     };
     const update = time => window.VRClubAnimationCore.prototype.updateLaserSheet.call(club, {
         time,
@@ -4495,8 +4506,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             _laserSheetFollower: { mount: { aperture: { material: { emissiveColor: new BABYLON.Color3() } } } },
             laserLight: { diffuse: null, intensity: 0 },
             _poseLaserSheet() {},
-            _laserColor: core._laserColor,
-            _updateLaserSheetScanLines: core._updateLaserSheetScanLines
+            _laserColor: core._laserColor
         };
         core.updateLaserSheet.call(club, { time: 1, audio: { average: 0 } });
         return {
@@ -4520,7 +4530,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     assert.ok(Math.abs(halfSheet.light / fullSheet.light - 0.5) < 0.02, 'half master did not halve the laser-sheet light');
 });
 
-test('ceiling lasers end on the wall they reach, scatter forward, never alias below a few pixels, and the sheet draws its floor line', () => {
+test('ceiling lasers end on the wall they reach, scatter forward, never alias below a few pixels, and the sheet ends where it meets the floor', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const ROOM_INTERIOR = { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } };
     const fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures.prototype;
@@ -4553,31 +4563,8 @@ test('ceiling lasers end on the wall they reach, scatter forward, never alias be
     assert.ok(Math.abs(near.width - 0.032) < 1e-6, 'a near beam lost its physical width');
     assert.ok(far.alpha < near.alpha, 'widening a distant beam must dim it, not brighten the room');
 
-    // The fan's floor line: both edges of a fan pitched down from the rear truss land on the floor.
-    const fan = {
-        isVisible: true,
-        computeWorldMatrix: () => BABYLON.Matrix.Compose(
-            BABYLON.Vector3.One(),
-            BABYLON.Quaternion.RotationYawPitchRoll(0.2, 0.53, 0),
-            new BABYLON.Vector3(-6, 7.55, -15.75))
-    };
-    const scan = {
-        mesh: { isVisible: false, updateVerticesData() {} },
-        material: { emissiveColor: new BABYLON.Color3() },
-        positions: new Float32Array(24), colors: new Float32Array(32),
-        apex: new BABYLON.Vector3(), left: new BABYLON.Vector3(), right: new BABYLON.Vector3()
-    };
-    const club = { laserSheet: fan, _laserSheetFollower: null, _laserSheetFanB: null, _laserScanLines: scan,
-        _laserSheetLength: 24, _laserSheetWidthEnd: 22, _laserView: core._laserView };
-    core._updateLaserSheetScanLines.call(club, new BABYLON.Color3(0, 1, 0), 0.8);
-    assert.equal(scan.mesh.isVisible, true, 'no floor line was drawn');
-    for (let v = 0; v < 4; v++) {
-        const x = scan.positions[v * 3], y = scan.positions[v * 3 + 1], z = scan.positions[v * 3 + 2];
-        assert.ok(y < 0.01, 'the scan line must lie on the floor');
-        assert.ok(x >= -12.25 && x <= 12.25 && z >= -20 && z <= -0.25, `scan line left the room (${x}, ${z})`);
-        assert.ok(Math.abs(scan.colors[v * 4 + 3] - 0.8) < 1e-6);
-    }
-    assert.equal(scan.colors[4 * 4 + 3], 0, 'an idle second projector drew a line');
+    // The fan ends where the floor occludes it; it draws no separate line on the floor (removed by request).
+    assert.equal(core._updateLaserSheetScanLines, undefined);
 });
 
 test('moving-head spot strobes stay under the flash ceiling at every refresh rate and Safe Mode removes the transitions', () => {
@@ -4721,7 +4708,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
 
 test('PWA manifest declares an installable configuration', () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
-    assert.equal(manifest.name, 'VR Club - Virtual Nightclub');
+    assert.equal(manifest.name, 'NOCTURNE - Virtual Nightclub');
     assert.equal(manifest.display, 'fullscreen');
     // `id` pins app identity so a future start_url change does not create a second
     // installed app; `scope` bounds the SW-controlled navigation surface.
@@ -4820,6 +4807,47 @@ test('the bar layout leaves room for guests, stools and the bartender', () => {
 // ---------------------------------------------------------------------------
 // Mezzanine
 // ---------------------------------------------------------------------------
+
+test('in VR the headset stands on the balcony, climbs its stair, steps off its edge and keeps the DJ riser', () => {
+    const { window } = loadClassic('js/mezzanine.js');
+    const follow = window.Mezzanine._updateVRWalkSurface;
+    const D = window.MezzanineLayout.deck, S = window.MezzanineLayout.stairs;
+    const eye = 1.62;
+    const club = { jumpState: { active: false }, _walkLevel: 0 };
+    const camera = { realWorldHeight: eye, position: { x: 0, y: eye, z: -12 } };
+    const at = (x, z, feet) => { camera.position.x = x; camera.position.z = z; if (feet !== undefined) camera.position.y = feet + eye; follow.call(club, camera); return +(camera.position.y - eye).toFixed(3); };
+
+    // A teleport lands the feet on the deck: they stay there, and the body is told.
+    assert.equal(at(-10.9, -14.7, D.top), D.top);
+    assert.equal(club._walkLevel, D.top);
+    // Room-scale or smooth walking off the open edge drops the headset to the floor.
+    assert.equal(at(-8.5, -14.7), 0);
+    // Walking up the stair from the floor carries the headset tread by tread onto the deck.
+    const mid = (S.x0 + S.x1) / 2;
+    at(mid, S.zBottom + 0.5, 0);
+    let feet = 0;
+    for (let z = S.zBottom; z >= S.zTop - 0.6; z -= 0.05) {
+        const next = at(mid, z);
+        assert.ok(next >= feet - 1e-9 && next - feet < 0.2, `the stair jumped from ${feet} to ${next} at z ${z.toFixed(2)}`);
+        feet = next;
+    }
+    assert.equal(feet, D.top, 'the top of the stair is the deck');
+    // Under the deck is the floor, whatever is overhead.
+    assert.equal(at(-11, -15, 0), 0);
+    // Crouching lowers the eye and the tracked height together: the feet, and the surface, stay put.
+    camera.realWorldHeight = 0.9;
+    camera.position.y = 0.9;
+    at(0, -12);
+    assert.equal(camera.position.y, 0.9);
+    camera.realWorldHeight = eye;
+    // The DJ Booth destination stands the headset on the 0.5 m riser; it stays there.
+    assert.equal(at(0, -19.4, 0.5), 0.5);
+    // In flight, the jump owns the height.
+    club.jumpState.active = true;
+    camera.position.y = 2.6;
+    at(0, -12);
+    assert.equal(camera.position.y, 2.6);
+});
 
 test('the walking-surface follow climbs the stair and the deck but never snaps walkers off the floor', () => {
     const M = loadClassic('js/mezzanine.js').window.MezzanineLayout;

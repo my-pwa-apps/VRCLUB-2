@@ -184,8 +184,12 @@ class VRClubCore {
                 bloomScale: 0.4,
                 glowIntensity: 0.7,
                 hazeAlpha: [0.035, 0.025],
-                ambientIntensity: 0.10,
-                environmentIntensity: 0.65,
+                // Base room fill. A headset shows the room at life size and every bit of flat fill reads as
+                // "the house lights are on": at 0.10, plus a 1.3x fixture bounce and 0.65 environment, the
+                // walls and floor were lit evenly enough to flatten the beams. Keep the fill low and let
+                // the fixtures light the room.
+                ambientIntensity: 0.05,
+                environmentIntensity: 0.4,
                 clearColor: new BABYLON.Color3(0.003, 0.003, 0.008), // Match desktop tint (was pure black)
                 grainEnabled: false,
                 chromaticAberrationEnabled: false,

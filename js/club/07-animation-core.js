@@ -149,9 +149,11 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.lasersActive) reflectedEnergy += 0.070;
         if (this.laserSheetActive) reflectedEnergy += 0.090;
         if (this.mirrorBallActive) reflectedEnergy += 0.080;
-        reflectedEnergy *= master * (this.isInVRMode ? 1.30 : 1);
+        reflectedEnergy *= master;
 
-        const maxBounce = this.isInVRMode ? 0.34 : 0.28;
+        // Same bounce in both modes: the headset had a 1.3x boost and a higher cap (0.34), which
+        // washed out the very contrast that makes the beams read in VR.
+        const maxBounce = this.isInVRMode ? 0.22 : 0.28;
         const targetIntensity = Math.min(maxBounce, settings.ambientIntensity + reflectedEnergy);
         const retention = 1 - Math.pow(1 - 0.045, ctx.dtScale);
         ambient.intensity += (targetIntensity - ambient.intensity) * retention;
@@ -662,12 +664,10 @@ class VRClubAnimationCore extends VRClubEffects {
                 fanB.sheet.isVisible = !!follower;
                 fanB.haze.isVisible = !!follower;
             }
-            this._updateLaserSheetScanLines(sheetColor, Math.min(1, 0.9 * pulse) * master);
         } else if (this.laserSheet) {
             // Both projectors stay hung on the truss; only the beams and slits go dark.
             this.laserSheet.isVisible = false;
             if (this.laserSheetHaze) this.laserSheetHaze.isVisible = false;
-            if (this._laserScanLines) this._laserScanLines.mesh.isVisible = false;
             const fanB = this._laserSheetFanB;
             if (fanB) { fanB.sheet.isVisible = false; fanB.haze.isVisible = false; }
             if (this._laserApertureOff) {
@@ -679,83 +679,6 @@ class VRClubAnimationCore extends VRClubEffects {
             }
             if (this.laserLight) this.laserLight.intensity = 0;
         }
-    }
-
-    /**
-     * The line each fan draws on the floor: both fan edges are intersected with the floor plane, the
-     * segment between the two hits is clipped to the room, and a thin flat quad is written along it.
-     * Hidden for a fan whose edges do not both reach the floor. Allocates nothing.
-     */
-    _updateLaserSheetScanLines(color, level) {
-        const scan = this._laserScanLines;
-        if (!scan) return;
-        const fanB = this._laserSheetFanB;
-        const halfW = (this._laserSheetWidthEnd || 22) / 2;
-        const len = this._laserSheetLength || 24;
-        const P = scan.positions, C = scan.colors;
-        const y0 = 0.004, halfWidth = 0.022;
-        const minX = ROOM_INTERIOR.x.min + 0.05, maxX = ROOM_INTERIOR.x.max - 0.05;
-        const minZ = ROOM_INTERIOR.z.min + 0.05, maxZ = ROOM_INTERIOR.z.max - 0.05;
-        const view = this._laserView();
-        let any = false;
-        for (let k = 0; k < 2; k++) {
-            const fan = k === 0 ? this.laserSheet : (this._laserSheetFollower && fanB ? fanB.sheet : null);
-            let alpha = 0, endA = 0, endB = 0;
-            if (fan && fan.isVisible) {
-                const m = fan.computeWorldMatrix(true);
-                const A = scan.apex, L = scan.left, R = scan.right;
-                BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(0, 0, 0, m, A);
-                BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(-halfW, 0, len, m, L);
-                BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(halfW, 0, len, m, R);
-                if (L.y < y0 && R.y < y0 && A.y > y0) {
-                    const tl = (A.y - y0) / (A.y - L.y), tr = (A.y - y0) / (A.y - R.y);
-                    const lx = A.x + (L.x - A.x) * tl, lz = A.z + (L.z - A.z) * tl;
-                    const rx = A.x + (R.x - A.x) * tr, rz = A.z + (R.z - A.z) * tr;
-                    const dx = rx - lx, dz = rz - lz;
-                    let t0 = 0, t1 = 1;
-                    if (Math.abs(dx) > 1e-6) {
-                        const ta = (minX - lx) / dx, tb = (maxX - lx) / dx;
-                        t0 = Math.max(t0, Math.min(ta, tb)); t1 = Math.min(t1, Math.max(ta, tb));
-                    } else if (lx < minX || lx > maxX) t1 = -1;
-                    if (Math.abs(dz) > 1e-6) {
-                        const ta = (minZ - lz) / dz, tb = (maxZ - lz) / dz;
-                        t0 = Math.max(t0, Math.min(ta, tb)); t1 = Math.min(t1, Math.max(ta, tb));
-                    } else if (lz < minZ || lz > maxZ) t1 = -1;
-                    const segLen = Math.hypot(dx, dz);
-                    if (t1 > t0 && segLen > 1e-4) {
-                        const ax = lx + dx * t0, az = lz + dz * t0, bx = lx + dx * t1, bz = lz + dz * t1;
-                        // Each end at least a few pixels wide; widening dims it (energy is conserved).
-                        let wa = halfWidth, wb = halfWidth, alphaA = level, alphaB = level;
-                        if (view.cam) {
-                            const c = view.cam;
-                            wa = Math.max(halfWidth, Math.hypot(ax - c.x, y0 - c.y, az - c.z) * view.pixelAngle * 3);
-                            wb = Math.max(halfWidth, Math.hypot(bx - c.x, y0 - c.y, bz - c.z) * view.pixelAngle * 3);
-                            alphaA *= Math.sqrt(Math.max(0.12, halfWidth / wa));
-                            alphaB *= Math.sqrt(Math.max(0.12, halfWidth / wb));
-                        }
-                        const nx = -dz / segLen, nz = dx / segLen;
-                        const o = k * 12;
-                        P[o] = ax - nx * wa; P[o + 1] = y0; P[o + 2] = az - nz * wa;
-                        P[o + 3] = ax + nx * wa; P[o + 4] = y0; P[o + 5] = az + nz * wa;
-                        P[o + 6] = bx + nx * wb; P[o + 7] = y0; P[o + 8] = bz + nz * wb;
-                        P[o + 9] = bx - nx * wb; P[o + 10] = y0; P[o + 11] = bz - nz * wb;
-                        endA = alphaA; endB = alphaB;
-                        alpha = level;
-                    }
-                }
-            }
-            for (let v = 0; v < 4; v++) {
-                const c = (k * 4 + v) * 4;
-                C[c] = 1; C[c + 1] = 1; C[c + 2] = 1;
-                C[c + 3] = alpha > 0 ? (v < 2 ? endA : endB) : 0;
-            }
-            if (alpha > 0) any = true;
-        }
-        scan.mesh.isVisible = any;
-        if (!any) return;
-        scan.material.emissiveColor.copyFrom(color);
-        scan.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, P);
-        scan.mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, C);
     }
 
     /** Crowd avatars. */

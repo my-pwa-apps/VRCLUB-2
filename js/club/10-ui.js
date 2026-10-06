@@ -1108,6 +1108,11 @@ class VRClubUI extends VRClubAnimationFinish {
         return this.vrComfortMode;
     }
 
+    /** Surfaces the VR teleport arc may land on: the club floor, plus the balcony deck and its stair treads. */
+    _teleportFloorMeshes() {
+        return [this.floorMesh, this._mezzDeck].filter(Boolean);
+    }
+
     _xrMovementOptions() {
         return {
             xrInput: this.vrHelper.input,
@@ -1147,10 +1152,18 @@ class VRClubUI extends VRClubAnimationFinish {
                 if (!teleport) {
                     teleport = features.enableFeature(names.TELEPORTATION, 'latest', {
                         xrInput: vrHelper.input,
-                        floorMeshes: this.floorMesh ? [this.floorMesh] : []
+                        floorMeshes: this._teleportFloorMeshes()
                     });
                     if (vrHelper.pointerSelection && teleport.setSelectionFeature) {
                         teleport.setSelectionFeature(vrHelper.pointerSelection);
+                    }
+                }
+                // The default experience registered only the main floor. The balcony deck and its stair are
+                // floors too; remove-then-add keeps re-application idempotent.
+                if (typeof teleport.addFloorMesh === 'function') {
+                    for (const mesh of this._teleportFloorMeshes()) {
+                        if (typeof teleport.removeFloorMesh === 'function') teleport.removeFloorMesh(mesh);
+                        teleport.addFloorMesh(mesh);
                     }
                 }
                 vrHelper.teleportation = teleport;

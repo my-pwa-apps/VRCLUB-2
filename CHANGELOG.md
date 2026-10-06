@@ -141,6 +141,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   offset along the rotated beam's wrong axis and hung 2 m off it (x -10 and +6); they now hang on their beams.
 - **Credits are a collapsed "ⓘ Credits & licences" disclosure** in the bottom-left corner instead of an
   always-open panel over the scene; the intro screen names every CC BY creator.
+- **Renamed to NOCTURNE** everywhere a visitor sees the name: the intro screen, the browser tab, the
+  page heading and the installed-app name (`manifest.json`; its `id` is unchanged, so installs update).
 - **Wall art removed**: the two welded ring-and-bar sculptures (amber on the left wall, cyan on the
   right) are gone.
 - **Lasers, ultra-realism pass** (ceiling beams and light sheet):
@@ -154,7 +156,7 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   - Diode colours (638 / 532 / 445 nm) instead of sRGB primaries; housings no longer glow.
   - The light sheet's smoke noise never showed (Babylon's noise writes alpha 1); it now does. The fan
     dims with distance from the projector, is brighter at its scan edges, reads as a bright line edge-on
-    and a veil face-on, runs on until it meets a surface, and draws its scan line on the floor.
+    and a veil face-on, and runs on until it meets a surface.
   - Mirror-ball reflections are clipped to the real shell (ceiling 9.85 m, front wall), not the
     narrower walkable band, which had parked spots on invisible planes at y 8 and z -5.
 - **Signage**: the generic CLUB, VR and DANCE neons are gone. The club's name, NOCTURNE, now hangs over

@@ -480,8 +480,8 @@ rules are enforced by `test/unit.test.mjs`:
 - The sheet fan is subdivided: vertex alpha carries the ~1/r power spread and the brighter scan
   edges, and an emissive Fresnel term makes it a bright line edge-on and a veil face-on. The fan is
   longer than the room so the shell's depth test ends it on a surface. Its noise textures need
-  `getAlphaFromRGB = true` (Babylon's noise writes alpha 1). `_updateLaserSheetScanLines()` draws
-  the line each fan draws on the floor.
+  `getAlphaFromRGB = true` (Babylon's noise writes alpha 1). There is deliberately no separate
+  bright line where the fan meets the floor (tried, removed at the owner's request).
 
 Light presets: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`.
 
