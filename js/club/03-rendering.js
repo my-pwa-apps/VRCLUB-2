@@ -1,4 +1,25 @@
 'use strict';
+// Graffiti atlas cells in pixels (x, y, w, h; y down) of textures/graffiti/atlas.webp. Mirrors CELLS in
+// scripts/build-graffiti-atlas.mjs; change both together.
+const GRAFFITI_ATLAS_SIZE = 2048;
+const GRAFFITI_CELLS = {
+    character: [0, 0, 1024, 1024],    // the girl with the spray can
+    tagWall: [1024, 0, 1024, 1024],   // sticker-and-tag column
+    tagCluster: [0, 1024, 1024, 1024],
+    vaps: [1024, 1024, 1024, 512],    // full-colour burner
+    klw: [1024, 1536, 1024, 512]      // teal burner with side tags
+};
+// Where each piece is painted. `along` is x on the front wall and z on the side walls; `y` is the centre
+// height; `width` is the cell's width in metres (the height follows the cell's aspect). Every spot is
+// clear of the pillars (z -5, -15), the brick fins (z -20), the bar (right wall, z -13.8..-6), the
+// mezzanine and its stair (left wall, z -19..-6.2), the doorway, EXIT and the NOCTURNE sign.
+const GRAFFITI_PIECES = [
+    { cell: 'character', wall: 'front', along: 7.7, y: 1.95, width: 2.7 },
+    { cell: 'vaps', wall: 'front', along: -7.6, y: 1.9, width: 4.4 },
+    { cell: 'tagCluster', wall: 'right', along: -17.5, y: 1.7, width: 3.2 },
+    { cell: 'klw', wall: 'right', along: -2.6, y: 1.55, width: 3.8 },
+    { cell: 'tagWall', wall: 'left', along: -2.7, y: 1.5, width: 2.6 }
+];
 class VRClubRendering extends VRClubLifecycle {
     addPostProcessing() {
         const desktop = this.vrSettings.desktop;
@@ -637,6 +658,93 @@ class VRClubRendering extends VRClubLifecycle {
         
         // Add industrial wall details
         this.createIndustrialWallDetails();
+        this.createGraffiti();
+    }
+
+    /**
+     * Spray-painted pieces on the brick (GRAFFITI_PIECES), one alpha-tested mesh and one draw call.
+     *
+     * Paint sits IN the wall, not on a sticker: UV channel 0 carries the wall's own world-space brick
+     * coordinates, so the decal samples the wall's normal map (the paint follows every brick and joint)
+     * and its packed ORM occlusion (it darkens into the mortar), with no extra texture memory. UV channel 1
+     * carries the atlas. Alpha-tested rather than blended, so it draws in the opaque pass with depth writes
+     * (VR stereo and the additive beams both need that).
+     */
+    createGraffiti() {
+        const set = this.concreteTextures && this.concreteTextures.graffiti;
+        const atlas = set && set.diffuse;
+        if (!atlas) return; // no atlas, no paint: the bare brick is a valid wall
+        const walls = this.concreteTextures.walls || {};
+        const brickScale = (this.textureLoader && this.textureLoader.textureConfigs.walls.scale) || { u: 1, v: 1 };
+        const perU = 1 / (1.5 * (brickScale.u || 1)), perV = 1 / (1.5 * (brickScale.v || 1));
+        // Inner faces of the shell; `right` is the reader's right-hand side looking at the wall.
+        const WALLS = {
+            front: { point: z => [z, 0, -0.25 - 0.004], normal: [0, 0, -1], right: [1, 0, 0], acrossIsX: true },
+            left: { point: z => [-12.25 + 0.004, 0, z], normal: [1, 0, 0], right: [0, 0, 1], acrossIsX: false },
+            right: { point: z => [12.25 - 0.004, 0, z], normal: [-1, 0, 0], right: [0, 0, -1], acrossIsX: false }
+        };
+        const S = GRAFFITI_ATLAS_SIZE;
+        const positions = [], normals = [], brickUV = [], atlasUV = [], indices = [];
+        for (const piece of GRAFFITI_PIECES) {
+            const wall = WALLS[piece.wall];
+            const [cx, cy, cw, ch] = GRAFFITI_CELLS[piece.cell];
+            const hw = piece.width / 2, hh = (piece.width * ch / cw) / 2;
+            const base = wall.point(piece.along);
+            const first = positions.length / 3;
+            for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+                const x = base[0] + wall.right[0] * hw * sx;
+                const y = piece.y + hh * sy;
+                const z = base[2] + wall.right[2] * hw * sx;
+                positions.push(x, y, z);
+                normals.push(...wall.normal);
+                brickUV.push((wall.acrossIsX ? x : z) * perU, y * perV);
+                // Babylon samples with invertY: v = 1 is the atlas's top row.
+                atlasUV.push((cx + (sx > 0 ? cw : 0)) / S, 1 - (cy + (sy > 0 ? 0 : ch)) / S);
+            }
+            indices.push(first, first + 1, first + 2, first, first + 2, first + 3);
+        }
+
+        const mesh = new BABYLON.Mesh('graffitiDecals', this.scene);
+        const data = new BABYLON.VertexData();
+        data.positions = positions;
+        data.normals = normals;
+        data.uvs = brickUV;
+        data.uvs2 = atlasUV;
+        data.indices = indices;
+        data.applyToMesh(mesh);
+
+        const mat = this.materialFactory.createFullPBRMaterial('graffitiPaintMat', {
+            albedoColor: [1, 1, 1],
+            metallic: 0,
+            roughness: 0.86, // dry spray paint: matte, a touch smoother than raw brick
+            environmentIntensity: 0.25,
+            backFaceCulling: false, // winding-proof; the back faces are inside the wall
+            mutable: true // lit materials stay unfrozen (see _clampMaterialLightBudgets)
+        });
+        atlas.hasAlpha = true;
+        atlas.coordinatesIndex = 1;
+        atlas.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        atlas.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+        mat.albedoTexture = atlas;
+        mat.useAlphaFromAlbedoTexture = true;
+        mat.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHATEST;
+        mat.alphaCutOff = 0.45;
+        if (walls.normal) {
+            mat.bumpTexture = walls.normal;
+            mat.invertNormalMapX = false;
+            mat.invertNormalMapY = false;
+        }
+        if (walls.orm) {
+            mat.ambientTexture = walls.orm; // R = occlusion
+            mat.useAmbientInGrayScale = true;
+        }
+        mat.zOffset = -2; // 4 mm off the brick; this settles any remaining depth fight at grazing angles
+        mesh.material = mat;
+        mesh.isPickable = false;
+        mesh.receiveShadows = false;
+        mesh.freezeWorldMatrix();
+        mesh.doNotSyncBoundingInfo = true;
+        log.info(`🎨 Painted ${GRAFFITI_PIECES.length} graffiti pieces (one draw call)`);
     }
 
     createIndustrialWallDetails() {
@@ -787,84 +895,6 @@ class VRClubRendering extends VRClubLifecycle {
             mergedPipes.doNotSyncBoundingInfo = true;
             log.info("✅ Merged 4 pipes/conduits into single mesh");
         }
-
-        const artMetalMat = this.materialFactory.createPBRMaterial('wallArtMetal', {
-            baseColor: [0.14, 0.15, 0.16],
-            metallic: 0.92,
-            roughness: 0.28
-        }, true);
-        const artAccentMats = [
-            this.materialFactory.createPBRMaterial('wallArtAmber', {
-                baseColor: [0.16, 0.025, 0.008],
-                emissiveColor: [1.0, 0.12, 0.025],
-                emissiveIntensity: 2.4,
-                metallic: 0.65,
-                roughness: 0.3
-            }, true),
-            this.materialFactory.createPBRMaterial('wallArtCyan', {
-                baseColor: [0.005, 0.1, 0.13],
-                emissiveColor: [0.01, 0.65, 0.9],
-                emissiveIntensity: 2.0,
-                metallic: 0.65,
-                roughness: 0.3
-            }, true)
-        ];
-        const artPieces = [[], []];
-        [-1, 1].forEach((side, artIndex) => {
-            const wallX = side * 12.18;
-            const zCenter = artIndex === 0 ? -13.0 : -18.6;
-            const facing = side < 0 ? Math.PI / 2 : -Math.PI / 2;
-
-            [1.45, 0.9].forEach((diameter, ringIndex) => {
-                const ring = BABYLON.MeshBuilder.CreateTorus(`wallArtRing${artIndex}-${ringIndex}`, {
-                    diameter,
-                    thickness: ringIndex === 0 ? 0.12 : 0.09,
-                    tessellation: ringIndex === 0 ? 20 : 16
-                }, this.scene);
-                ring.position = new BABYLON.Vector3(wallX - side * ringIndex * 0.035, 4.7, zCenter);
-                ring.rotation.z = Math.PI / 2;
-                ring.material = ringIndex === 1 ? artAccentMats[artIndex] : artMetalMat;
-                artPieces[artIndex].push(ring);
-            });
-            const hub = BABYLON.MeshBuilder.CreateCylinder(`wallArtHub${artIndex}`, {
-                diameter: 0.32,
-                height: 0.12,
-                tessellation: 14
-            }, this.scene);
-            hub.position = new BABYLON.Vector3(wallX - side * 0.07, 4.7, zCenter);
-            hub.rotation.z = Math.PI / 2;
-            hub.material = artMetalMat;
-            artPieces[artIndex].push(hub);
-
-            const barLayout = [
-                { y: 3.65, z: -0.7, width: 0.12, height: 2.5, angle: 0.62 },
-                { y: 5.75, z: 0.62, width: 0.1, height: 2.15, angle: -0.78 },
-                { y: 4.25, z: 1.35, width: 0.09, height: 1.5, angle: 1.05 },
-                { y: 6.0, z: -1.2, width: 0.08, height: 1.35, angle: -1.12 }
-            ];
-            barLayout.forEach((layout, barIndex) => {
-                const bar = BABYLON.MeshBuilder.CreateBox(`wallArtBar${artIndex}-${barIndex}`, {
-                    width: 0.08,
-                    height: layout.height,
-                    depth: layout.width
-                }, this.scene);
-                bar.position = new BABYLON.Vector3(wallX, layout.y, zCenter + layout.z);
-                bar.rotation.x = layout.angle;
-                bar.rotation.y = facing;
-                bar.material = barIndex === 2 ? artAccentMats[artIndex] : artMetalMat;
-                artPieces[artIndex].push(bar);
-            });
-
-            const mergedArt = BABYLON.Mesh.MergeMeshes(
-                artPieces[artIndex], true, true, undefined, false, true
-            );
-            if (mergedArt) {
-                mergedArt.name = `weldedWallArt${artIndex}`;
-                mergedArt.isPickable = false;
-                mergedArt.freezeWorldMatrix();
-                mergedArt.doNotSyncBoundingInfo = true;
-            }
-        });
         
         log.info("✅ Created industrial wall details");
     }

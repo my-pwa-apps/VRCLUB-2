@@ -272,13 +272,11 @@ class VRClubEnvironment extends VRClubRendering {
     }
 
     /**
-     * The club's name as a neon piece, drawn into its atlas cell: an ice-blue crescent moon and star, the
-     * word in widely tracked pink outline tubes, and a pink underline that breaks around a small blue
-     * diamond. Every tube is a wide soft halo, the coloured glass and a hot near-white core.
+     * The club's name as a neon piece, drawn into its atlas cell: the word in widely tracked pink outline
+     * tubes. Every tube is a wide soft halo, the coloured glass and a hot near-white core.
      */
     _drawNocturneNeon(ctx, x, y, w, h, rgb) {
         const PINK = [1, 0.16, 0.6], PINK_CORE = [1, 0.78, 0.92];
-        const ICE = [0.35, 0.78, 1], ICE_CORE = [0.86, 0.96, 1];
         const tube = (color, core, width, stroke) => {
             ctx.shadowColor = rgb(color);
             ctx.strokeStyle = rgb(color, 0.9);
@@ -295,40 +293,11 @@ class VRClubEnvironment extends VRClubRendering {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
-        // Crescent: the outer circle minus an offset inner circle, traced between their two intersections.
-        const mx = x + 118, my = y + 124, R = 84;
-        const dx = R * 0.48, dy = -R * 0.16, r = R * 0.9;
-        const d = Math.hypot(dx, dy);
-        const a = (R * R - r * r + d * d) / (2 * d);
-        const k = Math.sqrt(Math.max(0, R * R - a * a));
-        const px = mx + a * dx / d, py = my + a * dy / d;
-        const p1 = [px + k * dy / d, py - k * dx / d];
-        const p2 = [px - k * dy / d, py + k * dx / d];
-        const angle = (cx, cy, p) => Math.atan2(p[1] - cy, p[0] - cx);
-        tube(ICE, ICE_CORE, 8, () => {
-            ctx.beginPath();
-            ctx.arc(mx, my, R, angle(mx, my, p1), angle(mx, my, p2), true);
-            ctx.arc(mx + dx, my + dy, r, angle(mx + dx, my + dy, p2), angle(mx + dx, my + dy, p1), false);
-            ctx.closePath();
-            ctx.stroke();
-        });
-        // A four-point star in the crescent's mouth.
-        const sx = mx + 52, sy = my - 30, s = 20;
-        tube(ICE, ICE_CORE, 5, () => {
-            ctx.beginPath();
-            ctx.moveTo(sx, sy - s);
-            ctx.quadraticCurveTo(sx, sy, sx + s, sy);
-            ctx.quadraticCurveTo(sx, sy, sx, sy + s);
-            ctx.quadraticCurveTo(sx, sy, sx - s, sy);
-            ctx.quadraticCurveTo(sx, sy, sx, sy - s);
-            ctx.stroke();
-        });
-
         // The word, letter by letter so the tracking does not depend on canvas letterSpacing support.
         const text = 'NOCTURNE';
-        const left = x + 232, right = x + w - 24;
+        const left = x + 40, right = x + w - 40;
         const fontFor = size => `600 ${size}px "Futura", "Century Gothic", "Avenir Next", "Trebuchet MS", Arial, sans-serif`;
-        let size = 150, widths = [], tracking = 0, total = Infinity;
+        let size = 200, widths = [], tracking = 0, total = Infinity;
         while (size > 40) {
             ctx.font = fontFor(size);
             widths = [...text].map(ch => ctx.measureText(ch).width);
@@ -341,33 +310,13 @@ class VRClubEnvironment extends VRClubRendering {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         const wordLeft = left + (right - left - total) / 2;
-        const wordY = y + h * 0.43;
+        const wordY = y + h * 0.5;
         tube(PINK, PINK_CORE, size * 0.065, () => {
             let pen = wordLeft;
             for (let i = 0; i < text.length; i++) {
                 ctx.strokeText(text[i], pen, wordY);
                 pen += widths[i] + tracking;
             }
-        });
-
-        // Underline, broken around a small diamond at its centre.
-        const lineY = y + h * 0.83, mid = wordLeft + total / 2, gap = 22;
-        tube(PINK, PINK_CORE, 5, () => {
-            ctx.beginPath();
-            ctx.moveTo(wordLeft + 6, lineY);
-            ctx.lineTo(mid - gap, lineY);
-            ctx.moveTo(mid + gap, lineY);
-            ctx.lineTo(wordLeft + total - 6, lineY);
-            ctx.stroke();
-        });
-        tube(ICE, ICE_CORE, 4, () => {
-            ctx.beginPath();
-            ctx.moveTo(mid, lineY - 10);
-            ctx.lineTo(mid + 10, lineY);
-            ctx.lineTo(mid, lineY + 10);
-            ctx.lineTo(mid - 10, lineY);
-            ctx.closePath();
-            ctx.stroke();
         });
     }
 
@@ -922,17 +871,18 @@ class VRClubEnvironment extends VRClubRendering {
         // Store horizontal trusses for attachment
         this.horizontalTrusses = [truss1, truss2, truss3];
         
-        // Cross beams connecting the trusses at the sides (X = -8 and +8)
+        // Cross beams connecting the trusses at the sides (X = ±CLUB_POSITIONS.sideTrussX).
         // These run perpendicular to main trusses, connecting them together
-        // Length of 10m covers Z=-8 to Z=-18 (connecting trusses 1, 2, and 3)
+        // Length of 10m covers Z=-7 to Z=-17 (connecting trusses 1, 2, and 3)
+        const sideX = CLUB_POSITIONS.sideTrussX;
         this.sideTrusses = {};
-        const leftSideBeam = createBoxTruss("crossBeamLeft", 10, new BABYLON.Vector3(-8, 8, -12));
+        const leftSideBeam = createBoxTruss("crossBeamLeft", 10, new BABYLON.Vector3(-sideX, 8, -12));
         leftSideBeam.rotation.y = Math.PI / 2;
-        this.sideTrusses[-8] = leftSideBeam;
+        this.sideTrusses.left = leftSideBeam;
         
-        const rightSideBeam = createBoxTruss("crossBeamRight", 10, new BABYLON.Vector3(8, 8, -12));
+        const rightSideBeam = createBoxTruss("crossBeamRight", 10, new BABYLON.Vector3(sideX, 8, -12));
         rightSideBeam.rotation.y = Math.PI / 2;
-        this.sideTrusses[8] = rightSideBeam;
+        this.sideTrusses.right = rightSideBeam;
         
         // OPTIMIZATION: freeze all truss geometry (fully static).
         // This has to run after the cross beams have been rotated - freezeWorldMatrix()

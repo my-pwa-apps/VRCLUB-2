@@ -897,16 +897,16 @@ class VRClubFixtures extends VRClubEnvironment {
         // Moving head lights on truss - ONLY for spotlights (6 fixtures to match 6 spotlights)
         const lightFixtureMat = this.materialFactory.getPreset('lightFixture');
         
-        // Array of light positions on truss - positioned ON actual truss beams
-        // Main trusses run along X at Z=-8, -12, -16, -20 (horizontal beams)
-        // Cross beams run along Z at X=-8, -4, 0, 4, 8 (vertical connecting beams)
+        // Where the side cross beams (x = ±sideTrussX) cross the three main trusses (z -8, -12, -16).
+        // Must match spotPositions in createLights().
+        const sideX = CLUB_POSITIONS.sideTrussX;
         const lightPositions = [
-            { x: -8, z: -8 },   // Left on truss1 (front) - Moved closer to dancefloor
-            { x: -8, z: -12 },  // Left on truss2 (middle)
-            { x: -8, z: -16 },  // Left on truss3 (back) - Moved closer to dancefloor
-            { x: 8, z: -8 },    // Right on truss1 (front) - Moved closer to dancefloor
-            { x: 8, z: -12 },   // Right on truss2 (middle)
-            { x: 8, z: -16 }    // Right on truss3 (back) - Moved closer to dancefloor
+            { x: -sideX, z: -8 },   // Left, front truss
+            { x: -sideX, z: -12 },  // Left, middle truss
+            { x: -sideX, z: -16 },  // Left, rear truss
+            { x: sideX, z: -8 },    // Right, front truss
+            { x: sideX, z: -12 },   // Right, middle truss
+            { x: sideX, z: -16 }    // Right, rear truss
         ];
         
         this.trussLights = [];
@@ -1250,11 +1250,12 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // Lasers mounted UNDER the truss (hanging down)
         // ALL LASERS ARE MULTI-BEAM TYPE (5 rotating beams each)
-        // ALL LASERS ON SAME Z POSITION for consistency (z: -14)
+        // The side units hang from the side cross beams at z -14, between the moving heads.
+        const sideX = CLUB_POSITIONS.sideTrussX;
         const laserPositions = [
-            { x: -8, z: -14, trussY: 7.55, type: 'multi' },   // Multi-beam left (left truss) - CHANGED
-            { x: 0, z: -8, trussY: 7.55, type: 'multi' },    // Multi-beam center (main truss) - Moved to farthest truss from DJ
-            { x: 8, z: -14, trussY: 7.55, type: 'multi' }     // Multi-beam right (right truss) - CHANGED
+            { x: -sideX, z: -14, trussY: 7.55, type: 'multi' },  // left cross beam
+            { x: 0, z: -8, trussY: 7.55, type: 'multi' },        // centre, under the front truss
+            { x: sideX, z: -14, trussY: 7.55, type: 'multi' }    // right cross beam
         ];
         
         laserPositions.forEach((pos, i) => {
@@ -1265,17 +1266,17 @@ class VRClubFixtures extends VRClubEnvironment {
             let localX = pos.x;
             let localZ = pos.z;
             
-            // Side lasers mount to side trusses (x: ±8)
-            if (pos.x < -3 && this.sideTrusses && this.sideTrusses[-8]) {
-                // Left laser mounts to left side truss at x: -8
-                parentTruss = this.sideTrusses[-8];
-                localX = 0; // Center on truss
-                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
-            } else if (pos.x > 3 && this.sideTrusses && this.sideTrusses[8]) {
-                // Right laser mounts to right side truss at x: 8
-                parentTruss = this.sideTrusses[8];
-                localX = 0; // Center on truss
-                localZ = pos.z - (-12); // Relative to truss z position (-14 - (-12) = -2)
+            // The side cross beams are turned a quarter turn about y, so their local x runs along world -z
+            // (local z runs along world x). Offsetting along local z, as this used to, slid the side units
+            // 2 m sideways off their beams (x -10 and +6) instead of 2 m along them.
+            if (pos.x < -3 && this.sideTrusses && this.sideTrusses.left) {
+                parentTruss = this.sideTrusses.left;
+                localX = -(pos.z - (-12));
+                localZ = 0;
+            } else if (pos.x > 3 && this.sideTrusses && this.sideTrusses.right) {
+                parentTruss = this.sideTrusses.right;
+                localX = -(pos.z - (-12));
+                localZ = 0;
             } else if (Math.abs(pos.x) <= 3 && this.horizontalTrusses && this.horizontalTrusses.length > 1) {
                 // CENTER laser mounts to truss2 (Z=-12, index 1)
                 // Laser is at z=-14, truss2 is at z=-12
@@ -1320,30 +1321,28 @@ class VRClubFixtures extends VRClubEnvironment {
             }
             housing.isPickable = false;
             
-            const housingMat = this.materialFactory.createPBRMaterial("laserHousingMat", {
-                mutable: true, // colour written at runtime
+            const housingMat = this.materialFactory.createPBRMaterial("projectorHousingMat", {
                 baseColor: [0.05, 0.05, 0.05],
                 metallic: 0.8,
-                roughness: 0.3,
-                emissiveColor: [0.05, 0, 0]
-            }, true); // UPGRADE: shared across all laser housings
+                roughness: 0.3
+            }, true); // shared across all laser housings; a projector's body does not glow
             housing.material = housingMat;
             housing.isPickable = false;
             
-            // BRIGHT LASER EMITTER - Visible light source on housing front
+            // Exit aperture on the underside: these units hang inverted under the truss and fan their
+            // beams downward, so the beams must leave the bottom face, not the housing's centre.
             const emitter = BABYLON.MeshBuilder.CreateCylinder("laserEmitter" + i, {
-                diameter: 0.12,
-                height: 0.03,
+                diameter: 0.07,
+                height: 0.012,
                 tessellation: 16
             }, this.scene);
             
             if (parentTruss) {
-                emitter.position = new BABYLON.Vector3(localX, -0.45, localZ + 0.18);
+                emitter.position = new BABYLON.Vector3(localX, -0.556, localZ + 0.06);
                 emitter.parent = parentTruss;
             } else {
-                emitter.position = new BABYLON.Vector3(pos.x, pos.trussY, pos.z + 0.18);
+                emitter.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.106, pos.z + 0.06);
             }
-            emitter.rotation.x = Math.PI / 2;
             emitter.isPickable = false;
             
             // Shared across all laser emitters. createStandardMaterial has no cache path,
@@ -1355,46 +1354,15 @@ class VRClubFixtures extends VRClubEnvironment {
             emitter.renderingGroupId = 2; // Render on top for visibility
             if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(emitter);
             
-            // Create beams based on laser type
+            // Logical beams. Geometry lives in one shared camera-facing ribbon batch built after the loop
+            // (see _createLaserBeamBatch), so 15 beams cost one draw call, plus one for their surface dots.
             const beams = [];
-            // DISABLED: Laser SpotLights caused shader uniform buffer overflow
-            // 3 multi-beam lasers × 5 lights each = 15 SpotLights, way over limit
-            // Visual laser beams still work via emissive cylinder meshes
-            const lights = []; // Empty - no actual lights, visual-only beams
+            // No real lights: 15 SpotLights would overflow every PBR material's light budget.
+            const lights = [];
+            const beamCount = pos.type === 'multi' ? 5 : (pos.type === 'spread' ? 3 : 1);
+            for (let j = 0; j < beamCount; j++) beams.push({ beamIndex: j, length: 0 });
             
-            if (pos.type === 'single') {
-                // Single beam laser
-                const beam = this.createLaserBeam(i, 0, pos);
-                beams.push(beam);
-                // No light - visual beam only
-                
-            } else if (pos.type === 'spread') {
-                // Spread laser (3 beams fanning out)
-                for (let j = -1; j <= 1; j++) {
-                    const beam = this.createLaserBeam(i, j, pos);
-                    beams.push(beam);
-                    // No light - visual beam only
-                }
-                
-            } else if (pos.type === 'multi') {
-                // Multi-beam laser (5 rotating beams in circle)
-                for (let j = 0; j < 5; j++) {
-                    const beam = this.createLaserBeam(i, j, pos);
-                    beams.push(beam);
-                    // No light - visual beam only
-                }
-            }
-            
-            // Calculate actual world position for beam origin
-            let actualWorldPos;
-            if (parentTruss) {
-                // Get world position from parented housing
-                actualWorldPos = housing.getAbsolutePosition().clone();
-                actualWorldPos.y = housing.getAbsolutePosition().y; // Use actual Y
-            } else {
-                // Center laser - use direct position
-                actualWorldPos = new BABYLON.Vector3(pos.x, pos.trussY, pos.z);
-            }
+            const actualWorldPos = emitter.computeWorldMatrix(true).getTranslation();
             
             this.lasers.push({
                 beams: beams,
@@ -1422,6 +1390,17 @@ class VRClubFixtures extends VRClubEnvironment {
             emitter.freezeWorldMatrix();
             emitter.doNotSyncBoundingInfo = true;
         });
+
+        const totalBeams = this.lasers.reduce((sum, laser) => sum + laser.beams.length, 0);
+        this.laserBeamBatch = this._createLaserBeamBatch(totalBeams);
+        let slot = 0;
+        for (const laser of this.lasers) {
+            for (const beam of laser.beams) {
+                beam.slot = slot++;
+                beam.mesh = this.laserBeamBatch.mesh;
+                beam.material = this.laserBeamBatch.material;
+            }
+        }
         
         // Initialize lighting mode control
         this.lightingMode = 'synchronized'; // or 'random'
@@ -1486,47 +1465,104 @@ class VRClubFixtures extends VRClubEnvironment {
         
     }
     
-    createLaserBeam(laserIndex, beamIndex, pos) {
-        // Crisp laser beam. Keep only the pencil-thin core so beams crossing
-        // the LED wall do not create a large additive glow wash.
-        // Real lasers: pencil-thin coherent light with atmospheric scatter creating visible beam
-        
-        // === CORE BEAM - Ultra-thin, razor-sharp coherent light ===
-        // Real show lasers are 2-4mm diameter, we use 5mm for visibility
-        const beam = BABYLON.MeshBuilder.CreateCylinder("laser" + laserIndex + "_beam" + beamIndex, {
-            diameterTop: 0.004,    // 4mm at source (very tight)
-            diameterBottom: 0.008, // 8mm at end (slight divergence like real laser)
-            height: 1,
-            tessellation: 6        // Low poly - lasers are perfectly round
-        }, this.scene);
-        beam.position = new BABYLON.Vector3(pos.x, pos.trussY - 0.1, pos.z);
-        
-        // Core material - BLINDINGLY bright, pure saturated color
-        const beamMat = new BABYLON.StandardMaterial("laserCoreMat" + laserIndex + "_" + beamIndex, this.scene);
-        beamMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        beamMat.specularColor = new BABYLON.Color3(0, 0, 0);
-        beamMat.emissiveColor = new BABYLON.Color3(1, 0, 0); // Pure red - will be updated
-        beamMat.disableLighting = true;
-        beamMat.backFaceCulling = false;
-        beam.material = beamMat;
-        beam.renderingGroupId = 2; // Render on top for crisp appearance
-        beam.isPickable = false;
-        if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(beam);
-        
-        // Hit spots removed - cleaner laser look without floor reflections
-        
-        return { 
-            mesh: beam, 
-            material: beamMat,
-            innerGlow: null,
-            innerGlowMat: null,
-            beamGlow: null,
-            glowMat: null,
-            hitSpot: null,        // No longer created
-            hitSpotMat: null,
-            hitGlow: null,
-            hitGlowMat: null,
-            beamIndex: beamIndex 
+    /**
+     * One dynamic mesh for every ceiling-laser beam and one for their surface dots.
+     *
+     * A real show beam is 2-5 mm wide: at club distances that is under a pixel, so a modelled cylinder
+     * aliases into a dashed, crawling line. Each beam is instead a camera-facing ribbon never narrower
+     * than a few pixels, carrying a Gaussian core and a faint scatter halo in its opacity profile, with its
+     * brightness divided by the widening so a distant beam does not turn into a bright bar
+     * (updateLasers()). Brightness lives in vertex alpha, which the glow layer reads too.
+     */
+    _createLaserBeamBatch(count) {
+        const profile = (name, w, h, alphaAt) => {
+            const tex = new BABYLON.DynamicTexture(name, { width: w, height: h }, this.scene, false);
+            const ctx = tex.getContext();
+            const img = ctx.createImageData(w, h);
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const o = (y * w + x) * 4;
+                    img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+                    img.data[o + 3] = Math.round(255 * Math.min(1, alphaAt((x + 0.5) / w, (y + 0.5) / h)));
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+            tex.update();
+            tex.hasAlpha = true;
+            tex.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            tex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+            return tex;
+        };
+        // Across the ribbon: the coherent core (sigma ~5% of the ribbon) plus forward-scatter halo.
+        const beamTex = profile('laserBeamProfile', 64, 4, u => {
+            const s = 2 * u - 1;
+            return Math.exp(-(s / 0.11) * (s / 0.11)) + 0.2 * Math.exp(-(s / 0.45) * (s / 0.45));
+        });
+        // The dot a beam throws on a surface: a hot centre and a soft diffuse bloom.
+        const dotTex = profile('laserDotProfile', 32, 32, (u, v) => {
+            const r2 = ((2 * u - 1) ** 2 + (2 * v - 1) ** 2);
+            return Math.exp(-r2 / 0.05) + 0.3 * Math.exp(-r2 / 0.3);
+        });
+
+        const build = (name, texture) => {
+            const mesh = new BABYLON.Mesh(name, this.scene);
+            const positions = new Float32Array(count * 12);
+            const colors = new Float32Array(count * 16);
+            const normals = new Float32Array(count * 12);
+            const uvs = new Float32Array(count * 8);
+            const indices = new Uint16Array(count * 6);
+            for (let i = 0; i < count; i++) {
+                uvs.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
+                for (let k = 0; k < 4; k++) {
+                    normals[(i * 4 + k) * 3 + 1] = 1;
+                    colors.set([1, 1, 1, 0], (i * 4 + k) * 4);
+                }
+                const v = i * 4;
+                indices.set([v, v + 1, v + 2, v, v + 2, v + 3], i * 6);
+            }
+            const data = new BABYLON.VertexData();
+            data.positions = positions;
+            data.normals = normals;
+            data.uvs = uvs;
+            data.colors = colors;
+            data.indices = indices;
+            data.applyToMesh(mesh, true);
+            mesh.hasVertexAlpha = true;
+            mesh.isPickable = false;
+            mesh.alwaysSelectAsActiveMesh = true; // vertices move every frame; the bounds do not
+            mesh.renderingGroupId = 2;
+            mesh.setEnabled(false);
+
+            const mat = new BABYLON.StandardMaterial(`${name}Mat`, this.scene);
+            mat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+            mat.specularColor = new BABYLON.Color3(0, 0, 0);
+            mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            mat.opacityTexture = texture;
+            mat.disableLighting = true;
+            mat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+            mat.backFaceCulling = false;
+            mat.disableDepthWrite = true;
+            // Additive light must not be mixed toward the fog colour: that greys a beam out instead of
+            // dimming it. Distance attenuation is applied in the vertex alpha.
+            mat.fogEnabled = false;
+            mesh.material = mat;
+            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(mesh);
+            return { mesh, material: mat, positions, colors };
+        };
+
+        const beams = build('laser_beams', beamTex);
+        const hits = build('laser_beamHits', dotTex);
+        return {
+            count,
+            mesh: beams.mesh,
+            material: beams.material,
+            positions: beams.positions,
+            colors: beams.colors,
+            hitMesh: hits.mesh,
+            hitMaterial: hits.material,
+            hitPositions: hits.positions,
+            hitColors: hits.colors,
+            hit: { t: 0, px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 }
         };
     }
 

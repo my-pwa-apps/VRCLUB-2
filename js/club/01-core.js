@@ -20,6 +20,16 @@ const ROOM_BOUNDS = {
 };
 window.ROOM_BOUNDS = ROOM_BOUNDS;
 
+// Interior faces of the visible shell, for optics (mirror-ball rays, laser beams): walls are 0.5 m thick
+// boxes centred on x ±12.5 and z 0, the ceiling slab's underside is y 9.85, and the LED wall at z -20
+// stands in front of the back wall. ROOM_BOUNDS above is the narrower walkable band, not the shell.
+const ROOM_INTERIOR = {
+    x: { min: -12.25, max: 12.25 },
+    y: { min: 0, max: 9.85 },
+    z: { min: -20, max: -0.25 }
+};
+window.ROOM_INTERIOR = ROOM_INTERIOR;
+
 // Key positions in the club
 const CLUB_POSITIONS = {
     // Centre of the DJ deck row; y is the work surface. See the BOOTH LAYOUT
@@ -33,7 +43,11 @@ const CLUB_POSITIONS = {
         // y is the top of the cabinet; see ModelLoader.getModelConfigs().
         left: { x: -6, y: 7.1, z: -16 },
         right: { x: 6, y: 7.1, z: -16 }
-    }
+    },
+    // The lighting rig's two side cross beams, and the moving heads and side lasers hung on them. Pulled in
+    // from x ±8 so the heads sit over the dance floor rather than over the balcony (edge x -9.5) and the
+    // bar (x 9.7). Not ±6: the flown PA and the fog machines hang there.
+    sideTrussX: 7
 };
 window.CLUB_POSITIONS = CLUB_POSITIONS;
 
@@ -346,20 +360,12 @@ class VRClubCore {
             fireOrange: new BABYLON.Color3(1, 0.6, 0),
         };
         
-        // Cached laser glow colors (avoid per-frame allocations)
-        this.cachedLaserGlowColors = {
-            redInner: new BABYLON.Color3(1, 0.4, 0.4),
-            redOuter: new BABYLON.Color3(1, 0.25, 0.25),
-            greenInner: new BABYLON.Color3(0.4, 1, 0.4),
-            greenOuter: new BABYLON.Color3(0.25, 1, 0.25),
-            blueInner: new BABYLON.Color3(0.4, 0.4, 1),
-            blueOuter: new BABYLON.Color3(0.25, 0.25, 1),
-            redEmissive: new BABYLON.Color3(0.2, 0, 0),
-            greenEmissive: new BABYLON.Color3(0, 0.2, 0),
-            blueEmissive: new BABYLON.Color3(0, 0, 0.2),
-            redBright: new BABYLON.Color3(3, 0, 0),
-            greenBright: new BABYLON.Color3(0, 3, 0),
-            blueBright: new BABYLON.Color3(0, 0, 3),
+        // Show-laser diode colours, not sRGB primaries: 638 nm red, 532 nm green, 445 nm blue (which reads
+        // as a violet-leaning royal blue). Shared by the ceiling lasers and the laser sheet.
+        this.cachedLaserColors = {
+            red: new BABYLON.Color3(1, 0.06, 0.02),
+            green: new BABYLON.Color3(0.28, 1, 0.04),
+            blue: new BABYLON.Color3(0.14, 0.1, 1)
         };
         
         // PERFORMANCE: Reusable Vector3 pool for animation calculations (reduces GC pressure)

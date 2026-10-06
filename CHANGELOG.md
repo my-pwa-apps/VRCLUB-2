@@ -126,11 +126,40 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   being reset and patched with a `scale.x = -1` on the DJ console.
 - PA speaker textures load through the cached TextureLoader and never fall back to magenta.
 
+### Added
+
+- **Graffiti** on the walls: five CC BY 4.0 decal packs by karlwirbelwind (Sketchfab), packed into one 2048 px
+  WebP atlas by `scripts/build-graffiti-atlas.mjs` and painted as one alpha-tested mesh (one draw call). The paint
+  uses the wall's own brick normal map and mortar occlusion, so it follows every brick and joint. Credited in
+  `#modelCredits`; provenance in `ASSETS.md`.
+
 ### Changed
 
+- **Lighting rig pulled in over the dance floor**: the side cross beams, their six moving heads and the two
+  side lasers moved from x ±8 to x ±7 (`CLUB_POSITIONS.sideTrussX`), 2.5 m clear of the balcony and the bar
+  (was 1.5 m), still clear of the flown PA and the fog machines. The side lasers were also fixed: they were
+  offset along the rotated beam's wrong axis and hung 2 m off it (x -10 and +6); they now hang on their beams.
+- **Credits are a collapsed "ⓘ Credits & licences" disclosure** in the bottom-left corner instead of an
+  always-open panel over the scene; the intro screen names every CC BY creator.
+- **Wall art removed**: the two welded ring-and-bar sculptures (amber on the left wall, cyan on the
+  right) are gone.
+- **Lasers, ultra-realism pass** (ceiling beams and light sheet):
+  - Beams were 4-8 mm cylinders, sub-pixel at club distances, so they aliased into dashed, crawling
+    lines. They are now one camera-facing ribbon batch, never under a few pixels wide, with brightness
+    divided by that widening, a Gaussian core and a faint scatter halo (15 draw calls -> 2).
+  - Beams leave each projector's underside aperture and end on the wall, floor or ceiling they reach
+    (the side units shone through the side walls), throwing a dot there.
+  - Forward scatter (Henyey-Greenstein): a beam running toward you glows brighter than one seen side-on.
+    Brightness follows the haze, never the fog colour, and decays slightly along the beam.
+  - Diode colours (638 / 532 / 445 nm) instead of sRGB primaries; housings no longer glow.
+  - The light sheet's smoke noise never showed (Babylon's noise writes alpha 1); it now does. The fan
+    dims with distance from the projector, is brighter at its scan edges, reads as a bright line edge-on
+    and a veil face-on, runs on until it meets a surface, and draws its scan line on the floor.
+  - Mirror-ball reflections are clipped to the real shell (ceiling 9.85 m, front wall), not the
+    narrower walkable band, which had parked spots on invisible planes at y 8 and z -5.
 - **Signage**: the generic CLUB, VR and DANCE neons are gone. The club's name, NOCTURNE, now hangs over
-  the doorway inside the club as one 6 m neon piece facing the DJ and the dance floor: widely tracked pink
-  outline lettering, an ice-blue crescent moon and star, and an underline broken by a small diamond. It is
+  the doorway inside the club as one 6 m neon piece facing the DJ and the dance floor, in widely tracked
+  pink outline lettering. It is
   drawn into the existing signage atlas, so the signs remain two draw calls with no added light.
 - **Babylon.js 8.30.5 -> 9.28.0** (vendored; the manifest hashes match the npm tarballs as well as the
   CDN). The 9.0 breaking change (TC39 decorators) only affects code that applies Babylon decorators to

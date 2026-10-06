@@ -211,6 +211,9 @@ test('production build initializes a rendered club without browser errors', asyn
             smokeScatterExists: Boolean(club.laserSheetSmokeScatter),
             hazeUsesIndependentNoise: club.laserSheetHaze?.material.opacityTexture !==
                 club.laserSheet.material.opacityTexture,
+            // The procedural noise writes alpha 1: unless its brightness is the opacity, no smoke shows.
+            smokeNoiseIsOpacity: club.laserSheet.material.opacityTexture.getAlphaFromRGB === true &&
+                club.laserSheetHaze.material.opacityTexture.getAlphaFromRGB === true,
             active: club.laserSheetActive,
             alpha: club.laserSheet.material.alpha,
             depthWriteDisabled: club.laserSheet.material.disableDepthWrite,
@@ -339,8 +342,9 @@ test('production build initializes a rendered club without browser errors', asyn
             hazeLayerExists: true,
             smokeScatterExists: false,
             hazeUsesIndependentNoise: true,
+            smokeNoiseIsOpacity: true,
             active: true,
-            alpha: 0.025,
+            alpha: 0.1,
             depthWriteDisabled: true,
             exclusive: true
         },
@@ -634,7 +638,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(opticsState.spot.intensity).toBeGreaterThan(40);
     expect(opticsState.spot.enabled).toBe(true);
     expect(opticsState.spot.lensGlowIncluded).toBe(true);
-    expect(opticsState.laser.emissivePeak).toBeCloseTo(5, 2);
+    // The beam material carries the pure diode colour; brightness lives in the batch's vertex alpha.
+    expect(opticsState.laser.emissivePeak).toBeCloseTo(1, 2);
     expect(opticsState.laser.glowIncluded).toBe(true);
     expect(opticsState.strobe.duration).toBeLessThanOrEqual(0.09);
     expect(opticsState.strobe.glareAlpha).toBe(0.95);

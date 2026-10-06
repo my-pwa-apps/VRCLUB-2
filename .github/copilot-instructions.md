@@ -407,8 +407,10 @@ Tier-gated features, all **desktop only**:
 
 Rules when touching this:
 - Mirror reflection spots and outgoing rays are two thin-instanced meshes backed by
-  preallocated matrix buffers. `_intersectMirrorRoom()` analytically clips them to
-  `ROOM_BOUNDS`; do not restore per-spot meshes or `scene.pickWithRay()` calls.
+  preallocated matrix buffers. `_intersectRoomInterior()` analytically clips them to
+  `ROOM_INTERIOR` (the shell's inner faces: x ±12.25, ceiling y 9.85, LED wall z -20, front
+  wall z -0.25). `ROOM_BOUNDS` is the narrower walkable band and must not be used for optics.
+  Do not restore per-spot meshes or `scene.pickWithRay()` calls.
 - **Every new heavy effect must be feature-detected** (`if (BABYLON.X)`) and wrapped in
   `try/catch` — there is no build step or browser test to catch a missing API.
 - **Every new pipeline must be detached in `applyVRSettings()` and re-attached in
@@ -462,6 +464,24 @@ look; retune against it, never by eye.
 `'ceilingLeft'` / `'ceilingRight'` fire one projector only. `configureLaserSheetVariant()`
 re-parents the lead fan; `this.laserSheetSource` always points at the lead projector and
 `_laserSheetFollower` at the second (null when single-sided).
+
+**Laser optics (sheet and ceiling beams).** Both are drawn the way a beam is seen in haze, and the
+rules are enforced by `test/unit.test.mjs`:
+- Colours are diode wavelengths (`cachedLaserColors`: 638 / 532 / 445 nm), not sRGB primaries;
+  `_laserColor()` is the one source, honouring `colorLockActive`.
+- Additive laser materials have `fogEnabled = false`: fog mixes toward its colour and greys a beam.
+  Distance and haze attenuation go in vertex alpha instead.
+- No laser line is narrower than a few pixels (`_laserView()` gives the pixel angle), and widening
+  divides its brightness. A sub-pixel modelled cylinder aliased into dashed, crawling lines.
+- Ceiling beams are ONE camera-facing ribbon batch (`laser_beams`) plus ONE dot batch
+  (`laser_beamHits`) written every frame by `updateLasers()`. Each beam leaves the projector's
+  underside aperture, ends on whichever `ROOM_INTERIOR` face it reaches (walls included), throws a
+  dot there and scatters forward (`_laserScatterGain()`, Henyey-Greenstein g 0.45).
+- The sheet fan is subdivided: vertex alpha carries the ~1/r power spread and the brighter scan
+  edges, and an emissive Fresnel term makes it a bright line edge-on and a veil face-on. The fan is
+  longer than the room so the shell's depth test ends it on a surface. Its noise textures need
+  `getAlphaFromRGB = true` (Babylon's noise writes alpha 1). `_updateLaserSheetScanLines()` draws
+  the line each fan draws on the floor.
 
 Light presets: `ambient`, `djLight`, `speakerLight`, `spotlight`, `laserLight`.
 
@@ -560,6 +580,8 @@ and fail `npm test`.
 - Entrance: a 4 m doorway in the front wall at `z = 0` (x -2..2, 3.4 m high) into the vestibule, `z 0.25..6`
 - Bar: along the right wall, `x 9.7..12.25`, `z -13.8..-6`
 - PA speakers: flown from the rear truss at `x = ±6`, cabinet top `y = 7.1`, `z = -16`
+- Lighting rig side cross beams, their six moving heads and the two side lasers:
+  `x = ±CLUB_POSITIONS.sideTrussX` (7), over the dance floor and clear of the balcony and the bar
 
 Treat `CLUB_POSITIONS` and `ROOM_BOUNDS` as the source of truth; do not re-derive
 coordinates from documentation. The bar and vestibule numbers live in `window.VenueLayout`
@@ -750,7 +772,9 @@ Optional and opt-in: nothing connects until a guest clicks **Connect** in the Mu
 
 Source code is MIT (`LICENSE`). Bundled 3D models, textures and animations are third-party
 works under their own terms — every one is recorded in `ASSETS.md`, and CC BY attribution
-must remain visible in `#modelCredits`.
+(title, creator, source link, licence link, change notice) must remain in `#modelCredits`, a
+collapsed `<details>` disclosure in the club's bottom-left corner, and every CC BY creator must
+stay named in the splash's `.splash-credits` line.
 
 ## Known technical debt
 

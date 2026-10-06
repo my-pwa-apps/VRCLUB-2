@@ -128,6 +128,27 @@ compatible with the intended distribution before a public release.
 
 The reflection environment is a derivative: the 1k `.hdr` (MD5 `ab2931b0191b050b97b1e08ab67b0fb0`, from <https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/empty_warehouse_01_1k.hdr>) loaded as a Babylon `HDRCubeTexture` at 256 px and written with `BABYLON.EnvironmentTextureTools.CreateEnvTextureAsync` as WebP (152 KB). Replace it by the same route; the file name carries the resolution because the service worker and browsers cache by URL.
 
+### Graffiti
+
+`textures/graffiti/atlas.webp` (2048 px RGBA WebP, 2.2 MB) is a **derivative** of five Sketchfab decal packs, all
+*Decal - Graffiti Textures* by **karlwirbelwind** (<https://sketchfab.com/karlwirbelwind>), **CC BY 4.0**. Two are titled
+"[CCO]" on Sketchfab, but every listing and every GLB's embedded `asset.extras.license` says CC-BY-4.0, so all five are
+treated and credited as CC BY.
+
+| Atlas cell | Source listing | Painted on |
+|------------|----------------|------------|
+| `character` | [37d78e03…](https://sketchfab.com/3d-models/cco-decal-graffiti-textures-37d78e03040041bdb9158c7ce4aa7cd8) | front wall, right of the door |
+| `tagWall` | [4b3bc244…](https://sketchfab.com/3d-models/decal-graffiti-textures-4b3bc244cccf4acb8d402372d8ce1db0) | left wall, front corner |
+| `tagCluster` | [69a07e3d…](https://sketchfab.com/3d-models/decal-graffiti-textures-69a07e3d256e4b0490ac49e99ac57896) | right wall, rear corner |
+| `vaps` | [19b3096f…](https://sketchfab.com/3d-models/cco-decal-graffiti-textures-19b3096fbd9a424484f78b58368a9b8a) | front wall, left of the door |
+| `klw` | [86d7a898…](https://sketchfab.com/3d-models/decal-graffiti-textures-86d7a89828364880b5397081350455a7) | right wall, front corner |
+
+Changes made: each GLB's embedded 1024 px RGBA image was flipped upright, trimmed to its painted area, fitted into its
+cell and the five were packed into one atlas; the GLB geometry is not shipped. The in-app credit in `#modelCredits` links
+all five listings, the creator and the licence, and states the change. Sketchfab downloads need an account, so to rebuild,
+download the five GLBs and run `node scripts/build-graffiti-atlas.mjs <folder>` (packs are matched by the source URL
+embedded in each GLB, not by file name).
+
 ## Runtime libraries
 
 | Path | Version | Licence |

@@ -1998,7 +1998,9 @@ test('both truss projectors emit a sheet together, mirrored; a single side parks
         _laserSheetMounts: { ceilingLeft: makeMount(-6), ceilingRight: makeMount(6) },
         laserSheet: fan(), laserSheetHaze: fan(), _laserSheetFanB: { sheet: fan(), haze: fan() },
         laserSpeed: 1, kickPulse: 0,
-        _poseLaserSheet: core.window.VRClubAnimationCore.prototype._poseLaserSheet
+        _poseLaserSheet: core.window.VRClubAnimationCore.prototype._poseLaserSheet,
+        _laserColor: core.window.VRClubAnimationCore.prototype._laserColor,
+        _updateLaserSheetScanLines: core.window.VRClubAnimationCore.prototype._updateLaserSheetScanLines
     });
     club.laserSheetSource = club._laserSheetMounts.ceilingLeft.housing;
     club.laserAperture = club._laserSheetMounts.ceilingLeft.aperture;
@@ -4175,14 +4177,15 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
         VRClubEffects: class {}
     });
     const update = window.VRClubAnimationCore.prototype.updateMirrorBall;
+    const ROOM_INTERIOR = {
+        x: { min: -12.25, max: 12.25 },
+        y: { min: 0, max: 9.85 },
+        z: { min: -20, max: -0.25 }
+    };
     const effects = loadClassic('js/club/06-effects.js', {
         BABYLON,
         VRClubFixtures: class {},
-        ROOM_BOUNDS: {
-            x: { min: -12.5, max: 12.5 },
-            y: { min: 0, max: 8 },
-            z: { min: -21, max: -5 }
-        }
+        ROOM_INTERIOR
     }).window.VRClubEffects.prototype;
     const enabled = { spots: false, rays: false };
     const updates = { spots: 0, rays: 0 };
@@ -4225,7 +4228,7 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
             directions,
             hit: {}
         },
-        _intersectMirrorRoom: effects._intersectMirrorRoom,
+        _intersectRoomInterior: effects._intersectRoomInterior,
         _writeMirrorSpotMatrix: effects._writeMirrorSpotMatrix,
         _writeMirrorRayMatrix: effects._writeMirrorRayMatrix,
         _updateMirrorReflectionBatch: effects._updateMirrorReflectionBatch,
@@ -4243,6 +4246,14 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     update.call(club, { time: 2, dtScale: 1 });
     assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 48);
     assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 32);
+
+    // Reflections land on the real shell (ceiling slab, front wall), not on the narrower walkable band.
+    const hit = {};
+    effects._intersectRoomInterior(0, 6.5, -12, 0, 1, 0, hit);
+    assert.ok(Math.abs(hit.py - (9.85 - 0.02)) < 1e-9, `ceiling hit at y ${hit.py}`);
+    effects._intersectRoomInterior(0, 6.5, -12, 0, 0, 1, hit);
+    assert.ok(Math.abs(hit.pz - (-0.25 - 0.02)) < 1e-9, `front-wall hit at z ${hit.pz}`);
+    assert.deepEqual([hit.nx, hit.ny, hit.nz], [0, 0, -1]);
 });
 
 test('laser sheet uses bounded two-axis motion for vertical and lateral cues', () => {
@@ -4276,7 +4287,9 @@ test('laser sheet uses bounded two-axis motion for vertical and lateral cues', (
             green: new BABYLON.Color3(0, 1, 0),
             blue: new BABYLON.Color3(0, 0, 1)
         },
-        _poseLaserSheet: window.VRClubAnimationCore.prototype._poseLaserSheet
+        _poseLaserSheet: window.VRClubAnimationCore.prototype._poseLaserSheet,
+        _laserColor: window.VRClubAnimationCore.prototype._laserColor,
+        _updateLaserSheetScanLines: window.VRClubAnimationCore.prototype._updateLaserSheetScanLines
     };
     const update = time => window.VRClubAnimationCore.prototype.updateLaserSheet.call(club, {
         time,
@@ -4391,87 +4404,63 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     assert.ok(Math.abs(halfSpot.lens / fullSpot.lens - 0.5) < 0.02, 'half master did not halve the moving-head lens glow');
     assert.ok(Math.abs(halfSpot.beam / fullSpot.beam - 0.5) < 0.02, 'half master did not halve the moving-head beam glow');
 
-    const renderLasers = (master) => {
-        const beam = {
-            beamIndex: 0,
-            mesh: {
-                scaling: new BABYLON.Vector3(1, 1, 1),
-                position: new BABYLON.Vector3(),
-                rotationQuaternion: new BABYLON.Quaternion(),
-                visibility: 0
-            },
-            material: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
-            innerGlowMat: { emissiveColor: new BABYLON.Color3() },
-            glowMat: { emissiveColor: new BABYLON.Color3() },
-            innerGlow: {
-                visibility: 0,
-                scaling: new BABYLON.Vector3(1, 1, 1),
-                position: new BABYLON.Vector3(),
-                rotationQuaternion: new BABYLON.Quaternion()
-            },
-            beamGlow: {
-                visibility: 0,
-                scaling: new BABYLON.Vector3(1, 1, 1),
-                position: new BABYLON.Vector3(),
-                rotationQuaternion: new BABYLON.Quaternion()
-            }
+    const effectsProto = loadClassic('js/club/06-effects.js', {
+        BABYLON, VRClubFixtures: class {},
+        ROOM_INTERIOR: { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } }
+    }).window.VRClubEffects.prototype;
+    const makeLaserBatch = (count) => {
+        const mesh = () => ({ enabled: false, isEnabled() { return this.enabled; }, setEnabled(v) { this.enabled = v; }, updateVerticesData() {} });
+        return {
+            count,
+            mesh: mesh(), hitMesh: mesh(),
+            material: { emissiveColor: new BABYLON.Color3() },
+            hitMaterial: { emissiveColor: new BABYLON.Color3() },
+            positions: new Float32Array(count * 12), colors: new Float32Array(count * 16),
+            hitPositions: new Float32Array(count * 12), hitColors: new Float32Array(count * 16),
+            hit: {}
         };
+    };
+    const renderLasers = (master) => {
+        const origin = new BABYLON.Vector3(0, 7, -12);
         const laser = {
-            type: 'single',
+            type: 'multi',
             rotation: 0,
             tiltPhase: 0,
-            originPos: new BABYLON.Vector3(0, 7, -12),
-            beams: [beam],
-            lights: [{ diffuse: null, intensity: 0 }],
-            housingMat: { emissiveColor: new BABYLON.Color3() },
+            originPos: origin.clone(),
+            emitter: { getAbsolutePosition: () => origin },
+            beams: [0, 1, 2, 3, 4].map(i => ({ beamIndex: i, slot: i })),
+            lights: [],
             emitterMat: { emissiveColor: new BABYLON.Color3() }
         };
         const club = {
             masterIntensity: master,
             lasersActive: true,
-            lightingMode: 'synchronized',
             vjManualMode: true,
             colorSwitchTime: 0,
             currentColorIndex: 0,
             colorLockActive: false,
             kickPulse: 0,
             isInVRMode: false,
-            cachedColors: {
-                red: new BABYLON.Color3(1, 0, 0),
-                green: new BABYLON.Color3(0, 1, 0),
-                blue: new BABYLON.Color3(0, 0, 1),
-                black: new BABYLON.Color3(0, 0, 0)
+            cachedColors: { black: new BABYLON.Color3(0, 0, 0) },
+            cachedLaserColors: {
+                red: new BABYLON.Color3(1, 0.06, 0.02),
+                green: new BABYLON.Color3(0.28, 1, 0.04),
+                blue: new BABYLON.Color3(0.14, 0.1, 1)
             },
-            cachedLaserGlowColors: {
-                redInner: new BABYLON.Color3(0.8, 0.1, 0.1),
-                redOuter: new BABYLON.Color3(0.4, 0.05, 0.05),
-                redEmissive: new BABYLON.Color3(0.3, 0, 0),
-                redBright: new BABYLON.Color3(0.9, 0.1, 0.1),
-                greenInner: new BABYLON.Color3(0.1, 0.8, 0.1),
-                greenOuter: new BABYLON.Color3(0.05, 0.4, 0.05),
-                greenEmissive: new BABYLON.Color3(0, 0.3, 0),
-                greenBright: new BABYLON.Color3(0.1, 0.9, 0.1),
-                blueInner: new BABYLON.Color3(0.1, 0.1, 0.8),
-                blueOuter: new BABYLON.Color3(0.05, 0.05, 0.4),
-                blueEmissive: new BABYLON.Color3(0, 0, 0.3),
-                blueBright: new BABYLON.Color3(0.1, 0.1, 0.9)
-            },
-            vecPool: {
-                laserDir: new BABYLON.Vector3(),
-                laserTmp: new BABYLON.Vector3(),
-                up: new BABYLON.Vector3(),
-                laserAxis: new BABYLON.Vector3()
-            },
-            _quatIdentity: BABYLON.Quaternion.Identity(),
-            _quatFlipX: BABYLON.Quaternion.RotationAxis(BABYLON.Axis.X, Math.PI),
-            lasers: [laser]
+            vecPool: { laserDir: new BABYLON.Vector3() },
+            laserBeamBatch: makeLaserBatch(5),
+            lasers: [laser],
+            _laserColor: core._laserColor,
+            _laserView: core._laserView,
+            _intersectRoomInterior: effectsProto._intersectRoomInterior
         };
+        Object.setPrototypeOf(club, fixtures);
         fixtures.updateLasers.call(club, { time: 1, dtScale: 1 });
+        const batch = club.laserBeamBatch;
         return {
-            beam: beam.material.emissiveColor.r,
-            beamAlpha: beam.material.alpha,
-            light: laser.lights[0].intensity,
-            housing: laser.housingMat.emissiveColor.r,
+            beamAlpha: Math.max(...Array.from({ length: 20 }, (_, i) => batch.colors[i * 4 + 3])),
+            dotAlpha: Math.max(...Array.from({ length: 20 }, (_, i) => batch.hitColors[i * 4 + 3])),
+            enabled: batch.mesh.enabled,
             emitter: laser.emitterMat.emissiveColor.r
         };
     };
@@ -4479,12 +4468,12 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     const fullLaser = renderLasers(1);
     const halfLaser = renderLasers(0.5);
     const offLaser = renderLasers(0);
-    assert.equal(offLaser.light, 0, 'zero master left the ceiling laser light on');
-    assert.equal(offLaser.beamAlpha, 0, 'zero master left the ceiling laser beam visible');
-    assert.equal(offLaser.housing, 0, 'zero master left the ceiling laser housing glowing');
+    assert.equal(offLaser.enabled, false, 'zero master left the ceiling laser beams drawn');
     assert.equal(offLaser.emitter, 0, 'zero master left the ceiling laser emitter glowing');
-    assert.ok(Math.abs(halfLaser.light / fullLaser.light - 0.5) < 0.02, 'half master did not halve the ceiling laser light');
-    assert.ok(Math.abs(halfLaser.beam / fullLaser.beam - 0.5) < 0.02, 'half master did not halve the ceiling laser beam');
+    assert.ok(fullLaser.beamAlpha > 0 && fullLaser.dotAlpha > 0);
+    assert.ok(Math.abs(halfLaser.beamAlpha / fullLaser.beamAlpha - 0.5) < 0.02, 'half master did not halve the ceiling laser beam');
+    assert.ok(Math.abs(halfLaser.dotAlpha / fullLaser.dotAlpha - 0.5) < 0.02, 'half master did not halve the ceiling laser dots');
+    assert.ok(Math.abs(halfLaser.emitter / fullLaser.emitter - 0.5) < 0.02, 'half master did not halve the ceiling laser emitter');
 
     const renderSheet = (master) => {
         const club = {
@@ -4505,7 +4494,9 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             laserAperture: { material: { emissiveColor: new BABYLON.Color3() } },
             _laserSheetFollower: { mount: { aperture: { material: { emissiveColor: new BABYLON.Color3() } } } },
             laserLight: { diffuse: null, intensity: 0 },
-            _poseLaserSheet() {}
+            _poseLaserSheet() {},
+            _laserColor: core._laserColor,
+            _updateLaserSheetScanLines: core._updateLaserSheetScanLines
         };
         core.updateLaserSheet.call(club, { time: 1, audio: { average: 0 } });
         return {
@@ -4527,6 +4518,66 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     assert.equal(offSheet.light, 0, 'zero master left the laser-sheet light on');
     assert.ok(Math.abs(halfSheet.alpha / fullSheet.alpha - 0.5) < 0.02, 'half master did not halve the laser-sheet alpha');
     assert.ok(Math.abs(halfSheet.light / fullSheet.light - 0.5) < 0.02, 'half master did not halve the laser-sheet light');
+});
+
+test('ceiling lasers end on the wall they reach, scatter forward, never alias below a few pixels, and the sheet draws its floor line', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const ROOM_INTERIOR = { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } };
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures.prototype;
+    const core = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {}, ROOM_INTERIOR }).window.VRClubAnimationCore.prototype;
+    const effects = loadClassic('js/club/06-effects.js', { BABYLON, VRClubFixtures: class {}, ROOM_INTERIOR }).window.VRClubEffects.prototype;
+
+    // A beam from the right-hand projector aimed out toward the side wall stops ON the wall.
+    const hit = {};
+    const d = new BABYLON.Vector3(0.8, -0.6, 0).normalize();
+    effects._intersectRoomInterior(8, 7, -14, d.x, d.y, d.z, hit);
+    assert.ok(Math.abs(hit.px - (12.25 - 0.02)) < 1e-9, `beam passed the side wall (x ${hit.px})`);
+    assert.deepEqual([hit.nx, hit.ny, hit.nz], [-1, 0, 0]);
+
+    // Haze scatters forward: toward the viewer > side-on (1) > away.
+    const forward = fixtures._laserScatterGain(1), side = fixtures._laserScatterGain(0), away = fixtures._laserScatterGain(-1);
+    assert.ok(Math.abs(side - 1) < 1e-9);
+    assert.ok(forward > 2 && away < 0.8, `phase ${forward} / ${side} / ${away}`);
+
+    // Ribbon width never falls under ~7 px, and the brightness is divided by that widening.
+    const P = new Float32Array(12), C = new Float32Array(16);
+    const beamDir = new BABYLON.Vector3(0, -1, 0);
+    const pixelAngle = 0.8 / 1080;
+    const widthAt = dist => {
+        fixtures._writeLaserBeamEnd.call(fixtures, P, C, 0, 0, 0, 1, 0, 5, -12, beamDir, 0.032, 1,
+            { x: dist, y: 5, z: -12 }, pixelAngle);
+        return { width: Math.hypot(P[3] - P[0], P[4] - P[1], P[5] - P[2]), alpha: C[3] };
+    };
+    const near = widthAt(2), far = widthAt(20);
+    assert.ok(far.width >= 20 * pixelAngle * 7 - 1e-6, 'a distant beam is narrower than a few pixels');
+    assert.ok(Math.abs(near.width - 0.032) < 1e-6, 'a near beam lost its physical width');
+    assert.ok(far.alpha < near.alpha, 'widening a distant beam must dim it, not brighten the room');
+
+    // The fan's floor line: both edges of a fan pitched down from the rear truss land on the floor.
+    const fan = {
+        isVisible: true,
+        computeWorldMatrix: () => BABYLON.Matrix.Compose(
+            BABYLON.Vector3.One(),
+            BABYLON.Quaternion.RotationYawPitchRoll(0.2, 0.53, 0),
+            new BABYLON.Vector3(-6, 7.55, -15.75))
+    };
+    const scan = {
+        mesh: { isVisible: false, updateVerticesData() {} },
+        material: { emissiveColor: new BABYLON.Color3() },
+        positions: new Float32Array(24), colors: new Float32Array(32),
+        apex: new BABYLON.Vector3(), left: new BABYLON.Vector3(), right: new BABYLON.Vector3()
+    };
+    const club = { laserSheet: fan, _laserSheetFollower: null, _laserSheetFanB: null, _laserScanLines: scan,
+        _laserSheetLength: 24, _laserSheetWidthEnd: 22, _laserView: core._laserView };
+    core._updateLaserSheetScanLines.call(club, new BABYLON.Color3(0, 1, 0), 0.8);
+    assert.equal(scan.mesh.isVisible, true, 'no floor line was drawn');
+    for (let v = 0; v < 4; v++) {
+        const x = scan.positions[v * 3], y = scan.positions[v * 3 + 1], z = scan.positions[v * 3 + 2];
+        assert.ok(y < 0.01, 'the scan line must lie on the floor');
+        assert.ok(x >= -12.25 && x <= 12.25 && z >= -20 && z <= -0.25, `scan line left the room (${x}, ${z})`);
+        assert.ok(Math.abs(scan.colors[v * 4 + 3] - 0.8) < 1e-6);
+    }
+    assert.equal(scan.colors[4 * 4 + 3], 0, 'an idle second projector drew a line');
 });
 
 test('moving-head spot strobes stay under the flash ceiling at every refresh rate and Safe Mode removes the transitions', () => {
@@ -4887,6 +4938,18 @@ test('a bass bin hangs from its speaker: below it, facing the way it faces, and 
         assert.equal(resolved.rotation.x, 0, 'the bin hangs level, not tilted with the speaker');
         assert.throws(() => Object.assign(Object.create(window.ModelLoader.prototype), { loadedModels: {} })._resolveHangPlacement('bass_bin_left', configs.bass_bin_left), /not loaded/);
     }
+});
+
+test('credits stay one click away and the splash names every CC BY creator', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    const credits = html.match(/<details id="modelCredits">([\s\S]*?)<\/details>/);
+    assert.ok(credits, '#modelCredits must be a <details> disclosure');
+    assert.match(credits[1], /<summary[^>]*>[^<]*Credits/, 'the disclosure needs a visible Credits summary');
+    const creators = [...credits[1].matchAll(/by <a [^>]*>([^<]+)<\/a>\s*—\s*<a [^>]*>CC BY 4\.0<\/a>/g)].map(m => m[1].trim());
+    assert.ok(creators.length >= 4, `expected the CC BY creators in the credits, found ${creators.join(', ')}`);
+    const splash = html.match(/<p class="splash-hint splash-credits">([\s\S]*?)<\/p>/);
+    assert.ok(splash, 'the splash must carry the credits line');
+    for (const creator of creators) assert.ok(splash[1].includes(creator), `${creator} is not named on the splash`);
 });
 
 test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is in the product', () => {

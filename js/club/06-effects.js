@@ -42,14 +42,16 @@ class VRClubEffects extends VRClubFixtures {
         // Spotlights mounted on truss (moving heads)
         this.spotlights = [];
         // 6 spotlights: 3 on left side, 3 on right side - POSITIONED ON ACTUAL TRUSSES
-        // Main trusses at Z=-8, -12, -16; spotlights at X=±8 (where trusses intersect side beams)
+        // Main trusses at Z=-8, -12, -16; spotlights at X=±sideTrussX (where they cross the side beams).
+        // Must match lightPositions in createTrussMountedLights().
+        const sideX = CLUB_POSITIONS.sideTrussX;
         const spotPositions = [
-            { x: -8, z: -8 },   // Left on truss1 (front)
-            { x: -8, z: -12 },  // Left on truss2 (middle)
-            { x: -8, z: -16 },  // Left on truss3 (back)
-            { x: 8, z: -8 },    // Right on truss1 (front)
-            { x: 8, z: -12 },   // Right on truss2 (middle)
-            { x: 8, z: -16 }    // Right on truss3 (back)
+            { x: -sideX, z: -8 },   // Left on truss1 (front)
+            { x: -sideX, z: -12 },  // Left on truss2 (middle)
+            { x: -sideX, z: -16 },  // Left on truss3 (back)
+            { x: sideX, z: -8 },    // Right on truss1 (front)
+            { x: sideX, z: -12 },   // Right on truss2 (middle)
+            { x: sideX, z: -16 }    // Right on truss3 (back)
         ];
         
         const spotColors = [
@@ -413,62 +415,83 @@ class VRClubEffects extends VRClubFixtures {
         this.laserSheetSource = this._laserSheetMounts.ceilingLeft.housing;
         this.laserAperture = this._laserSheetMounts.ceilingLeft.aperture;
         
-        // 2. Create the Laser Sheet Geometry (Triangle Fan)
-        // We create a custom mesh for the fan shape
+        // 2. The fan. A light sheet is one beam swept by a galvo, so it is subdivided to carry two real
+        // properties in its vertex alpha: power spreads over the arc it sweeps (dimming ~1/r away from
+        // the projector, softened for the eye, plus Beer-Lambert scatter loss), and the mirror slows to
+        // turn at each end of the scan, so the fan's two edges are brighter than its middle.
         const sheet = new BABYLON.Mesh("laserSheet", this.scene);
         
-        // Fan dimensions
-        const length = 24; // Rear wall to entrance, without extending outside the room
-        const widthEnd = 22; // Covers the dance floor at the entrance
+        // Fan dimensions. Longer than the room on purpose: a swept beam runs on until it meets a surface,
+        // and the opaque shell's depth test ends the fan exactly on the floor, walls or ceiling. A fan that
+        // stopped short drew a hard straight edge across mid-air. Same opening angle as before (22 m at 24 m).
+        const length = 40;
+        const widthEnd = 22 * length / 24;
         this._laserSheetLength = length;
         this._laserSheetWidthEnd = widthEnd;
         
-        const positions = [
-            0, 0, 0,              // 0: Source (Tip)
-            -widthEnd/2, 0, length, // 1: Far Left
-            widthEnd/2, 0, length   // 2: Far Right
-        ];
-        
-        const indices = [0, 1, 2, 0, 2, 1]; // Double sided
-        
-        const uvs = [
-            0.5, 0,  // Source
-            0, 1,    // Left
-            1, 1     // Right
-        ];
-        
-        const normals = [];
-        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        const RINGS = 20, COLS = 24;
+        const positions = [], normals = [], uvs = [], colors = [], indices = [];
+        for (let i = 0; i <= RINGS; i++) {
+            const t = i / RINGS;
+            const r = t * length;
+            const falloff = Math.min(1, Math.pow(2 / Math.max(r, 1e-3), 0.7)) * Math.exp(-0.02 * r);
+            for (let j = 0; j <= COLS; j++) {
+                const u = j / COLS;
+                const edge = (0.7 + 0.9 * Math.pow(Math.abs(2 * u - 1), 8)) / 1.6;
+                positions.push((u - 0.5) * widthEnd * t, 0, r);
+                normals.push(0, 1, 0);
+                uvs.push(u, t);
+                colors.push(1, 1, 1, falloff * edge);
+            }
+        }
+        for (let i = 0; i < RINGS; i++) {
+            for (let j = 0; j < COLS; j++) {
+                const a = i * (COLS + 1) + j, b = a + 1, c = a + COLS + 1, d = c + 1;
+                indices.push(a, c, d, a, d, b);
+            }
+        }
         
         const vertexData = new BABYLON.VertexData();
         vertexData.positions = positions;
         vertexData.indices = indices;
         vertexData.uvs = uvs;
         vertexData.normals = normals;
+        vertexData.colors = colors;
         vertexData.applyToMesh(sheet);
+        sheet.hasVertexAlpha = true;
+        sheet.isPickable = false;
         
         // Parent to source for easy rotation/scanning
         sheet.parent = this.laserSheetSource;
         sheet.position = new BABYLON.Vector3(0, 0, 0.25); // Start at aperture
         
-        // 3. Material & Texture (Hyperrealistic Smoke)
+        // 3. Material. The plane is a few millimetres thick, so seen edge-on the line of sight crosses far
+        // more lit haze than seen face-on: the emissive Fresnel term (|cos| between view and normal) makes
+        // the sheet a bright line edge-on and a faint veil face-on.
         const sheetMat = new BABYLON.StandardMaterial("laserSheetMat", this.scene);
         sheetMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.specularColor = new BABYLON.Color3(0, 0, 0);
         sheetMat.emissiveColor = new BABYLON.Color3(0, 1, 0); // Default green
         sheetMat.disableLighting = true;
-        sheetMat.alpha = 0.025;
+        sheetMat.alpha = 0.1;
         sheetMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
         sheetMat.backFaceCulling = false;
         sheetMat.disableDepthWrite = true;
+        sheetMat.fogEnabled = false;
+        sheetMat.emissiveFresnelParameters = new BABYLON.FresnelParameters();
+        sheetMat.emissiveFresnelParameters.leftColor = new BABYLON.Color3(1, 1, 1);      // edge-on
+        sheetMat.emissiveFresnelParameters.rightColor = new BABYLON.Color3(0.25, 0.25, 0.25); // face-on
+        sheetMat.emissiveFresnelParameters.bias = 0;
+        sheetMat.emissiveFresnelParameters.power = 1;
         
-        // Procedural noise for smoke movement
+        // Haze density drifting through the plane. The noise texture writes alpha 1, so its brightness
+        // must be read as the opacity or the smoke never shows.
         const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
         noiseTexture.octaves = 4;
         noiseTexture.persistence = 0.5;
         noiseTexture.animationSpeedFactor = 0.5;
         noiseTexture.brightness = 0.62;
-        noiseTexture.contrast = 0.85;
+        noiseTexture.getAlphaFromRGB = true;
         
         sheetMat.opacityTexture = noiseTexture;
         
@@ -477,10 +500,11 @@ class VRClubEffects extends VRClubFixtures {
 
         // A second, slightly offset scatter layer gives the plane visible depth where
         // it intersects uneven haze instead of reading as one uniformly transparent
-        // triangle. It reuses the same geometry and adds only one draw call.
+        // triangle. It reuses the same geometry and adds only one draw call. The offset is
+        // kept small: further apart, the two planes read as a doubled line edge-on.
         const hazeSheet = sheet.clone("laserSheetHaze");
         hazeSheet.parent = this.laserSheetSource;
-        hazeSheet.position.set(0, 0.035, 0.25);
+        hazeSheet.position.set(0, 0.012, 0.25);
         hazeSheet.scaling.set(0.985, 1, 0.985);
 
         const hazeMat = sheetMat.clone("laserSheetHazeMat");
@@ -489,10 +513,10 @@ class VRClubEffects extends VRClubFixtures {
         hazeNoise.persistence = 0.48;
         hazeNoise.animationSpeedFactor = 0.16;
         hazeNoise.brightness = 0.56;
-        hazeNoise.contrast = 1.15;
+        hazeNoise.getAlphaFromRGB = true;
         hazeMat.opacityTexture = hazeNoise;
         hazeMat.emissiveTexture = null;
-        hazeMat.alpha = 0.012;
+        hazeMat.alpha = 0.05;
         hazeSheet.material = hazeMat;
         this.laserSheetHaze = hazeSheet;
 
@@ -504,11 +528,65 @@ class VRClubEffects extends VRClubFixtures {
         sheetB.position.set(0, 0, 0.25);
         const hazeB = hazeSheet.clone("laserSheetHazeRight");
         hazeB.parent = this._laserSheetMounts.ceilingRight.housing;
-        hazeB.position.set(0, 0.035, 0.25);
+        hazeB.position.set(0, 0.012, 0.25);
         hazeB.scaling.set(0.985, 1, 0.985);
         sheetB.isVisible = false;
         hazeB.isVisible = false;
         this._laserSheetFanB = { sheet: sheetB, haze: hazeB };
+
+        // Where a fan meets the floor, every point of the swept beam lands on one line: the bright scan
+        // line a light sheet draws across the dance floor. One quad per projector, rewritten each frame
+        // by _updateLaserSheetScanLines(); one draw call for both.
+        const scanTex = new BABYLON.DynamicTexture('laserScanLineProfile', { width: 64, height: 4 }, this.scene, false);
+        const scanCtx = scanTex.getContext();
+        const scanImg = scanCtx.createImageData(64, 4);
+        for (let y = 0; y < 4; y++) {
+            for (let x = 0; x < 64; x++) {
+                const s = ((x + 0.5) / 64) * 2 - 1;
+                const o = (y * 64 + x) * 4;
+                scanImg.data[o] = scanImg.data[o + 1] = scanImg.data[o + 2] = 255;
+                const core = (s / 0.18) * (s / 0.18), halo = (s / 0.6) * (s / 0.6);
+                scanImg.data[o + 3] = Math.round(255 * Math.min(1, Math.exp(-core) + 0.25 * Math.exp(-halo)));
+            }
+        }
+        scanCtx.putImageData(scanImg, 0, 0);
+        scanTex.update();
+        scanTex.hasAlpha = true;
+        scanTex.wrapU = scanTex.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+
+        const scanLines = new BABYLON.Mesh('laserSheetScanLines', this.scene);
+        const scanData = new BABYLON.VertexData();
+        scanData.positions = new Float32Array(24);
+        scanData.normals = new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
+        scanData.uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1]);
+        scanData.colors = new Float32Array(32);
+        scanData.indices = new Uint16Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+        scanData.applyToMesh(scanLines, true);
+        scanLines.hasVertexAlpha = true;
+        scanLines.isPickable = false;
+        scanLines.alwaysSelectAsActiveMesh = true;
+        scanLines.isVisible = false;
+        const scanMat = new BABYLON.StandardMaterial('laserSheetScanLineMat', this.scene);
+        scanMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        scanMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        scanMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+        scanMat.opacityTexture = scanTex;
+        scanMat.disableLighting = true;
+        scanMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+        scanMat.backFaceCulling = false;
+        scanMat.disableDepthWrite = true;
+        scanMat.fogEnabled = false;
+        scanMat.zOffset = -2; // lies on the floor: win the depth test against the concrete it marks
+        scanLines.material = scanMat;
+        this._laserScanLines = {
+            mesh: scanLines,
+            material: scanMat,
+            positions: scanData.positions,
+            colors: scanData.colors,
+            apex: new BABYLON.Vector3(),
+            left: new BABYLON.Vector3(),
+            right: new BABYLON.Vector3()
+        };
         
         // 4. Light Source (Actual light projection) - DISABLED for performance
         // DISABLED: Laser sheet SpotLight adds to uniform buffer count
@@ -524,6 +602,7 @@ class VRClubEffects extends VRClubFixtures {
             this.glowLayer.addIncludedOnlyMesh(this.laserSheetHaze);
             this.glowLayer.addIncludedOnlyMesh(sheetB);
             this.glowLayer.addIncludedOnlyMesh(hazeB);
+            this.glowLayer.addIncludedOnlyMesh(scanLines);
             for (const mount of Object.values(this._laserSheetMounts)) {
                 this.glowLayer.addIncludedOnlyMesh(mount.aperture);
             }
@@ -983,16 +1062,20 @@ class VRClubEffects extends VRClubFixtures {
         log.info(`✨ Mirror ball reflections batched into two draws (${maxSpots} spots, ${maxRays} rays)`);
     }
 
-    _intersectMirrorRoom(ox, oy, oz, dx, dy, dz, out) {
+    /**
+     * Analytic ray vs the room's interior faces (ROOM_INTERIOR). Shared by the mirror-ball reflections and the
+     * ceiling lasers. Writes distance, hit point and the inward surface normal into `out`; allocates nothing.
+     */
+    _intersectRoomInterior(ox, oy, oz, dx, dy, dz, out) {
         const inset = 0.02;
         let t = Infinity;
         let nx = 0, ny = 0, nz = 0;
-        const minX = ROOM_BOUNDS.x.min + inset;
-        const maxX = ROOM_BOUNDS.x.max - inset;
-        const minY = ROOM_BOUNDS.y.min + inset;
-        const maxY = ROOM_BOUNDS.y.max - inset;
-        const minZ = ROOM_BOUNDS.z.min + inset;
-        const maxZ = ROOM_BOUNDS.z.max - inset;
+        const minX = ROOM_INTERIOR.x.min + inset;
+        const maxX = ROOM_INTERIOR.x.max - inset;
+        const minY = ROOM_INTERIOR.y.min + inset;
+        const maxY = ROOM_INTERIOR.y.max - inset;
+        const minZ = ROOM_INTERIOR.z.min + inset;
+        const maxZ = ROOM_INTERIOR.z.max - inset;
         if (dx > 1e-6) { const k = (maxX - ox) / dx; if (k < t) { t = k; nx = -1; ny = 0; nz = 0; } }
         else if (dx < -1e-6) { const k = (minX - ox) / dx; if (k < t) { t = k; nx = 1; ny = 0; nz = 0; } }
         if (dy > 1e-6) { const k = (maxY - oy) / dy; if (k < t) { t = k; nx = 0; ny = -1; nz = 0; } }
@@ -1062,7 +1145,7 @@ class VRClubEffects extends VRClubFixtures {
             const dx = sinPhi * Math.cos(theta);
             const dy = Math.cos(phi);
             const dz = sinPhi * Math.sin(theta);
-            const hit = this._intersectMirrorRoom(ox, oy, oz, dx, dy, dz, batch.hit);
+            const hit = this._intersectRoomInterior(ox, oy, oz, dx, dy, dz, batch.hit);
             this._writeMirrorSpotMatrix(batch.spotMatrices, i * 16, hit, dx, dy, dz, 0.24 + (i % 7) * 0.025);
             if (i < rayCount) {
                 this._writeMirrorRayMatrix(batch.rayMatrices, i * 16, ox, oy, oz, dx, dy, dz, hit.t);

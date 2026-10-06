@@ -2,6 +2,8 @@
 const SPOT_FLASH_BASE_S = 0.040;
 const SPOT_FLASH_MIN_S = 0.022;
 const SPOT_FLASH_MIN_INTERVAL_S = 0.34;
+// Corner offsets (x, y) of a laser surface-dot quad, in the batch's vertex order.
+const LASER_DOT_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLEDWallPass(ctx) {
         const { time, audio: audioData } = ctx;
@@ -113,15 +115,26 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         }
     }
 
-    /** Ceiling laser projectors: beam aiming, floor intersection and colouring. */
+    /**
+     * Ceiling laser projectors. Every beam is aimed, clipped against the room's interior faces and written
+     * into the shared ribbon batch (see _createLaserBeamBatch) together with the dot it throws on that face.
+     *
+     * The look follows how a show beam is actually seen in haze:
+     *  - it is only visible through scatter, so its brightness follows the haze, never the fog colour;
+     *  - haze scatters forward (Henyey-Greenstein, g 0.45): a beam running toward the viewer glows several
+     *    times brighter than one seen side-on, and one running away is fainter;
+     *  - the ribbon is never narrower than a few pixels, and its brightness is divided by that widening,
+     *    so a distant beam stays a fine line instead of aliasing into dashes or swelling into a bar;
+     *  - it diverges ~1.5 mrad and loses a little power to scatter along its length (Beer-Lambert);
+     *  - it ends on whatever face it reaches, with a dot whose brightness follows its angle of incidence.
+     */
     updateLasers(ctx) {
         const { time, dtScale } = ctx;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // ALWAYS SYNCHRONIZED MODE - no random mode
-        // Spotlights always move together in coordinated patterns
         this.lightingMode = 'synchronized';
-        
+
         // LASER COLOR SWITCHING: Only change automatically in AUTOMATED mode
         // In MANUAL mode: colors only change via VJ control button.
         // The 8-12 s threshold is drawn ONCE per interval. Re-drawing it every frame
@@ -134,293 +147,162 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             this.colorSwitchTime = time;
             this._laserColorInterval = 8 + Math.random() * 4;
         }
-        
-        // Update lasers with raycasting and dynamic positioning
-        if (this.lasers && this.lasersActive) {
-            this.lasers.forEach((laser, i) => {
-                // Update origin position for ALL lasers (parented and non-parented).
-                // Parented lasers track the truss every frame; unparented lasers keep
-                // whatever origin creation gave them. Either way we write into a
-                // laser-owned vector - `.clone()` here allocated one Vector3 per laser
-                // per frame purely to hold a value overwritten on the next frame.
-                if (laser.parentTruss) {
-                    if (!laser.originPos) laser.originPos = new BABYLON.Vector3(0, 0, 0);
-                    laser.originPos.copyFrom(laser.housing.getAbsolutePosition());
-                } else if (!laser.originPos) {
-                    // Fallback if originPos wasn't set during creation
-                    laser.originPos = laser.housing.getAbsolutePosition().clone();
-                }
-                
-                // Movement depends on mode (apply laser speed multiplier)
-                const speedMultiplier = (this.laserSpeed || 1.0) * dtScale;
-                if (this.lightingMode === 'synchronized') {
-                    laser.rotation += 0.015 * speedMultiplier;
-                    laser.tiltPhase += 0.02 * speedMultiplier;
-                } else {
-                    laser.rotation += laser.rotationSpeed * speedMultiplier;
-                    laser.tiltPhase += (0.015 + Math.sin(time + i) * 0.01) * speedMultiplier;
-                }
-                // Mark laser as spinning
-                laser.isSpinning = true;
-                
-                // === LASER HOUSING STAYS STATIC ===
-                // The housing/emitter fixture stays fixed - only the beam meshes animate
-                // This prevents the visible "spinning box" effect
-                // Real laser projectors have stationary housings with internal galvo mirrors
-                
-                // Clamp is static - housing stays fixed, beams animate independently
-                
-                // Update each beam in the laser
-                laser.beams.forEach((beam) => {
-                    // Shared scratch: `new BABYLON.Vector3(...)` per beam per frame
-                    // was ~900 allocations/sec on its own.
-                    const direction = this.vecPool.laserDir;
 
-                    if (laser.type === 'single') {
-                        // Single beam pointing down with movement
-                        const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
-                        const dirX = Math.sin(laser.rotation) * Math.sin(tilt);
-                        const dirY = -Math.cos(tilt);
-                        const dirZ = Math.cos(laser.rotation) * Math.sin(tilt);
-                        direction.set(dirX, dirY, dirZ);
-                        
-                    } else if (laser.type === 'spread') {
-                        // Spread laser (3 beams fanning out)
-                        const spreadAngle = (beam.beamIndex - 1) * 0.4; // -0.4, 0, 0.4
-                        const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.2;
-                        const dirX = Math.sin(laser.rotation + spreadAngle) * Math.sin(tilt);
-                        const dirY = -Math.cos(tilt);
-                        const dirZ = Math.cos(laser.rotation + spreadAngle) * Math.sin(tilt);
-                        direction.set(dirX, dirY, dirZ);
-                        
-                    } else if (laser.type === 'multi') {
-                        // Multi-beam (5 beams rotating in circle)
-                        const baseAngle = (beam.beamIndex / 5) * Math.PI * 2;
-                        const rotatingAngle = baseAngle + laser.rotation * 2;
-                        const tilt = Math.PI / 5;
-                        const dirX = Math.sin(rotatingAngle) * Math.sin(tilt);
-                        const dirY = -Math.cos(tilt);
-                        const dirZ = Math.cos(rotatingAngle) * Math.sin(tilt);
-                        direction.set(dirX, dirY, dirZ);
-                    } else {
-                        // Unknown fixture type - point straight down rather than
-                        // leaving last frame's direction in the shared scratch.
-                        direction.set(0, -1, 0);
-                    }
-                    
-                    // SIMPLIFIED: Always calculate floor intersection directly
-                    // This is more reliable than raycasting, especially in VR
-                    // Raycasting can fail due to timing issues between eyes
-                    
-                    let beamLength = 50; // Default max length
-                    
-                    // Calculate floor intersection mathematically (always works, VR-safe)
-                    if (direction.y < -0.01) {
-                        // Laser pointing downward - calculate floor intersection
-                        const distanceToFloor = laser.originPos.y / Math.abs(direction.y);
-                        beamLength = Math.min(distanceToFloor, 50); // Cap at 50
-                    }
-                    
-                    // Update beam geometry. copyFrom + addInPlace: the previous
-                    // `originPos.add(direction.scale(...))` allocated two Vector3
-                    // per beam per frame and replaced mesh.position wholesale,
-                    // which also defeats Babylon's dirty tracking.
-                    beam.mesh.scaling.y = beamLength;
-                    direction.scaleToRef(beamLength * 0.5, this.vecPool.laserTmp);
-                    beam.mesh.position.copyFrom(laser.originPos).addInPlace(this.vecPool.laserTmp);
-                    
-                    // Orient beam — QC O5: pool quaternion on the beam object so
-                    // we don't allocate (3 lasers × 5 beams × 60 fps ≈ 900/sec).
-                    this.vecPool.up.set(0, 1, 0);
-                    BABYLON.Vector3.CrossToRef(this.vecPool.up, direction, this.vecPool.laserAxis);
-                    // Clamp before acos. float32 normalisation routinely yields a dot of
-                    // ±1.0000000000000002, whose acos is NaN - and because the quaternion
-                    // is POOLED on the beam, one NaN poisons the world matrix permanently
-                    // and the beam disappears until reload. Also note `direction` is NOT
-                    // re-normalised here: it was already consumed above to place the beam.
-                    const dot = Math.min(1, Math.max(-1, BABYLON.Vector3.Dot(this.vecPool.up, direction)));
-                    const angle = Math.acos(dot);
+        const batch = this.laserBeamBatch;
+        if (!this.lasers || !batch) return;
+        const color = this._laserColor();
 
-                    if (!beam._rotQuat) beam._rotQuat = new BABYLON.Quaternion();
-                    if (this.vecPool.laserAxis.length() > 0.001) {
-                        this.vecPool.laserAxis.normalize();
-                        BABYLON.Quaternion.RotationAxisToRef(this.vecPool.laserAxis, angle, beam._rotQuat);
-                        beam.mesh.rotationQuaternion = beam._rotQuat;
-                    } else {
-                        // Straight up or straight down — use shared static quaternions
-                        beam.mesh.rotationQuaternion =
-                            (BABYLON.Vector3.Dot(this.vecPool.up, direction) > 0)
-                                ? this._quatIdentity
-                                : this._quatFlipX;
-                    }
-                    
-                    // UPDATE GLOW BEAMS - Same position/rotation/scale as core
-                    // QC O5: pool each glow mesh's quaternion + copyFrom (no allocation per frame).
-                    if (beam.innerGlow) {
-                        beam.innerGlow.scaling.y = beamLength;
-                        beam.innerGlow.position.copyFrom(beam.mesh.position);
-                        if (!beam._innerGlowQuat) beam._innerGlowQuat = new BABYLON.Quaternion();
-                        beam._innerGlowQuat.copyFrom(beam.mesh.rotationQuaternion);
-                        beam.innerGlow.rotationQuaternion = beam._innerGlowQuat;
-                    }
-                    if (beam.beamGlow) {
-                        beam.beamGlow.scaling.y = beamLength;
-                        beam.beamGlow.position.copyFrom(beam.mesh.position);
-                        if (!beam._beamGlowQuat) beam._beamGlowQuat = new BABYLON.Quaternion();
-                        beam._beamGlowQuat.copyFrom(beam.mesh.rotationQuaternion);
-                        beam.beamGlow.rotationQuaternion = beam._beamGlowQuat;
-                    }
-                    
-                    // Hit spots removed - no floor reflections needed
-                    
-                    // Color all beam elements with current color - HYPERREALISTIC color grading
-                    let currentColor, innerGlowColor, outerGlowColor;
-                    if (this.colorLockActive) {
-                        currentColor = this.currentSpotColor;
-                        innerGlowColor = this.currentSpotColor;
-                        outerGlowColor = this.currentSpotColor;
-                    } else if (this.currentColorIndex === 0) {
-                        currentColor = this.cachedColors.red;
-                        innerGlowColor = this.cachedLaserGlowColors.redInner;
-                        outerGlowColor = this.cachedLaserGlowColors.redOuter;
-                    } else if (this.currentColorIndex === 1) {
-                        currentColor = this.cachedColors.green;
-                        innerGlowColor = this.cachedLaserGlowColors.greenInner;
-                        outerGlowColor = this.cachedLaserGlowColors.greenOuter;
-                    } else {
-                        currentColor = this.cachedColors.blue;
-                        innerGlowColor = this.cachedLaserGlowColors.blueInner;
-                        outerGlowColor = this.cachedLaserGlowColors.blueOuter;
-                    }
-                    
-                    // Apply color to core beam - pure saturated color
-                    if (!beam._emissiveBuf) beam._emissiveBuf = new BABYLON.Color3(0, 0, 0);
-                    currentColor.scaleToRef(((this.isInVRMode ? 5.0 : 2.5) * (1 + (this.kickPulse || 0) * 0.7)) * master, beam._emissiveBuf);
-                    beam.material.emissiveColor = beam._emissiveBuf;
-                    beam.mesh.visibility = 1.0;
-                    
-                    // Apply inner glow color (tight halo)
-                    if (beam.innerGlowMat) {
-                        if (!beam._innerGlowBuf) beam._innerGlowBuf = new BABYLON.Color3(0, 0, 0);
-                        innerGlowColor.scaleToRef(master, beam._innerGlowBuf);
-                        beam.innerGlowMat.emissiveColor = beam._innerGlowBuf;
-                    }
-                    if (beam.innerGlow) {
-                        beam.innerGlow.visibility = 1.0;
-                    }
-                    
-                    // Apply outer glow color (atmospheric scatter)
-                    if (beam.glowMat) {
-                        if (!beam._outerGlowBuf) beam._outerGlowBuf = new BABYLON.Color3(0, 0, 0);
-                        outerGlowColor.scaleToRef(master, beam._outerGlowBuf);
-                        beam.glowMat.emissiveColor = beam._outerGlowBuf;
-                    }
-                    if (beam.beamGlow) {
-                        beam.beamGlow.visibility = 1.0;
-                    }
-                    
-                    // Hit spot materials no longer updated (spots are hidden)
-                });
-                
-                // Update lights and emitter color - Now updates every frame for sync with beams
-                // Get current color based on color index
-                let currentLaserColor, currentEmissiveColor, currentBrightColor;
-                if (this.colorLockActive) {
-                    currentLaserColor = this.currentSpotColor;
-                    currentEmissiveColor = this.currentSpotColor;
-                    currentBrightColor = this.currentSpotColor;
-                } else if (this.currentColorIndex === 0) {
-                    currentLaserColor = this.cachedColors.red;
-                    currentEmissiveColor = this.cachedLaserGlowColors.redEmissive;
-                    currentBrightColor = this.cachedLaserGlowColors.redBright;
-                } else if (this.currentColorIndex === 1) {
-                    currentLaserColor = this.cachedColors.green;
-                    currentEmissiveColor = this.cachedLaserGlowColors.greenEmissive;
-                    currentBrightColor = this.cachedLaserGlowColors.greenBright;
-                } else {
-                    currentLaserColor = this.cachedColors.blue;
-                    currentEmissiveColor = this.cachedLaserGlowColors.blueEmissive;
-                    currentBrightColor = this.cachedLaserGlowColors.blueBright;
-                }
-                
-                // Update light diffuse color (if lights exist - disabled for performance)
-                laser.lights.forEach((light) => {
-                    if (light) {
-                        light.diffuse = currentLaserColor;
-                        light.intensity = this.lasersActive ? 5 * master : 0;
-                    }
-                });
-                
-                // Update housing glow with current color
-                if (laser.housingMat) {
-                    if (this.lasersActive) {
-                        if (!laser._housingEmissiveBuf) laser._housingEmissiveBuf = new BABYLON.Color3(0, 0, 0);
-                        currentEmissiveColor.scaleToRef(master, laser._housingEmissiveBuf);
-                        laser.housingMat.emissiveColor = laser._housingEmissiveBuf;
-                    } else {
-                        laser.housingMat.emissiveColor = this.cachedColors.black;
-                    }
-                }
-                
-                // Update emitter to match beam color - this is the visible light source
-                if (laser.emitterMat) {
-                    if (this.lasersActive) {
-                        if (!laser._emitterEmissiveBuf) laser._emitterEmissiveBuf = new BABYLON.Color3(0, 0, 0);
-                        currentBrightColor.scaleToRef(master, laser._emitterEmissiveBuf);
-                        laser.emitterMat.emissiveColor = laser._emitterEmissiveBuf;
-                    } else {
-                        laser.emitterMat.emissiveColor = this.cachedColors.black;
-                    }
-                }
-            });
-        } else if (this.lasers) {
-            // Turn off lasers when not active (e.g., when laser sheet is on)
-            this.lasers.forEach(laser => {
-                laser.lights.forEach(light => {
-                    if (light) light.intensity = 0;
-                });
-                laser.beams.forEach(beam => {
-                    beam.mesh.visibility = 0;
-                    beam.material.alpha = 0;
-                    if (beam.innerGlow) beam.innerGlow.visibility = 0;
-                    if (beam.beamGlow) beam.beamGlow.visibility = 0;
-                    if (beam.hitSpot) beam.hitSpot.visibility = 0;
-                    if (beam.hitGlow) beam.hitGlow.visibility = 0;
-                });
-                // Also turn off emitter when lasers are off
-                if (laser.emitterMat) {
-                    laser.emitterMat.emissiveColor = this.cachedColors.black;
-                }
-                if (laser.housingMat) {
-                    laser.housingMat.emissiveColor = this.cachedColors.black;
-                }
-            });
+        if (!this.lasersActive || master <= 0.001) {
+            if (batch.mesh.isEnabled()) batch.mesh.setEnabled(false);
+            if (batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(false);
+            for (const laser of this.lasers) {
+                if (laser.emitterMat) laser.emitterMat.emissiveColor = this.cachedColors.black;
+            }
+            return;
         }
-        
-        // Make laser beams visible only when spinning AND lasers are active
-        if (this.lasers) {
-            this.lasers.forEach(laser => {
-                laser.beams.forEach(beam => {
-                    // Only show beams if laser is actively spinning AND lasersActive is true
-                    if (laser.isSpinning && this.lasersActive) {
-                        beam.mesh.visibility = 1;
-                        beam.material.alpha = 0.6 * master;
-                        if (beam.innerGlow) beam.innerGlow.visibility = 1;
-                        if (beam.beamGlow) beam.beamGlow.visibility = 1;
-                    } else {
-                        // Turn off ALL beam components when not spinning or lasers disabled
-                        beam.mesh.visibility = 0;
-                        beam.material.alpha = 0;
-                        if (beam.innerGlow) beam.innerGlow.visibility = 0;
-                        if (beam.beamGlow) beam.beamGlow.visibility = 0;
-                        if (beam.hitSpot) beam.hitSpot.visibility = 0;
-                        if (beam.hitGlow) beam.hitGlow.visibility = 0;
-                    }
-                });
-                // Reset spinning flag for next frame
-                laser.isSpinning = false;
-            });
+
+        const view = this._laserView();
+        const camPos = view.cam;
+        const pixelAngle = view.pixelAngle;
+        // The ambient hazer always holds a thin haze; the machines thicken it.
+        const haze = this.smokeActive === false
+            ? 0.25
+            : Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5));
+        const kick = this.kickPulse || 0;
+        const scatter = 0.35 + 0.65 * haze;
+        const base = 0.6 * scatter * master * (1 + kick * 0.35) * (this.isInVRMode ? 1.15 : 1);
+        const dotBase = 0.95 * master * (1 + kick * 0.3);
+
+        const dir = this.vecPool.laserDir;
+        const hit = batch.hit;
+        let slot = 0;
+        for (let i = 0; i < this.lasers.length; i++) {
+            const laser = this.lasers[i];
+            if (laser.emitter) {
+                if (!laser.originPos) laser.originPos = new BABYLON.Vector3(0, 0, 0);
+                laser.originPos.copyFrom(laser.emitter.getAbsolutePosition());
+            }
+            const speed = (this.laserSpeed || 1.0) * dtScale;
+            laser.rotation += 0.015 * speed;
+            laser.tiltPhase += 0.02 * speed;
+            const o = laser.originPos;
+
+            for (const beam of laser.beams) {
+                this._aimLaserBeam(laser, beam, i, dir);
+                this._intersectRoomInterior(o.x, o.y, o.z, dir.x, dir.y, dir.z, hit);
+                beam.length = hit.t;
+                const index = Number.isInteger(beam.slot) ? beam.slot : slot;
+                this._writeLaserBeamQuad(batch, index, o, dir, hit, camPos, pixelAngle, base, dotBase);
+                slot++;
+            }
+
+            if (laser.emitterMat) {
+                if (!laser._emitterEmissiveBuf) laser._emitterEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                color.scaleToRef(3 * master, laser._emitterEmissiveBuf);
+                laser.emitterMat.emissiveColor = laser._emitterEmissiveBuf;
+            }
         }
+
+        batch.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, batch.positions);
+        batch.mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.colors);
+        batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, batch.hitPositions);
+        batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.hitColors);
+        batch.material.emissiveColor.copyFrom(color);
+        batch.hitMaterial.emissiveColor.copyFrom(color);
+        if (!batch.mesh.isEnabled()) batch.mesh.setEnabled(true);
+        if (!batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(true);
+    }
+
+    /** Beam direction for one beam of a projector (writes `out`). */
+    _aimLaserBeam(laser, beam, laserIndex, out) {
+        if (laser.type === 'multi') {
+            // A grating splits the beam into a ring; the galvo spins the ring and breathes its cone,
+            // so the dots on the floor circle and slowly open and close.
+            const a = (beam.beamIndex / laser.beams.length) * Math.PI * 2 + laser.rotation * 2;
+            const tilt = Math.PI / 5 + 0.09 * Math.sin(laser.tiltPhase + laserIndex * 2.1);
+            out.set(Math.sin(a) * Math.sin(tilt), -Math.cos(tilt), Math.cos(a) * Math.sin(tilt));
+        } else if (laser.type === 'spread') {
+            const a = laser.rotation + (beam.beamIndex - 1) * 0.4;
+            const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.2;
+            out.set(Math.sin(a) * Math.sin(tilt), -Math.cos(tilt), Math.cos(a) * Math.sin(tilt));
+        } else if (laser.type === 'single') {
+            const tilt = Math.PI / 6 + Math.sin(laser.tiltPhase) * 0.3;
+            out.set(Math.sin(laser.rotation) * Math.sin(tilt), -Math.cos(tilt), Math.cos(laser.rotation) * Math.sin(tilt));
+        } else {
+            out.set(0, -1, 0);
+        }
+        return out;
+    }
+
+    /** Relative brightness of haze scatter toward the viewer (Henyey-Greenstein, 1 when seen side-on). */
+    _laserScatterGain(cosToViewer) {
+        const g = 0.45, g2 = g * g;
+        const phase = Math.pow(1 + g2, 1.5) / Math.pow(1 + g2 - 2 * g * cosToViewer, 1.5);
+        return Math.min(2.4, Math.max(0.6, 0.45 + 0.55 * phase));
+    }
+
+    /** Write one beam ribbon and its surface dot into the batch buffers. Allocates nothing. */
+    _writeLaserBeamQuad(batch, slot, o, d, hit, cam, pixelAngle, base, dotBase) {
+        const L = hit.t;
+        const ex = o.x + d.x * L, ey = o.y + d.y * L, ez = o.z + d.z * L;
+        const P = batch.positions, C = batch.colors;
+        const p = slot * 12, c = slot * 16;
+        // Physical width: ~4 mm at the aperture, ~1.5 mrad divergence.
+        const core0 = 0.004 * 8, core1 = (0.004 + 0.0015 * L) * 8;
+        this._writeLaserBeamEnd(P, C, p, c, 0, 1, o.x, o.y, o.z, d, core0, base, cam, pixelAngle);
+        this._writeLaserBeamEnd(P, C, p, c, 3, 2, ex, ey, ez, d, core1, base * Math.exp(-0.02 * L), cam, pixelAngle);
+
+        // The dot on the surface the beam reaches.
+        const HP = batch.hitPositions, HC = batch.hitColors;
+        const nx = hit.nx, ny = hit.ny, nz = hit.nz;
+        if (L <= 0 || (nx === 0 && ny === 0 && nz === 0)) {
+            for (let k = 0; k < 4; k++) HC[c + k * 4 + 3] = 0;
+            return;
+        }
+        const t1x = Math.abs(ny) > 0.9 ? 1 : 0, t1y = Math.abs(ny) > 0.9 ? 0 : 1, t1z = 0;
+        const t2x = ny * t1z - nz * t1y, t2y = nz * t1x - nx * t1z, t2z = nx * t1y - ny * t1x;
+        const footprint = 0.045 + 0.0015 * L;
+        let size = footprint, dotAlpha = dotBase * (0.4 + 0.6 * Math.abs(d.x * nx + d.y * ny + d.z * nz));
+        if (cam) {
+            const dist = Math.max(0.05, Math.hypot(hit.px - cam.x, hit.py - cam.y, hit.pz - cam.z));
+            size = Math.max(footprint, dist * pixelAngle * 5);
+            dotAlpha *= Math.sqrt(Math.max(0.15, footprint / size));
+        }
+        const cx = hit.px + nx * 0.012, cy = hit.py + ny * 0.012, cz = hit.pz + nz * 0.012;
+        for (let k = 0; k < 4; k++) {
+            const a1 = LASER_DOT_CORNERS[k * 2] * size, a2 = LASER_DOT_CORNERS[k * 2 + 1] * size;
+            HP[p + k * 3] = cx + t1x * a1 + t2x * a2;
+            HP[p + k * 3 + 1] = cy + t1y * a1 + t2y * a2;
+            HP[p + k * 3 + 2] = cz + t1z * a1 + t2z * a2;
+            HC[c + k * 4 + 3] = Math.min(1, dotAlpha);
+        }
+    }
+
+    /**
+     * One end of a beam ribbon: two vertices either side of the axis, turned to face the viewer, at least
+     * a few pixels wide, with alpha for the widening and for forward scatter toward the viewer.
+     */
+    _writeLaserBeamEnd(P, C, p, c, vi0, vi1, x, y, z, d, core, alphaIn, cam, pixelAngle) {
+        let width = core, alpha = alphaIn;
+        let sx, sy, sz;
+        if (cam) {
+            const rx = x - cam.x, ry = y - cam.y, rz = z - cam.z;
+            const dist = Math.max(0.05, Math.hypot(rx, ry, rz));
+            width = Math.max(core, dist * pixelAngle * 7);
+            alpha *= Math.sqrt(Math.max(0.12, core / width));
+            alpha *= this._laserScatterGain(-(d.x * rx + d.y * ry + d.z * rz) / dist);
+            sx = d.y * rz - d.z * ry; sy = d.z * rx - d.x * rz; sz = d.x * ry - d.y * rx;
+        } else {
+            sx = d.z; sy = 0; sz = -d.x;
+        }
+        let sl = Math.hypot(sx, sy, sz);
+        if (sl < 1e-6) { sx = 1; sy = 0; sz = 0; sl = 1; }
+        const k = (width * 0.5) / sl;
+        P[p + vi0 * 3] = x - sx * k; P[p + vi0 * 3 + 1] = y - sy * k; P[p + vi0 * 3 + 2] = z - sz * k;
+        P[p + vi1 * 3] = x + sx * k; P[p + vi1 * 3 + 1] = y + sy * k; P[p + vi1 * 3 + 2] = z + sz * k;
+        const a = Math.min(1, alpha);
+        C[c + vi0 * 4 + 3] = a;
+        C[c + vi1 * 4 + 3] = a;
     }
 
     /** Spotlight palette: pick the next colour and ease between palette entries. */

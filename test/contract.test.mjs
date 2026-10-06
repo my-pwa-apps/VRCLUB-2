@@ -183,11 +183,12 @@ test('local texture assets referenced by textureLoader exist', () => {
     const baseUrl = source.match(/const baseUrl = '([^']+)'/)?.[1];
     assert.ok(baseUrl, 'could not determine texture baseUrl');
 
-    const folders = [...source.matchAll(/baseUrl:\s*`\$\{baseUrl\}\/(\w+)`/g)].map(m => m[1]);
-    const files = new Set([...source.matchAll(/'(\w+\.jpg)'/g)].map(m => m[1]));
-    assert.ok(folders.length > 0 && files.size > 0, 'expected textureLoader to reference local textures');
+    // Each set's own maps: sets differ (the graffiti atlas is one WebP, the surfaces three JPGs).
+    const sets = [...source.matchAll(/baseUrl:\s*`\$\{baseUrl\}\/(\w+)`,\s*maps:\s*\{([^}]*)\}/g)]
+        .map(m => ({ folder: m[1], files: [...m[2].matchAll(/'([\w.-]+\.(?:jpg|png|webp))'/g)].map(f => f[1]) }));
+    assert.ok(sets.length > 0 && sets.every(set => set.files.length > 0), 'expected textureLoader to reference local textures');
 
-    for (const folder of folders) {
+    for (const { folder, files } of sets) {
         for (const file of files) {
             const p = join(ROOT, baseUrl, folder, file);
             assert.ok(existsSync(p), `missing texture asset: ${baseUrl}/${folder}/${file}`);

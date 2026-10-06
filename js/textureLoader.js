@@ -88,6 +88,14 @@ class TextureLoader {
                 baseUrl: `${baseUrl}/steelPanel`,
                 maps: { diffuse: 'diff.jpg', normal: 'normal.jpg', orm: 'orm.jpg' },
                 scale: { u: 1, v: 1 }
+            },
+            // Five of karlwirbelwind's "Decal - Graffiti Textures" (CC BY 4.0) packed into one RGBA atlas by
+            // scripts/build-graffiti-atlas.mjs. Painted on the walls by createGraffiti().
+            graffiti: {
+                name: 'Graffiti decals',
+                baseUrl: `${baseUrl}/graffiti`,
+                maps: { diffuse: 'atlas.webp' },
+                scale: { u: 1, v: 1 }
             }
         };
     }
