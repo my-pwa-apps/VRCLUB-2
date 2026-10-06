@@ -1232,7 +1232,11 @@ class LEDPatternMethods {
         if (bi !== wh.lastBeat) {
             wh.lastBeat = bi;
             const every = en < 0.3 ? 4 : (en < 0.6 ? 2 : 1);
-            if (bi % stride === 0 && beatInBar % every === 0 && time - wh.flashAt >= WAREHOUSE_MIN_FLASH_GAP) {
+            const proposed = bi % stride === 0 && beatInBar % every === 0 &&
+                time - wh.flashAt >= WAREHOUSE_MIN_FLASH_GAP;
+            const granted = proposed && (safe || typeof this._tryClubFlash !== 'function' ||
+                this._tryClubFlash(time, 'warehouse-led', WAREHOUSE_MIN_FLASH_GAP));
+            if (granted) {
                 wh.flashAt = time;
                 wh.flashBeat = bi;
                 wh.stabLine = Math.floor(this._ugHash(bi * 5.1 + 2.2) * 100);

@@ -911,24 +911,6 @@ class VRClubFixtures extends VRClubEnvironment {
         
         this.trussLights = [];
 
-        const fixtureGlareTexture = new BABYLON.DynamicTexture(
-            'fixtureGlareFalloff',
-            { width: 64, height: 64 },
-            this.scene,
-            false
-        );
-        const fixtureGlareContext = fixtureGlareTexture.getContext();
-        const fixtureGlareGradient = fixtureGlareContext.createRadialGradient(32, 32, 0, 32, 32, 32);
-        fixtureGlareGradient.addColorStop(0, 'rgba(255,255,255,1)');
-        fixtureGlareGradient.addColorStop(0.18, 'rgba(255,255,255,0.98)');
-        fixtureGlareGradient.addColorStop(0.52, 'rgba(255,255,255,0.20)');
-        fixtureGlareGradient.addColorStop(1, 'rgba(255,255,255,0)');
-        fixtureGlareContext.fillStyle = fixtureGlareGradient;
-        fixtureGlareContext.fillRect(0, 0, 64, 64);
-        fixtureGlareTexture.hasAlpha = true;
-        fixtureGlareTexture.update();
-        this._fixtureGlareTexture = fixtureGlareTexture;
-        
         lightPositions.forEach((pos, i) => {
             // === REALISTIC MOVING HEAD FIXTURE WITH TRUSS MOUNTING ===
             // Hierarchy: Root -> Clamp (on truss) -> Drop Pipe -> Base (Static) -> Yoke (Pan) -> Head (Tilt)
@@ -1053,92 +1035,50 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // Main fixture body
             const fixture = BABYLON.MeshBuilder.CreateCylinder("lightFixture" + i, {
-                diameter: 0.4,    // Fits between arms
-                height: 0.6,      // Body length
-                tessellation: 24
+                diameterTop: 0.3,
+                diameterBottom: 0.38,
+                height: 0.5,
+                tessellation: 20
             }, this.scene);
             fixture.parent = head;
-            // Rotate cylinder so its top points along local Z (forward) or Y (down)?
-            // Let's align it so -Y is the light direction (standard for spotlights)
-            // Cylinder default is vertical (Y). So default is pointing up/down.
-            // We want it to point "down" relative to the head node when tilt is 0.
-            fixture.rotation.x = 0; 
             fixture.position.y = 0;
             fixture.material = lightFixtureMat;
             
-            // Front bezel/rim - VERY DARK to not be distracting
+            // Recessed front rim keeps the aperture readable without a separate bulb or billboard flare.
             const bezel = BABYLON.MeshBuilder.CreateTorus("bezel" + i, {
-                diameter: 0.42,
-                thickness: 0.03,
-                tessellation: 32
+                diameter: 0.37,
+                thickness: 0.025,
+                tessellation: 20
             }, this.scene);
             bezel.parent = head;
-            bezel.position.y = -0.3; // Bottom of cylinder
+            bezel.position.y = -0.255;
             bezel.material = this.materialFactory.createPBRMaterial("bezelMat" + i, {
-                baseColor: [0.02, 0.02, 0.02], // Nearly black
+                baseColor: [0.02, 0.02, 0.02],
                 metallic: 0.8,
                 roughness: 0.4
             });
             
             // Light lens
             const lens = BABYLON.MeshBuilder.CreateCylinder("lens" + i, {
-                diameter: 0.35,
-                height: 0.05,
-                tessellation: 32
+                diameter: 0.34,
+                height: 0.02,
+                tessellation: 20
             }, this.scene);
             lens.parent = head;
-            lens.position.y = -0.28; // Just inside bezel
+            lens.position.y = -0.26;
             
             const lensMat = this.materialFactory.createStandardMaterial("lensMat" + i, {
-                mutable: true, // colour written at runtime
-                emissiveColor: this.currentSpotColor.scale(6.0),
+                mutable: true,
+                emissiveColor: [0, 0, 0],
                 disableLighting: true
             });
             lensMat.backFaceCulling = false;
             lens.material = lensMat;
             lens.renderingGroupId = 2;
-            
-            // Light source (bulb)
-            const lightSource = BABYLON.MeshBuilder.CreateSphere("lightSource" + i, {
-                diameter: 0.3
-            }, this.scene);
-            lightSource.parent = head;
-            lightSource.position.y = -0.25;
-            const sourceMat = this.materialFactory.createStandardMaterial("sourceMat" + i, {
-                mutable: true, // colour written at runtime
-                emissiveColor: this.currentSpotColor.scale(10.0),
-                disableLighting: true
-            });
-            sourceMat.backFaceCulling = false;
-            lightSource.material = sourceMat;
-            lightSource.renderingGroupId = 2;
 
             if (this.glowLayer) {
                 this.glowLayer.addIncludedOnlyMesh(lens);
-                this.glowLayer.addIncludedOnlyMesh(lightSource);
             }
-            
-            // Soft source glare. The radial alpha mask avoids the old hard red ring;
-            // animation gates it by beam-to-eye alignment so it only blooms head-on.
-            const flare = BABYLON.MeshBuilder.CreatePlane(`fixtureFlare${i}`, {
-                width: 1.4,
-                height: 1.4
-            }, this.scene);
-            flare.parent = head;
-            flare.position.y = -0.34;
-            flare.rotation.x = Math.PI / 2;
-            flare.isPickable = false;
-            flare.renderingGroupId = 2;
-            const flareMat = new BABYLON.StandardMaterial(`fixtureFlareMat${i}`, this.scene);
-            flareMat.emissiveColor = this.currentSpotColor.scale(8.0);
-            flareMat.opacityTexture = fixtureGlareTexture;
-            flareMat.alpha = 0;
-            flareMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
-            flareMat.disableLighting = true;
-            flareMat.disableDepthWrite = true;
-            flareMat.backFaceCulling = false;
-            flare.material = flareMat;
-            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(flare);
             
             this.trussLights.push({ 
                 root,
@@ -1147,12 +1087,8 @@ class VRClubFixtures extends VRClubEnvironment {
                 fixture, 
                 lens, 
                 lensMat, 
-                lightSource, 
-                sourceMat,
                 base,
-                bezel,
-                flare,
-                flareMat
+                bezel
             });
         });
         

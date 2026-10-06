@@ -417,18 +417,20 @@ test('production build initializes a rendered club without browser errors', asyn
             mirrorActive: club.mirrorBallActive,
             realMirrorLightExists: Boolean(club.scene.getLightByName('mirrorBallSpotlight0')),
             hemisphereCoverage: [32, 52, 64].map(count => {
-                const rays = club.mirrorBallOutgoingRays.slice(0, count);
-                return [
-                    rays.filter(ray => Math.cos(ray.phi) > 0).length,
-                    rays.filter(ray => Math.cos(ray.phi) < 0).length
-                ];
+                const directions = club.mirrorReflectionBatch.directions;
+                let up = 0, down = 0;
+                for (let i = 0; i < count; i++) {
+                    if (Math.cos(directions[i * 2 + 1]) > 0) up++;
+                    else down++;
+                }
+                return [up, down];
             }),
-            outgoingRays: club.mirrorBallOutgoingRays.filter(ray => ray.mesh.isEnabled()).length,
+            outgoingRays: club.mirrorReflectionBatch.rays.thinInstanceCount,
             expectedOutgoingRays: club.tierSettings.mirrorRays,
-            reflectionBeams: club.mirrorReflectionSpots.filter(spot => spot.beam?.isEnabled()).length,
-            expectedReflectionBeams: Math.ceil(
-                club.tierSettings.mirrorSpots / club.tierSettings.mirrorBeamStride
-            ),
+            reflectionSpots: club.mirrorReflectionBatch.spots.thinInstanceCount,
+            expectedReflectionSpots: club.tierSettings.mirrorSpots,
+            reflectionDrawMeshes: ['mirrorReflectionSpots', 'mirrorOutgoingRays']
+                .filter(name => club.scene.getMeshByName(name)?.isEnabled()).length,
             avatarsActive: categoryIsActive(/dancer/i),
             trussActive: categoryIsActive(/truss/i),
             djActive: categoryIsActive(/djPlatform|djTable|leftCDJ|rightCDJ|mixer/i)
@@ -440,8 +442,9 @@ test('production build initializes a rendered club without browser errors', asyn
         hemisphereCoverage: [[16, 16], [26, 26], [32, 32]],
         outgoingRays: mirrorCueState.expectedOutgoingRays,
         expectedOutgoingRays: mirrorCueState.expectedOutgoingRays,
-        reflectionBeams: mirrorCueState.expectedReflectionBeams,
-        expectedReflectionBeams: mirrorCueState.expectedReflectionBeams,
+        reflectionSpots: mirrorCueState.expectedReflectionSpots,
+        expectedReflectionSpots: mirrorCueState.expectedReflectionSpots,
+        reflectionDrawMeshes: 2,
         avatarsActive: true,
         trussActive: true,
         djActive: true
@@ -607,14 +610,12 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             spot: {
                 colorPeak: Math.max(...club.currentSpotColor.asArray()),
                 lensPeak: Math.max(...spot.lens.material.emissiveColor.asArray()),
-                sourcePeak: Math.max(...spot.lightSource.material.emissiveColor.asArray()),
-                flareWhiteFloor: Math.min(...spot.flareMat.emissiveColor.asArray()),
                 diffusePeak: Math.max(...spot.light.diffuse.asArray()),
                 beamPeak: Math.max(...spot.beamMat.emissiveColor.asArray()),
                 poolPeak: Math.max(...spot.poolMat.emissiveColor.asArray()),
                 intensity: spot.light.intensity,
                 enabled: spot.light.isEnabled(),
-                flareGlowIncluded: club.glowLayer.hasMesh(spot.flare)
+                lensGlowIncluded: club.glowLayer.hasMesh(spot.lens)
             },
             laser: {
                 emissivePeak: Math.max(...laser.material.emissiveColor.asArray()),
@@ -626,15 +627,13 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             safeModeRestoration
         };
     });
-    expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(7, 2);
-    expect(opticsState.spot.sourcePeak / opticsState.spot.colorPeak).toBeCloseTo(14, 2);
-    expect(opticsState.spot.flareWhiteFloor).toBeGreaterThanOrEqual(7);
+    expect(opticsState.spot.lensPeak / opticsState.spot.colorPeak).toBeCloseTo(1.6, 2);
     expect(opticsState.spot.diffusePeak / opticsState.spot.colorPeak).toBeCloseTo(0.45, 2);
-    expect(opticsState.spot.beamPeak / opticsState.spot.colorPeak).toBeGreaterThan(2.6);
+    expect(opticsState.spot.beamPeak / opticsState.spot.colorPeak).toBeCloseTo(1, 2);
     expect(opticsState.spot.poolPeak / opticsState.spot.colorPeak).toBeGreaterThan(2.5);
     expect(opticsState.spot.intensity).toBeGreaterThan(40);
     expect(opticsState.spot.enabled).toBe(true);
-    expect(opticsState.spot.flareGlowIncluded).toBe(true);
+    expect(opticsState.spot.lensGlowIncluded).toBe(true);
     expect(opticsState.laser.emissivePeak).toBeCloseTo(5, 2);
     expect(opticsState.laser.glowIncluded).toBe(true);
     expect(opticsState.strobe.duration).toBeLessThanOrEqual(0.09);

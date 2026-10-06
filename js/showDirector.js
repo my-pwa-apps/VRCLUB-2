@@ -679,7 +679,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 11, ledWallSpeed: 0.5, ledLevel: 0.85,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.35,
-                goboEnabled: true, goboPatternIndex: 4, goboRotationSpeed: 0.18,
+                goboEnabled: false,
                 mirrorBallSpeed: 0.4, fogIntensity: 1.3
             },
 
@@ -733,7 +733,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 12, ledWallSpeed: 1.0, ledLevel: 0.85,
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.7, 1.0],
-                goboEnabled: true, goboPatternIndex: 2, goboRotationSpeed: 0.5,
+                goboEnabled: false,
                 fogIntensity: 1.0
             },
 
@@ -796,7 +796,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledMulti: true, ledPattern: 19, ledWallSpeed: [0.9, 1.9],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.8, 2.0],
-                goboEnabled: true, goboPatternIndex: 1, goboRotationSpeed: [0.4, 1.6],
+                goboEnabled: false,
                 fogIntensity: 1.4
             },
 
@@ -937,7 +937,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 4, ledWallSpeed: [0.4, 0.7], ledLevel: 0.85,
                 spotlightPattern: 0, spotlightMode: 1, spotlightSpeed: [0.25, 0.5],
-                goboEnabled: true, goboPatternIndex: 9, goboRotationSpeed: 0.15,
+                goboEnabled: false,
                 mirrorBallSpeed: 0.35, fogIntensity: 1.4
             },
 
@@ -985,7 +985,7 @@ class ShowDirector {
                 mirrorBallActive: false, smokeActive: true,
                 ledWallActive: true, ledMonochrome: false, ledPattern: 19, ledWallSpeed: [0.6, 2.0],
                 spotlightPattern: 2, spotlightMode: 1, spotlightSpeed: [0.5, 1.8],
-                goboEnabled: true, goboPatternIndex: 5, goboRotationSpeed: [0.3, 1.5],
+                goboEnabled: false,
                 fogIntensity: [1.5, 1.9]
             },
 

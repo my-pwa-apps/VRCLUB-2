@@ -234,6 +234,12 @@ class VRClubCore {
         // never sees a strobe by accident. Honored at the single strobe render gate
         // and at the bloom-spike branch.
         this.photosensitiveSafeMode = VRClubCore.resolvePhotosensitiveSafeMode();
+        this.flashGovernor = {
+            minGap: 0.34,
+            lastFlashAt: -Infinity,
+            lastSource: null,
+            count: 0
+        };
         this.vrComfortMode = (() => {
             try { return localStorage.getItem('vrclub.vrComfort') !== '0'; } catch (_) { return true; }
         })();
@@ -1106,6 +1112,27 @@ class VRClubCore {
             return localStorage.getItem('vrclub.safeMode') === '1';
         } catch (_) { /* private browsing */ }
         return false;
+    }
+
+    /**
+     * The room-wide permission gate for every abrupt flash source.
+     * Sources may request a stricter gap, but never a looser one.
+     */
+    _tryClubFlash(time, source, requestedGap) {
+        const governor = this.flashGovernor || (this.flashGovernor = {
+            minGap: 0.34,
+            lastFlashAt: -Infinity,
+            lastSource: null,
+            count: 0
+        });
+        if (this.photosensitiveSafeMode || !Number.isFinite(time)) return false;
+        if (time < governor.lastFlashAt) governor.lastFlashAt = -Infinity;
+        const gap = Math.max(governor.minGap, Number.isFinite(requestedGap) ? requestedGap : 0);
+        if (time - governor.lastFlashAt < gap) return false;
+        governor.lastFlashAt = time;
+        governor.lastSource = source || 'unknown';
+        governor.count++;
+        return true;
     }
 
 }

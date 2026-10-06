@@ -203,20 +203,9 @@ class VRClubUI extends VRClubAnimationFinish {
                 housing.flareMaterial.emissiveColor = colour.scale(3.0);
             });
         }
-        if (this.mirrorReflectionSpots) {
-            this.mirrorReflectionSpots.forEach(spot => {
-                spot.material.emissiveColor = colour.scale(spot.baseIntensity || 0.7);
-            });
-        }
-        // One write to the shared materials, not 100x / 40x. Never re-freeze: the
-        // render loop writes these every frame.
-        if (this._sharedMirrorBeamMat) {
-            if (this._sharedMirrorBeamMat.isFrozen) this._sharedMirrorBeamMat.unfreeze();
-            this._sharedMirrorBeamMat.emissiveColor = colour.scale(0.8);
-        }
-        if (this._sharedMirrorRayMat) {
-            if (this._sharedMirrorRayMat.isFrozen) this._sharedMirrorRayMat.unfreeze();
-            this._sharedMirrorRayMat.emissiveColor = colour;
+        if (this.mirrorReflectionBatch) {
+            this.mirrorReflectionBatch.spotMat.emissiveColor.copyFrom(colour);
+            this.mirrorReflectionBatch.rayMat.emissiveColor.copyFrom(colour);
         }
         this.mirrorBallCachedColors = null;
         return colour;

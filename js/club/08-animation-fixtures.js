@@ -661,10 +661,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (this.spotlights && this.spotlights.length > 0) {
             // Use the GLOBAL currentSpotColor for ALL fixtures - they must all match
             const targetColor = this.currentSpotColor;
-            const lensIntensity = this.isInVRMode ? 7.0 : 4.0;
-            const sourceIntensity = this.isInVRMode ? 14.0 : 8.0;
-            const flareColorIntensity = this.isInVRMode ? 20.0 : 12.0;
-            const flareWhiteCore = this.isInVRMode ? 7.0 : 3.0;
+            const lensIntensity = 1.6;
             
             for (let i = 0; i < this.spotlights.length; i++) {
                 const spot = this.spotlights[i];
@@ -678,7 +675,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // lookups/sec for 6 spotlights). The references were captured
                 // at fixture-creation time in createTrussMountedLights().
                 const lens = spot.lens;
-                const lightSource = spot.lightSource;
 
                 // Update lens color
                 if (lens && lens.material) {
@@ -701,37 +697,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                     }
                 }
 
-                // Update light source (inner bulb) color
-                if (lightSource && lightSource.material) {
-                    const mat = lightSource.material;
-                    // QC: only unfreeze on the first frame — see note above.
-                    if (mat.isFrozen) mat.unfreeze();
-                    if (!mat.emissiveColor) {
-                        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
-                    }
-                    if (fixtureVisible) {
-                        mat.emissiveColor.copyFromFloats(
-                            targetColor.r * sourceIntensity * master,
-                            targetColor.g * sourceIntensity * master,
-                            targetColor.b * sourceIntensity * master
-                        );
-                    } else {
-                        mat.emissiveColor.copyFromFloats(0, 0, 0);
-                    }
-                }
-
-                if (spot.flareMat) {
-                    if (fixtureVisible) {
-                        spot.flareMat.emissiveColor.copyFromFloats(
-                            (flareWhiteCore + targetColor.r * flareColorIntensity) * master,
-                            (flareWhiteCore + targetColor.g * flareColorIntensity) * master,
-                            (flareWhiteCore + targetColor.b * flareColorIntensity) * master
-                        );
-                    } else {
-                        spot.flareMat.emissiveColor.copyFromFloats(0, 0, 0);
-                        spot.flareMat.alpha = 0;
-                    }
-                }
             }
         }
         } // End of legacy inline spotlight animation else block
@@ -758,7 +723,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         if (state.sampleTime !== time) {
             state.lastTime = time;
             while (time >= state.nextBurstAt) {
-                state.onUntil = state.nextBurstAt + duration;
+                const burstAt = state.nextBurstAt;
+                const granted = typeof this._tryClubFlash !== 'function' ||
+                    this._tryClubFlash(burstAt, 'moving-head', SPOT_FLASH_MIN_INTERVAL_S);
+                if (granted) state.onUntil = burstAt + duration;
                 state.nextBurstAt += interval;
             }
             state.sampleTime = time;
@@ -954,35 +922,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const tiltLerpSpeed = 1 - Math.pow(1 - 0.12, dtScale);
             spot.head.rotation.x += (targetTiltAngle - spot.head.rotation.x) * tiltLerpSpeed;
             
-            // Note: Lens/bezel/flare/beam are children of the head and move automatically!
-            
-            // === HYPERREALISTIC FLARE RESPONSE ===
-            // Update flare intensity based on viewing angle AND movement speed
-            // Moving heads create more light scatter/flare when sweeping quickly
-            const viewCamera = this.isInVRMode ? this.scene.activeCamera : this.camera;
-            if (spot.flareMat && viewCamera) {
-                const viewPosition = viewCamera.globalPosition || viewCamera.position;
-                viewPosition.subtractToRef(spot.basePos, this.vecPool.temp1);
-                const cameraDir = this.vecPool.temp1.normalize();
-                const dot = BABYLON.Vector3.Dot(cameraDir, direction);
-                const viewBrightness = Math.pow(Math.max(0, dot), 8);
-                
-                // Calculate movement speed for dynamic flare (brighter when moving)
-                // Store previous direction for speed calculation
-                if (!spot.prevDirection) spot.prevDirection = direction.clone();
-                const movementSpeed = BABYLON.Vector3.Distance(direction, spot.prevDirection);
-                spot.prevDirection.copyFrom(direction);
-                
-                // Dynamic flare: base visibility + viewing angle + movement boost
-                const movementBoost = Math.min(0.08, movementSpeed); // Cap subtle servo scatter
-                spot.flareMat.alpha = this.lightsActive
-                    ? 0.04 + viewBrightness * (this.isInVRMode ? 0.96 : 0.72) + movementBoost
-                    : 0;
-                
-                // Movement glow boost is now handled in main fixture update loop
-                // Store movement speed for fixture update to use
-                spot.movementSpeed = movementSpeed;
-            }
+            // Lens and bezel are children of the head and move automatically.
         } else if (spot.fixture) {
             // Fallback for legacy fixtures (if any)
             if (!spot._targetPoint) spot._targetPoint = new BABYLON.Vector3();
@@ -1280,14 +1220,6 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.beamMat.clipPlane4 = spot._clipPlanes[hitSurface] || spot._clipPlanes.floor;
         }
         
-        // ANIMATE SMOKE TEXTURE (Hyperrealism)
-        if (spot.beamMat && spot.beamMat.emissiveTexture) {
-            // Much slower animation for realistic drifting haze (was 0.02)
-            spot.beamMat.emissiveTexture.vOffset -= 0.002 * speedMultiplier * dtScale;
-            // Slight horizontal drift for turbulence
-            spot.beamMat.emissiveTexture.uOffset += 0.0005 * Math.sin(time * 0.5 + i) * dtScale;
-        }
-
         // ANIMATE GOBO ROTATION (Hyperrealism)
         if (spot.lightPool) {
             spot.lightPool.rotation.z += 0.01 * speedMultiplier * dtScale;
@@ -1322,7 +1254,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
 
     /** Beam visibility (strobe), glow beam and emissive colour/alpha. Returns the per-spot beam state. */
     _updateSpotBeamAppearance(spot, i, time, globalPhase, audioSpeedMultiplier, g) {
-        const { cosTheta, beamMidpoint, beamLength, baseScale, tiltStretch } = g;
+        const { beamMidpoint, beamLength, baseScale, tiltStretch } = g;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
         // UPDATE GLOW BEAM - Match main beam positioning (unparent and world space)
         // Beam visibility and color - HYPERREALISTIC with subtle variation + FLASHING
@@ -1376,34 +1308,27 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // and the floor never actually went dark between flashes.
         spot.beamVisible = beamVisible;
         
-        // Subtle atmospheric variation - simulates particles moving through beam
-        const atmosphericNoise = Math.sin(time * 3 + i * 0.5) * 0.1; // Subtle flicker
-        
-        // Update emissive color with variation (audio disabled)
-        // CRITICAL: Use this.currentSpotColor (global) as single source of truth
-        // This ensures beam, fixture, and all effects use the EXACT same color
+        // The additive cone carries the palette colour directly; visibility belongs
+        // in alpha so its core stays defined instead of washing into a soft glow.
         const spotColor = this.currentSpotColor;
-        const baseIntensity = ((this.isInVRMode ? 2.8 : 2.4) + atmosphericNoise) * (1 + (this.kickPulse || 0) * 0.8);
         if (!spot._beamEmisBuf) spot._beamEmisBuf = new BABYLON.Color3(0, 0, 0);
-        spotColor.scaleToRef(baseIntensity * master, spot._beamEmisBuf);
+        spotColor.scaleToRef(master, spot._beamEmisBuf);
         spot.beamMat.emissiveColor = spot._beamEmisBuf;
         
         // CRITICAL: Store the actual beam color for fixture sync (BASE color, not scaled)
         // This ensures fixture uses EXACT same color as beam
         spot.currentBeamColor = spotColor;
         
-        // HYPERREALISTIC: Alpha varies with beam angle and atmospheric density
-        // Beams become more visible at shallower angles (more particles in path)
-        // Also factor in distance - longer beams have more particles
-        const beamPathLength = spot.currentBeamLength || 7.3;
-        const pathDensity = Math.min(1.0, beamPathLength / 10.0); // Longer = denser
-        const angleVis = 1.0 + (1.0 - cosTheta) * 0.5; // More visible at steeper tilt
-        const scatterBase = this.isInVRMode ? 0.10 : 0.065;
-        const scatterVariation = this.isInVRMode ? 0.05 : 0.035;
-        // Beams brighten where the smoke actually is (see _lightAirParticles): ~0.75x
-        // through thin air up to ~1.25x through a thick cloud. 1.0 until measured.
-        const mediumFactor = 0.75 + 0.5 * (spot._mediumDensity == null ? 0.5 : spot._mediumDensity);
-        spot.beamMat.alpha = ((scatterBase + Math.abs(atmosphericNoise) * scatterVariation) * pathDensity * angleVis * (1 + (this.kickPulse || 0)) * mediumFactor) * master;
+        const medium = Math.min(1, Math.max(0,
+            spot._mediumDensity == null ? 0.5 : spot._mediumDensity));
+        const hazeVisibility = 0.35 + 0.65 * medium;
+        const coneAngle = spot.light && Number.isFinite(spot.light.angle)
+            ? spot.light.angle
+            : Math.PI / 6;
+        const narrowGain = Math.min(1.5, Math.max(0.75, 1.6 - coneAngle * 1.6));
+        spot.beamMat.alpha = beamVisible
+            ? Math.min(0.99, hazeVisibility * 0.55 * narrowGain * (1 + (this.kickPulse || 0) * 0.25))
+            : 0;
         
         const st = spot._beamState || (spot._beamState = {});
         st.beamVisible = beamVisible;
@@ -1669,7 +1594,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const { beamVisible, physicsIntensity, spotColor } = st;
         // === GOBO PROJECTION UPDATE ===
         if (spot.goboProjection) {
-            const showGobo = this.lightsActive && this.goboEnabled && beamVisible;
+            // An untextured gobo disc is a hard flat circle; only a real pattern may replace the soft pool.
+            const hasPattern = !!(spot.goboMat && spot.goboMat.emissiveTexture);
+            const showGobo = this.lightsActive && this.goboEnabled && beamVisible && hasPattern;
             spot.goboProjection.setEnabled(showGobo);
             spot.goboProjection.visibility = showGobo ? 1.0 : 0;
             

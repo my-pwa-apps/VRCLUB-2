@@ -454,9 +454,9 @@ class VRClubRendering extends VRClubLifecycle {
     }
 
     /**
-     * UPGRADE: Create a frozen ReflectionProbe for realistic floor reflections
-     * Captures the club environment (trusses, LED wall, ceiling, walls) into a cube map
-     * and applies it to the concrete floor PBR material.
+     * Create a frozen ReflectionProbe for SSR fallback reflections.
+     * Captures the club environment (trusses, ceiling, walls) into a cube map used
+     * when a screen-space ray misses. The concrete itself uses the warehouse environment.
      * Uses REFRESHRATE_RENDER_ONCE so it's captured once and never re-rendered (free at runtime).
      * Call this AFTER all geometry is created so the probe captures everything.
      */
@@ -466,9 +466,8 @@ class VRClubRendering extends VRClubLifecycle {
             return;
         }
         
-        // Cube map probe at dance floor level. Resolution scales with the graphics tier:
-        // the probe supplies the floor's ambient reflection AND the fallback colour for
-        // rays that SSR fails to resolve, so a sharper probe visibly improves both.
+        // Cube map probe at dance floor level. Resolution scales with the graphics tier
+        // because it supplies the fallback colour for rays that SSR fails to resolve.
         const probe = new BABYLON.ReflectionProbe("floorReflectionProbe", this.tierSettings.probeResolution, this.scene);
         probe.position = new BABYLON.Vector3(0, 0.5, -12); // Dance floor center, slightly above floor
         
@@ -492,7 +491,9 @@ class VRClubRendering extends VRClubLifecycle {
             }
         });
         
-        // Apply the probe's cube texture to the floor PBR material.
+        // Match the floor response to the warehouse environment. The frozen probe is
+        // retained as SSR's missed-ray fallback, but must not replace the environment
+        // on the concrete itself or its reflections diverge from the rest of the room.
         // Freeze state is SAVED and restored: unfreezing conditionally but freezing
         // unconditionally left an intentionally-hot material frozen, and
         // _rebuildFloorReflectionProbe() re-runs this on every graphics-tier change.
@@ -500,16 +501,13 @@ class VRClubRendering extends VRClubLifecycle {
         const wasFrozen = floorMat.isFrozen;
         if (wasFrozen && floorMat.unfreeze) floorMat.unfreeze();
         
-        floorMat.reflectionTexture = probe.cubeTexture;
-        floorMat.reflectionTexture.coordinatesMode = BABYLON.Texture.CUBIC_REFLECTION_MODE;
-        
-        // Rough concrete: the probe only adds a faint, heavily blurred ambient tint.
-        floorMat.environmentIntensity = 0.2;
+        floorMat.reflectionTexture = this.scene.environmentTexture;
+        floorMat.environmentIntensity = 0.35;
         
         if (wasFrozen && floorMat.freeze) floorMat.freeze();
         
         this.floorReflectionProbe = probe;
-        log.info(`🪞 Floor reflection probe created (${this.tierSettings.probeResolution}px cube, ${renderList.length} meshes, frozen)`);
+        log.info(`🪞 SSR fallback probe created (${this.tierSettings.probeResolution}px cube, ${renderList.length} meshes, frozen)`);
     }
 
     _rebuildFloorReflectionProbe() {

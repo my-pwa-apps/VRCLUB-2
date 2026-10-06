@@ -168,8 +168,8 @@ export const snapshotRenderState = page => page.evaluate(() => {
             ledPanels: club.ledPanels.length,
             strobes: club.strobes.length,
             mirrorBeams: club.mirrorBallBeams.filter(beam => beam.mesh.isEnabled()).length,
-            mirrorReflectionSpots: club.mirrorReflectionSpots.filter(spot => spot.beam && spot.beam.isEnabled()).length,
-            mirrorOutgoingRays: club.mirrorBallOutgoingRays.filter(ray => ray.mesh.isEnabled()).length,
+            mirrorReflectionSpots: club.mirrorReflectionBatch?.spots.thinInstanceCount || 0,
+            mirrorOutgoingRays: club.mirrorReflectionBatch?.rays.thinInstanceCount || 0,
             transparentModelMeshes: transparentModelMeshes.length
         },
         atmosphere: {

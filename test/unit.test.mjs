@@ -916,7 +916,7 @@ test('the factory floor is matte concrete, and SSR skips dielectrics', () => {
     assert.equal(floor.clearCoat.isEnabled, false, 'a clear coat makes the concrete read as a wet floor');
     assert.equal(floor.metallic, 0);
     assert.equal(floor.roughness, 1, 'the roughness map must drive the floor at full strength');
-    assert.ok(floor.environmentIntensity <= 0.25);
+    assert.equal(floor.environmentIntensity, 0.35);
 
     // A dielectric's F0 is ~0.04: the threshold must sit above it or SSR mirrors the
     // floor at grazing angles regardless of the material.
@@ -4051,6 +4051,46 @@ test('safe mode is off by default, never inferred from reduced motion, and an ex
         .resolvePhotosensitiveSafeMode(), false, 'unreadable storage defaults to off');
 });
 
+test('one flash governor arbitrates every room flash source and Safe Mode blocks it', () => {
+    const { window } = loadClassic('js/club/01-core.js', {
+        localStorage: { getItem() { return null; } }
+    });
+    const tryFlash = window.VRClubCore.prototype._tryClubFlash;
+    const club = { photosensitiveSafeMode: false };
+
+    assert.equal(tryFlash.call(club, 1, 'moving-head'), true);
+    assert.equal(tryFlash.call(club, 1.2, 'strobe'), false);
+    assert.equal(tryFlash.call(club, 1.34, 'warehouse-led', 0.4), false);
+    assert.equal(tryFlash.call(club, 1.41, 'warehouse-led', 0.4), true);
+    assert.equal(club.flashGovernor.count, 2);
+    assert.equal(club.flashGovernor.lastSource, 'warehouse-led');
+
+    club.photosensitiveSafeMode = true;
+    assert.equal(tryFlash.call(club, 2, 'strobe'), false);
+    assert.equal(club.flashGovernor.count, 2);
+});
+
+test('an untextured gobo never replaces the soft light pool', () => {
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype;
+    const disc = {
+        enabled: null, visibility: 1,
+        position: { set() {} }, rotation: {}, scaling: {},
+        setEnabled(value) { this.enabled = value; }
+    };
+    const spot = {
+        goboProjection: disc,
+        goboMat: { emissiveTexture: null },
+        lightPool: { visibility: 0, position: {}, rotation: {}, scaling: {} }
+    };
+    const club = { lightsActive: true, goboEnabled: true };
+    fixtures._updateSpotGoboProjection.call(club, spot, { hitSurface: 'floor' },
+        { beamVisible: true, physicsIntensity: 1, spotColor: null });
+    assert.equal(disc.enabled, false, 'a flat untextured disc was drawn over the floor');
+    assert.equal(spot.lightPool.visibility, 1, 'the soft pool must stay visible');
+});
+
 test('photometric slots follow the strongest surface hit without toggling lights', () => {
     const { window } = loadClassic('js/club/08-animation-fixtures.js', {
         VRClubAnimationCore: class {}
@@ -4128,71 +4168,81 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
     assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.34) < 0.001);
 });
 
-test('mirror raycasts cover every active ray within the batch budget on desktop and VR', () => {
+test('mirror reflections use analytic room hits and thin-instance tier counts', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const { window } = loadClassic('js/club/07-animation-core.js', {
         BABYLON,
         VRClubEffects: class {}
     });
     const update = window.VRClubAnimationCore.prototype.updateMirrorBall;
-
-    for (const isInVRMode of [false, true]) {
-        for (const activeCount of [32, 52, 64]) {
-            let raycasts = 0;
-            let enableWrites = 0;
-            const rays = Array.from({ length: 64 }, (_, index) => ({
-                theta: index * 0.7,
-                phi: Math.PI / 3,
-                length: 10,
-                mesh: {
-                    enabled: false,
-                    position: BABYLON.Vector3.Zero(),
-                    scaling: BABYLON.Vector3.One(),
-                    rotationQuaternion: BABYLON.Quaternion.Identity(),
-                    isEnabled() { return this.enabled; },
-                    setEnabled(enabled) { this.enabled = enabled; enableWrites++; }
-                }
-            }));
-            const club = {
-                isInVRMode,
-                mirrorBallActive: true,
-                vjManualMode: true,
-                mirrorBallRotation: 0,
-                mirrorBall: { position: BABYLON.Vector3.Zero(), rotation: { y: 0 } },
-                tierSettings: { mirrorRays: activeCount },
-                mirrorBallOutgoingRays: rays,
-                vecPool: {
-                    mirrorDir: BABYLON.Vector3.Zero(),
-                    mirrorTmp: BABYLON.Vector3.Zero(),
-                    mirrorAxis: BABYLON.Vector3.Zero(),
-                    up: BABYLON.Vector3.Up()
-                },
-                scene: {
-                    pickWithRay() {
-                        raycasts++;
-                        return { hit: true, distance: 5, pickedPoint: BABYLON.Vector3.Zero() };
-                    }
-                }
-            };
-            const cadence = isInVRMode ? 2 : 6;
-            for (let frame = 1; frame <= cadence * 8; frame++) {
-                const before = raycasts;
-                club.frameCounter = frame;
-                update.call(club, { time: frame / 60, dtScale: 1 });
-                assert.ok(raycasts - before <= Math.ceil(activeCount / 8));
-                if (frame % cadence !== 0) assert.equal(raycasts, before);
-            }
-            assert.equal(raycasts, activeCount);
-            assert.ok(rays.slice(0, activeCount).every(ray => ray.currentLength === 5));
-            assert.ok(rays.slice(activeCount).every(ray => ray.currentLength === undefined));
-            assert.equal(enableWrites, activeCount);
-
-            club.tierSettings.mirrorRays = 16;
-            club.frameCounter++;
-            update.call(club, { time: 1, dtScale: 1 });
-            assert.equal(rays.filter(ray => ray.mesh.isEnabled()).length, 16);
+    const effects = loadClassic('js/club/06-effects.js', {
+        BABYLON,
+        VRClubFixtures: class {},
+        ROOM_BOUNDS: {
+            x: { min: -12.5, max: 12.5 },
+            y: { min: 0, max: 8 },
+            z: { min: -21, max: -5 }
         }
+    }).window.VRClubEffects.prototype;
+    const enabled = { spots: false, rays: false };
+    const updates = { spots: 0, rays: 0 };
+    const mesh = (name) => ({
+        thinInstanceCount: 0,
+        setEnabled(value) { enabled[name] = value; },
+        thinInstanceBufferUpdated() { updates[name]++; }
+    });
+    const spotMatrices = new Float32Array(140 * 16);
+    const rayMatrices = new Float32Array(64 * 16);
+    const directions = new Float32Array(140 * 2);
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < 140; i++) {
+        directions[i * 2] = golden * i;
+        let latitude = 0.5 / 140;
+        let weight = 0.5;
+        for (let index = i; index > 0; index = Math.floor(index / 2)) {
+            latitude += (index % 2) * weight;
+            weight *= 0.5;
+        }
+        directions[i * 2 + 1] = Math.acos(1 - 2 * latitude);
     }
+    const club = {
+        mirrorBallActive: true,
+        vjManualMode: true,
+        mirrorBallRotation: 0,
+        mirrorBallSpeed: 1,
+        masterIntensity: 1,
+        kickPulse: 0,
+        mirrorBall: { position: new BABYLON.Vector3(0, 6.5, -12), rotation: { y: 0 } },
+        mirrorBallSpotlightColor: new BABYLON.Color3(1, 0.5, 0.25),
+        tierSettings: { mirrorSpots: 90, mirrorRays: 52 },
+        mirrorReflectionBatch: {
+            spots: mesh('spots'),
+            rays: mesh('rays'),
+            spotMat: { emissiveColor: new BABYLON.Color3() },
+            rayMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
+            spotMatrices,
+            rayMatrices,
+            directions,
+            hit: {}
+        },
+        _intersectMirrorRoom: effects._intersectMirrorRoom,
+        _writeMirrorSpotMatrix: effects._writeMirrorSpotMatrix,
+        _writeMirrorRayMatrix: effects._writeMirrorRayMatrix,
+        _updateMirrorReflectionBatch: effects._updateMirrorReflectionBatch,
+        scene: { pickWithRay() { throw new Error('mirror batching must not scene-raycast'); } }
+    };
+    update.call(club, { time: 1, dtScale: 1 });
+    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 90);
+    assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 52);
+    assert.deepEqual(enabled, { spots: true, rays: true });
+    assert.deepEqual(updates, { spots: 1, rays: 1 });
+    assert.ok([...spotMatrices.slice(0, 90 * 16)].every(Number.isFinite));
+    assert.ok([...rayMatrices.slice(0, 52 * 16)].every(Number.isFinite));
+
+    club.tierSettings = { mirrorSpots: 48, mirrorRays: 32 };
+    update.call(club, { time: 2, dtScale: 1 });
+    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 48);
+    assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 32);
 });
 
 test('laser sheet uses bounded two-axis motion for vertical and lateral cues', () => {
@@ -4284,9 +4334,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             beamGlow,
             beamMat: { emissiveColor: new BABYLON.Color3(), alpha: 0 },
             beamGlowMat: { emissiveColor: new BABYLON.Color3() },
-            lens: { material: { isFrozen: false, emissiveColor: new BABYLON.Color3() } },
-            lightSource: { material: { isFrozen: false, emissiveColor: new BABYLON.Color3() } },
-            flareMat: { emissiveColor: new BABYLON.Color3(), alpha: 1 }
+            lens: { material: { isFrozen: false, emissiveColor: new BABYLON.Color3() } }
         };
         return {
             masterIntensity: master,
@@ -4329,9 +4377,7 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
             beam: spot.beamMat.emissiveColor.r,
             beamAlpha: spot.beamMat.alpha,
             light: spot.light.intensity,
-            lens: spot.lens.material.emissiveColor.r,
-            source: spot.lightSource.material.emissiveColor.r,
-            flare: spot.flareMat.emissiveColor.r
+            lens: spot.lens.material.emissiveColor.r
         };
     };
 
@@ -4340,8 +4386,6 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
     const offSpot = renderSpot(0);
     assert.equal(offSpot.light, 0, 'zero master left the moving-head SpotLight on');
     assert.equal(offSpot.lens, 0, 'zero master left the moving-head lens glowing');
-    assert.equal(offSpot.source, 0, 'zero master left the moving-head source glowing');
-    assert.equal(offSpot.flare, 0, 'zero master left the moving-head flare glowing');
     assert.equal(offSpot.beamAlpha, 0, 'zero master left the moving-head beam visible');
     assert.ok(Math.abs(halfSpot.light / fullSpot.light - 0.5) < 0.02, 'half master did not halve the moving-head light');
     assert.ok(Math.abs(halfSpot.lens / fullSpot.lens - 0.5) < 0.02, 'half master did not halve the moving-head lens glow');

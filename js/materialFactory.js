@@ -600,7 +600,7 @@ class MaterialFactory {
             albedoColor: [0.88, 0.85, 0.8],
             metallic: 0.0,
             roughness: 1.0,
-            environmentIntensity: 0.2,
+            environmentIntensity: 0.35,
             directIntensity: 1.0,
             specularIntensity: 0.4
         }),

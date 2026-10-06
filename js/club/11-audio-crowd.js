@@ -543,6 +543,9 @@ class VRClubAudioCrowd extends VRClubUI {
      */
     setPhotosensitiveSafeMode(enabled) {
         this.photosensitiveSafeMode = !!enabled;
+        if (this.flashGovernor && this.photosensitiveSafeMode) {
+            this.flashGovernor.lastSource = null;
+        }
         try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
         // Immediately quiet any in-flight strobe state
         if (this.photosensitiveSafeMode && this.strobes) {

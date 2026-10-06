@@ -52,7 +52,9 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                 const due = syncDue === null
                     ? (this._nextStrobeBurstTime === undefined || time >= this._nextStrobeBurstTime)
                     : syncDue;
-                if (!burstActive && due) {
+                const flashGranted = !burstActive && due && (typeof this._tryClubFlash !== 'function' ||
+                    this._tryClubFlash(time, 'strobe', STROBE_MIN_INTERVAL_S));
+                if (flashGranted) {
                     let intensityBase = inDropMode ? 100 : 72 + Math.random() * 28;
                     if (bass > 0.6) intensityBase *= 1 + (bass - 0.6) * 0.5;
                     // A strobe is a stab of light, not a lamp: about 40 ms (3 frames at 72 Hz), a

@@ -1,6 +1,6 @@
 # Performance Baseline
 
-Use the in-app debug overlay (`D`) to capture FPS, engine-reported scene submissions per
+Use the in-app debug overlay (`Ctrl+Shift+D`) to capture FPS, engine-reported scene submissions per
 sampled frame, active/total meshes, and material count from the same camera preset and show
 state. The e2e browser-resource budget tracks a different set of figures on purpose:
 active-submesh proxy draws, ordinary 2D RGBA texture estimates, and cube/render-target RGBA
@@ -84,6 +84,43 @@ The updated [budget.spec.mjs](../test/e2e/budget.spec.mjs) now captures both a d
 and an XR-entered snapshot with the existing IWER harness, but this task did not run Playwright,
 so the next checked numbers must come from the owner's e2e run rather than being invented here.
 
+## 2026-10-05 Production Chromium / IWER resource snapshot
+
+Source revision `2671b79`; Windows, Node 24.19.0, Playwright Chromium with SwiftShader,
+balanced tier, Safe Mode on, pinned `firstLight`, 20 rendered frames per sample.
+These results come from [budget.spec.mjs](../test/e2e/budget.spec.mjs), not a hardware profiler.
+
+| Metric | Desktop | Emulated XR |
+|---|---:|---:|
+| Engine-reported scene submissions/frame | 324 | 319 |
+| Active-submesh proxy | 311 | 163 |
+| Ordinary 2D RGBA+mip estimate | 256 MiB | 256 MiB |
+| Cube/render-target RGBA estimate | 10 MiB | 13 MiB |
+| Ordinary textures at least 2048px / at least 4096px | 6 / 0 | 6 / 0 |
+| Cube textures / render-target textures | 2 / 10 | 2 / 11 |
+| Enabled NPCs / NPC contact-shadow instances | 10 / 10 | 10 / 10 |
+| Maximum meshes per NPC | 6 | 6 |
+| LED wall meshes / logical panels | 1 / 210 | 1 / 210 |
+
+Desktop and XR use different viewpoints in this budget test; the lower XR active-submesh
+count is not evidence of equivalent-view culling or a percentage speedup. IWER renders mono,
+not two physical headset eye buffers. RGBA estimates do not account accurately for actual
+GPU formats, MSAA, depth allocations or driver overhead and are not resident-memory readings.
+The test has a 400-submission desktop ceiling but no absolute XR submission ceiling.
+
+`npm run audit:assets` reported 27.67 MiB across 35 files; the full uncompressed built site
+was 37.66 MiB across 48 files. Neither is a measured network transfer size.
+No representative desktop/Quest CPU or GPU frame time, p95/p99, thermal or reprojection result
+was obtained. Historical CPU timings above must not be presented as measurements of this build.
+See the [review](REVIEW_2026-10-05.md) and the existing hardware-baseline item in
+[BACKLOG.md](../BACKLOG.md).
+
 ## Quest Check
 
-On the headset, select the same camera preset, enable the mirror ball, press `D`, and record the overlay after ten seconds. Compare balanced and high only outside immersive VR; entering VR always applies the balanced mirror-spot budget. Target a stable headset refresh rate with no periodic heap-growth hitching.
+On the headset, use a repeatable route through the entrance, dance floor, bar and balcony with
+mirror-ball, sheet and peak safe cues. Record the headset's native refresh target, CPU/GPU
+frame times, missed/reprojected frames, memory and thermal behaviour over 15 minutes. The DOM
+diagnostics overlay (`Ctrl+Shift+D` with a keyboard outside immersive mode) is supporting
+evidence, not a substitute for a headset timing capture. Compare quality tiers explicitly:
+the detector defaults Quest to balanced, but a persisted tier override can change the selected
+content budget. Do not infer stable headset performance from the emulator or one FPS sample.

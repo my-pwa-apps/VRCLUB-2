@@ -116,7 +116,8 @@ restart the film. New patterns are appended to the playlist: looks refer to them
 music's energy (the Show Director's slow EMA blended with live bass). One colour, multi-colour
 (`ledMulti`: the wall colour, its complement `ledAccentColor`, white-hot) or black and white
 (`ledMonochrome`). It is the only pattern allowed to FLASH, and the flash is governed:
-one governor accepts a flash at most every 0.4 s whatever the tempo, shapes step at most 2.5 times
+the room-wide `VRClubCore._tryClubFlash()` gate accepts its flash at most every 0.4 s
+whatever the tempo, shapes step at most 2.5 times
 a second (every other beat above 150 BPM), no program lights more than ~85% of the wall, and
 Photosensitive Safe Mode keeps the motion but removes the flash (slow attack, lower peak,
 lifted floor; nothing crosses half brightness). `test/unit.test.mjs` enforces all of it with
@@ -362,9 +363,11 @@ the VR frame is darker than the desktop one. The strobe's whole-room impulse is
 `vrSettings.*.strobeImpulse`, tuned against measured flash luminance, not by eye. A strobe burst is
 about 40 ms in REAL seconds (`STROBE_FLASH_S` in `09-animation-finish.js`, not scaled by
 `strobeSpeed`) and the free-running timer is floored at 0.34 s (three flashes a second); a unit test
-simulates 45 to 120 Hz and fails on a longer burst or a faster timer. The separate manual
-moving-head beam strobe uses the same 0.34 s ceiling (2.93 complete off→on cycles a second
-at 45/60/72/90/120 Hz), and Safe Mode removes those transitions entirely.
+simulates 45 to 120 Hz and fails on a longer burst or a faster timer. The strobe bank, manual
+moving-head shutter and Warehouse LED flash all claim the same room-wide
+`VRClubCore._tryClubFlash()` governor, so their combined output cannot exceed one abrupt
+flash per 0.34 s (Warehouse requests its stricter 0.4 s gap). Safe Mode denies every claim;
+the Warehouse pattern may still run its explicitly tested slow Safe Mode swell.
 
 **The XR layer's `antialias` does not antialias the scene.** The headset renders into the pipeline's
 offscreen target first, so MSAA must be set on that pipeline: `vrSettings.vr.msaaSamples` through
@@ -397,12 +400,15 @@ Tier-gated features, all **desktop only**:
 | Contact-hardening (PCSS) shadows | `_applyShadowQuality()` (no-op: no generator exists) | on | on | off |
 | Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
 | Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
-| Mirror reflection spots | `updateMirrorBall()` | 140 | 90 | 48 |
-| Mirror outgoing rays / beam stride | `updateMirrorBall()` | 64 / 1 | 52 / 2 | 32 / 3 |
+| Mirror reflection spots | `_updateMirrorReflectionBatch()` | 140 | 90 | 48 |
+| Mirror outgoing rays | `_updateMirrorReflectionBatch()` | 64 | 52 | 32 |
 | SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
 | Floor `receiveShadows` | `createFloor()` | on | off | off |
 
 Rules when touching this:
+- Mirror reflection spots and outgoing rays are two thin-instanced meshes backed by
+  preallocated matrix buffers. `_intersectMirrorRoom()` analytically clips them to
+  `ROOM_BOUNDS`; do not restore per-spot meshes or `scene.pickWithRay()` calls.
 - **Every new heavy effect must be feature-detected** (`if (BABYLON.X)`) and wrapped in
   `try/catch` — there is no build step or browser test to catch a missing API.
 - **Every new pipeline must be detached in `applyVRSettings()` and re-attached in

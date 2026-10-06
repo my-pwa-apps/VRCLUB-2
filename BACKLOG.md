@@ -6,6 +6,82 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review - 2026-10-05 - Principal experience and engineering reassessment
+
+Review mode only; no runtime behaviour changed. Full evidence, limitations, scorecard and
+release verdict: [Principal review](docs/REVIEW_2026-10-05.md), source revision `2671b79`.
+New defects are below. Matching teleport, remote-avatar, Quest-baseline, lighting and relay-tooling
+findings are updated in place rather than duplicated. Historical measurements remain historical.
+
+- [ ] **Persist the crowd and reflection environment in the offline asset cache**
+
+  **Priority:** High
+  **Category:** Bug
+  **Confidence:** High
+  **Area:** Offline loading, people and environment reflections
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js), [02-lifecycle.js](js/club/02-lifecycle.js),
+  [assetCache.js](js/assetCache.js), [modelLoader.js](js/modelLoader.js), [sw.js](sw.js), [README.md](README.md)
+  **Evidence:** A production Chromium visit loaded 10 NPCs, the local rig and a ready environment texture.
+  After waiting for SW control, clearing only the ordinary HTTP cache (not IndexedDB or Cache Storage),
+  going offline and re-entering, `ready` was true but NPC count was 0, the local rig was absent and
+  `environmentTexture.isReady()` was false. All six cached surface sets remained available.
+  IndexedDB held four equipment model URLs and 21 surface/speaker texture URLs, but no avatar or
+  environment URL. The avatar path calls `LoadAssetContainerAsync` directly; the environment calls
+  `CreateFromPrefilteredData` directly; the SW deliberately excludes both binary extensions.
+  **Problem:** The documented persistent offline ownership contract has two bypasses. A warm HTTP cache
+  can conceal the defect, but it is not the promised loader-owned persistent cache.
+  **User-visible effect:** An offline return visit opens an empty club without the player's body or the
+  intended environment reflections, even after a successful online visit.
+  **Immersion impact:** Removes the human presence and changes the material response simultaneously.
+  **Desktop impact:** Reproduced in production Chromium.
+  **VR impact:** Uses the same asset paths; offline headset reproduction is still required.
+  **Performance impact:** Reuse downloaded bytes; do not duplicate binaries in SW and IndexedDB.
+  **Recommended solution:** Route avatar GLB bytes and the environment through the shared cache and
+  body-deadline helpers before Babylon parsing. Preserve separate containers where material ownership
+  requires them, deduplicate downloads, revoke owned object URLs and handle disposal during loading.
+  **Regression considerations:** Keep source-container/shared-material ownership, the SW shell-only
+  boundary, cache quota degradation and existing online fallbacks. This review did not measure a stalled
+  avatar download; also test that direct-loader replacement bounds that failure path.
+  **Acceptance criteria:** A warmed production visit with HTTP cache cleared and network offline retains
+  the same NPC count, local rig and ready environment; no binary is duplicated in Cache Storage.
+  **Validation:** Browser test preserving IndexedDB/SW while clearing HTTP cache, plus delayed-body,
+  quota-exhaustion and dispose-during-load cases; then an offline Quest visit.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** High
+
+- [ ] **Keep expanded model credits clear of the narrow-screen camera control**
+
+  **Priority:** Medium
+  **Category:** UX
+  **Confidence:** High
+  **Area:** Responsive desktop/browser overlays and attribution
+  **Affected files:** [styles.css](css/styles.css), [index.html](index.html), [ui-init.js](js/ui-init.js),
+  [vrclub.spec.mjs](test/e2e/vrclub.spec.mjs)
+  **Evidence:** At a measured 375x667 CSS-pixel viewport, the credits rectangle was approximately
+  `(10,367,225,290)`, covering 26.1% of the viewport. The camera toggle was `(167,599,42,42)`.
+  `elementFromPoint()` at its centre returned `.credits-note`; a normal Playwright click timed out
+  because that subtree intercepted pointer events. At 739x553 the plate covered 19.2% of the view.
+  **Problem:** The growing fixed credit plate occupies the camera control's hit area.
+  **User-visible effect:** The visible camera button cannot be clicked/tapped at the tested narrow width.
+  **Immersion impact:** A large permanent overlay obscures the scene and blocks a travel affordance.
+  **Desktop impact:** Narrow windows and responsive layouts; the 375px hit-test is reproduced.
+  **VR impact:** Primarily the browser before/after immersive mode, not the stereo scene.
+  **Performance impact:** Layout-only; no new rendering effects are needed.
+  **Recommended solution:** Reserve non-overlapping overlay space and provide compact, keyboard-operable
+  expandable attribution, keeping a visible credits affordance and every required attribution/link.
+  **Regression considerations:** Do not remove CC BY credits, disable their links with `pointer-events:none`,
+  or make attribution unreachable to keyboard/screen-reader users.
+  **Acceptance criteria:** Camera, audio and multiplayer controls receive normal clicks at 375x667,
+  720px and desktop widths; all credits remain readable and reachable at 200% zoom.
+  **Validation:** Responsive browser hit-tests and ordinary pointer/keyboard activation, not forced clicks;
+  screenshot review and attribution-link checks.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
 ## Implementation - 2026-10-05 - Bass bins under the PA
 
 Shipped: one bin hung under each flown speaker (see [CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Open item:
@@ -26,16 +102,41 @@ Shipped: one bin hung under each flown speaker (see [CHANGELOG.md](CHANGELOG.md)
 Shipped: a steel balcony on the left wall, a 16-step stair, a table and two stools, a BALCONY preset (see
 [CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Open items:
 
-- [ ] **Let VR teleport onto the mezzanine**
+- [ ] **Complete VR teleport surfaces and blockers for the expanded venue**
 
-  **Priority:** Medium
+  **Priority:** High
   **Category:** VR
-  **Evidence:** Babylon's teleport targets only `floorMesh`, so the deck and stair are not valid targets; the deck is reached
-  with the BALCONY quick-menu button or by walking with comfort off. The walking level (`_walkLevel`) is recorded for the body
-  but is not driven by VR movement.
-  **Recommended solution:** add `mezzDeck` and the stair treads to the teleport floor meshes, then drive `_walkLevel` from
-  the XR camera's height above the picked ground.
-  **Acceptance criteria:** From comfort mode a guest can teleport onto the deck and back, and the body stands on it.
+  **Confidence:** High for the reproduced entrance escape and source registration gap
+  **Area:** Comfort-mode navigation across entrance, bar and mezzanine
+  **Affected files:** [10-ui.js](js/club/10-ui.js), [02-lifecycle.js](js/club/02-lifecycle.js),
+  [venueDressing.js](js/venueDressing.js), [mezzanine.js](js/mezzanine.js),
+  [vr-session.spec.mjs](test/e2e/vr-session.spec.mjs)
+  **Evidence:** The original deck gap remains: teleport targets only `floorMesh`; the deck/stair are not
+  valid targets, so guests use BALCONY or comfort-off walking. Rechecked 2026-10-05 with production
+  Chromium/IWER: from ARRIVAL `(0,1.6,5)`, a right-hand arc aimed toward the street door landed at
+  `(-0.25,1.61,6.7422)`, beyond the closed vestibule end at `farZ=6`. The current blocker list contains
+  only the original room walls and DJ platform, not the new vestibule, bar or mezzanine geometry.
+  Walking collision flags do not make those meshes teleport blockers.
+  **Problem:** The expanded venue's navigation surfaces and blockers are not registered consistently
+  with the teleport feature. The original room/stage regression passes while the new entrance leaks.
+  **User-visible effect:** A comfort-mode guest can teleport through the street door into unfinished
+  exterior space, but cannot teleport onto the visible balcony.
+  **Immersion impact:** Breaks the physical boundary of the venue and the meaning of solid geometry.
+  **Desktop impact:** Ordinary walking is separate; exiting XR can carry the escaped position to desktop.
+  **VR impact:** Reproduced in IWER; requires a physical-headset regression check.
+  **Performance impact:** A bounded pick-target/blocker set, not a general physics engine.
+  **Recommended solution:** Register appropriate walkable deck/tread surfaces and all relevant new
+  shell/furniture blockers after construction and every locomotion feature swap. Derive body ground
+  level from the selected destination surface; do not teleport to rail tops or beneath the deck.
+  **Regression considerations:** Preserve original wall/stage containment, snap turn, tracked seated
+  eye height, both controllers, comfort toggles and legitimate doorway passage.
+  **Acceptance criteria:** Teleport cannot cross the closed vestibule end/sides or land inside bar
+  furniture; guests can teleport onto the deck and back with the body grounded on the destination.
+  **Validation:** Extend actual controller-arc tests to the vestibule, bar and balcony, on entry and
+  after comfort off/on; retain the existing stage/wall checks. Then seated/standing headset traversal.
+  **Estimated effort:** Medium
+  **Product value:** High
+  **Technical debt reduction:** Medium
 
 - [ ] **Walk the stair with a gravity-driven XR camera**
 
@@ -357,9 +458,37 @@ Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
   yet. Cheap to find (log the render-target names while XR starts); check whether a real Quest does it too.
 - Not adopted: `fixedFoveation` is exposed on the XR session manager in both versions (not new in 9);
   setting it changes the headset's sharpness against its cost, so it belongs with the Quest baseline.
-- Dev tooling: `npm audit` reports 3 high advisories in `@gltf-transform/cli` (via `braces`) and the worker's
-  Wrangler (via `undici` in miniflare). All are dev-only, not in the shipped site, and upstream's suggested
-  "fix" is a downgrade. The shipped dependency set is clean (`npm audit --omit=dev`).
+- [ ] **Resolve the relay tooling advisory chain and audit its separate lockfile in CI**
+
+  **Priority:** Medium
+  **Category:** Dependency
+  **Confidence:** High for the lockfile/advisory match; application exploitability not established
+  **Area:** Optional relay development tooling and CI dependency coverage
+  **Affected files:** [worker/package.json](worker/package.json), [worker/package-lock.json](worker/package-lock.json),
+  [ci.yml](.github/workflows/ci.yml)
+  **Evidence:** Rechecked 2026-10-05: root `npm audit --json` reports zero, so the old root CLI/braces
+  finding is no longer current. `npm audit --prefix worker --json` exits 1 with one high and two moderate
+  dependency nodes. The lockfile chain is `wrangler@4.141.0 -> miniflare@5.20260925.0-alpha -> undici@7.29.0`.
+  The high advisories include GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3; their listed fixed boundary is
+  7.29.1. Production-only relay audit reports zero. CI currently audits the root lockfile only.
+  **Problem:** A clean Pages audit does not cover the separately locked relay toolchain.
+  **User-visible effect:** No shipped-browser exploit or live-relay incident was demonstrated.
+  **Immersion impact:** Indirect: reliability of the tooling used to support optional social sessions.
+  **Desktop impact:** Development tooling, not a bundled browser dependency.
+  **VR impact:** Same distinction; no headset vulnerability is claimed.
+  **Performance impact:** No expected client rendering change.
+  **Recommended solution:** Select a compatible patched tooling dependency path, validate local relay
+  operation and audit both lockfiles in CI. Review the individual advisories for actual tooling exposure.
+  Do not blindly accept npm's proposed Wrangler downgrade to 4.101.0.
+  **Regression considerations:** Preserve Worker/Durable Object compatibility and existing relay tests;
+  do not weaken the audit threshold to hide the issue.
+  **Acceptance criteria:** Both full lockfile audits report no high findings, CI covers both, and the
+  selected relay toolchain passes its development/build smoke checks.
+  **Validation:** Root and worker `npm audit`, lockfile-tree inspection, Node relay tests and a local
+  Worker smoke test. No Wrangler operation or deployed relay test was run in this review.
+  **Estimated effort:** Small
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
 
 ---
 
@@ -995,6 +1124,12 @@ material freeze in the hot path; image-processing notifications stay at 0.
 ### New open items
 
 - [ ] **Only ambient, spot0 and spot1 ever light a surface; grounding shadows do not exist**
+
+  **Rechecked 2026-10-05:** The title and original evidence below are historical, not the full current
+  state. `_bindPhotometricSlots()` now selects the strongest heads, and the browser budget probe found
+  10 contact-shadow instances for 10 enabled NPCs. No dynamic shadow generator exists, and the
+  booth/equipment contact-shadow acceptance criterion is still open. Do not propose increasing the
+  light budget or restoring the already-fixed creation-order bug.
 
   **Partial 2026-10-01.** `_bindPhotometricSlots()` copies the strongest surface-hitting
   heads into the live slots. Contact shadows are still absent and stay out of scope:
@@ -2312,6 +2447,27 @@ assessment remain current and are not duplicated here.
 
 - [ ] **Replace remote guest capsules with expressive low-cost avatars**
 
+  **Rechecked 2026-10-05 - seated grounding remains incorrect.** A production browser probe using
+  the real `AvatarManager` and a loaded rig received `{x:0,y:1,z:-10,rotY:0}`. It produced
+  `root.position.y = pose.groundY = -0.7`, while `pose.eyeY = 1`. The current receiver subtracts a
+  fixed 1.7 m from every transmitted eye height; it cannot distinguish a seated/crouching guest from
+  a guest on a lower floor. This is distinct from the fixed standing-avatar 1.7 m upward offset:
+  do not undo that fix. No live peer connection was required for this receive/render-path probe.
+  Extend this item's solution to carry separately validated ground level and head/body calibration
+  (with a defined legacy-message fallback), preserving eye-height voice placement and shortest-arc
+  interpolation. Extend acceptance to seated 1.0 m and standing 1.7 m eyes on floor, booth and balcony:
+  feet remain within 0.1 m of the intended surface, and transmitted hands/head remain aligned.
+  **Affected files:** [avatarManager.js](js/avatarManager.js), [07-animation-core.js](js/club/07-animation-core.js),
+  [networkClient.js](js/networkClient.js), [worker/src/index.js](worker/src/index.js), [unit.test.mjs](test/unit.test.mjs)
+  **User-visible effect:** A seated remote guest sinks 0.7 m into the floor in the reproduced input.
+  **Desktop impact:** Observers see misplaced remote people.
+  **VR impact:** Seated/crouching senders have incorrect remote embodiment.
+  **Performance impact:** A few bounded pose fields; retain the four-rig cap.
+  **Regression considerations:** Backward compatibility, finite/range-checked relay data, raised surfaces,
+  voice at the eyes and the already-correct standing path.
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
   **Partial 2026-10-02.** `AvatarManager` now builds an `AvatarRig` for the first
   `MAX_RIGS` (4) guests. Later guests, and anyone who arrives before the crowd
   containers load, still render as a capsule and head. Acceptance criteria are not met.
@@ -2418,6 +2574,23 @@ pass, so findings that depend on them are not presented as confirmed visual defe
   **Immersion value:** High
 
 - [ ] **Establish a representative Quest 3S frame-time and stability baseline**
+
+  **Evidence update 2026-10-05:** The pinned balanced `firstLight` browser-budget test now measures
+  324 desktop and 319 IWER-XR engine submissions/frame, with 311/163 active-submesh proxies respectively.
+  Ordinary 2D RGBA+mip estimates are 256 MiB in both modes; cube/render-target estimates are 10/13 MiB.
+  Ten NPCs have ten contact shadows; no ordinary 4096px textures exist. These are software-rendered
+  complexity snapshots at different mode viewpoints, NOT headset CPU/GPU time or actual GPU memory.
+  Include the new bar, stair/deck and bass bins in the existing 15-minute hardware route; the two
+  asset-specific hardware tasks above remain open until that route validates them.
+  **Affected files:** [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md), [budget.spec.mjs](test/e2e/budget.spec.mjs),
+  [01-core.js](js/club/01-core.js)
+  **User-visible effect:** Stable native headset delivery is still not established.
+  **Desktop impact:** Browser resource ceilings pass; representative desktop timing is also unmeasured in this review.
+  **VR impact:** Stereo comfort, sustained frame pacing and thermal behaviour remain release evidence gaps.
+  **Performance impact:** Measurement first; retain visual quality until a bottleneck is identified.
+  **Regression considerations:** Do not treat IWER's mono image or RGBA estimates as a Quest GPU benchmark.
+  **Product value:** High
+  **Technical debt reduction:** Medium
 
   **Priority:** High
   **Category:** Performance
