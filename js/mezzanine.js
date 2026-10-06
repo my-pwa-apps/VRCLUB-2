@@ -170,6 +170,9 @@ const Mezzanine = {
         // Deck plate and every stair tread, in one mesh: the VR teleport accepts it as a floor (see
         // VRClubUI._teleportFloorMeshes), so the balcony and the stair can be reached from the headset.
         this._mezzDeck = built.Deck || null;
+        // Reserve bit 2 for walk surfaces: desktop collides with the treads, but XR
+        // follows their height without catching its horizontal collider on each riser.
+        if (this._mezzDeck) this._mezzDeck.collisionGroup = 2;
         this._mezzLight = this._createScopedAccent('balconyLight', new BABYLON.Vector3(-10.9, 4.7, -14.7),
             { intensity: 1.2, range: 8, diffuse: [1, 0.92, 0.8], group: 'mezzanine' }, this._mezzMeshes);
 
@@ -237,6 +240,7 @@ const Mezzanine = {
         this._guardVRCameraSteps(camera);
         if (this.jumpState && this.jumpState.active) return;
         const eye = this._xrHeadHeight();
+        if (!Number.isFinite(eye)) return;
         const feet = camera.position.y - eye;
         const x = camera.position.x, z = camera.position.z;
         let next = MEZZANINE.walkLevel(x, z, feet);
@@ -256,13 +260,16 @@ const Mezzanine = {
             this._vrFallSpeed = 0;
         }
         if (this._vrFallSpeed > 0 || Math.abs(feet - target) > 0.02) camera.position.y = target + eye;
+        // Babylon queues XR locomotion until the next XR frame. Its queued transform
+        // must carry this correction too, otherwise it overwrites the floor height.
+        if (camera._deferOnly && camera._deferredUpdated) camera._deferredPositionUpdate.y = camera.position.y;
         this._walkLevel = target;
     },
 
     /**
      * Shape every smooth-locomotion step of the XR camera, at the one point it is applied: the camera's own position
      * update, which consumes `cameraDirection` (the movement feature fills it before any scene observer runs).
-     *  - Level: Babylon steers by the controller's full aim, so pointing up while walking flew the player upward.
+     *  - Level: Babylon includes head pitch in its movement vector; looking up/down must not create flight.
      *  - At most 25 cm: the step scales with frame time, so a hitch (shader compile, model landing) took metres at once.
      *    A normal 72 Hz walking step is about 2 cm.
      *  - No vertical slide: with gravity off, the collision solver slid a walker up the stair's slope and into the
@@ -278,11 +285,14 @@ const Mezzanine = {
             club._shapeVRStep(this.cameraDirection);
             const y = this.position.y;
             update.call(this);
-            if (club.isInVRMode) this.position.y = y;
+            if (club.isInVRMode) {
+                this.position.y = y;
+                if (this._deferOnly && this._deferredUpdated) this._deferredPositionUpdate.y = y;
+            }
         };
     },
 
-    /** Level the step (keeping its length) and cap it at 25 cm. Pure, for the guard above. */
+    /** Level the head-directed step (keeping its length) and cap it at 25 cm. */
     _shapeVRStep(step) {
         if (!step) return;
         if (step.y !== 0) {
@@ -303,15 +313,33 @@ const Mezzanine = {
     _xrHeadHeight() {
         const sessionManager = this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.sessionManager;
         if (sessionManager && this._xrHeightSource !== sessionManager) {
+            if (this._xrHeightSource) {
+                this._xrHeightSource.onXRFrameObservable.remove(this._xrHeightObserver);
+                this._xrHeightSource.onXRSessionInit.remove(this._xrHeightResetObserver);
+            }
             this._xrHeightSource = sessionManager;
-            sessionManager.onXRFrameObservable.add(frame => {
+            this._xrEyeHeight = null;
+            this._xrHeightResetObserver = sessionManager.onXRSessionInit.add(() => {
+                this._xrEyeHeight = null;
+                this._vrFallSpeed = 0;
+            });
+            // Sample before the camera/locomotion observers, so crouching and recentering
+            // use this frame's physical height rather than the previous frame's.
+            this._xrHeightObserver = sessionManager.onXRFrameObservable.add(frame => {
                 try {
                     const pose = frame.getViewerPose(sessionManager.baseReferenceSpace);
-                    if (pose) this._xrEyeHeight = pose.transform.position.y * (sessionManager.worldScalingFactor || 1);
-                } catch (_) { /* a frame without a pose keeps the last height */ }
-            });
+                    if (!pose) return;
+                    const height = pose.transform.position.y * sessionManager.worldScalingFactor;
+                    if (!Number.isFinite(height)) throw new Error('Non-finite XR head height');
+                    this._xrEyeHeight = height;
+                    this._xrHeightError = false;
+                } catch (error) {
+                    if (!this._xrHeightError) log.warn('Could not sample XR head height:', error);
+                    this._xrHeightError = true;
+                }
+            }, -1, true);
         }
-        return this._xrEyeHeight > 0.3 ? this._xrEyeHeight : 1.6;
+        return Number.isFinite(this._xrEyeHeight) ? this._xrEyeHeight : null;
     }
 };
 window.Mezzanine = Mezzanine;

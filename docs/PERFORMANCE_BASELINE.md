@@ -115,6 +115,38 @@ was obtained. Historical CPU timings above must not be presented as measurements
 See the [review](REVIEW_2026-10-05.md) and the existing hardware-baseline item in
 [BACKLOG.md](../BACKLOG.md).
 
+## 2026-10-06 Production Chromium / IWER resource snapshot
+
+Source revision `c9650c0`, cache token `20261006-7`; Windows, Node 24.19.0,
+Playwright Chromium/SwiftShader, balanced tier, Safe Mode, pinned `firstLight`,
+20 rendered frames per sample. [Resource-budget test](../test/e2e/budget.spec.mjs) passed.
+
+| Metric | Desktop | Emulated XR |
+|---|---:|---:|
+| Engine-reported scene submissions/frame | 317 | 316 |
+| Active-submesh proxy | 308 | 162 |
+| Ordinary 2D RGBA+mip estimate | 277 MiB | 277 MiB |
+| Cube/render-target RGBA estimate | 10 MiB | 13 MiB |
+| Ordinary textures at least 2048px / at least 4096px | 7 / 0 | 7 / 0 |
+| Cube textures / render-target textures | 2 / 8 | 2 / 9 |
+| Enabled NPCs / NPC contact-shadow instances | 10 / 10 | 10 / 10 |
+| Maximum meshes per NPC | 6 | 6 |
+| LED wall meshes / logical panels | 1 / 210 | 1 / 210 |
+
+The two views differ, IWER is mono, and RGBA estimates omit exact formats, depth/MSAA
+and driver allocations. These are complexity metrics, not headset throughput or resident
+GPU memory. The 2048px graffiti atlas adds approximately 21 MiB to the ordinary estimate.
+Asset audit: 29.83 MiB across 36 files; full uncompressed production: 39.82 MiB / 49 files.
+
+The selected three-test run passed spatial audio and resource budgets but failed image
+parity at correlation 0.69285 (required >0.700). An unchanged isolated parity rerun passed:
+luminance x1.41, correlation 0.74, edge energy x0.81. This is not a fixed failure or a clean
+initial batch; see the [review](REVIEW_2026-10-06.md) and repeatability backlog item.
+
+The historical mirror-ball ~12 ms CPU and ~80 animated-draw figures no longer describe
+the implementation: it now uses analytic shell hits and two thin-instance batches.
+No replacement CPU/GPU timing, p95/p99 or physical Quest thermal result was measured here.
+
 ## Quest Check
 
 On the headset, use a repeatable route through the entrance, dance floor, bar and balcony with

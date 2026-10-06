@@ -35,7 +35,7 @@ const silentWav = Buffer.from(
 export const browserFailures = new WeakMap();
 
 /** Registers the per-test Quest 3 emulation, failure capture and local silent stream. */
-export function useQuestHarness() {
+export function useQuestHarness({ comfort = true } = {}) {
     test.beforeEach(async ({ page }) => {
         const failures = [];
         browserFailures.set(page, failures);
@@ -45,10 +45,13 @@ export function useQuestHarness() {
         });
 
         await page.addInitScript({ content: installQuestRuntime });
-        await page.addInitScript(() => {
+        await page.addInitScript(({ comfort }) => {
             localStorage.setItem('vrclub.graphicsTier', 'balanced');
             localStorage.setItem('vrclub.safeMode', '1');
-        });
+            // Existing teleport regressions explicitly choose comfort mode; the fresh default is smooth.
+            if (comfort) localStorage.setItem('vrclub.vrComfort', '1');
+            else localStorage.removeItem('vrclub.vrComfort');
+        }, { comfort });
         // Music plays on entry by default: serve a local Resident feed and a silent episode,
         // so the real default path runs without touching the network.
         await routeResidentFeed(page, silentWav);

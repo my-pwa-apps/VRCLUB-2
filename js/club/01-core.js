@@ -95,7 +95,7 @@ class VRClubCore {
                 floorShadows: true,
                 crowdSize: 14,             // animated skinned dancers on the floor
                 guestSize: 8,            // guests off the floor: talking, on a call, watching
-                mirrorSpots: 140,
+                mirrorSpots: 280,
                 mirrorRays: 64,
                 mirrorBeamStride: 1
             },
@@ -116,7 +116,7 @@ class VRClubCore {
                 floorShadows: false,
                 crowdSize: 10,
                 guestSize: 4,
-                mirrorSpots: 90,
+                mirrorSpots: 180,
                 mirrorRays: 52,
                 mirrorBeamStride: 2
             },
@@ -141,7 +141,7 @@ class VRClubCore {
                 // `balanced`, so this is the number a headset actually renders.
                 crowdSize: 6,
                 guestSize: 2,                // the talking pair; headset cost of extra skeletons is unmeasured
-                mirrorSpots: 48,
+                mirrorSpots: 96,
                 mirrorRays: 32,
                 mirrorBeamStride: 3
             }
@@ -258,9 +258,7 @@ class VRClubCore {
             lastSource: null,
             count: 0
         };
-        this.vrComfortMode = (() => {
-            try { return localStorage.getItem('vrclub.vrComfort') !== '0'; } catch (_) { return true; }
-        })();
+        this.vrComfortMode = VRClubCore.resolveVRComfortMode();
 
         // === HAPTICS ===
         // Bass-driven controller rumble. Off by default to respect battery /
@@ -1108,6 +1106,10 @@ class VRClubCore {
         let samples = 1;
         for (const candidate of [2, 4]) if (candidate <= wanted && candidate <= cap) samples = candidate;
         return samples;
+    }
+
+    static resolveVRComfortMode() {
+        try { return localStorage.getItem('vrclub.vrComfort') === '1'; } catch (_) { return false; }
     }
 
     /**

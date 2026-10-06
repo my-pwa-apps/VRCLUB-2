@@ -400,7 +400,7 @@ Tier-gated features, all **desktop only**:
 | Contact-hardening (PCSS) shadows | `_applyShadowQuality()` (no-op: no generator exists) | on | on | off |
 | Anisotropic filtering | `_applyAnisotropicFiltering()` | 16× | 8× | 4× |
 | Reflection probe resolution | `createFloorReflectionProbe()` | 512 | 256 | 128 |
-| Mirror reflection spots | `_updateMirrorReflectionBatch()` | 140 | 90 | 48 |
+| Mirror reflection spots | `_updateMirrorReflectionBatch()` | 280 | 180 | 96 |
 | Mirror outgoing rays | `_updateMirrorReflectionBatch()` | 64 | 52 | 32 |
 | SSAO samples / expensive blur | `addPostProcessing()` | 24 / yes | 16 / yes | 8 / no |
 | Floor `receiveShadows` | `createFloor()` | on | off | off |
@@ -699,7 +699,8 @@ to avoid z-fighting.
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
 | `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
 
-VR comfort is persisted separately as `vrclub.vrComfort` (on unless explicitly `0`).
+VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
+The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
 `setVRComfortMode()` owns locomotion through `_applyXRLocomotionMode()`. Babylon declares
 MOVEMENT and TELEPORTATION **mutually exclusive** (enabling one while the other is enabled
 throws), so comfort mode *swaps* features: comfort on disables MOVEMENT and (re)enables
@@ -708,10 +709,25 @@ Never enable either feature directly, and never put controller button bindings b
 locomotion call: a thrown `enableFeature()` once silently dropped sprint, jump and the only
 Y/B quick-menu binding. Comfort mode suppresses sprint/jump. The XR camera NEVER uses camera
 gravity (its collision ellipsoid hangs from the eye, so gravity sank the eye and blocked every stair);
+the deck/treads reserve collision-group value `2`, excluded by the XR camera's collision mask.
+Desktop collision, teleport picking and jump-ground rays still use the actual tread mesh;
+XR horizontal collision still includes the rails, structure, furniture and room walls.
 height in the headset belongs to `_updateVRWalkSurface()`, and `_guardVRCameraSteps()` wraps the XR
 camera's own `_updatePosition` so a smooth-locomotion step is level, at most 25 cm (frame hitches), and
-collisions cannot slide it upward. Babylon's defaults: the RIGHT stick walks, the LEFT stick turns. XR entry preserves
-tracked eye height. `moveCameraToPreset()` routes to the XR camera when active,
+collisions cannot slide it upward.
+Babylon defers XR movement: both the guard and surface follower must also write
+`_deferredPositionUpdate.y` when `_deferOnly && _deferredUpdated`, or the next XR frame restores
+the collision lift / discards the surface correction.
+Jumps and preset travel also synchronize the queued position so walking/turning cannot undo them.
+`_xrMovementOptions()` swaps Babylon's default input registrations: the LEFT stick walks along the
+headset heading, the RIGHT stick turns smoothly. Head pitch never adds flight.
+`_xrHeadHeight()` registers before XR entry and samples the base reference space first on each XR frame;
+all finite heights (including zero) are valid. No first pose means no surface correction or preset travel;
+a missing pose retains the last valid height, and a new session clears it.
+Walking uses the actual collidable shell, not the obsolete interior perimeter band.
+Teleport blockers are derived from collidable scene meshes, excluding the floor/deck walk surfaces,
+and refreshed on every comfort reapplication. XR entry preserves tracked eye height.
+`moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The 15-button quick menu includes comfort, safe mode, haptics, and four destinations (entrance, dance floor, DJ booth, balcony);
 Y/B or the runtime menu component opens it, world-locked where the player is looking

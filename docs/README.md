@@ -5,6 +5,8 @@ match the code. Everything here is supplementary.
 
 ## Current
 
+- [NOCTURNE principal review - 2026-10-06](REVIEW_2026-10-06.md) - current evidence,
+  release limitations, experience scorecard and prioritized follow-up.
 - [Performance baseline](PERFORMANCE_BASELINE.md) — measured frame budgets.
 
 ## Archived

@@ -6,6 +6,114 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review - 2026-10-06 - NOCTURNE principal experience reassessment
+
+Review mode only, source revision `c9650c0`; no runtime fixes. See the
+[full report](docs/REVIEW_2026-10-06.md) for validation, scorecard and release limitations.
+New findings are below. Navigation, caching, credits, hardware measurement and other
+matching findings are updated in place; older measurements are not current benchmarks.
+
+- [ ] **Restore the lint/deployment gate for the shared room-intersection helper**
+
+  **Priority:** High
+  **Category:** Bug
+  **Confidence:** High
+  **Area:** Classic-script globals and CI
+  **Affected files:** [eslint.config.mjs](eslint.config.mjs), [06-effects.js](js/club/06-effects.js),
+  [01-core.js](js/club/01-core.js), [ci.yml](.github/workflows/ci.yml)
+  **Evidence:** `npm run lint` exits 1 with six `no-undef` errors at lines 1019-1024 of
+  `06-effects.js`. `ROOM_INTERIOR` is declared/exported by `01-core.js`, but is missing
+  from ESLint's `projectGlobals`. Syntax, the production build and all 176 Node tests pass.
+  **Problem:** The new runtime-global contract was not wired into lint configuration.
+  **User-visible effect:** CI cannot publish the current improvements through the gated deploy job.
+  **Immersion impact:** Indirect; users may remain on an older deployed experience.
+  **Desktop impact:** Deployment, not a reproduced browser ReferenceError.
+  **VR impact:** Same delivery blockage.
+  **Performance impact:** None.
+  **Recommended solution:** Declare the existing shared global readonly in the lint configuration;
+  preserve `no-undef` and the script-order checks.
+  **Regression considerations:** Do not disable the rule, change load order or duplicate room bounds.
+  **Acceptance criteria:** `npm run lint` exits 0; existing tests/build still pass; CI verify is green.
+  **Validation:** Lint, contract tests and production build, then the actual CI run.
+  **Implementation update (after review):** Added `ROOM_INTERIOR` to the readonly shared globals.
+  Local lint, syntax checking and all 180 Node tests now pass. Actual CI publication remains unverified.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Low
+
+- [ ] **Preserve valid near-floor tracked head heights in the VR surface follower**
+
+  **Priority:** High
+  **Category:** VR
+  **Confidence:** High for the executed height correction; headset comfort impact needs hardware
+  **Area:** Tracked pose, crouching and locomotion
+  **Affected files:** [mezzanine.js](js/mezzanine.js), [unit.test.mjs](test/unit.test.mjs),
+  [mezzanine.spec.mjs](test/e2e/mezzanine.spec.mjs), [vr-navigation.spec.mjs](test/e2e/vr-navigation.spec.mjs)
+  **Evidence:** Executing the current methods with a synthetic valid viewer pose at y=0.25 m
+  records `_xrEyeHeight=0.25`, but `_xrHeadHeight()` returns 1.6. Passing a floor-level camera
+  at `(0,0.25,-12)` to `_updateVRWalkSurface()` then sets its y to 1.6 in one call.
+  The fallback applies to every sample <=0.3, not just a missing/invalid pose.
+  **Problem:** A valid low physical head pose is mistaken for absent tracking. The surface
+  correction therefore moves the virtual origin by 1.35 m instead of preserving the crouch.
+  **User-visible effect:** A near-floor reach/crouch can cause an artificial vertical jump.
+  **Immersion impact:** Contradicts head tracking at the point where physical presence matters most.
+  **Desktop impact:** None; the methods are XR-specific.
+  **VR impact:** A confirmed mathematical discontinuity with a potentially severe comfort consequence;
+  not claimed as a physical-headset reproduction.
+  **Performance impact:** No extra rendering work is needed.
+  **Recommended solution:** Track whether a valid finite pose has been sampled separately from its
+  height; preserve valid low heights and retain the last valid sample during tracking loss.
+  Reset calibration appropriately across sessions/reference-space changes.
+  **Regression considerations:** Seated height, world scale, stairs, balcony/booth teleport, jumps,
+  session re-entry, and missing poses must retain their intended behaviour.
+  **Acceptance criteria:** A continuous valid height sweep through 0.3 m produces no origin jump;
+  feet remain on the chosen surface, with <2 cm correction when no locomotion occurs.
+  **Validation:** Boundary tests at 0.29/0.30/0.31 m and a continuous crouch sweep; missing/invalid
+  pose tests; IWER tracked-height changes, then a supervised seated/standing headset check.
+  **Implementation update (after review):** The sampler is installed before XR entry, runs before
+  camera observers and accepts every finite height, including zero. Before any pose, surface following
+  waits and preset travel reports that tracking is unavailable. Missing poses retain the last valid sample;
+  new sessions reset it. Unit tests cover the boundary sweep, missing/invalid poses, session reset and
+  scaled low poses on the balcony. Physical-headset validation is still required.
+  **Estimated effort:** Small
+  **Product value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Make desktop/XR image parity repeatable without weakening its thresholds**
+
+  **Priority:** Medium
+  **Category:** Testing
+  **Confidence:** High for the fail/pass results; animation timing as the cause is not proven
+  **Area:** Production image parity and CI signal
+  **Affected files:** [vr-parity.spec.mjs](test/e2e/vr-parity.spec.mjs),
+  [xr-measure.mjs](test/e2e/xr-measure.mjs), [07-animation-core.js](js/club/07-animation-core.js)
+  **Evidence:** The three-test browser batch passed spatial audio and budgets but failed image
+  correlation at 0.6928527663 against >0.700. An isolated, unchanged rerun passed in 2.9 minutes,
+  recording luminance x1.41, structure r=0.74 and edge energy x0.81. No threshold or timeout
+  changed. The test pins the cue and hue, not the animated LED/particle/crowd state or clock;
+  desktop and XR samples are collected sequentially. The first run also overlapped a separate
+  visual-review browser for part of its duration; that is not proof of the failure's cause.
+  **Problem:** The current comparison can fail without a code change, and its scalar-only
+  image capture does not preserve the paired image evidence needed to distinguish causes.
+  **User-visible effect:** CI may delay deployment or miss a real regression among noisy failures.
+  **Immersion impact:** Indirect, through confidence in desktop/VR visual consistency.
+  **Desktop impact:** One side of the sequential comparison.
+  **VR impact:** The mono emulator comparison is affected; no headset rendering failure is inferred.
+  **Performance impact:** Test instrumentation only; no additional live rendering work is needed.
+  **Recommended solution:** Capture paired image/state diagnostics, reproduce at controlled
+  animation phases and seed where applicable, and isolate intentional mode differences.
+  Keep a separate in-motion test so deterministic captures do not hide temporal defects.
+  **Regression considerations:** Preserve gain, luminance, structure and restore-state assertions;
+  do not lower the correlation threshold or treat a retry as a fix.
+  **Acceptance criteria:** Ten repeated controlled comparisons pass the existing thresholds on
+  the CI runner, and an injected output-gain/structure regression still fails.
+  **Validation:** Repeated selected Playwright runs, saved paired captures and failing-when-broken checks.
+  **Estimated effort:** Medium
+  **Product value:** Medium
+  **Technical debt reduction:** Medium
+
+---
+
 ## Review - 2026-10-05 - Principal experience and engineering reassessment
 
 Review mode only; no runtime behaviour changed. Full evidence, limitations, scorecard and
@@ -14,6 +122,15 @@ New defects are below. Matching teleport, remote-avatar, Quest-baseline, lightin
 findings are updated in place rather than duplicated. Historical measurements remain historical.
 
 - [ ] **Persist the crowd and reflection environment in the offline asset cache**
+
+  **Rechecked 2026-10-06:** The direct Babylon-loading paths remain. A warm production visit
+  had 16 NPCs on high tier, a local rig and a ready environment; IndexedDB held four equipment
+  entries and 22 texture entries, with no avatar or environment key. Route both paths through
+  the shared byte cache rather than expanding the shell SW. The awaited, sequential avatar
+  loader also bypasses the shared body deadline; include stalled-body and dispose-during-load
+  coverage in this same fix, rather than creating another loading system.
+  A fresh offline return with only the ordinary HTTP cache cleared reproduced `ready=true`,
+  zero NPCs, no local rig and `environmentTexture.isReady()=false`. SW/IndexedDB were preserved.
 
   **Priority:** High
   **Category:** Bug
@@ -51,6 +168,12 @@ findings are updated in place rather than duplicated. Historical measurements re
   **Technical debt reduction:** High
 
 - [ ] **Keep expanded model credits clear of the narrow-screen camera control**
+
+  **Rechecked 2026-10-06:** The new collapsed disclosure fixes the permanent obstruction.
+  At 375x667 the collapsed camera hit-test reaches the button. With credits expanded,
+  the plate is approximately `(10,285.48,225.20,371.85)` and the same camera-centre hit
+  still returns `.credits-note`. Keep this item open for the expanded state; do not
+  describe the current default as a permanent large overlay.
 
   **Priority:** Medium
   **Category:** UX
@@ -102,47 +225,75 @@ Shipped: one bin hung under each flown speaker (see [CHANGELOG.md](CHANGELOG.md)
 Shipped: a steel balcony on the left wall, a 16-step stair, a table and two stools, a BALCONY preset (see
 [CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Open items:
 
-- [ ] **Complete VR teleport surfaces and blockers for the expanded venue**
+- [ ] **Align walking collision and teleport blockers with the expanded venue**
 
   **Priority:** High
   **Category:** VR
   **Confidence:** High for the reproduced entrance escape and source registration gap
-  **Area:** Comfort-mode navigation across entrance, bar and mezzanine
+  **Area:** Walking and comfort-mode navigation across entrance, bar and mezzanine
   **Affected files:** [10-ui.js](js/club/10-ui.js), [02-lifecycle.js](js/club/02-lifecycle.js),
   [venueDressing.js](js/venueDressing.js), [mezzanine.js](js/mezzanine.js),
-  [vr-session.spec.mjs](test/e2e/vr-session.spec.mjs)
-  **Evidence:** The original deck gap remains: teleport targets only `floorMesh`; the deck/stair are not
-  valid targets, so guests use BALCONY or comfort-off walking. Rechecked 2026-10-05 with production
+  [04-environment.js](js/club/04-environment.js), [vr-session.spec.mjs](test/e2e/vr-session.spec.mjs)
+  **Evidence update 2026-10-06:** The deck/stair floor registration is implemented, and the preceding
+  session's actual controller tests passed. Do not report the deck as teleport-inaccessible.
+  `TELEPORT_BLOCKERS` still omits the vestibule and bar. A second mismatch is reproduced in the
+  current production browser: a collidable ray from `(6,1.7,-4)` towards -z hits invisible
+  `collisionWall4` at z=-4.75, although the visible front shell is at z=0. Sixty real desktop
+  `_collideWithWorld(0,0,-0.1)` steps stop at z=-4.245 instead of the intended z=-10.
+  The symmetric old barriers retain a 4 m central gap across otherwise visibly open floor.
+  Historical teleport reproduction, 2026-10-05 with production
   Chromium/IWER: from ARRIVAL `(0,1.6,5)`, a right-hand arc aimed toward the street door landed at
   `(-0.25,1.61,6.7422)`, beyond the closed vestibule end at `farZ=6`. The current blocker list contains
   only the original room walls and DJ platform, not the new vestibule, bar or mezzanine geometry.
   Walking collision flags do not make those meshes teleport blockers.
-  **Problem:** The expanded venue's navigation surfaces and blockers are not registered consistently
-  with the teleport feature. The original room/stage regression passes while the new entrance leaks.
+  **Problem:** Legacy collision bounds and the teleport blocker list do not match the expanded
+  visible venue. The original room/stage regression passes while the entrance can leak and walking
+  can encounter invisible partitions.
   **User-visible effect:** A comfort-mode guest can teleport through the street door into unfinished
-  exterior space, but cannot teleport onto the visible balcony.
+  exterior space (prior reproduction; missing blockers rechecked), while walkers hit an invisible
+  partition five metres in front of the real doorway (current reproduction).
   **Immersion impact:** Breaks the physical boundary of the venue and the meaning of solid geometry.
-  **Desktop impact:** Ordinary walking is separate; exiting XR can carry the escaped position to desktop.
+  **Desktop impact:** Reproduced invisible-wall obstruction; XR exit can also carry an escaped position back.
   **VR impact:** Reproduced in IWER; requires a physical-headset regression check.
   **Performance impact:** A bounded pick-target/blocker set, not a general physics engine.
-  **Recommended solution:** Register appropriate walkable deck/tread surfaces and all relevant new
-  shell/furniture blockers after construction and every locomotion feature swap. Derive body ground
+  **Recommended solution:** Keep the implemented deck/tread registration, align walking colliders with
+  actual architecture and register the new shell/furniture teleport blockers after construction and
+  every locomotion feature swap. Do not merely remove all collision protection. Derive body ground
   level from the selected destination surface; do not teleport to rail tops or beneath the deck.
   **Regression considerations:** Preserve original wall/stage containment, snap turn, tracked seated
   eye height, both controllers, comfort toggles and legitimate doorway passage.
   **Acceptance criteria:** Teleport cannot cross the closed vestibule end/sides or land inside bar
-  furniture; guests can teleport onto the deck and back with the body grounded on the destination.
+  furniture; guests can teleport onto the deck and back with the body grounded on the destination;
+  walking across visible open floor at x=+6 and x=-6 crosses z=-5 without an invisible obstruction.
   **Validation:** Extend actual controller-arc tests to the vestibule, bar and balcony, on entry and
   after comfort off/on; retain the existing stage/wall checks. Then seated/standing headset traversal.
+  **Implementation update (after review):** Removed the five obsolete perimeter boxes (equipment guards
+  remain); the visible shell still collides. `_teleportBlockerMeshes()` now derives blockers from collidable
+  scene meshes, excluding the walkable floor/deck, and refreshes them after every locomotion swap.
+  The production-browser desktop test now crosses z=-5 at both x=-6 and x=6. Rails are deliberately blockers:
+  a balcony exit throw must clear the rail rather than pass through it.
   **Estimated effort:** Medium
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [ ] **Walk the stair with a gravity-driven XR camera**
+- [ ] **Validate the implemented VR stair walking on a physical headset**
 
   **Priority:** Medium
   **Category:** VR
-  **Evidence:** Desktop climbing relies on the collision slide; the IWER harness does not exercise comfort-off movement on the stair.
+  **Evidence update 2026-10-06:** Comfort-off right-stick walking now has a passing IWER
+  ascent/deck/descent test from the preceding session. Camera gravity is intentionally disabled;
+  `_updateVRWalkSurface` owns height and `_guardVRCameraSteps` levels/caps movement through
+  Babylon's private `_updatePosition`. Do not re-enable camera gravity. Real headset feel,
+  seated/standing tracking and recentering remain unverified; include the low-pose issue above.
+  **Implementation update (after review):** Walking is now left-stick/head-directed. The new browser
+  descent regression caught a queued-transform bug: restoring `camera.position.y` alone left Babylon's
+  `_deferredPositionUpdate.y` free to lift the walker on the next XR frame. Both the step guard and
+  surface follower now synchronize that queued height; a unit regression preserves the correction.
+  A real-Babylon headless collision regression then reproduced tread-face blockage before the
+  surface follower could lift the walker. The tread/deck mesh now has collision-group value `2`,
+  excluded only by the XR camera; the desktop, jump-ground rays and teleport keep using it.
+  Rails and furniture still collide. The revised actual-controller IWER ascent/deck/descent test passes;
+  physical-headset validation remains open.
   **Acceptance criteria:** A headset capture climbing and descending without clipping or floating.
 
 ---
@@ -428,7 +579,11 @@ calls 347 -> 329, texture memory 224 -> 210 MB.
   at the same mean brightness. The mirror ball's mirror facets read as silver instead of blue-purple.
   A contract test checks the file, its magic bytes and its ASSETS.md row. **Not measured:** how it reads
   in a headset; the 256 px size is a guess and 128 px would halve it again.
-- [ ] **Mirror-ball rays, spots and beams are still about 80 animated draws**
+- [x] **Mirror-ball rays, spots and beams are still about 80 animated draws**
+  **Resolved/rechecked 2026-10-06:** Surface spots and outgoing rays now use two thin-instance
+  batches (`mirrorReflectionSpots`, `mirrorOutgoingRays`). The current production browser
+  contains those batches and the full Node suite passes the batching regression. This closes
+  the batching work, not the separate hardware/CPU timing acceptance criterion.
   **Priority:** Medium. Left out of this pass on purpose: they move every frame, are found by name for
   cleanup and are gated per tier, so thin-instancing them needs its own careful change and a visual
   A/B. Likely 80 -> about 4 draws.
@@ -459,6 +614,12 @@ Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
 - Not adopted: `fixedFoveation` is exposed on the XR session manager in both versions (not new in 9);
   setting it changes the headset's sharpness against its cost, so it belongs with the Quest baseline.
 - [ ] **Resolve the relay tooling advisory chain and audit its separate lockfile in CI**
+
+  **Rechecked 2026-10-06:** Root audit still reports zero. The worker full audit now reports
+  **four high dependency nodes**, not the previous one high/two moderate: Wrangler, Miniflare,
+  Undici 7.29.0 and Sharp 0.35.4. Sharp adds GHSA-wq5f-xc86-pv6w (fixed boundary 0.35.5).
+  Production-only worker audit remains zero; this is development-tooling exposure, not a
+  demonstrated application exploit. npm now proposes Wrangler 4.15.2; do not blindly downgrade.
 
   **Priority:** Medium
   **Category:** Dependency
@@ -758,6 +919,10 @@ Checked and found sound (do not re-raise without new evidence):
 
 - [ ] **Desktop loses SSAO after a VR visit**
 
+  **Rechecked 2026-10-06:** The unchanged isolated parity run passed its exact
+  `KNOWN_DESKTOP_RESTORE_DRIFT` comparison, which still includes both SSAO fields.
+  This is tolerated drift, not proof of correct restoration.
+
   **Priority:** Medium
   **Category:** Bug
   **Confidence:** High
@@ -784,6 +949,9 @@ Checked and found sound (do not re-raise without new evidence):
   **Technical debt reduction:** Low
 
 - [ ] **Desktop reflections get 50% stronger after a VR visit**
+
+  **Rechecked 2026-10-06:** Source still initializes 0.4 and restores 0.6; the isolated
+  parity run still reports this field through its exact known-drift assertion.
 
   **Priority:** Low
   **Category:** Bug
@@ -1660,7 +1828,14 @@ safe-mode bypass (see the cleanup item).
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [ ] **Mirror-ball reflections still cost ~12 ms per frame on the high tier**
+- [ ] **Re-profile the optimized mirror-ball reflection path against its CPU target**
+
+  **Rechecked 2026-10-06:** The old scene-wide raycasts have been replaced by
+  `_intersectRoomInterior`, with thin-instance matrix updates. The 12 ms figure below
+  is historical and must not be attributed to the current implementation. Keep the
+  existing <=2 ms measured-laptop criterion open until re-profiled, and check the
+  shell-only optical approximation around the balcony, booth and doorway. Do not
+  reimplement the already-shipped analytic intersection as new work.
 
   **Priority:** High
   **Category:** Performance
@@ -2447,6 +2622,10 @@ assessment remain current and are not duplicated here.
 
 - [ ] **Replace remote guest capsules with expressive low-cost avatars**
 
+  **Rechecked 2026-10-06:** A fresh production receive/update probe again maps seated
+  eye y=1.0 to root ground y=-0.7 using the real manager and loaded assets. No live
+  peer connection was needed or tested. The ground/calibration protocol work below remains open.
+
   **Rechecked 2026-10-05 - seated grounding remains incorrect.** A production browser probe using
   the real `AvatarManager` and a loaded rig received `{x:0,y:1,z:-10,rotY:0}`. It produced
   `root.position.y = pose.groundY = -0.7`, while `pose.eyeY = 1`. The current receiver subtracts a
@@ -2509,6 +2688,12 @@ records. Quest frame timing, stereoscopic stability, scale and comfort still req
 pass, so findings that depend on them are not presented as confirmed visual defects.
 
 - [ ] **Restore distinct entrance and bar presence zones**
+
+  **Rechecked 2026-10-06:** Both zones now exist; the bar was visually inspected with
+  textured wood, stocked shelves, stools, warm practicals and the bartender. The old
+  "zero bar/entrance meshes" evidence below is historical. Remaining acceptance is
+  circulation integrity (tracked in the navigation item) and measured Quest cost,
+  not rebuilding these zones. Keep open until that original headset criterion is met.
 
   **Note 2026-10-03.** Evaluated Quaternius's Modular Sci-Fi MegaKit and Sci-Fi Essentials Kit (both CC0) as
   props for this: they are chunky sci-fi pieces (chair 0.9 x 1.6 x 1.1 m, desks 2 m, crates 4-6k vertices each,
@@ -2574,6 +2759,16 @@ pass, so findings that depend on them are not presented as confirmed visual defe
   **Immersion value:** High
 
 - [ ] **Establish a representative Quest 3S frame-time and stability baseline**
+
+  **Evidence update 2026-10-06:** The current balanced `firstLight` resource test passes:
+  317 desktop / 316 IWER-XR engine submissions, 308/162 active-submesh proxies, 277 MiB
+  ordinary RGBA+mip estimate in both modes, and 10/13 MiB cube/render-target estimates.
+  Seven ordinary textures are >=2048px; none are >=4096px. The 2048px graffiti atlas
+  accounts for approximately 21 MiB of the change from the previous ordinary-texture
+  estimate. These are not physical GPU allocations or timing measurements.
+  Include 4x pipeline MSAA, the 1.2 XR layer scale and the updated mirror/laser paths
+  in the existing hardware route. The low tracked-pose and circulation findings need
+  regression coverage before claiming comfortable stair traversal.
 
   **Evidence update 2026-10-05:** The pinned balanced `firstLight` browser-budget test now measures
   324 desktop and 319 IWER-XR engine submissions/frame, with 311/163 active-submesh proxies respectively.

@@ -183,8 +183,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 laser.originPos.copyFrom(laser.emitter.getAbsolutePosition());
             }
             const speed = (this.laserSpeed || 1.0) * dtScale;
-            laser.rotation += 0.015 * speed;
-            laser.tiltPhase += 0.02 * speed;
+            laser.rotation += 0.00375 * speed;
+            laser.tiltPhase += 0.005 * speed;
             const o = laser.originPos;
 
             for (const beam of laser.beams) {

@@ -3518,18 +3518,22 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     const { window } = loadClassic('js/club/10-ui.js', {
         VRClubAnimationFinish: class {},
         localStorage: { setItem: (key, value) => saved.set(key, value) },
-        BABYLON: { WebXRFeatureName: names, WebXRState: { IN_XR: 2, NOT_IN_XR: 3 } },
+        BABYLON: {
+            WebXRFeatureName: names, WebXRState: { IN_XR: 2, NOT_IN_XR: 3 },
+            WebXRControllerMovement: require('../js/vendor/babylon.js').WebXRControllerMovement
+        },
         log: { error: (...args) => { throw new Error(args.join(' ')); } }
     });
     const originalTeleport = featuresManager.enableFeature(names.TELEPORTATION, 'latest', {});
-    const sceneMeshes = new Map(['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop']
-        .map(name => [name, { name }]));
+    const sceneMeshes = new Map(['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop',
+        'vestibuleWalls', 'vestibuleFrame', 'barJoinery', 'mezzRails']
+        .map(name => [name, { name, checkCollisions: true, isEnabled: () => true }]));
     const club = {
         vjManualMode: false,
         movementFeature: null,
         floorMesh: { name: 'floor' },
         _mezzDeck: { name: 'mezzDeck' },
-        scene: { getMeshByName: name => sceneMeshes.get(name) || null },
+        scene: { meshes: [...sceneMeshes.values()] },
         vrHelper: {
             input: { name: 'input' },
             pointerSelection: { name: 'pointer' },
@@ -3539,6 +3543,11 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
         jumpState: { active: true },
         _refreshVRQuickMenu() {}
     };
+    club.floorMesh.checkCollisions = club._mezzDeck.checkCollisions = true;
+    club.floorMesh.isEnabled = club._mezzDeck.isEnabled = () => true;
+    club.scene.meshes.push(club.floorMesh, club._mezzDeck,
+        { name: 'decoration', checkCollisions: false },
+        { name: 'replaced-procedural-mesh', checkCollisions: true, isEnabled: () => false });
     Object.setPrototypeOf(club, window.VRClubUI.prototype);
 
     club.setVRComfortMode(true);
@@ -3558,6 +3567,16 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     assert.equal(club.movementFeature.movementEnabled, true);
     assert.equal(club.movementFeature.rotationEnabled, true);
     assert.equal(club.movementFeature.options.xrInput, club.vrHelper.input);
+    const options = club.movementFeature.options;
+    assert.equal(options.movementOrientationFollowsViewerPose, true);
+    assert.equal(options.movementOrientationFollowsController, false);
+    const axes = { moveX: 0, moveY: 0, rotateX: 0, rotateY: 0 };
+    options.customRegistrationConfigurations.find(r => r.forceHandedness === 'left')
+        .axisChangedHandler({ x: 0.5, y: -0.7 }, axes, options);
+    assert.deepEqual(axes, { moveX: 0.5, moveY: -0.7, rotateX: 0, rotateY: 0 });
+    options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
+        .axisChangedHandler({ x: 0.5, y: 0 }, axes, options);
+    assert.equal(axes.rotateX, 0.5);
     assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false, 'the walking-surface follow owns VR height, not camera gravity');
     assert.equal(saved.get('vrclub.vrComfort'), '0');
 
@@ -3735,6 +3754,7 @@ test('VR viewpoints preserve seated eye height and orientation without moving th
     });
     const xrCamera = {
         position: new BABYLON.Vector3(0, 1.15, -12),
+        _deferOnly: true, _deferredUpdated: true, _deferredPositionUpdate: new BABYLON.Vector3(0, 1.15, -12),
         realWorldHeight: 1.15,
         rotationQuaternion: BABYLON.Quaternion.Identity()
     };
@@ -3754,8 +3774,16 @@ test('VR viewpoints preserve seated eye height and orientation without moving th
     assert.equal(xrCamera.position.y, 1.15);
     assert.equal(xrCamera.position.x, -2.8);
     assert.equal(xrCamera.position.z, -9.2);
+    assert.ok(xrCamera._deferredPositionUpdate.equals(xrCamera.position), 'a queued walking step must not undo travel');
     assert.ok(xrCamera.rotationQuaternion.equals(orientation));
     assert.ok(club.camera.position.equals(desktopPosition));
+    const destination = xrCamera.position.clone();
+    let reported = false;
+    club._xrHeadHeight = () => null;
+    club.showErrorMessage = () => { reported = true; };
+    move.call(club, 'balcony');
+    assert.ok(xrCamera.position.equals(destination), 'wait for actual tracking instead of inventing eye height');
+    assert.equal(reported, true);
 });
 
 test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own eye height', () => {
@@ -3765,7 +3793,10 @@ test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own e
     });
     const proto = window.VRClubLifecycle.prototype;
     const jump = (hz) => {
-        const xrCamera = { position: new BABYLON.Vector3(0, 1.15, -12), applyGravity: true };
+        const xrCamera = {
+            position: new BABYLON.Vector3(0, 1.15, -12), applyGravity: true,
+            _deferOnly: true, _deferredUpdated: true, _deferredPositionUpdate: new BABYLON.Vector3(0, 1.15, -12)
+        };
         const club = {
             jumpState: { active: false, velocity: 0 },
             _jumpRayDir: new BABYLON.Vector3(0, -1, 0),
@@ -3784,10 +3815,12 @@ test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own e
         let apex = xrCamera.position.y;
         let frames = 0;
         while (club.jumpState.active && frames < 1000) {
+            xrCamera.position.copyFrom(xrCamera._deferredPositionUpdate);
             club._stepVRJump(xrCamera, 1 / hz);
             apex = Math.max(apex, xrCamera.position.y);
             frames++;
         }
+        assert.ok(xrCamera._deferredPositionUpdate.equals(xrCamera.position), 'walking must not discard the jump arc');
         return { apex, airtime: frames / hz, landedAt: xrCamera.position.y, gravity: xrCamera.applyGravity };
     };
     const at72 = jump(72);
@@ -4046,6 +4079,20 @@ test('music on entry is on by default and a Resident episode is never remembered
     assert.match(html, /<input id="splashRadioOnEntry"[^>]*\bchecked\b/, 'the splash music toggle must default to checked');
 });
 
+test('smooth VR movement is the default but an explicit comfort preference is preserved', () => {
+    let stored = null;
+    const { window } = loadClassic('js/club/01-core.js', { localStorage: { getItem: () => stored } });
+    const resolve = window.VRClubCore.resolveVRComfortMode;
+    assert.equal(resolve(), false);
+    stored = '1';
+    assert.equal(resolve(), true);
+    stored = '0';
+    assert.equal(resolve(), false);
+    assert.equal(loadClassic('js/club/01-core.js', {
+        localStorage: { getItem() { throw new Error('storage blocked'); } }
+    }).window.VRClubCore.resolveVRComfortMode(), false);
+});
+
 test('safe mode is off by default, never inferred from reduced motion, and an explicit choice is honoured', () => {
     const store = new Map();
     const localStorage = {
@@ -4183,6 +4230,29 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
     assert.ok(settle({ vr: true, spots: true }) <= settle({ vr: false, spots: true }));
 });
 
+test('spinning lasers run at quarter speed, independently of frame rate, with the existing multiplier', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const update = loadClassic('js/club/08-animation-fixtures.js', {
+        BABYLON, VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype.updateLasers;
+    const mesh = { isEnabled: () => true, updateVerticesData() {} };
+    for (const hz of [45, 60, 72, 90, 120]) {
+        for (const speed of [0.1, 1, 2]) {
+            const laser = { rotation: 0, tiltPhase: 0, beams: [] };
+            const material = { emissiveColor: new BABYLON.Color3() };
+            const club = {
+                lasers: [laser], lasersActive: true, laserSpeed: speed, vjManualMode: true,
+                vecPool: { laserDir: new BABYLON.Vector3() },
+                _laserColor: () => BABYLON.Color3.White(), _laserView: () => ({}),
+                laserBeamBatch: { mesh, hitMesh: mesh, material, hitMaterial: material }
+            };
+            for (let i = 0; i < hz; i++) update.call(club, { time: i / hz, dtScale: 60 / hz });
+            assert.ok(Math.abs(laser.rotation - 0.225 * speed) < 1e-9, `${hz} Hz rotation at ${speed}x`);
+            assert.ok(Math.abs(laser.tiltPhase - 0.3 * speed) < 1e-9, `${hz} Hz tilt at ${speed}x`);
+        }
+    }
+});
+
 test('mirror reflections use analytic room hits and thin-instance tier counts', () => {
     const BABYLON = require('../js/vendor/babylon.js');
     const { window } = loadClassic('js/club/07-animation-core.js', {
@@ -4207,13 +4277,13 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
         setEnabled(value) { enabled[name] = value; },
         thinInstanceBufferUpdated() { updates[name]++; }
     });
-    const spotMatrices = new Float32Array(140 * 16);
+    const spotMatrices = new Float32Array(280 * 16);
     const rayMatrices = new Float32Array(64 * 16);
-    const directions = new Float32Array(140 * 2);
+    const directions = new Float32Array(280 * 2);
     const golden = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < 140; i++) {
+    for (let i = 0; i < 280; i++) {
         directions[i * 2] = golden * i;
-        let latitude = 0.5 / 140;
+        let latitude = 0.5 / 280;
         let weight = 0.5;
         for (let index = i; index > 0; index = Math.floor(index / 2)) {
             latitude += (index % 2) * weight;
@@ -4230,7 +4300,7 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
         kickPulse: 0,
         mirrorBall: { position: new BABYLON.Vector3(0, 6.5, -12), rotation: { y: 0 } },
         mirrorBallSpotlightColor: new BABYLON.Color3(1, 0.5, 0.25),
-        tierSettings: { mirrorSpots: 90, mirrorRays: 52 },
+        tierSettings: { mirrorSpots: 180, mirrorRays: 52 },
         mirrorReflectionBatch: {
             spots: mesh('spots'),
             rays: mesh('rays'),
@@ -4248,17 +4318,22 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
         scene: { pickWithRay() { throw new Error('mirror batching must not scene-raycast'); } }
     };
     update.call(club, { time: 1, dtScale: 1 });
-    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 90);
+    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 180);
     assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 52);
     assert.deepEqual(enabled, { spots: true, rays: true });
     assert.deepEqual(updates, { spots: 1, rays: 1 });
-    assert.ok([...spotMatrices.slice(0, 90 * 16)].every(Number.isFinite));
+    assert.ok([...spotMatrices.slice(0, 180 * 16)].every(Number.isFinite));
     assert.ok([...rayMatrices.slice(0, 52 * 16)].every(Number.isFinite));
 
-    club.tierSettings = { mirrorSpots: 48, mirrorRays: 32 };
+    club.tierSettings = { mirrorSpots: 96, mirrorRays: 32 };
     update.call(club, { time: 2, dtScale: 1 });
-    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 48);
+    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 96);
     assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 32);
+    club.tierSettings = { mirrorSpots: 280, mirrorRays: 64 };
+    update.call(club, { time: 3, dtScale: 1 });
+    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 280);
+    assert.ok([...spotMatrices].every(Number.isFinite));
+    assert.ok([...rayMatrices].every(Number.isFinite));
 
     // Reflections land on the real shell (ceiling slab, front wall), not on the narrower walkable band.
     const hit = {};
@@ -4809,14 +4884,68 @@ test('the bar layout leaves room for guests, stools and the bartender', () => {
 // Mezzanine
 // ---------------------------------------------------------------------------
 
+test('XR head height preserves low valid poses, ignores missing poses and resets between sessions', () => {
+    const warnings = [];
+    const { window } = loadClassic('js/mezzanine.js', { log: { warn: (...args) => warnings.push(args) } });
+    const observable = () => {
+        const observers = [];
+        return {
+            add(fn, _mask, first) { if (first) observers.unshift(fn); else observers.push(fn); return fn; },
+            remove(fn) { const i = observers.indexOf(fn); if (i >= 0) observers.splice(i, 1); },
+            notify(value) { for (const fn of observers) fn(value); }
+        };
+    };
+    const manager = { onXRFrameObservable: observable(), onXRSessionInit: observable(), baseReferenceSpace: {}, worldScalingFactor: 1 };
+    const club = Object.assign(Object.create(window.Mezzanine), { vrHelper: { baseExperience: { sessionManager: manager } } });
+    let sampledBeforeCamera = null;
+    manager.onXRFrameObservable.add(() => { sampledBeforeCamera = club._xrEyeHeight; });
+    assert.equal(club._xrHeadHeight(), null, 'no invented standing height before the first pose');
+    const camera = { position: { x: 0, y: 0.25, z: -12 } };
+    club._updateVRWalkSurface(camera);
+    assert.equal(camera.position.y, 0.25);
+    for (const height of [1.6, 0.9, 0.31, 0.30, 0.29, 0.25, 0, 0.25, 1.6]) {
+        manager.onXRFrameObservable.notify({ getViewerPose: () => ({ transform: { position: { y: height } } }) });
+        assert.equal(sampledBeforeCamera, height, 'the camera must not consume a previous-frame height');
+        camera.position.y = height;
+        club._updateVRWalkSurface(camera);
+        assert.equal(club._xrHeadHeight(), height);
+        assert.equal(camera.position.y, height, 'crouching must not move the virtual floor');
+        assert.equal(club._walkLevel, 0);
+    }
+    manager.onXRFrameObservable.notify({ getViewerPose: () => null });
+    assert.equal(club._xrHeadHeight(), 1.6);
+    manager.onXRFrameObservable.notify({ getViewerPose: () => ({ transform: { position: { y: NaN } } }) });
+    assert.equal(club._xrHeadHeight(), 1.6);
+    assert.equal(warnings.length, 1, 'invalid tracking must be reported');
+    manager.onXRSessionInit.notify();
+    assert.equal(club._xrHeadHeight(), null, 'a new session must not reuse old height calibration');
+    manager.worldScalingFactor = 2;
+    manager.onXRFrameObservable.notify({ getViewerPose: () => ({ transform: { position: { y: 0.25 } } }) });
+    camera.position = { x: -11, y: 3.5, z: -15 };
+    club._updateVRWalkSurface(camera);
+    assert.equal(camera.position.y, 3.5, 'low tracked height on the balcony stays on the deck');
+    assert.equal(club._walkLevel, 3);
+});
+
 test('in VR the headset stands on the balcony, climbs its stair, steps off its edge and keeps the DJ riser', () => {
     const { window } = loadClassic('js/mezzanine.js');
     const follow = window.Mezzanine._updateVRWalkSurface;
     const D = window.MezzanineLayout.deck, S = window.MezzanineLayout.stairs;
     const eye = 1.62;
     const club = Object.assign(Object.create(window.Mezzanine), { jumpState: { active: false }, _walkLevel: 0, _xrHeadHeight: () => camera.realWorldHeight });
-    const camera = { realWorldHeight: eye, position: { x: 0, y: eye, z: -12 } };
-    const at = (x, z, feet) => { camera.position.x = x; camera.position.z = z; if (feet !== undefined) camera.position.y = feet + eye; follow.call(club, camera); return +(camera.position.y - eye).toFixed(3); };
+    const camera = {
+        realWorldHeight: eye, position: { x: 0, y: eye, z: -12 },
+        _deferOnly: true, _deferredUpdated: true, _deferredPositionUpdate: { y: eye }
+    };
+    const at = (x, z, feet) => {
+        camera.position.x = x;
+        camera.position.z = z;
+        if (feet !== undefined) camera.position.y = feet + eye;
+        camera._deferredPositionUpdate.y = camera.position.y;
+        follow.call(club, camera);
+        assert.equal(camera._deferredPositionUpdate.y, camera.position.y, 'the queued XR step must not undo the surface correction');
+        return +(camera.position.y - eye).toFixed(3);
+    };
 
     // A teleport lands the feet on the deck: they stay there, and the body is told.
     assert.equal(at(-10.9, -14.7, D.top), D.top);
@@ -4838,6 +4967,12 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
         feet = next;
     }
     assert.equal(feet, D.top, 'the top of the stair is the deck');
+    for (let z = S.zTop; z <= S.zBottom + 0.6; z += 0.25) {
+        const next = at(mid, z);
+        assert.ok(next <= feet + 1e-9 && feet - next < 0.3, `the descent jumped from ${feet} to ${next}`);
+        feet = next;
+    }
+    assert.equal(feet, 0, 'the descent reaches the floor without hovering');
     // Under the deck is the floor, whatever is overhead.
     assert.equal(at(-11, -15, 0), 0);
     // Crouching lowers the eye and the tracked height together: the feet, and the surface, stay put.
@@ -4866,7 +5001,12 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     // The guard wraps the camera's own step once, and collisions can no longer lift the walker.
     const stepper = {
         position: { y: 1.6 }, cameraDirection: { x: 0, y: 0.3, z: -0.4 },
-        _updatePosition() { this.position.y += 2; this.moved = { ...this.cameraDirection }; }
+        _deferOnly: true, _deferredUpdated: true, _deferredPositionUpdate: { y: 1.6 },
+        _updatePosition() {
+            this.position.y += 2;
+            this._deferredPositionUpdate.y += 2;
+            this.moved = { ...this.cameraDirection };
+        }
     };
     const vrClub = Object.assign(Object.create(window.Mezzanine), { isInVRMode: true });
     vrClub._guardVRCameraSteps(stepper);
@@ -4875,7 +5015,67 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     assert.equal(stepper._updatePosition, wrapped, 'wrapped twice');
     stepper._updatePosition();
     assert.equal(stepper.position.y, 1.6);
+    assert.equal(stepper._deferredPositionUpdate.y, 1.6);
     assert.equal(stepper.moved.y, 0);
+});
+
+test('real Babylon deferred collisions allow XR stair entry and descent while keeping the rail solid', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/mezzanine.js');
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    scene.collisionsEnabled = true;
+    try {
+        const box = (name, width, height, depth, x, y, z, group = -1) => {
+            const mesh = BABYLON.MeshBuilder.CreateBox(name, { width, height, depth }, scene);
+            mesh.position.set(x, y, z);
+            mesh.checkCollisions = true;
+            mesh.collisionGroup = group;
+            mesh.computeWorldMatrix(true);
+            return mesh;
+        };
+        const { deck: D, stairs: S } = window.MezzanineLayout;
+        const midX = (S.x0 + S.x1) / 2;
+        const tread = (S.zBottom - S.zTop) / (S.steps - 1), riser = D.top / S.steps;
+        box('floor', 30, 0.1, 40, 0, -0.05, -10);
+        for (let i = 1; i < S.steps; i++) {
+            box(`tread${i}`, S.x1 - S.x0, 0.05, tread, midX, i * riser - 0.025, S.zBottom - (i - 0.5) * tread, 2);
+        }
+        const deck = box('deck', D.x1 - D.x0, D.thickness, D.z1 - D.z0,
+            (D.x0 + D.x1) / 2, D.top - D.thickness / 2, (D.z0 + D.z1) / 2, 2);
+        box('rail', 0.05, 1.08, D.z1 - D.z0, D.x1 - 0.04, D.top + 0.54, (D.z0 + D.z1) / 2);
+        const camera = new BABYLON.FreeCamera('xr', new BABYLON.Vector3(midX, 1.6, S.zBottom + 0.6), scene);
+        camera.ellipsoid.set(0.3, 0.8, 0.3);
+        camera.checkCollisions = true;
+        camera.collisionMask = ~deck.collisionGroup;
+        camera._deferOnly = true;
+        const club = Object.assign(Object.create(window.Mezzanine), {
+            isInVRMode: true, _xrHeadHeight: () => 1.6, engine: { getDeltaTime: () => 100 }
+        });
+        club._guardVRCameraSteps(camera);
+        const step = (x, z) => {
+            if (camera._deferredUpdated) camera.position.copyFrom(camera._deferredPositionUpdate);
+            camera._deferredUpdated = false;
+            camera._deferredPositionUpdate.copyFrom(camera.position);
+            camera.cameraDirection.set(x, 0, z);
+            camera._updatePosition();
+            club._updateVRWalkSurface(camera);
+        };
+        for (let i = 0; i < 60 && camera.position.z > -12.5; i++) step(0, -0.25);
+        assert.equal(club._walkLevel, 3, `stuck entering the stair at z=${camera.position.z}`);
+        assert.ok(Math.abs(camera.position.y - 4.6) < 0.02);
+        for (let i = 0; i < 60 && camera.position.z < -5.4; i++) step(0, 0.25);
+        assert.equal(club._walkLevel, 0);
+        assert.ok(Math.abs(camera.position.y - 1.6) < 0.02);
+        camera.position.set(-10.9, 4.6, -14.7);
+        camera._deferredUpdated = false;
+        for (let i = 0; i < 20; i++) step(0.25, 0);
+        assert.ok(camera.position.x < D.x1, 'excluding treads must not exclude the railing');
+        assert.equal(club._walkLevel, 3);
+    } finally {
+        scene.dispose();
+        engine.dispose();
+    }
 });
 
 test('the walking-surface follow climbs the stair and the deck but never snaps walkers off the floor', () => {

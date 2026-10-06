@@ -484,6 +484,7 @@ class VRClubLifecycle extends VRClubCore {
      * session wiring is readable on its own; behaviour is unchanged.
      */
     _setupXRSession(vrHelper) {
+        if (vrHelper?.baseExperience) this._xrHeadHeight();
         // Subscribe before session entry. Some runtimes publish controller identities
         // between session creation and the IN_XR state callback below.
         if (vrHelper?.input) {
@@ -511,9 +512,10 @@ class VRClubLifecycle extends VRClubCore {
             vrHelper.baseExperience.onStateChangedObservable.add((state) => {
                 if (state === BABYLON.WebXRState.IN_XR) {
                     try {
-                        // GRAVITY & COLLISIONS: gravity itself is owned by the comfort mode.
+                        // Surface following owns height; the camera's collision solver owns horizontal clearance.
                         const xrCamera = vrHelper.baseExperience.camera;
                         xrCamera.checkCollisions = true;
+                        xrCamera.collisionMask = this._mezzDeck ? ~this._mezzDeck.collisionGroup : -1;
                         // Set ellipsoid for collision detection (approximate human size)
                         xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.8, 0.3); // Lower height
                         xrCamera.inertia = 0.1; // Reduce sliding (default 0.9)
@@ -536,7 +538,7 @@ class VRClubLifecycle extends VRClubCore {
                         this.recordDiagnostic('xr', 'VR controller binding failed', { error: String(e && e.message || e) });
                     }
                     // Swaps teleportation <-> smooth movement per the comfort preference
-                    // and applies gravity; failures are reported, never thrown.
+                    // with camera gravity disabled; failures are reported, never thrown.
                     this.setVRComfortMode(this.vrComfortMode);
                 }
             });
@@ -703,16 +705,18 @@ class VRClubLifecycle extends VRClubCore {
         const state = this.jumpState;
         xrCamera.position.y += state.velocity * dt;
         state.velocity -= 9.81 * dt;
-        if (state.velocity >= 0) return;
-        const ground = this._pickJumpGround(xrCamera, state.eyeHeight + 0.8);
-        if (ground && ground.distance <= state.eyeHeight + 0.05) {
-            state.active = false;
-            xrCamera.position.y = ground.pickedPoint.y + state.eyeHeight;
-        } else if (xrCamera.position.y < state.startY - 1.0) {
-            // No collidable ground below: never fall forever.
-            state.active = false;
-            xrCamera.position.y = state.startY;
+        if (state.velocity < 0) {
+            const ground = this._pickJumpGround(xrCamera, state.eyeHeight + 0.8);
+            if (ground && ground.distance <= state.eyeHeight + 0.05) {
+                state.active = false;
+                xrCamera.position.y = ground.pickedPoint.y + state.eyeHeight;
+            } else if (xrCamera.position.y < state.startY - 1.0) {
+                // No collidable ground below: never fall forever.
+                state.active = false;
+                xrCamera.position.y = state.startY;
+            }
         }
+        if (xrCamera._deferOnly && xrCamera._deferredUpdated) xrCamera._deferredPositionUpdate.y = xrCamera.position.y;
         // Gravity stays off after landing: the walking-surface follow owns the headset's height.
     }
 

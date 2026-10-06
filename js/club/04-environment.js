@@ -395,23 +395,9 @@ class VRClubEnvironment extends VRClubRendering {
             alpha: 0 // Completely invisible
         });
         
-        // Room perimeter walls (using ROOM_BOUNDS constants)
+        // The visible shell already collides. The old perimeter band put an invisible
+        // partition across open floor at z=-5; only equipment clearance belongs here.
         const boundaries = [
-            // Left wall
-            { width: 0.5, height: 4, depth: ROOM_BOUNDS.z.depth, 
-              pos: new BABYLON.Vector3(ROOM_BOUNDS.x.min, 2, (ROOM_BOUNDS.z.min + ROOM_BOUNDS.z.max) / 2) },
-            // Right wall
-            { width: 0.5, height: 4, depth: ROOM_BOUNDS.z.depth, 
-              pos: new BABYLON.Vector3(ROOM_BOUNDS.x.max, 2, (ROOM_BOUNDS.z.min + ROOM_BOUNDS.z.max) / 2) },
-            // Back wall
-            { width: ROOM_BOUNDS.x.width, height: 4, depth: 0.5, 
-              pos: new BABYLON.Vector3(0, 2, ROOM_BOUNDS.z.min) },
-            // Front wall (partial - leave entrance open)
-            { width: 10.5, height: 4, depth: 0.5, 
-              pos: new BABYLON.Vector3(-7.25, 2, ROOM_BOUNDS.z.max) },
-            { width: 10.5, height: 4, depth: 0.5, 
-              pos: new BABYLON.Vector3(7.25, 2, ROOM_BOUNDS.z.max) },
-            
             // DJ Booth protection area (prevent walking through equipment)
             { width: 8, height: 2, depth: 0.5, 
               pos: new BABYLON.Vector3(0, 1, -17.8) }, // Front of DJ booth

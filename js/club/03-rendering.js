@@ -651,9 +651,7 @@ class VRClubRendering extends VRClubLifecycle {
             return mesh;
         });
 
-        // The visible shell is the venue boundary. The invisible collisionWall band is
-        // only 4 m tall and open at the entrance, so without this a desktop visitor
-        // walked out through the front wall or flew over the band and through a side wall.
+        // Walking and teleport blockers both use the visible shell, including its doorway.
         for (const wall of [backWall, leftWall, rightWall, ...frontPieces]) wall.checkCollisions = true;
         
         // Add industrial wall details

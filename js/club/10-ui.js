@@ -293,11 +293,6 @@ class VRClubUI extends VRClubAnimationFinish {
         this._pendingTimers.add(id);
     }
 
-    /** Visible geometry the VR teleport arc must not pass through. */
-    static get TELEPORT_BLOCKERS() {
-        return ['frontWall', 'frontWallRight', 'frontWallLintel', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop'];
-    }
-
     /** Longest the Enter VR button waits for background model loading. */
     static get VR_ENTRY_MAX_WAIT_MS() { return 30000; }
 
@@ -1131,6 +1126,11 @@ class VRClubUI extends VRClubAnimationFinish {
         return [this.floorMesh, this._mezzDeck].filter(Boolean);
     }
 
+    _teleportBlockerMeshes() {
+        const floors = this._teleportFloorMeshes();
+        return this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+    }
+
     _xrMovementOptions() {
         return {
             xrInput: this.vrHelper.input,
@@ -1140,10 +1140,13 @@ class VRClubUI extends VRClubAnimationFinish {
             rotationEnabled: true,
             rotationSpeed: 0.8,
             rotationThreshold: 0.2,
-            // Follow the flattened controller direction, not head pitch, so looking up
-            // while pushing forward never lifts the player off the floor.
-            movementOrientationFollowsViewerPose: false,
-            movementOrientationFollowsController: true
+            movementOrientationFollowsViewerPose: true,
+            movementOrientationFollowsController: false,
+            // Reuse Babylon's dead-zone handlers, swapping its default right-walk/left-turn layout.
+            customRegistrationConfigurations: BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => ({
+                ...registration,
+                forceHandedness: registration.forceHandedness === 'left' ? 'right' : 'left'
+            }))
         };
     }
 
@@ -1189,14 +1192,12 @@ class VRClubUI extends VRClubAnimationFinish {
                 teleport.rotationEnabled = true;
                 teleport.rotationAngle = Math.PI / 6;
                 teleport.backwardsMovementEnabled = false;
-                // Babylon's teleport ray tests only floor and blocker meshes, and the floor
-                // slab runs 5-12 m past the brick shell: without blockers the arc passed
-                // through the walls and landed the player outside the venue, or under the
-                // DJ platform. Remove-then-add keeps re-application idempotent.
+                // Use the same geometry as walking, excluding walkable floors. This includes
+                // the vestibule, bar, rails and equipment added after the original room.
                 if (typeof teleport.addBlockerMesh === 'function' && this.scene) {
-                    for (const name of VRClubUI.TELEPORT_BLOCKERS) {
-                        const mesh = this.scene.getMeshByName(name);
-                        if (!mesh) continue;
+                    for (const mesh of this._xrTeleportBlockers || []) teleport.removeBlockerMesh(mesh);
+                    this._xrTeleportBlockers = this._teleportBlockerMeshes();
+                    for (const mesh of this._xrTeleportBlockers) {
                         teleport.removeBlockerMesh(mesh);
                         teleport.addBlockerMesh(mesh);
                     }
@@ -1236,18 +1237,24 @@ class VRClubUI extends VRClubAnimationFinish {
         
         const p = presets[preset];
         if (p) {
-            this._walkLevel = p.level || 0;
             const xrCamera = this.isInVRMode ? this.vrHelper?.baseExperience?.camera : null;
             if (xrCamera) {
-                const height = typeof this._xrHeadHeight === 'function' ? this._xrHeadHeight() : 1.6;
+                const height = this._xrHeadHeight();
+                if (!Number.isFinite(height)) {
+                    this.showErrorMessage('Head tracking is not ready. Please try the destination again.');
+                    return;
+                }
                 xrCamera.position.x = p.pos.x;
                 xrCamera.position.z = p.pos.z;
                 xrCamera.position.y = height + (preset === 'djBooth' ? 0.5 : (p.level || 0));
+                if (xrCamera._deferOnly && xrCamera._deferredUpdated) xrCamera._deferredPositionUpdate.copyFrom(xrCamera.position);
                 if (this.jumpState) this.jumpState.active = false;
             } else {
                 this.camera.position.copyFrom(p.pos);
                 this.camera.setTarget(p.target);
             }
+            this._walkLevel = p.level || 0;
+            this._vrFallSpeed = 0;
             this.showCameraTransitionFeedback(p.label);
         }
     }

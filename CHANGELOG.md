@@ -38,6 +38,23 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **VR navigation now defaults to left-stick, head-directed walking and right-stick smooth turning.**
+  Existing saved Comfort preferences are preserved; teleport/snap turn remains available on the splash
+  and quick menu. Looking up/down does not create flight. Valid low/zero tracked head heights are no
+  longer replaced by a 1.6 m fallback, the first pose is sampled before camera processing, and session
+  entry resets the height sample. Missing tracking holds the last valid sample rather than moving the floor.
+- **Stair following also corrects Babylon's queued XR height**, not just the visible camera position.
+  The queued collision adjustment could otherwise lift the walker or undo a descent on the next frame.
+  XR horizontal collision excludes the deck/tread mesh so its risers cannot stop entry before the
+  surface follower lifts the player; walls, rails and furniture remain solid.
+- **Removed the invisible partition across open entrance-area floor.** The visible collidable walls now
+  own the shell boundary; equipment guards remain. Teleport blockers come from the same collidable venue
+  meshes (excluding walk surfaces), so the vestibule, bar and mezzanine are no longer omitted.
+- **Rotating laser beams move at one quarter of their previous speed**, with the existing speed slider
+  retained. Laser-sheet choreography is unchanged.
+- **Doubled mirror-ball surface spots:** Balanced/Quest 96, High 180, Ultra 280. The outgoing rays
+  and two thin-instance draw batches are unchanged. Quest GPU cost still needs a headset measurement.
+- Declared the existing `ROOM_INTERIOR` classic-script global in ESLint, restoring the local lint gate.
 - **The brick walls were stretched.** A box gives each face the whole texture once, however big the face, and on the side faces the texture ran sideways. The 45 m side walls smeared each brick about 3x and turned the courses vertical. The walls, brick fins, pillars and ceiling now get UVs from their real size (`_applyWorldUVs`): a 1.5 m tile on the walls, 3 m on the concrete, upright.
 - **Strobes no longer read as the room being lit.** Switching strobes on from the menu hands the show
   over to manual mode, where they run on a free-running timer: a burst lasted 90 ms (7 frames in a

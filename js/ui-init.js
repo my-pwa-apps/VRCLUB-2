@@ -239,7 +239,7 @@ const mainExperience = document.getElementById('mainExperience');
 (function initSplashVRComfort() {
     const checkbox = document.getElementById('splashVRComfort');
     if (!checkbox) return;
-    try { checkbox.checked = localStorage.getItem('vrclub.vrComfort') !== '0'; } catch (_) {}
+    checkbox.checked = VRClubCore.resolveVRComfortMode();
     checkbox.addEventListener('change', () => {
         try { localStorage.setItem('vrclub.vrComfort', checkbox.checked ? '1' : '0'); } catch (_) {}
         if (window.vrClub) window.vrClub.setVRComfortMode(checkbox.checked);
@@ -1661,4 +1661,3 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         window.location.reload();
     });
 }
-

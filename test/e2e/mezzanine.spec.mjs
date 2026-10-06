@@ -32,6 +32,7 @@ test('the steel mezzanine is built, lit by its own accent, climbable and fenced'
         const edge = walk(new BABYLON.Vector3(-10.6, 4.8, -14.0), new BABYLON.Vector3(0.12, 0, 0), 80);
         club._walkLevel = 0;
         const beneath = walk(new BABYLON.Vector3(-8, 1.7, -14), new BABYLON.Vector3(-0.12, 0, 0), 80);
+        const entranceRoutes = [-6, 6].map(x => walk(new BABYLON.Vector3(x, 1.7, -4), new BABYLON.Vector3(0, 0, -0.1), 30));
         camera.position.copyFrom(start);
         club._walkLevel = startLevel;
 
@@ -45,7 +46,7 @@ test('the steel mezzanine is built, lit by its own accent, climbable and fenced'
             roomSlots: slots(byName('leftWall')),
             stools: (club._mezzStools || []).length,
             guest: club.npcAvatars.find(npc => npc.name === 'guest3')?.root.position.y ?? null,
-            climbed, edge, beneath, top: layout.deck.top, edgeX: layout.deck.x1,
+            climbed, edge, beneath, entranceRoutes, top: layout.deck.top, edgeX: layout.deck.x1,
             maxLights: club.maxLights
         };
     });
@@ -65,6 +66,7 @@ test('the steel mezzanine is built, lit by its own accent, climbable and fenced'
     // Walking beneath the deck stays on the floor.
     expect(state.beneath.level).toBe(0);
     expect(state.beneath.y).toBeLessThan(2);
+    for (const route of state.entranceRoutes) expect(route.z).toBeLessThan(-6.5);
     await expectHealthyRuntime(page);
 });
 
@@ -124,7 +126,9 @@ test('in VR the balcony and its stair can be reached by teleport, stood on, and 
     expect(onDeck.y - onDeck.eye).toBeCloseTo(3, 1);
     expect(onDeck.x).toBeLessThan(-9.5);
 
-    // Aim back over the edge to the dance floor: the headset leaves the balcony.
+    // Raise the hand to clear the newly respected solid rail, rather than aim through it.
+    await page.evaluate(() => window.__iwerDevice.controllers.right.position.set(0.25, 2.1, 0));
+    await frames(4);
     const back = await teleportTo([-3.0, 0, -14.7]);
     expect(back.level).toBe(0);
     expect(back.y - back.eye).toBeCloseTo(0, 1);
@@ -132,7 +136,8 @@ test('in VR the balcony and its stair can be reached by teleport, stood on, and 
     // A tread halfway up the stair is a floor too.
     await page.evaluate(() => {
         const cam = window.vrClub.vrHelper.baseExperience.camera;
-        cam.position.x = -8.8; cam.position.z = -8.0;
+        cam.position.x = -11.4; cam.position.z = -5.8;
+        window.__iwerDevice.controllers.right.position.set(0.25, 1.25, 0);
     });
     await frames(4);
     const onStair = await teleportTo([-11.4, 1.5, -8.3]);
@@ -150,19 +155,19 @@ test('in VR with comfort off the stair can be walked up onto the balcony and bac
     await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
     await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
     await page.evaluate(() => window.vrClub.setVRComfortMode(false));
-    // Walk with the right stick (Babylon's default: right moves, left turns), inside the page so no frame is lost to
+    // Walk with the left stick, inside the page so no frame is lost to
     // a round trip, until the walker passes `stopZ` in the walking direction or the frames run out.
     const walk = (stickY, stopZ) => page.evaluate(async ([y, limit]) => {
         const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
-        const right = window.__iwerDevice.controllers.right;
+        const left = window.__iwerDevice.controllers.left;
         const trace = [];
-        right.updateAxes('thumbstick', 0, y);
+        left.updateAxes('thumbstick', 0, y);
         for (let i = 0; i < 600; i++) {
             await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
             trace.push({ x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight() });
             if (y < 0 ? cam.position.z < limit : cam.position.z > limit) break;
         }
-        right.updateAxes('thumbstick', 0, 0);
+        left.updateAxes('thumbstick', 0, 0);
         return trace;
     }, [stickY, stopZ]);
 
@@ -184,6 +189,7 @@ test('in VR with comfort off the stair can be walked up onto the balcony and bac
     }
 
     const down = await walk(1, -5.4);
+    await test.info().attach('stair-walk.json', { body: JSON.stringify({ up, down }), contentType: 'application/json' });
     const bottom = down[down.length - 1];
     expect(bottom.level, `walked back to z ${bottom.z.toFixed(2)} but stood at ${bottom.level}`).toBe(0);
     expect(bottom.y - bottom.eye).toBeCloseTo(0, 1);
