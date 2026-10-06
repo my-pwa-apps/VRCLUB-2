@@ -104,8 +104,10 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.strobesActive && !this.photosensitiveSafeMode) brightness += 0.12 * master;
         brightness += (ctx.beat || 0) * 0.10;
 
-        // Stopping down is capped harder than opening up so a blackout never blows out.
-        const target = base * Math.max(0.78, Math.min(1.22, 1.22 - brightness * 0.42));
+        // Stopping down is capped harder than opening up so a blackout never blows out. In the headset the
+        // iris never opens past the base exposure: a dark room must stay dark until the show lights it.
+        const open = this.isInVRMode ? 1.0 : 1.22;
+        const target = base * Math.max(0.78, Math.min(open, 1.22 - brightness * 0.42));
         // Fast constrict, slow dilate - the real asymmetry of the pupil reflex.
         const rate = target < this._adaptedExposure ? 0.10 : 0.012;
         this._adaptedExposure += (target - this._adaptedExposure) * Math.min(1, rate * ctx.dtScale);
@@ -149,11 +151,10 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.lasersActive) reflectedEnergy += 0.070;
         if (this.laserSheetActive) reflectedEnergy += 0.090;
         if (this.mirrorBallActive) reflectedEnergy += 0.080;
-        reflectedEnergy *= master;
+        reflectedEnergy *= master * (this.isInVRMode ? 0.6 : 1);
 
-        // Same bounce in both modes: the headset had a 1.3x boost and a higher cap (0.34), which
-        // washed out the very contrast that makes the beams read in VR.
-        const maxBounce = this.isInVRMode ? 0.22 : 0.28;
+        // The headset gets less bounce, not more: flat fill is what kills contrast at life size.
+        const maxBounce = this.isInVRMode ? 0.15 : 0.28;
         const targetIntensity = Math.min(maxBounce, settings.ambientIntensity + reflectedEnergy);
         const retention = 1 - Math.pow(1 - 0.045, ctx.dtScale);
         ambient.intensity += (targetIntensity - ambient.intensity) * retention;

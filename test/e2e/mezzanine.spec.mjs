@@ -67,3 +67,128 @@ test('the steel mezzanine is built, lit by its own accent, climbable and fenced'
     expect(state.beneath.y).toBeLessThan(2);
     await expectHealthyRuntime(page);
 });
+
+/** Quaternion [x, y, z, w] that turns the controller's pointing axis (-z) onto an XR-space direction. */
+const aimQuaternion = ([x, y, z]) => {
+    const l = Math.hypot(x, y, z);
+    const q = [y / l, -x / l, 0, 1 - z / l];
+    const n = Math.hypot(...q) || 1;
+    return q.map(v => v / n);
+};
+
+test('in VR the balcony and its stair can be reached by teleport, stood on, and left', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    const vrButton = page.locator('#vrButton');
+    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
+    await vrButton.click();
+    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
+    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    const frames = n => page.evaluate(async count => {
+        const scene = window.vrClub.scene;
+        for (let i = 0; i < count; i++) await new Promise(r => scene.onAfterRenderObservable.addOnce(r));
+    }, n);
+
+    const teleportTo = async target => {
+        const hand = await page.evaluate(() => {
+            const c = window.vrClub._xrControllers.find(ctrl => ctrl.inputSource.handedness === 'right');
+            c.pointer.computeWorldMatrix(true);
+            return c.pointer.getAbsolutePosition().asArray();
+        });
+        // The headset faces -z (the stage) and Babylon mirrors x between XR space and the world.
+        const d = [target[0] - hand[0], target[1] - hand[1], target[2] - hand[2]];
+        await page.evaluate(q => window.__iwerDevice.controllers.right.quaternion.set(...q), aimQuaternion([-d[0], d[1], d[2]]));
+        await frames(4);
+        await page.evaluate(() => window.__iwerDevice.controllers.right.updateAxes('thumbstick', 0, -1));
+        await frames(12);
+        await page.evaluate(() => window.__iwerDevice.controllers.right.updateAxes('thumbstick', 0, 0));
+        await frames(12);
+        return page.evaluate(() => new Promise(resolve => {
+            const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+            club.scene.onBeforeRenderObservable.addOnce(() => resolve({
+                x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel,
+                eye: club._xrHeadHeight(), floors: (club.vrHelper.teleportation._floorMeshes || []).map(m => m.name)
+            }));
+        }));
+    };
+
+    // Stand on the dance floor beside the balcony and aim at its deck.
+    await page.evaluate(() => {
+        const cam = window.vrClub.vrHelper.baseExperience.camera;
+        cam.position.x = -7.4; cam.position.z = -14.7;
+    });
+    await frames(4);
+    const onDeck = await teleportTo([-10.8, 3.0, -14.7]);
+    expect(onDeck.floors).toContain('mezzDeck');
+    expect(onDeck.level, 'the teleport landed on the balcony deck').toBe(3);
+    expect(onDeck.y - onDeck.eye).toBeCloseTo(3, 1);
+    expect(onDeck.x).toBeLessThan(-9.5);
+
+    // Aim back over the edge to the dance floor: the headset leaves the balcony.
+    const back = await teleportTo([-3.0, 0, -14.7]);
+    expect(back.level).toBe(0);
+    expect(back.y - back.eye).toBeCloseTo(0, 1);
+
+    // A tread halfway up the stair is a floor too.
+    await page.evaluate(() => {
+        const cam = window.vrClub.vrHelper.baseExperience.camera;
+        cam.position.x = -8.8; cam.position.z = -8.0;
+    });
+    await frames(4);
+    const onStair = await teleportTo([-11.4, 1.5, -8.3]);
+    expect(onStair.level, 'the teleport landed on the stair').toBeGreaterThan(0.8);
+    expect(onStair.level).toBeLessThan(3);
+    await expectHealthyRuntime(page);
+});
+
+test('in VR with comfort off the stair can be walked up onto the balcony and back down with the thumbstick', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    const vrButton = page.locator('#vrButton');
+    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
+    await vrButton.click();
+    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
+    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await page.evaluate(() => window.vrClub.setVRComfortMode(false));
+    const sample = () => page.evaluate(() => new Promise(resolve => {
+        const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+        club.scene.onAfterRenderObservable.addOnce(() => resolve({
+            x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight()
+        }));
+    }));
+    // Walk the left stick until the walker has gone `until` or the frames run out; returns every sample.
+    const walk = async (stickY, until, maxFrames = 120) => {
+        const trace = [];
+        await page.evaluate(y => window.__iwerDevice.controllers.left.updateAxes('thumbstick', 0, y), stickY);
+        for (let i = 0; i < maxFrames; i++) {
+            const s = await sample();
+            trace.push(s);
+            if (until(s)) break;
+        }
+        await page.evaluate(() => window.__iwerDevice.controllers.left.updateAxes('thumbstick', 0, 0));
+        return trace;
+    };
+
+    // Stand on the floor at the foot of the stair, facing up it (-z, the way the headset faces).
+    await page.evaluate(() => {
+        const cam = window.vrClub.vrHelper.baseExperience.camera;
+        cam.position.x = -11.4; cam.position.z = -5.4;
+    });
+    await sample();
+
+    const up = await walk(-1, s => s.z < -12.5);
+    const top = up[up.length - 1];
+    expect(top.level, `walked to z ${top.z.toFixed(2)} but stood at ${top.level}`).toBe(3);
+    expect(top.y - top.eye).toBeCloseTo(3, 1);
+    // Every frame of the climb is a step at most, never a jump.
+    for (let i = 1; i < up.length; i++) {
+        expect(up[i].level - up[i - 1].level).toBeLessThan(0.75);
+        expect(up[i].level).toBeGreaterThanOrEqual(up[i - 1].level - 1e-6);
+    }
+
+    const down = await walk(1, s => s.z > -5.0);
+    const bottom = down[down.length - 1];
+    expect(bottom.level, `walked back to z ${bottom.z.toFixed(2)} but stood at ${bottom.level}`).toBe(0);
+    expect(bottom.y - bottom.eye).toBeCloseTo(0, 1);
+    await expectHealthyRuntime(page);
+});

@@ -717,7 +717,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     await page.waitForFunction(() => window.vrClub?._vrQuickMenuRoot?.isEnabled() === true);
     await page.evaluate(() => window.__iwerDevice.controllers.left.updateButtonValue('y-button', 0));
 
-    const menuState = await page.evaluate(() => {
+    const menuState = await page.evaluate(async () => {
         const club = window.vrClub;
         const smokeButton = club._vrQuickMenuButtons.find(button => button.control === 'smokeActive');
         const smokeBefore = club.smokeActive;
@@ -728,7 +728,20 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             textureOnlyEmission: club._vrQuickMenuButtons.every(button =>
                 button.material.emissiveTexture === button.texture &&
                 button.material.emissiveColor.equalsFloats(0, 0, 0)),
-            parentIsXRCamera: club._vrQuickMenuRoot.parent === club.vrHelper.baseExperience.camera,
+            worldLocked: club._vrQuickMenuRoot.parent === null,
+            stillAfterHeadTurn: await (async () => {
+                const root = club._vrQuickMenuRoot;
+                const before = root.getAbsolutePosition().clone();
+                const device = window.__iwerDevice;
+                const q = device.quaternion;
+                const saved = [q.x, q.y, q.z, q.w];
+                device.quaternion.set(0, Math.sin(0.35), 0, Math.cos(0.35)); // turn the head ~40 degrees
+                for (let i = 0; i < 6; i++) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+                const moved = root.getAbsolutePosition().subtract(before).length();
+                device.quaternion.set(...saved);
+                for (let i = 0; i < 3; i++) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+                return moved < 1e-4;
+            })(),
             smokeChanged: club.smokeActive !== smokeBefore,
             manualMode: club.vjManualMode
         };
@@ -737,7 +750,8 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         enabled: true,
         buttonCount: 15,
         textureOnlyEmission: true,
-        parentIsXRCamera: true,
+        worldLocked: true,
+        stillAfterHeadTurn: true,
         smokeChanged: true,
         manualMode: true
     });

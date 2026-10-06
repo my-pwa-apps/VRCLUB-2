@@ -235,7 +235,7 @@ const Mezzanine = {
      */
     _updateVRWalkSurface(camera) {
         if (this.jumpState && this.jumpState.active) return;
-        const eye = Number.isFinite(camera.realWorldHeight) && camera.realWorldHeight > 0.3 ? camera.realWorldHeight : 1.6;
+        const eye = this._xrHeadHeight();
         const feet = camera.position.y - eye;
         const x = camera.position.x, z = camera.position.z;
         let next = MEZZANINE.walkLevel(x, z, feet);
@@ -245,6 +245,25 @@ const Mezzanine = {
         if (next === 0 && x > R.x0 && x < R.x1 && z > R.z0 && z < R.z1 && Math.abs(feet - R.top) < 0.3) next = R.top;
         if (Math.abs(feet - next) > 0.02) camera.position.y = next + eye;
         this._walkLevel = next;
+    },
+
+    /**
+     * The headset's height above the physical floor. WebXRCamera.realWorldHeight reads the XR frame and throws
+     * (InvalidStateError) when read outside the frame callback, which a scene observer can be: it threw on every
+     * frame and the balcony follow never ran. Sample it inside the XR frame instead and keep the last value.
+     */
+    _xrHeadHeight() {
+        const sessionManager = this.vrHelper && this.vrHelper.baseExperience && this.vrHelper.baseExperience.sessionManager;
+        if (sessionManager && this._xrHeightSource !== sessionManager) {
+            this._xrHeightSource = sessionManager;
+            sessionManager.onXRFrameObservable.add(frame => {
+                try {
+                    const pose = frame.getViewerPose(sessionManager.baseReferenceSpace);
+                    if (pose) this._xrEyeHeight = pose.transform.position.y * (sessionManager.worldScalingFactor || 1);
+                } catch (_) { /* a frame without a pose keeps the last height */ }
+            });
+        }
+        return this._xrEyeHeight > 0.3 ? this._xrEyeHeight : 1.6;
     }
 };
 window.Mezzanine = Mezzanine;

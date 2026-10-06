@@ -136,9 +136,18 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 ### Changed
 
 - **Lighting rig pulled in over the dance floor**: the side cross beams, their six moving heads and the two
-  side lasers moved from x ±8 to x ±7 (`CLUB_POSITIONS.sideTrussX`), 2.5 m clear of the balcony and the bar
-  (was 1.5 m), still clear of the flown PA and the fog machines. The side lasers were also fixed: they were
+  side lasers moved from x ±8 to x ±7.6 (`CLUB_POSITIONS.sideTrussX`), further from the balcony and the bar,
+  and 0.8 m clear of the flown PA cabinets. The side lasers were also fixed: they were
   offset along the rotated beam's wrong axis and hung 2 m off it (x -10 and +6); they now hang on their beams.
+- **VR is lit by the show**: the headset's base room fill dropped from 0.10 to 0.015, environment reflections
+  from 0.65 to 0.25, fixture bounce is 0.6x the desktop's (it was 1.3x) with a lower cap, and the headset's eye
+  adaptation no longer brightens a dark room. Mirror-ball reflected shafts are about twice as visible.
+- **The balcony and its stair work in VR**: the deck and every tread are teleport floors, and the headset is
+  held on whatever surface is under its feet. The previous follow read `realWorldHeight` outside the XR
+  frame, which throws, so it never ran. Covered by a Quest-emulator test.
+- **Laser sheet**: the bright line where the fan met the floor is removed.
+- **The VR quick menu stays put**: it opens 1.8 m ahead where you are looking, upright and facing you, and is
+  then fixed in the room instead of following every head movement.
 - **Credits are a collapsed "ⓘ Credits & licences" disclosure** in the bottom-left corner instead of an
   always-open panel over the scene; the intro screen names every CC BY creator.
 - **Renamed to NOCTURNE** everywhere a visitor sees the name: the intro screen, the browser tab, the

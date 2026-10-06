@@ -3744,6 +3744,7 @@ test('VR viewpoints preserve seated eye height and orientation without moving th
         isInVRMode: true,
         vrHelper: { baseExperience: { camera: xrCamera } },
         camera: { position: desktopPosition.clone() },
+        _xrHeadHeight: () => 1.15,
         showCameraTransitionFeedback() {}
     };
     const move = window.VRClubUI.prototype.moveCameraToPreset;
@@ -4153,7 +4154,7 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
         scene: { getLightByName: () => ambient },
         vrSettings: {
             desktop: { ambientIntensity: 0.08 },
-            vr: { ambientIntensity: 0.05 }
+            vr: { ambientIntensity: 0.015 }
         },
         cachedColors: { white: new BABYLON.Color3(1, 1, 1) },
         currentSpotColor: new BABYLON.Color3(0.2, 0.4, 1),
@@ -4175,9 +4176,9 @@ test('visual-only fixtures contribute bounded room bounce in desktop and VR', ()
     assert.ok(Math.abs(settle({ vr: false, mirror: true }) - 0.16) < 0.001);
     assert.ok(Math.abs(settle({ vr: false, lasers: true }) - 0.15) < 0.001);
     assert.ok(Math.abs(settle({ vr: false, spots: true }) - 0.20) < 0.001);
-    assert.ok(Math.abs(settle({ vr: true, mirror: true }) - 0.13) < 0.001);
-    assert.ok(Math.abs(settle({ vr: true, lasers: true }) - 0.12) < 0.001);
-    assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.22) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, mirror: true }) - 0.063) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, lasers: true }) - 0.057) < 0.001);
+    assert.ok(Math.abs(settle({ vr: true, spots: true, lasers: true, mirror: true }) - 0.15) < 0.001);
     // The headset must never be lit more flatly than the desktop for the same rig.
     assert.ok(settle({ vr: true, spots: true }) <= settle({ vr: false, spots: true }));
 });
@@ -4813,7 +4814,7 @@ test('in VR the headset stands on the balcony, climbs its stair, steps off its e
     const follow = window.Mezzanine._updateVRWalkSurface;
     const D = window.MezzanineLayout.deck, S = window.MezzanineLayout.stairs;
     const eye = 1.62;
-    const club = { jumpState: { active: false }, _walkLevel: 0 };
+    const club = { jumpState: { active: false }, _walkLevel: 0, _xrHeadHeight: () => camera.realWorldHeight };
     const camera = { realWorldHeight: eye, position: { x: 0, y: eye, z: -12 } };
     const at = (x, z, feet) => { camera.position.x = x; camera.position.z = z; if (feet !== undefined) camera.position.y = feet + eye; follow.call(club, camera); return +(camera.position.y - eye).toFixed(3); };
 

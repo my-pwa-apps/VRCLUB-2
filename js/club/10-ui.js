@@ -550,15 +550,30 @@ class VRClubUI extends VRClubAnimationFinish {
             ? this.vrHelper?.baseExperience?.camera : this.scene.activeCamera;
         if (!camera) return false;
         const next = force === undefined ? !this._vrQuickMenuRoot.isEnabled() : !!force;
-        if (next) {
-            this._vrQuickMenuRoot.parent = camera;
-            this._vrQuickMenuRoot.position.set(0, -0.10, 1.8);
-            this._vrQuickMenuRoot.rotation.set(0, 0, 0);
-            this._refreshVRQuickMenu();
-        }
+        if (next) this._placeVRQuickMenu(camera);
+        if (next) this._refreshVRQuickMenu();
         this._vrQuickMenuRoot.setEnabled(next);
         this.pulseHaptic(next ? 0.8 : 0.35, 35);
         return next;
+    }
+
+    /**
+     * World-lock the menu where the player is looking when it opens: 1.8 m ahead along the horizontal gaze, a
+     * little below eye level, upright and turned to face them. Parenting it to the head made it follow every head
+     * movement, which is uncomfortable in a headset and makes the buttons hard to aim at.
+     */
+    _placeVRQuickMenu(camera) {
+        const root = this._vrQuickMenuRoot;
+        const eye = camera.globalPosition || camera.position;
+        const forward = camera.getDirection(BABYLON.Axis.Z);
+        let fx = forward.x, fz = forward.z;
+        const flat = Math.hypot(fx, fz);
+        if (flat < 1e-3) { fx = 0; fz = -1; } else { fx /= flat; fz /= flat; } // looking straight up or down
+        root.parent = null;
+        root.position.set(eye.x + fx * 1.8, eye.y - 0.1, eye.z + fz * 1.8);
+        root.rotationQuaternion = null;
+        root.rotation.set(0, Math.atan2(fx, fz), 0);
+        root.computeWorldMatrix(true);
     }
 
     setupVJControlInteraction() {
@@ -1221,8 +1236,7 @@ class VRClubUI extends VRClubAnimationFinish {
             this._walkLevel = p.level || 0;
             const xrCamera = this.isInVRMode ? this.vrHelper?.baseExperience?.camera : null;
             if (xrCamera) {
-                const height = Number.isFinite(xrCamera.realWorldHeight) && xrCamera.realWorldHeight > 0
-                    ? xrCamera.realWorldHeight : xrCamera.position.y;
+                const height = typeof this._xrHeadHeight === 'function' ? this._xrHeadHeight() : 1.6;
                 xrCamera.position.x = p.pos.x;
                 xrCamera.position.z = p.pos.z;
                 xrCamera.position.y = height + (preset === 'djBooth' ? 0.5 : (p.level || 0));

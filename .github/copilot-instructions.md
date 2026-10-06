@@ -581,7 +581,7 @@ and fail `npm test`.
 - Bar: along the right wall, `x 9.7..12.25`, `z -13.8..-6`
 - PA speakers: flown from the rear truss at `x = ±6`, cabinet top `y = 7.1`, `z = -16`
 - Lighting rig side cross beams, their six moving heads and the two side lasers:
-  `x = ±CLUB_POSITIONS.sideTrussX` (7), over the dance floor and clear of the balcony and the bar
+  `x = ±CLUB_POSITIONS.sideTrussX` (7.6), over the dance floor, clear of the balcony, the bar and the flown PA
 
 Treat `CLUB_POSITIONS` and `ROOM_BOUNDS` as the source of truth; do not re-derive
 coordinates from documentation. The bar and vestibule numbers live in `window.VenueLayout`
@@ -627,9 +627,13 @@ bar's stool GLB instanced twice. Textures are Poly Haven `steelDeck` / `steelPan
 - **Walking**: `MezzanineLayout.walkLevel()` decides the surface a walker stands on. The collision system carries the desktop
   camera UP the stair (no gravity there), so `_updateWalkSurface()` only records the level on ascent and lowers the eye on
   descent. It never snaps anyone onto the deck from beneath: a candidate surface more than 0.5 m from the current level is
-  ignored. `this._walkLevel` feeds the player body's `groundY` and the `balcony` camera preset (`level`). In VR the level only
-  sizes the body; Babylon's teleport is not taught the deck (teleport targets only `floorMesh`), so VR reaches it through the
-  BALCONY quick-menu button or by walking with comfort off. Teleporting onto the deck is open work.
+  ignored. `this._walkLevel` feeds the player body's `groundY` and the `balcony` camera preset (`level`). In VR,
+  `_updateVRWalkSurface()` owns the headset's height: it finds the surface under the FEET (eye minus `_xrHeadHeight()`) and
+  holds the headset on it, so teleports onto the deck or a stair tread stick, smooth walking climbs the stair, and stepping
+  off the edge drops to the floor. The deck mesh (`_mezzDeck`, deck plate plus every tread) is a teleport floor via
+  `_teleportFloorMeshes()`. Never read `WebXRCamera.realWorldHeight` from a scene observer: it reads the XR frame and throws
+  outside the frame callback; `_xrHeadHeight()` samples it inside `onXRFrameObservable`. `test/e2e/mezzanine.spec.mjs`
+  teleports onto the deck, back down and onto the stair in the Quest emulator.
 - The deck guest is guest slot 3 (`y: 3.0`), so only the ultra and high tiers seat it. Keep floor guests out of the
   footprint (a unit test enforces it).
 - `node scripts/build-mezzanine-assets.mjs` regenerates both texture sets.
@@ -706,7 +710,8 @@ Y/B quick-menu binding. Comfort mode suppresses sprint/jump and artificial gravi
 tracked eye height. `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The 15-button quick menu includes comfort, safe mode, haptics, and four destinations (entrance, dance floor, DJ booth, balcony);
-Y/B or the runtime menu component opens it. Haptics are opt-in for new visitors and
+Y/B or the runtime menu component opens it, world-locked where the player is looking
+(`_placeVRQuickMenu()`); never parent it to the XR camera. Haptics are opt-in for new visitors and
 the same preference gates both bass pulses and UI feedback. These preference and
 travel actions must not force VJ manual mode.
 
