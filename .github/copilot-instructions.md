@@ -725,7 +725,7 @@ headset heading, the RIGHT stick turns smoothly. Head pitch never adds flight.
 all finite heights (including zero) are valid. No first pose means no surface correction or preset travel;
 a missing pose retains the last valid height, and a new session clears it.
 Walking uses the actual collidable shell, not the obsolete interior perimeter band.
-Teleport blockers are derived from collidable scene meshes, excluding the floor/deck walk surfaces,
+Teleport blockers are derived from enabled collidable scene meshes, excluding the floor/deck walk surfaces,
 and refreshed on every comfort reapplication. XR entry preserves tracked eye height.
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.

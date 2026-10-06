@@ -13,6 +13,15 @@ Review mode only, source revision `c9650c0`; no runtime fixes. See the
 New findings are below. Navigation, caching, credits, hardware measurement and other
 matching findings are updated in place; older measurements are not current benchmarks.
 
+**Implementation follow-up, cache `20261006-8`:** Slower rotating lasers (one-quarter rate),
+doubled mirror spots (96/180/280), left-stick head-directed walking and right-stick smooth turning
+are implemented; saved Comfort choices are retained. Local lint, syntax, build and 180 Node tests
+pass. Six targeted Quest-emulator scenarios pass, plus a final two-scenario rerun for enabled
+teleport blockers and tighter stair limits. Stair ascent/descent reached levels 3/0 in 31/32
+software-rendered frames, with a maximum level change of 0.179 m (required <0.21 m); these are
+functional hitch-bound measurements, not headset frame timing. Hardware comfort, seated/standing
+traversal and the additional mirror-spot GPU cost still need Quest validation.
+
 - [ ] **Restore the lint/deployment gate for the shared room-intersection helper**
 
   **Priority:** High
@@ -74,7 +83,8 @@ matching findings are updated in place; older measurements are not current bench
   camera observers and accepts every finite height, including zero. Before any pose, surface following
   waits and preset travel reports that tracking is unavailable. Missing poses retain the last valid sample;
   new sessions reset it. Unit tests cover the boundary sweep, missing/invalid poses, session reset and
-  scaled low poses on the balcony. Physical-headset validation is still required.
+  scaled low poses on the balcony. IWER also preserves tracked heights 0/0.25/0.29/1.6 m without
+  moving the floor. Physical-headset validation is still required.
   **Estimated effort:** Small
   **Product value:** High
   **Technical debt reduction:** Medium
@@ -268,10 +278,12 @@ Shipped: a steel balcony on the left wall, a 16-step stair, a table and two stoo
   **Validation:** Extend actual controller-arc tests to the vestibule, bar and balcony, on entry and
   after comfort off/on; retain the existing stage/wall checks. Then seated/standing headset traversal.
   **Implementation update (after review):** Removed the five obsolete perimeter boxes (equipment guards
-  remain); the visible shell still collides. `_teleportBlockerMeshes()` now derives blockers from collidable
+  remain); the visible shell still collides. `_teleportBlockerMeshes()` now derives blockers from enabled collidable
   scene meshes, excluding the walkable floor/deck, and refreshes them after every locomotion swap.
   The production-browser desktop test now crosses z=-5 at both x=-6 and x=6. Rails are deliberately blockers:
   a balcony exit throw must clear the rail rather than pass through it.
+  Actual IWER throws after smooth/comfort swaps are blocked by the closed vestibule end/side and
+  bar; deck/stair teleport and the original room/stage containment tests also pass.
   **Estimated effort:** Medium
   **Product value:** High
   **Technical debt reduction:** Medium

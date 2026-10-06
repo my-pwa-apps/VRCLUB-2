@@ -184,7 +184,7 @@ test('in VR with comfort off the stair can be walked up onto the balcony and bac
     expect(top.y - top.eye).toBeCloseTo(3, 1);
     // Every frame of the climb is a step at most, never a jump.
     for (let i = 1; i < up.length; i++) {
-        expect(up[i].level - up[i - 1].level).toBeLessThan(0.75);
+        expect(up[i].level - up[i - 1].level).toBeLessThan(0.21);
         expect(up[i].level).toBeGreaterThanOrEqual(up[i - 1].level - 1e-6);
     }
 
@@ -193,5 +193,9 @@ test('in VR with comfort off the stair can be walked up onto the balcony and bac
     const bottom = down[down.length - 1];
     expect(bottom.level, `walked back to z ${bottom.z.toFixed(2)} but stood at ${bottom.level}`).toBe(0);
     expect(bottom.y - bottom.eye).toBeCloseTo(0, 1);
+    for (let i = 1; i < down.length; i++) {
+        expect(down[i - 1].level - down[i].level).toBeLessThan(0.21);
+        expect(down[i].level).toBeLessThanOrEqual(down[i - 1].level + 1e-6);
+    }
     await expectHealthyRuntime(page);
 });
