@@ -520,8 +520,8 @@ class VRClubLifecycle extends VRClubCore {
                         const xrCamera = vrHelper.baseExperience.camera;
                         xrCamera.checkCollisions = true;
                         xrCamera.collisionMask = this._mezzDeck ? ~this._mezzDeck.collisionGroup : -1;
-                        // Set ellipsoid for collision detection (approximate human size)
-                        xrCamera.ellipsoid = new BABYLON.Vector3(0.3, 0.8, 0.3); // Lower height
+                        // Body-sized collider; _fitVRCollisionBody() re-hangs it from the real head height every step.
+                        xrCamera.ellipsoid = new BABYLON.Vector3(0.25, 0.5, 0.25);
                         xrCamera.inertia = 0.1; // Reduce sliding (default 0.9)
                         
                         // SPRINT FEATURE: Press thumbstick or Grip button to run
@@ -842,6 +842,7 @@ class VRClubLifecycle extends VRClubCore {
             clearInterval(this._audioWatchdog);
             this._audioWatchdog = null;
         }
+        if (typeof this._stopVRMusicTicker === 'function') this._stopVRMusicTicker();
         if (this._streamRecovery) {
             clearTimeout(this._streamRecovery.timer);
             this._streamRecovery = null;
@@ -946,6 +947,8 @@ class VRClubLifecycle extends VRClubCore {
             this._avatarContainers = [];
         }
         this._crowdSourceContainers = null;
+        this._crowdSourcePending = null;
+        this._crowdTopUp = null;
         this._availableCrowdSources = null;
         this._crowdSlots = null;
         this.npcAvatars = [];

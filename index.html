@@ -21,9 +21,13 @@
          is NOT in the startup critical path - blocking it only costs controller models -
          but blocking it also logs a CSP violation on every VR entry.
 
-         connect-src allows podcast.hernancattaneo.com for the "Latest Resident" button:
-         it reads the head of that RSS feed to find the newest episode, only on click.
+         connect-src allows podcast.hernancattaneo.com for the Resident podcast: it reads that RSS
+         feed to choose an episode (a random one on entry, the newest from the "Latest" button).
          The episode MP3 itself is media and already covered by media-src https:.
+
+         connect-src also allows the hosted relay's https origin: Miss Melera's podcast is a
+         SoundCloud feed a browser cannot read, so the relay Worker serves it (worker/src/podcast.js).
+         A self-hosted relay used for that podcast needs its own origin added here.
 
          connect-src also allows the ws:/wss: schemes (any origin) for the optional
          multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
@@ -49,7 +53,7 @@
         img-src 'self' data: blob:;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
-        connect-src 'self' blob: https://immersive-web.github.io https://podcast.hernancattaneo.com ws: wss:;
+        connect-src 'self' blob: https://immersive-web.github.io https://podcast.hernancattaneo.com https://vrclub-network.garfieldapp.workers.dev ws: wss:;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
@@ -102,14 +106,24 @@
             </p>
 
             <!-- On by default (the guest can untick it): starting the music connects to the
-                 podcast host and Podbean, which receive the visitor's IP address and listening time. -->
+                 chosen podcast's servers, which receive the visitor's IP address and listening time. -->
             <label class="splash-toggle" for="splashRadioOnEntry">
                 <input id="splashRadioOnEntry" type="checkbox" aria-describedby="splashRadioNote" checked>
                 Play music on entry
             </label>
+            <div class="splash-podcasts" role="radiogroup" aria-label="Podcast to play on entry">
+                <button class="splash-podcast" id="splashPodcastResident" type="button" role="radio" aria-checked="true" data-podcast="resident">
+                    <span class="splash-podcast-artist">Hernan Cattaneo</span>
+                    <span class="splash-podcast-show">Resident</span>
+                </button>
+                <button class="splash-podcast" id="splashPodcastColourizon" type="button" role="radio" aria-checked="false" data-podcast="colourizon">
+                    <span class="splash-podcast-artist">Miss Melera</span>
+                    <span class="splash-podcast-show">Colourizon</span>
+                </button>
+            </div>
             <p class="splash-hint" id="splashRadioNote">
-                Plays the latest <span id="splashRadioName">Resident by Hernan Cattaneo</span> from
-                <span id="splashRadioHost">podcast.hernancattaneo.com</span> and Podbean, which receive your IP address.
+                Plays a random episode of <span id="splashRadioName">Resident by Hernan Cattaneo</span> from
+                <span id="splashRadioHost">podcast.hernancattaneo.com and Podbean</span>, which receive your IP address.
                 Untick it to choose a station or a local file later.
             </p>
 
@@ -117,7 +131,7 @@
                 ▶ ENTER CLUB
             </button>
 
-            <p class="splash-hint">
+            <p class="splash-hint splash-controls">
                 Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and the mouse ·
                 <span aria-hidden="true">🎵</span> load a radio stream or your own audio file ·
                 <span aria-hidden="true">🎛️</span> open the VJ desk ·
@@ -325,13 +339,41 @@
                 </div>
             </div>
 
-            <!-- On-demand DJ set (podcast feed) -->
+            <!-- On-demand DJ sets (podcast feeds): choose whose set, then a random or the newest episode -->
             <div class="audio-section">
-                <button class="audio-button audio-podcast-button" id="playPodcastBtn" type="button"
-                        title="Plays the newest episode from podcast.hernancattaneo.com. The audio is served by podbean.com, which receives your IP address.">
-                    <span aria-hidden="true">🎧</span>
-                    <span>Latest Resident &mdash; Hernan Cattaneo</span>
-                </button>
+                <div class="audio-podcasts" role="radiogroup" aria-label="Podcast">
+                    <button class="audio-podcast-choice" id="podcastResidentBtn" type="button" role="radio" aria-checked="true" data-podcast="resident"
+                            title="Resident, the radio show by Hernan Cattaneo. The feed is podcast.hernancattaneo.com; the audio is served by podbean.com, which receives your IP address.">
+                        <span aria-hidden="true">🎧</span> Hernan Cattaneo
+                    </button>
+                    <button class="audio-podcast-choice" id="podcastColourizonBtn" type="button" role="radio" aria-checked="false" data-podcast="colourizon"
+                            title="Colourizon, the podcast by Miss Melera. It comes through the club's relay from SoundCloud; both receive your IP address.">
+                        <span aria-hidden="true">🎧</span> Miss Melera
+                    </button>
+                </div>
+                <div class="audio-input-group audio-podcast-actions">
+                    <button class="audio-button audio-podcast-button" id="playRandomEpisodeBtn" type="button"
+                            title="Play a random episode of the chosen podcast">
+                        <span aria-hidden="true">🎲</span>
+                        <span>Random episode</span>
+                    </button>
+                    <button class="audio-button audio-podcast-button" id="playPodcastBtn" type="button"
+                            title="Play the newest episode of the chosen podcast">
+                        <span aria-hidden="true">🆕</span>
+                        <span>Latest</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Position in the episode: only for something with a length (an episode or a file), not a live stream -->
+            <div class="audio-section audio-seek" id="audioSeekSection" hidden>
+                <input type="range" class="vj-slider" id="audioSeek" min="0" max="1000" step="1" value="0"
+                       aria-label="Position in the audio" aria-valuetext="0:00 of 0:00" title="Drag to go forward or back">
+                <div class="audio-seek-times">
+                    <button class="audio-seek-skip" id="audioSeekBack" type="button" aria-label="Back 30 seconds" title="Back 30 seconds">−30s</button>
+                    <span><span id="audioSeekElapsed">0:00</span> / <span id="audioSeekTotal">0:00</span></span>
+                    <button class="audio-seek-skip" id="audioSeekForward" type="button" aria-label="Forward 30 seconds" title="Forward 30 seconds">+30s</button>
+                </div>
             </div>
             
             <!-- File Upload -->
@@ -527,6 +569,8 @@
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
     <script src="js/assetCache.js?v=20261006-8"></script>
     <script src="js/audioUtils.js?v=20261006-8"></script>
+    <!-- Podcast catalogue, choice, random pick and queue behind both the Audio menu and the VR menu (needs audioUtils + assetCache). -->
+    <script src="js/podcasts.js?v=20261006-8"></script>
 
     <!-- Texture Loader (loads before club script) -->
     <script src="js/textureLoader.js?v=20261006-8"></script>

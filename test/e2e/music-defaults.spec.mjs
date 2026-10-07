@@ -6,7 +6,7 @@ useQuestHarness();
 // The shared harness only stores graphics tier and Safe Mode; it leaves the music setting untouched,
 // so this runs the real defaults from a clean profile.
 
-test('music plays on entry by default: the latest Resident episode, announced in the audio menu', async ({ page }) => {
+test('music plays on entry by default: a Resident episode, announced in the audio menu', async ({ page }) => {
     test.setTimeout(900_000);
     const requests = [];
     page.on('request', request => requests.push(request.url()));
@@ -34,6 +34,8 @@ test('music plays on entry by default: the latest Resident episode, announced in
 
 test('when an episode finishes the next older one plays, in a real audio element', async ({ page }) => {
     test.setTimeout(900_000);
+    // Entry picks a random episode; zero picks the newest, so the queue order is known.
+    await page.addInitScript(() => { Math.random = () => 0; });
     // 0.6 s of silence at 8 kHz, 8-bit mono: ends quickly. The third episode is long enough to stay.
     const wav = (seconds) => {
         const rate = 8000, samples = Math.round(seconds * rate);

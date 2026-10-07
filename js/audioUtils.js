@@ -103,10 +103,20 @@ const AudioUtils = Object.freeze({
     isResidentEpisodeUrl(url) {
         try {
             const host = new URL(url).hostname;
-            return host === 'podbean.com' || host.endsWith('.podbean.com');
+            return host === 'podbean.com' || host.endsWith('.podbean.com')
+                // Colourizon episodes come through the relay: `<relay>/podcast/colourizon/stream/...`.
+                || new URL(url).pathname.startsWith('/podcast/colourizon/stream/');
         } catch (_) {
             return false;
         }
+    },
+
+    /** `3725` -> `1:02:05`, `65` -> `1:05`; anything not a finite non-negative number reads `0:00`. */
+    formatClock(seconds) {
+        const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+        const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
     },
 
     isSafeAudioUrl(url, pageHref) {

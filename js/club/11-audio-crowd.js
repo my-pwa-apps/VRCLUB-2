@@ -649,7 +649,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * Runs ONCE per source file, not once per dancer: every clone shares these
      * materials, so a single pass covers the whole crowd.
      */
-    _prepareAvatarMaterials(materials, garmentColor = null) {
+    _prepareAvatarMaterials(materials, garmentColor = null, hairColor = null) {
         const aniso = this.tierSettings.anisotropy;
 
         materials.forEach(mat => {
@@ -673,6 +673,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
             if (garmentColor && (mat.name === 'MI_Peasant' || mat.name === 'MI_Ranger') && mat.albedoColor) {
                 mat.albedoColor.copyFrom(garmentColor);
+            }
+            // The hair texture is a pale grey strand map; the material colour makes it silver, brunette or anything else.
+            if (hairColor && /^MI_Hair/.test(mat.name) && mat.albedoColor) {
+                mat.albedoColor.copyFrom(hairColor);
             }
 
             [mat.albedoTexture, mat.diffuseTexture].forEach(tex => {
@@ -828,6 +832,143 @@ class VRClubAudioCrowd extends VRClubUI {
         return next;
     }
 
+    /**
+     * The people who can stand at the decks, one per podcast (js/podcasts.js `dj`). Both are Quaternius characters
+     * (CC0) derived from the guest files by scripts/build-dj-glbs.mjs, with one clip (`Idle_Loop`). The pale strand
+     * texture takes its colour from `hair`; `garment` darkens the jacket to the black both artists are known for.
+     * Hernan Cattaneo: silver hair and a short beard. Miss Melera: long dark brunette hair.
+     */
+    static get DJ_LOOKS() {
+        if (!this._djLooks) {
+            this._djLooks = Object.freeze({
+                hernan: Object.freeze({
+                    url: './js/models/avatars/club-dj-hernan.glb', height: 1.78,
+                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.86, 0.88, 0.94)
+                }),
+                melera: Object.freeze({
+                    url: './js/models/avatars/club-dj-melera.glb', height: 1.68,
+                    garment: new BABYLON.Color3(0.09, 0.09, 0.11), hair: new BABYLON.Color3(0.20, 0.11, 0.07)
+                })
+            });
+        }
+        return this._djLooks;
+    }
+
+    /**
+     * Every character file the room can show, by index; the crowd and guest slots point at these through
+     * `sourceIndex(id)`. Files load on demand per quality tier (see `_requiredCrowdSources`).
+     *  - dancerF/dancerM: the UE-rig peasant dancers. Only the player's own body wears them now (AvatarRig).
+     *  - hipHop/house/rumba: the Mixamo dancers, kept for their distinct authored choreography.
+     *  - bartender: the Quaternius female guest, in a black work outfit through a tint.
+     *  - f1..f8, m1..m9: the Modular Women / Modular Men cast built by scripts/build-crowd-glbs.mjs (club-crowd-*.glb):
+     *    one draw each, vertex-coloured, the club's own dance and idle clips retargeted onto them.
+     */
+    static get AVATAR_SOURCES() {
+        if (!this._avatarSources) {
+            // Full literal paths on purpose: scripts/build.mjs ships only the model paths it finds written out in the
+            // source, so a path assembled from parts would silently be missing from the production build.
+            this._avatarSources = Object.freeze([
+                { id: 'dancerF', url: './js/models/avatars/club-dancer-female.glb', garmentColor: new BABYLON.Color3(0.45, 0.82, 1.0) },
+                { id: 'dancerM', url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
+                { id: 'hipHop', url: './js/models/avatars/Hip Hop Dancing.glb' },
+                { id: 'house', url: './js/models/avatars/house.glb' },
+                { id: 'rumba', url: './js/models/avatars/rumba_dancing_female_character.glb' },
+                // The bartender: the female guest file as its own container, so it can carry a black work outfit
+                // without recolouring anyone else.
+                { id: 'bartender', url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.16, 0.16, 0.19) },
+                { id: 'f1', url: './js/models/avatars/club-crowd-f1.glb' },
+                { id: 'f2', url: './js/models/avatars/club-crowd-f2.glb' },
+                { id: 'f3', url: './js/models/avatars/club-crowd-f3.glb' },
+                { id: 'f4', url: './js/models/avatars/club-crowd-f4.glb' },
+                { id: 'f5', url: './js/models/avatars/club-crowd-f5.glb' },
+                { id: 'f6', url: './js/models/avatars/club-crowd-f6.glb' },
+                { id: 'f7', url: './js/models/avatars/club-crowd-f7.glb' },
+                { id: 'f8', url: './js/models/avatars/club-crowd-f8.glb' },
+                { id: 'm1', url: './js/models/avatars/club-crowd-m1.glb' },
+                { id: 'm2', url: './js/models/avatars/club-crowd-m2.glb' },
+                { id: 'm3', url: './js/models/avatars/club-crowd-m3.glb' },
+                { id: 'm4', url: './js/models/avatars/club-crowd-m4.glb' },
+                { id: 'm5', url: './js/models/avatars/club-crowd-m5.glb' },
+                { id: 'm6', url: './js/models/avatars/club-crowd-m6.glb' },
+                { id: 'm7', url: './js/models/avatars/club-crowd-m7.glb' },
+                { id: 'm8', url: './js/models/avatars/club-crowd-m8.glb' },
+                { id: 'm9', url: './js/models/avatars/club-crowd-m9.glb' }
+            ].map(source => Object.freeze(source)));
+        }
+        return this._avatarSources;
+    }
+
+    /** Index of a source in AVATAR_SOURCES by id, or -1. */
+    static sourceIndex(id) {
+        return VRClubAudioCrowd.AVATAR_SOURCES.findIndex(source => source.id === id);
+    }
+
+    /** The DJ for the club's first frame: the chosen podcast's, 'hernan' when nothing is chosen. */
+    _initialDJId() {
+        try {
+            const podcasts = window.Podcasts;
+            if (podcasts) return podcasts.get(podcasts.selectedId(localStorage)).dj;
+        } catch (_) { /* storage blocked */ }
+        return 'hernan';
+    }
+
+    /** Load one avatar GLB into a container with its materials normalised. Null when it cannot be loaded. */
+    async _loadAvatarSource(url, garmentColor = null, hairColor = null) {
+        try {
+            const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
+            this._prepareAvatarMaterials(container.materials, garmentColor, hairColor);
+            this._avatarContainers.push(container);
+            return container;
+        } catch (error) {
+            log.warn(`  ❌ Failed to load avatar source ${url}: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Put the DJ for `id` ('hernan' | 'melera') behind the decks. Swaps are queued, so a quick double switch
+     * ends on the last one, and the first call loads the file (each DJ is loaded once and kept).
+     * @returns {Promise<boolean>} true when the requested DJ is at the decks
+     */
+    /** The look for a DJ id, or null (an own key only: `__proto__` and `constructor` are not DJs). */
+    static djLook(id) {
+        const looks = VRClubAudioCrowd.DJ_LOOKS;
+        return typeof id === 'string' && Object.prototype.hasOwnProperty.call(looks, id) ? looks[id] : null;
+    }
+
+    setDJ(id) {
+        if (!VRClubAudioCrowd.djLook(id)) return Promise.resolve(false);
+        // The entry music can ask for a DJ while the club is still being built: wait for init (it places the DJ itself).
+        this._djQueue = (this._djQueue || Promise.resolve(this.initPromise).catch(() => {}))
+            .then(() => (this._disposed ? false : this._applyDJ(id)))
+            .catch(() => false);
+        return this._djQueue;
+    }
+
+    async _applyDJ(id) {
+        const look = VRClubAudioCrowd.djLook(id);
+        if (!look || this._djId === id) return this._djId === id;
+        this._djContainers = this._djContainers || {};
+        if (!this._djContainers[id]) this._djContainers[id] = await this._loadAvatarSource(look.url, look.garment, look.hair);
+        const container = this._djContainers[id];
+        if (!container || this._disposed) return false;
+
+        // The previous DJ leaves: skeleton, clip, collider and all.
+        const previous = this.npcAvatars.findIndex(npc => npc.name === 'djPerformer');
+        if (previous >= 0) {
+            const npc = this.npcAvatars[previous];
+            if (npc.collider) { try { npc.collider.dispose(); } catch (_) { /* ignore */ } }
+            if (this._djEntry) { try { this._djEntry.dispose(); } catch (_) { /* ignore */ } }
+            this.npcAvatars.splice(previous, 1);
+        }
+        this._djEntry = this._spawnAvatar(
+            container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
+        this._djId = id;
+        if (this._refreshContactShadows) this._refreshContactShadows();
+        if (this._refreshShadowCasters) this._refreshShadowCasters();
+        return true;
+    }
+
     _avatarContainerFor(style) {
         const list = this._crowdSourceContainers;
         if (!list) return null;
@@ -912,102 +1053,60 @@ class VRClubAudioCrowd extends VRClubUI {
         // animation group (so nobody moves in lockstep) off a single download and a
         // single set of geometry buffers and materials.
         const crowdSize = Math.max(0, this.tierSettings.crowdSize | 0);
-
-        const avatarSources = [
-            { url: './js/models/avatars/club-dancer-female.glb', garmentColor: new BABYLON.Color3(0.45, 0.82, 1.0) },
-            { url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
-            { url: './js/models/avatars/Hip Hop Dancing.glb' },
-            { url: './js/models/avatars/house.glb' },
-            { url: './js/models/avatars/rumba_dancing_female_character.glb' },
-            // Leather-jacketed Quaternius guests. They dance with Dance_Loop and, as guests off the floor,
-            // play their talking, phone, arms-folded and nodding clips from the same file.
-            // Tinted dark and cool: the untinted ranger leathers read as a fantasy costume under show lights.
-            { url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.78, 0.6, 0.9) },
-            { url: './js/models/avatars/club-guest-male.glb', garmentColor: new BABYLON.Color3(0.58, 0.68, 0.92) },
-            // The bartender: the female guest file again, as its own container so it can carry a black work outfit
-            // without recolouring the guests who share the first copy's materials.
-            { url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.16, 0.16, 0.19) }
-        ];
-
-        log.info(`🕺 Loading ${avatarSources.length} avatar sources for a crowd of ${crowdSize}...`);
-
-        const loadAvatarSource = async (url, garmentColor = null) => {
-            try {
-                const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
-            this._prepareAvatarMaterials(container.materials, garmentColor);
-                this._avatarContainers.push(container);
-                return container;
-            } catch (error) {
-                log.warn(`  ❌ Failed to load avatar source ${url}: ${error.message}`);
-                return null;
-            }
-        };
-
-        const containers = [];
-        for (let index = 0; index < avatarSources.length; index++) {
-            const source = avatarSources[index];
-            containers.push(await loadAvatarSource(source.url, source.garmentColor));
-        }
-
-        const available = containers.filter(Boolean);
-        if (available.length === 0) {
-            log.warn('⚠️ No avatar sources loaded — the club will be empty');
-            return;
-        }
-        // Fall back to whatever did load so a single missing file does not leave
-        // holes in the crowd (resolved per slot in the population pass below).
-        this._crowdSourceContainers = containers;
-        this._availableCrowdSources = available;
+        const at = id => VRClubAudioCrowd.sourceIndex(id);
 
         // Hand-placed rather than randomised: the list is ordered so that the first
-        // N slots are already well spread, which means a `balanced` tier still gets
-        // an even crowd instead of everyone bunched in one corner.
+        // N slots are already well spread AND varied (men and women, every skin tone, silver heads, the punks), which
+        // means a `balanced` tier still gets a diverse, even crowd instead of everyone bunched in one corner.
         // `facing` is an offset from "square on to the DJ booth".
         // None of these fall inside the DJ platform footprint (x -3..3, z -20..-16).
         const crowdSlots = [
-            { x: -3.4, z: -13.4, src: 0, height: 1.84, facing:  0.10 },
-            { x:  3.2, z: -13.0, src: 1, height: 1.66, facing: -0.12 },
-            { x:  0.4, z: -10.8, src: 2, height: 1.74, facing:  0.04 },
-            { x: -6.0, z: -11.6, src: 3, height: 1.79, facing:  0.28 },
-            { x:  5.6, z: -11.0, src: 4, height: 1.71, facing: -0.26 },
-            { x: -1.4, z:  -8.6, src: 5, height: 1.62, facing:  0.08 },
-            { x:  2.6, z: -15.0, src: 2, height: 1.88, facing: -0.06 },
-            { x: -4.6, z: -15.2, src: 6, height: 1.69, facing:  0.16 },
-            { x:  6.6, z:  -8.4, src: 4, height: 1.77, facing: -0.34 },
-            { x: -6.8, z:  -8.0, src: 0, height: 1.81, facing:  0.36 },
-            { x:  1.6, z:  -7.4, src: 5, height: 1.60, facing: -0.10 },
-            { x: -7.4, z: -13.8, src: 2, height: 1.73, facing:  0.42 },
-            { x:  7.2, z: -13.6, src: 6, height: 1.86, facing: -0.40 },
-            { x: -0.6, z:  -6.4, src: 4, height: 1.68, facing:  0.02 }
+            { x: -3.4, z: -13.4, src: at('f1'), height: 1.70, facing:  0.10 },
+            { x:  3.2, z: -13.0, src: at('m2'), height: 1.80, facing: -0.12 },
+            { x:  0.4, z: -10.8, src: at('hipHop'), height: 1.74, facing:  0.04 },
+            { x: -6.0, z: -11.6, src: at('m1'), height: 1.86, facing:  0.28 },
+            { x:  5.6, z: -11.0, src: at('f3'), height: 1.66, facing: -0.26 },
+            { x: -1.4, z:  -8.6, src: at('f2'), height: 1.64, facing:  0.08 },
+            { x:  2.6, z: -15.0, src: at('m3'), height: 1.78, facing: -0.06 },
+            { x: -4.6, z: -15.2, src: at('f4'), height: 1.72, facing:  0.16 },
+            { x:  6.6, z:  -8.4, src: at('rumba'), height: 1.77, facing: -0.34 },
+            { x: -6.8, z:  -8.0, src: at('m7'), height: 1.84, facing:  0.36 },
+            { x:  1.6, z:  -7.4, src: at('f5'), height: 1.68, facing: -0.10 },
+            { x: -7.4, z: -13.8, src: at('house'), height: 1.73, facing:  0.42 },
+            { x:  7.2, z: -13.6, src: at('m5'), height: 1.82, facing: -0.40 },
+            { x: -0.6, z:  -6.4, src: at('m9'), height: 1.76, facing:  0.02 }
         ];
         this._crowdSlots = crowdSlots;
 
-        // Do not instantiate hidden upper-tier dancers on the startup critical path.
-        // Their source containers stay resident, so raising quality can add them
-        // synchronously later without another download or parse.
+        // Only the files the active tier shows are fetched and parsed: a balanced headset needs six dancers, not
+        // seventeen characters. `undefined` in this list means "not requested yet", `null` means "failed to load".
+        this._crowdSourceContainers = new Array(VRClubAudioCrowd.AVATAR_SOURCES.length);
+        this._crowdSourcePending = {};
+        const required = this._requiredCrowdSources();
+        log.info(`🕺 Loading ${required.length} of ${VRClubAudioCrowd.AVATAR_SOURCES.length} avatar sources for a crowd of ${crowdSize}...`);
+        await this._loadCrowdSources(required);
+        if (this._disposed) return;
+        const containers = this._crowdSourceContainers;
+        if (!this._availableCrowdSources || this._availableCrowdSources.length === 0) {
+            log.warn('⚠️ No avatar sources loaded — the club will be empty');
+            return;
+        }
+
+        // Do not instantiate hidden upper-tier dancers on the startup critical path. Raising the quality tier later
+        // fetches the extra characters (see _applyCrowdSize) and adds them without a reload.
         this._spawnCrowdTo(crowdSize);
 
         // === THE DJ ===
         // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
         // the deck plinth (z=-19), facing the floor. Playback is dialled well down so
-        // they read as working the decks rather than raving in the crowd.
-        const djSource = await loadAvatarSource('./js/models/avatars/club-dj.glb',
-            new BABYLON.Color3(0.55, 0.48, 1.0));
-        if (djSource) {
-            this._spawnAvatar(
-                djSource,
-                'djPerformer',
-                new BABYLON.Vector3(0, 0.5, -19.4),
-                0,
-                1.78,
-                0.55
-            );
-        }
+        // they read as working the decks rather than raving in the crowd. Who stands there follows the podcast
+        // that is chosen (Hernan Cattaneo or Miss Melera): see DJ_LOOKS and setDJ().
+        await this._applyDJ(this._initialDJId());
 
         // === THE BARTENDER ===
         // Behind the counter, facing the stools and chatting: the talking clip of the female guest file. She is
         // not a guest slot (no tier removes her) and she takes the bar's accent light like the stools do.
-        const barCrew = containers[7];
+        const barCrew = containers[at('bartender')];
         if (barCrew) {
             const spot = window.VenueLayout.bar.bartender;
             this._spawnAvatar(barCrew, 'bartender', new BABYLON.Vector3(spot.x, 0, spot.z), -Math.PI / 2, 1.70, 0.95,
@@ -1032,18 +1131,49 @@ class VRClubAudioCrowd extends VRClubUI {
      */
     _guestSlots() {
         const towardDJ = (x, z) => Math.atan2(-x, -18 - z);
+        const at = id => VRClubAudioCrowd.sourceIndex(id);
         return [
             // The talking pair stands off the counter (x 9.7 is its front, the stools are at x 9.2).
-            { src: 6, clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80 },
-            { src: 5, clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66 },
-            { src: 6, clip: 'Idle_FoldArms_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84 },
+            { src: at('m4'), clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80 },
+            { src: at('f6'), clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66 },
+            { src: at('m6'), clip: 'Idle_FoldArms_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84 },
             // Leaning on the mezzanine rail, watching the floor (y is the deck the guest stands on).
-            { src: 5, clip: 'Idle_FoldArms_Loop', x: -10.1, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
-            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68 },
-            { src: 6, clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
-            { src: 5, clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63 },
-            { src: 5, clip: 'Idle_TalkingPhone_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
+            { src: at('f7'), clip: 'Idle_FoldArms_Loop', x: -10.1, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
+            { src: at('f8'), clip: 'Idle_TalkingPhone_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68 },
+            { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
+            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63 },
+            { src: at('m4'), clip: 'Idle_TalkingPhone_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
         ];
+    }
+
+    /** Source indices the active tier shows: the player's body, the bartender, the first N dancers and the first N guests. */
+    _requiredCrowdSources(crowdSize = this.tierSettings.crowdSize, guestSize = this.tierSettings.guestSize) {
+        const need = new Set([VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM'),
+            VRClubAudioCrowd.sourceIndex('bartender')]);
+        (this._crowdSlots || []).slice(0, Math.max(0, crowdSize | 0)).forEach(slot => need.add(slot.src));
+        this._guestSlots().slice(0, Math.max(0, guestSize | 0)).forEach(slot => need.add(slot.src));
+        return [...need].filter(index => index >= 0);
+    }
+
+    /** Fetch one source once, however many callers ask. Resolves to its container, or null when it cannot load. */
+    _loadCrowdSource(index) {
+        const pending = this._crowdSourcePending || (this._crowdSourcePending = {});
+        if (!pending[index]) {
+            const source = VRClubAudioCrowd.AVATAR_SOURCES[index];
+            pending[index] = this._loadAvatarSource(source.url, source.garmentColor).then(container => {
+                if (this._crowdSourceContainers) this._crowdSourceContainers[index] = container;
+                return container;
+            });
+        }
+        return pending[index];
+    }
+
+    async _loadCrowdSources(indices) {
+        for (const index of indices) {
+            if (this._disposed) return;
+            await this._loadCrowdSource(index);
+        }
+        this._availableCrowdSources = (this._crowdSourceContainers || []).filter(Boolean);
     }
     _spawnGuestsTo(target) {
         if (!this._crowdSourceContainers) return;
@@ -1069,8 +1199,11 @@ class VRClubAudioCrowd extends VRClubUI {
         this._crowdSlots.slice(0, limit).forEach((slot, index) => {
             const name = `dancer${index}`;
             if (existing.has(name)) return;
-            const source = this._crowdSourceContainers[slot.src]
-                || this._availableCrowdSources[index % this._availableCrowdSources.length];
+            // `undefined` = this tier's top-up is still fetching the file (it spawns afterwards); `null` = it failed,
+            // so any loaded character stands in rather than leaving a hole.
+            const own = this._crowdSourceContainers[slot.src];
+            if (own === undefined) return;
+            const source = own || this._availableCrowdSources[index % this._availableCrowdSources.length];
             if (!source) return;
             this._spawnAvatar(
                 source,
@@ -1149,10 +1282,22 @@ class VRClubAudioCrowd extends VRClubUI {
         shadows.mesh.setEnabled(count > 0);
     }
 
+    /** A higher tier needs characters nobody fetched yet: load them in the background, then place them. */
+    _topUpCrowdSources() {
+        if (!this._crowdSourceContainers || !this._crowdSlots || this._crowdTopUp || this._disposed) return;
+        const missing = this._requiredCrowdSources().filter(index => this._crowdSourceContainers[index] === undefined);
+        if (missing.length === 0) return;
+        this._crowdTopUp = this._loadCrowdSources(missing).catch(() => {}).then(() => {
+            this._crowdTopUp = null;
+            if (!this._disposed) this._applyCrowdSize();
+        });
+    }
+
     _applyCrowdSize() {
         if (!this.npcAvatars) return;
         const target = Math.max(0, this.tierSettings.crowdSize | 0);
         const guestTarget = Math.max(0, this.tierSettings.guestSize | 0);
+        this._topUpCrowdSources();
         this._spawnCrowdTo(target);
         this._spawnGuestsTo(guestTarget);
         this.npcAvatars.forEach(npc => {
@@ -1161,6 +1306,8 @@ class VRClubAudioCrowd extends VRClubUI {
             const index = Number(npc.name.slice(isGuest ? 'guest'.length : 'dancer'.length));
             const enabled = Number.isFinite(index) && index < (isGuest ? guestTarget : target);
             npc.root.setEnabled(enabled);
+            // The occupant box is its own mesh: left enabled, a hidden dancer stays solid.
+            if (npc.collider) npc.collider.setEnabled(enabled);
             npc.animations.forEach(group => {
                 if (enabled) {
                     if (group.isPaused && group.restart) group.restart();

@@ -232,7 +232,7 @@ const CityDistrict = {
         ctx.fillRect(0, 0, size, size);
         let seed = 11;
         const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-        const columns = 10, rows = 12;
+        const columns = 16, rows = 12;
         const cellW = size / columns, cellH = size / rows;
         const lit = ['#ffd9a0', '#ffe9c4', '#bcd4ff', '#ffb98a'];
         for (let row = 0; row < rows; row++) {
@@ -255,7 +255,7 @@ const CityDistrict = {
 
         const builder = this._dressingBuilder('city');
         const group = builder.group('Skyline', material);
-        const tile = 30; // metres per window texture: 3 m windows, 2.5 m floors
+        const tile = 40; // metres per window texture: 16 columns of 2.5 m windows, 12 floors of 3.3 m
         const uv = mesh => this._applyWorldUVs(mesh, tile, { u: 1, v: 1 });
         const tower = (w, h, d, x, z) => builder.box(group, w, h, d, x, h / 2, z, uv);
 

@@ -13,103 +13,47 @@ const uiLog = {
     error: (...args) => console.error('[UI]', ...args)
 };
 
-// On-demand DJ sets: the feed and its Podbean-hosted MP3s both send
-// Access-Control-Allow-Origin: *, which the beat analyser needs. This is the DEFAULT music: it
-// starts on ENTER (unless the guest turns that off on the splash) and from the Audio menu's
-// "Latest Resident" button. The guest's IP goes to podcast.hernancattaneo.com and podbean.com.
-const RESIDENT_PODCAST = Object.freeze({
-    name: 'Resident by Hernan Cattaneo',
-    feed: 'https://podcast.hernancattaneo.com/feed.xml',
-    // The newest item comes first and is ~4 KB; the whole feed is ~2.6 MB.
-    headBytes: 65535
+// On-demand DJ sets: Hernan Cattaneo's Resident and Miss Melera's Colourizon. Their catalogue, the guest's
+// choice, the random/latest pick and the queue live in js/podcasts.js (shared with the VR menu); this file only
+// wires them to the DOM. The music starts on ENTER (unless the guest turns that off on the splash), with a RANDOM
+// episode of the chosen podcast. The guest's IP goes to that podcast's servers (see Podcasts.serversText).
+
+/** localStorage keys of the multiplayer panel. Declared here because the podcast code (below) reads the relay setting at load. */
+const NETWORK_PREFS = Object.freeze({
+    serverUrl: 'vrclub.networkServerUrl',
+    room: 'vrclub.networkRoom',
+    name: 'vrclub.networkName'
 });
 
-/**
- * The playable episodes, newest first, reading only the head of the feed when the server allows
- * (about 15 episodes, which is also how far back the queue can go before it looks again).
- */
-async function fetchPodcastEpisodes(podcast) {
-    const decode = buffer => new TextDecoder('utf-8').decode(buffer);
-    const head = decode(await window.fetchBufferWithTimeout(podcast.feed, {
-        timeoutMs: 15000,
-        cache: 'no-cache',
-        headers: { Range: `bytes=0-${podcast.headBytes}` }
-    }));
-    let episodes = window.AudioUtils.parsePodcastEpisodes(head);
-    if (!episodes.length) {
-        // The first item did not fit in the range (or the server ignored it).
-        episodes = window.AudioUtils.parsePodcastEpisodes(
-            decode(await window.fetchBufferWithTimeout(podcast.feed, { timeoutMs: 30000, cache: 'no-cache' })));
-    }
-    if (!episodes.length) throw new Error('No playable episode found in the feed');
-    return episodes;
+/** The relay's https base (for the podcast that needs it), from the same setting the multiplayer panel uses. */
+function podcastRelayBase() {
+    return window.Podcasts.relayBase(defaultNetworkServerUrl());
 }
 
 /**
- * The Resident episodes in play order (newest first) and the one playing. Null while the guest
- * is on anything else. When an episode ends the next older one starts; choosing another stream
- * or a file ends the queue (see advanceResidentQueue).
+ * The one podcast player for this club, shared with the VR menu through `club.podcastPlayer`. Its onEpisode hook
+ * keeps the labels, the URL box and the podcast choice buttons in step with whatever surface started the episode.
  */
-let residentQueue = null;
-const RESIDENT_START_ATTEMPTS = 3;
-
-/**
- * Play episodes[index]. If it will not start, try the next older one (a few times), so one dead
- * link does not silence the club. A play() blocked by autoplay policy is rethrown at once: the
- * next episode would be blocked too, and the queue is left on this one for a retry.
- */
-async function playResidentFrom(club, episodes, index) {
-    let lastError = null;
-    for (let i = index; i < episodes.length && i < index + RESIDENT_START_ATTEMPTS; i++) {
-        residentQueue = { episodes, index: i };
-        try {
-            await club.startAudioStream(episodes[i].url, { onDemand: true });
-        } catch (err) {
-            if (err && err.name === 'NotAllowedError') throw err;
-            lastError = err;
-            continue;
-        }
-        watchEpisodeEnd(club);
-        announceNowPlaying(episodes[i].title);
+function ensurePodcastPlayer(club) {
+    if (club.podcastPlayer) return club.podcastPlayer;
+    const player = window.Podcasts.createPlayer(club, { getRelay: podcastRelayBase, storage: window.localStorage });
+    player.onEpisode = (episode) => {
+        announceNowPlaying(episode.title);
         // The URL box follows the episode, so the Play/Pause button controls the one that plays.
         const input = document.getElementById('streamUrl');
-        if (input) input.value = episodes[i].url;
-        const net = club.networkManager;
-        if (net && net.connected && net.isHost()) net.sendMusic({ url: episodes[i].url, playing: true, position: 0 });
-        return episodes[i];
-    }
-    residentQueue = null;
-    throw lastError || new Error('No playable episode');
+        if (input) input.value = episode.url;
+        refreshPodcastChoices();
+    };
+    club.podcastPlayer = player;
+    return player;
 }
 
-/** One 'ended' listener per audio element; it only acts while the queue is still on its episode. */
-function watchEpisodeEnd(club) {
-    const audio = club.audioElement;
-    if (!audio || audio._vrclubEpisodeWatch) return;
-    audio._vrclubEpisodeWatch = true;
-    audio.addEventListener('ended', () => { advanceResidentQueue(club); });
-}
-
-let advancingResidentQueue = false;
-async function advanceResidentQueue(club) {
-    const queue = residentQueue;
-    // The guest chose something else (a stream, a file) while this played: not ours any more.
-    if (advancingResidentQueue || !queue || club._audioStreamUrl !== queue.episodes[queue.index].url) return;
-    advancingResidentQueue = true;
-    try {
-        if (queue.index + 1 < queue.episodes.length) {
-            await playResidentFrom(club, queue.episodes, queue.index + 1);
-        } else {
-            // Out of older episodes: look again (a new one may be out) and start from the newest.
-            await playResidentFrom(club, await fetchPodcastEpisodes(RESIDENT_PODCAST), 0);
-        }
-    } catch (err) {
-        uiLog.warn(`Next episode unavailable: ${err.message}`);
-        residentQueue = null;
-        if (club.showErrorMessage) club.showErrorMessage('The episode finished and the next one could not start. Open \ud83c\udfb5 to pick another.');
-    } finally {
-        advancingResidentQueue = false;
-    }
+/** Light the chosen podcast on every control that offers the choice (splash cards, Audio menu buttons). */
+function refreshPodcastChoices() {
+    const id = window.Podcasts.selectedId(window.localStorage);
+    document.querySelectorAll('[data-podcast]').forEach((button) => {
+        button.setAttribute('aria-checked', String(button.dataset.podcast === id));
+    });
 }
 
 /** localStorage key for the last stream the guest actually played. */
@@ -267,15 +211,17 @@ function announceNowPlaying(label) {
 }
 
 /**
- * Start the default music from the ENTER click: the guest's own remembered stream, else the
- * Resident episodes from the newest (the next older one follows each that ends). The
- * AudioContext is created and resumed synchronously here, while the click's user activation is
- * fresh; only the feed lookup that follows is asynchronous. If the browser still blocks
- * playback, the next click or key press starts it, unless the guest has chosen something else.
+ * Start the default music from the ENTER click: the guest's own remembered stream, else a RANDOM episode of
+ * the podcast chosen on the splash (the next older one follows each that ends). The AudioContext is created
+ * and resumed synchronously here, while the click's user activation is fresh; only the feed lookup that
+ * follows is asynchronous. If the browser still blocks playback, the next click or key press starts it,
+ * unless the guest has chosen something else.
  */
 function startEntryMusic(club, pointAtAudioMenu) {
     try { club._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
-    entryNowPlaying = `Finding the latest ${RESIDENT_PODCAST.name} episode\u2026`;
+    const player = ensurePodcastPlayer(club);
+    const podcast = player.selected();
+    entryNowPlaying = `Finding a ${podcast.artist} episode\u2026`;
     const nowPlaying = document.getElementById('audioNowPlaying');
     if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
 
@@ -299,11 +245,10 @@ function startEntryMusic(club, pointAtAudioMenu) {
         started = blocked.start();
     } else {
         blocked = {
-            url: () => residentQueue.episodes[residentQueue.index].url,
-            start: () => playResidentFrom(club, residentQueue.episodes, residentQueue.index)
+            url: () => player.queue.episodes[player.queue.index].url,
+            start: () => player.playFrom(player.queue.podcast, player.queue.episodes, player.queue.index)
         };
-        started = fetchPodcastEpisodes(RESIDENT_PODCAST)
-            .then((episodes) => playResidentFrom(club, episodes, 0));
+        started = player.playRandom(podcast);
     }
 
     started.catch((err) => {
@@ -314,7 +259,7 @@ function startEntryMusic(club, pointAtAudioMenu) {
         entryNowPlaying = 'No audio yet';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
         pointAtAudioMenu();
-        const canRetry = err && err.name === 'NotAllowedError' && (remembered || residentQueue);
+        const canRetry = err && err.name === 'NotAllowedError' && (remembered || player.queue);
         if (canRetry) {
             document.addEventListener('pointerdown', retryOnGesture);
             document.addEventListener('keydown', retryOnGesture);
@@ -332,14 +277,36 @@ function startEntryMusic(club, pointAtAudioMenu) {
     const remembered = rememberedStreamUrl();
     const nameEl = document.getElementById('splashRadioName');
     const hostEl = document.getElementById('splashRadioHost');
+    const cards = document.querySelector('.splash-podcasts');
+    const describe = () => {
+        const podcast = Podcasts.get(Podcasts.selectedId(localStorage));
+        if (nameEl) nameEl.textContent = podcast.name;
+        if (hostEl) hostEl.textContent = Podcasts.serversText(podcast, podcastRelayBase());
+        if (cards) cards.setAttribute('aria-disabled', String(!checkbox.checked));
+    };
+    refreshPodcastChoices();
     if (remembered) {
+        // The guest's own stream wins over a podcast: there is nothing to choose.
+        if (cards) cards.hidden = true;
         try {
             if (hostEl) hostEl.textContent = new URL(remembered).host;
             if (nameEl) nameEl.textContent = 'your last stream';
         } catch (_) { /* keep the static text */ }
+    } else {
+        describe();
+        document.querySelectorAll('.splash-podcast').forEach((card) => {
+            card.addEventListener('click', () => {
+                Podcasts.saveSelected(card.dataset.podcast, localStorage);
+                refreshPodcastChoices();
+                describe();
+                // The club may already be loading (RETRY path): the DJ follows the choice.
+                if (window.vrClub && typeof window.vrClub.setDJ === 'function') window.vrClub.setDJ(Podcasts.get(card.dataset.podcast).dj);
+            });
+        });
     }
     checkbox.addEventListener('change', () => {
         try { localStorage.setItem(RADIO_ON_ENTRY_KEY, checkbox.checked ? '1' : '0'); } catch (_) {}
+        if (!remembered) describe();
     });
 })();
 
@@ -363,6 +330,8 @@ if (enterClubBtn) {
         // operation loses the browser's transient user activation and audible
         // playback is then blocked by autoplay policy.
         window.vrClub = new VRClub();
+        // One podcast player for both menus (the VR menu reaches it through club.podcastPlayer).
+        ensurePodcastPlayer(window.vrClub);
 
         const radioOptIn = document.getElementById('splashRadioOnEntry');
         const playOnEntry = radioOptIn ? radioOptIn.checked : AudioUtils.shouldPlayOnEntry(null);
@@ -1185,45 +1154,106 @@ function initAudioMenu() {
                 }
                 return;
             }
+            // Paused on this very source part-way through: resume it, do not start it over.
+            if (activeAudio && activeAudio.paused && !activeAudio.ended && activeAudio.src === requestedUrl && activeAudio.currentTime > 0) {
+                vrClubInstance.toggleAudioPlayback();
+                setPlayLabel(true);
+                showStatus('Resumed', 'success');
+                return;
+            }
 
             playUrl(url, url);
         });
     }
 
-    // Latest Resident episode: resolve the feed, then play the newest and keep going to the next
-    // older one each time an episode ends (broadcast to the room if this guest hosts it).
+    // Podcast choice, Random and Latest. They all go through the one player the VR menu uses.
+    const podcastPlayer = ensurePodcastPlayer(vrClubInstance);
     const playPodcastBtn = document.getElementById('playPodcastBtn');
-    if (playPodcastBtn) {
-        playPodcastBtn.addEventListener('click', async () => {
-            if (playPodcastBtn.disabled) return;
-            playPodcastBtn.disabled = true;
-            showStatus(`Finding the latest ${RESIDENT_PODCAST.name} episode\u2026`, 'success');
-            try {
-                const episodes = await fetchPodcastEpisodes(RESIDENT_PODCAST);
-                const activeAudio = vrClubInstance.audioElement;
-                if (activeAudio && !activeAudio.paused && activeAudio.src === episodes[0].url) {
-                    showStatus(`Already playing: ${episodes[0].title}`, 'success');
-                    return;
-                }
-                const episode = await playResidentFrom(vrClubInstance, episodes, 0);
-                showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success');
-            } catch (err) {
-                uiLog.warn('Podcast feed failed:', err);
-                showStatus(`Could not load the podcast: ${err.message}`, 'error');
-            } finally {
-                playPodcastBtn.disabled = false;
-            }
+    const playRandomEpisodeBtn = document.getElementById('playRandomEpisodeBtn');
+    const podcastButtons = [playPodcastBtn, playRandomEpisodeBtn,
+        ...document.querySelectorAll('.audio-podcast-choice')].filter(Boolean);
+    /** Run a player action with the buttons locked and a status line; the player's onEpisode hook updates the labels. */
+    const runPodcastAction = async (message, action) => {
+        if (podcastButtons.some(button => button.disabled)) return;
+        podcastButtons.forEach(button => { button.disabled = true; });
+        showStatus(message, 'success');
+        try {
+            const episode = await action();
+            showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success');
+        } catch (err) {
+            uiLog.warn('Podcast feed failed:', err);
+            showStatus(`Could not load the podcast: ${err.message}`, 'error');
+        } finally {
+            podcastButtons.forEach(button => { button.disabled = false; });
+        }
+    };
+    refreshPodcastChoices();
+    document.querySelectorAll('.audio-podcast-choice').forEach((button) => {
+        button.addEventListener('click', () => {
+            const podcast = Podcasts.get(button.dataset.podcast);
+            // Choosing a podcast plays it: a random episode of that artist, and the DJ at the decks follows.
+            runPodcastAction(`Finding a ${podcast.artist} episode\u2026`, () => podcastPlayer.switchTo(podcast.id));
+        });
+    });
+    if (playRandomEpisodeBtn) {
+        playRandomEpisodeBtn.addEventListener('click', () => {
+            const podcast = podcastPlayer.selected();
+            runPodcastAction(`Finding a ${podcast.artist} episode\u2026`, () => podcastPlayer.playRandom(podcast));
         });
     }
+    if (playPodcastBtn) {
+        playPodcastBtn.addEventListener('click', () => {
+            const podcast = podcastPlayer.selected();
+            runPodcastAction(`Finding the latest ${podcast.artist} episode\u2026`, () => podcastPlayer.playLatest(podcast));
+        });
+    }
+
+    // Position in the episode. The slider and the labels follow the audio (4 times a second while the
+    // panel is open); dragging seeks on release, and the -30s / +30s buttons nudge.
+    const seekSection = document.getElementById('audioSeekSection');
+    const seek = document.getElementById('audioSeek');
+    const seekElapsed = document.getElementById('audioSeekElapsed');
+    const seekTotal = document.getElementById('audioSeekTotal');
+    const seekBack = document.getElementById('audioSeekBack');
+    const seekForward = document.getElementById('audioSeekForward');
+    let seekDragging = false;
+    const SEEK_STEPS = 1000;
+    const renderSeek = () => {
+        if (!seek || !seekSection) return;
+        const info = vrClubInstance.getPlaybackInfo();
+        // Keep the Play/Pause label honest when something else (the VR menu, a media key) changed it.
+        if (streamUrl && streamUrl.value && vrClubInstance.audioElement && vrClubInstance.audioElement.src) setPlayLabel(info.playing);
+        seekSection.hidden = !info.seekable;
+        if (!info.seekable) return;
+        const shown = seekDragging ? (Number(seek.value) / SEEK_STEPS) * info.duration : info.position;
+        if (!seekDragging) seek.value = String(Math.round((info.position / info.duration) * SEEK_STEPS));
+        seekElapsed.textContent = AudioUtils.formatClock(shown);
+        seekTotal.textContent = AudioUtils.formatClock(info.duration);
+        seek.setAttribute('aria-valuetext', `${AudioUtils.formatClock(shown)} of ${AudioUtils.formatClock(info.duration)}`);
+    };
+    if (seek) {
+        seek.addEventListener('input', () => { seekDragging = true; renderSeek(); });
+        // 'change' fires on release (and on a keyboard step): that is when the media is actually asked to move.
+        seek.addEventListener('change', () => {
+            vrClubInstance.seekAudioFraction(Number(seek.value) / SEEK_STEPS);
+            seekDragging = false;
+            renderSeek();
+        });
+    }
+    if (seekBack) seekBack.addEventListener('click', () => { vrClubInstance.seekAudioBy(-30); renderSeek(); });
+    if (seekForward) seekForward.addEventListener('click', () => { vrClubInstance.seekAudioBy(30); renderSeek(); });
+    const seekTimer = setInterval(() => { if (!audioMenu.classList.contains('hidden')) renderSeek(); }, 250);
+    teardowns.push(() => clearInterval(seekTimer));
+    audioToggle.addEventListener('click', renderSeek);
 
     /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
     function playUrl(url, label) {
         const requestedUrl = new URL(url, window.location.href).href;
-        // Pressing Play on the Resident episode that was playing resumes the queue, so it still
+        // Pressing Play on the podcast episode that was playing resumes the queue, so it still
         // moves on to the next one when it ends (a plain stream URL would loop it).
-        const queued = residentQueue && residentQueue.episodes[residentQueue.index];
-        if (queued && new URL(queued.url).href === requestedUrl) {
-            return playResidentFrom(vrClubInstance, residentQueue.episodes, residentQueue.index)
+        if (podcastPlayer.isQueuedUrl(requestedUrl)) {
+            const queue = podcastPlayer.queue;
+            return podcastPlayer.playFrom(queue.podcast, queue.episodes, queue.index)
                 .then(episode => showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success'))
                 .catch(err => {
                     showStatus(`Error: ${err.message}`, 'error');
@@ -1303,12 +1333,6 @@ function initAudioMenu() {
 // =============================================================================
 // MULTIPLAYER (NETWORK) MENU
 // =============================================================================
-
-const NETWORK_PREFS = Object.freeze({
-    serverUrl: 'vrclub.networkServerUrl',
-    room: 'vrclub.networkRoom',
-    name: 'vrclub.networkName'
-});
 
 function defaultNetworkServerUrl() {
     const hostedRelay = 'wss://vrclub-network.garfieldapp.workers.dev';

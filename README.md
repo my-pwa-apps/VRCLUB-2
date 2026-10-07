@@ -30,6 +30,7 @@ css/styles.css             Splash screen and desktop control styling
 js/vendor/                 Pinned Babylon.js runtime and loader libraries
 js/assetCache.js           IndexedDB cache, in-flight dedup, fetch timeouts (loaders depend on it)
 js/audioUtils.js           Pure, tested audio URL security policy
+js/podcasts.js             Podcast catalogue (Hernan Cattaneo, Miss Melera), the choice, random/latest pick and queue behind both the Audio menu and the VR menu
 js/textureLoader.js        Texture caching and pooling
 js/modelLoader.js          GLB model loading, caching, placement and procedural fallbacks
 js/materialFactory.js      Shared Babylon material presets
@@ -60,6 +61,8 @@ js/ui-init.js              Splash, desktop VJ menu, and audio menu wiring; const
 scripts/serve.mjs          Dependency-free static server honouring $PORT (used by Procfile)
 scripts/build.mjs          Production bundler and static-asset copier
 scripts/build-city-assets.mjs Bakes the street from the Quaternius Downtown City MegaKit into js/models/city/downtown.glb
+scripts/build-crowd-glbs.mjs Builds the 17-person crowd (`club-crowd-*.glb`) from the Quaternius Modular Women/Men packs: retargets the club's clips, recolours, bakes vertex colours
+scripts/build-dj-glbs.mjs  Derives the two DJs from the guest files
 test/contract.test.mjs     Contract tests — load order, wiring, assets, hygiene
 test/unit.test.mjs         Runtime unit tests for security, caching, materials, and show logic
 textures/                  Local PBR environment textures
@@ -70,11 +73,14 @@ js/models/                 Local GLB models and model textures
 
 - **Move**: `W` `A` `S` `D` or the arrow keys; drag with the mouse to look. `Q`/`E` for down/up.
 - **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. On first load it reads **Preparing VR…** while the background models finish loading. By default, the **left stick walks in the direction you look** (without flying when you look up/down), and the **right stick turns smoothly**. Walk up/down the left-hand stairs to reach or leave the balcony. Click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump. **VR Comfort** switches to teleport and snap turn, disabling sprint/jump. Press `Y`/`B` (or the controller menu button when exposed) for the world-locked, paged quick menu. It provides headset-friendly pages for lighting, effects, the automatic show, comfort and safety, travel, reset, and live **Balanced / High / Ultra** quality switching.
+- **The crowd**: up to 14 dancers and 8 guests, all different: 17 recoloured Quaternius Modular Women / Men (every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits) plus the three Mixamo dancers. Lower quality tiers show fewer people and download fewer characters. They are built by `scripts/build-crowd-glbs.mjs`, which also retargets the club's dance and idle clips onto their rig; see `js/models/avatars/README.md`.
 - **Laser speed**: rotating ceiling beams now move at one quarter of their previous rate. The VJ laser-speed slider still changes their speed; laser-sheet motion is unchanged.
+- **The street**: walk out through the vestibule's street door (or press `6` / use the Street button / the VR menu's Travel page) onto a night avenue lined with lit buildings. Out there the music is only the low bass coming through the walls, a little clearer at the door than down the street. The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
 - **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
 - **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
-- **🎵 Audio menu** (bottom-right): play an HTTP(S) stream URL or a local audio file, plus volume. The last stream you chose is remembered. **🎧 Latest Resident — Hernan Cattaneo** plays the newest episode of that podcast (read from its public RSS feed; the MP3 streams from Podbean). A dropped episode reconnects at the same position.
-- **Music on entry:** the latest Resident episode starts when you press ENTER (the splash says which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on.
+- **🎵 Audio menu** (bottom-right): choose **Hernan Cattaneo** (*Resident*) or **Miss Melera** (*Colourizon*), play a **Random** or the **Latest** episode, drag the **seek bar** (or ±30 s) to move through it, or play an HTTP(S) stream URL / local audio file, plus volume. The last stream you chose is remembered. A dropped episode reconnects at the same position. The VR menu has the same controls on its **Music** page, with a seek strip you click or drag with the controller ray.
+- **Music on entry:** a random episode of the chosen podcast starts when you press ENTER (the splash names which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on. The DJ in the booth changes to match the podcast.
+- **Miss Melera needs the relay:** her SoundCloud podcast has no CORS headers, so it streams through the Worker in `worker/` (`/podcast/colourizon/...`). Redeploy it with `wrangler deploy` after pulling. Hernan Cattaneo works without it.
 - **📷 Camera presets** (bottom-centre): four fixed viewpoints.
 
 ### Keyboard shortcuts

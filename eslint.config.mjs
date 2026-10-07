@@ -64,6 +64,7 @@ const browserGlobals = {
 const projectGlobals = {
     BABYLON: 'readonly',
     AudioUtils: 'readonly',
+    Podcasts: 'readonly',
     ROOM_BOUNDS: 'readonly',
     ROOM_INTERIOR: 'readonly',
     CLUB_POSITIONS: 'readonly',
@@ -193,6 +194,8 @@ export default [
                 clearTimeout: 'readonly',
                 globalThis: 'readonly',
                 structuredClone: 'readonly',
+                TextEncoder: 'readonly',
+                TextDecoder: 'readonly',
                 __dirname: 'readonly'
             }
         },
@@ -216,6 +219,8 @@ export default [
                 Request: 'readonly',
                 Response: 'readonly',
                 URL: 'readonly',
+                fetch: 'readonly',
+                TextDecoder: 'readonly',
                 crypto: 'readonly',
                 console: 'readonly'
             }

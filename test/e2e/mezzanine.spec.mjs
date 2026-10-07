@@ -3,6 +3,62 @@ import { enterClub, expectHealthyRuntime, useQuestHarness } from './support.mjs'
 
 useQuestHarness();
 
+/**
+ * Walk with the left stick, inside the page so no frame is lost to a round trip, until the walker passes `limit`
+ * in the walking direction or the frames run out.
+ */
+const walkWithLeftStick = (page, stickY, limit) => page.evaluate(async ([y, stop]) => {
+    const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+    const left = window.__iwerDevice.controllers.left;
+    const trace = [];
+    left.updateAxes('thumbstick', 0, y);
+    for (let i = 0; i < 600; i++) {
+        await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        trace.push({ x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight() });
+        if (y < 0 ? cam.position.z < stop : cam.position.z > stop) break;
+    }
+    left.updateAxes('thumbstick', 0, 0);
+    return trace;
+}, [stickY, limit]);
+
+async function enterVRWalking(page) {
+    await enterClub(page);
+    const vrButton = page.locator('#vrButton');
+    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
+    await vrButton.click();
+    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
+    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await page.evaluate(() => window.vrClub.setVRComfortMode(false));
+}
+
+test('a short or seated headset walks the floor and the stair: nothing invisible blocks it', async ({ page }) => {
+    test.setTimeout(1_500_000);
+    await enterVRWalking(page);
+    const HEAD = 1.25;
+    await page.evaluate(h => window.__iwerDevice.position.set(0, h, 0), HEAD);
+    await page.evaluate(async () => {
+        const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+        for (let i = 0; i < 4; i++) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        cam.position.x = 6; cam.position.z = -4;
+        await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+    });
+    const across = await walkWithLeftStick(page, -1, -7);
+    const end = across[across.length - 1];
+    expect(end.eye).toBeCloseTo(HEAD, 2);
+    expect(end.z, `a ${HEAD} m headset stopped at z ${end.z.toFixed(2)} on open floor`).toBeLessThan(-7);
+
+    await page.evaluate(async () => {
+        const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+        cam.position.x = -11.4; cam.position.z = -5.6;
+        await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+    });
+    const up = await walkWithLeftStick(page, -1, -12.5);
+    const top = up[up.length - 1];
+    expect(top.level, `walked to z ${top.z.toFixed(2)} but stood at ${top.level}`).toBe(3);
+    expect(top.y - top.eye).toBeCloseTo(3, 1);
+    await expectHealthyRuntime(page);
+});
+
 test('the steel mezzanine is built, lit by its own accent, climbable and fenced', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
@@ -148,29 +204,8 @@ test('in VR the balcony and its stair can be reached by teleport, stood on, and 
 
 test('in VR with comfort off the stair can be walked up onto the balcony and back down with the thumbstick', async ({ page }) => {
     test.setTimeout(1_500_000);
-    await enterClub(page);
-    const vrButton = page.locator('#vrButton');
-    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
-    await vrButton.click();
-    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
-    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
-    await page.evaluate(() => window.vrClub.setVRComfortMode(false));
-    // Walk with the left stick, inside the page so no frame is lost to
-    // a round trip, until the walker passes `stopZ` in the walking direction or the frames run out.
-    const walk = (stickY, stopZ) => page.evaluate(async ([y, limit]) => {
-        const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
-        const left = window.__iwerDevice.controllers.left;
-        const trace = [];
-        left.updateAxes('thumbstick', 0, y);
-        for (let i = 0; i < 600; i++) {
-            await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
-            trace.push({ x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight() });
-            if (y < 0 ? cam.position.z < limit : cam.position.z > limit) break;
-        }
-        left.updateAxes('thumbstick', 0, 0);
-        return trace;
-    }, [stickY, stopZ]);
-
+    await enterVRWalking(page);
+    const walk = (stickY, stopZ) => walkWithLeftStick(page, stickY, stopZ);
     // Stand on the floor at the foot of the stair, facing up it (-z, the way the headset faces).
     await page.evaluate(async () => {
         const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;

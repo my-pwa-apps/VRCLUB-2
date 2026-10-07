@@ -665,6 +665,77 @@ html, body {
     transform: none;
 }
 
+/* Podcast choice (Hernan Cattaneo / Miss Melera): two exclusive buttons, the chosen one lit. */
+.audio-podcasts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.audio-podcast-choice {
+    min-height: 40px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.audio-podcast-choice:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.audio-podcast-choice[aria-checked="true"] {
+    background: rgba(0, 255, 255, 0.2);
+    border-color: #00ffff;
+}
+
+.audio-podcast-actions .audio-podcast-button {
+    flex: 1;
+    width: auto;
+}
+
+/* Position in the episode. */
+.audio-seek[hidden] {
+    display: none;
+}
+
+.audio-seek input[type="range"] {
+    width: 100%;
+}
+
+.audio-seek-times {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.audio-seek-skip {
+    min-width: 52px;
+    min-height: 32px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.audio-seek-skip:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
 .audio-file-upload {
     display: flex;
     align-items: center;
@@ -804,21 +875,30 @@ html, body {
     width: 100%;
     height: 100%;
     background: #000000;
+    /* Follow the visible viewport (mobile toolbars shrink it); the 100% above is the fallback. */
+    height: 100dvh;
     z-index: 10000;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     transition: opacity 0.5s ease-out;
-    overflow: hidden;
+    /* The card can be taller than a small window: scroll rather than clip it. `margin: auto` on the
+       card centres it when it fits and keeps its top reachable when it does not (justify-content:
+       center would cut the top off). */
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+        max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
 }
 
-/* Animated background grid */
+/* Animated background grid. Fixed, so it fills the viewport and does not scroll with the card. */
 #splashScreen::before {
     content: '';
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
@@ -834,7 +914,8 @@ html, body {
 /* Animated gradient overlay */
 #splashScreen::after {
     content: '';
-    position: absolute;
+    pointer-events: none;
+    position: fixed;
     top: -50%;
     left: -50%;
     width: 200%;
@@ -859,8 +940,8 @@ html, body {
 }
 
 .splash-logo {
-    font-size: 100px;
-    margin-bottom: 20px;
+    font-size: clamp(44px, 9vmin, 80px);
+    margin-bottom: clamp(4px, 1.2vmin, 12px);
     animation: neonPulse 2s ease-in-out infinite, float 3s ease-in-out infinite;
     filter: drop-shadow(0 0 20px rgba(255, 0, 255, 0.8)) drop-shadow(0 0 40px rgba(0, 255, 255, 0.6));
     position: relative;
@@ -884,10 +965,10 @@ html, body {
 }
 
 .splash-title {
-    font-size: 64px;
+    font-size: clamp(30px, 10vmin, 64px);
     font-weight: 900;
-    margin-bottom: 10px;
-    letter-spacing: 8px;
+    margin-bottom: clamp(6px, 1.2vmin, 10px);
+    letter-spacing: clamp(2px, 1.2vmin, 8px);
     background: linear-gradient(90deg, #ff00ff, #00ffff, #ff00ff);
     background-size: 200% auto;
     -webkit-background-clip: text;
@@ -906,12 +987,12 @@ html, body {
 }
 
 .splash-subtitle {
-    font-size: 18px;
+    font-size: clamp(11px, 2.4vmin, 18px);
     opacity: 0.9;
-    margin-bottom: 40px;
+    margin-bottom: clamp(14px, 4vmin, 40px);
     color: #00ffff;
     text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
-    letter-spacing: 3px;
+    letter-spacing: clamp(1px, 0.4vmin, 3px);
     text-transform: uppercase;
     position: relative;
     z-index: 2;
@@ -925,11 +1006,13 @@ html, body {
 
 .splash-content {
     background: rgba(10, 10, 20, 0.8);
-    padding: 50px;
-    border-radius: 24px;
+    padding: clamp(16px, 4.5vmin, 50px);
+    border-radius: clamp(14px, 3vmin, 24px);
     -webkit-backdrop-filter: var(--blur-heavy);
     backdrop-filter: var(--blur-heavy);
-    max-width: 500px;
+    box-sizing: border-box;
+    width: min(100%, 560px);
+    margin: auto;
     text-align: center;
     border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: var(--shadow-lg);
@@ -941,16 +1024,18 @@ html, body {
     background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    padding: 18px 60px;
-    font-size: 16px;
+    padding: clamp(12px, 2.4vmin, 18px) clamp(24px, 9vmin, 60px);
+    max-width: 100%;
+    box-sizing: border-box;
+    font-size: clamp(14px, 2.4vmin, 16px);
     font-weight: 700;
     border-radius: 12px;
     cursor: pointer;
     transition: background var(--transition-fast), transform var(--transition-fast);
     box-shadow: var(--shadow-md);
-    margin-top: 30px;
+    margin-top: clamp(14px, 3.5vmin, 30px);
     text-transform: uppercase;
-    letter-spacing: 3px;
+    letter-spacing: clamp(1px, 0.5vmin, 3px);
     position: relative;
     overflow: hidden;
 }
@@ -982,7 +1067,7 @@ html, body {
 
 /* Photosensitivity warning + safe-mode opt-in, shown before anything renders. */
 .splash-warning {
-    margin: 24px auto 12px;
+    margin: clamp(12px, 3vmin, 24px) auto 12px;
     max-width: 420px;
     padding: 10px 14px;
     border: 1px solid rgba(255, 210, 90, 0.7);
@@ -1003,7 +1088,7 @@ html, body {
     display: block;
     width: 100%;
     max-width: 420px;
-    margin: 0 auto 24px;
+    margin: 0 auto clamp(10px, 2.4vmin, 24px);
     min-height: 44px;
     padding: 12px 16px;
     border-radius: 8px;
@@ -1020,8 +1105,66 @@ html, body {
     border-color: #00ffff;
 }
 
+/* Podcast choice on the splash: two cards, the chosen one lit. Sits between the music toggle and its hint. */
+.splash-podcasts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    max-width: 420px;
+    margin: 8px auto 0;
+}
+
+.splash-podcast {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: center;
+    min-height: 56px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    border: 2px solid rgba(0, 255, 255, 0.4);
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.splash-podcast-artist {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.splash-podcast-show {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.8;
+}
+
+.splash-podcast[aria-checked="true"] {
+    background: rgba(0, 255, 255, 0.22);
+    border-color: #00ffff;
+}
+
+.splash-podcasts[aria-disabled="true"] {
+    opacity: 0.45;
+}
+
+/* A hint belongs to the control above it: keep them together, and space the pair from what follows. */
+.splash-toggle:has(+ .splash-hint),
+.splash-toggle:has(+ .splash-podcasts) {
+    margin-bottom: 0;
+}
+
+.splash-toggle + .splash-hint,
+.splash-podcasts + .splash-hint {
+    margin-top: 6px;
+    margin-bottom: clamp(12px, 2.4vmin, 22px);
+}
+
 .splash-hint {
-    margin-top: 18px;
+    margin-top: clamp(8px, 2vmin, 18px);
     font-size: 13px;
     line-height: 1.7;
     color: rgba(255, 255, 255, 0.85);
@@ -1264,20 +1407,18 @@ button:active,
     }
 
     .splash-content {
-        padding: 24px 18px;
-    }
-
-    .splash-logo {
-        font-size: 56px;
-    }
-
-    .splash-title {
-        font-size: 40px;
+        padding: 20px 14px;
     }
 }
 
+/* A short window (a laptop with a toolbar, a phone in landscape): drop only the movement tips. The
+   warning, the toggles, ENTER and the licence credits stay, and the card scrolls if it still does not fit. */
 @media (max-height: 620px) {
-    .splash-hint {
+    .splash-controls {
+        display: none;
+    }
+
+    .splash-logo {
         display: none;
     }
 }

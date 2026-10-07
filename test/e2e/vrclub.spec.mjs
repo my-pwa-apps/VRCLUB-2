@@ -194,9 +194,11 @@ test('production build initializes a rendered club without browser errors', asyn
             y: throughRoof.y, roofUnderside: bounds('ceiling').minimumWorld.y
         };
     });
-    // The front wall now has a doorway: the visitor walks through it and stops at the street door.
+    // The front wall has a doorway and so does the vestibule's street wall: the visitor walks out onto the avenue and
+    // is stopped by the far row of buildings. The side wall and the roof still contain the free camera.
     expect(escape.doorwayWalked).toBe(true);
-    expect(escape.z).toBeLessThan(escape.vestibuleFar);
+    expect(escape.z).toBeGreaterThan(escape.vestibuleFar);
+    expect(escape.z).toBeLessThan(24);
     expect(escape.x).toBeGreaterThan(escape.leftWallInner);
     expect(escape.y).toBeLessThanOrEqual(escape.roofUnderside);
 

@@ -213,6 +213,118 @@ findings are updated in place rather than duplicated. Historical measurements re
   **Product value:** Medium
   **Technical debt reduction:** Low
 
+- [ ] **Check Ultra, headset heights and the stair on a Quest 3S**
+
+  **Priority:** Medium
+  **Category:** Performance / Navigation
+  **Evidence:** Quest browsers now start on Ultra (14 dancers, 8 guests, 280 mirror spots); only a Quest 3 has been tried. The
+  invisible-wall fix (torso collider) was verified with Babylon's real collision solver and the IWER emulator at 0.9 to 1.85 m
+  headset heights, not with a physical headset. The stair's clear corridor is about 0.8 m for the 0.25 m-radius body, so
+  approaching it at an angle can still catch a rail.
+  **Recommended solution:** Capture frame time on Ultra standing at the dance floor and the bar; walk to the balcony standing and
+  seated. If the stair is fiddly, widen it past 1.4 m (`MEZZANINE.stairs`) or flare its first rails.
+  **Acceptance criteria:** Ultra holds the headset refresh rate (or the default drops back to High), and a seated and a standing
+  player both reach the deck by thumbstick on the first try.
+
+---
+
+## Implementation - 2026-10-07 - A diverse crowd from the Modular Women / Men packs
+
+Shipped: 17 recoloured Quaternius Modular people with retargeted dance and idle clips, loaded per quality tier (see
+[CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Validated with the real Babylon skeletons headless and desktop
+SwiftShader only. Open items:
+
+- [ ] **Judge the crowd's look and cost on a Quest 3S**
+
+  **Priority:** Medium
+  **Category:** Experience / Performance
+  **Evidence:** The people are flat-coloured low-poly figures (13k vertices, one draw each) next to the textured
+  Mixamo dancers and the DJs; they match the old characters' style in the desktop renders but have not been seen
+  in a headset. Every dance is the single Universal Animation Library `Dance_Loop`; five of the eleven modular dancers
+  play it mirrored (`mirror: true` in `CAST`), so variety comes from the figures, the mirroring, phase offsets and
+  speeds, not from different choreography.
+  **Recommended solution:** Look at them in the headset at booth and floor distance; if the choreography still reads
+  as a chorus line, add more Mixamo-free clips when Quaternius releases them and retarget those.
+  **Acceptance criteria:** No two neighbours move in step; Ultra holds the headset's refresh rate with 14 dancers and 8 guests.
+
+- [ ] **Retire the Mixamo dancers and the two peasant-outfit files**
+
+  **Priority:** Low
+  **Category:** Licensing
+  **Evidence:** `Hip Hop Dancing.glb`, `house.glb` and `rumba_dancing_female_character.glb` are still the only
+  non-CC0 characters and still account for three of the 14 dance slots; `club-dancer-*.glb` now only dress the
+  player's own body.
+  **Recommended solution:** Replace them with `club-crowd-*` people once a second CC0 dance exists to retarget, and
+  rebuild the player's body from a Modular character (the rig would need the modular skeleton, not the mannequin).
+  **Acceptance criteria:** Every shipped character file is CC0.
+
+---
+
+## Implementation - 2026-10-07 - Podcast choice, seek bar and a DJ per podcast
+
+Shipped: Hernan Cattaneo / Miss Melera selector, random episode on entry, seek bar (desktop and VR Music page) and a DJ
+that changes with the podcast (see [CHANGELOG.md](CHANGELOG.md)). Validated with mocked feeds on desktop SwiftShader and the
+IWER harness only. Open items:
+
+- [ ] **Deploy the relay and verify real Colourizon streaming and seeking through it**
+
+  **Priority:** High
+  **Category:** Deployment
+  **Evidence:** `worker/src/podcast.js` is covered by unit tests with a stubbed upstream and the e2e suite serves a mock; the
+  Worker has not been deployed, and SoundCloud's signed stream URLs live about five minutes (the proxy re-resolves per request).
+  **Recommended solution:** `wrangler deploy` in `worker/`, then play Colourizon, seek across the episode and let one finish.
+  **Acceptance criteria:** An episode plays with a live analyser (not the "silent" warning), a mid-episode seek resumes within
+  3 s, and an episode longer than five minutes does not stall at the first URL expiry.
+
+- [ ] **Check the DJ looks and the seek bar on a Quest 3S**
+
+  **Priority:** Low
+  **Category:** Experience
+  **Evidence:** The DJs are tinted Quaternius characters built from public descriptions, and the seek strip was exercised only
+  with synthetic controller poses.
+  **Acceptance criteria:** Both DJs read as the artists at booth distance, and the strip can be dragged precisely with a real controller.
+
+---
+
+## Implementation - 2026-10-06 - The street outside the club
+
+Shipped: the vestibule's street door opens onto a night avenue from the CC0 Quaternius *Downtown City MegaKit*, and the
+music outside is only the low bass (see [CHANGELOG.md](CHANGELOG.md), [ASSETS.md](ASSETS.md)). Validated on desktop SwiftShader
+and the IWER harness only. Open items:
+
+- [ ] **Measure the street on a Quest 3S**
+
+  **Priority:** High
+  **Category:** Performance
+  **Evidence:** The baked district is 148k triangles and about 60 draws with the whole avenue in view, drawn per eye; it is hidden
+  below `z -8` so the club itself is unaffected, but no headset frame time exists for the street, and its 6.7 MB GLB parses inside
+  the "Preparing VR..." window.
+  **Recommended solution:** Capture frame time on the sidewalk facing the far row and facing down the avenue, balanced tier. If over
+  budget, lower `LOD_BY_DISTANCE` in `scripts/build-city-assets.mjs` (the sloppy simplifier can take the near buildings' window
+  frames too), drop the two outermost buildings per row on the balanced tier, or lower the sky dome's segments.
+  **Acceptance criteria:** The street holds the headset's refresh rate on the balanced tier with no worse than the dance-floor
+  baseline's dropped-frame rate, and the GLB's parse stall is below 300 ms on the headset.
+
+- [ ] **Stop drawing the club's interior while a guest is out on the street**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Evidence:** There is no occlusion culling, so looking back at the facade from the avenue still submits every club mesh in the
+  frustum (about 560 active meshes measured on desktop at the pavement's edge) only for the brick wall to cover them.
+  **Recommended solution:** Tag the shell (walls, vestibule, signs, graffiti) and put everything else on a layer the camera drops
+  when `_exterior > 0.95` and the guest is off the door's line; verify the XR rig cameras inherit the mask first.
+  **Acceptance criteria:** Active meshes on the avenue fall below 250 with the club unchanged when the guest walks back in.
+
+- [ ] **Give the street's lighting and the club facade some life**
+
+  **Priority:** Low
+  **Category:** Experience
+  **Evidence:** The street is lit by two flat scoped lights and the kit's own windows; there are no street lamps, no neon, and the
+  club's street-side facade is bare brick above the vestibule.
+  **Recommended solution:** Emissive lamp posts merged into the street mesh, a NOCTURNE sign on the facade through
+  `createSignage()`, and a warm spill on the pavement from the open door.
+  **Acceptance criteria:** No new draws beyond one merged mesh; the sign respects Photosensitive Safe Mode.
+
 ---
 
 ## Implementation - 2026-10-05 - Bass bins under the PA

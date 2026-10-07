@@ -7,7 +7,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -18,28 +18,42 @@ import vm from 'node:vm';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-async function loadRig(glb = 'club-dancer-male.glb', options = { eyeHeight: 1.7 }) {
-    const sandbox = {
+let shared = null;
+/** Babylon, loaded once into a vm and reused: parsing the 6 MB bundle per test file would dominate the run. */
+function sandbox() {
+    if (shared) return shared;
+    const box = {
         console, setTimeout, clearTimeout, setInterval, clearInterval, performance, URL,
         TextDecoder, TextEncoder, Blob, ArrayBuffer, Uint8Array, Float32Array, DataView, Promise, Map, Set, Math, JSON, Date,
         atob: s => Buffer.from(s, 'base64').toString('binary'),
         btoa: s => Buffer.from(s, 'binary').toString('base64')
     };
-    sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
-    sandbox.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {} };
-    sandbox.navigator = { userAgent: 'node' };
-    vm.createContext(sandbox);
+    box.window = box; box.self = box; box.globalThis = box;
+    box.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {} };
+    box.navigator = { userAgent: 'node' };
+    vm.createContext(box);
     for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js']) {
-        vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), sandbox, { filename: file });
+        vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), box, { filename: file });
     }
-    const B = sandbox.BABYLON;
-    B.Logger.LogLevels = B.Logger.WarningLogLevel | B.Logger.ErrorLogLevel;
+    box.BABYLON.Logger.LogLevels = box.BABYLON.Logger.WarningLogLevel | box.BABYLON.Logger.ErrorLogLevel;
+    shared = box;
+    return box;
+}
+
+async function loadContainer(glb) {
+    const box = sandbox();
+    const B = box.BABYLON;
     const engine = new B.NullEngine();
     const scene = new B.Scene(engine);
     const bytes = readFileSync(join(ROOT, 'js/models/avatars', glb));
     const container = await B.SceneLoader.LoadAssetContainerAsync(
         '', `data:application/octet-stream;base64,${bytes.toString('base64')}`, scene, null, '.glb');
-    const Rig = vm.runInContext('AvatarRig', sandbox);
+    return { B, scene, engine, container, box };
+}
+
+async function loadRig(glb = 'club-dancer-male.glb', options = { eyeHeight: 1.7 }) {
+    const { B, scene, engine, container, box } = await loadContainer(glb);
+    const Rig = vm.runInContext('AvatarRig', box);
     const rig = new Rig({ scene }, container, options);
     return { rig, B, scene, engine, Rig };
 }
@@ -56,7 +70,7 @@ const limbLengths = rig => ({
 });
 
 test('the rig builds on every UE-skeleton body and stands at the requested eye height', async () => {
-    for (const glb of ['club-dancer-female.glb', 'club-dancer-male.glb', 'club-dj.glb']) {
+    for (const glb of ['club-dancer-female.glb', 'club-dancer-male.glb', 'club-dj-hernan.glb', 'club-dj-melera.glb']) {
         const { rig } = await loadRig(glb, { eyeHeight: 1.7, hideHead: true });
         assert.equal(rig.ok, true, `${glb} did not build`);
         const pose = makePose();
@@ -197,4 +211,65 @@ test('bad input cannot poison the pose', async () => {
     pose.x += 50;
     rig.update(DT, pose);
     assert.ok(rig.speed < 1, 'a teleport was read as running speed');
+});
+
+// The crowd people are Quaternius Modular Women/Men whose rig is NOT the mannequin the clips were authored for:
+// scripts/build-crowd-glbs.mjs retargets them. Wrong axes, a flipped side or a bad scale do not throw, they give a
+// dancer with a crooked spine, arms through the head or feet in the floor, so measure the real skeleton moving.
+test('the retargeted crowd dances: arms and body move, limbs stay rigid, feet stay on the floor', async () => {
+    const files = readdirSync(join(ROOT, 'js/models/avatars')).filter(file => /^club-crowd-.*\.glb$/.test(file));
+    assert.ok(files.length >= 16, `expected the whole cast, found ${files.length}`);
+    for (const file of files) {
+        const { scene, container, B } = await loadContainer(file);
+        const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+        const root = entry.rootNodes[0];
+        const node = name => root.getDescendants(false, n => n.name === name)[0];
+        const tracked = ['Head', 'Wrist.L', 'Wrist.R', 'Foot.L', 'Foot.R', 'UpperArm.L', 'LowerArm.L', 'UpperLeg.L', 'LowerLeg.L', 'Hips', 'Chest']
+            .map(name => [name, node(name)]);
+        for (const [name, n] of tracked) assert.ok(n, `${file} has no ${name}`);
+        const at = name => { const n = node(name); n.computeWorldMatrix(true); return n.getAbsolutePosition().clone(); };
+        const dance = entry.animationGroups.find(group => group.name.endsWith('Dance_Loop'));
+        assert.ok(dance, `${file} has no Dance_Loop`);
+        dance.start(false);
+        dance.pause();
+
+        const samples = [];
+        const steps = 24;
+        for (let k = 0; k < steps; k++) {
+            dance.goToFrame(dance.from + (dance.to - dance.from) * k / steps);
+            root.computeWorldMatrix(true);
+            samples.push(Object.fromEntries(tracked.map(([name]) => [name, at(name)])));
+        }
+        const range = (name, axis) => {
+            const values = samples.map(sample => sample[name][axis]);
+            return Math.max(...values) - Math.min(...values);
+        };
+        const everyFinite = samples.every(sample => Object.values(sample).every(p => Number.isFinite(p.x + p.y + p.z)));
+        assert.ok(everyFinite, `${file}: a joint went non-finite`);
+
+        // Reach the model's own height from its bind pose, to judge everything in proportion.
+        const height = Math.max(...samples.map(sample => sample.Head.y));
+        assert.ok(height > 1.2 && height < 2.4, `${file}: head at ${height.toFixed(2)}`);
+        // It dances: hands travel, and the body moves with the beat.
+        assert.ok(range('Wrist.L', 'y') + range('Wrist.L', 'x') > 0.15 && range('Wrist.R', 'y') + range('Wrist.R', 'x') > 0.15,
+            `${file}: the hands barely move`);
+        assert.ok(range('Head', 'y') + range('Head', 'x') + range('Head', 'z') > 0.03, `${file}: the head does not move`);
+        // The head stays on top of the body.
+        for (const sample of samples) {
+            assert.ok(sample.Head.y > sample.Chest.y + 0.1, `${file}: the head dropped below the chest`);
+            assert.ok(sample.Chest.y > sample.Hips.y, `${file}: the chest dropped below the hips`);
+            assert.ok(Math.hypot(sample.Head.x - sample.Hips.x, sample.Head.z - sample.Hips.z) < 0.45 * height, `${file}: the head is thrown off the body`);
+        }
+        // Bones do not stretch: the upper arm and the thigh are the same length in every frame.
+        for (const [a, b] of [['UpperArm.L', 'LowerArm.L'], ['UpperLeg.L', 'LowerLeg.L']]) {
+            const lengths = samples.map(sample => B.Vector3.Distance(sample[a], sample[b]));
+            assert.ok(Math.max(...lengths) - Math.min(...lengths) < 0.01 * height, `${file}: ${a} stretches`);
+        }
+        // Feet stay near the floor and the arms never cross to the other side of the body.
+        const floor = Math.min(...samples.flatMap(sample => [sample['Foot.L'].y, sample['Foot.R'].y]));
+        const feetHigh = Math.max(...samples.flatMap(sample => [sample['Foot.L'].y, sample['Foot.R'].y]));
+        assert.ok(feetHigh - floor < 0.35 * height, `${file}: a foot leaves the floor by ${(feetHigh - floor).toFixed(2)}`);
+        assert.ok(samples.every(sample => sample['Foot.L'].x * sample['Foot.R'].x <= 0.0001 || Math.abs(sample['Foot.L'].x - sample['Foot.R'].x) > 0.05), `${file}: the feet crossed`);
+        scene.dispose();
+    }
 });

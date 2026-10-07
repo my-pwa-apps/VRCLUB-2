@@ -35,7 +35,12 @@
  *   - frames above MAX_FRAME_BYTES are dropped;
  *   - every message type has a per-connection token bucket, and a connection
  *     that keeps flooding after being throttled is closed.
+ *
+ * Besides the socket, the same Origin rule guards two plain HTTP routes for Miss Melera's
+ * podcast (see ./podcast.js): /podcast/colourizon/feed.xml and /podcast/colourizon/stream/<name>.
  */
+
+import { handlePodcast } from './podcast.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -303,9 +308,14 @@ export default {
         // pages from driving the relay from a visitor's browser. Non-browser clients
         // can forge it, which is what the per-connection limits are for.
         const allowed = parseAllowedOrigins(env.ALLOWED_ORIGINS);
-        if (!isAllowedOrigin(request.headers.get('Origin'), allowed)) {
+        const origin = request.headers.get('Origin');
+        if (!isAllowedOrigin(origin, allowed)) {
             return new Response('origin not allowed', { status: 403 });
         }
+
+        // The podcast routes (feed and episode stream) answer the same allow-listed origins.
+        const podcast = await handlePodcast(request, url, new URL(origin).origin);
+        if (podcast) return podcast;
 
         const room = (url.searchParams.get('room') || 'lobby').slice(0, MAX_ROOM_NAME_LENGTH);
         const id = env.CLUB_ROOM.idFromName(room);

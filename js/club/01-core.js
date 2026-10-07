@@ -137,7 +137,7 @@ class VRClubCore {
                 pipelineSamples: 1,
                 bloomKernel: 96,
                 vrBloomKernel: 32,
-                vrMsaaSamples: 2,
+                vrMsaaSamples: 4, // the shipped Quest default; MSAA tops out at 4, so the tiers differ elsewhere
                 vrAnisotropy: 4,
                 vrHazeEmitRate: 65,
                 vrDustEmitRate: 30,
@@ -945,7 +945,9 @@ class VRClubCore {
      * than shipped unconditionally.
      *
      * Detection is deliberately conservative: anything we cannot positively identify
-     * as a discrete desktop GPU falls back to 'high', and mobile/XR falls to 'balanced'.
+     * as a discrete desktop GPU falls back to 'high', and phones/tablets fall to 'balanced'.
+     * A Quest browser starts on 'ultra' (the owner's Quest 3 runs it; Quest 3S is unmeasured). The headset's
+     * pipeline overrides in `vrSettings` still apply, and the VR menu can step down to High or Balanced.
      * A stored user override always wins.
      *
      * @returns {'ultra'|'high'|'balanced'}
@@ -961,9 +963,8 @@ class VRClubCore {
         } catch (_) { /* private browsing - fall through to detection */ }
 
         const ua = navigator.userAgent.toLowerCase();
-        if (ua.includes('quest') || ua.includes('oculus') || /android|iphone|ipad|mobile/i.test(ua)) {
-            return 'balanced';
-        }
+        if (ua.includes('quest') || ua.includes('oculus')) return 'ultra';
+        if (/android|iphone|ipad|mobile/i.test(ua)) return 'balanced';
 
         // 2. WebGL2 is a hard requirement for SSR; without it 'ultra' is pointless.
         const webGL2 = this.engine.webGLVersion >= 2;

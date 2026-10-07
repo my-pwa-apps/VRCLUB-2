@@ -283,6 +283,7 @@ const Mezzanine = {
         const update = camera._updatePosition;
         camera._updatePosition = function () {
             club._shapeVRStep(this.cameraDirection);
+            club._fitVRCollisionBody(this);
             const y = this.position.y;
             update.call(this);
             if (club.isInVRMode) {
@@ -290,6 +291,25 @@ const Mezzanine = {
                 if (this._deferOnly && this._deferredUpdated) this._deferredPositionUpdate.y = y;
             }
         };
+    },
+
+    /**
+     * Size the XR camera's collider to a body, whatever the headset's height. Babylon hangs the ellipsoid from the
+     * EYE (it spans eye - 2 * radius.y up to the eye), so a fixed 0.8 m radius reached the floor only at exactly
+     * 1.6 m: any lower headset (a shorter player, sitting, crouching) pushed it through the floor and the floor mesh
+     * blocked every step, "an invisible wall" everywhere. The collider now covers knee-to-chest height above the
+     * feet (0.3 m up to 1.3 m, never above the eye), so the floor and the tread-high clutter underfoot are cleared
+     * and rails, walls, furniture and the bar still stop the walker.
+     */
+    _fitVRCollisionBody(camera) {
+        const tracked = this._xrHeadHeight();
+        const head = Number.isFinite(tracked) && tracked > 0.3 ? tracked : camera.position.y - (this._walkLevel || 0);
+        if (!Number.isFinite(head) || !camera.ellipsoid || !camera.ellipsoidOffset) return;
+        const bottom = 0.3;
+        const top = Math.max(bottom + 0.3, Math.min(1.3, head - 0.05));
+        camera.ellipsoid.set(0.25, (top - bottom) / 2, 0.25);
+        // The solver's centre is position - ellipsoid.y + offset; it must sit halfway between bottom and top above the feet.
+        camera.ellipsoidOffset.y = top - head;
     },
 
     /** Level the head-directed step (keeping its length) and cap it at 25 cm. */

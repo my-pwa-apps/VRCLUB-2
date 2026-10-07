@@ -78,9 +78,10 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.bartender.reacts).toBe(false);
     expect(state.bartender.x).toBeGreaterThan(state.layout.counterBack);
     expect(state.bartender.x).toBeLessThan(state.layout.backBar);
-    // The doorway is open to the vestibule; the counter and the stools stop a walker on the dance-floor side.
-    expect(state.doorwayZ).toBeGreaterThan(3);
-    expect(state.doorwayZ).toBeLessThan(state.doorwayFar);
+    // The doorway and the street door are open (the street has loaded by now): a walker passes through both and is
+    // stopped by the far row of buildings; the counter and the stools stop a walker on the dance-floor side.
+    expect(state.doorwayZ).toBeGreaterThan(state.doorwayFar);
+    expect(state.doorwayZ).toBeLessThan(24);
     expect(state.counterCollides).toBe(true);
     expect(state.stoolBlocks).toBe(5);
     expect(state.counterX).toBeLessThan(state.counterFront);

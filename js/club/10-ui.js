@@ -390,7 +390,7 @@ class VRClubUI extends VRClubAnimationFinish {
         const context = button.texture.getContext();
         const active = this._isVRQuickMenuButtonActive(button);
         context.clearRect(0, 0, 512, 192);
-        const isNavigation = button.action === 'page' || button.action === 'back';
+        const isNavigation = ['page', 'back', 'seek', 'randomEpisode', 'latestEpisode'].includes(button.action);
         context.fillStyle = button.action === 'close' ? '#641f2c'
             : button.action === 'quality' ? '#5b3fa3'
             : isNavigation ? '#173e58'
@@ -421,12 +421,22 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _isVRQuickMenuButtonActive(button) {
         if (button.action === 'autoShow') return !this.vjManualMode;
+        if (button.action === 'podcast') return this._selectedPodcastId() === button.podcast;
+        if (button.action === 'playPause') return this.getPlaybackInfo().playing;
         if (button.action === 'quality' || button.action === 'cycle') return true;
         if (button.control) return !!this[button.control];
         return false;
     }
 
+    /** The chosen podcast's id ('resident' | 'colourizon'), whichever surface chose it. */
+    _selectedPodcastId() {
+        if (this.podcastPlayer) return this.podcastPlayer.selectedId();
+        try { return window.Podcasts ? window.Podcasts.selectedId(localStorage) : 'resident'; } catch (_) { return 'resident'; }
+    }
+
     _vrQuickMenuButtonValue(button, active) {
+        if (button.action === 'podcast') return active ? 'SELECTED' : '';
+        if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
             return `PATTERN ${(this.ledPattern || 0) + 1}`;
@@ -461,6 +471,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'LIGHTING', action: 'page', target: 'lighting' },
                 { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
+                { label: 'MUSIC', action: 'page', target: 'music' },
                 { label: 'QUALITY', action: 'quality' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
@@ -515,6 +526,19 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'RESET SHOW', action: 'reset' },
                 common.back,
                 common.close
+            ],
+            // The first row is the seek bar (its own mesh), so its three button slots stay empty.
+            music: [
+                null, null, null,
+                { label: '\u2212 1 MIN', action: 'seek', delta: -60 },
+                { label: 'PLAY / PAUSE', action: 'playPause' },
+                { label: '+ 1 MIN', action: 'seek', delta: 60 },
+                { label: 'HERNAN', action: 'podcast', podcast: 'resident' },
+                { label: 'MELERA', action: 'podcast', podcast: 'colourizon' },
+                { label: 'RANDOM', action: 'randomEpisode' },
+                { label: 'LATEST', action: 'latestEpisode' },
+                common.back,
+                common.close
             ]
         };
         return pages[page] || pages.home;
@@ -531,9 +555,18 @@ class VRClubUI extends VRClubAnimationFinish {
             button.control = null;
             button.action = null;
             button.target = null;
+            button.podcast = null;
+            button.delta = 0;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
         });
+        // The seek bar lives on the Music page only, and only that page keeps its clock ticking.
+        if (this._vrSeek) {
+            this._vrSeek.mesh.setEnabled(page === 'music');
+            if (page === 'music') this._startVRMusicTicker();
+            else this._stopVRMusicTicker();
+            this._drawVRSeekBar();
+        }
         if (this._vrQuickMenuHeaderTexture) {
             const context = this._vrQuickMenuHeaderTexture.getContext();
             context.clearRect(0, 0, 1024, 192);
@@ -544,9 +577,155 @@ class VRClubUI extends VRClubAnimationFinish {
             context.fillText(page === 'home' ? 'VR CLUB' : page.toUpperCase(), 54, 72);
             context.fillStyle = '#a7afbf';
             context.font = '30px sans-serif';
-            context.fillText(`${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
+            context.fillText(page === 'music'
+                ? 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
+                : `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
             this._vrQuickMenuHeaderTexture.update();
         }
+    }
+
+    // ---- The seek bar -------------------------------------------------------------------------------------
+    // One plane with a canvas texture. A pick on it maps to a fraction of the set through the plane's local x
+    // (the bar spans SEEK_BAR_PX of the texture), so it works with any controller ray and needs no slider mesh.
+
+    static get VR_SEEK_BAR_PX() { return { left: 70, right: 954, width: 1024, height: 192 }; }
+
+    /** Fraction (0..1) of the bar at a world-space pick point on the seek plane. */
+    _vrSeekFractionAt(point) {
+        const mesh = this._vrSeek && this._vrSeek.mesh;
+        if (!mesh || !point) return null;
+        const inverse = mesh.getWorldMatrix().clone().invert();
+        const local = BABYLON.Vector3.TransformCoordinates(point, inverse);
+        const { left, right, width } = VRClubUI.VR_SEEK_BAR_PX;
+        const px = (local.x / this._vrSeek.width + 0.5) * width;
+        return Math.min(1, Math.max(0, (px - left) / (right - left)));
+    }
+
+    _drawVRSeekBar() {
+        if (!this._vrSeek) return;
+        const { left, right, width, height } = VRClubUI.VR_SEEK_BAR_PX;
+        const ctx = this._vrSeek.texture.getContext();
+        const info = this.getPlaybackInfo();
+        const drag = this._vrSeek.drag;
+        const fraction = drag ? drag.fraction : (info.seekable ? info.position / info.duration : 0);
+        const shownSeconds = drag ? drag.fraction * info.duration : info.position;
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#10161f';
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = info.seekable ? '#8fffee' : '#4a5363';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(3, 3, width - 6, height - 6);
+
+        // What is playing, and whose.
+        const title = this.nowPlayingLabel || 'Nothing playing';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 40px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        let shown = title;
+        while (shown.length > 4 && ctx.measureText(shown).width > right - left) shown = `${shown.slice(0, -2)}\u2026`;
+        ctx.fillText(shown, left, 42);
+
+        // The bar.
+        const y = 112, h = 24;
+        ctx.fillStyle = '#2a3342';
+        ctx.fillRect(left, y - h / 2, right - left, h);
+        if (info.seekable) {
+            const x = left + fraction * (right - left);
+            ctx.fillStyle = drag ? '#ffd166' : '#16c7b4';
+            ctx.fillRect(left, y - h / 2, x - left, h);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(x, y, 22, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.fillStyle = '#c5cad4';
+        ctx.font = '30px sans-serif';
+        ctx.textBaseline = 'alphabetic';
+        ctx.textAlign = 'left';
+        const clock = window.AudioUtils ? window.AudioUtils.formatClock : (s => String(Math.floor(s)));
+        if (info.seekable) {
+            ctx.fillText(clock(shownSeconds), left, 178);
+            ctx.textAlign = 'right';
+            ctx.fillText(clock(info.duration), right, 178);
+        } else {
+            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'Pick a podcast to start', left, 178);
+        }
+        this._vrSeek.texture.update();
+    }
+
+    _startVRMusicTicker() {
+        if (this._vrMusicTicker || this._disposed) return;
+        // Twice a second is plenty for a clock; it runs only while the menu is open on the Music page.
+        this._vrMusicTicker = setInterval(() => {
+            const open = this._vrQuickMenuRoot && this._vrQuickMenuRoot.isEnabled() && this._vrQuickMenuPage === 'music';
+            if (!open) { this._stopVRMusicTicker(); return; }
+            this._drawVRSeekBar();
+            this._vrQuickMenuButtons.forEach(button => {
+                if (button.action === 'playPause') this._drawVRQuickMenuButton(button);
+            });
+        }, 500);
+    }
+
+    _stopVRMusicTicker() {
+        if (this._vrMusicTicker) clearInterval(this._vrMusicTicker);
+        this._vrMusicTicker = null;
+    }
+
+    _beginVRSeek(pickResult) {
+        const info = this.getPlaybackInfo();
+        if (!info.seekable) {
+            this.showErrorMessage('Nothing to seek in: a live stream has no position.');
+            return;
+        }
+        const fraction = this._vrSeekFractionAt(pickResult.pickedPoint);
+        if (fraction === null) return;
+        this._vrSeek.drag = { fraction };
+        this.pulseHaptic(0.5, 20);
+        this._drawVRSeekBar();
+    }
+
+    _moveVRSeek(pickResult) {
+        const drag = this._vrSeek && this._vrSeek.drag;
+        if (!drag || !pickResult || !pickResult.hit || pickResult.pickedMesh !== this._vrSeek.mesh) return;
+        const fraction = this._vrSeekFractionAt(pickResult.pickedPoint);
+        if (fraction === null || Math.abs(fraction - drag.fraction) < 0.002) return;
+        drag.fraction = fraction;
+        this._drawVRSeekBar();
+    }
+
+    _endVRSeek() {
+        const drag = this._vrSeek && this._vrSeek.drag;
+        if (!drag) return;
+        this._vrSeek.drag = null;
+        this.seekAudioFraction(drag.fraction);
+        this.pulseHaptic(0.7, 30);
+        this._drawVRSeekBar();
+    }
+
+    /** Music page actions: run on whichever podcast player the DOM script attached (the same one the Audio menu uses). */
+    async _runVRMusicAction(button) {
+        const player = this.podcastPlayer;
+        if (button.action === 'seek') {
+            if (!this.seekAudioBy(button.delta)) this.showErrorMessage('Nothing to seek in.');
+        } else if (button.action === 'playPause') {
+            this.toggleAudioPlayback();
+        } else if (!player) {
+            this.showErrorMessage('The music player is not ready yet.');
+        } else {
+            const podcast = window.Podcasts.get(button.action === 'podcast' ? button.podcast : player.selectedId());
+            this.showErrorMessage(`Finding ${podcast.artist}'s set\u2026`);
+            try {
+                if (button.action === 'podcast') await player.switchTo(button.podcast);
+                else if (button.action === 'randomEpisode') await player.playRandom();
+                else await player.playLatest();
+            } catch (err) {
+                this.showErrorMessage(`Could not start the music: ${err && err.message ? err.message : 'unknown error'}`);
+            }
+        }
+        this.pulseHaptic(0.6, 30);
+        this._refreshVRQuickMenu();
     }
 
     _refreshVRQuickMenu() {
@@ -568,6 +747,10 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'back') {
             this._showVRQuickMenuPage('home');
             this.pulseHaptic(0.35, 20);
+            return;
+        }
+        if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode'].includes(button.action)) {
+            this._runVRMusicAction(button);
             return;
         }
         if (button.action === 'travel') {
@@ -680,6 +863,28 @@ class VRClubUI extends VRClubAnimationFinish {
         header.material = headerMaterial;
         this._vrQuickMenuHeaderTexture = headerTexture;
 
+        // The seek bar: a wide strip where the Music page's first button row would be.
+        const seekWidth = 1.48;
+        const seekMesh = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuSeek', {
+            width: seekWidth,
+            height: 0.28,
+            sideOrientation: BABYLON.Mesh.DOUBLESIDE
+        }, this.scene);
+        seekMesh.parent = root;
+        seekMesh.position.set(0, 0.34, -0.012);
+        seekMesh.isPickable = true;
+        seekMesh.renderingGroupId = 2;
+        const seekTexture = new BABYLON.DynamicTexture('vrQuickMenuSeekTexture', { width: 1024, height: 192 }, this.scene, false);
+        const seekMaterial = this.materialFactory.createStandardMaterial('vrQuickMenuSeekMat', {
+            emissiveColor: [0, 0, 0],
+            emissiveTexture: seekTexture,
+            disableLighting: true
+        });
+        seekMaterial.backFaceCulling = false;
+        seekMesh.material = seekMaterial;
+        seekMesh.setEnabled(false);
+        this._vrSeek = { mesh: seekMesh, texture: seekTexture, width: seekWidth, drag: null };
+
         this._vrQuickMenuButtons = [];
         for (let index = 0; index < 12; index++) {
             const col = index % 3;
@@ -732,6 +937,7 @@ class VRClubUI extends VRClubAnimationFinish {
         const next = force === undefined ? !this._vrQuickMenuRoot.isEnabled() : !!force;
         if (next) this._placeVRQuickMenu(camera);
         if (next) this._refreshVRQuickMenu();
+        if (!next) this._stopVRMusicTicker();
         this._vrQuickMenuRoot.setEnabled(next);
         this.pulseHaptic(next ? 0.8 : 0.35, 35);
         return next;
@@ -777,6 +983,10 @@ class VRClubUI extends VRClubAnimationFinish {
 
                 const vrMenuButton = this._vrQuickMenuButtons &&
                     this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
+                if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {
+                    this._beginVRSeek(pickResult);
+                    return;
+                }
                 if (vrMenuButton) {
                     this._activateVRQuickMenuButton(vrMenuButton);
                     return;
@@ -851,6 +1061,7 @@ class VRClubUI extends VRClubAnimationFinish {
         
         // Handle pointer up (release slider)
         this.scene.onPointerUp = () => {
+            this._endVRSeek();
             if (this.speedSlider && this.speedSlider.isDragging) {
                 this.speedSlider.isDragging = false;
                 this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Normal cyan
@@ -860,6 +1071,7 @@ class VRClubUI extends VRClubAnimationFinish {
         
         // Handle pointer move (drag slider)
         this.scene.onPointerMove = (evt, pickResult) => {
+            this._moveVRSeek(pickResult);
             if (this.speedSlider && this.speedSlider.isDragging && pickResult.hit) {
                 // Get world position of pointer
                 const pointerX = pickResult.pickedPoint.x;
@@ -1237,13 +1449,91 @@ class VRClubUI extends VRClubAnimationFinish {
             this.showErrorMessage('Invalid audio URL. Use http://, https:// or blob: only.');
             return Promise.reject(new TypeError('Unsafe audio URL'));
         }
+        this.nowPlayingLabel = url; // a podcast episode replaces this with its title once it has started
         return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
     }
 
     startAudioFromFile(file) {
         log.info(`🎵 Loading audio file: ${file.name}`);
         const fileUrl = URL.createObjectURL(file);
+        this.nowPlayingLabel = file.name;
         return this._playAudio(fileUrl, 'file', file.name);
+    }
+
+    // =========================================================================
+    // PLAYBACK POSITION
+    //
+    // Shared by the desktop Audio menu's slider and the VR menu's seek bar: both read getPlaybackInfo() and
+    // write through seekAudioTo(), so a seek means the same thing on either surface (including telling the
+    // room when this guest is its host).
+    // =========================================================================
+
+    /**
+     * Where the music is. `seekable` is false for a live stream (its duration is Infinity) and when nothing is loaded.
+     * @returns {{ seekable: boolean, position: number, duration: number, playing: boolean }}
+     */
+    getPlaybackInfo() {
+        const audio = this.audioElement;
+        if (!audio) return { seekable: false, position: 0, duration: 0, playing: false };
+        const duration = audio.duration;
+        const seekable = Number.isFinite(duration) && duration > 0 && !!audio.seekable && audio.seekable.length > 0;
+        return {
+            seekable,
+            position: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+            duration: seekable ? duration : 0,
+            playing: !audio.paused && !audio.ended
+        };
+    }
+
+    /** Jump to `seconds` (clamped to the audio). Returns false when there is nothing to seek in. */
+    seekAudioTo(seconds) {
+        const info = this.getPlaybackInfo();
+        if (!info.seekable || !Number.isFinite(seconds)) return false;
+        // Stay just inside the end: seeking to the very end fires 'ended' and starts the next episode.
+        this.audioElement.currentTime = Math.min(Math.max(0, seconds), Math.max(0, info.duration - 1));
+        this._shareAudioPosition();
+        return true;
+    }
+
+    /** Jump to a fraction (0..1) of the audio's length. */
+    seekAudioFraction(fraction) {
+        const info = this.getPlaybackInfo();
+        return info.seekable && Number.isFinite(fraction) ? this.seekAudioTo(Math.min(1, Math.max(0, fraction)) * info.duration) : false;
+    }
+
+    /** Go forward (positive) or back (negative) by `delta` seconds. */
+    seekAudioBy(delta) {
+        const info = this.getPlaybackInfo();
+        return info.seekable ? this.seekAudioTo(info.position + delta) : false;
+    }
+
+    /** Play or pause what is loaded. Returns true when it is now playing. */
+    toggleAudioPlayback() {
+        const audio = this.audioElement;
+        if (!audio || !audio.src) {
+            this.showErrorMessage('Nothing is playing yet. Pick a podcast.');
+            return false;
+        }
+        if (audio.paused) {
+            if (this.audioContext && this.audioContext.state === 'suspended') this.audioContext.resume().catch(() => {});
+            audio.play().catch(() => this.showErrorMessage('Playback was blocked. Press Play again.'));
+        } else {
+            audio.pause();
+        }
+        this._shareAudioPosition(!audio.paused);
+        return !audio.paused;
+    }
+
+    /** The room's host publishes the position after a seek or a pause, so listeners follow (guests cannot publish). */
+    _shareAudioPosition(playing) {
+        const net = this.networkManager;
+        const audio = this.audioElement;
+        if (!net || !net.connected || !net.isHost() || !audio || this._audioKind !== 'stream' || !this._audioStreamUrl) return;
+        net.sendMusic({
+            url: this._audioStreamUrl,
+            playing: playing === undefined ? !audio.paused : playing,
+            position: audio.currentTime
+        });
     }
 
     showErrorMessage(message) {

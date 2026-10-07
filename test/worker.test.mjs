@@ -197,3 +197,146 @@ test('music URL sanitiser rejects local, data and credentialed URLs', () => {
     assert.equal(sanitizeMusicUrl('javascript:alert(1)'), null);
     assert.equal(sanitizeMusicUrl('https://x.example/a'), 'https://x.example/a');
 });
+
+// ---------------------------------------------------------------------------
+// Podcast routes (worker/src/podcast.js)
+// ---------------------------------------------------------------------------
+
+const podcast = await import('../worker/src/podcast.js');
+const ORIGIN = 'https://my-pwa-apps.github.io';
+const RELAY = 'https://relay.example.workers.dev';
+
+const feedXml = `<?xml version="1.0"?><rss><channel><title>COLOURIZON</title>
+<item><title>Miss Melera ° Colourizon 168 ° Sept 2026</title><itunes:duration>00:57:49</itunes:duration>
+<enclosure type="audio/mpeg" url="https://feeds.soundcloud.com/stream/2407530030-missmelera-miss-melera-colourizon-168.mp3" length="1"/></item>
+<item><title>A guest set</title><enclosure type="audio/mpeg" url="https://feeds.soundcloud.com/stream/2407530031-otherartist-set.mp3" length="1"/></item>
+<item><title>Elsewhere</title><enclosure type="audio/mpeg" url="https://evil.example/stream/2407530032-missmelera-x.mp3" length="1"/></item>
+<item><title>No audio</title><description>text only</description></item>
+<item><title>Colourizon 167</title><enclosure type="audio/mpeg" url="https://feeds.soundcloud.com/stream/2388547833-missmelera-miss-melera-colourizon-167.mp3?x=1" length="1"/></item>
+</channel></rss>`;
+
+async function withFetch(fake, run) {
+    const original = globalThis.fetch;
+    globalThis.fetch = fake;
+    try { return await run(); } finally { globalThis.fetch = original; }
+}
+const call = (path, { method = 'GET', headers = {}, origin = ORIGIN } = {}) => relay.default.fetch(
+    new Request(`${RELAY}${path}`, { method, headers: { ...(origin ? { Origin: origin } : {}), ...headers } }), {});
+
+test('podcast stream names accept only Miss Melera uploads', () => {
+    for (const ok of ['2407530030-missmelera-miss-melera-colourizon-168.mp3', '65252781-missmelera-miss-melera-colourizon-oct.mp3']) {
+        assert.equal(podcast.isStreamName(ok), true, ok);
+    }
+    for (const bad of ['', '1-missmelera-x.mp3', '2407530030-otherartist-x.mp3', '../2407530030-missmelera-x.mp3',
+        '2407530030-missmelera-x.mp3/../../y', '2407530030-missmelera-x.wav', '2407530030-missmelera-X.mp3',
+        `2407530030-missmelera-${'a'.repeat(300)}.mp3`, null, undefined, 42]) {
+        assert.equal(podcast.isStreamName(bad), false, String(bad).slice(0, 50));
+    }
+});
+
+test('the feed is rewritten to this relay, and anything the stream route would refuse is dropped', () => {
+    const rewritten = podcast.rewriteFeed(feedXml, RELAY);
+    const urls = [...rewritten.matchAll(/<enclosure url="([^"]+)"/g)].map(m => m[1]);
+    assert.deepEqual(urls, [
+        `${RELAY}/podcast/colourizon/stream/2407530030-missmelera-miss-melera-colourizon-168.mp3`,
+        `${RELAY}/podcast/colourizon/stream/2388547833-missmelera-miss-melera-colourizon-167.mp3`
+    ]);
+    assert.ok(!/soundcloud|evil\.example|otherartist/.test(rewritten), 'an upstream address leaked into the rewritten feed');
+    assert.match(rewritten, /<itunes:duration>00:57:49<\/itunes:duration>/);
+    assert.equal(podcast.rewriteFeed(null, RELAY), '');
+});
+
+test('the podcast routes answer only allow-listed origins, with CORS for exactly that origin', async () => {
+    await withFetch(async () => { throw new Error('upstream must not be reached'); }, async () => {
+        assert.equal((await call(podcast.PODCAST_FEED_PATH, { origin: null })).status, 403, 'no Origin');
+        assert.equal((await call(podcast.PODCAST_FEED_PATH, { origin: 'https://evil.example' })).status, 403);
+        assert.equal((await call(`${podcast.PODCAST_STREAM_PREFIX}2407530030-missmelera-x.mp3`, { origin: 'https://evil.example' })).status, 403);
+    });
+    const preflight = await call(podcast.PODCAST_FEED_PATH, { method: 'OPTIONS', headers: { 'Access-Control-Request-Method': 'GET' } });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+    assert.match(preflight.headers.get('Access-Control-Allow-Headers'), /Range/);
+    // A LAN origin (the Quest-over-LAN workflow) is accepted like it is for the socket.
+    await withFetch(async () => new Response(feedXml), async () => {
+        const lan = await call(podcast.PODCAST_FEED_PATH, { origin: 'http://192.168.1.20:8000' });
+        assert.equal(lan.status, 200);
+        assert.equal(lan.headers.get('Access-Control-Allow-Origin'), 'http://192.168.1.20:8000');
+    });
+});
+
+test('the feed route fetches one fixed upstream, rewrites it and caps its size', async () => {
+    const requested = [];
+    await withFetch(async (url) => { requested.push(String(url)); return new Response(feedXml); }, async () => {
+        const response = await call(podcast.PODCAST_FEED_PATH);
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get('Content-Type'), /rss\+xml/);
+        assert.equal(response.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+        assert.equal(response.headers.get('Vary'), 'Origin');
+        const body = await response.text();
+        assert.ok(body.includes(`${RELAY}/podcast/colourizon/stream/2407530030-missmelera-`));
+        assert.equal((await call(`${podcast.PODCAST_FEED_PATH}?url=https://evil.example`)).status, 200, 'a query string cannot redirect the upstream');
+    });
+    assert.deepEqual([...new Set(requested)], [podcast.COLOURIZON_FEED_URL]);
+
+    await withFetch(async () => new Response('x'.repeat(podcast.MAX_FEED_BYTES + 10)), async () => {
+        assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 502, 'an oversized feed must not be buffered');
+    });
+    await withFetch(async () => new Response('nope', { status: 500 }), async () => {
+        assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 502);
+    });
+    await withFetch(async () => { throw new Error('offline'); }, async () => {
+        assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 502);
+    });
+});
+
+test('the stream route follows the CDN redirect per request and passes a single byte range through', async () => {
+    const calls = [];
+    const audio = new Uint8Array([1, 2, 3, 4, 5]);
+    await withFetch(async (url, init) => {
+        calls.push({ url: String(url), redirect: init.redirect, range: init.headers.Range, method: init.method });
+        return new Response(init.headers.Range ? audio.slice(1, 4) : audio, {
+            status: init.headers.Range ? 206 : 200,
+            headers: init.headers.Range ? { 'Content-Range': 'bytes 1-3/5', 'Content-Length': '3' } : { 'Content-Length': '5' }
+        });
+    }, async () => {
+        const name = '2407530030-missmelera-miss-melera-colourizon-168.mp3';
+        const full = await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`);
+        assert.equal(full.status, 200);
+        assert.equal(full.headers.get('Content-Type'), 'audio/mpeg');
+        assert.equal(full.headers.get('Accept-Ranges'), 'bytes');
+        assert.equal(full.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+        assert.match(full.headers.get('Access-Control-Expose-Headers'), /Content-Range/);
+        assert.deepEqual([...new Uint8Array(await full.arrayBuffer())], [1, 2, 3, 4, 5]);
+
+        const part = await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`, { headers: { Range: 'bytes=1-3' } });
+        assert.equal(part.status, 206);
+        assert.equal(part.headers.get('Content-Range'), 'bytes 1-3/5');
+        assert.deepEqual([...new Uint8Array(await part.arrayBuffer())], [2, 3, 4]);
+    });
+    assert.equal(calls.length, 2, 'a fresh upstream request (and signature) per browser request');
+    assert.ok(calls.every(c => c.url === `${podcast.COLOURIZON_STREAM_BASE}2407530030-missmelera-miss-melera-colourizon-168.mp3` && c.redirect === 'follow'));
+    assert.equal(calls[1].range, 'bytes=1-3');
+});
+
+test('the stream route refuses anything but one Miss Melera mp3 and one simple range', async () => {
+    await withFetch(async () => { throw new Error('upstream must not be reached'); }, async () => {
+        for (const path of ['', '..%2F..%2Fx', '2407530030-otherartist-x.mp3', 'https%3A%2F%2Fevil.example%2Fx.mp3', '2407530030-missmelera-x.mp3%2F..%2Fy']) {
+            assert.equal((await call(`${podcast.PODCAST_STREAM_PREFIX}${path}`)).status, 404, path);
+        }
+        const name = '2407530030-missmelera-x.mp3';
+        for (const range of ['bytes=0-1,5-9', 'items=0-5', 'bytes=-', 'bytes=a-b', 'bytes=0-1;x']) {
+            assert.equal((await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`, { headers: { Range: range } })).status, 416, range);
+        }
+        assert.equal((await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`, { method: 'POST' })).status, 405);
+    });
+    await withFetch(async () => new Response('gone', { status: 404 }), async () => {
+        assert.equal((await call(`${podcast.PODCAST_STREAM_PREFIX}2407530030-missmelera-x.mp3`)).status, 502);
+    });
+});
+
+test('the socket relay is unchanged: paths outside /podcast still need the room route', async () => {
+    const env = { CLUB_ROOM: { idFromName: name => name, get: id => ({ fetch: async () => new Response(`room:${id}`) }) } };
+    const response = await relay.default.fetch(new Request(`${RELAY}/?room=abc`, { headers: { Origin: ORIGIN } }), env);
+    assert.equal(await response.text(), 'room:abc');
+    assert.equal((await relay.default.fetch(new Request(`${RELAY}/health`), env)).status, 200);
+});

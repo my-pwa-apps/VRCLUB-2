@@ -86,17 +86,21 @@ test('fresh VR navigation follows the head with left walking, right turning and 
     await expectHealthyRuntime(page);
 });
 
-test('teleport respects the closed vestibule and bar after smooth/comfort swaps', async ({ page }) => {
+test('teleport respects the vestibule walls and the bar after smooth/comfort swaps, and goes out through the open street door', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
+    await page.waitForFunction(() => window.vrClub?._streetDoor?.open === true, null, { timeout: 120_000 });
     await enterVR(page);
     await renderFrames(page, 4);
     const attempts = [
-        { from: [0, 1.6, 3], target: [0, 0, 8] },
-        { from: [0, 1.6, 3], target: [6, 0, 3] },
-        { from: [8, 1.6, -10], target: [10.8, 0, -10] }
+        // Into the street wall beside the door: still a wall.
+        { from: [0, 1.6, 3], target: [-3.5, 0, 8], allowed: false },
+        { from: [0, 1.6, 3], target: [6, 0, 3], allowed: false },
+        { from: [8, 1.6, -10], target: [10.8, 0, -10], allowed: false },
+        // Straight out through the open street door onto the pavement.
+        { from: [0, 1.6, 3], target: [0, 0, 8], allowed: true }
     ];
-    for (const { from, target } of attempts) {
+    for (const { from, target, allowed } of attempts) {
         await page.evaluate(position => {
             const club = window.vrClub;
             club.setVRComfortMode(false);
@@ -120,7 +124,9 @@ test('teleport respects the closed vestibule and bar after smooth/comfort swaps'
         await page.evaluate(() => window.__iwerDevice.controllers.right.updateAxes('thumbstick', 0, 0));
         await renderFrames(page, 6);
         const landed = await page.evaluate(() => window.vrClub.vrHelper.baseExperience.camera.position.asArray());
-        expect(Math.hypot(landed[0] - from[0], landed[2] - from[2]), `blocked throw toward ${target}`).toBeLessThan(0.05);
+        const moved = Math.hypot(landed[0] - from[0], landed[2] - from[2]);
+        if (allowed) expect(moved, `the throw toward ${target} should go through the open door`).toBeGreaterThan(2);
+        else expect(moved, `blocked throw toward ${target}`).toBeLessThan(0.05);
     }
     await exitVR(page);
     await expectHealthyRuntime(page);

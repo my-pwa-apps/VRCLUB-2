@@ -107,12 +107,54 @@ these three images before stripping the embedded copies.
 |------|--------|---------|
 | `js/models/avatars/club-dancer-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
 | `js/models/avatars/club-dancer-male.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Dance_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-dj.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy + Universal Animation Library (`Idle_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-guest-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy (Ranger outfit without its hood and pauldron) + Universal Animation Library (`Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`) + Universal Animation Library 2 (`Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop`) | CC0 1.0 |
-| `js/models/avatars/club-guest-male.glb` | As `club-guest-female.glb`, male | CC0 1.0 |
+| `js/models/avatars/club-dj-hernan.glb` | Derived from `club-guest-male.glb` by `scripts/build-dj-glbs.mjs`: the Universal Base Characters' `Hair_Beard` added, one clip kept (`Idle_Loop`). The DJ for Hernan Cattaneo's podcast; its hair is silver and its jacket black through a runtime tint | CC0 1.0 |
+| `js/models/avatars/club-dj-melera.glb` | Derived from `club-guest-female.glb` by `scripts/build-dj-glbs.mjs`: one clip kept (`Idle_Loop`). The DJ for Miss Melera's podcast; its hair is dark brunette and its jacket black through a runtime tint | CC0 1.0 |
+| `js/models/avatars/club-guest-female.glb` | Quaternius Universal Base Characters + Modular Character Outfits - Fantasy (Ranger outfit without its hood and pauldron) + Universal Animation Library (`Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`) + Universal Animation Library 2 (`Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop`). At runtime it is the bartender (black outfit through a tint); it is also the source the DJ and crowd builds derive from | CC0 1.0 |
+| `js/models/avatars/club-guest-male.glb` | As `club-guest-female.glb`, male. Not loaded at runtime any more (the guests are the `club-crowd-*` people); kept as the source `scripts/build-dj-glbs.mjs` and `scripts/build-crowd-glbs.mjs` derive from | CC0 1.0 |
 | `js/models/avatars/Hip Hop Dancing.glb` | Adobe Mixamo character and hip-hop animation | Mixamo terms of use |
 | `js/models/avatars/house.glb` | Adobe Mixamo character and house-dance animation | Mixamo terms of use |
 | `js/models/avatars/rumba_dancing_female_character.glb` | Adobe Mixamo character and rumba animation | Mixamo terms of use |
+
+### The crowd: Modular Women and Modular Men
+
+Seventeen people, built by `scripts/build-crowd-glbs.mjs` from the Quaternius **Modular Women** and **Modular Men**
+packs (the "Individual Characters" glTF downloads), recoloured into a varied cast and carrying the club's own dance
+and idle clips retargeted onto their rig. The scripts and tests treat them as `club-crowd-<id>.glb`:
+
+| File | Base character | Look | Clips |
+|------|----------------|------|-------|
+| `js/models/avatars/club-crowd-f1.glb` | Women / Casual | Deep skin, black hair, white top, navy trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-f2.glb` | Women / Casual | Fair skin, auburn hair, teal top, black trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-f3.glb` | Women / Punk | Tan skin, cyan mohawk and top | `Dance_Loop` |
+| `js/models/avatars/club-crowd-f4.glb` | Women / Formal | Brown skin, black hair, burgundy dress | `Dance_Loop` |
+| `js/models/avatars/club-crowd-f5.glb` | Women / Formal | Light skin, blonde hair, royal-blue dress | `Dance_Loop` |
+| `js/models/avatars/club-crowd-f6.glb` | Women / Suit | Fair skin, silver hair (an older guest), dark suit | all six |
+| `js/models/avatars/club-crowd-f7.glb` | Women / Suit | Espresso skin, black hair, red blazer | all six |
+| `js/models/avatars/club-crowd-f8.glb` | Women / Casual | Medium skin, dark hair, cream top, plum trousers | all six |
+| `js/models/avatars/club-crowd-m1.glb` | Men / Casual 2 | Deep skin, black hair, black tee | `Dance_Loop` |
+| `js/models/avatars/club-crowd-m2.glb` | Men / Casual 2 | Fair skin, silver hair (an older man), slate top | `Dance_Loop` |
+| `js/models/avatars/club-crowd-m3.glb` | Men / Casual Hoodie | Tan skin, dark hair, forest-green hoodie | `Dance_Loop` |
+| `js/models/avatars/club-crowd-m4.glb` | Men / Casual Hoodie | Brown skin, black hair, rust hoodie | all six |
+| `js/models/avatars/club-crowd-m5.glb` | Men / Punk | Light skin, blue mohawk | `Dance_Loop` |
+| `js/models/avatars/club-crowd-m6.glb` | Men / Suit | Tan skin, silver hair (an older man), charcoal suit, pistol removed | all six |
+| `js/models/avatars/club-crowd-m7.glb` | Men / Suit | Deep skin, black hair, burgundy suit, pistol removed | `Dance_Loop` |
+| `js/models/avatars/club-crowd-m8.glb` | Men / Beach | Light skin, blond hair, cream shirt, blue shorts | all six |
+| `js/models/avatars/club-crowd-m9.glb` | Men / Casual 2 | Medium skin, brown hair, purple tee | `Dance_Loop` |
+
+"All six" is `Dance_Loop`, `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` and `Yes`:
+the guests, who stand and talk instead of dancing, need the idle poses. Each file is one skinned mesh and one material
+(per-vertex colour, no textures), about 0.8 MB, so a person costs one draw call where the Universal Base Characters
+cost about six.
+
+Source: Quaternius *Modular Women* and *Modular Men* (CC0 1.0, <https://quaternius.com/>; the download used carries no
+licence file, and Quaternius publishes both under CC0). The two archives used have SHA-256 hashes
+`2E2E7D46E5090CB0F6F62501F0B907EFEDBFA42D57975239CACBD967A0CAA88C` (Modular Women, ten characters) and
+`49798EC15E0C23B4F540FC4BDCE5C77A071EEB15B9DF2670B8E761B5453F4D22` (Modular Men, eleven). The packs' own clips
+(Walk, Run, Punch...) include no dancing and are dropped; the dance and idle clips are the Universal Animation Library
+ones already inside `club-guest-female.glb` / `club-guest-male.glb`, retargeted by the build script (the two rigs differ:
+see the header of `scripts/build-crowd-glbs.mjs`); five of the eleven dancers (f2, f4, m1, m3, m7) play the dance mirrored
+(reflected across the body's midline), so neighbours are not in step. Skin tones, hair and clothes are a per-person palette in that script.
+Nothing from the packs' hats, helmets, crowns or weapons is shipped.
 
 Official sources: <https://quaternius.itch.io/universal-base-characters>,
 <https://quaternius.itch.io/universal-animation-library>,

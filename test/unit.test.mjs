@@ -9,7 +9,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -195,6 +195,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         Promise,
         document: {
             getElementById(id) { return elements[id] || null; },
+            querySelectorAll() { return []; },
             addEventListener() {},
             removeEventListener() {}
         },
@@ -205,7 +206,13 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         uiLog: { info() {}, warn() {} },
         rememberedStreamUrl: () => '',
         UI_TIMING: { statusMs: 3000 },
-        AudioUtils: { isResidentEpisodeUrl: () => false },
+        AudioUtils: { isResidentEpisodeUrl: () => false, formatClock: String },
+        Podcasts: { get: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }) },
+        // The podcast player and its choice buttons are exercised by their own tests (podcasts.js).
+        ensurePodcastPlayer: () => ({ selected: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }), queue: null, isQueuedUrl: () => false }),
+        refreshPodcastChoices() {},
+        setInterval() { return 1; },
+        clearInterval() {},
         localStorage: { setItem() {} },
         setTimeout() { return 1; },
         clearTimeout() {},
@@ -214,6 +221,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             audioElement: null,
             scene: null,
             _isSafeAudioUrl() { return true; },
+            getPlaybackInfo() { return { seekable: false, position: 0, duration: 0, playing: false }; },
             setAudioVolume(value) { calls.push(['music', value]); },
             getCrowdAmbienceLevel() { calls.push(['getAmbience']); return 0.25; },
             setCrowdAmbienceLevel(value) { calls.push(['ambience', value]); }
@@ -610,98 +618,242 @@ test('podcast feeds list every playable episode newest first, once each', () => 
     assert.deepEqual([...AudioUtils.parsePodcastEpisodes(undefined)], []);
 });
 
-// When an episode finishes the next older one must start, and choosing anything else ends the
-// queue. The queue lives in ui-init.js (a DOM script), so it is driven here with its real source
-// against a fake club and document.
-test('a finished Resident episode is followed by the next older one, and a different choice stops the queue', async () => {
-    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
-    // The queue section: from its doc comment to the closing brace of advanceResidentQueue().
-    const start = source.indexOf('/**\n * The Resident episodes in play order');
-    const advance = source.indexOf('async function advanceResidentQueue');
-    assert.ok(start > 0 && advance > start, 'queue code not found');
-    const section = source.slice(start, source.indexOf('\n}\n', advance) + 3);
+// The podcasts module (js/podcasts.js) is shared by the Audio menu and the VR menu. It is driven here with its
+// real source against a fake club and a fake feed fetcher.
+function loadPodcasts(extra = {}) {
+    const audio = loadClassic('js/audioUtils.js').window;
+    const loaded = loadClassic('js/podcasts.js', { TextDecoder, TextEncoder, ...extra });
+    loaded.window.AudioUtils = audio.AudioUtils;
+    return loaded.window.Podcasts;
+}
+
+function fakeClub() {
     const played = [];
     const listeners = {};
-    const audio = { addEventListener: (type, fn) => { listeners[type] = fn; } };
     const club = {
-        audioElement: audio,
+        audioElement: { addEventListener: (type, fn) => { listeners[type] = fn; } },
         _audioStreamUrl: null,
         networkManager: null,
+        failing: new Set(),
+        djs: [],
+        played,
+        listeners,
         startAudioStream(url, options) {
             if (club.failing.has(url)) return Promise.reject(new Error('404'));
             played.push({ url, onDemand: options && options.onDemand });
             club._audioStreamUrl = url;
             return Promise.resolve();
         },
-        failing: new Set(),
+        setDJ(id) { club.djs.push(id); return Promise.resolve(true); },
         showErrorMessage(message) { club.lastError = message; }
     };
-    const feedFetches = [];
-    const nowPlaying = { textContent: '' };
-    const context = vm.createContext({
-        console, Promise, Error,
-        document: {
-            getElementById: id => (id === 'audioNowPlaying' ? nowPlaying : null),
-            addEventListener() {}, removeEventListener() {}
+    return club;
+}
+const flush = () => new Promise(resolve => setImmediate(resolve));
+const episodeList = (count, prefix = 'e') => Array.from({ length: count }, (_, i) => ({ title: `${prefix}${count - i}`, url: `https://x/${prefix}${count - i}.mp3` }));
+
+function feedFor(episodes) {
+    return `<rss><channel>${episodes.map(e => `<item><title>${e.title}</title><enclosure url="${e.url}" type="audio/mpeg"/></item>`).join('')}</channel></rss>`;
+}
+
+test('the podcast catalogue has the two DJs, remembers the choice and falls back safely', () => {
+    const Podcasts = loadPodcasts();
+    assert.deepEqual([...Podcasts.ids], ['resident', 'colourizon']);
+    assert.equal(Podcasts.get('resident').dj, 'hernan');
+    assert.equal(Podcasts.get('colourizon').dj, 'melera');
+    assert.equal(Podcasts.get('nonsense').id, 'resident', 'an unknown id falls back to the default');
+
+    const store = new Map();
+    const storage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, value) };
+    assert.equal(Podcasts.selectedId(storage), 'resident', 'nothing stored: Hernan Cattaneo');
+    assert.equal(Podcasts.saveSelected('colourizon', storage), true);
+    assert.equal(store.get('vrclub.podcast'), 'colourizon');
+    assert.equal(Podcasts.selectedId(storage), 'colourizon');
+    store.set('vrclub.podcast', '__proto__');
+    assert.equal(Podcasts.selectedId(storage), 'resident', 'a tampered value is ignored');
+    assert.equal(Podcasts.saveSelected('__proto__', storage), false);
+    assert.equal(Podcasts.selectedId({ getItem() { throw new Error('blocked'); } }), 'resident', 'private browsing');
+    assert.equal(Podcasts.selectedId(null), 'resident');
+});
+
+test('the Miss Melera feed is reached through the relay, whose https origin comes from its ws(s) address', () => {
+    const Podcasts = loadPodcasts();
+    assert.equal(Podcasts.relayBase('wss://vrclub-network.garfieldapp.workers.dev'), 'https://vrclub-network.garfieldapp.workers.dev');
+    assert.equal(Podcasts.relayBase('wss://relay.example/some/path?room=1'), 'https://relay.example');
+    assert.equal(Podcasts.relayBase('ws://192.168.1.5:8787'), 'http://192.168.1.5:8787');
+    for (const bad of ['https://relay.example', 'javascript:alert(1)', 'not a url', '', null]) {
+        assert.equal(Podcasts.relayBase(bad), null, String(bad));
+    }
+    const hernan = Podcasts.get('resident'), melera = Podcasts.get('colourizon');
+    assert.equal(Podcasts.feedUrl(hernan, null), 'https://podcast.hernancattaneo.com/feed.xml', 'Hernan needs no relay');
+    assert.equal(Podcasts.feedUrl(melera, 'https://relay.example'), 'https://relay.example/podcast/colourizon/feed.xml');
+    assert.equal(Podcasts.feedUrl(melera, null), null, 'without a relay there is no way to read it');
+    // What the splash tells the guest about who sees their IP address.
+    assert.equal(Podcasts.serversText(hernan, null), 'podcast.hernancattaneo.com and Podbean');
+    assert.equal(Podcasts.serversText(melera, 'https://relay.example'), 'relay.example and SoundCloud');
+});
+
+test('a random pick covers the whole list, never repeats the previous one and survives tiny lists', () => {
+    const Podcasts = loadPodcasts();
+    assert.equal(Podcasts.randomIndex(0), -1);
+    assert.equal(Podcasts.randomIndex(1), 0);
+    assert.equal(Podcasts.randomIndex(1, Math.random, 0), 0, 'a one-episode feed can only repeat');
+    assert.equal(Podcasts.randomIndex(10, () => 0), 0);
+    assert.equal(Podcasts.randomIndex(10, () => 0.999999), 9);
+    assert.equal(Podcasts.randomIndex(10, () => 1), 9, 'an rng that returns exactly 1 stays in range');
+    const seen = new Set();
+    let state = 12345;
+    const rng = () => { state = (state * 1103515245 + 12345) % 2147483648; return state / 2147483648; };
+    for (let i = 0; i < 2000; i++) {
+        const avoid = i % 10;
+        const index = Podcasts.randomIndex(10, rng, avoid);
+        assert.ok(index >= 0 && index < 10 && index !== avoid, `index ${index} avoiding ${avoid}`);
+        seen.add(index);
+    }
+    assert.equal(seen.size, 10, 'every episode must be reachable');
+});
+
+test('episodes come from the whole feed, from its head only for the newest, and without a feed there is an explanation', async () => {
+    const Podcasts = loadPodcasts();
+    const hernan = Podcasts.get('resident');
+    const requests = [];
+    const list = episodeList(40);
+    const fetchBuffer = async (url, options) => {
+        requests.push({ url, range: options.headers && options.headers.Range });
+        const xml = feedFor(list);
+        // A byte range returns only the head, which is cut mid-item like the real server's.
+        return new TextEncoder().encode(options.headers && options.headers.Range ? xml.slice(0, xml.indexOf('e30.mp3') + 4) : xml).buffer;
+    };
+    const full = await Podcasts.fetchEpisodes(hernan, { fetchBuffer });
+    assert.equal(full.length, 40, 'a random pick needs every episode');
+    assert.equal(requests[0].range, undefined);
+
+    requests.length = 0;
+    const head = await Podcasts.fetchEpisodes(hernan, { fetchBuffer, headOnly: true });
+    assert.equal(requests.length, 1, 'the newest episode needs only the head');
+    assert.match(requests[0].range, /^bytes=0-\d+$/);
+    assert.ok(head.length >= 1 && head.length < 40);
+    assert.equal(head[0].title, 'e40');
+
+    // A head that does not hold a whole item falls back to the full feed.
+    requests.length = 0;
+    const tiny = await Podcasts.fetchEpisodes(hernan, {
+        fetchBuffer: async (url, options) => {
+            requests.push(options.headers && options.headers.Range);
+            return new TextEncoder().encode(options.headers && options.headers.Range ? '<rss><item><title>cut' : feedFor(list)).buffer;
         },
-        uiLog: { warn() {} },
-        entryNowPlaying: '',
-        announceNowPlaying: label => { nowPlaying.textContent = `\u25B6 ${label}`; },
-        RESIDENT_PODCAST: { feed: 'feed' },
-        fetchPodcastEpisodes: async () => {
-            feedFetches.push(true);
-            return [{ title: 'new 900', url: 'https://x/900.mp3' }, { title: '899', url: 'https://x/899.mp3' }];
-        }
+        headOnly: true
     });
-    vm.runInContext(section + '\nthis.api = { playResidentFrom, advanceResidentQueue, getQueue: () => residentQueue };', context);
-    const api = context.api;
-    const episodes = [
-        { title: '803', url: 'https://x/803.mp3' },
-        { title: '802', url: 'https://x/802.mp3' },
-        { title: '801', url: 'https://x/801.mp3' }
-    ];
+    assert.equal(tiny.length, 40);
+    assert.equal(requests.length, 2);
 
-    await api.playResidentFrom(club, episodes, 0);
-    assert.deepEqual(played.map(p => p.url), ['https://x/803.mp3']);
-    assert.equal(played[0].onDemand, true, 'an episode must play once, not loop, or it can never end');
-    assert.equal(typeof listeners.ended, 'function', 'the end of an episode is not observed');
+    await assert.rejects(() => Podcasts.fetchEpisodes(Podcasts.get('colourizon'), { relay: null, fetchBuffer }), /not reachable/);
+    await assert.rejects(() => Podcasts.fetchEpisodes(hernan, { fetchBuffer: async () => new TextEncoder().encode('<rss></rss>').buffer }), /No playable episode/);
+});
 
-    // The episode ends: the next older one starts, and so on.
-    listeners.ended();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(played[1].url, 'https://x/802.mp3');
-    assert.equal(nowPlaying.textContent, '\u25B6 802');
-    listeners.ended();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(played[2].url, 'https://x/801.mp3');
+test('a random episode of the chosen podcast starts, saves the choice, switches the DJ and tells the room', async () => {
+    const Podcasts = loadPodcasts();
+    const club = fakeClub();
+    const sent = [];
+    club.networkManager = { connected: true, isHost: () => true, sendMusic: message => sent.push(message) };
+    const store = new Map([['vrclub.podcast', 'resident']]);
+    const storage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+    const episodes = episodeList(30, 'm');
+    const fetches = [];
+    const player = Podcasts.createPlayer(club, {
+        getRelay: () => 'https://relay.example',
+        rng: () => 0.5,
+        storage,
+        fetchBuffer: async (url) => { fetches.push(url); return new TextEncoder().encode(feedFor(episodes)).buffer; }
+    });
+    const announced = [];
+    player.onEpisode = (episode, podcast) => announced.push([episode.title, podcast.id]);
 
-    // Out of older episodes: look at the feed again and start from the newest (a new one may be out).
-    listeners.ended();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(feedFetches.length, 1);
-    assert.equal(played[3].url, 'https://x/900.mp3');
+    const episode = await player.switchTo('colourizon');
+    assert.equal(episode.title, 'm15', 'index 15 of 30 with the injected rng');
+    assert.equal(store.get('vrclub.podcast'), 'colourizon', 'choosing a podcast is remembered');
+    assert.deepEqual(fetches, ['https://relay.example/podcast/colourizon/feed.xml'], 'Miss Melera is read through the relay');
+    assert.deepEqual(club.played, [{ url: 'https://x/m15.mp3', onDemand: true }], 'an episode plays once, not looping');
+    assert.deepEqual(club.djs, ['melera'], 'the DJ at the decks follows the podcast');
+    assert.equal(club.nowPlayingLabel, 'm15');
+    assert.deepEqual(announced, [['m15', 'colourizon']]);
+    assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ url: 'https://x/m15.mp3', playing: true, position: 0 }], 'the room host publishes it');
+    assert.equal(player.selectedId(), 'colourizon');
 
-    // A dead episode is skipped in favour of the next older one.
-    club.failing.add('https://x/899.mp3');
-    club.failing.add('https://x/898.mp3');
-    await api.playResidentFrom(club, [
-        { title: '899', url: 'https://x/899.mp3' }, { title: '898', url: 'https://x/898.mp3' },
-        { title: '897', url: 'https://x/897.mp3' }
-    ], 0);
-    assert.equal(played[played.length - 1].url, 'https://x/897.mp3');
+    // The list is reused for a few minutes, and a head read is never mistaken for the catalogue.
+    await player.playRandom();
+    assert.equal(fetches.length, 1, 'a second random pick must not download the feed again');
+    for (let i = 0; i < 6; i++) {
+        const before = club.played.at(-1).url;
+        await player.playRandom();
+        assert.notEqual(club.played.at(-1).url, before, 'a random pick must not repeat the episode that just played');
+    }
+    assert.ok(club.played.every(entry => entry.onDemand === true));
+    assert.equal(player.isQueuedUrl(club.played.at(-1).url), true);
+    assert.equal(player.isQueuedUrl('https://elsewhere/x.mp3'), false);
+    assert.equal(player.isQueuedUrl('not a url'), false);
+
+    await player.switchTo('resident');
+    assert.deepEqual(club.djs.slice(-1), ['hernan']);
+    assert.equal(fetches.at(-1), 'https://podcast.hernancattaneo.com/feed.xml');
+});
+
+test('a finished episode is followed by the next older one, then a random one; a different choice stops the queue', async () => {
+    const Podcasts = loadPodcasts();
+    const club = fakeClub();
+    const player = Podcasts.createPlayer(club, { rng: () => 0, storage: null });
+    const episodes = episodeList(3, 'p'); // p3 (newest), p2, p1
+    const refetch = episodeList(5, 'q');
+    player.episodesFor = async () => refetch;
+
+    await player.playFrom(Podcasts.get('resident'), episodes, 0);
+    assert.deepEqual(club.played.map(p => p.url), ['https://x/p3.mp3']);
+    assert.equal(typeof club.listeners.ended, 'function', 'the end of an episode is not observed');
+    assert.equal(club.audioElement._vrclubEpisodeWatch, true);
+
+    club.listeners.ended(); await flush();
+    assert.equal(club.played.at(-1).url, 'https://x/p2.mp3');
+    club.listeners.ended(); await flush();
+    assert.equal(club.played.at(-1).url, 'https://x/p1.mp3');
+
+    // Out of older episodes: look again (a new one may be out) and pick a random one.
+    club.listeners.ended(); await flush();
+    assert.equal(club.played.at(-1).url, 'https://x/q5.mp3', 'rng 0 picks the first of the fresh list');
+    assert.equal(club.played.length, 4);
+
+    // One 'ended' listener per element, however many episodes it has carried.
+    assert.equal(Object.keys(club.listeners).length, 1);
 
     // The guest chooses something else: the old episode ending must not start another.
-    await api.playResidentFrom(club, episodes, 0);
-    const before = played.length;
+    const before = club.played.length;
     club._audioStreamUrl = 'https://radio.example/live';
-    listeners.ended();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(played.length, before, 'the queue kept playing after the guest chose another stream');
+    club.listeners.ended(); await flush();
+    assert.equal(club.played.length, before, 'the queue kept playing after the guest chose another stream');
+
+    // A dead episode is skipped in favour of the next older one, a few times and no further.
+    const dead = episodeList(6, 'd');
+    for (const id of ['d6', 'd5', 'd4']) club.failing.add(`https://x/${id}.mp3`);
+    await assert.rejects(() => player.playFrom(Podcasts.get('resident'), dead, 0), /404/, 'three dead links in a row is a dead feed');
+    assert.equal(player.queue, null);
+    club.failing.delete('https://x/d4.mp3');
+    assert.equal((await player.playFrom(Podcasts.get('resident'), dead, 0)).title, 'd4');
 
     // An autoplay block is rethrown at once, with the queue left on that episode for a retry.
     club.startAudioStream = () => Promise.reject(Object.assign(new Error('blocked'), { name: 'NotAllowedError' }));
-    await assert.rejects(() => api.playResidentFrom(club, episodes, 1), { name: 'NotAllowedError' });
-    assert.equal(api.getQueue().index, 1);
+    await assert.rejects(() => player.playFrom(Podcasts.get('resident'), episodes, 1), { name: 'NotAllowedError' });
+    assert.equal(player.queue.index, 1);
+    assert.equal(club.lastError, undefined);
+});
+
+test('when the next episode cannot start the guest is told and the queue is released', async () => {
+    const Podcasts = loadPodcasts();
+    const club = fakeClub();
+    const player = Podcasts.createPlayer(club, { storage: null });
+    await player.playFrom(Podcasts.get('resident'), episodeList(2, 'z'), 0);
+    for (const url of ['https://x/z1.mp3']) club.failing.add(url);
+    club.listeners.ended(); await flush();
+    assert.equal(player.queue, null);
+    assert.match(club.lastError, /next one could not start/);
 });
 
 // ---------------------------------------------------------------------------
@@ -2372,17 +2524,16 @@ function readGlbJson(relativePath) {
 test('every guest slot asks for a clip its character file carries, inside the room and apart from the others', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
-    const slots = window.VRClubAudioCrowd.prototype._guestSlots.call({});
+    const Crowd = window.VRClubAudioCrowd;
+    const slots = Crowd.prototype._guestSlots.call({});
     const clipsOf = file => new Set(readGlbJson(`js/models/avatars/${file}`).animations.map(animation => animation.name));
-    // Source indices 5 and 6 are the guest files (see avatarSources in createDancingNPCs).
-    const files = { 5: clipsOf('club-guest-female.glb'), 6: clipsOf('club-guest-male.glb') };
 
-    for (const clips of Object.values(files)) {
-        assert.ok(clips.has('Dance_Loop'), 'the guest characters also fill dance-floor slots, so they must dance');
-    }
     slots.forEach((slot, index) => {
-        assert.ok(files[slot.src], `slot ${index} points at a source that is not a guest file`);
-        assert.ok(files[slot.src].has(slot.clip), `slot ${index} wants "${slot.clip}", which that file does not carry`);
+        const source = Crowd.AVATAR_SOURCES[slot.src];
+        assert.ok(source, `slot ${index} points at no source`);
+        const file = source.url.split('/').pop();
+        assert.match(file, /^club-crowd-/, `slot ${index} must be one of the crowd people, who carry the guest clips`);
+        assert.ok(clipsOf(file).has(slot.clip), `slot ${index} wants "${slot.clip}", which ${file} does not carry`);
         assert.ok(Math.abs(slot.x) <= 11.5 && slot.z >= -20 && slot.z <= -5.8, `slot ${index} is outside the room`);
         assert.ok(Number.isFinite(slot.yaw) && slot.height > 1.5 && slot.height < 2, `slot ${index} has an odd pose or height`);
     });
@@ -2398,6 +2549,126 @@ test('every guest slot asks for a clip its character file carries, inside the ro
     assert.equal(sizes.length, 3, 'every graphics tier must set guestSize');
     assert.ok(sizes.every(size => size <= slots.length) && sizes[0] >= sizes[1] && sizes[1] >= sizes[2],
         'guestSize must not exceed the slots and must fall with the tier');
+});
+
+test('the crowd is diverse at every tier: every slot has a file that dances, and nobody is duplicated within a tier', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, log: { info() {}, warn() {}, error() {} } });
+    const Crowd = window.VRClubAudioCrowd;
+    const sources = Crowd.AVATAR_SOURCES;
+    assert.equal(new Set(sources.map(source => source.id)).size, sources.length, 'source ids must be unique');
+    assert.equal(Crowd.sourceIndex('f1'), sources.findIndex(source => source.id === 'f1'));
+    assert.equal(Crowd.sourceIndex('nobody'), -1);
+    for (const source of sources) {
+        assert.ok(existsSync(join(ROOT, source.url.replace('./', ''))), `${source.url} does not exist`);
+    }
+    // scripts/build.mjs ships only the model paths it finds written out as string literals. A path assembled from
+    // parts is silently missing from dist/, and the club then has no crowd in production.
+    const shipped = new Set();
+    for (const text of ['js/club/11-audio-crowd.js'].map(file => readFileSync(join(ROOT, file), 'utf8'))) {
+        for (const m of text.matchAll(/['"`](?:\.\/)?(js\/models\/[^'"`]+\.(?:glb|gltf|bin))['"`]/g)) shipped.add(m[1]);
+    }
+    for (const source of sources) {
+        assert.ok(shipped.has(source.url.replace('./', '')), `${source.url} is not a literal the production build can find`);
+    }
+
+    // The crowd slots are assigned in createDancingNPCs; read them back from a stub run.
+    const slots = [];
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        tierSettings: { crowdSize: 14, guestSize: 8 }, npcAvatars: [], _loadCrowdSources: async () => {},
+        _applyDJ: async () => true, _initialDJId: () => 'hernan', _spawnCrowdTo() {}, _spawnLocalPlayerBody() {},
+        _applyCrowdSize() {}, _refreshShadowCasters() {}, _spawnAvatar() {}
+    });
+    return club.createDancingNPCs().then(() => {
+        slots.push(...club._crowdSlots);
+        assert.equal(slots.length, 14);
+        for (const slot of slots) {
+            const source = sources[slot.src];
+            assert.ok(source, 'a dancer slot points at no source');
+            if (/club-crowd-/.test(source.url)) {
+                const clips = readGlbJson(`js/models/avatars/${source.url.split('/').pop()}`).animations.map(clip => clip.name);
+                assert.ok(clips.includes('Dance_Loop'), `${source.id} cannot dance`);
+            }
+        }
+        const tiers = [[14, 8], [10, 4], [6, 2]];
+        for (const [crowd, guests] of tiers) {
+            const dancers = slots.slice(0, crowd).map(slot => slot.src);
+            assert.equal(new Set(dancers).size, dancers.length, `a dancer repeats within the first ${crowd}`);
+            const needed = club._requiredCrowdSources(crowd, guests);
+            assert.ok(needed.every(index => index >= 0 && index < sources.length));
+            // The player's body and the bartender are always needed; the rest follow the tier.
+            for (const id of ['dancerF', 'dancerM', 'bartender']) assert.ok(needed.includes(Crowd.sourceIndex(id)), `${id} is not loaded`);
+        }
+        const balanced = club._requiredCrowdSources(6, 2).length, ultra = club._requiredCrowdSources(14, 8).length;
+        assert.ok(balanced < ultra, 'a lower tier must fetch fewer characters');
+        // Variety on the floor even at the lowest tier: men and women, and more than one of each.
+        const first = slots.slice(0, 6).map(slot => sources[slot.src].id);
+        assert.ok(first.some(id => /^f/.test(id)) && first.some(id => /^m/.test(id)) && first.length === 6);
+    });
+});
+
+test('a higher quality tier fetches only the missing characters, then places them', async () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    const requested = [];
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        tierSettings: { crowdSize: 2, guestSize: 0 }, npcAvatars: [], _disposed: false,
+        _crowdSlots: [{ x: 0, z: 0, src: 6, height: 1.7, facing: 0 }, { x: 1, z: 1, src: 7, height: 1.7, facing: 0 }, { x: 2, z: 2, src: 8, height: 1.7, facing: 0 }],
+        _loadAvatarSource(url) { requested.push(url.split('/').pop()); return Promise.resolve({ url }); },
+        _refreshContactShadows() {}
+    });
+    club._crowdSourceContainers = new Array(Crowd.AVATAR_SOURCES.length);
+    // The player's body and the bartender are fetched at start-up.
+    for (const id of ['dancerF', 'dancerM', 'bartender']) club._crowdSourceContainers[Crowd.sourceIndex(id)] = { id };
+    club._crowdSourcePending = {};
+    club._availableCrowdSources = [];
+    const spawned = [];
+    club._spawnAvatar = function (source, name) { spawned.push([name, source.url.split('/').pop()]); this.npcAvatars.push({ name, root: { setEnabled() {} }, animations: [] }); };
+    club._spawnGuestsTo = () => {};
+
+    await club._loadCrowdSources([6, 7, 6]);
+    assert.deepEqual(requested, ['club-crowd-f1.glb', 'club-crowd-f2.glb'], 'a source was fetched twice');
+    club._spawnCrowdTo(3);
+    assert.deepEqual(spawned.map(item => item[0]), ['dancer0', 'dancer1'], 'a dancer whose file is not loaded yet must wait, not be replaced');
+
+    club.tierSettings.crowdSize = 3;
+    club._applyCrowdSize();
+    club._applyCrowdSize();
+    await club._crowdTopUp;
+    assert.deepEqual(requested, ['club-crowd-f1.glb', 'club-crowd-f2.glb', 'club-crowd-f3.glb'], 'only the missing file is fetched, once');
+    assert.deepEqual(spawned.map(item => item[0]), ['dancer0', 'dancer1', 'dancer2']);
+    assert.equal(club._crowdTopUp, null);
+});
+
+test('the crowd character files: one skin, one draw, vertex-coloured, only the clips they are used for, and all different', async () => {
+    const dir = join(ROOT, 'js/models/avatars');
+    const files = readdirSync(dir).filter(file => /^club-crowd-.*\.glb$/.test(file));
+    assert.equal(files.length, 17, 'the cast is 8 women and 9 men');
+    const { createHash } = await import('node:crypto');
+    const hashes = new Set();
+    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8']);
+    for (const file of files) {
+        const id = file.replace(/^club-crowd-|\.glb$/g, '');
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        assert.equal(json.skins.length, 1, `${file} must keep one skin`);
+        assert.equal(json.skins[0].joints.length, 62, `${file} is not the 62-bone modular rig`);
+        assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, `${file} must be one draw`);
+        assert.equal(json.materials.length, 1, `${file} must bake its colours into vertices`);
+        assert.ok(json.meshes[0].primitives[0].attributes.COLOR_0 !== undefined, `${file} lost its vertex colours`);
+        assert.ok(!json.images && !json.textures, `${file} should not carry textures`);
+        const clips = json.animations.map(animation => animation.name).sort();
+        const expected = guests.has(id)
+            ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
+            : ['Dance_Loop'];
+        assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
+        const bytes = readFileSync(join(dir, file));
+        assert.ok(bytes.length < 1.1 * 1048576, `${file} is too heavy (${bytes.length})`);
+        hashes.add(createHash('sha1').update(bytes).digest('hex'));
+    }
+    assert.equal(hashes.size, files.length, 'two crowd files are identical');
+    const assets = readFileSync(join(ROOT, 'ASSETS.md'), 'utf8');
+    assert.ok(/Modular Women/.test(assets) && /Modular Men/.test(assets), 'ASSETS.md must credit both Modular packs');
 });
 
 test('a multi-clip character plays only its own clip, and does not react to the beat when it is a guest', () => {
@@ -4074,9 +4345,15 @@ test('music on entry is on by default and a Resident episode is never remembered
     const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     assert.ok(!/sunshine-live/i.test(ui), 'the old default station is still referenced');
     assert.match(ui, /AudioUtils\.shouldPlayOnEntry\(/);
-    assert.match(ui, /fetchPodcastEpisodes\(RESIDENT_PODCAST\)/);
+    assert.match(ui, /player\.playRandom\(podcast\)/, 'ENTER must start a RANDOM episode of the chosen podcast');
+    assert.doesNotMatch(ui, /playResidentFrom|fetchPodcastEpisodes|RESIDENT_PODCAST/, 'the old in-file queue is back');
+    // Colourizon episodes (served by the relay) are never remembered either.
+    assert.equal(AudioUtils.isResidentEpisodeUrl('https://vrclub-network.garfieldapp.workers.dev/podcast/colourizon/stream/1-missmelera-x.mp3'), true);
+    assert.equal(AudioUtils.isResidentEpisodeUrl('https://vrclub-network.garfieldapp.workers.dev/podcast/other'), false);
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /<input id="splashRadioOnEntry"[^>]*\bchecked\b/, 'the splash music toggle must default to checked');
+    assert.match(html, /id="splashPodcastResident"[^>]*aria-checked="true"/, 'Hernan Cattaneo is the default podcast');
+    assert.match(html, /id="splashPodcastColourizon"[^>]*aria-checked="false"/);
 });
 
 test('smooth VR movement is the default but an explicit comfort preference is preserved', () => {
@@ -5078,6 +5355,84 @@ test('real Babylon deferred collisions allow XR stair entry and descent while ke
     }
 });
 
+test('the XR collider is a torso: the floor never blocks a short or seated headset, walls and rails still do', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/mezzanine.js');
+    const engine = new BABYLON.NullEngine();
+    const scene = new BABYLON.Scene(engine);
+    scene.collisionsEnabled = true;
+    try {
+        const box = (name, width, height, depth, x, y, z) => {
+            const mesh = BABYLON.MeshBuilder.CreateBox(name, { width, height, depth }, scene);
+            mesh.position.set(x, y, z);
+            mesh.checkCollisions = true;
+            mesh.computeWorldMatrix(true);
+            return mesh;
+        };
+        // A floor made of tiles, as a real mesh has seams, a wall, and a knee-high bench that must still stop a walker.
+        for (let x = -10; x < 10; x += 5) for (let z = -30; z < 0; z += 5) box(`tile${x}_${z}`, 5, 0.1, 5, x + 2.5, -0.05, z + 2.5);
+        box('wall', 30, 6, 0.5, 0, 3, -20.25);
+        box('bench', 1, 0.9, 1, 3, 0.45, -8);
+        for (const eye of [0.9, 1.2, 1.5, 1.6, 1.7, 1.85]) {
+            const camera = new BABYLON.FreeCamera(`xr${eye}`, new BABYLON.Vector3(0, eye, -2), scene);
+            camera.checkCollisions = true;
+            camera._deferOnly = false;
+            const club = Object.assign(Object.create(window.Mezzanine), { isInVRMode: true, _xrHeadHeight: () => eye });
+            club._guardVRCameraSteps(camera);
+            const walk = (x, z, steps) => {
+                for (let i = 0; i < steps; i++) { camera.cameraDirection.set(x, 0, z); camera._updatePosition(); }
+            };
+            walk(0, -0.1, 40);
+            assert.ok(camera.position.z < -5.9, `a ${eye} m headset was stopped at z=${camera.position.z.toFixed(2)} on an open floor`);
+            walk(0.1, 0, 20);
+            assert.ok(camera.position.x > 1.9, `a ${eye} m headset could not walk sideways (x=${camera.position.x.toFixed(2)})`);
+            assert.ok(Math.abs(camera.position.y - eye) < 1e-6, 'a collision lifted the walker');
+            walk(0, -0.1, 160);
+            assert.ok(camera.position.z > -20.0, `a ${eye} m headset walked into the wall (z=${camera.position.z.toFixed(2)})`);
+            // The bench is 0.9 m high: knees and waist, so it blocks at every height.
+            camera.position.set(3, eye, -4);
+            walk(0, -0.1, 40);
+            assert.ok(camera.position.z > -7.3, `a ${eye} m headset walked through the bench (z=${camera.position.z.toFixed(2)})`);
+            // The collider hangs between 0.3 m and 1.3 m above the feet, and never above the eye.
+            const bottom = camera.position.y - camera.ellipsoid.y + camera.ellipsoidOffset.y - camera.ellipsoid.y;
+            const top = bottom + 2 * camera.ellipsoid.y;
+            assert.ok(Math.abs(bottom - (camera.position.y - eye + 0.3)) < 1e-6, `bottom ${bottom} for eye ${eye}`);
+            assert.ok(top <= camera.position.y + 1e-6 && top <= 1.3 + 1e-6, `top ${top} for eye ${eye}`);
+        }
+    } finally {
+        scene.dispose();
+        engine.dispose();
+    }
+});
+
+test('a crowd member hidden by the quality tier takes its occupant collider with it', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const member = name => {
+        const state = { rootEnabled: true, colliderEnabled: true };
+        return {
+            name, state, animations: [],
+            root: { setEnabled: value => { state.rootEnabled = value; } },
+            collider: { setEnabled: value => { state.colliderEnabled = value; } }
+        };
+    };
+    const npcs = [member('dancer0'), member('dancer1'), member('dancer2'), member('guest0'), member('guest1'), member('bartender')];
+    const club = {
+        npcAvatars: npcs,
+        tierSettings: { crowdSize: 2, guestSize: 1 },
+        _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {}
+    };
+    proto._applyCrowdSize.call(club);
+    const visible = npcs.filter(npc => npc.state.rootEnabled).map(npc => npc.name);
+    const solid = npcs.filter(npc => npc.state.colliderEnabled).map(npc => npc.name);
+    assert.deepEqual(visible.sort(), ['bartender', 'dancer0', 'dancer1', 'guest0']);
+    assert.deepEqual(solid.sort(), ['bartender', 'dancer0', 'dancer1', 'guest0'], 'an invisible dancer is still solid');
+    club.tierSettings = { crowdSize: 3, guestSize: 2 };
+    proto._applyCrowdSize.call(club);
+    assert.ok(npcs.every(npc => npc.state.colliderEnabled && npc.state.rootEnabled), 'a returning dancer is not solid again');
+});
+
 test('the walking-surface follow climbs the stair and the deck but never snaps walkers off the floor', () => {
     const M = loadClassic('js/mezzanine.js').window.MezzanineLayout;
     const S = M.stairs, D = M.deck;
@@ -5217,4 +5572,585 @@ test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is i
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /Bass Bin 3 - Subwoofer[\s\S]{0,400}darksoundlab[\s\S]{0,300}CC BY 4\.0/, 'the CC BY credit must name title, creator and licence');
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /bass_bin_3\.glb/);
+});
+// ---------------------------------------------------------------------------
+// The street outside the club
+// ---------------------------------------------------------------------------
+
+test('the street layout in the bake script, the vestibule and the runtime agree', () => {
+    const script = readFileSync(join(ROOT, 'scripts/build-city-assets.mjs'), 'utf8');
+    const L = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const block = /const CITY = \{([\s\S]*?)\};/.exec(script)[1];
+    for (const key of ['halfLength', 'forecourtFrom', 'sidewalkNear', 'roadFrom', 'roadTo', 'farFront']) {
+        const match = new RegExp(`${key}:\\s*([\\d.]+)`).exec(block);
+        assert.ok(match, `${key} is missing from the bake script`);
+        assert.equal(Number(match[1]), L[key], `${key} differs between scripts/build-city-assets.mjs and js/cityDistrict.js`);
+    }
+    const vestibule = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule;
+    assert.equal(L.doorZ, vestibule.farZ + 0.3, 'the street door is the vestibule\'s far wall');
+    assert.equal(L.doorHalfWidth, vestibule.doorHalfWidth);
+    assert.equal(L.doorHeight, vestibule.doorHeight);
+    assert.equal(L.forecourtFrom, vestibule.wallZ, 'the pavement starts at the club\'s front wall');
+    assert.ok(L.sidewalkNear >= L.doorZ - 0.1, 'the street door must open onto the near sidewalk, not the forecourt');
+    // The street is walled in at both ends inside its bollards, and the fence spans the pavement.
+    assert.ok(L.fenceX < L.halfLength - 2);
+    assert.ok(L.fenceZ[0] >= L.forecourtFrom && L.fenceZ[1] <= L.farFront);
+});
+
+test('how far outdoors a guest is: nothing in the club, everything on the street, one smooth ramp through the door', () => {
+    const L = loadClassic('js/cityDistrict.js').window.CityLayout;
+    for (const [x, z] of [[0, -15], [10, -3], [-12, -0.5], [0, 0.2], [0, 3], [0, 4.9]]) {
+        assert.equal(L.exteriorAmount(x, z), 0, `(${x}, ${z}) is inside`);
+    }
+    // The forecourt beside the vestibule is outdoors even though it is only a metre from the club's wall.
+    for (const [x, z] of [[0, 7.4], [0, 12], [8, 3], [-20, 1], [30, 20], [13, -1]]) {
+        assert.equal(L.exteriorAmount(x, z), 1, `(${x}, ${z}) is outside`);
+    }
+    let last = 0;
+    for (let z = 4.9; z <= 7.5; z += 0.05) {
+        const value = L.exteriorAmount(0, z);
+        assert.ok(value >= last - 1e-9, `the ramp goes backwards at z=${z.toFixed(2)}`);
+        last = value;
+    }
+    const threshold = L.exteriorAmount(0, L.doorZ);
+    assert.ok(threshold > 0.3 && threshold < 0.8, `the threshold is ${threshold}: neither inside nor out`);
+    assert.equal(L.doorDistance(0, 3), 0, 'inside the vestibule is at the door');
+    assert.ok(Math.abs(L.doorDistance(3, L.doorZ + 4) - 5) < 1e-9);
+});
+
+test('on the street only the low bass comes through: a little more at the door than down the avenue, and none of the room', () => {
+    const { club, window } = createAudioHarness();
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    club._connectAudioSourceOnce();
+    club._audioFrameData = { average: 0 };
+    const stand = (x, z) => {
+        club.scene = { activeCamera: { globalPosition: { x, y: 1.7, z }, getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }), upVector: { x: 0, y: 1, z: 0 } } };
+        club.updateSpatialAudioListener();
+        return {
+            c1: club.occlusionFilter.frequency.value, c2: club.occlusionFilter2.frequency.value,
+            reverb: club.reverbSend.gain.value, delay: club.roomDelayGain.gain.value, crowd: club.crowdAmbienceGain.gain.value,
+            sub: club.subGain.gain.value, master: club.audioMasterGain.gain.value
+        };
+    };
+    const room = stand(0, -10);
+    const corridor = stand(0, 3);
+    const door = stand(0, 7.5);
+    const avenue = stand(30, 15);
+
+    assert.ok(Math.abs(room.c1 - 20000) < 1 && Math.abs(room.c2 - 22050) < 1, 'the room hears the whole PA');
+    assert.ok(Math.abs(corridor.c1 - 700) < 1 && Math.abs(corridor.c2 - 22050) < 1, 'the corridor keeps its single muffling pole');
+    for (const [label, spot] of [['at the door', door], ['down the avenue', avenue]]) {
+        assert.ok(spot.c1 < 200 && spot.c2 < 200, `${label} the music must be bass only (${spot.c1.toFixed(0)} Hz / ${spot.c2.toFixed(0)} Hz)`);
+        assert.ok(spot.c1 >= 85, `${label} the cutoff must stay audible bass`);
+        assert.equal(spot.reverb, 0, `${label} the room's reverb tail must not be heard`);
+        assert.equal(spot.delay, 0, `${label} the room's early reflection must not be heard`);
+        assert.equal(spot.crowd, 0, `${label} nobody is chattering`);
+        assert.ok(spot.sub >= 0.5, `${label} the thump must stay present`);
+        assert.ok(spot.master >= 1.15, `${label} the bass-only signal needs the make-up gain`);
+    }
+    assert.ok(door.c1 > avenue.c1, 'the bass is clearer at the door than down the avenue');
+    assert.ok(door.sub > avenue.sub, 'the thump fades with distance from the door');
+    assert.ok(room.reverb > 0 && room.crowd > 0, 'the room keeps its own tail and chatter');
+});
+
+test('the street is drawn only near the entrance (with hysteresis) and the outdoors amount eases', () => {
+    const { window } = loadClassic('js/cityDistrict.js');
+    const toggles = [];
+    const pos = { x: 0, y: 1.7, z: -15 };
+    const club = Object.assign({
+        _cityRoot: { setEnabled: value => toggles.push(value) },
+        _cityVisible: true,
+        _cityWarm: true,
+        _playerCamera: () => ({ globalPosition: pos })
+    }, window.CityDistrict);
+    const at = (z, x = 0) => { pos.z = z; pos.x = x; club.updateCityDistrict(1 / 60); };
+
+    at(-15);
+    assert.deepEqual(toggles, [], 'nothing is hidden while the materials are still compiling');
+    club._cityWarm = false;
+    at(-15);
+    assert.deepEqual(toggles, [false], 'the street is hidden deep in the club');
+    at(-9);
+    assert.deepEqual(toggles, [false], 'still hidden between the two thresholds');
+    at(-7);
+    assert.deepEqual(toggles, [false, true], 'shown near the entrance');
+    at(-9);
+    at(-9.9);
+    assert.deepEqual(toggles, [false, true], 'hysteresis: it does not flicker around one threshold');
+    at(-11);
+    assert.deepEqual(toggles, [false, true, false]);
+
+    // Outdoors: the amount rises smoothly to 1 and falls back, never jumping.
+    let previous = club._exterior || 0;
+    pos.x = 0; pos.z = 12;
+    for (let i = 0; i < 90; i++) {
+        club.updateCityDistrict(1 / 30);
+        assert.ok(club._exterior - previous < 0.2, 'the outdoors amount jumped');
+        previous = club._exterior;
+    }
+    assert.ok(club._exterior > 0.95);
+    pos.z = -10;
+    for (let i = 0; i < 90; i++) club.updateCityDistrict(1 / 30);
+    assert.ok(club._exterior < 0.05);
+});
+
+test('city materials are opaque, budgeted and never frozen; only the road paint is alpha-tested', () => {
+    const BABYLON = { PBRMaterial: { PBRMATERIAL_OPAQUE: 0, PBRMATERIAL_ALPHATEST: 1 }, Material: { AllDirtyFlag: 0xff } };
+    const { window } = loadClassic('js/cityDistrict.js', { BABYLON });
+    const make = name => ({ name, alpha: 0.5, transparencyMode: 2, markAsDirty() {}, isFrozen: false });
+    const materials = ['brick', 'trim', 'metal', 'windows', 'decals'].map(make);
+    const club = Object.assign({ maxLights: 3 }, window.CityDistrict);
+    club._styleCityMaterials(materials);
+    for (const material of materials) {
+        assert.equal(material.maxSimultaneousLights, 3, `${material.name} must obey the device light budget`);
+        assert.equal(material.isFrozen, false, 'lit materials stay unfrozen');
+        if (material.name === 'decals') {
+            assert.equal(material.transparencyMode, 1, 'road paint is a cut-out');
+        } else {
+            assert.equal(material.transparencyMode, 0, `${material.name} must be opaque`);
+            assert.equal(material.alpha, 1);
+            assert.equal(material.needAlphaBlending(), false);
+        }
+    }
+    assert.ok(materials.find(m => m.name === 'windows').emissiveIntensity > 1, 'lit rooms must glow');
+});
+
+test('the baked street is small, opaque and cheap to draw', () => {
+    const path = 'js/models/city/downtown.glb';
+    const json = readGlbJson(path);
+    const bytes = readFileSync(join(ROOT, path)).length;
+    assert.ok(bytes < 8 * 1024 * 1024, `${(bytes / 1048576).toFixed(1)} MB is too heavy a download`);
+    assert.deepEqual([...json.extensionsRequired].sort(), ['EXT_texture_webp', 'KHR_mesh_quantization']);
+    assert.ok(json.materials.length <= 8, `${json.materials.length} materials: merge tints into vertex colour`);
+    for (const material of json.materials) {
+        if (material.name === 'decals') assert.equal(material.alphaMode, 'MASK', 'road paint is a cut-out, never a blend');
+        else assert.ok(!material.alphaMode || material.alphaMode === 'OPAQUE', `${material.name} must be opaque (VR rejects blending)`);
+    }
+    assert.ok(json.images.every(image => image.mimeType === 'image/webp'));
+    const imageBytes = json.images.reduce((sum, image) => sum + json.bufferViews[image.bufferView].byteLength, 0);
+    assert.ok(imageBytes < 3 * 1048576, `${(imageBytes / 1048576).toFixed(1)} MB of textures`);
+
+    const primitives = json.meshes.flatMap(mesh => mesh.primitives);
+    const triangles = primitives.reduce((sum, primitive) => sum + json.accessors[primitive.indices].count / 3, 0);
+    assert.ok(triangles <= 160000, `${Math.round(triangles)} triangles`);
+    assert.ok(primitives.length <= 70, `${primitives.length} draws when the whole street is in view`);
+    // Every building is its own culled mesh set; the street is one.
+    const names = json.nodes.map(node => node.name);
+    assert.ok(names.includes('street'));
+    assert.ok(names.filter(name => /^(far|near[LR])\d+$/.test(name)).length >= 8, 'the buildings are missing');
+    // The kit's own 4096 px (and bigger) PNGs must not have been carried over.
+    assert.ok(json.images.length <= 16);
+    assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /Downtown City MegaKit/);
+});
+
+test('the street door is shut until the street has loaded, then a person can walk through it', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    const material = name => new BABYLON.StandardMaterial(name, scene);
+    const log = { info() {}, warn() {} };
+    const club = Object.assign({
+        scene,
+        materialFactory: {
+            getPreset: material, createStandardMaterial: material,
+            createPBRMaterial: name => new BABYLON.PBRMaterial(name, scene)
+        },
+        lightFactory: { createPointLight: (name, position) => new BABYLON.PointLight(name, position, scene) },
+        textureLoader: null,
+        concreteTextures: null,
+        _applyWorldUVs() {}
+    }, loadClassic('js/venueDressing.js', { BABYLON, log }).window.VenueDressing,
+    loadClassic('js/cityDistrict.js', { BABYLON, log }).window.CityDistrict);
+    club.createEntranceArea();
+
+    // A person's torso, walking from inside the vestibule toward the street.
+    const blocked = (x, y) => scene.pickWithRay(
+        new BABYLON.Ray(new BABYLON.Vector3(x, y, 4.5), new BABYLON.Vector3(0, 0, 1), 3),
+        mesh => mesh.checkCollisions && mesh.isEnabled()) !== null && scene.pickWithRay(
+        new BABYLON.Ray(new BABYLON.Vector3(x, y, 4.5), new BABYLON.Vector3(0, 0, 1), 3),
+        mesh => mesh.checkCollisions && mesh.isEnabled()).hit;
+    for (const x of [-1.2, -0.4, 0, 0.4, 1.2]) assert.ok(blocked(x, 1.2), `the shut door lets x=${x} through`);
+    assert.equal(club._streetDoor.open, false);
+    assert.ok(club._streetDoor.meshes.every(mesh => mesh && mesh.isEnabled()), 'the glass leaves are drawn while the door is shut');
+
+    club._cityRoot = {}; // the street has arrived
+    club._openStreetDoor();
+    assert.equal(club._streetDoor.open, true);
+    assert.ok(club._streetDoor.meshes.every(mesh => !mesh.isEnabled()), 'the leaves and bars go when the door opens');
+    for (const x of [-1.2, -0.4, 0, 0.4, 1.2]) {
+        for (const y of [0.3, 1.2, 2.2]) assert.ok(!blocked(x, y), `the open door still blocks (x=${x}, y=${y})`);
+    }
+    // The wall around the doorway is still a wall.
+    for (const x of [-3.5, 2.4, 3.5]) assert.ok(blocked(x, 1.2), `the street wall has a hole at x=${x}`);
+    assert.ok(blocked(0, 3.4), 'the lintel is missing');
+    assert.ok(blocked(1.6, 1.2), 'the door frame is not solid');
+    scene.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// Seeking, the VR Music page, and the DJ that follows the podcast
+// ---------------------------------------------------------------------------
+
+function fakeAudio({ duration = 3600, currentTime = 0, paused = false, seekable = true } = {}) {
+    return {
+        duration, currentTime, paused, ended: false, src: 'https://x/e.mp3',
+        seekable: { length: seekable ? 1 : 0 },
+        play() { this.paused = false; return Promise.resolve(); },
+        pause() { this.paused = true; }
+    };
+}
+
+test('playback position: a set can be seeked, a live stream cannot, and a seek never jumps to the very end', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+
+    assert.deepEqual({ ...club.getPlaybackInfo() }, { seekable: false, position: 0, duration: 0, playing: false }, 'nothing loaded');
+    assert.equal(club.seekAudioTo(30), false);
+    assert.equal(club.seekAudioBy(30), false);
+
+    club.audioElement = fakeAudio({ duration: Infinity });
+    assert.equal(club.getPlaybackInfo().seekable, false, 'a live stream has no length');
+    assert.equal(club.seekAudioTo(30), false);
+    assert.equal(club.audioElement.currentTime, 0, 'a live stream must not be touched');
+    club.audioElement = fakeAudio({ duration: NaN });
+    assert.equal(club.getPlaybackInfo().seekable, false, 'metadata has not arrived yet');
+    club.audioElement = fakeAudio({ seekable: false });
+    assert.equal(club.getPlaybackInfo().seekable, false, 'the browser says there is no seekable range');
+
+    const audio = club.audioElement = fakeAudio({ duration: 3600, currentTime: 100 });
+    assert.deepEqual({ ...club.getPlaybackInfo() }, { seekable: true, position: 100, duration: 3600, playing: true });
+    assert.equal(club.seekAudioTo(1800), true);
+    assert.equal(audio.currentTime, 1800);
+    club.seekAudioBy(-30);
+    assert.equal(audio.currentTime, 1770);
+    club.seekAudioBy(60);
+    assert.equal(audio.currentTime, 1830);
+    club.seekAudioBy(-99999);
+    assert.equal(audio.currentTime, 0, 'back past the start stops at the start');
+    club.seekAudioBy(99999);
+    assert.equal(audio.currentTime, 3599, 'forward past the end stops a second short: seeking to the very end would fire "ended"');
+    club.seekAudioFraction(0.5);
+    assert.equal(audio.currentTime, 1800);
+    club.seekAudioFraction(-3);
+    assert.equal(audio.currentTime, 0);
+    club.seekAudioFraction(7);
+    assert.equal(audio.currentTime, 3599);
+    for (const bad of [NaN, Infinity, undefined, 'x']) {
+        audio.currentTime = 500;
+        assert.equal(club.seekAudioTo(bad), false, String(bad));
+        assert.equal(club.seekAudioFraction(bad), false, String(bad));
+        assert.equal(audio.currentTime, 500);
+    }
+    // A short file: the clamp never goes negative.
+    club.audioElement = fakeAudio({ duration: 0.5, currentTime: 0 });
+    assert.equal(club.seekAudioTo(10), true);
+    assert.equal(club.audioElement.currentTime, 0);
+});
+
+test('a seek or a pause by the room host is published; a guest never publishes; a local file is never shared', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const sent = [];
+    const club = Object.create(window.VRClubUI.prototype);
+    club.audioElement = fakeAudio({ duration: 3600, currentTime: 10 });
+    club._audioKind = 'stream';
+    club._audioStreamUrl = 'https://x/e.mp3';
+    club.networkManager = { connected: true, isHost: () => true, sendMusic: message => sent.push({ ...message }) };
+
+    club.seekAudioTo(900);
+    assert.deepEqual(sent, [{ url: 'https://x/e.mp3', playing: true, position: 900 }]);
+    club.toggleAudioPlayback();
+    assert.equal(club.audioElement.paused, true);
+    assert.deepEqual(sent.at(-1), { url: 'https://x/e.mp3', playing: false, position: 900 }, 'a pause is shared with its position');
+    club.toggleAudioPlayback();
+    assert.equal(club.audioElement.paused, false);
+    assert.equal(sent.at(-1).playing, true);
+
+    sent.length = 0;
+    club.networkManager.isHost = () => false;
+    club.seekAudioTo(100);
+    assert.deepEqual(sent, [], 'a guest cannot publish music');
+    club.networkManager.isHost = () => true;
+    club._audioKind = 'file';
+    club.seekAudioTo(200);
+    assert.deepEqual(sent, [], 'a local file means nothing to other guests');
+    club._audioKind = 'stream';
+    club.networkManager.connected = false;
+    club.seekAudioTo(300);
+    assert.deepEqual(sent, [], 'not connected');
+
+    // With no audio element the toggle explains itself instead of throwing.
+    const quiet = Object.create(window.VRClubUI.prototype);
+    let message = '';
+    quiet.showErrorMessage = text => { message = text; };
+    assert.equal(quiet.toggleAudioPlayback(), false);
+    assert.match(message, /Nothing is playing/);
+});
+
+test('the VR seek bar maps a pointer position to a fraction, drags and commits on release', () => {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const { window } = loadClassic('js/club/10-ui.js', { BABYLON, VRClubAnimationFinish: class {} });
+    window.AudioUtils = loadClassic('js/audioUtils.js').window.AudioUtils;
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    const mesh = BABYLON.MeshBuilder.CreatePlane('seek', { width: 1.48, height: 0.28 }, scene);
+    // The menu is world-locked where the guest looks: any position and yaw must map the same way.
+    mesh.position.set(3, 1.5, -7);
+    mesh.rotation.y = Math.PI / 3;
+    mesh.computeWorldMatrix(true);
+
+    const ctx = new Proxy({ measureText: () => ({ width: 10 }), createLinearGradient: () => ({ addColorStop() {} }) }, {
+        get: (target, key) => (key in target ? target[key] : () => {}), set: () => true
+    });
+    const club = Object.create(window.VRClubUI.prototype);
+    club.audioElement = fakeAudio({ duration: 3000, currentTime: 600 });
+    club.nowPlayingLabel = 'Resident / Episode 803';
+    club._vrSeek = { mesh, width: 1.48, drag: null, texture: { getContext: () => ctx, update() {} } };
+    club.pulseHaptic = () => {};
+    let toast = '';
+    club.showErrorMessage = text => { toast = text; };
+
+    const { left, right, width } = window.VRClubUI.VR_SEEK_BAR_PX;
+    const worldAt = fractionOfBar => {
+        // The bar's pixel position -> the plane's local x -> a world point on the plane.
+        const px = left + fractionOfBar * (right - left);
+        const localX = (px / width - 0.5) * 1.48;
+        return BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(localX, 0.03, 0), mesh.getWorldMatrix());
+    };
+    for (const f of [0, 0.25, 0.5, 0.9, 1]) {
+        assert.ok(Math.abs(club._vrSeekFractionAt(worldAt(f)) - f) < 1e-6, `fraction ${f}`);
+    }
+    const bounds = mesh.getBoundingInfo().boundingBox;
+    assert.equal(club._vrSeekFractionAt(BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(-0.74, 0, 0), mesh.getWorldMatrix())), 0, 'the left margin clamps to the start');
+    assert.equal(club._vrSeekFractionAt(BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(0.74, 0, 0), mesh.getWorldMatrix())), 1, 'the right margin clamps to the end');
+    assert.equal(club._vrSeekFractionAt(null), null);
+    assert.ok(bounds);
+
+    // Press, drag, release: nothing moves until the release, then the audio goes where the last pointer was.
+    club._beginVRSeek({ pickedPoint: worldAt(0.2) });
+    assert.equal(club.audioElement.currentTime, 600, 'pressing must not seek yet');
+    assert.ok(Math.abs(club._vrSeek.drag.fraction - 0.2) < 1e-6);
+    club._moveVRSeek({ hit: true, pickedMesh: { not: 'the bar' }, pickedPoint: worldAt(0.9) });
+    assert.ok(Math.abs(club._vrSeek.drag.fraction - 0.2) < 1e-6, 'a ray that left the bar does not move the thumb');
+    club._moveVRSeek({ hit: false });
+    club._moveVRSeek({ hit: true, pickedMesh: mesh, pickedPoint: worldAt(0.75) });
+    assert.ok(Math.abs(club._vrSeek.drag.fraction - 0.75) < 1e-6);
+    club._endVRSeek();
+    assert.equal(club._vrSeek.drag, null);
+    assert.ok(Math.abs(club.audioElement.currentTime - 2250) < 0.01, '0.75 of 3000 s');
+    club._endVRSeek(); // a stray pointer-up is harmless
+    assert.ok(Math.abs(club.audioElement.currentTime - 2250) < 0.01);
+
+    // A live stream has nothing to seek in.
+    club.audioElement = fakeAudio({ duration: Infinity });
+    club._beginVRSeek({ pickedPoint: worldAt(0.5) });
+    assert.equal(club._vrSeek.drag, null);
+    assert.match(toast, /live stream/i);
+    scene.dispose();
+});
+
+test('the VR Music page: its seek row is free, every button is wired, and the actions use the shared player', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
+    window.Podcasts = loadPodcasts();
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+
+    const home = club._vrQuickMenuPageDefinitions('home');
+    assert.ok(home.some(item => item && item.target === 'music'), 'the home page must reach the Music page');
+    for (const page of ['home', 'lighting', 'effects', 'comfort', 'travel', 'show', 'music']) {
+        assert.ok(club._vrQuickMenuPageDefinitions(page).length <= 12, `${page} has more buttons than the menu has slots`);
+    }
+    const music = club._vrQuickMenuPageDefinitions('music');
+    assert.deepEqual([...music.slice(0, 3)], [null, null, null], 'the first row belongs to the seek bar');
+    assert.deepEqual([...music.slice(3).map(item => item.action)],
+        ['seek', 'playPause', 'seek', 'podcast', 'podcast', 'randomEpisode', 'latestEpisode', 'back', 'close']);
+    assert.deepEqual([...music.filter(item => item && item.action === 'seek').map(item => item.delta)], [-60, 60]);
+    assert.deepEqual([...music.filter(item => item && item.action === 'podcast').map(item => item.podcast)], ['resident', 'colourizon']);
+
+    // Actions.
+    const log = [];
+    const player = {
+        selectedId: () => 'colourizon',
+        switchTo: async id => { log.push(['switchTo', id]); },
+        playRandom: async () => { log.push(['random']); },
+        playLatest: async () => { log.push(['latest']); }
+    };
+    const toasts = [];
+    Object.assign(club, {
+        podcastPlayer: player,
+        pulseHaptic() {}, _refreshVRQuickMenu() {},
+        showErrorMessage: text => toasts.push(text),
+        seekAudioBy: delta => { log.push(['seekBy', delta]); return true; },
+        toggleAudioPlayback: () => { log.push(['toggle']); return true; }
+    });
+    await club._runVRMusicAction({ action: 'seek', delta: -60 });
+    await club._runVRMusicAction({ action: 'playPause' });
+    await club._runVRMusicAction({ action: 'podcast', podcast: 'resident' });
+    await club._runVRMusicAction({ action: 'randomEpisode' });
+    await club._runVRMusicAction({ action: 'latestEpisode' });
+    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['switchTo', 'resident'], ['random'], ['latest']]);
+    assert.ok(toasts.some(text => /Miss Melera/.test(text)), 'the toast names the artist whose set is being found');
+
+    // Failures are reported, never thrown; a missing player is explained.
+    player.playRandom = async () => { throw new Error('feed down'); };
+    await club._runVRMusicAction({ action: 'randomEpisode' });
+    assert.match(toasts.at(-1), /feed down/);
+    club.podcastPlayer = null;
+    await club._runVRMusicAction({ action: 'latestEpisode' });
+    assert.match(toasts.at(-1), /not ready/);
+    club.seekAudioBy = () => false;
+    await club._runVRMusicAction({ action: 'seek', delta: 60 });
+    assert.match(toasts.at(-1), /Nothing to seek/);
+
+    // The page's button states.
+    club.podcastPlayer = player; // colourizon is chosen
+    assert.equal(club._isVRQuickMenuButtonActive({ action: 'podcast', podcast: 'colourizon' }), true);
+    assert.equal(club._isVRQuickMenuButtonActive({ action: 'podcast', podcast: 'resident' }), false);
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'podcast' }, true), 'SELECTED');
+    club.audioElement = fakeAudio({ paused: true });
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PAUSED');
+    club.audioElement.paused = false;
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PLAYING');
+});
+
+test('clock labels read h:mm:ss and survive garbage', () => {
+    const { AudioUtils } = loadClassic('js/audioUtils.js').window;
+    assert.equal(AudioUtils.formatClock(0), '0:00');
+    assert.equal(AudioUtils.formatClock(65), '1:05');
+    assert.equal(AudioUtils.formatClock(3599), '59:59');
+    assert.equal(AudioUtils.formatClock(3725), '1:02:05');
+    assert.equal(AudioUtils.formatClock(10 * 3600 + 5), '10:00:05');
+    for (const bad of [NaN, Infinity, -5, null, undefined, 'x']) assert.equal(AudioUtils.formatClock(bad), bad === Infinity ? '0:00' : '0:00', String(bad));
+});
+
+test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, queued switches and safe ids', async () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+
+    // The looks: two people, each with its own file, height and tints; unknown ids are refused as own keys only.
+    assert.deepEqual(Object.keys(Crowd.DJ_LOOKS), ['hernan', 'melera']);
+    assert.match(Crowd.DJ_LOOKS.hernan.url, /club-dj-hernan\.glb$/);
+    assert.match(Crowd.DJ_LOOKS.melera.url, /club-dj-melera\.glb$/);
+    for (const bad of ['__proto__', 'constructor', 'toString', '', null, undefined, 7]) assert.equal(Crowd.djLook(bad), null, String(bad));
+    const hair = id => Crowd.DJ_LOOKS[id].hair;
+    assert.ok(hair('hernan').r > 0.7 && hair('hernan').g > 0.7 && hair('hernan').b > 0.7, 'Hernan Cattaneo has silver hair');
+    assert.ok(hair('melera').r < 0.3 && hair('melera').g < 0.2 && hair('melera').b < 0.15, 'Miss Melera has dark brunette hair');
+    for (const id of ['hernan', 'melera']) {
+        const { garment } = Crowd.DJ_LOOKS[id];
+        assert.ok(garment.r < 0.15 && garment.g < 0.15 && garment.b < 0.15, `${id} wears black`);
+    }
+
+    const spawned = [], disposed = [], loads = [];
+    let initDone;
+    const club = Object.create(Crowd.prototype);
+    Object.assign(club, {
+        npcAvatars: [{ name: 'dancer0' }],
+        _disposed: false,
+        initPromise: new Promise(resolve => { initDone = resolve; }),
+        async _loadAvatarSource(url, garment, hairColour) { loads.push([url, garment, hairColour]); return { url }; },
+        _spawnAvatar(container, name, position, facing, height, speed, options) {
+            const npc = { name, collider: { dispose: () => disposed.push(`collider:${container.url}`) } };
+            club.npcAvatars.push(npc);
+            spawned.push({ url: container.url, height, speed, clip: options.clip, y: position.y, z: position.z });
+            return { dispose: () => disposed.push(`entry:${container.url}`) };
+        },
+        _refreshContactShadows() { club.shadowRefreshes = (club.shadowRefreshes || 0) + 1; },
+        _refreshShadowCasters() {}
+    });
+
+    // A switch requested while the club is still being built waits for init and does not race it.
+    const early = club.setDJ('melera');
+    await flush();
+    assert.equal(spawned.length, 0, 'the DJ must wait for the club to finish building');
+    initDone();
+    assert.equal(await early, true);
+    assert.equal(spawned.length, 1);
+    assert.deepEqual({ ...spawned[0] }, { url: Crowd.DJ_LOOKS.melera.url, height: 1.68, speed: 0.55, clip: 'Idle_Loop', y: 0.5, z: -19.4 });
+    assert.equal(club.npcAvatars.filter(npc => npc.name === 'djPerformer').length, 1);
+
+    // The same DJ again does nothing; the other one replaces the first completely.
+    assert.equal(await club.setDJ('melera'), true);
+    assert.equal(spawned.length, 1);
+    assert.equal(await club.setDJ('hernan'), true);
+    assert.equal(spawned.length, 2);
+    assert.equal(club.npcAvatars.filter(npc => npc.name === 'djPerformer').length, 1, 'exactly one DJ at the decks');
+    assert.deepEqual(disposed, [`collider:${Crowd.DJ_LOOKS.melera.url}`, `entry:${Crowd.DJ_LOOKS.melera.url}`], 'the previous DJ is disposed entirely');
+    assert.equal(club._djId, 'hernan');
+    assert.ok(club.shadowRefreshes >= 2, 'the contact shadow follows the new DJ');
+
+    // Switching back reuses the loaded file; quick switches end on the last one.
+    club.setDJ('melera'); club.setDJ('hernan'); await club.setDJ('melera');
+    assert.equal(club._djId, 'melera');
+    assert.equal(loads.length, 2, 'each DJ file is loaded once');
+    assert.deepEqual(loads.map(load => load[0]), [Crowd.DJ_LOOKS.melera.url, Crowd.DJ_LOOKS.hernan.url]);
+    assert.equal(loads[0][1], Crowd.DJ_LOOKS.melera.garment);
+    assert.equal(loads[0][2], Crowd.DJ_LOOKS.melera.hair);
+
+    // Refused ids leave the DJ alone; a failed load keeps the current one; a disposed club does nothing.
+    assert.equal(await club.setDJ('__proto__'), false);
+    assert.equal(club._djId, 'melera');
+    club._djContainers.hernan = null;
+    club._loadAvatarSource = async () => null;
+    assert.equal(await club.setDJ('hernan'), false, 'a DJ whose file cannot load never replaces the working one');
+    assert.equal(club._djId, 'melera');
+    club._disposed = true;
+    assert.equal(await club.setDJ('hernan'), false);
+
+    // Until a podcast is chosen the first DJ is Hernan Cattaneo's; afterwards the chosen podcast's.
+    assert.equal(Object.create(Crowd.prototype)._initialDJId(), 'hernan');
+    const store = new Map();
+    window.Podcasts = loadPodcasts();
+    const storage = { getItem: key => store.get(key) ?? null };
+    window.localStorage = storage;
+    const chooser = Object.create(Crowd.prototype);
+    const withStorage = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, localStorage: storage });
+    withStorage.window.Podcasts = window.Podcasts;
+    const club2 = Object.create(withStorage.window.VRClubAudioCrowd.prototype);
+    assert.equal(club2._initialDJId(), 'hernan');
+    store.set('vrclub.podcast', 'colourizon');
+    assert.equal(club2._initialDJId(), 'melera');
+    assert.ok(chooser);
+});
+
+test('avatar materials take their hair and jacket tints only where they belong', () => {
+    const BABYLON = makeBabylonStub();
+    BABYLON.Material = { MATERIAL_OPAQUE: 0 };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const material = name => ({ name, albedoColor: new BABYLON.Color3(1, 1, 1), albedoTexture: null });
+    const [hair, brows, jacket, skin, eyes] = ['MI_Hair_2', 'MI_Hair_1', 'MI_Ranger', 'MI_Regular_Female', 'MI_Eyes'].map(material);
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    Object.assign(club, { tierSettings: { anisotropy: 4 }, maxLights: 3 });
+    club._prepareAvatarMaterials([hair, brows, jacket, skin, eyes], new BABYLON.Color3(0.1, 0.1, 0.1), new BABYLON.Color3(0.2, 0.1, 0.05));
+    assert.deepEqual([hair, brows].map(m => [m.albedoColor.r, m.albedoColor.g, m.albedoColor.b]), [[0.2, 0.1, 0.05], [0.2, 0.1, 0.05]]);
+    assert.deepEqual([jacket.albedoColor.r, jacket.albedoColor.g, jacket.albedoColor.b], [0.1, 0.1, 0.1]);
+    for (const untouched of [skin, eyes]) assert.deepEqual([untouched.albedoColor.r, untouched.albedoColor.g, untouched.albedoColor.b], [1, 1, 1], `${untouched.name} must keep its own colour`);
+    assert.ok([hair, jacket, skin].every(m => m.alpha === 1 && m.maxSimultaneousLights === 3), 'still opaque and budgeted');
+
+    // The crowd's own loads pass no hair colour: their hair is untouched.
+    const guestHair = material('MI_Hair_1');
+    club._prepareAvatarMaterials([guestHair], null, null);
+    assert.deepEqual([guestHair.albedoColor.r, guestHair.albedoColor.g, guestHair.albedoColor.b], [1, 1, 1]);
+});
+
+test('the DJ character files: one idle clip, six draws, the right hair, and the old DJ is gone', () => {
+    const triangles = file => {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        return json.meshes.flatMap(mesh => mesh.primitives).reduce((sum, primitive) => sum + json.accessors[primitive.indices].count / 3, 0);
+    };
+    const files = {
+        // Hernan Cattaneo's beard is the one thing the guest file does not have (1,034 triangles).
+        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [900, 1200], hair: 'Hair_SimpleParted' },
+        'club-dj-melera.glb': { from: 'club-guest-female.glb', extra: [0, 0], hair: 'Hair_Long' }
+    };
+    for (const [file, expected] of Object.entries(files)) {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        assert.deepEqual(json.animations.map(animation => animation.name), ['Idle_Loop'], `${file} must carry only the DJ's idle clip`);
+        assert.ok(json.nodes.some(node => node.name === 'Eyes'), `${file} lost its eyes`);
+        assert.ok(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0) <= 6, `${file} must stay within six draws`);
+        assert.ok(readFileSync(join(ROOT, `js/models/avatars/${file}`)).length < 3 * 1048576, `${file} is too heavy`);
+        assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), new RegExp(file.replace('.', '\\.')));
+        const extra = triangles(file) - triangles(expected.from);
+        assert.ok(extra >= expected.extra[0] && extra <= expected.extra[1], `${file} has ${extra} triangles more than ${expected.from}`);
+    }
+    assert.equal(readdirSync(join(ROOT, 'js/models/avatars')).includes('club-dj.glb'), false, 'the old DJ file is unused and must not ship');
+    assert.equal(readdirSync(join(ROOT, 'js/models/avatars')).filter(file => /^club-dj/.test(file)).length, 2);
 });

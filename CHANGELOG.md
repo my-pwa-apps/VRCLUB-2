@@ -18,26 +18,56 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   allow-list, sanitised names and http(s)-only shared music URLs (requires a relay redeploy).
 - First-party code no longer builds DOM from HTML strings; a contract test forbids it.
 
+### Added
+
+- **A diverse crowd.** The dance floor and the side-wall guests are now 17 different people instead of
+  variations on two peasant-outfit characters: the CC0 Quaternius *Modular Women* and *Modular Men* packs,
+  recoloured into a cast with every skin tone, black, brown, auburn, blond and silver hair (several older
+  guests), and casual, punk, formal and suit outfits. The packs have no dance clip and a different skeleton, so
+  `scripts/build-crowd-glbs.mjs` retargets the club's own dance and idle clips onto them. Each person is one
+  draw call (the old characters were six), about 0.8 MB, and the files load per quality tier: a Balanced
+  headset downloads about half the characters an Ultra one does, and raising the tier fetches the rest.
+- **Quest browsers start on the Ultra quality tier** (it was Balanced); phones and tablets stay on Balanced.
+  A saved choice still wins and the VR menu steps down to High or Balanced. Quest 3S cost is unmeasured.
+- **Podcast choice: Hernan Cattaneo (*Resident*) or Miss Melera (*Colourizon*).** Pick on the splash, in
+  the Audio menu or on the VR menu's new Music page; the choice is remembered (`vrclub.podcast`).
+  Colourizon is Miss Melera's SoundCloud podcast, served through the relay Worker
+  (`/podcast/colourizon/...`, Origin allow-listed, fixed upstream host) because SoundCloud sends no CORS
+  headers; **redeploy the relay (`wrangler deploy` in `worker/`) for it to work**. `missmelera.com` hosts no
+  audio. Hernan needs no relay.
+- **A seek bar on desktop and in VR.** The Audio menu has a position slider with elapsed/total time and
+  ±30 s buttons; the VR Music page has a seek strip you click or drag with the controller ray, ±1 min and
+  play/pause. Live streams are not seekable. The host's position is shared with listeners-along.
+- **The DJ follows the podcast:** a silver-haired, bearded DJ in black for Hernan, a long dark-haired DJ in
+  black for Miss Melera, swapped live when the podcast changes (`club-dj-hernan.glb`, `club-dj-melera.glb`,
+  built by `scripts/build-dj-glbs.mjs`; approximations, not likenesses). Replaces `club-dj.glb`.
+
 ### Privacy
 
-- **Music now starts on entry by default, and the default is the latest *Resident* episode by
-  Hernan Cattaneo.** It replaces the SUNSHINE LIVE radio feed. The splash toggle ("Play music on
-  entry") is ticked by default, still names the servers contacted (the podcast host and Podbean,
-  which receive the guest's IP address) and can be unticked; that choice is remembered. The newest
-  episode is resolved from the feed on every entry, so the default never goes stale, and one is
+- **Music now starts on entry by default, with a RANDOM episode of the chosen podcast** (Hernan
+  Cattaneo's *Resident* unless you pick Miss Melera). It replaces the SUNSHINE LIVE radio feed. The splash toggle ("Play music on
+  entry") is ticked by default, still names the servers contacted (the podcast host and Podbean, or the relay and SoundCloud for
+  Miss Melera, which receive the guest's IP address) and can be unticked; that choice is remembered. The episode
+  list is read from the feed on every entry, so new releases are picked up, and an episode is
   never remembered as the guest's own "last stream" (a stream the guest picked themselves still is).
   The AudioContext is created inside the ENTER click so browsers allow autoplay; if playback is
   still blocked, the next click or key press starts it. **When an episode finishes the next older
-  one plays**, and so on (a dead link is skipped); past the oldest one in the feed's first page
-  (about 15) it checks the feed again, so a new release is picked up, and starts from the newest.
+  one plays**, and so on (a dead link is skipped); past the oldest one it picks a random one again.
   Picking another stream or a file takes over and ends that chain. Previously a finished episode
-  looped. This reverses the earlier privacy default
+  looped and entry always started the newest. This reverses the earlier privacy default
   (off until ticked) because it was asked for.
 - Guests must choose **Listen along** before their browser loads a host's shared stream;
   hosts' local files (`blob:` URLs) are never broadcast.
 
 ### Fixed
 
+- **Invisible walls in VR.** The headset's collision ellipsoid hung from the eye and was 1.6 m tall, so it
+  reached the floor only at a head height of exactly 1.6 m: for anyone shorter, seated or crouching it went
+  through the floor and the floor mesh blocked every thumbstick step (on the open floor and at the balcony
+  stair alike); tall players were fine. It is now a torso-sized collider (0.25 m radius, 0.3 m to 1.3 m above
+  the feet, never above the eye) re-hung from the tracked head height each step. Separately, a dancer or guest
+  hidden by a lower quality tier left its collision box behind as an invisible person; it now follows the dancer.
+  Walls, rails, the bar and visible people still stop you. Teleport is unaffected.
 - **VR navigation now defaults to left-stick, head-directed walking and right-stick smooth turning.**
   Existing saved Comfort preferences are preserved; teleport/snap turn remains available on the splash
   and quick menu. Looking up/down does not create flight. Valid low/zero tracked head heights are no
@@ -145,6 +175,17 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **The street outside the club.** The vestibule's street door now opens onto a night avenue built from the CC0
+  Quaternius *Downtown City MegaKit (Standard)*: two rows of buildings with lit rooms, crosswalks, planters, a sky and a
+  distant skyline, fenced at both ends. It is one baked 6.7 MB GLB (`scripts/build-city-assets.mjs`; 148k triangles,
+  about 5 draws per building), lit by two lights that reach only the city, drawn only near the entrance, and the
+  door stays shut if it cannot load. The club's walls, ceiling and floor now end at its facade instead of running 12 m
+  out over where the street goes. New `street` camera preset (`6`, a Street button, and the VR menu's Travel page).
+- **Outside you hear only the low bass.** On the street the music is a bass-only 24 dB/oct low-pass (90 Hz down the
+  avenue, 180 Hz at the door), the room's reverb and the crowd bed fall silent, and the sub channel carries the thump,
+  fading with distance from the door. Fog thins and turns night blue outdoors.
+- **Paged VR quick menu** (lighting, effects, show, quality, comfort and safety, travel, reset) with live
+  Balanced / High / Ultra switching on Quest.
 - **Graffiti** on the walls: five CC BY 4.0 decal packs by karlwirbelwind (Sketchfab), packed into one 2048 px
   WebP atlas by `scripts/build-graffiti-atlas.mjs` and painted as one alpha-tested mesh (one draw call). The paint
   uses the wall's own brick normal map and mortar occlusion, so it follows every brick and joint. Credited in
