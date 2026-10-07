@@ -446,12 +446,37 @@
                     <span aria-hidden="true">🔌</span>
                     <span id="networkConnectBtnLabel">Connect</span>
                 </button>
+                <p class="audio-file-name" id="networkRoomHelp">Type a room name or a 6-digit private code to join someone's room, or make your own below. The first guest in a room is its host: they choose the music and the lights, and everyone else follows. A room holds 8 guests.</p>
+                <button class="audio-button" id="networkInviteBtn" type="button">
+                    <span aria-hidden="true">🔗</span>
+                    <span>Copy invite link</span>
+                </button>
             </div>
 
             <div class="audio-section">
                 <button class="audio-button" id="networkMicBtn" type="button" aria-pressed="false" disabled>
                     <span aria-hidden="true">🎤</span>
                     <span id="networkMicBtnLabel">Enable Mic</span>
+                </button>
+            </div>
+
+            <!-- Who the relay may hand you as a random look: chosen before or after connecting, remembered. -->
+            <div class="audio-section" id="networkAvatarPool">
+                <div class="vj-section-title">Random look</div>
+                <div class="audio-podcasts" role="radiogroup" aria-label="Which random looks you can get">
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="true" data-avatar-pool="any">Anyone</button>
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="women">Women</button>
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="men">Men</button>
+                </div>
+            </div>
+
+            <!-- Who you are in the room: the relay hands every guest a random, different character. -->
+            <div class="audio-section" id="networkAvatarSection" hidden>
+                <div class="vj-section-title">You appear as</div>
+                <div id="networkAvatar" class="audio-file-name" role="status" aria-live="polite"></div>
+                <button class="audio-button" id="networkAvatarBtn" type="button">
+                    <span aria-hidden="true">🎲</span>
+                    <span>New random look</span>
                 </button>
             </div>
 
@@ -479,7 +504,35 @@
                 </div>
             </div>
 
-            <div id="networkPeerCount" class="audio-file-name">0 guests here</div>
+            <div class="audio-section">
+                <div class="vj-section-title">Body language</div>
+                <div class="vj-button-grid" id="networkGestureGrid">
+                    <button class="vj-button" type="button" data-gesture="wave" aria-label="Wave" disabled>👋 Wave</button>
+                    <button class="vj-button" type="button" data-gesture="nod" aria-label="Nod yes" disabled>🙂 Nod</button>
+                    <button class="vj-button" type="button" data-gesture="dance" aria-label="Dance" aria-pressed="false" disabled>🕺 Dance</button>
+                </div>
+                <button class="vj-button" type="button" id="networkAutoNod" aria-pressed="true">Nod your head to nod (VR): ON</button>
+            </div>
+
+            <div class="audio-section">
+                <div class="vj-section-title">People here</div>
+                <div id="networkPeerCount" class="audio-file-name">0 guests here</div>
+                <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
+            </div>
+
+            <!-- Social safety. Block, mute and personal space are this guest's own; kick, ban and lock are the host's. -->
+            <div class="audio-section" id="networkSafety">
+                <div class="vj-section-title">Safety</div>
+                <div class="vj-button-grid">
+                    <button class="vj-button" type="button" id="networkPersonalSpace" aria-pressed="true">Personal space: ON</button>
+                    <button class="vj-button" type="button" id="networkMuteAll" aria-pressed="false" disabled>Mute everyone: OFF</button>
+                    <button class="vj-button" type="button" id="networkLockRoom" aria-pressed="false" disabled title="Only the host can lock the room">Lock room: OFF</button>
+                    <button class="vj-button" type="button" id="networkPrivateRoom" title="Join a new room with a random code, then share the code">New private room</button>
+                </div>
+                <div class="audio-file-name" id="networkSafetyNote">Personal space hides anyone who comes within arm's length. Blocking hides you from each other for good.</div>
+                <div class="vj-section-title">Blocked</div>
+                <ul id="networkBlockedList" class="network-people" aria-label="People you have blocked"></ul>
+            </div>
         </div>
     </div>
 
@@ -617,6 +670,7 @@
          VRClub only creates instances once a guest connects from the Multiplayer panel. -->
     <script src="js/networkClient.js?v=20261006-8"></script>
     <script src="js/avatarManager.js?v=20261006-8"></script>
+    <script src="js/multiplayer.js?v=20261006-8"></script>
 
     <!-- VRClub implementation layers. Each extends the previous class; keep this order. -->
     <script src="js/club/01-core.js?v=20261006-8"></script>

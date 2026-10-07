@@ -76,6 +76,10 @@ const CAST = [
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } }
 ];
 const GUEST_CLIPS = ['Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Idle_FoldArms_Loop', 'Idle_TalkingPhone_Loop', 'Yes'];
+// Everybody can dance and nod (`Yes`); the guests who stand about also carry the idle poses. The people who walk the
+// room as other players (js/avatarManager.js) additionally play the packs' own clips, kept as they are.
+const DANCER_CLIPS = ['Dance_Loop', 'Yes'];
+const NATIVE_CLIPS = ['Idle', 'Walk', 'Run', 'Wave'];
 
 // --- small maths kit: quaternions [x, y, z, w], column-vector convention, rigid transforms only -----------------
 const qmul = (a, b) => [
@@ -439,15 +443,18 @@ async function build(person) {
     const document = await readGltf(join(dirs[person.base], `${person.file}.gltf`));
     const tgt = readSkeleton(document);
     const { sk: src, clips: all } = await source(person.base);
-    const wanted = person.guest ? GUEST_CLIPS : ['Dance_Loop'];
+    const wanted = person.guest ? GUEST_CLIPS : DANCER_CLIPS;
     const results = all.filter(clip => wanted.includes(clip.name)).map(clip => retarget(src, tgt, clip, !!person.mirror));
 
-    // Bind pose as the node pose, no stock animations, then ours.
+    // Bind pose as the node pose. The packs' own Idle, Walk, Run and Wave animate exactly these nodes (same rig), so
+    // they are kept as they are for the people who walk around as other guests; every other stock clip goes. Ours follow.
     for (const joint of tgt.joints) {
         const local = tgt.localBind.get(joint);
         joint.setTranslation(local.t).setRotation(local.q);
     }
-    for (const animation of document.getRoot().listAnimations()) animation.dispose();
+    for (const animation of document.getRoot().listAnimations()) {
+        if (!NATIVE_CLIPS.includes(animation.getName())) animation.dispose();
+    }
     paintAndFlatten(document, person);
     addAnimations(document, tgt, results);
     await document.transform(prune());

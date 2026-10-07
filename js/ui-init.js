@@ -18,13 +18,6 @@ const uiLog = {
 // wires them to the DOM. The music starts on ENTER (unless the guest turns that off on the splash), with a RANDOM
 // episode of the chosen podcast. The guest's IP goes to that podcast's servers (see Podcasts.serversText).
 
-/** localStorage keys of the multiplayer panel. Declared here because the podcast code (below) reads the relay setting at load. */
-const NETWORK_PREFS = Object.freeze({
-    serverUrl: 'vrclub.networkServerUrl',
-    room: 'vrclub.networkRoom',
-    name: 'vrclub.networkName'
-});
-
 /** The relay's https base (for the podcast that needs it), from the same setting the multiplayer panel uses. */
 function podcastRelayBase() {
     return window.Podcasts.relayBase(defaultNetworkServerUrl());
@@ -941,14 +934,21 @@ function initKeyboardShortcuts() {
                 const el = club.audioElement;
                 if (!el) return;
                 e.preventDefault();
+                if (!club.guardHostControl('music')) break;
                 if (el.paused) el.play().catch(() => {}); else el.pause();
                 break;
             }
             case 'b': case 'B':
-                if (vjMacros.blackout) { e.preventDefault(); vjMacros.blackout(); }
+                if (vjMacros.blackout) {
+                    e.preventDefault();
+                    if (club.guardHostControl('lights')) vjMacros.blackout();
+                }
                 break;
             case 'f': case 'F':
-                if (vjMacros.drop) { e.preventDefault(); vjMacros.drop(); }
+                if (vjMacros.drop) {
+                    e.preventDefault();
+                    if (club.guardHostControl('lights')) vjMacros.drop();
+                }
                 break;
             case '1': case '2': case '3': case '4': case '5': case '6': {
                 const presets = ['arrival', 'danceFloor', 'djBooth', 'lightingGallery', 'balcony', 'street'];
@@ -1335,18 +1335,61 @@ function initAudioMenu() {
 // =============================================================================
 
 function defaultNetworkServerUrl() {
-    const hostedRelay = 'wss://vrclub-network.garfieldapp.workers.dev';
-    try {
-        const stored = localStorage.getItem(NETWORK_PREFS.serverUrl);
-        if (stored) {
-            const url = new URL(stored);
-            const legacyLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-                && url.protocol === 'ws:' && url.port === '8787';
-            if (!legacyLocal) return stored;
-            localStorage.setItem(NETWORK_PREFS.serverUrl, hostedRelay);
-        }
-    } catch (_) { /* private browsing */ }
-    return hostedRelay;
+    return ClubMultiplayer.defaultServerUrl(window.localStorage);
+}
+
+/**
+ * In someone else's room the host owns the music and the lights. Every control in the lighting and audio panels that
+ * would change them is dimmed and swallowed (one capture-phase listener per panel, so a control added later is covered
+ * too), and a note says whose they are. A guest's own comfort settings stay live: Safe Mode, VR comfort, haptics,
+ * graphics quality, and the music and ambience volumes.
+ */
+function initRoomGuestLock(mp) {
+    const club = vrClubInstance;
+    const panels = [
+        { id: 'vjMenu', what: 'lights', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjBassHapticsBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"]' },
+        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience' }
+    ];
+    const renders = [];
+    for (const panel of panels) {
+        const root = document.getElementById(panel.id);
+        const content = root && root.querySelector('.vj-content, .audio-content');
+        if (!root || !content) continue;
+        const note = document.createElement('div');
+        note.className = 'room-guest-note';
+        note.hidden = true;
+        note.setAttribute('role', 'status');
+        content.insertBefore(note, content.firstChild);
+
+        const controls = [...root.querySelectorAll('button, input, label.audio-file-label')].filter(el => !el.matches(panel.keep));
+        for (const el of controls) el.classList.add('host-owned');
+        const inputs = controls.filter(el => el.tagName === 'INPUT');
+
+        const block = (e) => {
+            if (!club.isFollowingHost()) return;
+            const hit = e.target && e.target.closest ? e.target.closest('.host-owned') : null;
+            if (!hit) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (e.type === 'click') club.guardHostControl(panel.what);
+        };
+        for (const type of ['click', 'keydown', 'input', 'change']) root.addEventListener(type, block, true);
+        uiTeardowns.push(() => { for (const type of ['click', 'keydown', 'input', 'change']) root.removeEventListener(type, block, true); });
+
+        renders.push(() => {
+            const following = mp.following;
+            note.hidden = !following;
+            if (following) {
+                const host = mp.hostName();
+                note.textContent = `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
+            }
+            for (const input of inputs) input.disabled = following;
+            root.classList.toggle('room-guest-locked', following);
+        });
+    }
+    const render = () => { for (const fn of renders) fn(); };
+    uiTeardowns.push(mp.onChange(render));
+    render();
 }
 
 function initNetworkMenu() {
@@ -1365,28 +1408,32 @@ function initNetworkMenu() {
     const statusEl = document.getElementById('networkStatus');
     const peerCountEl = document.getElementById('networkPeerCount');
     const emojiButtons = [...document.querySelectorAll('#networkEmojiGrid [data-emoji]')];
+    const gestureButtons = [...document.querySelectorAll('#networkGestureGrid [data-gesture]')];
     const listenAlongSection = document.getElementById('networkListenAlong');
     const listenAlongBtn = document.getElementById('networkListenAlongBtn');
     const musicInfoEl = document.getElementById('networkMusicInfo');
+    const avatarSection = document.getElementById('networkAvatarSection');
+    const poolButtons = [...document.querySelectorAll('#networkAvatarPool [data-avatar-pool]')];
+    const avatarEl = document.getElementById('networkAvatar');
+    const avatarBtn = document.getElementById('networkAvatarBtn');
+    const autoNodBtn = document.getElementById('networkAutoNod');
+    const peopleList = document.getElementById('networkPeopleList');
+    const blockedList = document.getElementById('networkBlockedList');
+    const personalSpaceBtn = document.getElementById('networkPersonalSpace');
+    const muteAllBtn = document.getElementById('networkMuteAll');
+    const lockBtn = document.getElementById('networkLockRoom');
+    const privateRoomBtn = document.getElementById('networkPrivateRoom');
+    const inviteBtn = document.getElementById('networkInviteBtn');
 
     if (!networkToggle || !networkMenu) return;
 
     const teardowns = uiTeardowns;
+    // One session for the whole club: the VR quick menu's ONLINE pages drive the very same object.
+    const mp = vrClubInstance.multiplayer || new ClubMultiplayer(vrClubInstance);
 
-    let params = null;
-    try { params = new URLSearchParams(window.location.search); } catch (_) { /* ignore */ }
-
-    if (serverUrlInput) serverUrlInput.value = defaultNetworkServerUrl();
-    if (roomInput) {
-        let room = params && params.get('room');
-        if (!room) { try { room = localStorage.getItem(NETWORK_PREFS.room); } catch (_) { /* ignore */ } }
-        roomInput.value = room || 'lobby';
-    }
-    if (nameInput) {
-        let name = null;
-        try { name = localStorage.getItem(NETWORK_PREFS.name); } catch (_) { /* ignore */ }
-        nameInput.value = name || `Guest${Math.floor(1000 + Math.random() * 9000)}`;
-    }
+    if (serverUrlInput) serverUrlInput.value = mp.serverUrl;
+    if (roomInput) roomInput.value = mp.room;
+    if (nameInput) nameInput.value = mp.name;
 
     const closeNetworkMenu = (restoreFocus = true) => {
         networkMenu.classList.add('hidden');
@@ -1424,172 +1471,178 @@ function initNetworkMenu() {
     document.addEventListener('keydown', onNetworkKeyDown);
     teardowns.push(() => document.removeEventListener('keydown', onNetworkKeyDown));
 
+    // ---- rendering: one function redraws the panel from the controller's state ------------------------------------
     const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
-    const setPeerCount = (n) => { if (peerCountEl) peerCountEl.textContent = `${n} guest${n === 1 ? '' : 's'} here`; };
-    const setEmojiEnabled = (enabled) => emojiButtons.forEach(btn => { btn.disabled = !enabled; });
-    const setMicEnabled = (enabled) => { if (micBtn) micBtn.disabled = !enabled; };
-
-    /** Applies a shared "now playing" announcement from the room host. Guests
-     *  that host their own stream ignore this - they ARE the source of truth.
-     *  A guest's first remote-driven load needs an explicit "Listen along": until
-     *  then the host's stream origin is shown but nothing is fetched. */
-    let listenAlong = false;
-    let pendingMusic = null;
-    const hideListenAlong = () => {
-        if (listenAlongSection) listenAlongSection.hidden = true;
-        pendingMusic = null;
+    const setPressed = (button, on) => {
+        if (!button) return;
+        button.setAttribute('aria-pressed', String(!!on));
+        button.classList.toggle('active', !!on);
     };
-    const applyMusicState = (music) => {
-        const net = vrClubInstance.networkManager;
-        if (!music || !net || net.isHost()) return;
-        if (!music.url || !NetworkClient.isShareableMusicUrl(music.url)) return;
-        if (!listenAlong) {
-            pendingMusic = music;
-            if (listenAlongSection && musicInfoEl) {
-                let origin = music.url;
-                try { origin = new URL(music.url).host; } catch (_) { /* keep the raw URL */ }
-                musicInfoEl.textContent = music.playing
-                    ? `The host is playing a stream from ${origin}.`
-                    : `The host paused a stream from ${origin}.`;
-                listenAlongSection.hidden = false;
+    const label = (id) => (ClubMultiplayer.AVATAR_LABELS[id] || id || 'Guest');
+    /** A small button inside a list row. Built with the DOM API: first-party code never builds markup from strings. */
+    const rowButton = (text, title, onClick, danger = false) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `vj-button network-person-btn${danger ? ' network-danger' : ''}`;
+        button.textContent = text;
+        button.title = title;
+        button.setAttribute('aria-label', title);
+        button.addEventListener('click', onClick);
+        return button;
+    };
+    /** Kick and ban cannot be undone by the host, so a first press only arms the button; a second one within 4 s acts. */
+    const armed = new Map();
+    const confirmed = (key) => {
+        const until = armed.get(key) || 0;
+        if (until > Date.now()) { armed.delete(key); return true; }
+        armed.set(key, Date.now() + 4000);
+        setTimeout(render, 4100);
+        render();
+        return false;
+    };
+
+    const renderPeople = () => {
+        if (!peopleList) return;
+        peopleList.replaceChildren();
+        const host = mp.isHost();
+        for (const person of mp.people()) {
+            const item = document.createElement('li');
+            item.className = 'network-person';
+            const who = document.createElement('span');
+            who.className = 'network-person-name';
+            who.textContent = `${person.isHost ? '\u{1F451} ' : ''}${person.name}${person.speaking ? ' \u{1F5E3}\uFE0F' : ''}${person.muted ? ' (muted)' : ''}`;
+            who.title = label(person.avatar);
+            item.appendChild(who);
+            item.appendChild(rowButton(person.muted ? 'Unmute' : 'Mute', `${person.muted ? 'Unmute' : 'Mute'} ${person.name}`,
+                () => mp.togglePeerMute(person.id)));
+            item.appendChild(rowButton('Block', `Block ${person.name}: you will not see or hear each other`, () => mp.blockPeer(person.id)));
+            if (host) {
+                const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`;
+                item.appendChild(rowButton(armed.has(kickKey) && armed.get(kickKey) > Date.now() ? 'Sure?' : 'Kick',
+                    `Remove ${person.name} from the room (they can come back)`, () => { if (confirmed(kickKey)) mp.kickPeer(person.id); }, true));
+                item.appendChild(rowButton(armed.has(banKey) && armed.get(banKey) > Date.now() ? 'Sure?' : 'Ban',
+                    `Remove ${person.name} and keep them out of this room`, () => { if (confirmed(banKey)) mp.banPeer(person.id); }, true));
             }
+            peopleList.appendChild(item);
+        }
+    };
+
+    const renderBlocked = () => {
+        if (!blockedList) return;
+        blockedList.replaceChildren();
+        const list = mp.blockedList();
+        if (list.length === 0) {
+            const none = document.createElement('li');
+            none.className = 'audio-file-name';
+            none.textContent = 'Nobody.';
+            blockedList.appendChild(none);
             return;
         }
-        const elapsed = music.playing && music.updatedAt ? (Date.now() - music.updatedAt) / 1000 : 0;
-        const targetTime = Math.max(0, (Number(music.position) || 0) + elapsed);
-
-        const seekAndPlay = () => {
-            const el = vrClubInstance.audioElement;
-            if (!el) return;
-            if (Math.abs(el.currentTime - targetTime) > 2) el.currentTime = targetTime;
-            if (music.playing && el.paused) el.play().catch(() => { /* needs a user gesture the first time */ });
-            if (!music.playing && !el.paused) el.pause();
-        };
-
-        const audio = vrClubInstance.audioElement;
-        if (audio && audio.src === music.url) {
-            seekAndPlay();
-        } else if (music.playing) {
-            vrClubInstance.startAudioStream(music.url).then(seekAndPlay).catch(() => { /* unreachable for this guest */ });
+        for (const entry of list) {
+            const item = document.createElement('li');
+            item.className = 'network-person';
+            const who = document.createElement('span');
+            who.className = 'network-person-name';
+            who.textContent = entry.name || 'Guest';
+            item.appendChild(who);
+            item.appendChild(rowButton('Unblock', `Unblock ${entry.name || 'this guest'}`, () => mp.unblock(entry.pid)));
+            blockedList.appendChild(item);
         }
     };
 
-    if (listenAlongBtn) {
-        listenAlongBtn.addEventListener('click', () => {
-            const music = pendingMusic;
-            listenAlong = true;
-            hideListenAlong();
-            // The click is also the user gesture that autoplay policies require.
-            if (music) applyMusicState(music);
+    function render() {
+        const connected = mp.connected, connecting = mp.connecting;
+        setStatus(mp.statusText());
+        if (connectBtnLabel) connectBtnLabel.textContent = connecting ? 'Cancel' : connected ? 'Disconnect' : 'Connect';
+        if (micBtn) {
+            micBtn.disabled = !connected;
+            setToggleState(micBtn, mp.micEnabled);
+            if (micBtnLabel) micBtnLabel.textContent = mp.micEnabled ? 'Mute Mic' : 'Enable Mic';
+        }
+        emojiButtons.forEach(btn => { btn.disabled = !connected; });
+        gestureButtons.forEach(btn => {
+            btn.disabled = !connected;
+            if (btn.dataset.gesture === 'dance') setPressed(btn, mp.dancing);
         });
+        if (peerCountEl) {
+            const n = connected ? mp.client.peerCount : 0;
+            peerCountEl.textContent = `${n} other guest${n === 1 ? '' : 's'} here`;
+        }
+        if (avatarSection) avatarSection.hidden = !connected;
+        for (const btn of poolButtons) btn.setAttribute('aria-checked', String(btn.dataset.avatarPool === mp.avatarPool));
+        if (avatarEl) avatarEl.textContent = mp.selfAvatar ? label(mp.selfAvatar) : 'Choosing\u2026';
+        if (autoNodBtn) {
+            autoNodBtn.textContent = `Nod your head to nod (VR): ${mp.autoNod ? 'ON' : 'OFF'}`;
+            setPressed(autoNodBtn, mp.autoNod);
+        }
+        if (personalSpaceBtn) {
+            personalSpaceBtn.textContent = `Personal space: ${mp.personalSpace ? 'ON' : 'OFF'}`;
+            setPressed(personalSpaceBtn, mp.personalSpace);
+        }
+        if (muteAllBtn) {
+            muteAllBtn.disabled = !connected;
+            muteAllBtn.textContent = `Mute everyone: ${mp.muteAll ? 'ON' : 'OFF'}`;
+            setPressed(muteAllBtn, mp.muteAll);
+        }
+        if (lockBtn) {
+            lockBtn.disabled = !connected || !mp.isHost();
+            lockBtn.textContent = `Lock room: ${mp.locked ? 'ON' : 'OFF'}`;
+            setPressed(lockBtn, mp.locked);
+        }
+        const pending = mp.pendingMusicInfo();
+        if (listenAlongSection) listenAlongSection.hidden = !pending;
+        if (pending && musicInfoEl) {
+            musicInfoEl.textContent = pending.playing
+                ? `The host is playing a stream from ${pending.origin}.`
+                : `The host paused a stream from ${pending.origin}.`;
+        }
+        renderPeople();
+        renderBlocked();
     }
+    const unsubscribe = mp.onChange(render);
+    teardowns.push(unsubscribe);
+    render();
+
+    // ---- actions: every one is a call into the controller ----------------------------------------------------------
+    if (listenAlongBtn) listenAlongBtn.addEventListener('click', () => mp.acceptListenAlong());
 
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {
-            const net = vrClubInstance.networkManager;
-            if (net && (net.connected || net.status === 'connecting')) {
-                // disconnect() reports every peer through onPeerLeave, which removes avatars.
-                net.disconnect();
-                return;
-            }
+            if (mp.connected || mp.connecting) { mp.disconnect(); return; }
+            mp.connect({
+                serverUrl: serverUrlInput && serverUrlInput.value,
+                room: roomInput && ClubMultiplayer.roomFromCode(roomInput.value),
+                name: nameInput && nameInput.value
+            });
+        });
+    }
 
-            const serverUrl = (serverUrlInput?.value || '').trim();
-            const room = (roomInput?.value || 'lobby').trim() || 'lobby';
-            const name = (nameInput?.value || 'Guest').trim() || 'Guest';
-            if (!serverUrl) {
-                setStatus('Enter a relay URL first (deploy worker/, see its wrangler.toml).');
-                return;
-            }
-
+    if (micBtn) micBtn.addEventListener('click', () => mp.toggleMic());
+    for (const btn of emojiButtons) btn.addEventListener('click', () => mp.sendEmoji(btn.dataset.emoji));
+    for (const btn of gestureButtons) btn.addEventListener('click', () => mp.sendGesture(btn.dataset.gesture));
+    if (avatarBtn) avatarBtn.addEventListener('click', () => mp.rerollAvatar());
+    for (const btn of poolButtons) btn.addEventListener('click', () => mp.setAvatarPool(btn.dataset.avatarPool));
+    if (autoNodBtn) autoNodBtn.addEventListener('click', () => mp.setAutoNod(!mp.autoNod));
+    if (personalSpaceBtn) personalSpaceBtn.addEventListener('click', () => mp.setPersonalSpace(!mp.personalSpace));
+    if (muteAllBtn) muteAllBtn.addEventListener('click', () => mp.setMuteAll(!mp.muteAll));
+    if (lockBtn) lockBtn.addEventListener('click', () => mp.setLocked(!mp.locked));
+    if (privateRoomBtn) {
+        privateRoomBtn.addEventListener('click', () => {
+            if (mp.joinNewPrivateRoom() && roomInput) roomInput.value = mp.currentRoom;
+        });
+    }
+    if (inviteBtn) {
+        inviteBtn.addEventListener('click', async () => {
             try {
-                localStorage.setItem(NETWORK_PREFS.serverUrl, serverUrl);
-                localStorage.setItem(NETWORK_PREFS.room, room);
-                localStorage.setItem(NETWORK_PREFS.name, name);
-            } catch (_) { /* private browsing */ }
-
-            if (net) net.dispose();
-            listenAlong = false;
-            hideListenAlong();
-            const client = new NetworkClient({ serverUrl, room, name });
-            if (!vrClubInstance.avatarManager) vrClubInstance.avatarManager = new AvatarManager(vrClubInstance);
-            vrClubInstance.networkManager = client;
-
-            client.onStatusChange = (status) => {
-                if (status === 'connecting') {
-                    setStatus(`Connecting to "${room}"\u2026`);
-                    if (connectBtnLabel) connectBtnLabel.textContent = 'Cancel';
-                } else if (status === 'connected') {
-                    setStatus(`Connected \u2014 room "${room}"`);
-                    if (connectBtnLabel) connectBtnLabel.textContent = 'Disconnect';
-                    vrClubInstance.isMultiplayer = true;
-                    setEmojiEnabled(true);
-                    setMicEnabled(true);
-                    setPeerCount(client.peerCount);
-                } else {
-                    setStatus(status === 'error' ? 'Connection error' : 'Not connected');
-                    if (connectBtnLabel) connectBtnLabel.textContent = 'Connect';
-                    vrClubInstance.isMultiplayer = false;
-                    setEmojiEnabled(false);
-                    setMicEnabled(false);
-                    setPeerCount(0);
-                    hideListenAlong();
-                    if (micBtn) { setToggleState(micBtn, false); if (micBtnLabel) micBtnLabel.textContent = 'Enable Mic'; }
-                }
-            };
-            client.onPeerJoin = (id, peerName) => {
-                setPeerCount(client.peerCount);
-                vrClubInstance.avatarManager.ensurePeer(id, peerName);
-            };
-            client.onPeerState = (id, state) => vrClubInstance.avatarManager.updatePeerState(id, null, state);
-            client.onPeerLeave = (id) => { vrClubInstance.avatarManager.removePeer(id); setPeerCount(client.peerCount); };
-            client.onEmoji = (id, emoji) => vrClubInstance.avatarManager.showEmoji(id, emoji);
-            client.onMusic = applyMusicState;
-            client.onRemoteStream = (id, stream) => vrClubInstance.avatarManager.attachVoice(id, stream);
-            client.onError = (err) => setStatus(`Error: ${err.message}`);
-
-            client.connect();
-        });
-    }
-
-    if (micBtn) {
-        micBtn.addEventListener('click', async () => {
-            const net = vrClubInstance.networkManager;
-            if (!net || !net.connected) return;
-            if (net.micEnabled) {
-                net.disableVoice();
-                setToggleState(micBtn, false);
-                if (micBtnLabel) micBtnLabel.textContent = 'Enable Mic';
-                return;
-            }
-            try {
-                await net.enableVoice();
-                // The request can be cancelled (disconnect, error close) while the
-                // permission prompt is open; reflect the client's real state.
-                setToggleState(micBtn, net.micEnabled);
-                if (micBtnLabel) micBtnLabel.textContent = net.micEnabled ? 'Mute Mic' : 'Enable Mic';
-            } catch (err) {
-                setStatus(`Mic error: ${err.message}`);
+                await navigator.clipboard.writeText(mp.inviteUrl());
+                vrClubInstance.showErrorMessage('Invite link copied: anyone who opens it joins this room');
+            } catch (_) {
+                vrClubInstance.showErrorMessage(`Could not copy. Share the room code instead: ${mp.currentRoom}`);
             }
         });
     }
-
-    for (const btn of emojiButtons) {
-        btn.addEventListener('click', () => {
-            const net = vrClubInstance.networkManager;
-            if (net && net.connected) net.sendEmoji(btn.dataset.emoji);
-        });
-    }
-
-    // Periodic host heartbeat: re-announces the current track/position every few
-    // seconds so a guest who joins mid-track (or drifts) stays in sync without
-    // waiting for the next play/pause click.
-    const musicHeartbeat = setInterval(() => {
-        const net = vrClubInstance.networkManager;
-        const audio = vrClubInstance.audioElement;
-        if (!net || !net.connected || !net.isHost() || !audio || !audio.src || audio.paused) return;
-        net.sendMusic({ url: audio.src, playing: true, position: audio.currentTime });
-    }, 8000);
-    teardowns.push(() => clearInterval(musicHeartbeat));
+    // The music and the lights are the host's, and the host's alone: the panels tell a guest so and stand down.
+    initRoomGuestLock(mp);
 
     // Hide in VR mode, matching the VJ/audio panels.
     if (vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {

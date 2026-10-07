@@ -560,9 +560,10 @@ class VRClubCore {
         // VJ manual control tracking - pause automated patterns when VJ interacts
         this.lastVJInteraction = 0;
         
-        // Multiplayer networking
+        // Multiplayer networking (js/multiplayer.js owns the session; ui-init.js constructs it)
         this.networkManager = null;
         this.avatarManager = null;
+        this.multiplayer = null;
         this.isMultiplayer = false;
         this.vjManualMode = false;
         this.VJ_TIMEOUT = 60; // Seconds before resuming automated patterns (1 minute)

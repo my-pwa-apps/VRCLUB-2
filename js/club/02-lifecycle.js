@@ -881,6 +881,10 @@ class VRClubLifecycle extends VRClubCore {
         // microphone track, then removes every remote-guest mesh/audio node.
         // Must run before materialFactory.dispose() below frees the shared
         // remote-player material out from under a still-live avatar mesh.
+        if (this.multiplayer) {
+            try { this.multiplayer.dispose(); } catch (_) { /* ignore */ }
+            this.multiplayer = null;
+        }
         if (this.networkManager) {
             try { this.networkManager.dispose(); } catch (_) { /* ignore */ }
             this.networkManager = null;

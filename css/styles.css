@@ -550,6 +550,65 @@ html, body {
     padding: 8px;
 }
 
+/* The panel grew (people, safety): let it scroll instead of running off the bottom of the window. */
+#networkMenu .audio-content {
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.network-people {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.network-person {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.network-person-name {
+    flex: 1 1 100%;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.network-person-btn {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: 6px 10px;
+}
+
+/* Kick and ban cannot be undone by the host, so they read differently to the everyday buttons (not by colour alone: the
+   label changes to "Sure?" once armed). */
+.network-danger {
+    background: rgba(220, 70, 90, 0.3);
+    border-color: rgba(220, 70, 90, 0.7);
+}
+
+/* In someone else's room the host owns the music and the lights: those controls dim and say so (the note names the
+   host), while a guest's own comfort controls stay normal. */
+.room-guest-note {
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border: 1px solid rgba(143, 255, 238, 0.45);
+    border-radius: 8px;
+    background: rgba(143, 255, 238, 0.1);
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.room-guest-locked .host-owned {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 /* Audio Upload Menu */
 #audioMenu {
     position: absolute;

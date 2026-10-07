@@ -100,7 +100,7 @@ test('script load order honours the dependency contract', () => {
 
     // The main app constructs the factories, the loaders and the VJ director.
     const main = idx('js/club_hyperrealistic.js');
-    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js', 'js/barProps.js', 'js/venueDressing.js', 'js/mezzanine.js', 'js/cityDistrict.js', 'js/avatarRig.js']) {
+    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js', 'js/barProps.js', 'js/venueDressing.js', 'js/mezzanine.js', 'js/cityDistrict.js', 'js/avatarRig.js', 'js/networkClient.js', 'js/avatarManager.js', 'js/multiplayer.js']) {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
     // ShowDirector reads the beat grid VJDirector publishes.
@@ -123,7 +123,10 @@ test('every class used across files is exported onto window', () => {
         'js/venueDressing.js': ['VenueDressing'],
         'js/mezzanine.js': ['Mezzanine'],
         'js/cityDistrict.js': ['CityDistrict', 'CityLayout'],
-        'js/avatarRig.js': ['AvatarRig']
+        'js/avatarRig.js': ['AvatarRig'],
+        'js/networkClient.js': ['NetworkClient'],
+        'js/avatarManager.js': ['AvatarManager'],
+        'js/multiplayer.js': ['ClubMultiplayer']
     };
     for (const [file, names] of Object.entries(required)) {
         const source = readFileSync(join(ROOT, file), 'utf8');
@@ -226,7 +229,9 @@ test('the Quaternius character GLBs stay merged and 512 px', () => {
         const buffer = readFileSync(join(dir, file));
         const json = JSON.parse(buffer.subarray(20, 20 + buffer.readUInt32LE(12)).toString('utf8'));
         const primitives = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0);
-        assert.ok(primitives <= 6, `${file} has ${primitives} primitives; run \`npm run optimize:avatars -- ${file}\``);
+        // The DJs wear headphones: one extra textured primitive on top of the usual six.
+        const limit = /^club-dj-/.test(file) ? 7 : 6;
+        assert.ok(primitives <= limit, `${file} has ${primitives} primitives; run \`npm run optimize:avatars -- ${file}\``);
         assert.equal(json.skins.length, 1, `${file} must keep one shared skin`);
         for (const image of json.images || []) {
             assert.ok(image.mimeType === 'image/webp', `${file} carries a non-WebP texture`);

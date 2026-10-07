@@ -221,6 +221,8 @@ const Podcasts = {
                 const queue = player.queue;
                 // The guest chose something else (a stream, a file) while this played: not ours any more.
                 if (advancing || !queue || club._audioStreamUrl !== queue.episodes[queue.index].url) return;
+                // Following a host: the host's next episode arrives from the host, this guest does not pick one.
+                if (typeof club.isFollowingHost === 'function' && club.isFollowingHost()) return;
                 advancing = true;
                 try {
                     if (queue.index + 1 < queue.episodes.length) {

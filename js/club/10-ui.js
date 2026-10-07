@@ -161,6 +161,25 @@ class VRClubUI extends VRClubAnimationFinish {
     // now call the same methods, so they cannot drift again.
     // =========================================================================
 
+    /** In someone else's room the host owns the music and the lights; this guest follows them. */
+    isFollowingHost() {
+        return !!(this.multiplayer && this.multiplayer.following);
+    }
+
+    /**
+     * Gate for every control that changes the room's shared music or lights (what is 'music' or 'lights').
+     * @returns {boolean} true when the caller may go ahead
+     */
+    guardHostControl(what) {
+        if (!this.isFollowingHost()) return true;
+        const now = performance.now();
+        if (!this._hostGuardAt || now - this._hostGuardAt > 1500) {
+            this._hostGuardAt = now;
+            const host = this.multiplayer.hostName();
+            this.showErrorMessage(`Only the host${host ? ` (${host})` : ''} controls the ${what}. Leave the room to take over.`);
+        }
+        return false;
+    }
     /** Advance the spotlight palette and push the new colour to every consumer. */
     cycleSpotColor() {
         this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
@@ -390,8 +409,10 @@ class VRClubUI extends VRClubAnimationFinish {
         const context = button.texture.getContext();
         const active = this._isVRQuickMenuButtonActive(button);
         context.clearRect(0, 0, 512, 192);
-        const isNavigation = ['page', 'back', 'seek', 'randomEpisode', 'latestEpisode'].includes(button.action);
+        const isNavigation = ['page', 'back', 'seek', 'randomEpisode', 'latestEpisode', 'person'].includes(button.action);
+        const isDanger = button.danger === true;
         context.fillStyle = button.action === 'close' ? '#641f2c'
+            : isDanger ? '#7a2434'
             : button.action === 'quality' ? '#5b3fa3'
             : isNavigation ? '#173e58'
             : (active ? '#087f75' : '#252a35');
@@ -420,6 +441,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _isVRQuickMenuButtonActive(button) {
+        if (button.op) return this._vrNetActive(button);
         if (button.action === 'autoShow') return !this.vjManualMode;
         if (button.action === 'podcast') return this._selectedPodcastId() === button.podcast;
         if (button.action === 'playPause') return this.getPlaybackInfo().playing;
@@ -434,7 +456,15 @@ class VRClubUI extends VRClubAnimationFinish {
         try { return window.Podcasts ? window.Podcasts.selectedId(localStorage) : 'resident'; } catch (_) { return 'resident'; }
     }
 
+    /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
+    _isHostOwnedVRButton(button) {
+        if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
+        return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode', 'bassHapticsEnabled'].includes(button.control);
+    }
+
     _vrQuickMenuButtonValue(button, active) {
+        if (button.op || button.action === 'person') return this._vrNetValue(button, active);
+        if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
         if (button.action === 'podcast') return active ? 'SELECTED' : '';
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
@@ -466,12 +496,14 @@ class VRClubUI extends VRClubAnimationFinish {
             back: { label: '\u2190 BACK', action: 'back' },
             close: { label: 'CLOSE', action: 'close' }
         };
+        if (VRClubUI.VR_NET_PAGES.includes(page)) return this._vrNetPageDefinitions(page, common);
         const pages = {
             home: [
                 { label: 'LIGHTING', action: 'page', target: 'lighting' },
                 { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
                 { label: 'MUSIC', action: 'page', target: 'music' },
+                { label: 'ONLINE', action: 'page', target: 'online' },
                 { label: 'QUALITY', action: 'quality' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
@@ -557,6 +589,13 @@ class VRClubUI extends VRClubAnimationFinish {
             button.target = null;
             button.podcast = null;
             button.delta = 0;
+            button.op = null;
+            button.peer = null;
+            button.gesture = null;
+            button.emoji = null;
+            button.digit = null;
+            button.pool = null;
+            button.danger = false;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
         });
@@ -579,7 +618,7 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = '30px sans-serif';
             context.fillText(page === 'music'
                 ? 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
-                : `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
+                : this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
             this._vrQuickMenuHeaderTexture.update();
         }
     }
@@ -674,6 +713,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _beginVRSeek(pickResult) {
+        if (!this.guardHostControl('music')) return;
         const info = this.getPlaybackInfo();
         if (!info.seekable) {
             this.showErrorMessage('Nothing to seek in: a live stream has no position.');
@@ -706,6 +746,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Music page actions: run on whichever podcast player the DOM script attached (the same one the Audio menu uses). */
     async _runVRMusicAction(button) {
+        if (!this.guardHostControl('music')) return;
         const player = this.podcastPlayer;
         if (button.action === 'seek') {
             if (!this.seekAudioBy(button.delta)) this.showErrorMessage('Nothing to seek in.');
@@ -733,6 +774,293 @@ class VRClubUI extends VRClubAnimationFinish {
         this._showVRQuickMenuPage(this._vrQuickMenuPage || 'home');
     }
 
+    // ---- ONLINE: the VR face of js/multiplayer.js ----------------------------------------------------------------
+    // These pages only read and call the shared ClubMultiplayer (the DOM panel drives the same object), so a person
+    // can connect, talk, gesture, block, mute, and (as host) kick, ban or lock without leaving the headset.
+
+    /** The session, created on first use if the DOM script has not (it normally has). */
+    _multiplayer() {
+        if (this.multiplayer) return this.multiplayer;
+        return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
+    }
+
+    static get VR_NET_PAGES() { return ['online', 'gestures', 'people', 'person', 'safety', 'room', 'look']; }
+
+    /** The five pages' buttons. Names come from other guests, so they are shortened and never interpreted. */
+    _vrNetPageDefinitions(page, common) {
+        const mp = this._multiplayer();
+        const back = (target) => ({ ...common.back, target });
+        const net = (label, op, extra = {}) => ({ label, action: 'net', op, ...extra });
+        if (!mp) return [common.back, common.close];
+        if (page === 'online') {
+            return [
+                net('NETWORK', 'connection'),
+                net('MIC', 'mic'),
+                { label: 'LOOK', action: 'page', target: 'look', op: 'avatar' },
+                { label: 'GESTURES', action: 'page', target: 'gestures' },
+                { label: 'PEOPLE', action: 'page', target: 'people', op: 'peopleCount' },
+                { label: 'SAFETY', action: 'page', target: 'safety' },
+                net('NEW PRIVATE ROOM', 'privateRoom'),
+                { label: 'JOIN ROOM', action: 'page', target: 'room' },
+                net('PUBLIC LOBBY', 'lobby'),
+                net('LISTEN ALONG', 'listenAlong'),
+                common.back,
+                common.close
+            ];
+        }
+        if (page === 'look') {
+            // Whom the relay may hand you as a random look, then a fresh roll from that pool.
+            return [
+                net('WOMEN', 'pool', { pool: 'women' }),
+                net('MEN', 'pool', { pool: 'men' }),
+                net('ANYONE', 'pool', { pool: 'any' }),
+                net('NEW LOOK', 'avatar'),
+                back('online'),
+                common.close
+            ];
+        }
+        if (page === 'room') {
+            const digit = (d) => ({ label: d, action: 'net', op: 'digit', digit: d });
+            const typed = (this._vrRoomDigits || '').length > 0;
+            return [...['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(digit),
+                { label: typed ? '\u2190 DELETE' : '\u2190 BACK', action: 'net', op: 'roomBack' }, common.close];
+        }
+        if (page === 'gestures') {
+            const emoji = ClubMultiplayer.EMOJI.filter(item => item !== '\u{1F57A}').map(item => ({ label: item, action: 'net', op: 'emoji', emoji: item }));
+            return [
+                net('WAVE', 'gesture', { gesture: 'wave' }),
+                net('NOD', 'gesture', { gesture: 'nod' }),
+                net('DANCE', 'gesture', { gesture: 'dance' }),
+                ...emoji,
+                back('online'),
+                common.close
+            ];
+        }
+        if (page === 'safety') {
+            return [
+                net('PERSONAL SPACE', 'personalSpace'),
+                net('MUTE ALL', 'muteAll'),
+                net('LOCK ROOM', 'lock'),
+                net('NOD TO NOD', 'autoNod'),
+                net('UNBLOCK ALL', 'unblockAll'),
+                net('LEAVE ROOM', 'leave', { danger: true }),
+                back('online'),
+                common.close
+            ];
+        }
+        if (page === 'people') {
+            const people = mp.people();
+            const per = 9;
+            const offset = Math.min(this._vrPeopleOffset || 0, Math.max(0, people.length - 1));
+            const slice = people.slice(offset, offset + per);
+            const rows = slice.map(person => ({ label: this._vrShortName(person.name), action: 'person', op: 'select', peer: person.id }));
+            if (people.length > per) rows.push({ label: 'MORE \u25B8', action: 'net', op: 'morePeople' });
+            return [...rows, back('online'), common.close];
+        }
+        // person: one guest, chosen from the list
+        const person = mp.people().find(item => item.id === this._vrPerson);
+        if (!person) return [back('people'), common.close];
+        const armedFor = (op) => this._vrArmed && this._vrArmed.key === `${op}:${person.id}` && this._vrArmed.until > Date.now();
+        const rows = [
+            net(person.muted ? 'UNMUTE' : 'MUTE', 'peerMute', { peer: person.id }),
+            net('BLOCK', 'peerBlock', { peer: person.id })
+        ];
+        if (mp.isHost()) {
+            rows.push(net(armedFor('kick') ? 'SURE? KICK' : 'KICK', 'peerKick', { peer: person.id, danger: true }));
+            rows.push(net(armedFor('ban') ? 'SURE? BAN' : 'BAN', 'peerBan', { peer: person.id, danger: true }));
+        }
+        return [...rows, back('people'), common.close];
+    }
+
+    _vrShortName(name) {
+        const text = String(name || 'Guest');
+        return text.length > 11 ? `${text.slice(0, 10)}\u2026` : text;
+    }
+
+    /** What the second line of the header says on the ONLINE pages: the room and who is in it, or whom the page is about. */
+    _vrNetSubtitle(page) {
+        if (!VRClubUI.VR_NET_PAGES.includes(page)) return '';
+        const mp = this._multiplayer();
+        if (!mp) return '';
+        if (page === 'person') {
+            const person = mp.people().find(item => item.id === this._vrPerson);
+            return person ? this._vrShortName(person.name).toUpperCase() : '';
+        }
+        if (page === 'look') {
+            return mp.avatarPool === 'any' ? 'RANDOM LOOK: ANYONE' : `RANDOM LOOK: ${mp.avatarPool.toUpperCase()}`;
+        }
+        if (page === 'room') {
+            const digits = (this._vrRoomDigits || '').padEnd(6, '_');
+            return `ROOM CODE  ${digits.slice(0, 3)} ${digits.slice(3)}`;
+        }
+        return mp.statusText().replace('Connected \u2014 ', '').slice(0, 56).toUpperCase();
+    }
+
+    /** Which toggles are lit: a button is "on" when its setting is. */
+    _vrNetActive(button) {
+        const mp = this._multiplayer();
+        if (!mp) return false;
+        switch (button.op) {
+            case 'connection': return mp.connected;
+            case 'mic': return mp.micEnabled;
+            case 'personalSpace': return mp.personalSpace;
+            case 'muteAll': return mp.muteAll;
+            case 'lock': return mp.locked;
+            case 'autoNod': return mp.autoNod;
+            case 'pool': return mp.avatarPool === button.pool;
+            case 'gesture': return button.gesture === 'dance' && mp.dancing;
+            case 'listenAlong': return !!mp.pendingMusicInfo();
+            case 'peerMute': {
+                const person = mp.people().find(item => item.id === button.peer);
+                return !!(person && person.muted);
+            }
+            default: return false;
+        }
+    }
+
+    /** The small second line on a button. */
+    _vrNetValue(button, active) {
+        const mp = this._multiplayer();
+        if (!mp) return '';
+        switch (button.op) {
+            case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
+            case 'mic': return !mp.connected ? 'CONNECT FIRST' : active ? 'ON' : 'OFF';
+            case 'avatar': return mp.selfAvatar ? (ClubMultiplayer.AVATAR_LABELS[mp.selfAvatar] || '').split(',')[0].toUpperCase() : '';
+            case 'peopleCount': return mp.connected ? `${mp.client.peerCount} HERE` : '';
+            case 'personalSpace': case 'muteAll': case 'autoNod': return active ? 'ON' : 'OFF';
+            case 'lock': return !mp.isHost() ? 'HOST ONLY' : active ? 'LOCKED' : 'OPEN';
+            case 'unblockAll': return `${mp.blockedList().length} BLOCKED`;
+            case 'listenAlong': return active ? 'TAP TO JOIN' : '';
+            case 'pool': return active ? 'SELECTED' : '';
+            case 'gesture': return button.gesture === 'dance' ? (active ? 'DANCING' : '') : '';
+            case 'select': {
+                const person = mp.people().find(item => item.id === button.peer);
+                if (!person) return '';
+                return person.speaking ? 'SPEAKING' : person.muted ? 'MUTED' : person.isHost ? 'HOST' : '';
+            }
+            default: return '';
+        }
+    }
+
+    /** One tap on an ONLINE button. Everything it does is a ClubMultiplayer call; this only says what happened. */
+    async _runVRNetworkAction(button) {
+        const mp = this._multiplayer();
+        if (!mp) return;
+        const needConnection = () => {
+            if (mp.connected) return false;
+            this.showErrorMessage('Connect first: ONLINE \u2192 NETWORK');
+            return true;
+        };
+        switch (button.op) {
+            case 'connection': {
+                const wasOn = mp.connected || mp.connecting;
+                mp.toggleConnection();
+                this.showErrorMessage(wasOn ? 'Left the room' : `Joining "${mp.currentRoom}"\u2026`);
+                break;
+            }
+            case 'mic':
+                if (needConnection()) break;
+                this.showErrorMessage((await mp.toggleMic()) ? 'Microphone on: people nearby can hear you' : 'Microphone off');
+                break;
+            case 'avatar':
+                if (!needConnection()) { mp.rerollAvatar(); this.showErrorMessage('Picking a new look\u2026'); }
+                break;
+            case 'pool':
+                mp.setAvatarPool(button.pool);
+                this.showErrorMessage(button.pool === 'any' ? 'Random looks: anyone' : `Random looks: ${button.pool}`);
+                break;
+            case 'privateRoom':
+                mp.joinNewPrivateRoom();
+                this.showErrorMessage(`Private room ${mp.currentRoom.replace('private-', '')}: tell friends this code (ONLINE \u2192 JOIN ROOM)`);
+                break;
+            case 'digit': {
+                this._vrRoomDigits = ((this._vrRoomDigits || '') + button.digit).slice(0, 6);
+                if (this._vrRoomDigits.length < 6) break;
+                const code = this._vrRoomDigits;
+                this._vrRoomDigits = '';
+                mp.joinRoom(code);
+                this.showErrorMessage(`Joining room ${code.slice(0, 3)} ${code.slice(3)}\u2026`);
+                this._showVRQuickMenuPage('online');
+                this.pulseHaptic(0.6, 30);
+                return;
+            }
+            case 'roomBack':
+                if (this._vrRoomDigits) { this._vrRoomDigits = this._vrRoomDigits.slice(0, -1); break; }
+                this._showVRQuickMenuPage('online');
+                return;
+            case 'lobby':
+                mp.joinLobby();
+                this.showErrorMessage('Joining the public lobby\u2026');
+                break;
+            case 'listenAlong':
+                if (mp.pendingMusicInfo()) mp.acceptListenAlong();
+                else this.showErrorMessage('Nothing to listen along to right now');
+                break;
+            case 'gesture':
+                if (!needConnection()) mp.sendGesture(button.gesture);
+                break;
+            case 'emoji':
+                if (!needConnection()) mp.sendEmoji(button.emoji);
+                break;
+            case 'select':
+                this._vrPerson = button.peer;
+                this._showVRQuickMenuPage('person');
+                this.pulseHaptic(0.45, 25);
+                return;
+            case 'morePeople': {
+                const total = mp.people().length;
+                this._vrPeopleOffset = ((this._vrPeopleOffset || 0) + 9) % Math.max(1, total);
+                break;
+            }
+            case 'peerMute': mp.togglePeerMute(button.peer); break;
+            case 'peerBlock': {
+                const person = mp.people().find(item => item.id === button.peer);
+                if (mp.blockPeer(button.peer)) this.showErrorMessage(`Blocked ${person ? person.name : 'guest'}: you will not see or hear each other`);
+                this._vrPerson = null;
+                this._showVRQuickMenuPage('people');
+                this.pulseHaptic(0.7, 35);
+                return;
+            }
+            case 'peerKick':
+            case 'peerBan': {
+                // Neither can be undone from here, so the first press arms the button and the second (within 4 s) acts.
+                const kind = button.op === 'peerKick' ? 'kick' : 'ban';
+                const key = `${kind}:${button.peer}`;
+                if (!this._vrArmed || this._vrArmed.key !== key || this._vrArmed.until < Date.now()) {
+                    this._vrArmed = { key, until: Date.now() + 4000 };
+                    setTimeout(() => { if (!this._disposed) this._refreshVRQuickMenu(); }, 4100);
+                    break;
+                }
+                this._vrArmed = null;
+                if (kind === 'kick') mp.kickPeer(button.peer); else mp.banPeer(button.peer);
+                this.showErrorMessage(kind === 'kick' ? 'Guest removed from the room' : 'Guest banned from this room');
+                this._vrPerson = null;
+                this._showVRQuickMenuPage('people');
+                this.pulseHaptic(0.8, 40);
+                return;
+            }
+            case 'personalSpace': mp.setPersonalSpace(!mp.personalSpace); break;
+            case 'muteAll': mp.setMuteAll(!mp.muteAll); break;
+            case 'autoNod': mp.setAutoNod(!mp.autoNod); break;
+            case 'lock':
+                if (!mp.isHost()) this.showErrorMessage('Only the host can lock the room');
+                else mp.setLocked(!mp.locked);
+                break;
+            case 'unblockAll': {
+                const count = mp.unblockAll();
+                this.showErrorMessage(count ? `Unblocked ${count} guest${count === 1 ? '' : 's'}` : 'Nobody is blocked');
+                break;
+            }
+            case 'leave':
+                mp.disconnect();
+                this.showErrorMessage('Left the room');
+                break;
+            default: break;
+        }
+        this.pulseHaptic(0.6, 30);
+        this._refreshVRQuickMenu();
+    }
+
     _activateVRQuickMenuButton(button) {
         if (!button) return;
         if (button.action === 'close') {
@@ -745,8 +1073,12 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
         if (button.action === 'back') {
-            this._showVRQuickMenuPage('home');
+            this._showVRQuickMenuPage(button.target || 'home');
             this.pulseHaptic(0.35, 20);
+            return;
+        }
+        if (button.action === 'net' || button.action === 'person') {
+            this._runVRNetworkAction(button);
             return;
         }
         if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode'].includes(button.action)) {
@@ -766,12 +1098,14 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
         if (button.action === 'reset') {
+            if (!this.guardHostControl('lights')) return;
             this.resetVJControls();
             this.showErrorMessage('Light show reset to defaults');
             this._refreshVRQuickMenu();
             return;
         }
         if (button.action === 'autoShow') {
+            if (!this.guardHostControl('lights')) return;
             this.vjManualMode = false;
             this.lastVJInteraction = 0;
             this.showErrorMessage('NOCTURNE auto show resumed');
@@ -792,6 +1126,9 @@ class VRClubUI extends VRClubAnimationFinish {
             this._refreshVRQuickMenu();
             return;
         }
+
+        // Everything below changes the lights, which in someone else's room are the host's.
+        if (!this.guardHostControl('lights')) return;
 
         if (button.control === 'cycleLedPattern') {
             const patternCount = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 18;
@@ -927,6 +1264,18 @@ class VRClubUI extends VRClubAnimationFinish {
         this._showVRQuickMenuPage('home');
         root.setEnabled(false);
         this._vrQuickMenuRoot = root;
+        // The ONLINE pages show live state (who joined, who is speaking): redraw them when the session changes.
+        const mp = this._multiplayer();
+        if (mp) {
+            let wasFollowing = mp.following;
+            this._vrNetUnsubscribe = mp.onChange(() => {
+                const open = this._vrQuickMenuRoot && this._vrQuickMenuRoot.isEnabled();
+                const roleChanged = wasFollowing !== mp.following;
+                wasFollowing = mp.following;
+                // Taking or losing the host's lights and music relabels the lighting and music buttons too.
+                if (open && (roleChanged || VRClubUI.VR_NET_PAGES.includes(this._vrQuickMenuPage))) this._refreshVRQuickMenu();
+            });
+        }
     }
 
     toggleVRQuickMenu(force) {
@@ -995,6 +1344,10 @@ class VRClubUI extends VRClubAnimationFinish {
                 // Check if a VJ control button was clicked
                 const clickedButton = this.vjControlButtons.find(btn => btn.mesh === pickResult.pickedMesh);
                 
+                if (clickedButton && !this.guardHostControl('lights')) {
+                    this._pressButton3D(clickedButton.mesh);
+                    return;
+                }
                 if (clickedButton) {
                     this._pressButton3D(clickedButton.mesh);
                     log.info(`🎛️ VJ Control: ${clickedButton.label} clicked`);
@@ -1099,7 +1452,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     toggleAudioStream() {
-        if (!this.audioStreamButton) return;
+        if (!this.audioStreamButton || !this.guardHostControl('music')) return;
         
         if (this.audioStreamButton.isPlaying) {
             // Stop audio
@@ -1487,6 +1840,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Jump to `seconds` (clamped to the audio). Returns false when there is nothing to seek in. */
     seekAudioTo(seconds) {
+        if (!this.guardHostControl('music')) return false;
         const info = this.getPlaybackInfo();
         if (!info.seekable || !Number.isFinite(seconds)) return false;
         // Stay just inside the end: seeking to the very end fires 'ended' and starts the next episode.
@@ -1509,6 +1863,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Play or pause what is loaded. Returns true when it is now playing. */
     toggleAudioPlayback() {
+        if (!this.guardHostControl('music')) return false;
         const audio = this.audioElement;
         if (!audio || !audio.src) {
             this.showErrorMessage('Nothing is playing yet. Pick a podcast.');

@@ -1,13 +1,13 @@
-// Protocol and abuse-control tests for the multiplayer relay (worker/src/index.js).
+// Protocol and abuse-control tests for the multiplayer relay (worker/src/relay.js).
 // The Durable Object is exercised directly with fake sockets; no Cloudflare runtime
 // is needed because the relay only touches WebSocket-like objects, URL and crypto.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const relay = await import('../worker/src/index.js');
+const relay = await import('../worker/src/relay.js');
 const {
-    ClubRoom, TokenBucket, isAllowedOrigin, sanitizeName, sanitizeState, sanitizeMusicUrl,
+    ClubRoom, TokenBucket, isAllowedOrigin, sanitizeName, sanitizeState, sanitizeMusicUrl, sanitizeShow, sanitizeTitle, sanitizePool, AVATAR_POOLS, IDLE_CLOSE_MS, CLOSE_IDLE,
     MAX_ROOM_SIZE, MAX_FRAME_BYTES, CLOSE_ROOM_FULL, CLOSE_FLOODING, ALLOWED_EMOJI
 } = relay;
 
@@ -339,4 +339,343 @@ test('the socket relay is unchanged: paths outside /podcast still need the room 
     const response = await relay.default.fetch(new Request(`${RELAY}/?room=abc`, { headers: { Origin: ORIGIN } }), env);
     assert.equal(await response.text(), 'room:abc');
     assert.equal((await relay.default.fetch(new Request(`${RELAY}/health`), env)).status, 200);
+});
+
+// ---- avatars, gestures, blocking and moderation -------------------------------------------------------------
+
+const pidOf = n => n.toString(16).padStart(16, '0');
+function joinAs(room, name, n) {
+    const ws = new FakeSocket();
+    const session = room._acceptSession(ws, name, pidOf(n));
+    return { ws, session };
+}
+
+test('every guest is handed a different random avatar from the pool, and may ask for another', () => {
+    const { AVATARS } = relay;
+    assert.equal(AVATARS.length, 17);
+    const room = new ClubRoom({});
+    const guests = Array.from({ length: MAX_ROOM_SIZE }, (_, i) => joinAs(room, `G${i}`, i + 1));
+    const avatars = guests.map(guest => guest.ws.sent[0].avatar);
+    assert.ok(avatars.every(avatar => AVATARS.includes(avatar)));
+    assert.equal(new Set(avatars).size, MAX_ROOM_SIZE, 'a full room still has no duplicate avatar');
+    // The newcomer is told everyone's avatar, the others are told theirs.
+    assert.deepEqual(guests.at(-1).ws.sent[0].peers.map(peer => peer.avatar).sort(), avatars.slice(0, -1).sort());
+    assert.equal(guests[0].ws.last('join').avatar, avatars.at(-1));
+
+    const a = guests[0];
+    a.ws.message({ type: 'avatar' });
+    const note = a.ws.last('avatar');
+    assert.equal(note.id, a.session.id);
+    assert.ok(AVATARS.includes(note.avatar) && note.avatar !== avatars[0] && !avatars.slice(1).includes(note.avatar));
+    assert.equal(guests[1].ws.last('avatar').avatar, note.avatar, 'the others see the change');
+});
+
+test('the relay\'s avatar pool is exactly the crowd people the client can draw', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(new URL('../js/club/11-audio-crowd.js', import.meta.url), 'utf8');
+    const ids = [...source.matchAll(/\{ id: '([fm]\d)', url: '\.\/js\/models\/avatars\/club-crowd-\1\.glb' \}/g)].map(match => match[1]);
+    assert.deepEqual([...relay.AVATARS], ids);
+});
+
+test('gestures are allow-listed and relayed to everyone else', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 1), b = joinAs(room, 'B', 2);
+    a.ws.message({ type: 'gesture', gesture: 'wave' });
+    assert.deepEqual({ ...b.ws.last('gesture') }, { type: 'gesture', id: a.session.id, gesture: 'wave' });
+    const before = b.ws.sent.length;
+    a.ws.message({ type: 'gesture', gesture: 'backflip' });
+    a.ws.message({ type: 'gesture', gesture: { toString: () => 'wave' } });
+    assert.equal(b.ws.sent.length, before);
+    assert.equal(a.ws.sent.filter(m => m.type === 'gesture').length, 0, 'the sender is not echoed');
+});
+
+test('a block hides two guests from each other, in both directions, until it is lifted', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 1), b = joinAs(room, 'B', 2), c = joinAs(room, 'C', 3);
+    a.ws.message({ type: 'block', pid: pidOf(2) });
+    // Each side is told the other has gone.
+    assert.equal(a.ws.last('leave').id, b.session.id);
+    assert.equal(b.ws.last('leave').id, a.session.id);
+    assert.equal(c.ws.sent.filter(m => m.type === 'leave').length, 0, 'a third guest is untouched');
+
+    const aBefore = a.ws.sent.length, bBefore = b.ws.sent.length;
+    b.ws.message({ type: 'state', state: { x: 1, y: 1.6, z: 1, rotY: 0 } });
+    b.ws.message({ type: 'emoji', emoji: ALLOWED_EMOJI[0] });
+    b.ws.message({ type: 'gesture', gesture: 'wave' });
+    b.ws.message({ type: 'rtc-signal', target: a.session.id, signal: { kind: 'ice' } });
+    a.ws.message({ type: 'state', state: { x: 2, y: 1.6, z: 2, rotY: 0 } });
+    a.ws.message({ type: 'rtc-signal', target: b.session.id, signal: { kind: 'ice' } });
+    assert.equal(a.ws.sent.length, aBefore, 'the blocker still received something from the blocked guest');
+    assert.equal(b.ws.sent.length, bBefore, 'the blocked guest still received something from the blocker');
+    assert.equal(c.ws.last('state').id, a.session.id, 'everyone else still sees both');
+
+    a.ws.message({ type: 'unblock', pid: pidOf(2) });
+    assert.equal(a.ws.last('join').id, b.session.id);
+    assert.equal(b.ws.last('join').id, a.session.id);
+    b.ws.message({ type: 'emoji', emoji: ALLOWED_EMOJI[1] });
+    assert.equal(a.ws.last('emoji').emoji, ALLOWED_EMOJI[1]);
+});
+
+test('a block list can be sent in one go, is bounded, and cannot name the sender', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 1), b = joinAs(room, 'B', 2);
+    a.ws.message({ type: 'blocklist', pids: [pidOf(2), pidOf(1), 'not-a-pid', 7] });
+    assert.deepEqual([...a.session.blocked], [pidOf(2)]);
+    assert.equal(b.ws.last('leave').id, a.session.id);
+    const many = Array.from({ length: relay.MAX_BLOCKED + 40 }, (_, i) => pidOf(1000 + i));
+    a.ws.message({ type: 'blocklist', pids: many });
+    assert.equal(a.session.blocked.size, relay.MAX_BLOCKED);
+    assert.equal(b.ws.last('join').id, a.session.id, 'B is visible again once the list no longer holds them');
+});
+
+test('a blocker never receives the blocked guest in a welcome or a join', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 1);
+    const b = joinAs(room, 'B', 2);
+    a.ws.message({ type: 'blocklist', pids: [pidOf(2)] });
+    const c = joinAs(room, 'C', 3);
+    assert.equal(a.ws.last('join').id, c.session.id);
+    assert.ok(!a.ws.sent.some(m => m.type === 'join' && m.id === b.session.id && a.ws.sent.indexOf(m) > a.ws.sent.findIndex(x => x.type === 'leave')),
+        'the blocked guest was announced again after the block');
+    assert.deepEqual(c.ws.sent[0].peers.map(peer => peer.name).sort(), ['A', 'B']);
+});
+
+test('a guest the host already blocked reconnects without seeing, or being seen by, the blocker', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 1);
+    const b = joinAs(room, 'B', 2);
+    a.ws.message({ type: 'blocklist', pids: [pidOf(2)] });
+    room._onClose(b.ws, b.session);
+    const again = joinAs(room, 'B', 2);
+    assert.deepEqual(again.ws.sent[0].peers, [], 'the reconnecting guest was handed the person who blocked them');
+    assert.ok(!a.ws.sent.some(m => m.type === 'join' && m.id === again.session.id), 'the blocker was told about the returning guest');
+});
+
+test('only the host can kick, ban or lock; a kick can come back, a ban cannot', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 1), a = joinAs(room, 'A', 2), b = joinAs(room, 'B', 3);
+
+    // A guest has no powers over the host or anyone else.
+    a.ws.message({ type: 'kick', target: b.session.id });
+    a.ws.message({ type: 'ban', target: host.session.id });
+    a.ws.message({ type: 'lock', locked: true });
+    assert.equal(room.sessions.size, 3);
+    assert.equal(room.locked, false);
+
+    // The host cannot remove themselves.
+    host.ws.message({ type: 'kick', target: host.session.id });
+    assert.equal(room.sessions.size, 3);
+
+    host.ws.message({ type: 'kick', target: a.session.id });
+    assert.equal(a.ws.closed.code, relay.CLOSE_KICKED);
+    assert.equal(room.sessions.size, 2);
+    assert.equal(b.ws.last('leave').id, a.session.id);
+    const back = joinAs(room, 'A again', 2);
+    assert.ok(back.session, 'a kicked guest may return');
+
+    host.ws.message({ type: 'ban', target: back.session.id });
+    assert.equal(back.ws.closed.code, relay.CLOSE_BANNED);
+    const again = joinAs(room, 'A', 2);
+    assert.equal(again.session, null);
+    assert.equal(again.ws.closed.code, relay.CLOSE_BANNED);
+    assert.ok(joinAs(room, 'C', 4).session, 'someone else can still join');
+});
+
+test('a locked room refuses new guests and tells the others', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 1), a = joinAs(room, 'A', 2);
+    host.ws.message({ type: 'lock', locked: true });
+    assert.deepEqual({ ...a.ws.last('room') }, { type: 'room', locked: true });
+    const late = joinAs(room, 'Late', 3);
+    assert.equal(late.session, null);
+    assert.equal(late.ws.closed.code, relay.CLOSE_LOCKED);
+    host.ws.message({ type: 'lock', locked: false });
+    assert.ok(joinAs(room, 'Later', 4).session);
+});
+
+test('moderation passes to the next host when the host leaves, and the lock and bans stay', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 1), a = joinAs(room, 'A', 2), b = joinAs(room, 'B', 3);
+    host.ws.message({ type: 'lock', locked: true });
+    host.ws.message({ type: 'ban', target: b.session.id });
+    host.ws.emit('close');
+    assert.equal(room.hostId, a.session.id);
+    assert.equal(room.locked, true);
+    assert.equal(joinAs(room, 'B', 3).session, null);
+    const c = joinAs(room, 'C', 4);
+    assert.equal(c.session, null, 'still locked');
+    a.ws.message({ type: 'lock', locked: false });
+    assert.ok(joinAs(room, 'C', 4).session);
+});
+
+test('the secret uid never leaves the relay: others see a hash that cannot be guessed from the public id', async () => {
+    const { derivePid, UID_PATTERN, PID_PATTERN } = relay;
+    const uid = 'abcdefghijklmnopqrstuvwxyz012345';
+    assert.ok(UID_PATTERN.test(uid) && !UID_PATTERN.test('short') && !UID_PATTERN.test('has spaces in it, so no!!'));
+    const pid = await derivePid(uid);
+    assert.match(pid, PID_PATTERN);
+    assert.equal(await derivePid(uid), pid, 'stable across reconnects');
+    assert.notEqual(await derivePid(`${uid}x`), pid);
+    assert.ok(!pid.includes(uid.slice(0, 8)));
+
+    // End to end through fetch(): the welcome carries the pid, never the uid.
+    const sockets = [];
+    globalThis.WebSocketPair = class { constructor() { this[0] = {}; this[1] = new FakeSocket(); sockets.push(this[1]); } };
+    const OriginalResponse = globalThis.Response;
+    try {
+        const room = new ClubRoom({});
+        const request = { headers: new Map([['Upgrade', 'websocket']]), url: `https://relay.example/?room=r&name=Z&uid=${uid}` };
+        request.headers.get = key => (key === 'Upgrade' ? 'websocket' : null);
+        // Response with status 101 is not constructible in Node; the relay's own object is what matters here.
+        globalThis.Response = class { constructor(body, init) { this.status = init && init.status; } };
+        await room.fetch(request);
+        const welcome = sockets[0].sent[0];
+        assert.equal(welcome.pid, pid);
+        assert.ok(!JSON.stringify(welcome).includes(uid));
+    } finally {
+        globalThis.Response = OriginalResponse;
+        delete globalThis.WebSocketPair;
+    }
+});
+
+// ---- the host owns the music and the lights -------------------------------------------------------------------
+
+test('a room holds eight guests: voice is a full mesh and eight is how many are drawn as people', () => {
+    assert.equal(MAX_ROOM_SIZE, 8);
+});
+
+test('the track carries its podcast and a clean title, so every guest shows the same now-playing line', () => {
+    const room = new ClubRoom({});
+    const host = join(room);
+    const guest = join(room);
+    host.ws.message({ type: 'music', url: 'https://radio.example/a.mp3', playing: true, position: 5, podcast: 'colourizon', title: 'Colourizon\u0007 168\n  night' });
+    const note = guest.ws.last('music');
+    assert.equal(note.podcast, 'colourizon');
+    assert.equal(note.title, 'Colourizon 168 night');
+    assert.equal(typeof note.updatedAt, 'number');
+    host.ws.message({ type: 'music', url: 'https://radio.example/a.mp3', playing: true, podcast: '../etc', title: 'x'.repeat(500) });
+    assert.equal(guest.ws.last('music').podcast, null);
+    assert.equal(guest.ws.last('music').title.length, 120);
+    assert.equal(sanitizeTitle(42), '');
+});
+
+test('only the host can drive the lights, guests receive the frame, and a late joiner is handed the latest one', () => {
+    const room = new ClubRoom({});
+    const host = join(room);
+    const guest = join(room);
+    guest.ws.message({ type: 'show', m: 'show', mv: 'ignition', cue: 1 });
+    assert.equal(room.showState, null, 'a guest cannot set the lights');
+    assert.equal(host.ws.last('show'), undefined);
+
+    host.ws.message({ type: 'show', m: 'show', mv: 'ignition', cue: 2, cb: 1.5, bib: 3, hue: 0.25, hl: true, pal: 'triad', mbi: 4 });
+    assert.deepEqual({ ...guest.ws.last('show'), type: undefined }, { type: undefined, m: 'show', mv: 'ignition', cue: 2, cb: 1.5, bib: 3, hue: 0.25, hl: true, pal: 'triad', mbi: 4 });
+    const late = join(room);
+    assert.equal(late.ws.sent[0].show.mv, 'ignition');
+    assert.equal(late.ws.sent[0].show.cue, 2);
+});
+
+test('the light-show frame is shaped, clamped and bounded; hostile fields never get through', () => {
+    assert.equal(sanitizeShow(null), null);
+    assert.equal(sanitizeShow([]), null);
+    assert.equal(sanitizeShow({ m: 'evil' }), null);
+    const out = sanitizeShow({
+        m: 'manual', mv: 'pulse; drop', cue: 9999, cb: -3, bib: 7, hue: 4, bpm: 9, spb: 'x', __proto__: { polluted: true }, constructor: 'x',
+        fx: { lightsActive: true, laserSpeed: 1.23456789, spotlightMode: 'sweep', '__proto__': 1, 'bad key': 1, nested: { a: 1 }, nan: NaN, long: 'x'.repeat(40), list: [1] }
+    });
+    assert.equal(out.m, 'manual');
+    assert.ok(!('mv' in out), 'a movement name with punctuation is dropped');
+    assert.equal(out.cue, 63);
+    assert.equal(out.cb, 0);
+    assert.equal(out.bib, 3);
+    assert.equal(out.hue, 1);
+    assert.equal(out.bpm, 40);
+    assert.ok(!('spb' in out));
+    assert.deepEqual(Object.keys(out.fx).sort(), ['laserSpeed', 'lightsActive', 'spotlightMode']);
+    assert.equal(out.fx.laserSpeed, 1.2346);
+    assert.equal({}.polluted, undefined);
+
+    const many = {};
+    for (let i = 0; i < 300; i++) many[`k${i}`] = i;
+    assert.equal(Object.keys(sanitizeShow({ m: 'off', fx: many }).fx).length, relay.MAX_SHOW_FIXTURES);
+});
+
+test('the lights and the music are forgotten once the room is empty, and survive a host handover', () => {
+    const room = new ClubRoom({});
+    const a = join(room);
+    const b = join(room);
+    a.ws.message({ type: 'show', m: 'show', mv: 'pulse', cue: 0 });
+    a.ws.message({ type: 'music', url: 'https://radio.example/a.mp3', playing: true });
+    a.ws.emit('close');
+    assert.equal(room.hostId, b.session.id);
+    assert.equal(room.showState.mv, 'pulse');
+    assert.equal(room.musicState.url, 'https://radio.example/a.mp3');
+    b.ws.emit('close');
+    assert.equal(room.showState, null);
+    assert.equal(room.musicState, null);
+});
+test('a guest can ask for women or men only: on joining, and when rerolling, and the choice sticks', () => {
+    const room = new ClubRoom({});
+    assert.equal(sanitizePool('women'), 'women');
+    assert.equal(sanitizePool('men'), 'men');
+    assert.equal(sanitizePool('robots'), 'any');
+    assert.equal(sanitizePool(undefined), 'any');
+    assert.equal(AVATAR_POOLS.women.length + AVATAR_POOLS.men.length, AVATAR_POOLS.any.length);
+    for (let round = 0; round < 12; round++) {
+        const w = new FakeSocket();
+        const woman = room._acceptSession(w, 'W', pidOf(100 + round), 'women');
+        assert.match(woman.avatar, /^f/);
+        const m = new FakeSocket();
+        const man = room._acceptSession(m, 'M', pidOf(200 + round), 'men');
+        assert.match(man.avatar, /^m/);
+        for (let i = 0; i < 6; i++) {
+            m.message({ type: 'avatar' });
+            assert.match(man.avatar, /^m/, 'a reroll stays in the chosen pool');
+        }
+        w.message({ type: 'avatar', pool: 'men' });
+        assert.match(woman.avatar, /^m/, 'switching pool on a reroll takes effect at once');
+        assert.equal(woman.avatarPool, 'men');
+        w.emit('close'); m.emit('close');
+    }
+});
+
+test('a pool that is full gives a free person from the other pool rather than a double', () => {
+    const room = new ClubRoom({});
+    for (let i = 0; i < 8; i++) {
+        const g = joinAs(room, `W${i}`, 300 + i);
+        g.ws.message({ type: 'avatar', pool: 'women' });
+        assert.match(g.session.avatar, /^f/);
+    }
+    assert.equal(new Set([...room.sessions.values()].map(s => s.avatar)).size, 8, 'eight different women');
+    assert.match(room._pickAvatar(null, 'women'), /^m/, 'all eight women are taken, so a ninth woman-seeker gets a free man');
+});
+test('a host that pinged and then vanished is closed and replaced; a client that never pinged is left alone', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 401);
+    const guest = joinAs(room, 'Guest', 402);
+    const old = joinAs(room, 'Old', 403);
+    host.ws.message({ type: 'ping' });
+    guest.ws.message({ type: 'ping' });
+    const start = Date.now();
+    host.session.lastSeen = start - IDLE_CLOSE_MS - 1000;
+    guest.session.lastSeen = start;
+    old.session.lastSeen = start - 10 * IDLE_CLOSE_MS;
+    room._sweep(start);
+    assert.equal(host.ws.closed.code, CLOSE_IDLE);
+    assert.equal(room.hostId, guest.session.id, 'the next guest took the room');
+    assert.equal(guest.ws.last('host').id, guest.session.id);
+    assert.equal(old.ws.closed, null, 'an older client that does not ping is never swept');
+    assert.equal(guest.ws.closed, null);
+    for (const ws of [guest.ws, old.ws]) ws.emit('close');
+    room._sweep(start);
+    assert.equal(room._sweeper, null, 'the timer stops with the last guest');
+});
+
+test('any frame counts as a sign of life, not only the ping', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 411);
+    a.ws.message({ type: 'ping' });
+    a.session.lastSeen = 1;
+    a.ws.message({ type: 'gesture', gesture: 'wave' });
+    assert.ok(a.session.lastSeen > 1);
+    clearInterval(room._sweeper);
 });

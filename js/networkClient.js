@@ -23,6 +23,18 @@ class NetworkClient {
     // Application close codes sent by worker/src/index.js.
     static CLOSE_ROOM_FULL = 4003;
     static CLOSE_FLOODING = 4008;
+    static CLOSE_KICKED = 4010;
+    static CLOSE_BANNED = 4011;
+    static CLOSE_LOCKED = 4012;
+
+    /** What the user is told when the relay ends the session for a reason that retrying would not fix. */
+    static CLOSE_MESSAGES = Object.freeze({
+        4003: 'That room is full (8 guests at most). Try another room code.',
+        4008: 'Disconnected by the relay for sending too many messages.',
+        4010: 'The host removed you from the room. You can join again.',
+        4011: 'The host banned you from this room.',
+        4012: 'That room is locked by its host.'
+    });
 
     /** Only network-reachable URLs may be shared; a host's blob:/data: URL is meaningless to guests. */
     static isShareableMusicUrl(url) {
@@ -35,15 +47,41 @@ class NetworkClient {
         }
     }
 
-    constructor({ serverUrl, room = 'lobby', name = 'Guest' } = {}) {
+    static AVATAR_POOLS = Object.freeze(['any', 'women', 'men']);
+    static GESTURES = Object.freeze(['wave', 'nod', 'dance', 'stop']);
+    static PID = /^[0-9a-f]{16}$/;
+    static MAX_BLOCKED = 64;
+
+    /**
+     * @param {object} options
+     * @param {string} options.serverUrl  wss:// relay
+     * @param {string} [options.room]
+     * @param {string} [options.name]
+     * @param {string} [options.uid]      this browser's secret id (the relay hashes it into the public `pid`)
+     * @param {'any'|'women'|'men'} [options.avatarPool] which of the random people this guest may be
+     * @param {string[]} [options.blocked] public ids to keep invisible, from the user's saved block list
+     */
+    constructor({ serverUrl, room = 'lobby', name = 'Guest', uid = null, blocked = [], avatarPool = 'any' } = {}) {
         this.serverUrl = serverUrl;
         this.room = String(room || 'lobby').slice(0, 64);
         this.name = String(name || 'Guest').slice(0, 32);
+        /** Which people this guest may be handed: 'any', 'women' or 'men'. */
+        this.avatarPool = NetworkClient.AVATAR_POOLS.includes(avatarPool) ? avatarPool : 'any';
+        this.uid = typeof uid === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(uid) ? uid : null;
+        /** @type {Set<string>} */
+        this.blockedPids = new Set((blocked || []).filter(pid => NetworkClient.PID.test(pid)).slice(0, NetworkClient.MAX_BLOCKED));
 
         this.selfId = null;
+        this.selfPid = null;
+        this.avatar = null;
+        this.locked = false;
         this.hostId = null;
+        /** Relay clock minus this browser's clock (ms), from the welcome: shared timestamps are read through it. */
+        this.serverOffset = 0;
+        /** Set by ClubMultiplayer: adds what only it knows (the podcast, the title) to every shared track state. */
+        this.musicDecorator = null;
         this.status = 'idle'; // idle | connecting | connected | disconnected | error
-        /** @type {Map<string, {name:string, state:object|null, pc:RTCPeerConnection|null}>} */
+        /** @type {Map<string, {name:string, pid:string|null, avatar:string|null, state:object|null, pc:RTCPeerConnection|null}>} */
         this.peers = new Map();
 
         this.micStream = null;
@@ -63,9 +101,14 @@ class NetworkClient {
         this.onPeerJoin = () => {};
         this.onPeerState = () => {};
         this.onPeerLeave = () => {};
+        this.onPeerAvatar = () => {};
+        this.onSelfAvatar = () => {};
         this.onEmoji = () => {};
+        this.onGesture = () => {};
         this.onMusic = () => {};
         this.onHostChange = () => {};
+        this.onRoom = () => {};
+        this.onShow = () => {};
         this.onRemoteStream = () => {};
         this.onError = () => {};
     }
@@ -90,6 +133,9 @@ class NetworkClient {
         this.disableVoice();
         this._dropAllPeers();
         this.selfId = null;
+        this.selfPid = null;
+        this.avatar = null;
+        this.locked = false;
         this.hostId = null;
         if (this.ws) {
             const socket = this.ws;
@@ -112,6 +158,8 @@ class NetworkClient {
         }
         url.searchParams.set('room', this.room);
         url.searchParams.set('name', this.name);
+        if (this.uid) url.searchParams.set('uid', this.uid);
+        if (this.avatarPool !== 'any') url.searchParams.set('avatars', this.avatarPool);
 
         let ws;
         try {
@@ -153,14 +201,14 @@ class NetworkClient {
             return;
         }
         const code = evt && evt.code;
-        if (code === NetworkClient.CLOSE_ROOM_FULL || code === NetworkClient.CLOSE_FLOODING) {
+        if (NetworkClient.CLOSE_MESSAGES[code]) {
             // Terminal: release the microphone. The panel shows the mic as off and
             // disables the button, so a live capture here could never be stopped.
             this.disableVoice();
             this._setStatus('error');
-            this.onError(new Error(code === NetworkClient.CLOSE_ROOM_FULL
-                ? 'That room is full. Try another room code.'
-                : 'Disconnected by the relay for sending too many messages.'));
+            const error = new Error(NetworkClient.CLOSE_MESSAGES[code]);
+            error.code = code;
+            this.onError(error);
             return;
         }
         if (!this._hasConnected || this._reconnectAttempts >= 3) {
@@ -199,25 +247,29 @@ class NetworkClient {
                 this._hasConnected = true;
                 this._reconnectAttempts = 0;
                 this.selfId = msg.id;
+                this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
+                this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
                 this.hostId = msg.hostId;
+                this.locked = !!msg.locked;
+                const skew = Number(msg.serverTime) - Date.now();
+                this.serverOffset = Number.isFinite(skew) ? skew : 0;
                 this._setStatus('connected');
-                for (const peer of msg.peers || []) {
-                    this.peers.set(peer.id, { name: peer.name, state: peer.state, pc: null });
-                    this.onPeerJoin(peer.id, peer.name);
-                    if (peer.state) this.onPeerState(peer.id, peer.state);
-                    this._maybeInitiateVoice(peer.id);
-                }
+                // Tell the relay who to keep invisible before anything else happens; it hides them again with a `leave`.
+                if (this.blockedPids.size) this._send({ type: 'blocklist', pids: [...this.blockedPids] });
+                if (this.avatar) this.onSelfAvatar(this.avatar);
+                for (const peer of msg.peers || []) this._addPeer(peer);
                 if (msg.music) this.onMusic(msg.music);
+                if (msg.show) this.onShow(msg.show);
                 this.onHostChange(this.hostId);
+                this.onRoom(this.locked);
                 break;
 
             case 'join':
-                this.peers.set(msg.id, { name: msg.name, state: null, pc: null });
-                this.onPeerJoin(msg.id, msg.name);
-                this._maybeInitiateVoice(msg.id);
+                this._addPeer(msg);
                 break;
 
             case 'leave':
+                if (!this.peers.has(msg.id)) break;
                 this._teardownPeerConnection(msg.id, false);
                 this.peers.delete(msg.id);
                 this.onPeerLeave(msg.id);
@@ -235,16 +287,40 @@ class NetworkClient {
             }
 
             case 'emoji':
-                this.onEmoji(msg.id, msg.emoji);
+                if (this.peers.has(msg.id)) this.onEmoji(msg.id, msg.emoji);
+                break;
+
+            case 'gesture':
+                if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
+                break;
+
+            case 'avatar':
+                if (typeof msg.avatar !== 'string') break;
+                if (msg.id === this.selfId) {
+                    this.avatar = msg.avatar;
+                    this.onSelfAvatar(msg.avatar);
+                } else if (this.peers.has(msg.id)) {
+                    this.peers.get(msg.id).avatar = msg.avatar;
+                    this.onPeerAvatar(msg.id, msg.avatar);
+                }
                 break;
 
             case 'music':
                 this.onMusic(msg);
                 break;
 
+            case 'show':
+                this.onShow(msg);
+                break;
+
             case 'host':
                 this.hostId = msg.id;
                 this.onHostChange(this.hostId);
+                break;
+
+            case 'room':
+                this.locked = !!msg.locked;
+                this.onRoom(this.locked);
                 break;
 
             case 'rtc-signal':
@@ -256,13 +332,71 @@ class NetworkClient {
         }
     }
 
+    /** A guest announced by welcome or join. One the user has blocked is not shown, heard or connected to, whatever the relay sends. */
+    _addPeer(peer) {
+        if (!peer || typeof peer.id !== 'string') return;
+        const pid = NetworkClient.PID.test(peer.pid) ? peer.pid : null;
+        if (pid && this.blockedPids.has(pid)) return;
+        this.peers.set(peer.id, { name: peer.name, pid, avatar: typeof peer.avatar === 'string' ? peer.avatar : null, state: peer.state || null, pc: null });
+        this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar });
+        if (peer.state) this.onPeerState(peer.id, peer.state);
+        this._maybeInitiateVoice(peer.id);
+    }
+
+    /** A heartbeat: the relay closes a client that has pinged and then goes silent, so a vanished host is replaced. */
+    sendPing() { this._send({ type: 'ping' }); }
+
     sendState(state) { this._send({ type: 'state', state }); }
     sendEmoji(emoji) { this._send({ type: 'emoji', emoji }); }
+    sendGesture(gesture) {
+        if (NetworkClient.GESTURES.includes(gesture)) this._send({ type: 'gesture', gesture });
+    }
+    /** Ask the relay for a different random avatar; the answer arrives as `avatar` for this guest's own id. */
+    requestAvatar(pool) {
+        if (NetworkClient.AVATAR_POOLS.includes(pool)) this.avatarPool = pool;
+        this._send({ type: 'avatar', pool: this.avatarPool });
+    }
+
+    /** Make a guest invisible and inaudible to this one, and this one to them. Idempotent. */
+    blockPeer(pid) {
+        if (!NetworkClient.PID.test(pid) || pid === this.selfPid) return false;
+        if (this.blockedPids.size >= NetworkClient.MAX_BLOCKED && !this.blockedPids.has(pid)) return false;
+        this.blockedPids.add(pid);
+        this._send({ type: 'block', pid });
+        for (const [id, peer] of [...this.peers]) {
+            if (peer.pid !== pid) continue;
+            this._teardownPeerConnection(id, false);
+            this.peers.delete(id);
+            this.onPeerLeave(id);
+        }
+        return true;
+    }
+
+    unblockPeer(pid) {
+        if (!this.blockedPids.delete(pid)) return false;
+        this._send({ type: 'unblock', pid });
+        return true;
+    }
+
+    // Host-only: the relay ignores these from anyone else.
+    kickPeer(id) { this._send({ type: 'kick', target: id }); }
+    banPeer(id) { this._send({ type: 'ban', target: id }); }
+    setRoomLocked(locked) { this._send({ type: 'lock', locked: !!locked }); }
 
     /** Host-only. Returns false when nothing was sent (not host, or a local blob:/data: URL). */
     sendMusic(music) {
         if (!this.isHost() || !music || !NetworkClient.isShareableMusicUrl(music.url)) return false;
-        this._send({ type: 'music', ...music });
+        this._send({ type: 'music', ...(this.musicDecorator ? this.musicDecorator(music) : music) });
+        return true;
+    }
+
+    /** The relay's clock now, in ms. */
+    serverNow() { return Date.now() + this.serverOffset; }
+
+    /** Host-only: the light show's current frame. The relay ignores it from anyone else. */
+    sendShow(show) {
+        if (!this.isHost() || !show || typeof show !== 'object') return false;
+        this._send({ ...show, type: 'show' });
         return true;
     }
 

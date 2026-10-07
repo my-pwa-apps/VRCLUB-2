@@ -28,6 +28,7 @@ class VRClubAnimationCore extends VRClubEffects {
      */
     updateNetworkPresence(ctx) {
         if (this.avatarManager) this.avatarManager.update(ctx.dt);
+        if (this.multiplayer) this.multiplayer.update(ctx);
 
         const net = this.networkManager;
         if (!net || !net.connected) return;

@@ -13,13 +13,38 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Security
 
-- The multiplayer relay now enforces a browser `Origin` allow-list, a 16-guest room cap,
+- The multiplayer relay now enforces a browser `Origin` allow-list, a room cap (now 8 guests),
   a 16 KB frame limit, per-connection rate limits with flood disconnects, an emoji
   allow-list, sanitised names and http(s)-only shared music URLs (requires a relay redeploy).
 - First-party code no longer builds DOM from HTML strings; a contract test forbids it.
 
 ### Added
 
+- **The host runs the room's music and lights; everyone else follows.** Join an existing room by name, by a
+  6-digit private code (a keypad on the VR ONLINE page) or an invite link; the first guest in is the host (named in
+  the status line) and the next guest takes over if they leave. Guests hear the same track at the same position
+  (seeks, pauses, a new episode, even the DJ follow the host) and see the same light show: the host's cue, set-piece,
+  colour and, under manual control, their console. A guest's lighting and music controls are dimmed (VR buttons read
+  HOST ONLY; Space, B and F stand down), while their own comfort settings stay theirs, and **Photosensitive Safe Mode
+  still removes the host's strobes**. Podcast episodes start for a guest at once; any other stream still needs
+  **Listen along**. A room now holds **8** guests (it was 16): voice is a full mesh and eight is how many are drawn as
+  characters. **Redeploy the relay (`wrangler deploy` in `worker/`).** Old clients keep working; an old host sends no
+  lights, so a guest's show runs itself after 12 s.
+- **A vanished host is replaced promptly.** Clients send a heartbeat every 10 s and the relay closes one that has gone
+  silent for 30 s, so when a host's tab crashes or Wi-Fi drops, the next guest becomes host within about 40 s instead of
+  whenever the network gives up on the socket. The promoted guest is told ("The host left: you are now the host") and
+  asked to pick music if nothing is playing. Needs the relay redeploy; older clients are never swept.
+- **Choose who your random look is drawn from.** Anyone, Women or Men: a Random look choice in the Multiplayer panel and a LOOK page on the VR ONLINE menu. It is remembered, applies at every join, and a reroll stays in the pool. Picking a pool while in a room replaces your look only if it is outside the pool. Needs the relay redeploy; an older relay ignores it and draws from everyone.
+- **Multiplayer from the VR menu, with random avatars, gestures and safety tools.** The quick menu has an
+  ONLINE page: connect or leave, mic, a new random look, GESTURES (wave, nod, dance and seven emoji), PEOPLE
+  (mute, block, kick, ban per guest), SAFETY (personal-space bubble, mute all, lock the room, unblock all) and
+  private rooms. Everyone, you included, is given a random avatar from the 17 Quaternius people and others now see
+  real characters walking, waving, nodding and dancing instead of capsules (up to eight; the rest stay capsules).
+  A real head nod in VR sends the nod gesture. Blocking is two-way invisibility and is remembered across sessions;
+  the host can kick, ban and lock. The same controls are in the DOM panel. Your own first-person body is still
+  the mannequin, so you do not see yourself as your assigned avatar. **Privacy:** the browser keeps a secret id
+  and the relay shows others only a hash of it; joining a room still discloses your IP to the relay and, for
+  voice, to the other guests. **Redeploy the relay (`wrangler deploy` in `worker/`) for any of this to work online.**
 - **A diverse crowd.** The dance floor and the side-wall guests are now 17 different people instead of
   variations on two peasant-outfit characters: the CC0 Quaternius *Modular Women* and *Modular Men* packs,
   recoloured into a cast with every skin tone, black, brown, auburn, blond and silver hair (several older
@@ -39,7 +64,8 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   ±30 s buttons; the VR Music page has a seek strip you click or drag with the controller ray, ±1 min and
   play/pause. Live streams are not seekable. The host's position is shared with listeners-along.
 - **The DJ follows the podcast:** a clean-shaven DJ with half-long dark brown hair in a dark tee for Hernan, a DJ
-  with long straight blond hair in a grey tee for Miss Melera (both from the artists' own photos), swapped live
+  with long straight blond hair in a grey tee for Miss Melera (both from the artists' own photos), both wearing
+  headphones (a CC0 model from OpenGameArt, fitted to each DJ's ears), swapped live
   when the podcast changes (`club-dj-hernan.glb`, `club-dj-melera.glb`,
   built by `scripts/build-dj-glbs.mjs`; approximations, not likenesses). Replaces `club-dj.glb`.
 

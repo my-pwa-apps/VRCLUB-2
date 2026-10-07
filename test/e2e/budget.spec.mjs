@@ -30,7 +30,8 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(desktopBudget.contactShadows).toBe(desktopBudget.enabledCharacters);
     // The balanced tier seats two guests (the talking pair); each GLB character is merged to a handful of meshes.
     expect(desktopBudget.guests).toBe(2);
-    expect(desktopBudget.mostDrawsPerCharacter).toBeLessThanOrEqual(6);
+    // Six draws per character; the DJ's headphones are a seventh (one mesh, one 512 px texture).
+    expect(desktopBudget.mostDrawsPerCharacter).toBeLessThanOrEqual(7);
     // No 4096 ordinary 2D textures: a Quest shares ~6 GB with the OS and every texture carries a mip chain.
     expect(desktopBudget.ordinaryTexturesAtLeast4096).toBe(0);
     expect(desktopBudget.ordinaryTexturesAtLeast2048).toBeLessThanOrEqual(8);
@@ -54,7 +55,7 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(xrBudget.oldSignMeshes).toBe(0);
     expect(xrBudget.contactShadows).toBe(xrBudget.enabledCharacters);
     expect(xrBudget.guests).toBe(2);
-    expect(xrBudget.mostDrawsPerCharacter).toBeLessThanOrEqual(6);
+    expect(xrBudget.mostDrawsPerCharacter).toBeLessThanOrEqual(7);
     expect(xrBudget.ordinaryTexturesAtLeast4096).toBe(0);
     expect(xrBudget.ordinaryTexturesAtLeast2048).toBeLessThanOrEqual(8);
     expect(xrBudget.ordinaryRgbaTextureEstimateMB).toBeLessThanOrEqual(400);

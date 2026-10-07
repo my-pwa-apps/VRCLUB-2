@@ -260,6 +260,34 @@ SwiftShader only. Open items:
 
 ---
 
+## Implementation - 2026-10-07 - Multiplayer from the VR menu: avatars, gestures, safety
+
+Shipped: ONLINE pages in the VR menu and the DOM panel (one `ClubMultiplayer` controller), relay-assigned random avatars
+from the 17 crowd people, clip-driven remote people (`AvatarManager`), wave/nod/dance/emoji, VR head-nod detection,
+mute, personal-space bubble, two-way block by hashed `pid`, host kick/ban/lock. See `.github/copilot-instructions.md`.
+Open items, each with an acceptance criterion:
+
+- [ ] **The player's own first-person body is still the UE mannequin, not their assigned avatar.**
+  **Affected files:** `js/avatarRig.js`, `js/club/07-animation-core.js`.
+  **Recommended solution:** teach `AvatarRig` the Modular skeleton (Body-rooted legs, free-standing IK feet).
+  **Acceptance criteria:** the local body in a mirror/photo mode matches `selfAvatar`; `test/rig.test.mjs` passes on both skeletons.
+- [ ] **Eight skinned people, voice analysers and name tags are unmeasured on a Quest 3S.**
+  **Acceptance criteria:** a headset capture with 8 guests keeps frame time within the 72 Hz budget, or `MAX_PEOPLE` is lowered.
+- [ ] **Shared lights and music are verified only in two to three desktop browsers on a local relay.** Beat alignment
+  across guests relies on each browser detecting the same kicks from the same audio (the host sends the bar line and
+  the cue, not a beat clock), so a guest can sit a fraction of a beat off the host.
+  **Recommended solution:** send the host's beat phase and let the guest's grid slew toward it.
+  **Acceptance criteria:** with two headsets on one track, strobe flashes land within 60 ms of each other; the guest's
+  position stays within 1 s of the host's across a 10-minute set, including after a seek and a track change.
+- [ ] **A host who plays a local file shares nothing.** Guests keep the previous stream.
+  **Acceptance criteria:** guests are told "the host is playing a file that cannot be shared" and pause.
+- [ ] **Bans and the lock live in the room's memory.** They reset when the room empties.
+  **Recommended solution:** Durable Object storage keyed by room, plus a room owner token.
+  **Acceptance criteria:** a ban survives an empty room and a relay restart.
+- [ ] **Reporting and moderation beyond the host** (report a guest, rate-limit repeat joins by ip hash).
+
+---
+
 ## Implementation - 2026-10-07 - Podcast choice, seek bar and a DJ per podcast
 
 Shipped: Hernan Cattaneo / Miss Melera selector, random episode on entry, seek bar (desktop and VR Music page) and a DJ

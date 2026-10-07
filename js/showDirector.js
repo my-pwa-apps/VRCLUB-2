@@ -90,6 +90,14 @@ class ShowDirector {
         /** Master switch. When false the legacy cycler regains control. */
         this.enabled = true;
 
+        /**
+         * True for a guest in someone else's room. The grid, the ramps and the kick punch still run on this
+         * browser's own audio, but every structural decision (movement, cue, set-piece) arrives from the host
+         * through applyRemote(), so both rooms are on the same look at the same time.
+         */
+        this.follower = false;
+        this._beatMismatch = 0;
+
         // --- Beat grid tracking (derived from VJDirector, never independently timed)
         this._lastBeatNumber = -1;
         this._barCounter = 0;          // Monotonic bar index
@@ -174,8 +182,9 @@ class ShowDirector {
             for (let i = 0; i < beatsAdvanced && i < 8; i++) this._onBeat();
         }
 
-        // --- Read the track's structure: kick gone (breakdown) / kick back (release)
-        this._watchKick(vj, audioData);
+        // --- Read the track's structure: kick gone (breakdown) / kick back (release).
+        //     A follower is told by the host instead.
+        if (!this.follower) this._watchKick(vj, audioData);
 
         // --- Continuous (per-frame) modulation on top of the discrete cue state
         this._applyContinuous(vj, audioData);
@@ -258,6 +267,9 @@ class ShowDirector {
     _onBar() {
         this._cueBarsElapsed = this._barCounter - this._cueStartBar;
         this._barsSinceMovement++;
+
+        // A follower never decides: it keeps the grid for the ramps and waits for the host's next frame.
+        if (this.follower) return;
 
         // A set-piece owns the rig until it finishes; nothing interrupts it.
         if (this._setPiece) {
@@ -532,12 +544,13 @@ class ShowDirector {
 
     /** Jump straight to the ignition movement via the full countdown build. */
     triggerShowDrop() {
+        if (this.follower) return;
         this._beginSetPiece('countdown', 'ignition');
     }
 
     /** Force a named movement immediately. */
     forceMovement(name) {
-        if (!this.movements[name]) return false;
+        if (this.follower || !this.movements[name]) return false;
         this._setPiece = null;
         this._enterMovement(name);
         return true;
@@ -554,11 +567,113 @@ class ShowDirector {
 
     /** Hand the rig back to the legacy cycler / manual VJ control. */
     setEnabled(on) {
+        if (this.follower) return this.enabled;
         this.enabled = !!on;
         if (this.enabled) {
             this._enterMovement(this._pickMovement());
         }
         return this.enabled;
+    }
+
+    // =========================================================================
+    // SHARED SHOW (a host drives, guests follow)
+    // =========================================================================
+
+    /**
+     * Follow a host (true) or run on our own again (false). Leaving follower mode keeps the current cue, so the
+     * rig carries on from where the room was instead of restarting on ARRIVAL.
+     */
+    setFollower(on) {
+        on = !!on;
+        if (on === this.follower) return;
+        this.follower = on;
+        this._beatMismatch = 0;
+        if (on) this.enabled = true;
+        else {
+            this._barsSinceMovement = 0;
+            this._cueStartBar = this._barCounter - (this._cueBarsElapsed || 0);
+        }
+    }
+
+    /** The host's half: which cue the room is on, in the compact shape the relay carries. */
+    snapshot() {
+        const piece = this._setPiece;
+        return {
+            mv: this._movementName,
+            cue: this._cueIndex,
+            cb: Math.max(0, this._barCounter - this._cueStartBar),
+            sp: piece ? this._setPieceName() : null,
+            spt: piece ? (this._setPieceThen || 'pulse') : null,
+            spb: piece ? Math.max(0, this._barCounter - this._setPieceStartBar) : 0,
+            bib: this._beatInBar,
+            bar: this._barCounter
+        };
+    }
+
+    _setPieceName() {
+        for (const name in this.setPieces) if (this.setPieces[name] === this._setPiece) return name;
+        return null;
+    }
+
+    /**
+     * The follower's half: put this rig on the host's cue. Only names this build knows are accepted, so a frame
+     * from a newer or hostile host can at worst be ignored.
+     */
+    applyRemote(frame, force = false) {
+        if (!this.follower || !frame || frame.m !== 'show') return false;
+        this._alignBeat(frame.bib);
+
+        if (frame.sp) {
+            const piece = this.setPieces[frame.sp];
+            if (!piece) return false;
+            const bar = Math.max(0, Math.floor(frame.spb) || 0);
+            if (this._setPiece !== piece) {
+                this._setPiece = piece;
+                this._setPieceThen = this.movements[frame.spt] ? frame.spt : 'pulse';
+                this._setPieceStartBar = this._barCounter - bar;
+                this._setPieceBar = bar;
+                if (piece.onStart) piece.onStart(this);
+                piece.onBar(this, bar);
+            } else if (bar !== this._setPieceBar) {
+                this._setPieceStartBar = this._barCounter - bar;
+                this._setPieceBar = bar;
+                piece.onBar(this, bar);
+            }
+            return true;
+        }
+
+        const movement = this.movements[frame.mv];
+        const index = Math.floor(frame.cue);
+        const cue = movement && movement.cues[index];
+        if (!cue) return false;
+        const changed = force || !!this._setPiece || movement !== this._movement || index !== this._cueIndex;
+        this._setPiece = null;
+        this._setPieceThen = null;
+        if (changed) {
+            this._movement = movement;
+            this._movementName = frame.mv;
+            this._cueIndex = index;
+            this._applyCue(cue);
+        }
+        // The ramps in this cue run from where the host is in it.
+        this._cueStartBar = this._barCounter - Math.max(0, Math.floor(frame.cb) || 0);
+        this._cueBarsElapsed = this._barCounter - this._cueStartBar;
+        return true;
+    }
+
+    /**
+     * Put this browser's beat-in-bar on the host's. A frame is late by a network trip, so one beat of difference is
+     * ordinary (the frame crossed a beat line) and only a difference that persists is believed.
+     */
+    _alignBeat(hostBeat) {
+        if (!Number.isFinite(hostBeat)) return;
+        const bib = Math.max(0, Math.min(ShowDirector.BEATS_PER_BAR - 1, Math.floor(hostBeat)));
+        const diff = (bib - this._beatInBar + ShowDirector.BEATS_PER_BAR) % ShowDirector.BEATS_PER_BAR;
+        if (diff === 0) { this._beatMismatch = 0; return; }
+        if (diff === 2 || ++this._beatMismatch >= 2) {
+            this._beatInBar = bib;
+            this._beatMismatch = 0;
+        }
     }
 
     /** Human-readable state for the UI. */

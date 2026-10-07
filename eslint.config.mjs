@@ -94,6 +94,7 @@ const projectGlobals = {
     VRClub: 'readonly',
     NetworkClient: 'readonly',
     AvatarManager: 'readonly',
+    ClubMultiplayer: 'readonly',
     AvatarRig: 'readonly',
     log: 'readonly',
     module: 'readonly'
@@ -192,6 +193,7 @@ export default [
                 URL: 'readonly',
                 setTimeout: 'readonly',
                 clearTimeout: 'readonly',
+                clearInterval: 'readonly',
                 globalThis: 'readonly',
                 structuredClone: 'readonly',
                 TextEncoder: 'readonly',
@@ -221,7 +223,10 @@ export default [
                 URL: 'readonly',
                 fetch: 'readonly',
                 TextDecoder: 'readonly',
+                TextEncoder: 'readonly',
                 crypto: 'readonly',
+                setInterval: 'readonly',
+                clearInterval: 'readonly',
                 console: 'readonly'
             }
         },

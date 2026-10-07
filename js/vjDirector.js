@@ -90,6 +90,8 @@ class VJDirector {
         this.paletteMode = 'analogous';
         this.lastPhraseBeat = 0;
         this.hueLocked = false;           // A look that owns its colour pins the hue
+        // A guest in someone else's room: the host chooses the colour and the scene, this browser only draws them.
+        this.remoteDriven = false;
         // How the LED wall's colour relates to the beams. 'match' is the original
         // behaviour (wall = beam colour); see VJDirector.LED_HARMONIES.
         this.ledHarmony = 'match';
@@ -192,7 +194,7 @@ class VJDirector {
         //    tracking, BPM and the palette engine below all keep running; only
         //    the LOOK decision is handed over.)
         const showDriving = !!(this.club.showDirector && this.club.showDirector.isDriving());
-        if (now > this.manualSceneUntil && !showDriving) {
+        if (now > this.manualSceneUntil && !showDriving && !this.remoteDriven) {
             this._updateAutoScene(audioData);
         }
 
@@ -400,7 +402,7 @@ class VJDirector {
         // Advance the master hue. Golden-angle rotation prevents palette
         // collisions and gives pleasing distribution over time. A look that pins
         // its hue (see setMasterHue) keeps it for the whole cue.
-        if (!this.hueLocked) this.masterHue = (this.masterHue + 0.381966) % 1.0;
+        if (!this.hueLocked && !this.remoteDriven) this.masterHue = (this.masterHue + 0.381966) % 1.0;
 
         const club = this.club;
         const A = this._hsvToColor(this.masterHue, 1.0, 1.0, this._tmpColorA);
@@ -430,7 +432,7 @@ class VJDirector {
         }
 
         // Mirror ball: rotate one slot per phrase for variety
-        if (club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
+        if (!this.remoteDriven && club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
             club.mirrorBallColorIndex = (club.mirrorBallColorIndex + 1) % club.mirrorBallColors.length;
             club.mirrorBallSpotlightColor = club.mirrorBallColors[club.mirrorBallColorIndex];
         }
@@ -450,6 +452,42 @@ class VJDirector {
 
     unlockHue() {
         this.hueLocked = false;
+    }
+
+    /** What the host's frame carries about colour, read at the host. */
+    colourSnapshot() {
+        const club = this.club;
+        return {
+            hue: this.masterHue,
+            hl: this.hueLocked,
+            pal: this.paletteMode,
+            lh: this.ledHarmony || 'match',
+            mbi: club.mirrorBallColorIndex || 0
+        };
+    }
+
+    /** Adopt the host's colour. Applied on the next frame, not the next phrase, like setMasterHue. */
+    applyRemoteColour(frame) {
+        if (!frame) return;
+        let changed = false;
+        if (typeof frame.hue === 'number' && Math.abs(frame.hue - this.masterHue) > 0.002) { this.masterHue = frame.hue; changed = true; }
+        if (typeof frame.hl === 'boolean') this.hueLocked = frame.hl;
+        if (typeof frame.pal === 'string' && frame.pal !== this.paletteMode && ['analogous', 'complementary', 'triad'].includes(frame.pal)) {
+            this.paletteMode = frame.pal;
+            changed = true;
+        }
+        if (typeof frame.lh === 'string' && frame.lh !== (this.ledHarmony || 'match') && typeof this.setLedHarmony === 'function') {
+            this.setLedHarmony(frame.lh);
+            changed = true;
+        }
+        if (changed) this.lastPhraseBeat = this.beatNumber - 16;
+        const club = this.club;
+        const count = club.mirrorBallColors ? club.mirrorBallColors.length : 0;
+        if (count && Number.isInteger(frame.mbi) && frame.mbi >= 0 && frame.mbi < count && frame.mbi !== club.mirrorBallColorIndex
+            && typeof club.cycleMirrorBallColor === 'function') {
+            club.mirrorBallColorIndex = (frame.mbi - 1 + count) % count;
+            club.cycleMirrorBallColor();
+        }
     }
 
     /**

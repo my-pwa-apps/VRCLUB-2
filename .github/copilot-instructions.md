@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance vestibule and bar), `js/mezzanine.js` (steel balcony and stair) and `js/cityDistrict.js` (the street outside), all mixed into `VRClub.prototype`
-9. `js/avatarRig.js` (the procedural player body), then `js/networkClient.js` and `js/avatarManager.js` — optional multiplayer (no instance until a guest connects)
+9. `js/avatarRig.js` (the local player's procedural body), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/ui-init.js` — instantiates `new VRClub()`
@@ -600,12 +600,16 @@ and fail `npm test`.
   dark brown hair, clean-shaven, dark tee, 1.78 m) and `melera` (long straight light blond hair, grey tee, 1.68 m) to
   `club-dj-hernan.glb` / `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius
   male/female guests (Hernan: the guest file's beard is cut out by its exact vertices, and a Universal Base
-  Characters `Hair_Long`, shortened to shoulder length, goes over the short cap and shares its material, so
+  Characters `Hair_Long`, shortened to shoulder length and trimmed of everything in front of the ears (its bangs read
+  as long eyebrows), goes over the short cap and shares its material, so
   the optimiser still merges to ≤6 draws), then `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`.
   `setDJ(id)` queues behind `initPromise`, loads each DJ once, disposes the previous performer and
   collider, and tints garment and hair (`/^MI_Hair/`) on the DJ's own container so the crowd is
   unaffected. The looks are approximations from the artists' photos, not likenesses (the owner supplied them:
-  an earlier version used web descriptions and got both wrong). Headphones, which both wear, are not modelled.
+  an earlier version used web descriptions and got both wrong). Both wear the CC0 "Headphones" model (OpenGameArt,
+  see ASSETS.md): `addHeadphones()` in `scripts/build-dj-glbs.mjs` measures each DJ's ears and crown from its bind pose,
+  moves the cups out to them and skins the mesh 100% to the `Head` joint, so there is no runtime placement to get wrong.
+  That makes a DJ SEVEN draws (the six-draw rule is for everyone else; `test/contract.test.mjs` allows 7 for `club-dj-*`).
   Both podcasts are solo sets by their host, so there is no per-track guest to look up; a new DJ is a new
   `DJ_LOOKS` entry plus a `dj` field on a podcast in `js/podcasts.js`.
 - **Environment and surfaces**: the reflection environment is `textures/environment/empty_warehouse_01_256.env` (Poly Haven, CC0; how it is made is in ASSETS.md); do not go back to a bright or coloured sky, it tints every metal surface. Floor, wall and ceiling use a packed `orm.jpg` (R occlusion, G roughness, B metallic): add a new surface set with `node scripts/pack-orm.mjs`. Signs are `createSignage()` (one atlas, one additive mesh), and every character gets a contact shadow from `_refreshContactShadows()`; call `_applyCrowdSize()` after enabling or moving characters.
@@ -812,7 +816,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool` |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -884,36 +888,102 @@ reachable only after the strobes have already fired.
 
 ## Multiplayer
 
-Optional and opt-in: nothing connects until a guest clicks **Connect** in the Multiplayer panel.
+Optional and opt-in: nothing connects until a guest clicks **Connect** in the Multiplayer panel or **ONLINE → NETWORK**
+in the VR quick menu. The relay stays the same Cloudflare Worker (`vrclub-network.garfieldapp.workers.dev`); the
+protocol only grew, so older clients keep working.
 
-- `worker/src/index.js` — Cloudflare Worker + `ClubRoom` Durable Object relay, one object per
-  room. It holds sessions, the host id and the shared music state in memory only. The file
+- `worker/src/relay.js` (entry `worker/src/index.js` re-exports only `ClubRoom` and the default handler, because the
+  runtime rejects any other export) — Cloudflare Worker + `ClubRoom` Durable Object relay, one object per
+  room. It holds sessions, the host id, bans, the lock and the shared music state in memory only. The file
   header documents the JSON protocol. The relay treats every client as hostile. It
   allow-lists browser `Origin`s (`ALLOWED_ORIGINS` in `wrangler.toml`; loopback and
-  private-LAN origins always pass). It caps rooms at 16, drops frames over 16 KB, applies
-  per-type token buckets and closes flooders. Close codes are `4003` (room full) and
-  `4008` (flooding). Emoji are allow-listed and names are sanitised. Tests: `test/worker.test.mjs`.
+  private-LAN origins always pass). It caps rooms at 8 (`MAX_ROOM_SIZE`: voice is a full mesh and `AvatarManager` draws 8 people), drops frames over 16 KB, applies
+  per-type token buckets and closes flooders. Close codes: `4003` room full, `4008` flooding, `4010` kicked,
+  `4011` banned, `4012` room locked, `4013` no heartbeat (not terminal: the client retries). A client pings every
+  10 s (`ClubMultiplayer.PING_MS`, a timer, so it runs in a hidden tab); once a client has pinged, 30 s of silence
+  closes it (swept every 10 s), so a host who vanished without closing the socket is replaced in under a minute
+  instead of whenever the network gives up. Clients that never ping (older builds) are never swept. Emoji and gestures (`wave`, `nod`, `dance`, `stop`) are allow-listed and names
+  are sanitised. Tests: `test/worker.test.mjs`, `test/multiplayer.test.mjs`.
   `worker/src/podcast.js` also serves the Colourizon podcast (see Audio); it sits behind the same Origin
-  check, fetches only `feeds.soundcloud.com`, and is live on the hosted relay since 2026-10-07. A worker change
-  is not live until `wrangler deploy` runs in `worker/`: when the Melera podcast fails with a "websocket upgrade"
-  reply, the hosted relay is an old build.
+  check and fetches only `feeds.soundcloud.com`. A worker change is not live until `wrangler deploy` runs in
+  `worker/`: when the Melera podcast fails with a "websocket upgrade" reply, or the ONLINE pages show no avatars,
+  the hosted relay is an old build.
+- **Identity and safety.** The browser keeps a secret `uid` (`vrclub.networkUid`), sent as a query parameter; the relay
+  shows everyone else only `pid = SHA-256("vrclub-pid-v1:" + uid)` truncated to 16 hex. Blocks and bans are keyed by
+  `pid`, so they survive reconnects (session ids change every time) and copying a `pid` cannot get anyone banned.
+  A client without a uid is anonymous per connection. **Block** is two-way invisibility: the relay filters state,
+  emoji, gesture, music and rtc-signal both ways and sends join/leave when a block changes; the client also ignores
+  blocked pids locally, and sends its saved list as `blocklist` after the welcome. The welcome never lists a guest who
+  has blocked the newcomer. The host alone can `kick`, `ban` (in memory, per room object: gone once the room empties)
+  and `lock` (refuses new guests); handover to the next host keeps the lock and the bans.
+- **Avatars.** The relay assigns each guest a random, room-unique character from `AVATARS` (the 17 Quaternius Modular
+  people `f1`–`f8`, `m1`–`m9`; a test ties the list to `AVATAR_SOURCES`) and a guest may reroll. A guest can restrict the draw to women (`f*`) or men (`m*`) (`vrclub.avatarPool`: `any`/`women`/`men`; `?avatars=` on connect, `pool` on a reroll; `AVATAR_POOLS` in the relay). If a pool is exhausted the relay gives any free person, never a double; choosing a pool in a room rerolls only a look outside it. Others see you as that
+  character. Your own first-person body is still the UE-mannequin `AvatarRig`, which only drives that skeleton, so you
+  do not see yourself as your assigned avatar.
 - `js/networkClient.js` — WebSocket presence plus a WebRTC voice mesh using **perfect
   negotiation** (`negotiationneeded`; the higher id is polite). Either guest may enable the
   mic first. Muting removes tracks but keeps connections, so the guest still hears others.
   A dropped socket reports every peer through `onPeerLeave`, because the relay issues new
   ids per connection. `sendMusic()` refuses non-http(s) URLs, since a host's `blob:` is
-  meaningless to guests.
-- `js/avatarManager.js` — remote guests. `state.y` on the wire is the sender's **eye**
-  height; the avatar root is placed `EYE_HEIGHT` below it. The first sample snaps into
-  place and yaw interpolates along the shortest arc. Each remote voice is also attached to
+  meaningless to guests. Kick, ban and lock close codes are terminal (no reconnect), carry `error.code`
+  and release the mic.
+- `js/avatarManager.js` — remote guests as people built from `club._loadCrowdSource(index)` (the same containers the
+  crowd uses; one draw each). A clip state machine plays Idle/Walk/Run from the interpolated speed, plus Wave, Yes
+  (nod) and a Dance_Loop toggle. `MAX_PEOPLE` (8) are people; the rest, and any guest still loading, are a capsule +
+  head (the capsule always remains as the invisible collision body). `state.y` on the wire is the sender's **eye**
+  height; the avatar root is placed `EYE_HEIGHT` below it. Name tag with a host crown and mute marker, an
+  analyser-driven speaking frame, per-guest mute and mute-all through the gain node, and a **personal-space bubble**
+  (a guest hides within 0.7 m and returns beyond 0.95 m). Each remote voice is also attached to
   a muted `<audio>` element, because Chromium delivers no samples from a remote WebRTC
-  stream into Web Audio otherwise. Emoji are allow-listed and rate-limited per guest.
-  The first `MAX_RIGS` (4) guests are people (`AvatarRig`, see below); later ones, and any
-  guest who arrives before the crowd has loaded, are a capsule + head. The capsule always
-  remains as the invisible collision body.
-- The host (first socket in the room) drives shared music. A guest's browser fetches the
-  host's stream only after an explicit **Listen along** click, because that request
-  discloses the guest's IP to an arbitrary server.
+  stream into Web Audio otherwise. `AvatarRig` is now only the local player's body.
+- `js/multiplayer.js` (`ClubMultiplayer`, `club.multiplayer`) owns the session: preferences (`vrclub.networkUid`,
+  `blockedPeers`, `personalSpace`, `autoNod` and the existing server/room/name keys), connect/disconnect, mic, emoji,
+  gestures (dance ends when the guest walks 0.6 m; a head nod in VR, detected from camera pitch, sends `nod` unless
+  turned off), reroll, mute, block list, host-only kick/ban/lock, and shared music. Both the DOM panel (`initNetworkMenu`
+  in `js/ui-init.js`) and the VR menu call it and redraw from `onChange`; neither reimplements an action, and
+  `test/multiplayer.test.mjs` checks the delegation.
+- VR menu (`js/club/10-ui.js`): home → **ONLINE** → NETWORK / MIC / **LOOK** (women / men / anyone, new look) / **GESTURES** (wave, nod, dance, 7 emoji) /
+  **PEOPLE** (9 per page, then a person page: MUTE, BLOCK, KICK, BAN; kick and ban need a second tap within 4 s) /
+  **SAFETY** (personal space, mute all, lock room, nod to nod, unblock all, leave room) / NEW PRIVATE ROOM /
+  PUBLIC LOBBY / LISTEN ALONG. Online pages redraw only while a net page is open.
+- **The host owns the music and the lights; everyone else follows.** The host is the first socket in the room and
+  passes to the next guest when they leave (the relay keeps the lock, bans, music and show across the handover).
+  - *Music.* The host's `music` frame carries `url`, `playing`, `position`, and (for a podcast the app started)
+    `podcast` and `title`; the relay stamps `updatedAt` with its own clock and the guest reads it through
+    `NetworkClient.serverOffset` (measured from the welcome's `serverTime`), never `Date.now()` directly. The host
+    re-announces every 3 s and on play, pause and seek (`ClubMultiplayer._watchAudio`, so every control is covered);
+    a guest seeks only when it drifts more than 0.75 s and never on a live stream. A Podbean episode or the club's
+    own relay `/podcast/` path starts at once (`_isKnownMusicSource`; the app contacts those anyway, and a look-alike
+    path on another host does not count); any other URL waits for **Listen along**, because it discloses the
+    guest's IP. A guest's own episode queue is dropped and `PodcastPlayer.advance()` stands down while following.
+  - *Lights.* The host sends a `show` frame at most every 250 ms, on each bar line, on any change and every 2 s
+    (a lone host sends nothing; a newcomer triggers one at once; the relay keeps the latest for late joiners).
+    While the Show Director drives (`m: 'show'`) it carries `ShowDirector.snapshot()` (movement, cue, bars into the
+    cue, set-piece, beat in the bar) plus `VJDirector.colourSnapshot()` (master hue, whether a look pins it, palette,
+    LED harmony, mirror-ball colour). Under manual control (`m: 'manual'`, or the legacy cycler `'off'`) it carries
+    `fx`, the console's settings. A guest runs `ShowDirector.setFollower(true)` and `VJDirector.remoteDriven`: its grid,
+    ramps and kick punch still run on its own audio, but it never picks a movement, advances a cue, starts a
+    breakdown, ends a set-piece, rotates the hue, rotates the mirror ball or picks an auto-scene; `applyRemote()` puts
+    it on the host's cue (names it does not know are ignored; `_alignBeat()` adopts the host's beat in the bar only
+    when two frames in a row disagree, because one beat is network delay). The first frame after joining (or after a
+    gap) is applied with `force`, so the look is written even if the cue matches.
+  - *What a frame may do.* The relay checks only shape (`sanitizeShow`: known fields, clamped numbers, a flat `fx`
+    of at most 96 booleans/numbers/short words); the client's `MANUAL_FIXTURES` allow-list (name, type, range) is
+    the authority, so a frame can never write another property. A guest's **Photosensitive Safe Mode wins**: the
+    host's strobes are never applied under it. Every frame the guest re-asserts the host's mode, so a stray local
+    change cannot pull it off; with no frame for 12 s (`SHOW_STALE_MS`: an old-client or backgrounded host) the guest's
+    own show runs until the host speaks again.
+  - *Guests cannot change either.* `VRClub.isFollowingHost()` / `guardHostControl('music'|'lights')` gate the VR
+    quick menu (buttons read HOST ONLY), the in-world desk, `seekAudioTo`, `toggleAudioPlayback`, the keyboard
+    shortcuts (Space, B, F) and the director's own macros; `initRoomGuestLock()` in `js/ui-init.js` dims and swallows
+    every control of the lighting and audio panels with one capture-phase listener per panel (new controls are covered
+    automatically) and disables their inputs. The comfort settings stay live. A new control that changes the music
+    or the lights must call `guardHostControl`; `test/multiplayer.test.mjs` fails if a listed one stops doing so.
+  - *Rooms.* A private room's code is six digits (`private-482913`, typed on the VR keypad; unlisted, not secret:
+    the host can lock it and kick or ban). `ClubMultiplayer.roomFromCode()` maps six digits to that name and passes
+    any other text through; `?room=` in the URL (`inviteUrl()`) joins a room directly.
+- Unmeasured: eight skinned people plus voice analysers on a Quest 3S. Verified with two desktop browsers against a
+  local `wrangler dev` relay (walk/wave/nod/dance clips, voice, mute, reroll, block across a reconnect, kick, ban).
 
 ## Debugging
 

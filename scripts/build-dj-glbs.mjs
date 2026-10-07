@@ -3,8 +3,10 @@
 // original outfit and animation packs:
 //
 //   club-dj-hernan.glb  <- club-guest-male.glb   with its beard cut out and the Universal Base Characters'
-//                          rigged-to-head `Hair_Long` added over the short cap, shortened to shoulder length
-//                          (half-long dark wavy hair, clean-shaven; the brown is a runtime tint)
+//                          rigged-to-head `Hair_Long` added over the short cap, shortened to shoulder length and with
+//                          its front (bangs, face-framing locks) removed: the cap makes the swept-back fringe, the long
+//                          strands fall behind the ears (half-long dark wavy hair, clean-shaven; the brown is a
+//                          runtime tint). Without the trim the fringe reads as very long eyebrows.
 //   club-dj-melera.glb  <- club-guest-female.glb   (long straight hair; the blond is a runtime tint)
 //
 // Both keep ONE clip, `Idle_Loop` (the DJ works the decks; it does not dance), so a DJ is about half the size of a
@@ -23,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { copyToDocument, prune } from '@gltf-transform/functions';
+import sharp from 'sharp';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const argument = name => {
@@ -30,9 +33,10 @@ const argument = name => {
     return index > 0 ? process.argv[index + 1] : null;
 };
 const ubc = argument('--ubc');
+const headphonesDir = argument('--headphones');
 const outDir = argument('--out') || join(ROOT, 'js/models/avatars');
 if (!ubc) {
-    console.error('usage: node scripts/build-dj-glbs.mjs --ubc "<unzipped Universal Base Characters[Standard]>" [--out <dir>]');
+    console.error('usage: node scripts/build-dj-glbs.mjs --ubc "<unzipped Universal Base Characters[Standard]>" [--headphones "<unzipped Headphones dir>"] [--out <dir>]');
     process.exit(1);
 }
 
@@ -130,7 +134,7 @@ function removeEmbeddedBeard(document, beardDocument) {
  * The hair is skinned to the head bone, so compressing its vertices downwards in bind space shortens the strands
  * and leaves the scalp untouched: Hernan's half-long hair is Hair_Long at about half its length.
  */
-function swapHair(document, hairDocument, { keep, keepCap }) {
+function swapHair(document, hairDocument, { keep, keepCap, trimFront }) {
     // keepCap: the character's own short hair stays as the scalp cap (the long style is authored for the female
     // head and leaves a male crown bare); the long strands are added over it.
     for (const node of document.getRoot().listNodes()) {
@@ -166,7 +170,147 @@ function swapHair(document, hairDocument, { keep, keepCap }) {
             position.setArray(array);
         }
     }
+    if (trimFront) trimFrontStrands(document, names, trimFront);
     return names;
+}
+
+/**
+ * Drop the long style's front: its bangs and face-framing locks hang over the forehead and cheeks and, over a short cap,
+ * read as long eyebrows with bare skin between. Triangles whose centre is in front of the ear plane (`front`, metres) and
+ * above `below` metres under the ears' height go; the sides, the back and the strands below the jaw stay.
+ */
+function trimFrontStrands(document, names, { front, below }) {
+    const head = measureHead(document);
+    for (const node of document.getRoot().listNodes().filter(item => names.includes(item.getName()) && item.getMesh())) {
+        for (const primitive of node.getMesh().listPrimitives()) {
+            const a = primitive.getAttribute('POSITION').getArray();
+            const indices = primitive.getIndices();
+            const source = indices.getArray();
+            const kept = [];
+            for (let t = 0; t < source.length; t += 3) {
+                const y = (a[source[t] * 3 + 1] + a[source[t + 1] * 3 + 1] + a[source[t + 2] * 3 + 1]) / 3;
+                const z = (a[source[t] * 3 + 2] + a[source[t + 1] * 3 + 2] + a[source[t + 2] * 3 + 2]) / 3;
+                if (z > head.earZ + front && y > head.earY - below) continue;
+                kept.push(source[t], source[t + 1], source[t + 2]);
+            }
+            indices.setArray(new source.constructor(kept));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Headphones. A CC0 OBJ ("Headphones" on OpenGameArt: black cans, a blue accent, a 4K PBR set) is rebuilt as a mesh
+// skinned 100% to the Head joint, in the character's own bind pose, so it follows the head exactly and needs no
+// runtime axis guessing. The cups are moved out to each character's measured ears and the band widened to meet them.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Parse a triangulated-or-not OBJ into one indexed mesh (unique v/vt/vn triples), UVs flipped for glTF. */
+function parseObj(text) {
+    const v = [], vt = [], vn = [];
+    const positions = [], normals = [], uvs = [], indices = [];
+    const seen = new Map();
+    const vertex = token => {
+        if (seen.has(token)) return seen.get(token);
+        const [a, b, c] = token.split('/').map(part => (part ? Number(part) : 0));
+        positions.push(...v[a - 1]);
+        uvs.push(...(b ? [vt[b - 1][0], 1 - vt[b - 1][1]] : [0, 0]));
+        normals.push(...(c ? vn[c - 1] : [0, 1, 0]));
+        seen.set(token, positions.length / 3 - 1);
+        return positions.length / 3 - 1;
+    };
+    for (const line of text.split('\n')) {
+        const part = line.trim().split(/\s+/);
+        if (part[0] === 'v') v.push(part.slice(1, 4).map(Number));
+        else if (part[0] === 'vt') vt.push(part.slice(1, 3).map(Number));
+        else if (part[0] === 'vn') vn.push(part.slice(1, 4).map(Number));
+        else if (part[0] === 'f') {
+            const face = part.slice(1).map(vertex);
+            for (let i = 1; i + 1 < face.length; i++) indices.push(face[0], face[i], face[i + 1]);
+        }
+    }
+    return { positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), indices: new Uint32Array(indices) };
+}
+
+/** Where a character's ears and crown are, from its own bind pose and meshes (model space, metres). */
+function measureHead(document) {
+    const root = document.getRoot();
+    const skin = root.listSkins()[0];
+    const headIndex = skin.listJoints().findIndex(joint => joint.getName() === 'Head');
+    const ibm = skin.getInverseBindMatrices().getArray();
+    const m = Array.from(ibm.subarray(headIndex * 16, headIndex * 16 + 16));
+    const headY = -(m[4] * m[12] + m[5] * m[13] + m[6] * m[14]);
+    const body = [], hairTop = { y: -Infinity };
+    for (const node of root.listNodes()) {
+        const mesh = node.getMesh();
+        if (!mesh) continue;
+        for (const primitive of mesh.listPrimitives()) {
+            const a = primitive.getAttribute('POSITION').getArray();
+            const isBody = /superhero/i.test(primitive.getMaterial().getName());
+            for (let i = 0; i < a.length; i += 3) {
+                if (isBody && a[i + 1] > headY - 0.02 && a[i + 1] < headY + 0.32) body.push([a[i], a[i + 1], a[i + 2]]);
+                if (/^Hair_/.test(node.getName()) && Math.abs(a[i]) < 0.05 && a[i + 1] > hairTop.y) hairTop.y = a[i + 1];
+            }
+        }
+    }
+    const widest = Math.max(...body.map(p => Math.abs(p[0])));
+    const ears = body.filter(p => Math.abs(p[0]) > 0.94 * widest);
+    const mean = axis => ears.reduce((s, p) => s + p[axis], 0) / ears.length;
+    return { headIndex, earX: widest, earY: mean(1), earZ: mean(2), crownY: Math.max(...body.map(p => p[1]), hairTop.y) };
+}
+
+async function addHeadphones(document, objDir) {
+    const mesh = parseObj(await readFile(join(objDir, 'Headphones.obj'), 'utf8'));
+    const head = measureHead(document);
+    const S = 0.0021;            // the model's units to metres: its cups come out 7 cm across
+    const CUP_Y = 73.7;          // the cups' centre height in the model
+    const PAD_X = 25;            // where the ear pads face, either side of the middle
+    const JOIN_X = 22;           // below this |x| it is band, above it cup
+    const hair = 0.014;          // hair and a skin's width between the ear and the pad
+    const innerHalf = head.earX + hair;
+    const band = (innerHalf - (PAD_X - JOIN_X) * S) / JOIN_X;
+    const positions = mesh.positions;
+    let bandTop = -Infinity;
+    for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i], ax = Math.abs(x);
+        const nx = ax >= JOIN_X ? innerHalf + (ax - PAD_X) * S : ax * band;
+        positions[i] = Math.sign(x) * nx;
+        positions[i + 1] = (positions[i + 1] - CUP_Y) * S + head.earY;
+        positions[i + 2] = positions[i + 2] * S + head.earZ;
+        if (ax < JOIN_X) bandTop = Math.max(bandTop, positions[i + 1]);
+    }
+    // The band rests on the crown: lift it (more at the middle, none at the cups) if the hair is thicker than the head.
+    const lift = Math.max(0, head.crownY - 0.004 - bandTop);
+    if (lift > 0) {
+        for (let i = 0; i < positions.length; i += 3) {
+            const ax = Math.abs(positions[i]);
+            const weight = Math.max(0, 1 - ax / (innerHalf * 0.95));
+            if (Math.abs(mesh.positions[i]) < innerHalf) positions[i + 1] += lift * weight * weight;
+        }
+    }
+
+    const root = document.getRoot();
+    const buffer = root.listBuffers()[0];
+    const skin = root.listSkins()[0];
+    const count = positions.length / 3;
+    const joints = new Uint16Array(count * 4);
+    const weights = new Float32Array(count * 4);
+    for (let i = 0; i < count; i++) { joints[i * 4] = head.headIndex; weights[i * 4] = 1; }
+    const accessor = (name, type, array) => document.createAccessor(name).setType(type).setArray(array).setBuffer(buffer);
+    const primitive = document.createPrimitive()
+        .setAttribute('POSITION', accessor('hp_pos', 'VEC3', positions))
+        .setAttribute('NORMAL', accessor('hp_nrm', 'VEC3', mesh.normals))
+        .setAttribute('TEXCOORD_0', accessor('hp_uv', 'VEC2', mesh.uvs))
+        .setAttribute('JOINTS_0', accessor('hp_j', 'VEC4', joints))
+        .setAttribute('WEIGHTS_0', accessor('hp_w', 'VEC4', weights))
+        .setIndices(accessor('hp_i', 'SCALAR', mesh.indices));
+    const colour = await sharp(join(objDir, 'Mat_Base_Color.png')).resize(1024, 1024).png().toBuffer();
+    const material = document.createMaterial('Headphones')
+        .setBaseColorTexture(document.createTexture('headphonesColour').setImage(colour).setMimeType('image/png'))
+        .setMetallicFactor(0.15).setRoughnessFactor(0.5);
+    primitive.setMaterial(material);
+    const node = document.createNode('Headphones').setMesh(document.createMesh('Headphones').addPrimitive(primitive)).setSkin(skin);
+    root.listScenes()[0].addChild(node);
+    return `Headphones (ears ${head.earX.toFixed(3)} m out at y ${head.earY.toFixed(3)}, crown ${head.crownY.toFixed(3)}, lift ${lift.toFixed(3)})`;
 }
 
 async function build({ from, to, beard, hair }) {
@@ -180,6 +324,7 @@ async function build({ from, to, beard, hair }) {
         }
         added = swapHair(document, await readGltf(hairPath), hair);
     }
+    if (headphonesDir) added = [...added, await addHeadphones(document, headphonesDir)];
     if (beard) {
         const beardPath = join(ubc, 'Hairstyles', 'Rigged to Head Bone', 'glTF (Godot -Unreal)', 'Hair_Beard.gltf');
         added = attachSkinned(document, await readGltf(beardPath));
@@ -202,5 +347,6 @@ async function build({ from, to, beard, hair }) {
 }
 
 // Hernan Cattaneo: half-long dark wavy hair, no beard (his press photos). Miss Melera: long straight blond hair.
-await build({ from: 'club-guest-male.glb', to: 'club-dj-hernan.glb', hair: { style: 'Hair_Long', keep: 0.5, keepCap: true, shave: true } });
+// Both wear headphones, as DJs do (Miss Melera's photo, and it reads as a DJ at the decks).
+await build({ from: 'club-guest-male.glb', to: 'club-dj-hernan.glb', hair: { style: 'Hair_Long', keep: 0.5, keepCap: true, shave: true, trimFront: { front: 0.0, below: 1 } } });
 await build({ from: 'club-guest-female.glb', to: 'club-dj-melera.glb' });

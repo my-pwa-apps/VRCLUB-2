@@ -74,24 +74,19 @@ function loadClassic(relativePath, globals = {}) {
 // ---------------------------------------------------------------------------
 
 test('multiplayer defaults to the hosted relay and migrates legacy local URLs', () => {
-    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
-    const start = source.indexOf('function defaultNetworkServerUrl()');
-    const end = source.indexOf('function initNetworkMenu()', start);
+    const { window } = loadClassic('js/multiplayer.js');
+    const { ClubMultiplayer } = window;
     const hosted = 'wss://vrclub-network.garfieldapp.workers.dev';
+    assert.equal(ClubMultiplayer.HOSTED_RELAY, hosted);
     for (const stored of [null, '', 'ws://localhost:8787', 'ws://127.0.0.1:8787/',
         'ws://[::1]:8787', 'wss://custom.example', 'invalid']) {
         let saved = stored;
-        const context = vm.createContext({ URL, NETWORK_PREFS: { serverUrl: 'relay' },
-            localStorage: { getItem: () => saved, setItem: (key, value) => { saved = value; } } });
-        vm.runInContext(source.slice(start, end), context);
+        const storage = { getItem: () => saved, setItem: (key, value) => { saved = value; } };
         const expected = stored === 'wss://custom.example' ? stored : hosted;
-        assert.equal(vm.runInContext('defaultNetworkServerUrl()', context), expected);
+        assert.equal(ClubMultiplayer.defaultServerUrl(storage), expected);
         if (stored?.startsWith('ws:')) assert.equal(saved, hosted);
     }
-    const context = vm.createContext({ URL, NETWORK_PREFS: { serverUrl: 'relay' },
-        localStorage: { getItem() { throw new Error('Storage unavailable'); } } });
-    vm.runInContext(source.slice(start, end), context);
-    assert.equal(vm.runInContext('defaultNetworkServerUrl()', context), hosted);
+    assert.equal(ClubMultiplayer.defaultServerUrl({ getItem() { throw new Error('Storage unavailable'); } }), hosted);
 });
 
 test('keyboard shortcuts leave focused buttons to native Space activation but still control scene audio', async () => {
@@ -113,7 +108,7 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
             removeEventListener() {}
         },
         uiTeardowns: [],
-        vrClubInstance: { audioElement: audio, moveCameraToPreset() {} },
+        vrClubInstance: { audioElement: audio, moveCameraToPreset() {}, guardHostControl() { return true; } },
         vjMacros: {}
     });
     vm.runInContext(source.slice(start, end), context);
@@ -2658,9 +2653,10 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         assert.ok(json.meshes[0].primitives[0].attributes.COLOR_0 !== undefined, `${file} lost its vertex colours`);
         assert.ok(!json.images && !json.textures, `${file} should not carry textures`);
         const clips = json.animations.map(animation => animation.name).sort();
-        const expected = guests.has(id)
+        const natives = ['Idle', 'Run', 'Walk', 'Wave'];   // the packs' own clips, kept for the guests who walk the room
+        const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
-            : ['Dance_Loop'];
+            : ['Dance_Loop', 'Yes']).concat(natives).sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
         assert.ok(bytes.length < 1.1 * 1048576, `${file} is too heavy (${bytes.length})`);
@@ -6137,16 +6133,24 @@ test('the DJ character files: one idle clip, six draws, the right hair, and the 
         return json.meshes.flatMap(mesh => mesh.primitives).reduce((sum, primitive) => sum + json.accessors[primitive.indices].count / 3, 0);
     };
     const files = {
-        // Hernan Cattaneo: the guest file's beard is cut out and Hair_Long, shortened to shoulder length, goes over
-        // the short cap (+1,872 triangles net). Miss Melera is the female guest as she is.
-        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [1500, 2300], hair: 'Hair_SimpleParted' },
-        'club-dj-melera.glb': { from: 'club-guest-female.glb', extra: [0, 0], hair: 'Hair_Long' }
+        // Hernan Cattaneo: the guest file's beard is cut out and Hair_Long, shortened to shoulder length and with its
+        // front (bangs and face-framing locks) removed, goes over the short cap (+548 triangles net). Both DJs wear the
+        // 3,324-triangle headphones.
+        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [3500, 4200], hair: 'Hair_SimpleParted' },
+        'club-dj-melera.glb': { from: 'club-guest-female.glb', extra: [3000, 3700], hair: 'Hair_Long' }
     };
     for (const [file, expected] of Object.entries(files)) {
         const json = readGlbJson(`js/models/avatars/${file}`);
         assert.deepEqual(json.animations.map(animation => animation.name), ['Idle_Loop'], `${file} must carry only the DJ's idle clip`);
         assert.ok(json.nodes.some(node => node.name === 'Eyes'), `${file} lost its eyes`);
-        assert.ok(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0) <= 6, `${file} must stay within six draws`);
+        // Six draws, plus the headphones: a mesh skinned entirely to the Head joint, so they follow every head movement.
+        assert.ok(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0) <= 7, `${file} must stay within seven draws`);
+        const headphones = json.nodes.find(node => node.name === 'Headphones');
+        assert.ok(headphones && headphones.mesh !== undefined && headphones.skin === 0, `${file} has no headphones on its skeleton`);
+        const headIndex = json.skins[0].joints.findIndex(joint => json.nodes[joint].name === 'Head');
+        const attributes = json.meshes[headphones.mesh].primitives[0].attributes;
+        assert.ok(attributes.JOINTS_0 !== undefined && attributes.WEIGHTS_0 !== undefined, `${file}'s headphones are not skinned`);
+        assert.ok(headIndex >= 0, `${file} has no Head joint`);
         assert.ok(readFileSync(join(ROOT, `js/models/avatars/${file}`)).length < 3 * 1048576, `${file} is too heavy`);
         assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), new RegExp(file.replace('.', '\\.')));
         const extra = triangles(file) - triangles(expected.from);
@@ -6154,4 +6158,251 @@ test('the DJ character files: one idle clip, six draws, the right hair, and the 
     }
     assert.equal(readdirSync(join(ROOT, 'js/models/avatars')).includes('club-dj.glb'), false, 'the old DJ file is unused and must not ship');
     assert.equal(readdirSync(join(ROOT, 'js/models/avatars')).filter(file => /^club-dj/.test(file)).length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// A host drives the room's lights; guests follow
+// ---------------------------------------------------------------------------
+
+function makeFollowerShow() {
+    const { window } = loadClassic('js/showDirector.js');
+    const club = { vjManualMode: false, photosensitiveSafeMode: false, vjDirector: { paletteMode: 'analogous' } };
+    const host = new window.ShowDirector({ ...club, vjDirector: { paletteMode: 'analogous' } });
+    const follower = new window.ShowDirector(club);
+    follower.setFollower(true);
+    return { window, club, host, follower };
+}
+
+test('a following ShowDirector keeps the grid but never decides: no cue advance, no breakdown, no set-piece end', () => {
+    const { follower } = makeFollowerShow();
+    follower._barCounter = 40;
+    follower._cueStartBar = 0;
+    const before = [follower._movementName, follower._cueIndex];
+    follower._onBar();
+    assert.deepEqual([follower._movementName, follower._cueIndex], before, 'a follower advanced its own cue');
+    follower._beginSetPiece('countdown', 'ignition');
+    follower._setPieceStartBar = -100;
+    follower._onBar();
+    assert.ok(follower._setPiece, 'a follower ended a set-piece by itself');
+    assert.equal(follower.forceMovement('pulse'), false);
+    follower.triggerShowDrop();
+    assert.equal(follower.setEnabled(false), true, 'a follower cannot be switched off');
+});
+
+test('a follower lands on the host\'s movement, cue and set-piece, and hands the rig on when the set-piece ends', () => {
+    const { host, follower, club } = makeFollowerShow();
+    host.forceMovement('ignition');
+    host._cueIndex = 1;
+    host._applyCue(host._movement.cues[1]);
+    host._barCounter = 12;
+    host._cueStartBar = 10;
+    host._beatInBar = 2;
+    const frame = { m: 'show', ...host.snapshot() };
+    assert.equal(frame.mv, 'ignition');
+    assert.equal(frame.cue, 1);
+    assert.equal(frame.cb, 2);
+    assert.equal(frame.bib, 2);
+    follower._barCounter = 500;
+    assert.equal(follower.applyRemote(frame), true);
+    assert.equal(follower._movementName, 'ignition');
+    assert.equal(follower._cueIndex, 1);
+    assert.equal(follower._barCounter - follower._cueStartBar, 2, 'the ramps start where the host is in the cue');
+    const look = follower.looks[follower._cue.look];
+    for (const key in look) {
+        if (window_isMeta(follower, key) || Array.isArray(look[key])) continue;
+        assert.equal(club[key], look[key], `${key} was not applied from the host's cue`);
+    }
+
+    host._beginSetPiece('countdown', 'ignition');
+    host._barCounter += 1;
+    const piece = { m: 'show', ...host.snapshot() };
+    assert.equal(piece.sp, 'countdown');
+    assert.equal(piece.spt, 'ignition');
+    follower.applyRemote(piece);
+    assert.equal(follower._setPiece, follower.setPieces.countdown);
+    assert.equal(follower._setPieceBar, piece.spb);
+
+    host._endSetPiece();
+    follower.applyRemote({ m: 'show', ...host.snapshot() });
+    assert.equal(follower._setPiece, null, 'the set-piece ends when the host says so');
+    assert.equal(follower._movementName, 'ignition');
+});
+
+function window_isMeta(director, key) {
+    return director.constructor.META_KEYS.has(key);
+}
+
+test('a follower ignores names it does not know, and frames that are not a running show', () => {
+    const { follower } = makeFollowerShow();
+    const was = [follower._movementName, follower._cueIndex];
+    assert.equal(follower.applyRemote({ m: 'show', mv: 'nonsense', cue: 0 }), false);
+    assert.equal(follower.applyRemote({ m: 'show', mv: 'pulse', cue: 99 }), false);
+    assert.equal(follower.applyRemote({ m: 'show', sp: 'nonsense', spb: 0 }), false);
+    assert.equal(follower.applyRemote({ m: 'manual' }), false);
+    assert.equal(follower.applyRemote(null), false);
+    assert.deepEqual([follower._movementName, follower._cueIndex], was);
+    follower.setFollower(false);
+    assert.equal(follower.applyRemote({ m: 'show', mv: 'pulse', cue: 0 }), false, 'a director that is not following ignores the host');
+});
+
+test('beat alignment believes a persistent difference, not one beat of network delay', () => {
+    const { follower } = makeFollowerShow();
+    follower._beatInBar = 3;
+    follower._alignBeat(0);            // the frame crossed the downbeat on its way here
+    assert.equal(follower._beatInBar, 3);
+    follower._alignBeat(0);            // twice in a row: it is real
+    assert.equal(follower._beatInBar, 0);
+    follower._beatInBar = 1;
+    follower._alignBeat(3);            // two beats out is never latency
+    assert.equal(follower._beatInBar, 3);
+    follower._alignBeat(NaN);
+    assert.equal(follower._beatInBar, 3);
+});
+
+test('leaving a host\'s show keeps the cue the room was on instead of restarting the opening', () => {
+    const { follower } = makeFollowerShow();
+    follower.applyRemote({ m: 'show', mv: 'ascent', cue: 1, cb: 0, bib: 0 });
+    follower.setFollower(false);
+    assert.equal(follower._movementName, 'ascent');
+    assert.equal(follower._cueIndex, 1);
+});
+
+test('VJDirector adopts the host\'s colour, stops rotating its own, and applies it next frame', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const club = {
+        vjBPM: 128, currentSpotColor: new BABYLON.Color3(1, 0, 0), mirrorBallColors: [{}, {}, {}, {}], mirrorBallColorIndex: 0,
+        cycleMirrorBallColor() { this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length; }
+    };
+    const vj = new window.VJDirector(club);
+    vj.beatNumber = 40;
+    vj.remoteDriven = true;
+    vj.applyRemoteColour({ hue: 0.6, hl: false, pal: 'complementary', lh: 'triad', mbi: 3 });
+    assert.equal(vj.masterHue, 0.6);
+    assert.equal(vj.paletteMode, 'complementary');
+    assert.equal(vj.ledHarmony, 'triad');
+    assert.equal(club.mirrorBallColorIndex, 3);
+    assert.equal(vj.beatNumber - vj.lastPhraseBeat, 16, 'applied on the next frame, not the next phrase');
+    vj._applyPalette();
+    assert.equal(vj.masterHue, 0.6, 'a following director must not rotate the hue itself');
+    assert.equal(club.mirrorBallColorIndex, 3, 'nor the mirror ball');
+    vj.applyRemoteColour({ hue: 0.6, pal: 'bogus', lh: 'nonsense', mbi: 99 });
+    assert.equal(vj.paletteMode, 'complementary', 'an unknown palette is ignored');
+    assert.equal(club.mirrorBallColorIndex, 3, 'an out-of-range mirror colour is ignored');
+    const snap = vj.colourSnapshot();
+    assert.equal(snap.hue, 0.6);
+    assert.equal(snap.pal, 'complementary');
+
+    vj.remoteDriven = false;
+    vj.lastPhraseBeat = vj.beatNumber - 16;
+    vj._applyPalette();
+    assert.notEqual(vj.masterHue, 0.6, 'on its own again it rotates as before');
+});
+
+test('a following VJDirector leaves scene choice to the host', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const club = { vjBPM: 128, dtScale: 1, showDirector: { isDriving: () => false } };
+    const vj = new window.VJDirector(club);
+    let picked = 0;
+    vj._updateAutoScene = () => { picked++; };
+    vj.manualSceneUntil = -1;
+    vj.update(1, { hasAudio: false });
+    assert.equal(picked, 1);
+    vj.remoteDriven = true;
+    vj.update(2, { hasAudio: false });
+    assert.equal(picked, 1, 'a guest\'s own auto-scene picker must stand down');
+});
+
+test('VR menu: the room-code keypad types six digits, deletes, and the online page offers it', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
+    const proto = window.VRClubUI.prototype;
+    const joined = [];
+    const club = Object.create(proto);
+    club.multiplayer = { joinRoom: code => { joined.push(code); return true; }, currentRoom: 'lobby', connected: false };
+    club.showErrorMessage = () => {};
+    club.pulseHaptic = () => {};
+    const shown = [];
+    club._showVRQuickMenuPage = page => shown.push(page);
+    window.ClubMultiplayer = class { static EMOJI = []; };
+    const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
+
+    const keypad = proto._vrNetPageDefinitions.call(club, 'room', common);
+    assert.deepEqual([...keypad.slice(0, 10).map(b => b.label)], ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']);
+    assert.equal(keypad.length, 12, 'the menu has twelve slots');
+    assert.equal(keypad[10].label, '\u2190 BACK');
+    const online = proto._vrNetPageDefinitions.call(club, 'online', common);
+    assert.ok(online.some(b => b.label === 'JOIN ROOM' && b.target === 'room'));
+    assert.ok(online.length <= 12);
+    assert.ok(window.VRClubUI.VR_NET_PAGES.includes('room'));
+
+    const press = digit => proto._runVRNetworkAction.call(club, { op: 'digit', digit });
+    for (const d of '48291') press(d);
+    assert.equal(club._vrRoomDigits, '48291');
+    proto._runVRNetworkAction.call(club, { op: 'roomBack' });
+    assert.equal(club._vrRoomDigits, '4829', 'the back key deletes once something is typed');
+    assert.equal(proto._vrNetPageDefinitions.call(club, 'room', common)[10].label, '\u2190 DELETE');
+    press('1'); press('3');
+    assert.deepEqual([...joined], ['482913']);
+    assert.equal(club._vrRoomDigits, '');
+    assert.equal(shown.at(-1), 'online');
+    assert.equal(proto._vrNetSubtitle.call(Object.assign(club, { _vrRoomDigits: '48' }), 'room').replace(/\s+/g, ' '), 'ROOM CODE 48_ ___');
+});
+
+test('VR menu: lighting and music buttons read HOST ONLY for a guest, and travel and comfort stay local', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    club.multiplayer = { following: true };
+    club.graphicsTier = 'ultra';
+    for (const owned of [{ action: 'seek' }, { action: 'playPause' }, { action: 'podcast' }, { action: 'autoShow' }, { action: 'reset' },
+        { action: 'cycle', control: 'changeColor' }, { control: 'lightsActive' }, { control: 'strobesActive' }]) {
+        assert.equal(proto._vrQuickMenuButtonValue.call(club, owned, true), 'HOST ONLY', JSON.stringify(owned));
+    }
+    for (const local of [{ action: 'travel', control: 'danceFloor' }, { control: 'photosensitiveSafeMode' }, { control: 'vrComfortMode' },
+        { control: 'bassHapticsEnabled' }, { action: 'quality' }]) {
+        assert.notEqual(proto._vrQuickMenuButtonValue.call(club, local, true), 'HOST ONLY', JSON.stringify(local));
+    }
+    club.multiplayer = { following: false };
+    assert.notEqual(proto._vrQuickMenuButtonValue.call(club, { control: 'lightsActive' }, true), 'HOST ONLY');
+});
+
+test('guardHostControl lets a host and a lone guest through and tells a following guest whose it is', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {}, performance: { now: () => 5000 } });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    const toasts = [];
+    club.showErrorMessage = message => toasts.push(message);
+    assert.equal(club.guardHostControl('lights'), true, 'no session at all');
+    club.multiplayer = { following: false, hostName: () => 'Ann' };
+    assert.equal(club.guardHostControl('lights'), true);
+    club.multiplayer = { following: true, hostName: () => 'Ann' };
+    assert.equal(club.guardHostControl('music'), false);
+    assert.match(toasts[0], /Only the host \(Ann\) controls the music/);
+    assert.equal(club.guardHostControl('music'), false);
+    assert.equal(toasts.length, 1, 'repeated taps do not stack toasts');
+});
+
+test('VR menu: the LOOK page picks a pool and rerolls, and the online page still fits twelve slots', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
+    const proto = window.VRClubUI.prototype;
+    const picked = [];
+    const club = Object.create(proto);
+    club.multiplayer = { avatarPool: 'men', connected: true, setAvatarPool: p => picked.push(p), rerollAvatar: () => picked.push('reroll') };
+    club.showErrorMessage = () => {};
+    window.ClubMultiplayer = class { static EMOJI = []; };
+    const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
+    const look = proto._vrNetPageDefinitions.call(club, 'look', common);
+    assert.deepEqual([...look.slice(0, 4).map(b => b.label)], ['WOMEN', 'MEN', 'ANYONE', 'NEW LOOK']);
+    assert.equal(proto._vrNetActive.call(club, look[1]), true, 'the chosen pool is lit');
+    assert.equal(proto._vrNetActive.call(club, look[0]), false);
+    assert.equal(proto._vrNetValue.call(club, look[1], true), 'SELECTED');
+    for (const button of [look[0], look[2], look[3]]) proto._runVRNetworkAction.call(club, button);
+    assert.deepEqual([...picked], ['women', 'any', 'reroll']);
+    club.multiplayer.people = () => [];
+    club.multiplayer.statusText = () => '';
+    const online = proto._vrNetPageDefinitions.call(club, 'online', common);
+    assert.ok(online.length <= 12);
+    assert.ok(online.some(b => b.label === 'LOOK' && b.target === 'look'));
+    assert.ok(window.VRClubUI.VR_NET_PAGES.includes('look'));
 });

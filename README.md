@@ -44,7 +44,8 @@ js/mezzanine.js            Steel balcony and stair along the left wall, plus the
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype
 js/avatarRig.js            Procedural player body on the dancer skeleton: planted gait, turning, head, IK arms and legs
 js/networkClient.js        Multiplayer WebSocket/WebRTC client (presence, voice, emoji, shared music)
-js/avatarManager.js        Remote-guest avatars, spatial voice and emoji bubbles driven by networkClient
+js/avatarManager.js        Remote guests as clip-driven Quaternius people: idle/walk/run, wave, nod, dance; name tags, spatial voice, mute and the personal-space bubble
+js/multiplayer.js          One multiplayer session for the whole club (DOM panel and VR menu): connect, mic, gestures, block, mute, kick/ban/lock, shared music
 js/club/01-core.js         VRClub constructor, shared state, and device settings
 js/club/02-lifecycle.js    Scene initialization and disposal
 js/club/03-rendering.js    Pipelines, materials, shadows, floor, and walls
@@ -121,13 +122,21 @@ browsers negotiate a direct WebRTC connection (the Worker only relays the SDP/IC
 handshake), so audio stays peer-to-peer. Either guest may enable the mic first; muting keeps
 you listening to everyone else.
 
-The host's stream is not fetched automatically. A guest sees the stream's origin and chooses
-**Listen along**, because loading it discloses their IP address to that server. Local files
+**Rooms, the host and sharing.** Type a room name (or the 6 digits of a private room's code) in the
+panel, or open an invite link (`?room=...`, **Copy invite link**), to join an existing room; **New
+private room** makes your own, and in VR the ONLINE page has **JOIN ROOM** (a keypad) and **NEW PRIVATE
+ROOM**. The first guest in is the room's **host** (named in the status line); if they leave, the next
+guest becomes host. The host owns the music and the lights: everyone else hears the same track at the same
+position and sees the same show, and their lighting and music controls are dimmed (VR buttons read
+*HOST ONLY*). A guest's own comfort settings stay theirs: Safe Mode (it still removes the host's
+strobes), volume, quality, VR comfort and haptics. The host's podcast episodes start for a guest at
+once (the app already talks to those servers); any other stream is not fetched until the guest
+chooses **Listen along**, because loading it discloses their IP address to that server. Local files
 the host plays are not shared.
 
 The relay accepts browser connections only from origins listed in `ALLOWED_ORIGINS`
 (`worker/wrangler.toml`); loopback and private-LAN origins always pass. Add your own site's
-origin before deploying a relay for it. Rooms hold up to 16 guests, and per-connection
+origin before deploying a relay for it. Rooms hold up to 8 guests (voice is a full mesh, and eight is how many are drawn as characters), and per-connection
 rate limits disconnect clients that flood the room.
 
 ## Offline use
