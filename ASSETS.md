@@ -55,7 +55,8 @@ The avenue outside the club's street door is one **baked derivative** of the CC0
 not in this repository (153 pieces and 78 MB of PNG). `node scripts/build-city-assets.mjs --kit "<unzipped kit>/Exports/glTF (Godot)"`
 rebuilds `js/models/city/downtown.glb` from it. The script lays the three whole buildings out as two rows facing each other across a
 four-lane avenue (a far row of six, a near row of two either side of the club), with street and sidewalk tiles, crosswalks, planters and
-bollards. It drops the interior floors, makes the transparent glass an opaque dark pane, lifts the kit's "fake interior" room pictures a
+bollards. The forecourt leaves out the four tiles over the club's entrance stair (the club is a basement; the GLB is baked at y = 0
+and lifted to street level at runtime). It drops the interior floors, makes the transparent glass an opaque dark pane, lifts the kit's "fake interior" room pictures a
 few centimetres in front of the glass so lit rooms show, bakes the kit's per-instance tints into vertex colour (so brick, trim and
 asphalt are one material each), and packs the three room pictures plus a black glass tile into one 1024 px atlas. Each building is
 simplified by its distance from the door (meshoptimizer: the topological simplifier alone stops near 50% because a facade is thousands

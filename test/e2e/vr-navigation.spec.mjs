@@ -92,13 +92,15 @@ test('teleport respects the vestibule walls and the bar after smooth/comfort swa
     await page.waitForFunction(() => window.vrClub?._streetDoor?.open === true, null, { timeout: 120_000 });
     await enterVR(page);
     await renderFrames(page, 4);
+    // Throws start on the landing at the top of the entrance stair, at street level.
+    const S = await page.evaluate(() => window.VenueLayout.vestibule.streetLevel);
     const attempts = [
         // Into the street wall beside the door: still a wall.
-        { from: [0, 1.6, 3], target: [-3.5, 0, 8], allowed: false },
-        { from: [0, 1.6, 3], target: [6, 0, 3], allowed: false },
+        { from: [0, S + 1.6, 5.4], target: [-5, S, 7], allowed: false },
+        { from: [0, S + 1.6, 5.4], target: [6, S, 3], allowed: false },
         { from: [8, 1.6, -10], target: [10.8, 0, -10], allowed: false },
         // Straight out through the open street door onto the pavement.
-        { from: [0, 1.6, 3], target: [0, 0, 8], allowed: true }
+        { from: [0, S + 1.6, 5.4], target: [0, S, 8.5], allowed: true }
     ];
     for (const { from, target, allowed } of attempts) {
         await page.evaluate(position => {
@@ -125,8 +127,10 @@ test('teleport respects the vestibule walls and the bar after smooth/comfort swa
         await renderFrames(page, 6);
         const landed = await page.evaluate(() => window.vrClub.vrHelper.baseExperience.camera.position.asArray());
         const moved = Math.hypot(landed[0] - from[0], landed[2] - from[2]);
-        if (allowed) expect(moved, `the throw toward ${target} should go through the open door`).toBeGreaterThan(2);
-        else expect(moved, `blocked throw toward ${target}`).toBeLessThan(0.05);
+        if (allowed) {
+            expect(moved, `the throw toward ${target} should go through the open door`).toBeGreaterThan(2);
+            expect(landed[1], 'out on the pavement the headset stands at street level').toBeGreaterThan(S + 1);
+        } else expect(moved, `blocked throw toward ${target}`).toBeLessThan(0.05);
     }
     await exitVR(page);
     await expectHealthyRuntime(page);

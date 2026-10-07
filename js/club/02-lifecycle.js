@@ -519,7 +519,8 @@ class VRClubLifecycle extends VRClubCore {
                         // Surface following owns height; the camera's collision solver owns horizontal clearance.
                         const xrCamera = vrHelper.baseExperience.camera;
                         xrCamera.checkCollisions = true;
-                        xrCamera.collisionMask = this._mezzDeck ? ~this._mezzDeck.collisionGroup : -1;
+                        // Collision group 2 is the walk surfaces (balcony deck and treads, the entrance stair): followed, not collided with.
+                        xrCamera.collisionMask = (this._mezzDeck || this._vestibuleStair) ? ~2 : -1;
                         // Body-sized collider; _fitVRCollisionBody() re-hangs it from the real head height every step.
                         xrCamera.ellipsoid = new BABYLON.Vector3(0.25, 0.5, 0.25);
                         xrCamera.inertia = 0.1; // Reduce sliding (default 0.9)

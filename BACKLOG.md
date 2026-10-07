@@ -322,6 +322,25 @@ IWER harness only. Open items:
 
 ---
 
+## Implementation - 2026-10-07 - The club is a basement: an entrance stair down from the street
+
+Shipped: the street door is at street level (2.8 m) and a 16-riser stair hall leads down to the club's doorway; the street GLB
+is lifted to match and its forecourt leaves the stairwell open; outdoors the music falls with distance from the door (see
+[CHANGELOG.md](CHANGELOG.md)). Validated with unit tests on the real Babylon geometry and e2e walks on desktop SwiftShader and the
+IWER harness (desktop collisions up and down, VR thumbstick up and down, teleport out of the door). Open items:
+
+- [ ] **Walk the entrance stair in a headset**
+
+  **Priority:** Medium
+  **Category:** VR comfort
+  **Evidence:** The headset's height on the stair is a linear ramp over the flight (`VenueLayout.vestibule.walkLevel`), the same
+  approach as the balcony stair; nothing has been checked for comfort on a real Quest (smooth descent of 2.8 m in about 4 m).
+  The outdoor falloff (`1 / (1 + max(0, d - 2) / 6)` on the master gain) was set by numbers, not by ear on the headset.
+  **Acceptance criteria:** A Quest 3S walk up and down the stair with the thumbstick reports no discomfort and no catch on the
+  rails or the doorways; the bass at the door and at the end of the block sounds plausible through the headset's speakers.
+
+---
+
 ## Implementation - 2026-10-06 - The street outside the club
 
 Shipped: the vestibule's street door opens onto a night avenue from the CC0 Quaternius *Downtown City MegaKit*, and the

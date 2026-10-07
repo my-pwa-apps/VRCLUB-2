@@ -442,7 +442,11 @@ class VRClubAudioCrowd extends VRClubUI {
             }
             if (this.audioMasterGain && this.audioMasterGain.gain) {
                 const indoorGain = occluded ? 0.72 : 1.15;
-                this.audioMasterGain.gain.setTargetAtTime(indoorGain + (1.25 - indoorGain) * exterior, now, 0.15);
+                // Outdoors the make-up gain keeps the thump present at the door, and the level then falls with distance
+                // from it (the sound comes up the entrance stair and out of the door): -6 dB 8 m out, -10 dB on the far
+                // pavement, -18 dB at the end of the block.
+                const streetGain = 1.25 / (1 + Math.max(0, doorDistance - 2) / 6);
+                this.audioMasterGain.gain.setTargetAtTime(indoorGain + (streetGain - indoorGain) * exterior, now, 0.15);
             }
         }
 

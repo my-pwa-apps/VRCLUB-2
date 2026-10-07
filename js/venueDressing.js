@@ -21,9 +21,32 @@ const VENUE_VESTIBULE = {
     halfWidth: 3.85,
     wallZ: 0.25,     // outer face of the front wall
     farZ: 6.0,       // inner face of the street wall
-    height: 3.7,
+    // The club is a basement. The street, and the vestibule's floor at the street door, stand this far above the
+    // dance floor (CityLayout.groundY is the same number; a unit test keeps them equal).
+    streetLevel: 2.8,
+    height: 3.7,     // headroom over the street-level floor
     doorHalfWidth: 1.66, // the street door's opening, outer edge of its frame
-    doorHeight: 3.06
+    doorHeight: 3.06,
+    // From the street door: a landing, then sixteen risers of 0.175 m and fifteen treads of 0.277 m down to a short
+    // landing at the club's front doorway. Either side of the stairwell a gallery at street level carries the ticket
+    // desk and the coat check.
+    stair: { halfWidth: 1.8, zBottom: 0.85, zTop: 5.0, steps: 16 },
+
+    /**
+     * Height of the surface a walker stands on at (x, z) from the club's front wall outward, or null inside the club
+     * (where the mezzanine and the floor decide). The stair is solid, so anywhere over it the walker stands on it; the
+     * galleries, the landing at the street door and the whole street are at street level.
+     */
+    walkLevel(x, z) {
+        if (z < this.wallZ) return null;
+        const S = this.stair, top = this.streetLevel;
+        if (Math.abs(x) >= this.halfWidth + 0.05 || z >= this.farZ) return top;   // the street and its doorway
+        if (z < S.zBottom) return 0;                                               // the landing at the club's door
+        if (Math.abs(x) <= S.halfWidth && z <= S.zTop) {
+            return top * (z - S.zBottom) / (S.zTop - S.zBottom);
+        }
+        return top;                                                                // galleries and the top landing
+    }
 };
 
 const VenueDressing = {
@@ -140,16 +163,24 @@ const VenueDressing = {
     },
 
     // ------------------------------------------------------------------------------------------
-    // ENTRANCE: a door in the front wall, a short lit vestibule with a red carpet, a queue rope line,
-    // a ticket desk, a coat check and the street door at the far end.
+    // ENTRANCE: the club is a basement. The street door opens onto a landing at street level; a stair goes down
+    // between two galleries (ticket desk on the left, coat check on the right) to a short landing at the club's
+    // front doorway. A red carpet runs from the street door, down every tread and riser, into the club.
     // ------------------------------------------------------------------------------------------
     createEntranceArea() {
-        log.info('🚪 Creating entrance vestibule...');
-        const { halfWidth: VW, wallZ: ZN, farZ: ZF, height: H } = VENUE_VESTIBULE;
+        log.info('🚪 Creating the entrance stair...');
+        const V = VENUE_VESTIBULE;
+        const { halfWidth: VW, wallZ: ZN, farZ: ZF, streetLevel: S, height: HV, doorHalfWidth: DW, doorHeight: DH } = V;
+        const { halfWidth: SW, zBottom: ZB, zTop: ZT, steps } = V.stair;
+        const H = S + HV;                       // the ceiling, above the club floor
+        const rise = S / steps;
+        const tread = (ZT - ZB) / (steps - 1);
         const factory = this.materialFactory;
+        const scene = this.scene;
         const b = this._dressingBuilder('vestibule');
         const length = ZF + 0.3 - ZN;
         const midZ = ZN + length / 2;
+        const galleryW = VW - SW, galleryD = ZF - ZB;
 
         const wallMat = factory.getPreset('wall');
         const wallScale = this.textureLoader && this.textureLoader.textureConfigs.walls.scale || { u: 1, v: 1 };
@@ -158,27 +189,53 @@ const VenueDressing = {
         const walls = b.group('Walls', wallMat);
         b.box(walls, 0.3, H, length, -(VW + 0.15), H / 2, midZ, brick);
         b.box(walls, 0.3, H, length, VW + 0.15, H / 2, midZ, brick);
-        // The street wall has a doorway (the width of the street door's frame) so the club has a way out to the
-        // city: a pier either side and a lintel over the top.
-        const { doorHalfWidth: DW, doorHeight: DH } = VENUE_VESTIBULE;
+        // The street wall: solid below the street, a doorway at street level (the width of the street door's frame),
+        // a pier either side and a lintel over the top.
         const pier = VW + 0.3 - DW;
         b.box(walls, pier, H, 0.3, -(DW + pier / 2), H / 2, ZF + 0.15, brick);
         b.box(walls, pier, H, 0.3, DW + pier / 2, H / 2, ZF + 0.15, brick);
-        b.box(walls, 2 * DW, H - DH, 0.3, 0, DH + (H - DH) / 2, ZF + 0.15, brick);
+        b.box(walls, 2 * DW, S, 0.3, 0, S / 2, ZF + 0.15, brick);
+        b.box(walls, 2 * DW, HV - DH, 0.3, 0, S + DH + (HV - DH) / 2, ZF + 0.15, brick);
+        // The galleries either side of the stairwell: solid up to the street-level floor. Their inner faces are the
+        // stair's side walls.
+        for (const side of [-1, 1]) b.box(walls, galleryW, S, galleryD, side * (SW + galleryW / 2), S / 2, ZB + galleryD / 2, brick);
 
         const ceiling = b.group('Ceiling', factory.getPreset('ceiling'));
         b.box(ceiling, 2 * (VW + 0.3), 0.12, length, 0, H + 0.06, midZ, mesh => this._applyWorldUVs(mesh, 3, ceilingScale));
 
+        // Floors: the landing at the club's doorway, the two galleries, the landing at the street door and the sill
+        // under the street door. The street's paving stops at the stairwell (CityLayout.forecourtOpening); these slabs
+        // sit 3 cm over it where they overlap, so the two never fight.
         const floorMat = factory.createPBRMaterial('vestibuleFloorMat', {
             baseColor: [0.035, 0.035, 0.04], metallic: 0.15, roughness: 0.35, mutable: true
         });
-        b.box(b.group('Floor', floorMat), 2 * VW, 0.02, ZF - ZN, 0, 0.01, ZN + (ZF - ZN) / 2);
+        const floor = b.group('Floor', floorMat);
+        b.box(floor, 2 * VW, 0.02, ZB - ZN, 0, 0.01, ZN + (ZB - ZN) / 2);
+        for (const side of [-1, 1]) b.box(floor, galleryW, 0.03, galleryD, side * (SW + galleryW / 2), S + 0.015, ZB + galleryD / 2);
+        b.box(floor, 2 * SW, 0.03, ZF - ZT, 0, S + 0.015, ZT + (ZF - ZT) / 2);
+        b.box(floor, 2 * DW, 0.03, 0.3, 0, S + 0.015, ZF + 0.15);
 
-        // The red carpet runs from the street door, through the doorway and into the club.
+        // The stair: solid steps (nothing to walk under) and the mass under the top landing.
+        const stoneMat = factory.createPBRMaterial('entranceStairMat', {
+            baseColor: [0.055, 0.052, 0.05], metallic: 0.05, roughness: 0.6
+        }, true);
+        const stair = b.group('Stair', stoneMat);
+        for (let i = 1; i < steps; i++) b.box(stair, 2 * SW, i * rise, tread, 0, i * rise / 2, ZB + (i - 0.5) * tread);
+        b.box(stair, 2 * SW, S, ZF - ZT, 0, S / 2, ZT + (ZF - ZT) / 2);
+
+        // The red carpet: into the club, across the bottom landing, up every riser and tread, over the top landing.
         const carpetMat = factory.createPBRMaterial('entranceCarpetMat', {
             baseColor: [0.42, 0.025, 0.045], metallic: 0, roughness: 0.95, mutable: true
         });
-        b.box(b.group('Carpet', carpetMat), 2.2, 0.02, ZF - 0.1 + 3.6, 0, 0.03, (ZF - 0.1 - 3.6) / 2);
+        const carpet = b.group('Carpet', carpetMat);
+        const runner = 2.2;
+        b.box(carpet, runner, 0.02, ZB + 3.6, 0, 0.03, (ZB - 3.6) / 2);
+        for (let i = 1; i <= steps; i++) {
+            const z0 = ZB + (i - 1) * tread;
+            b.box(carpet, runner, rise, 0.012, 0, (i - 0.5) * rise, z0 - 0.006);
+            if (i < steps) b.box(carpet, runner, 0.012, tread, 0, i * rise + 0.006, z0 + tread / 2);
+        }
+        b.box(carpet, runner, 0.012, ZF - 0.1 - ZT, 0, S + 0.036, ZT + (ZF - 0.1 - ZT) / 2);
 
         // Door frame in the front wall; both leaves stand open against the club side.
         const steelMat = factory.createPBRMaterial('entranceArchMat', {
@@ -190,70 +247,91 @@ const VenueDressing = {
         b.box(frame, 4.0, 0.14, 0.56, 0, 3.33, 0);
         b.box(frame, 0.07, 3.2, 0.95, -1.82, 1.62, -0.725);
         b.box(frame, 0.07, 3.2, 0.95, 1.82, 1.62, -0.725);
-        // Street door at the far end: a black frame around the opening. Two lit glass leaves close it until the street
+        // Street door at the top: a black frame around the opening. Two lit glass leaves close it until the street
         // outside has loaded (see CityDistrict._openStreetDoor); without the street there is nothing to walk out to.
-        b.box(frame, 0.12, 3.0, 0.1, -1.6, 1.5, ZF - 0.05);
-        b.box(frame, 0.12, 3.0, 0.1, 1.6, 1.5, ZF - 0.05);
-        b.box(frame, 3.32, 0.12, 0.1, 0, 3.0, ZF - 0.05);
+        b.box(frame, 0.12, 3.0, 0.1, -1.6, S + 1.5, ZF - 0.05);
+        b.box(frame, 0.12, 3.0, 0.1, 1.6, S + 1.5, ZF - 0.05);
+        b.box(frame, 3.32, 0.12, 0.1, 0, S + 3.0, ZF - 0.05);
         const street = b.group('StreetGlass', this._emissive('vestibuleStreetMat', [0.2, 0.3, 0.55]));
-        b.box(street, 1.5, 2.88, 0.02, -0.78, 1.44, ZF - 0.02);
-        b.box(street, 1.5, 2.88, 0.02, 0.78, 1.44, ZF - 0.02);
+        b.box(street, 1.5, 2.88, 0.02, -0.78, S + 1.44, ZF - 0.02);
+        b.box(street, 1.5, 2.88, 0.02, 0.78, S + 1.44, ZF - 0.02);
         const doorMullion = b.group('StreetDoorMullion', steelMat);
-        b.box(doorMullion, 0.06, 3.0, 0.1, 0, 1.5, ZF - 0.05);
+        b.box(doorMullion, 0.06, 3.0, 0.1, 0, S + 1.5, ZF - 0.05);
 
         const brass = factory.getPreset('stanchionPost');
         const metal = b.group('Brass', brass);
         // Push bars on the street door's leaves.
         const doorBars = b.group('StreetDoorBars', brass);
-        b.cylinder(doorBars, 0.035, 1.0, -0.8, 1.05, ZF - 0.14, 'x');
-        b.cylinder(doorBars, 0.035, 1.0, 0.8, 1.05, ZF - 0.14, 'x');
-        // Queue rope line along the carpet: brass posts, weighted bases, velvet rope.
-        const baseMat = factory.getPreset('stanchionBase');
-        const ropeMat = factory.getPreset('velvetRope');
-        const bases = b.group('PostBases', baseMat);
-        const ropes = b.group('Ropes', ropeMat);
-        const postZ = [1.2, 2.6, 4.0, 5.4];
-        for (const x of [-1.45, 1.45]) {
-            postZ.forEach((z, i) => {
-                b.cylinder(bases, 0.4, 0.08, x, 0.04, z, 'y', 20);
-                b.cylinder(metal, 0.05, 1.0, x, 0.58, z, 'y', 14);
-                b.add(metal, BABYLON.MeshBuilder.CreateSphere('vestibuleKnob', { diameter: 0.12, segments: 10 }, this.scene))
-                    .position.set(x, 1.14, z);
-                if (i > 0) {
-                    const span = z - postZ[i - 1];
-                    const mid = (z + postZ[i - 1]) / 2;
-                    b.cylinder(ropes, 0.045, span, x, 0.95, mid, 'z');
-                    b.cylinder(ropes, 0.048, span * 0.3, x, 0.92, mid, 'z', 10);
-                }
-            });
+        b.cylinder(doorBars, 0.035, 1.0, -0.8, S + 1.05, ZF - 0.14, 'x');
+        b.cylinder(doorBars, 0.035, 1.0, 0.8, S + 1.05, ZF - 0.14, 'x');
+        // Brass stair rods at the foot of every riser.
+        for (let i = 1; i <= steps; i++) b.cylinder(metal, 0.022, runner + 0.08, 0, (i - 1) * rise + 0.02, ZB + (i - 1) * tread - 0.025, 'x', 8);
+
+        // A box from point `a` to point `to` (its long axis is local z, aimed with lookAt).
+        const beam = (group, a, to, w, h) => {
+            const span = Math.hypot(to[0] - a[0], to[1] - a[1], to[2] - a[2]);
+            const mesh = BABYLON.MeshBuilder.CreateBox(`${group.key}_beam`, { width: w, height: h, depth: span }, scene);
+            mesh.position.set((a[0] + to[0]) / 2, (a[1] + to[1]) / 2, (a[2] + to[2]) / 2);
+            mesh.lookAt(new BABYLON.Vector3(to[0], to[1], to[2]));
+            group.meshes.push(mesh);
+            return mesh;
+        };
+        // Handrails on both stair walls, 0.9 m over the nosings, on brackets; railings round the galleries' open edges.
+        const rails = b.group('Rails', steelMat);
+        const nosing = z => rise + (z - ZB) * (rise / tread);
+        for (const side of [-1, 1]) {
+            const x = side * (SW - 0.07);
+            beam(rails, [x, nosing(ZB) + 0.9 - rise, ZB - 0.3], [x, S + 0.9, ZT + 0.3], 0.05, 0.05);
+            for (const z of [ZB + 0.3, ZB + 1.6, ZB + 2.9, ZT - 0.1]) b.box(rails, 0.07, 0.03, 0.03, side * (SW - 0.035), nosing(z) + 0.87, z);
+        }
+        const RH = 1.08;
+        const fence = (from, to) => {
+            [RH, RH * 2 / 3, RH / 3].forEach((lift, k) => beam(rails, [from[0], S + lift, from[1]], [to[0], S + lift, to[1]], k === 0 ? 0.06 : 0.03, k === 0 ? 0.05 : 0.03));
+            const n = Math.max(2, Math.round(Math.hypot(to[0] - from[0], to[1] - from[1]) / 1.0) + 1);
+            for (let i = 0; i < n; i++) {
+                const t = i / (n - 1);
+                b.box(rails, 0.05, RH, 0.05, from[0] + (to[0] - from[0]) * t, S + RH / 2, from[1] + (to[1] - from[1]) * t);
+            }
+        };
+        for (const side of [-1, 1]) {
+            const edgeX = side * (SW + 0.04);
+            fence([edgeX, ZT], [edgeX, ZB + 0.04]);
+            fence([edgeX, ZB + 0.04], [side * (VW - 0.03), ZB + 0.04]);
+            // The railings stop a walker (desktop or headset) from stepping off a gallery into the stairwell.
+            this._collisionBlock(`vestibuleGalleryRail${side}`, 0.1, 1.1, ZT - ZB, edgeX, S + 0.55, ZB + (ZT - ZB) / 2);
+            this._collisionBlock(`vestibuleGalleryFront${side}`, galleryW, 1.1, 0.1, side * (SW + galleryW / 2), S + 0.55, ZB + 0.04);
         }
 
-        // Ticket desk (left) and coat check (right), both against the walls.
+        // Ticket desk (left gallery) and coat check (right gallery), both against the walls.
         const wood = this._barWoodMaterial();
         const joinery = b.group('Joinery', wood);
         const joinerySize = (mesh) => this._applyWorldUVs(mesh, 1, { u: 1, v: 1 });
-        b.box(joinery, 0.7, 1.0, 1.9, -(VW - 0.35), 0.5, 2.1, joinerySize);
-        b.box(joinery, 0.95, 0.05, 2.0, -(VW - 0.47), 1.025, 2.1, joinerySize);
-        b.box(joinery, 0.7, 1.0, 1.9, VW - 0.35, 0.5, 2.1, joinerySize);
-        b.box(joinery, 0.95, 0.05, 2.0, VW - 0.47, 1.025, 2.1, joinerySize);
+        b.box(joinery, 0.7, 1.0, 1.9, -(VW - 0.35), S + 0.5, 2.1, joinerySize);
+        b.box(joinery, 0.95, 0.05, 2.0, -(VW - 0.47), S + 1.025, 2.1, joinerySize);
+        b.box(joinery, 0.7, 1.0, 1.9, VW - 0.35, S + 0.5, 2.1, joinerySize);
+        b.box(joinery, 0.95, 0.05, 2.0, VW - 0.47, S + 1.025, 2.1, joinerySize);
         const screens = b.group('DeskScreens', this._emissive('vestibuleScreenMat', [0.45, 0.75, 1.0]));
-        const screen = b.box(screens, 0.34, 0.24, 0.02, -(VW - 0.5), 1.2, 2.1);
+        const screen = b.box(screens, 0.34, 0.24, 0.02, -(VW - 0.5), S + 1.2, 2.1);
         screen.rotation.y = Math.PI / 2;
         screen.rotation.z = 0.28;
         // Coat rail with a row of coats.
-        b.cylinder(metal, 0.03, 1.9, VW - 0.25, 1.95, 4.15, 'z');
+        b.cylinder(metal, 0.03, 1.9, VW - 0.25, S + 1.95, 4.15, 'z');
         const coatMat = factory.createPBRMaterial('coatMat', {
             baseColor: [0.045, 0.045, 0.055], metallic: 0, roughness: 0.92
         }, true);
         const coats = b.group('Coats', coatMat);
         for (let i = 0; i < 7; i++) {
-            b.box(coats, 0.08, 1.15 - (i % 3) * 0.06, 0.22, VW - 0.25, 1.35, 3.3 + i * 0.28);
+            b.box(coats, 0.08, 1.15 - (i % 3) * 0.06, 0.22, VW - 0.25, S + 1.35, 3.3 + i * 0.28);
         }
 
-        // Light: warm sconces on both walls, magenta and cyan coves under the soffit, door-threshold strips.
+        // Light: warm sconces over the galleries, step lights in the stair walls, magenta and cyan coves under the
+        // ceiling, cyan nosings either side of the runner, and the door-threshold strips at the club's doorway.
         const warm = b.group('Sconces', this._emissive('vestibuleWarmMat', [1.0, 0.62, 0.26]));
         for (const x of [-(VW - 0.02), VW - 0.02]) {
-            for (const z of [1.5, 3.0, 4.5]) b.box(warm, 0.03, 0.8, 0.07, x, 2.1, z);
+            for (const z of [1.5, 3.0, 4.5]) b.box(warm, 0.03, 0.8, 0.07, x, S + 2.1, z);
+        }
+        for (const side of [-1, 1]) {
+            for (let i = 2; i < steps; i += 3) b.box(warm, 0.02, 0.06, 0.16, side * (SW - 0.01), i * rise + 0.3, ZB + (i - 0.5) * tread);
         }
         const magenta = b.group('CoveMagenta', this._emissive('vestibuleMagentaMat', [1.0, 0.1, 0.55]));
         const cyan = b.group('CoveCyan', this._emissive('vestibuleCyanMat', [0.1, 0.7, 1.0]));
@@ -261,27 +339,35 @@ const VenueDressing = {
         b.box(cyan, 0.05, 0.04, ZF - ZN - 0.2, VW - 0.03, H - 0.1, ZN + (ZF - ZN) / 2);
         b.box(cyan, 3.8, 0.015, 0.08, 0, 0.045, 0.45);
         b.box(magenta, 3.8, 0.015, 0.08, 0, 0.045, -0.7);
+        const stone = SW - runner / 2 - 0.08;
+        for (let i = 1; i < steps; i++) {
+            for (const side of [-1, 1]) b.box(cyan, stone, 0.008, 0.025, side * (runner / 2 + 0.04 + stone / 2), i * rise + 0.004, ZB + (i - 1) * tread + 0.02);
+        }
 
-        const built = b.finish({ collide: ['Walls', 'Ceiling', 'Frame', 'Joinery'] });
+        const built = b.finish({ collide: ['Walls', 'Ceiling', 'Frame', 'Joinery', 'Stair'] });
         const scoped = Object.values(built);
         // The front wall's vestibule-side faces take the same light; their club sides face away from it.
         ['frontWall', 'frontWallRight', 'frontWallLintel'].forEach(name => {
             const wall = this.scene.getMeshByName(name);
             if (wall) scoped.push(wall);
         });
-        this._entranceLight = this._createScopedAccent('entranceLight', new BABYLON.Vector3(0, 3.0, 3.1),
-            { intensity: 1.3, range: 7.5, diffuse: [1, 0.86, 0.7], group: 'entrance' }, scoped);
+        this._entranceLight = this._createScopedAccent('entranceLight', new BABYLON.Vector3(0, S + 2.3, 2.8),
+            { intensity: 1.6, range: 9.5, diffuse: [1, 0.86, 0.7], group: 'entrance' }, scoped);
 
+        // The floors, and the stair's treads (one mesh), are VR teleport floors. Like the balcony's, the stair is in
+        // collision group 2: the desktop camera slides up its risers, the headset follows its height instead.
+        this._vestibuleFloor = built.Floor || null;
+        this._vestibuleStair = built.Stair || null;
+        if (this._vestibuleStair) this._vestibuleStair.collisionGroup = 2;
         // The street door is shut (glass leaves plus an invisible block) until the street outside has loaded.
         // The vestibule's own walls, ceiling and this block seal the club in the meantime.
-        this._vestibuleFloor = built.Floor || null;
         this._streetDoor = {
             open: false,
             meshes: [built.StreetGlass, built.StreetDoorMullion, built.StreetDoorBars],
-            block: this._collisionBlock('streetDoorBlock', 2 * DW, 3.4, 0.5, 0, 1.7, ZF + 0.15)
+            block: this._collisionBlock('streetDoorBlock', 2 * DW, 3.4, 0.5, 0, S + 1.7, ZF + 0.15)
         };
         if (this._cityRoot) this._openStreetDoor(); // the street finished loading before the vestibule was built
-        log.info('✅ Entrance vestibule created');
+        log.info('✅ Entrance stair created');
     },
 
     // ------------------------------------------------------------------------------------------

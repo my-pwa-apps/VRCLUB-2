@@ -24,7 +24,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`, then `js/podcasts.js` (`window.Podcasts`: podcast catalogue, random/queue player)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance vestibule and bar), `js/mezzanine.js` (steel balcony and stair) and `js/cityDistrict.js` (the street outside), all mixed into `VRClub.prototype`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level), all mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -672,8 +672,9 @@ and fail `npm test`.
 ### Layout coordinates (`CLUB_POSITIONS` in `js/club/01-core.js`)
 - DJ booth: `{ x: 0, y: 0.95, z: -18 }`
 - Dance floor centre: around `z = -12`
-- Entrance: a 4 m doorway in the front wall at `z = 0` (x -2..2, 3.4 m high) into the vestibule, `z 0.25..6`; its street door
-  (`z 6.3`, x ±1.66, 3.06 m high) opens onto the avenue outside (see The street)
+- Entrance: a 4 m doorway in the front wall at `z = 0` (x -2..2, 3.4 m high) onto the foot of the entrance stair; the
+  vestibule (`z 0.25..6`) is a stair hall climbing to street level (`VenueLayout.vestibule.streetLevel`, 2.8 m). Its street
+  door (`z 6.3`, x ±1.66, 3.06 m high, sill at street level) opens onto the avenue outside (see The street)
 - The club shell ends at its facade: front wall `z 0.25`, side walls, floor and ceiling `z -21.25..0.25` (they used to run 12 m
   on past it, which would have covered the street)
 - Bar: along the right wall, `x 9.7..12.25`, `z -13.8..-6`
@@ -696,11 +697,26 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   first material slot through `renderPriority = 1` plus `_resyncLightSources()`, exactly like the DJ and PA accents. Anything
   added to the bar later (the bartender, the stools) joins through `_extendAccentLight()`. No light budget changes.
 - **Walls**: the front wall is three boxes (`frontWall`, `frontWallRight`, `frontWallLintel`) around the doorway. The vestibule's
-  street wall has a doorway too (a pier either side and a lintel; `VenueLayout.vestibule.doorHalfWidth` / `doorHeight`). Until the
+  street wall has a doorway too, at street level (solid below it, a pier either side and a lintel; `VenueLayout.vestibule.doorHalfWidth`
+  / `doorHeight`). Until the
   street has loaded the door is SHUT: two glass leaves, a mullion, push bars and an invisible `streetDoorBlock`
   (`this._streetDoor`). `CityDistrict._openStreetDoor()` hides the leaves and removes the block; it runs when the street
   arrives, or at the end of `createEntranceArea()` if the street got there first. A unit test with real Babylon proves the shut
   door blocks, the open one lets a person through, and the wall around it is still a wall.
+- **The club is a basement; the vestibule is a stair hall.** `VenueLayout.vestibule.stair` (`halfWidth 1.8`, `zBottom 0.85`,
+  `zTop 5.0`, 16 risers of 0.175 m, 15 treads of 0.277 m) climbs from a short landing at the club's doorway to a landing at
+  the street door, at `streetLevel` (2.8). Either side of the flight is a solid gallery at street level (ticket desk left, coat
+  check right), railed along the stairwell and its front edge by steel railings plus invisible `vestibuleGallery*` blocks.
+  The steps are SOLID boxes (nothing to walk under) in one mesh, `vestibuleStair` (`this._vestibuleStair`): collidable, so the
+  desktop camera slides up its risers, and collision group 2 like the balcony's treads, so the headset follows it instead
+  (`xrCamera.collisionMask` excludes 2 whenever either exists). It and `vestibuleFloor` are teleport floors. The red carpet
+  runs down every tread and riser, with brass rods and cyan nosings either side of it.
+  `VenueLayout.vestibule.walkLevel(x, z)` is the walking surface from the front wall outward (null inside the club):
+  0 on the bottom landing, a ramp over the flight, `streetLevel` on the galleries, the top landing and the whole street.
+  `Mezzanine._walkSurfaceLevel()` joins it to the balcony's, and both the desktop and the headset follow it. Camera presets
+  `arrival` (the top landing, looking down the stair) and `street` carry `level: streetLevel`. The street wall's EXIT sign is on
+  the lintel (`createSignage()` reads `streetLevel`). Tests: the stair's geometry, rails and walking surface (unit, real Babylon);
+  walking up and down on the desktop under real collisions and with the VR thumbstick (`test/e2e/street.spec.mjs`).
 - **Bartender**: the Quaternius female guest in her own container (`avatarSources[7]`, black outfit), `Idle_Talking_Loop`,
   named `bartender` (not `guest*` or `dancer*`, so no tier removes her). The guest slots keep out of the bar footprint (tested).
 - **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
@@ -726,7 +742,8 @@ A steel balcony (deck at y 3.0, x -12.2..-9.5, z -19..-10.4) on the left wall wi
 from z -6.2. It reuses `_dressingBuilder()` and `_createScopedAccent()` from `venueDressing.js`, so it is four merged meshes
 (`mezzDeck`, `mezzPanel`, `mezzRails`, `mezzGlowCyan`), one accent light (`balconyLight`, first slot, no budget change) and the
 bar's stool GLB instanced twice. Textures are Poly Haven `steelDeck` / `steelPanel` (`textureLoader` configs, CC0).
-- **Walking**: `MezzanineLayout.walkLevel()` decides the surface a walker stands on. The collision system carries the desktop
+- **Walking**: `Mezzanine._walkSurfaceLevel()` decides the surface a walker stands on: `VenueLayout.vestibule.walkLevel()` from the
+  club's front wall outward (the entrance stair and the street), otherwise `MezzanineLayout.walkLevel()`. The collision system carries the desktop
   camera UP the stair (no gravity there), so `_updateWalkSurface()` only records the level on ascent and lowers the eye on
   descent. It never snaps anyone onto the deck from beneath: a candidate surface more than 0.5 m from the current level is
   ignored. `this._walkLevel` feeds the player body's `groundY` and the `balcony` camera preset (`level`). In VR,
@@ -741,7 +758,7 @@ bar's stool GLB instanced twice. Textures are Poly Haven `steelDeck` / `steelPan
 - `node scripts/build-mezzanine-assets.mjs` regenerates both texture sets.
 
 ### The street (`js/cityDistrict.js`)
-Out of the vestibule's street door is a night avenue: a four-lane road along x (-48..48, road `z 9.25..21.25`), a 3 m kerb
+Out of the vestibule's street door, at the top of the entrance stair, is a night avenue: a four-lane road along x (-48..48, road `z 9.25..21.25`), a 3 m kerb
 strip either side, a paved forecourt `z 0.25..6.25` in front of the club, a row of six buildings facing the club across the
 road (front plane `z 24.25`) and two buildings either side of the club facing the street (front plane `z 0.25`, from `|x| 13.5`).
 It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is NOT in the repository.
@@ -768,8 +785,13 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   skyline (`citySkyline`, 20-odd towers and two end blocks in ONE mesh with a canvas-drawn window grid) are procedural and unlit.
 - **Collision and teleport.** One invisible box per building (union of its primitives' bounds) and a fence at each end inside the
   bollards (`fenceX 45.5`) are always enabled; they are far from the club so they cost nothing indoors. The street ground, the
-  vestibule floor, the club floor and the deck are the teleport floors (`_teleportFloorMeshes()`). The `street` camera preset
+  vestibule floor and stair, the club floor and the deck are the teleport floors (`_teleportFloorMeshes()`). The `street` camera preset
   and the VR menu's STREET button refuse until `_streetDoor.open`.
+- **Street level.** The club is a basement: the GLB is baked at y = 0 and the `cityDistrict` root is lifted by `CityLayout.groundY`
+  (2.8, equal to `VenueLayout.vestibule.streetLevel`, unit-tested), so colliders and the fence are built from world bounds and the
+  skyline is re-frozen after parenting. The forecourt's paving is left out within `forecourtOpening` (3 m) of the centre line, over
+  the entrance stair; the stair hall's own floors cover the gap, which is inside the vestibule (tested both ways). A new layout
+  must change `CITY` in the bake script and `CITY_LAYOUT` together (a unit test compares them).
 - **Unmeasured:** 148k triangles and 6.7 MB, about 60 draws with the whole street in view; no Quest 3S frame time yet. LOD was set by eye
   and by the simplifier's plateau (facades are thousands of separate window-frame islands, so the topological simplifier stops near 50%;
   beyond 22 m the window frames also go through the sloppy one). `test/e2e/street.spec.mjs` walks out under real collisions, checks the
@@ -809,7 +831,9 @@ to avoid z-fighting.
   (`occlusionFilter`, then `occlusionFilter2`). Indoors only the first works: the corridor's single pole, 700 Hz at the vestibule.
   Past the street door (`CityLayout.exteriorAmount`) both close, interpolated in log-frequency, to a bass-only 24 dB/oct
   (90 Hz down the avenue, 180 Hz at the door), the room's reverb send and early reflection and the crowd bed fade to zero, the
-  sub channel (omni, 100 Hz) stays present and fades with distance from the door, and the master gets make-up gain. The analyser
+  sub channel (omni, 100 Hz) stays present and fades with distance from the door, and the master gets make-up gain (1.25 at
+  the door) that then falls with distance from it, `1 / (1 + max(0, d - 2) / 6)`: -6 dB 8 m out, -10 dB on the far pavement,
+  -18 dB at the end of the block. The analyser
   taps the source BEFORE all of this, so the light show stays full-band outside. `test/e2e/street.spec.mjs` measures the real
   spectrum: more than 90% of the energy below 250 Hz on the street, under 40% in the room.
 - URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only

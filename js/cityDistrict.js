@@ -22,6 +22,12 @@ const CITY_LAYOUT = Object.freeze({
     roadFrom: 9.25,
     roadTo: 21.25,
     farFront: 24.25,
+    // The forecourt's paving stops this far either side of the club's centre line, over the entrance stair (the stair
+    // hall's own floors close the gap inside the vestibule).
+    forecourtOpening: 3,
+    // The street stands this high above the club floor: the club is a basement (VenueLayout.vestibule.streetLevel).
+    // The GLB is baked at y = 0; the district's root lifts it.
+    groundY: 2.8,
     // The vestibule's street door (VenueLayout.vestibule.farZ + the wall's thickness).
     doorZ: 6.3,
     doorHalfWidth: 1.66,
@@ -102,6 +108,7 @@ const CityDistrict = {
         this._cityContainer = container;
 
         const root = new BABYLON.TransformNode('cityDistrict', this.scene);
+        root.position.y = CityLayout.groundY;
         container.rootNodes.forEach(node => { node.parent = root; });
         this._cityRoot = root;
 
@@ -277,7 +284,11 @@ const CityDistrict = {
         const built = builder.finish();
         const mesh = built.Skyline;
         if (mesh) {
+            // Built in club space and frozen by the builder: re-freeze it once it rides on the raised root.
+            mesh.unfreezeWorldMatrix();
             mesh.parent = this._cityRoot;
+            mesh.computeWorldMatrix(true);
+            mesh.freezeWorldMatrix();
             mesh.alwaysSelectAsActiveMesh = true; // one big mesh: its bounds always intersect the street's view anyway
         }
         this._citySkyline = { mesh, texture, material };
@@ -311,11 +322,11 @@ const CityDistrict = {
             }
         }
         for (const [node, { lo, hi }] of footprints) {
-            box(`cityCollider_${node}`, lo.x, hi.x, 0, Math.max(hi.y, 6), lo.z, hi.z);
+            box(`cityCollider_${node}`, lo.x, hi.x, lo.y, Math.max(hi.y, lo.y + 6), lo.z, hi.z);
         }
         const [z0, z1] = CityLayout.fenceZ;
         for (const sign of [-1, 1]) {
-            box(`cityFence_${sign}`, sign * CityLayout.fenceX - 0.5, sign * CityLayout.fenceX + 0.5, 0, 6, z0, z1);
+            box(`cityFence_${sign}`, sign * CityLayout.fenceX - 0.5, sign * CityLayout.fenceX + 0.5, CityLayout.groundY, CityLayout.groundY + 6, z0, z1);
         }
         this._cityColliders = colliders;
     },

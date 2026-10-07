@@ -2023,9 +2023,9 @@ class VRClubUI extends VRClubAnimationFinish {
         return this.vrComfortMode;
     }
 
-    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the vestibule and the street. */
+    /** Surfaces the VR teleport arc may land on: the club floor, the balcony deck and stair, the entrance's floors and stair, and the street. */
     _teleportFloorMeshes() {
-        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, ...(this._cityGround || [])].filter(Boolean);
+        return [this.floorMesh, this._mezzDeck, this._vestibuleFloor, this._vestibuleStair, ...(this._cityGround || [])].filter(Boolean);
     }
 
     _teleportBlockerMeshes() {
@@ -2126,8 +2126,11 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     moveCameraToPreset(preset) {
+        // The club is a basement: the street and the top of the entrance stair are at street level.
+        const street = (window.VenueLayout && window.VenueLayout.vestibule.streetLevel) || 0;
         const presets = {
-            arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, 1.7, 5.0), target: new BABYLON.Vector3(0, 1.9, -12) },
+            // At the top of the entrance stair (the street-level landing), looking down it into the club.
+            arrival: { label: 'Arrival', pos: new BABYLON.Vector3(0, street + 1.7, 5.5), target: new BABYLON.Vector3(0, 1.2, -12), level: street },
             danceFloor: { label: 'Dance Floor', pos: new BABYLON.Vector3(-2.8, 1.7, -9.2), target: new BABYLON.Vector3(0, 2.6, -18.5) },
             // Eye height for someone standing on the 0.5 m riser, inside the 1 m
             // gap between the LED wall (z=-20) and the deck plinth (z=-19), facing out.
@@ -2136,7 +2139,7 @@ class VRClubUI extends VRClubAnimationFinish {
             // Standing on the steel mezzanine (deck at y 3), looking across the dance floor to the booth.
             balcony: { label: 'Balcony', pos: new BABYLON.Vector3(-10.9, 4.7, -12.4), target: new BABYLON.Vector3(1, 2.7, -16), level: 3.0 },
             // On the pavement outside the street door, looking across the avenue at the far row of buildings.
-            street: { label: 'Street', pos: new BABYLON.Vector3(0, 1.7, 8.2), target: new BABYLON.Vector3(0, 8, 30) }
+            street: { label: 'Street', pos: new BABYLON.Vector3(0, street + 1.7, 8.2), target: new BABYLON.Vector3(0, street + 8, 30), level: street }
         };
         
         const p = presets[preset];

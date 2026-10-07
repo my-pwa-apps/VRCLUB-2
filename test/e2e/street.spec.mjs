@@ -18,13 +18,15 @@ function noiseWav(seconds = 60, sampleRate = 22050) {
 
 const waitForStreet = page => page.waitForFunction(() => window.vrClub?._streetDoor?.open === true, null, { timeout: 180_000 });
 
-/** Puts the desktop camera somewhere and gives the club a few frames to react (visibility, fog, audio). */
+/** Puts the desktop camera somewhere (standing on whatever surface is there) and gives the club a few frames to react. */
 const stand = async (page, x, z, yawDegrees = 0, frames = 6) => {
     await page.evaluate(([px, pz, yaw]) => {
         const club = window.vrClub;
-        club.camera.position.set(px, 1.7, pz);
+        const level = club._walkSurfaceLevel(px, pz, 0);
+        club._walkLevel = level;
+        club.camera.position.set(px, level + 1.7, pz);
         const r = yaw * Math.PI / 180;
-        club.camera.setTarget(new BABYLON.Vector3(px + Math.sin(r), 1.7, pz + Math.cos(r)));
+        club.camera.setTarget(new BABYLON.Vector3(px + Math.sin(r), level + 1.7, pz + Math.cos(r)));
     }, [x, z, yawDegrees]);
     await renderFrames(page, frames);
 };
@@ -77,14 +79,24 @@ test('the club has a way out: through the street door onto the avenue, stopped b
         expect(city.teleportFloors, 'club floor, balcony deck, vestibule and the street').toBeGreaterThanOrEqual(5);
     });
 
-    await test.step('walking out of the door under real collisions', async () => {
-        await stand(page, 0, 2.5, 0);
-        const outside = await walk(page, [0, 0.5], 24);
-        expect(outside.z, 'the guest never made it through the street door').toBeGreaterThan(9);
+    await test.step('up the entrance stair and out of the door, under real collisions', async () => {
+        const S = await page.evaluate(() => window.VenueLayout.vestibule.streetLevel);
+        await stand(page, 0, -2.5, 0);
+        const outside = await walk(page, [0, 0.12], 120);
+        expect(outside.z, 'the guest never made it up the stair and through the street door').toBeGreaterThan(8);
         expect(Math.abs(outside.x), 'the door should be passed straight').toBeLessThan(1.7);
+        expect(outside.y, 'outside, the guest stands at street level').toBeGreaterThan(S + 1.4);
+        expect(outside.y).toBeLessThan(S + 2.1);
         const stopped = await walk(page, [0, 0.9], 40);
         expect(stopped.z, 'the far row of buildings must stop the guest on the far sidewalk').toBeGreaterThan(20);
         expect(stopped.z).toBeLessThan(24.0);
+        expect(stopped.y).toBeGreaterThan(S + 1.4);
+        // And back: in through the door, down the stair, into the club at floor height.
+        await stand(page, 0, 8.5, 180);
+        const back = await walk(page, [0, -0.12], 120);
+        expect(back.z, 'the guest never made it back down into the club').toBeLessThan(-1);
+        expect(back.y, 'back in the club, the eye is at standing height over the floor').toBeLessThan(2.1);
+        expect(back.y).toBeGreaterThan(1.3);
     });
 
     await test.step('the avenue is fenced at both ends', async () => {
@@ -197,4 +209,54 @@ test('outside the street door only the low bass of the music is heard', async ({
     expect(avenue.lowShare).toBeGreaterThan(0.9);
     expect(door.power, 'the bass must still be audible at the door').toBeGreaterThan(0);
     expect(avenue.power, 'the bass fades down the avenue').toBeLessThan(door.power);
+});
+
+/** Walk with the left stick inside the page (no frame lost to a round trip) until the walker passes `limit` along z. */
+const walkWithLeftStick = (page, stickY, limit) => page.evaluate(async ([y, stop]) => {
+    const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+    const left = window.__iwerDevice.controllers.left;
+    const trace = [];
+    left.updateAxes('thumbstick', 0, y);
+    for (let i = 0; i < 900; i++) {
+        await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        trace.push({ x: cam.position.x, y: cam.position.y, z: cam.position.z, level: club._walkLevel, eye: club._xrHeadHeight() });
+        if (y < 0 ? cam.position.z < stop : cam.position.z > stop) break;
+    }
+    left.updateAxes('thumbstick', 0, 0);
+    return trace;
+}, [stickY, limit]);
+
+test('in VR the entrance stair is walked up to the street and back down into the club with the thumbstick', async ({ page }) => {
+    test.setTimeout(1_500_000);
+    await enterClub(page);
+    await waitForStreet(page);
+    const vrButton = page.locator('#vrButton');
+    await expect(vrButton).toBeEnabled({ timeout: 60_000 });
+    await vrButton.click();
+    await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
+    await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);
+    await page.evaluate(() => window.vrClub.setVRComfortMode(false));
+    const S = await page.evaluate(() => window.VenueLayout.vestibule.streetLevel);
+
+    // In the club in front of the doorway, facing the stage (-z) as the headset does: the stick pulled back walks +z.
+    await page.evaluate(async () => {
+        const club = window.vrClub, cam = club.vrHelper.baseExperience.camera;
+        for (let i = 0; i < 4; i++) await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+        cam.position.x = 0; cam.position.z = -1.5;
+        await new Promise(r => club.scene.onAfterRenderObservable.addOnce(r));
+    });
+    const up = await walkWithLeftStick(page, 1, 8.5);
+    const top = up[up.length - 1];
+    expect(top.z, `walked up to z ${top.z.toFixed(2)} only`).toBeGreaterThan(8.5);
+    expect(top.level).toBeCloseTo(S, 3);
+    expect(top.y - top.eye, 'out on the pavement the feet are at street level').toBeCloseTo(S, 1);
+    // Climbing, the feet rise tread by tread: never a jump of more than a riser or two in one frame.
+    for (let i = 1; i < up.length; i++) expect(up[i].y - up[i - 1].y).toBeLessThan(0.4);
+
+    const down = await walkWithLeftStick(page, -1, -1.5);
+    const bottom = down[down.length - 1];
+    expect(bottom.z, `walked back down to z ${bottom.z.toFixed(2)} only`).toBeLessThan(-1.5);
+    expect(bottom.level).toBe(0);
+    expect(bottom.y - bottom.eye).toBeCloseTo(0, 1);
+    await expectHealthyRuntime(page);
 });

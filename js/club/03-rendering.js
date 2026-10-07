@@ -866,10 +866,11 @@ class VRClubRendering extends VRClubLifecycle {
             log.info("✅ Merged 4 brick sections into single mesh");
         }
         
-        // Add industrial pipes running along ceiling (near walls)
+        // Add industrial pipes running along ceiling (near walls), ending at the front wall's inner face: past it is the
+        // street, and pipes hanging out over the pavement read as a modelling error from outside.
         const pipeRuns = [
-            { start: { x: -11.5, z: -21 }, end: { x: -11.5, z: 5 } },  // Left wall
-            { start: { x: 11.5, z: -21 }, end: { x: 11.5, z: 5 } }     // Right wall
+            { start: { x: -11.5, z: -21 }, end: { x: -11.5, z: -0.05 } },  // Left wall
+            { start: { x: 11.5, z: -21 }, end: { x: 11.5, z: -0.05 } }     // Right wall
         ];
         
         // OPTIMIZATION: Create pipes/conduits array for merging

@@ -5616,7 +5616,7 @@ test('the street layout in the bake script, the vestibule and the runtime agree'
     const script = readFileSync(join(ROOT, 'scripts/build-city-assets.mjs'), 'utf8');
     const L = loadClassic('js/cityDistrict.js').window.CityLayout;
     const block = /const CITY = \{([\s\S]*?)\};/.exec(script)[1];
-    for (const key of ['halfLength', 'forecourtFrom', 'sidewalkNear', 'roadFrom', 'roadTo', 'farFront']) {
+    for (const key of ['halfLength', 'forecourtFrom', 'sidewalkNear', 'roadFrom', 'roadTo', 'farFront', 'forecourtOpening']) {
         const match = new RegExp(`${key}:\\s*([\\d.]+)`).exec(block);
         assert.ok(match, `${key} is missing from the bake script`);
         assert.equal(Number(match[1]), L[key], `${key} differs between scripts/build-city-assets.mjs and js/cityDistrict.js`);
@@ -5627,6 +5627,11 @@ test('the street layout in the bake script, the vestibule and the runtime agree'
     assert.equal(L.doorHeight, vestibule.doorHeight);
     assert.equal(L.forecourtFrom, vestibule.wallZ, 'the pavement starts at the club\'s front wall');
     assert.ok(L.sidewalkNear >= L.doorZ - 0.1, 'the street door must open onto the near sidewalk, not the forecourt');
+    // The club is a basement: the street is at the top of the entrance stair, and its paving stops over the stairwell
+    // but only inside the vestibule (the stair hall's own floors close the rest of the gap).
+    assert.equal(L.groundY, vestibule.streetLevel, 'the street must be at the top of the entrance stair');
+    assert.ok(L.forecourtOpening >= vestibule.stair.halfWidth, 'paving would cover the stairwell');
+    assert.ok(L.forecourtOpening <= vestibule.halfWidth, 'the paving gap would show outside the vestibule');
     // The street is walled in at both ends inside its bollards, and the fence spans the pavement.
     assert.ok(L.fenceX < L.halfLength - 2);
     assert.ok(L.fenceZ[0] >= L.forecourtFrom && L.fenceZ[1] <= L.farFront);
@@ -5681,10 +5686,20 @@ test('on the street only the low bass comes through: a little more at the door t
         assert.equal(spot.delay, 0, `${label} the room's early reflection must not be heard`);
         assert.equal(spot.crowd, 0, `${label} nobody is chattering`);
         assert.ok(spot.sub >= 0.5, `${label} the thump must stay present`);
-        assert.ok(spot.master >= 1.15, `${label} the bass-only signal needs the make-up gain`);
     }
+    assert.ok(door.master >= 1.15, 'at the door the bass-only signal needs the make-up gain');
     assert.ok(door.c1 > avenue.c1, 'the bass is clearer at the door than down the avenue');
     assert.ok(door.sub > avenue.sub, 'the thump fades with distance from the door');
+    // And it gets quieter the further from the club: steadily, about -6 dB 8 m from the door, well down the block.
+    let last = Infinity;
+    for (const z of [7.5, 9, 12, 16, 20, 23]) {
+        const here = stand(0, z).master;
+        assert.ok(here < last + 1e-9, `the music got louder walking away from the door (z ${z})`);
+        last = here;
+    }
+    const eight = stand(0, 6.3 + 8).master;
+    assert.ok(Math.abs(20 * Math.log10(eight / door.master) + 6) < 1.5, `8 m out is ${(20 * Math.log10(eight / door.master)).toFixed(1)} dB, not about -6`);
+    assert.ok(avenue.master < door.master * 0.25, `30 m down the avenue is only ${(20 * Math.log10(avenue.master / door.master)).toFixed(1)} dB down`);
     assert.ok(room.reverb > 0 && room.crowd > 0, 'the room keeps its own tail and chatter');
 });
 
@@ -5796,13 +5811,14 @@ test('the street door is shut until the street has loaded, then a person can wal
     }, loadClassic('js/venueDressing.js', { BABYLON, log }).window.VenueDressing,
     loadClassic('js/cityDistrict.js', { BABYLON, log }).window.CityDistrict);
     club.createEntranceArea();
+    const S = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule.streetLevel;
 
-    // A person's torso, walking from inside the vestibule toward the street.
-    const blocked = (x, y) => scene.pickWithRay(
-        new BABYLON.Ray(new BABYLON.Vector3(x, y, 4.5), new BABYLON.Vector3(0, 0, 1), 3),
-        mesh => mesh.checkCollisions && mesh.isEnabled()) !== null && scene.pickWithRay(
-        new BABYLON.Ray(new BABYLON.Vector3(x, y, 4.5), new BABYLON.Vector3(0, 0, 1), 3),
-        mesh => mesh.checkCollisions && mesh.isEnabled()).hit;
+    // A person's torso at street level, walking from the top of the entrance stair toward the street.
+    const blocked = (x, y) => {
+        const hit = scene.pickWithRay(new BABYLON.Ray(new BABYLON.Vector3(x, S + y, 4.5), new BABYLON.Vector3(0, 0, 1), 3),
+            mesh => mesh.checkCollisions && mesh.isEnabled());
+        return !!(hit && hit.hit);
+    };
     for (const x of [-1.2, -0.4, 0, 0.4, 1.2]) assert.ok(blocked(x, 1.2), `the shut door lets x=${x} through`);
     assert.equal(club._streetDoor.open, false);
     assert.ok(club._streetDoor.meshes.every(mesh => mesh && mesh.isEnabled()), 'the glass leaves are drawn while the door is shut');
@@ -5819,6 +5835,103 @@ test('the street door is shut until the street has loaded, then a person can wal
     assert.ok(blocked(0, 3.4), 'the lintel is missing');
     assert.ok(blocked(1.6, 1.2), 'the door frame is not solid');
     scene.dispose();
+});
+
+/** The entrance built in the real (headless) Babylon, as the street-door test does. */
+function buildEntrance() {
+    const BABYLON = require('../js/vendor/babylon.js');
+    const scene = new BABYLON.Scene(new BABYLON.NullEngine());
+    const material = name => new BABYLON.StandardMaterial(name, scene);
+    const log = { info() {}, warn() {} };
+    const { window } = loadClassic('js/venueDressing.js', { BABYLON, log });
+    const club = Object.assign({
+        scene,
+        materialFactory: {
+            getPreset: material, createStandardMaterial: material,
+            createPBRMaterial: name => new BABYLON.PBRMaterial(name, scene)
+        },
+        lightFactory: { createPointLight: (name, position) => new BABYLON.PointLight(name, position, scene) },
+        textureLoader: null,
+        concreteTextures: null,
+        _applyWorldUVs() {}
+    }, window.VenueDressing);
+    club.createEntranceArea();
+    const firstHit = (from, dir, length, predicate = mesh => mesh.checkCollisions && mesh.isEnabled()) => {
+        const hit = scene.pickWithRay(new BABYLON.Ray(new BABYLON.Vector3(...from), new BABYLON.Vector3(...dir), length), predicate);
+        return hit && hit.hit ? hit : null;
+    };
+    return { BABYLON, scene, club, layout: window.VenueLayout.vestibule, firstHit };
+}
+
+test('the entrance is a stair down from the street: comfortable, solid, carpeted and railed', () => {
+    const { scene, club, layout, firstHit } = buildEntrance();
+    const { streetLevel: S, stair } = layout;
+    const rise = S / stair.steps, tread = (stair.zTop - stair.zBottom) / (stair.steps - 1);
+    // A stair people can walk: rise 15-19 cm, going 26-32 cm, and 2R + G in the comfortable 60-66 cm band.
+    assert.ok(rise >= 0.15 && rise <= 0.19, `rise ${rise.toFixed(3)} m`);
+    assert.ok(tread >= 0.26 && tread <= 0.32, `going ${tread.toFixed(3)} m`);
+    assert.ok(2 * rise + tread >= 0.6 && 2 * rise + tread <= 0.66, `2R + G = ${(2 * rise + tread).toFixed(3)} m`);
+
+    const steps = club._vestibuleStair;
+    assert.ok(steps && steps.checkCollisions, 'the stair must be solid (the desktop camera climbs it by collision)');
+    assert.equal(steps.collisionGroup, 2, 'the headset follows the stair, it does not collide with it');
+    const onStair = mesh => mesh === steps;
+    for (let i = 1; i < stair.steps; i++) {
+        const z = stair.zBottom + (i - 0.5) * tread;
+        for (const x of [-1.5, 0, 1.5]) {
+            const hit = firstHit([x, S + 2, z], [0, -1, 0], S + 3, onStair);
+            assert.ok(hit && Math.abs(hit.pickedPoint.y - i * rise) < 0.005, `tread ${i} at x ${x} is at ${hit && hit.pickedPoint.y.toFixed(3)}, not ${(i * rise).toFixed(3)}`);
+            // The walking surface never sits more than a riser off the tread underfoot.
+            assert.ok(Math.abs(layout.walkLevel(x, z) - i * rise) <= rise, `walk level ${layout.walkLevel(x, z).toFixed(3)} over tread ${i}`);
+        }
+    }
+    // The top landing is at street level, and the treads are a teleport floor.
+    assert.ok(Math.abs(firstHit([0, S + 2, 5.5], [0, -1, 0], 3, onStair).pickedPoint.y - S) < 0.005);
+    assert.ok(club._vestibuleFloor, 'the landings and galleries are a floor');
+
+    // From either gallery, the stairwell is railed off at its side and at the gallery's front edge.
+    for (const side of [-1, 1]) {
+        assert.ok(firstHit([side * 2.8, S + 0.6, 3.0], [-side, 0, 0], 1.2), `the ${side < 0 ? 'left' : 'right'} gallery has no rail over the stair`);
+        assert.ok(firstHit([side * 2.8, S + 0.6, 2.0], [0, 0, -1], 1.5), `the ${side < 0 ? 'left' : 'right'} gallery has no rail at its front`);
+        // Going down the stair, the gallery walls are its sides.
+        assert.ok(firstHit([0, 1.2, 2.5], [side, 0, 0], 1.85), 'the stairwell has no side wall');
+    }
+    // Nothing collidable on the way in from the club's doorway to the bottom step, or up the middle of the flight
+    // just over the treads.
+    assert.equal(firstHit([0, 1.0, -0.5], [0, 0, 1], 1.3), null, 'something blocks the landing at the foot of the stair');
+    assert.equal(firstHit([0, 0.4, stair.zBottom + 0.1], [0, 1, 0], S + 1.5, mesh => mesh.checkCollisions && mesh !== steps && mesh.isEnabled()), null,
+        'something hangs over the stair');
+    // The carpet runs down the flight.
+    const carpet = scene.getMeshByName('vestibuleCarpet');
+    assert.ok(carpet && carpet.getBoundingInfo().boundingBox.maximumWorld.y > S, 'the carpet does not climb to the street');
+    scene.dispose();
+});
+
+test('walking surfaces: the club floor, the entrance stair, its galleries and the street, joined to the balcony', () => {
+    const layout = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule;
+    const { streetLevel: S, stair } = layout;
+    assert.equal(layout.walkLevel(0, -12), null, 'inside the club the mezzanine and the floor decide');
+    assert.equal(layout.walkLevel(0, 0.5), 0, 'the landing at the club\'s doorway is the club floor');
+    let last = -1;
+    for (let z = stair.zBottom; z <= stair.zTop + 1e-9; z += 0.1) {
+        const level = layout.walkLevel(0, z);
+        assert.ok(level >= last, `the stair goes down at z ${z.toFixed(2)}`);
+        last = level;
+    }
+    assert.ok(Math.abs(last - S) < 0.1, 'the stair does not reach the street');
+    for (const [x, z, what] of [[0, 5.5, 'the top landing'], [2.8, 3, 'the coat-check gallery'], [-2.8, 1.2, 'the ticket gallery'],
+        [0, 6.15, 'the street doorway'], [0, 9, 'the pavement'], [10, 3, 'the forecourt beside the vestibule'], [30, 20, 'down the avenue']]) {
+        assert.equal(layout.walkLevel(x, z), S, `${what} is not at street level`);
+    }
+
+    const { window } = loadClassic('js/mezzanine.js');
+    window.VenueLayout = { vestibule: layout };
+    const club = Object.assign({}, window.Mezzanine);
+    const mezz = window.MezzanineLayout;
+    assert.equal(club._walkSurfaceLevel(0, -12, 0), 0, 'the dance floor');
+    assert.equal(club._walkSurfaceLevel(-11, -14, mezz.deck.top), mezz.deck.top, 'the balcony');
+    assert.equal(club._walkSurfaceLevel(0, 9, 0), S, 'the street, whatever the last level');
+    assert.ok(club._walkSurfaceLevel(0, 3, 1.2) > 0.5 && club._walkSurfaceLevel(0, 3, 1.2) < S - 0.5, 'half-way down the entrance stair');
 });
 
 // ---------------------------------------------------------------------------

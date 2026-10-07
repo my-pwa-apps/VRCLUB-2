@@ -128,6 +128,8 @@ class VRClubEnvironment extends VRClubRendering {
     createSignage() {
         const WALL_RIGHT = 12.25, WALL_LEFT = -12.25, WALL_FRONT = -0.25; // inner faces of the shell
         const PLATE = 0.06;
+        // The street door is at the top of the entrance stair (the club is a basement).
+        const streetLevel = (window.VenueLayout && window.VenueLayout.vestibule.streetLevel) || 0;
         // yaw: a plane faces (-sin yaw, -cos yaw), so PI/2 faces -x (the right wall looks into the room).
         const signs = [
             // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
@@ -135,9 +137,9 @@ class VRClubEnvironment extends VRClubRendering {
             { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
-            // The vestibule: ENTER over the doorway on the street side, EXIT over the street door.
+            // The vestibule: ENTER over the doorway on the stair side, EXIT over the street door on its lintel.
             { cell: 'enter', kind: 'neon', color: [0.1, 0.9, 1], w: 1.44, h: 0.4, wall: 0.25, axis: 'z', y: 3.5, along: 0, yaw: Math.PI },
-            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: 3.2, along: 0, yaw: 0 }
+            { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: 6.0, axis: 'z', y: streetLevel + 3.3, along: 0, yaw: 0 }
         ];
 
         // Atlas cells in pixels: x, y, w, h. Aspect ratios match the signs they feed.
@@ -463,17 +465,19 @@ class VRClubEnvironment extends VRClubRendering {
         ceiling.doNotSyncBoundingInfo = true;
 
         // === INDUSTRIAL CEILING DETAILS (PIPES & VENTS) ===
-        // Add some pipes running along the ceiling for hyperrealism
+        // Pipes running along the ceiling. All of them stay inside the shell (z -21.7..0, x inside +-12.25): the street
+        // is outside, and runs that went through the walls hung over the pavement.
         const pipeMat = this.materialFactory.getPreset('pipe'); // Ensure 'pipe' preset exists or use 'truss'
+        const runFrom = -21.7, runTo = -0.05;
         
         // Main ventilation duct
         const ventDuct = BABYLON.MeshBuilder.CreateCylinder("ventDuct", {
             diameter: 0.8,
-            height: 45,
+            height: runTo - runFrom,
             tessellation: 16
         }, this.scene);
         ventDuct.rotation.x = Math.PI / 2;
-        ventDuct.position = new BABYLON.Vector3(-12, 9.2, -10);
+        ventDuct.position = new BABYLON.Vector3(-12, 9.2, (runFrom + runTo) / 2);
         ventDuct.material = pipeMat;
         ventDuct.freezeWorldMatrix();
         ventDuct.doNotSyncBoundingInfo = true;
@@ -481,22 +485,22 @@ class VRClubEnvironment extends VRClubRendering {
         // Smaller water pipes
         const pipe1 = BABYLON.MeshBuilder.CreateCylinder("ceilingPipe1", {
             diameter: 0.15,
-            height: 45,
+            height: runTo - runFrom,
             tessellation: 8
         }, this.scene);
         pipe1.rotation.x = Math.PI / 2;
-        pipe1.position = new BABYLON.Vector3(14, 9.5, -10);
+        pipe1.position = new BABYLON.Vector3(12.0, 9.5, (runFrom + runTo) / 2);
         pipe1.material = pipeMat;
         pipe1.freezeWorldMatrix();
         pipe1.doNotSyncBoundingInfo = true;
 
         const pipe2 = BABYLON.MeshBuilder.CreateCylinder("ceilingPipe2", {
             diameter: 0.15,
-            height: 35,
+            height: 24.4,
             tessellation: 8
         }, this.scene);
         pipe2.rotation.z = Math.PI / 2;
-        pipe2.position = new BABYLON.Vector3(0, 9.6, 5);
+        pipe2.position = new BABYLON.Vector3(0, 9.6, -0.4);
         pipe2.material = pipeMat;
         pipe2.freezeWorldMatrix();
         pipe2.doNotSyncBoundingInfo = true;

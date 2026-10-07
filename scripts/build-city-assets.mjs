@@ -52,6 +52,7 @@ const CITY = {
     roadFrom: 9.25,          // 12 m of road, four lanes
     roadTo: 21.25,
     farFront: 24.25,         // front plane of the far row of buildings
+    forecourtOpening: 3,     // no forecourt paving within this of the centre line: the entrance stair goes down there
     clubGap: 13.5            // the near row starts this far either side of the club's centre line
 };
 const ROAD_CENTRE_Z = (CITY.roadFrom + CITY.roadTo) / 2;
@@ -132,6 +133,8 @@ function buildPlan() {
     // Pavement: the avenue's 6 m tiles, and 3 m forecourt tiles in front of the club and its neighbours.
     for (let x = -L + 3; x < L; x += 6) add('Street_4Lane', x, ROAD_CENTRE_Z, { group: 'street' });
     for (let x = -L + 1.5; x < L; x += 3) {
+        // The club is a basement: over its entrance stair there is no paving (the stair hall's floors close the gap).
+        if (Math.abs(x) < CITY.forecourtOpening) continue;
         add('Sidewalk_NoCurb_3m', x, 1.75, { group: 'street' });
         add('Sidewalk_NoCurb_3m', x, 4.75, { group: 'street' });
     }

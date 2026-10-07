@@ -20,6 +20,14 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **The club is a basement: a stair goes down from the street.** The street door is now at street level, 2.8 m above the
+  dance floor. Inside it, a landing looks down a wide, carpeted stair (16 comfortable steps with brass stair rods, lit
+  nosings and handrails) to the club's front doorway, between two railed galleries with the ticket desk and the coat
+  check. Walk it on the desktop or with the VR thumbstick, or teleport onto any step; **Go to → Arrival** now starts you
+  at the top of the stair. The street outside was lifted to match. Pipes and a ventilation duct that ran through the
+  club's walls and hung out over the street now end inside the club, and the EXIT sign sits on the street door's lintel.
+- **The music fades as you walk away from the club.** Outside, the bass through the walls is loudest at the door and
+  drops steadily with distance: about half as loud 8 m away, and much quieter at the end of the block.
 - **The DJ performs the set.** The DJ in the booth no longer stands in an idle loop: they mix on the jog wheels, turn
   the mixer knobs, hold a headphone cup to one ear to cue the next track, look out over the crowd (pumping a fist when
   it is loud), throw both hands up when a drop lands, and wave at you when you walk up to the booth (once, then not

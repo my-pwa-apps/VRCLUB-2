@@ -208,6 +208,16 @@ const Mezzanine = {
         this._mezzStools = placed;
     },
 
+    /**
+     * The surface under (x, z) anywhere a guest can walk: the entrance stair, its galleries and the street (outward of
+     * the club's front wall, VenueLayout.vestibule.walkLevel), otherwise the balcony, its stair or the floor.
+     */
+    _walkSurfaceLevel(x, z, level) {
+        const layout = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.vestibule;
+        const entrance = layout && layout.walkLevel ? layout.walkLevel(x, z) : null;
+        return entrance === null ? MEZZANINE.walkLevel(x, z, level) : entrance;
+    },
+
     _updateWalkSurface() {
         const camera = this.isInVRMode && this.vrHelper && this.vrHelper.baseExperience
             ? this.vrHelper.baseExperience.camera : this.camera;
@@ -217,7 +227,7 @@ const Mezzanine = {
             return;
         }
         const level = this._walkLevel || 0;
-        const next = MEZZANINE.walkLevel(camera.position.x, camera.position.z, level);
+        const next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
         if (next === level) return;
         // Desktop has no gravity. Climbing, the collision system already slides the camera up the stair, so only the
         // level is recorded; descending, nothing pulls the eye down, so it follows the surface.
@@ -243,7 +253,7 @@ const Mezzanine = {
         if (!Number.isFinite(eye)) return;
         const feet = camera.position.y - eye;
         const x = camera.position.x, z = camera.position.z;
-        let next = MEZZANINE.walkLevel(x, z, feet);
+        let next = this._walkSurfaceLevel(x, z, feet);
         // The DJ riser (djPlatform: 6 x 4 m, top 0.5) is the other raised floor a headset can stand on: the DJ Booth
         // destination puts it there.
         const R = DJ_RISER;

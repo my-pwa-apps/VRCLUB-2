@@ -17,19 +17,27 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         const bottles = byName('barBottles');
         const layout = window.VenueLayout;
 
-        // Walk the real collision system: through the doorway, and into the counter from the floor.
+        // Walk the real collision system: through the doorway, and into the counter from the floor. The walking-surface
+        // follow runs between steps (it lowers the eye going down; the risers lift it going up).
         const camera = club.camera;
         const start = camera.position.clone();
+        const startLevel = club._walkLevel;
         const push = (from, step, count) => {
             camera.position.copyFrom(from);
-            for (let i = 0; i < count; i++) camera._collideWithWorld(step);
+            club._walkLevel = 0;
+            for (let i = 0; i < count; i++) {
+                camera._collideWithWorld(step);
+                scene.onBeforeRenderObservable.notifyObservers(scene);
+            }
             return camera.position.clone();
         };
-        const throughDoor = push(new BABYLON.Vector3(0, 1.7, -3), new BABYLON.Vector3(0, 0, 0.25), 60);
+        // Up the entrance stair from the club and out of the street door.
+        const throughDoor = push(new BABYLON.Vector3(0, 1.7, -3), new BABYLON.Vector3(0, 0, 0.12), 220);
         // The stools stop a walker well short of the counter, so the counter's own collision is checked directly.
         const counter = byName('barJoinery');
         const throughStools = push(new BABYLON.Vector3(6, 1.7, -9.9), new BABYLON.Vector3(0.25, 0, 0), 60);
         camera.position.copyFrom(start);
+        club._walkLevel = startLevel;
 
         return {
             counterCollides: counter.checkCollisions && counter.getBoundingInfo().boundingBox.minimumWorld.x < layout.bar.counter.xFront,
@@ -54,6 +62,8 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
             },
             layout: { counterBack: layout.bar.counter.xBack, backBar: layout.bar.backBar.xFront },
             doorwayZ: throughDoor.z,
+            doorwayY: throughDoor.y,
+            streetLevel: layout.vestibule.streetLevel,
             doorwayFar: layout.vestibule.farZ,
             counterX: throughStools.x,
             counterFront: layout.bar.counter.xFront,
@@ -78,10 +88,13 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.bartender.reacts).toBe(false);
     expect(state.bartender.x).toBeGreaterThan(state.layout.counterBack);
     expect(state.bartender.x).toBeLessThan(state.layout.backBar);
-    // The doorway and the street door are open (the street has loaded by now): a walker passes through both and is
-    // stopped by the far row of buildings; the counter and the stools stop a walker on the dance-floor side.
+    // The doorway and the street door are open (the street has loaded by now): a walker climbs the entrance stair,
+    // passes the street door at street level and is stopped by the far row of buildings; the counter and the stools
+    // stop a walker on the dance-floor side.
     expect(state.doorwayZ).toBeGreaterThan(state.doorwayFar);
     expect(state.doorwayZ).toBeLessThan(24);
+    expect(state.doorwayY, 'the walker must be at street level outside').toBeGreaterThan(state.streetLevel + 1.4);
+    expect(state.doorwayY).toBeLessThan(state.streetLevel + 2.1);
     expect(state.counterCollides).toBe(true);
     expect(state.stoolBlocks).toBe(5);
     expect(state.counterX).toBeLessThan(state.counterFront);

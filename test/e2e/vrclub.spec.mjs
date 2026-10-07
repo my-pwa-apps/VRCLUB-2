@@ -175,30 +175,40 @@ test('production build initializes a rendered club without browser errors', asyn
     // The visible shell and roof must contain the free desktop camera: the invisible
     // collision band is 4 m tall and open at the entrance.
     const escape = await page.evaluate(() => {
-        const camera = window.vrClub.camera;
+        const club = window.vrClub, camera = club.camera;
         const start = camera.position.clone();
+        const startLevel = club._walkLevel;
         const push = (from, step, count) => {
             camera.position.copyFrom(from);
-            for (let i = 0; i < count; i++) camera._collideWithWorld(step);
+            club._walkLevel = 0;
+            for (let i = 0; i < count; i++) {
+                camera._collideWithWorld(step);
+                club.scene.onBeforeRenderObservable.notifyObservers(club.scene);
+            }
             return camera.position.clone();
         };
-        const outEntrance = push(new BABYLON.Vector3(0, 1.7, -3), new BABYLON.Vector3(0, 0, 0.25), 80);
+        // Up the entrance stair (the club is a basement) and out through the street door.
+        const outEntrance = push(new BABYLON.Vector3(0, 1.7, -3), new BABYLON.Vector3(0, 0, 0.12), 220);
         const throughSideWall = push(new BABYLON.Vector3(0, 6, -12), new BABYLON.Vector3(-0.25, 0, 0), 80);
         const throughRoof = push(new BABYLON.Vector3(0, 1.7, -12), new BABYLON.Vector3(0, 0.25, 0), 80);
         camera.position.copyFrom(start);
+        club._walkLevel = startLevel;
         const bounds = name => window.vrClub.scene.getMeshByName(name).getBoundingInfo().boundingBox;
         const vestibule = window.VenueLayout.vestibule;
         return {
             z: outEntrance.z, vestibuleFar: vestibule.farZ, doorwayWalked: outEntrance.z > vestibule.wallZ,
+            streetY: outEntrance.y, streetLevel: vestibule.streetLevel,
             x: throughSideWall.x, leftWallInner: bounds('leftWall').maximumWorld.x,
             y: throughRoof.y, roofUnderside: bounds('ceiling').minimumWorld.y
         };
     });
-    // The front wall has a doorway and so does the vestibule's street wall: the visitor walks out onto the avenue and
-    // is stopped by the far row of buildings. The side wall and the roof still contain the free camera.
+    // The front wall has a doorway, a stair climbs to the street door, and the vestibule's street wall has a doorway:
+    // the visitor walks up and out onto the avenue at street level and is stopped by the far row of buildings. The
+    // side wall and the roof still contain the free camera.
     expect(escape.doorwayWalked).toBe(true);
     expect(escape.z).toBeGreaterThan(escape.vestibuleFar);
     expect(escape.z).toBeLessThan(24);
+    expect(escape.streetY).toBeGreaterThan(escape.streetLevel + 1.4);
     expect(escape.x).toBeGreaterThan(escape.leftWallInner);
     expect(escape.y).toBeLessThanOrEqual(escape.roofUnderside);
 
@@ -552,7 +562,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
         })),
         mirrorRealLightCount: 0
     });
-    expect(xrState.djFacing).toBeCloseTo(0, 5);
+    // The DJ is posed by AvatarRig: its root yaw is the skeleton's measured facing (a few 1e-5 rad off zero), and the
+    // performer's head turns stay inside the rig's dead-zone, so the body keeps facing the crowd.
+    expect(xrState.djFacing).toBeCloseTo(0, 2);
     expect(xrState.djFacingUsesEuler).toBe(true);
 
     const opticsState = await page.evaluate(() => {
