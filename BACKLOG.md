@@ -266,13 +266,17 @@ Shipped: Hernan Cattaneo / Miss Melera selector, random episode on entry, seek b
 that changes with the podcast (see [CHANGELOG.md](CHANGELOG.md)). Validated with mocked feeds on desktop SwiftShader and the
 IWER harness only. Open items:
 
-- [ ] **Deploy the relay and verify real Colourizon streaming and seeking through it**
+- [ ] **Verify Colourizon end to end in a browser, and after every relay change**
 
-  **Priority:** High
+  **Priority:** Medium
   **Category:** Deployment
-  **Evidence:** `worker/src/podcast.js` is covered by unit tests with a stubbed upstream and the e2e suite serves a mock; the
-  Worker has not been deployed, and SoundCloud's signed stream URLs live about five minutes (the proxy re-resolves per request).
-  **Recommended solution:** `wrangler deploy` in `worker/`, then play Colourizon, seek across the episode and let one finish.
+  **Evidence:** The relay was deployed on 2026-10-07 (the hosted copy had been the old build, so choosing Miss Melera failed:
+  "expected a websocket upgrade"). With `curl` and the production Origin it now returns the rewritten feed, a 206 with
+  `Content-Range` on the real SoundCloud stream, a 206 for a range 40 MB in (a seek), and 403 for a missing or foreign Origin.
+  Not yet checked: a full play-through in a browser against the live relay, and SoundCloud's signed stream URLs live about
+  five minutes (the proxy re-resolves per request).
+  **Recommended solution:** After any change under `worker/`, run `wrangler deploy` there and repeat the three curl checks
+  above before trusting the UI; then play Colourizon, seek across the episode and let one finish.
   **Acceptance criteria:** An episode plays with a live analyser (not the "silent" warning), a mid-episode seek resumes within
   3 s, and an episode longer than five minutes does not stall at the first URL expiry.
 

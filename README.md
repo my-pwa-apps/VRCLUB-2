@@ -80,7 +80,7 @@ js/models/                 Local GLB models and model textures
 - **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
 - **🎵 Audio menu** (bottom-right): choose **Hernan Cattaneo** (*Resident*) or **Miss Melera** (*Colourizon*), play a **Random** or the **Latest** episode, drag the **seek bar** (or ±30 s) to move through it, or play an HTTP(S) stream URL / local audio file, plus volume. The last stream you chose is remembered. A dropped episode reconnects at the same position. The VR menu has the same controls on its **Music** page, with a seek strip you click or drag with the controller ray.
 - **Music on entry:** a random episode of the chosen podcast starts when you press ENTER (the splash names which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on. The DJ in the booth changes to match the podcast.
-- **Miss Melera needs the relay:** her SoundCloud podcast has no CORS headers, so it streams through the Worker in `worker/` (`/podcast/colourizon/...`). Redeploy it with `wrangler deploy` after pulling. Hernan Cattaneo works without it.
+- **Miss Melera needs the relay:** her SoundCloud podcast has no CORS headers, so it streams through the Worker in `worker/` (`/podcast/colourizon/...`). The hosted relay was updated on 2026-10-07; after changing `worker/`, redeploy it with `wrangler deploy`. Hernan Cattaneo works without it.
 - **📷 Camera presets** (bottom-centre): four fixed viewpoints.
 
 ### Keyboard shortcuts

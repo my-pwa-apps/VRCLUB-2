@@ -893,8 +893,9 @@ Optional and opt-in: nothing connects until a guest clicks **Connect** in the Mu
   per-type token buckets and closes flooders. Close codes are `4003` (room full) and
   `4008` (flooding). Emoji are allow-listed and names are sanitised. Tests: `test/worker.test.mjs`.
   `worker/src/podcast.js` also serves the Colourizon podcast (see Audio); it sits behind the same Origin
-  check, fetches only `feeds.soundcloud.com`, and was added after the last deploy: `wrangler deploy`
-  from `worker/` before Miss Melera can play on the hosted site.
+  check, fetches only `feeds.soundcloud.com`, and is live on the hosted relay since 2026-10-07. A worker change
+  is not live until `wrangler deploy` runs in `worker/`: when the Melera podcast fails with a "websocket upgrade"
+  reply, the hosted relay is an old build.
 - `js/networkClient.js` — WebSocket presence plus a WebRTC voice mesh using **perfect
   negotiation** (`negotiationneeded`; the higher id is polite). Either guest may enable the
   mic first. Muting removes tracks but keeps connections, so the guest still hears others.
