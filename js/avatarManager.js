@@ -29,6 +29,17 @@ class AvatarManager {
     static RUN_SPEED = 2.6;
     static BUBBLE_HIDE = 0.7;        // personal space: hide within this many metres...
     static BUBBLE_SHOW = 0.95;       // ...and show again beyond this (hysteresis)
+    // Name tag and emoji bubble, in metres. The tag used to be 1.1 x 0.28 m (wider than the person under it).
+    static TAG_WIDTH = 0.6;
+    static TAG_HEIGHT = 0.15;
+    static TAG_Y = 2.0;
+    static EMOJI_SIZE = 0.3;
+    static EMOJI_Y = 2.3;
+    // Typed chat: a speech bubble above the emoji, shown for a few seconds.
+    static CHAT_WIDTH = 0.9;
+    static CHAT_Y = 2.62;
+    static CHAT_MIN_SECONDS = 5;
+    static CHAT_MAX_SECONDS = 12;
 
     /** Shortest signed angle from `from` to `to`, in (-PI, PI]. */
     static shortestAngle(from, to) {
@@ -43,6 +54,7 @@ class AvatarManager {
         this.remotes = new Map();
         this._material = null;
         this.personalSpace = true;
+        this.nameTags = true;
         this.muteAll = false;
         this._frame = 0;
         this.onSpeakingChange = () => {};
@@ -88,6 +100,7 @@ class AvatarManager {
             muted: false, speaking: false, isHost: false, hidden: false,
             pose: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
+            chatPlane: null, chatTimer: 0,
             gesture: { until: 0, last: -Infinity, dancing: false },
             speed: 0, prevX: NaN, prevZ: NaN,
             target: { x: root.position.x, y: root.position.y, z: root.position.z, rotY: 0 },
@@ -226,51 +239,92 @@ class AvatarManager {
 
     // ───────────────────────── name tag ─────────────────────────
 
-    _createLabel(peer, root) {
-        const scene = this.scene;
-        const id = peer.id;
-        const plane = BABYLON.MeshBuilder.CreatePlane(`remoteLabel_${id}`, { width: 1.1, height: 0.28 }, scene);
-        plane.parent = root;
-        plane.position.y = 2.05;
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-        plane.isPickable = false;
-
-        const dt = new BABYLON.DynamicTexture(`remoteLabelTex_${id}`, { width: 256, height: 64 }, scene, false);
-        dt.hasAlpha = true;
-
-        const mat = new BABYLON.StandardMaterial(`remoteLabelMat_${id}`, scene);
-        mat.diffuseTexture = dt;
+    /**
+     * A label material: the canvas is both the colour and the alpha, and it never writes depth. That last part is not
+     * cosmetic. A StandardMaterial is pre-pass capable while it writes depth, so on the desktop tiers with screen-space
+     * reflections it rendered into the SSR pre-pass, and the SSR composition drew the tag and every emoji as black
+     * shapes (mobile and Quest have no SSR, so they looked right). A material that does not write depth is drawn on the
+     * colour attachment only, whenever and however the pre-pass renderer is created.
+     */
+    _labelMaterial(name, texture) {
+        const mat = new BABYLON.StandardMaterial(name, this.scene);
+        mat.diffuseTexture = texture;
         mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
         mat.disableLighting = true;
         mat.backFaceCulling = false;
         mat.useAlphaFromDiffuseTexture = true;
-        plane.material = mat;
+        mat.disableDepthWrite = true;
+        mat.fogEnabled = false;
+        return mat;
+    }
+
+    _createLabel(peer, root) {
+        const scene = this.scene;
+        const id = peer.id;
+        const plane = BABYLON.MeshBuilder.CreatePlane(`remoteLabel_${id}`,
+            { width: AvatarManager.TAG_WIDTH, height: AvatarManager.TAG_HEIGHT }, scene);
+        plane.parent = root;
+        plane.position.y = AvatarManager.TAG_Y;
+        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+        plane.isPickable = false;
+
+        // Twice the old resolution on a plane about half the size, with mipmaps so the name stays legible from across
+        // the floor instead of shimmering into noise.
+        const dt = new BABYLON.DynamicTexture(`remoteLabelTex_${id}`, { width: 512, height: 128 }, scene, true);
+        dt.hasAlpha = true;
+        plane.material = this._labelMaterial(`remoteLabelMat_${id}`, dt);
+        plane.setEnabled(this.nameTags);
         peer.nameplate = plane;
         this._drawNameplate(peer);
         return plane;
     }
 
-    /** The tag: the name, a crown for the host, a red bar when muted, a green frame while they speak. */
+    /** The tag: the name, a crown for the host, a red name when muted, a green outline while they speak. */
     _drawNameplate(peer) {
         const dt = peer.nameplate && peer.nameplate.material && peer.nameplate.material.diffuseTexture;
         if (!dt) return;
         const ctx = dt.getContext();
         const { width, height } = dt.getSize();
         ctx.clearRect(0, 0, width, height);
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(0, 0, width, height);
+        const text = `${peer.isHost ? '\u{1F451} ' : ''}${String(peer.name || 'Guest').slice(0, 16)}${peer.muted ? ' \u{1F507}' : ''}`;
+        // A pill only as wide as the name, so a short name is a small tag rather than a long dark bar.
+        let size = 64;
+        ctx.font = `bold ${size}px sans-serif`;
+        const maxText = width - 56;
+        const measured = ctx.measureText(text).width;
+        if (measured > maxText) {
+            size = Math.max(36, Math.floor(size * maxText / measured));
+            ctx.font = `bold ${size}px sans-serif`;
+        }
+        const textWidth = Math.min(maxText, ctx.measureText(text).width);
+        const pillW = Math.min(width - 4, textWidth + 48);
+        const pillH = height - 12;
+        const x = (width - pillW) / 2, y = 6, r = pillH / 2;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + pillW, y, x + pillW, y + pillH, r);
+        ctx.arcTo(x + pillW, y + pillH, x, y + pillH, r);
+        ctx.arcTo(x, y + pillH, x, y, r);
+        ctx.arcTo(x, y, x + pillW, y, r);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fill();
         if (peer.speaking) {
             ctx.strokeStyle = '#3dff9a';
-            ctx.lineWidth = 6;
-            ctx.strokeRect(3, 3, width - 6, height - 6);
+            ctx.lineWidth = 8;
+            ctx.stroke();
         }
-        ctx.font = 'bold 28px sans-serif';
         ctx.fillStyle = peer.muted ? '#ff8f8f' : '#ffffff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const text = `${peer.isHost ? '\u{1F451} ' : ''}${String(peer.name || 'Guest').slice(0, 16)}${peer.muted ? ' \u{1F507}' : ''}`;
-        ctx.fillText(text, width / 2, height / 2);
+        ctx.fillText(text, width / 2, height / 2 + 2, maxText);
         dt.update();
+    }
+
+    /** Show or hide every guest's name tag (emoji bubbles stay: they are what the guest chose to say). */
+    setNameTags(enabled) {
+        this.nameTags = !!enabled;
+        for (const peer of this.remotes.values()) if (peer.nameplate) peer.nameplate.setEnabled(this.nameTags);
     }
 
     setHost(id, isHost) {
@@ -313,9 +367,9 @@ class AvatarManager {
         this._clearEmoji(peer);
 
         const scene = this.scene;
-        const plane = BABYLON.MeshBuilder.CreatePlane(`remoteEmoji_${id}`, { size: 0.5 }, scene);
+        const plane = BABYLON.MeshBuilder.CreatePlane(`remoteEmoji_${id}`, { size: AvatarManager.EMOJI_SIZE }, scene);
         plane.parent = peer.root;
-        plane.position.y = 2.45;
+        plane.position.y = AvatarManager.EMOJI_Y;
         plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
         plane.isPickable = false;
 
@@ -328,13 +382,7 @@ class AvatarManager {
         ctx.fillText(emoji, 64, 68);
         dt.update();
 
-        const mat = new BABYLON.StandardMaterial(`remoteEmojiMat_${id}`, scene);
-        mat.diffuseTexture = dt;
-        mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-        mat.disableLighting = true;
-        mat.useAlphaFromDiffuseTexture = true;
-        mat.backFaceCulling = false;
-        plane.material = mat;
+        plane.material = this._labelMaterial(`remoteEmojiMat_${id}`, dt);
 
         peer.emojiPlane = plane;
         peer.emojiTimer = 2.2;
@@ -460,6 +508,12 @@ class AvatarManager {
         if (!peer) return;
         this.detachVoice(id);
         this._clearEmoji(peer);
+        if (peer.chatPlane) {
+            peer.chatPlane.material.diffuseTexture.dispose();
+            peer.chatPlane.material.dispose();
+            peer.chatPlane.dispose();
+            peer.chatPlane = null;
+        }
         peer.nameplate.material.diffuseTexture.dispose();
         peer.nameplate.material.dispose();
         peer.nameplate.dispose();
@@ -523,7 +577,106 @@ class AvatarManager {
                 peer.emojiTimer -= step;
                 if (peer.emojiTimer <= 0) this._clearEmoji(peer);
             }
+            if (peer.chatPlane && peer.chatPlane.isEnabled()) {
+                peer.chatTimer -= step;
+                if (peer.chatTimer <= 0) peer.chatPlane.setEnabled(false);
+            }
         }
+    }
+
+    // ───────────────────────── typed chat: a speech bubble over the sender ─────────────────────────
+
+    /**
+     * Show a typed message above the guest who sent it, for a few seconds (longer for a longer message). This is what
+     * makes chat readable in the headset, where the DOM chat log cannot be seen. One plane per guest, redrawn per
+     * message, so a chatty guest does not churn GPU resources. Text is drawn with fillText, never interpreted.
+     */
+    showChat(id, text) {
+        const peer = this.remotes.get(id);
+        if (!peer || typeof text !== 'string' || !text) return;
+        if (!peer.chatPlane) peer.chatPlane = this._createChatPlane(peer);
+        this._drawChat(peer.chatPlane.material.diffuseTexture, text);
+        peer.chatPlane.setEnabled(true);
+        peer.chatTimer = Math.min(AvatarManager.CHAT_MAX_SECONDS, AvatarManager.CHAT_MIN_SECONDS + text.length * 0.06);
+    }
+
+    _createChatPlane(peer) {
+        const plane = BABYLON.MeshBuilder.CreatePlane(`remoteChat_${peer.id}`,
+            { width: AvatarManager.CHAT_WIDTH, height: AvatarManager.CHAT_WIDTH * 160 / 512 }, this.scene);
+        plane.parent = peer.root;
+        plane.position.y = AvatarManager.CHAT_Y;
+        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+        plane.isPickable = false;
+        const dt = new BABYLON.DynamicTexture(`remoteChatTex_${peer.id}`, { width: 512, height: 160 }, this.scene, true);
+        dt.hasAlpha = true;
+        plane.material = this._labelMaterial(`remoteChatMat_${peer.id}`, dt);
+        plane.setEnabled(false);
+        return plane;
+    }
+
+    /** Word-wrapped onto at most three lines inside a rounded white bubble; a longer message ends in an ellipsis. */
+    _drawChat(dt, text) {
+        const ctx = dt.getContext();
+        const { width, height } = dt.getSize();
+        ctx.clearRect(0, 0, width, height);
+        const font = 30, lineHeight = 38, pad = 16, maxLines = 3, maxWidth = width - pad * 2 - 8;
+        ctx.font = `600 ${font}px sans-serif`;
+        const lines = AvatarManager.wrapText(text, maxWidth, maxLines, value => ctx.measureText(value).width);
+        const boxH = lines.length * lineHeight + pad * 2 - 8;
+        const boxW = Math.min(width - 4, Math.max(...lines.map(line => ctx.measureText(line).width)) + pad * 2 + 8);
+        const x = (width - boxW) / 2, y = (height - boxH) / 2, r = 18;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + boxW, y, x + boxW, y + boxH, r);
+        ctx.arcTo(x + boxW, y + boxH, x, y + boxH, r);
+        ctx.arcTo(x, y + boxH, x, y, r);
+        ctx.arcTo(x, y, x + boxW, y, r);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fill();
+        ctx.fillStyle = '#111111';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        lines.forEach((line, i) => ctx.fillText(line, width / 2, y + pad - 4 + lineHeight * (i + 0.5)));
+        dt.update();
+    }
+
+    /**
+     * Greedy word wrap. `measure(text)` returns a width. A word wider than a line is split into line-sized pieces, and
+     * text that needs more than `maxLines` ends in an ellipsis. Pure, so it is unit-tested without a canvas.
+     */
+    static wrapText(text, maxWidth, maxLines, measure) {
+        const pieces = [];
+        for (const word of String(text).split(' ').filter(Boolean)) {
+            let rest = Array.from(word);
+            while (rest.length) {
+                let fit = rest.length;
+                while (fit > 1 && measure(rest.slice(0, fit).join('')) > maxWidth) fit--;
+                pieces.push(rest.slice(0, fit).join(''));
+                rest = rest.slice(fit);
+            }
+        }
+        const lines = [];
+        let line = '';
+        for (const piece of pieces) {
+            const candidate = line ? `${line} ${piece}` : piece;
+            if (!line || measure(candidate) <= maxWidth) { line = candidate; continue; }
+            lines.push(line);
+            line = piece;
+        }
+        if (line) lines.push(line);
+        if (lines.length <= maxLines) return lines;
+        const kept = lines.slice(0, maxLines);
+        let last = kept[maxLines - 1];
+        while (last && measure(`${last}\u2026`) > maxWidth) last = Array.from(last).slice(0, -1).join('');
+        kept[maxLines - 1] = `${last}\u2026`;
+        return kept;
+    }
+
+    /** Is anyone in the room audibly speaking right now (not muted)? Drives the music ducking. */
+    anyoneSpeaking() {
+        for (const peer of this.remotes.values()) if (peer.speaking) return true;
+        return false;
     }
 
     _updateClip(peer) {

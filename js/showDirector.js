@@ -166,9 +166,15 @@ class ShowDirector {
         if (!vj) return;
 
         // --- Track perceived energy (slow EMA; movements are a long-form decision)
-        const inst = audioData && audioData.hasAudio
+        let inst = audioData && audioData.hasAudio
             ? (audioData.bass * 0.6 + audioData.mid * 0.3 + audioData.treble * 0.1)
             : 0.24;   // No audio: sit in the groove band so the room still performs.
+        // The band average barely moves between a groove, a breakdown and a drop (pads and vocals fill it). The kick
+        // band's dynamics do: a steady groove reads ~0.6, which leaves the calibrated bands untouched, a breakdown
+        // pulls the energy down a quarter and a landing drop lifts it by a third.
+        if (audioData && audioData.hasAudio && typeof audioData.energy === 'number') {
+            inst *= 0.55 + 0.75 * audioData.energy;
+        }
         // Compounded per elapsed frame so movement choice keeps the same musical
         // timing at 72, 90 and 120 Hz.
         const follow = 1 - Math.pow(1 - 0.02, this.club.dtScale || 1);
@@ -491,7 +497,13 @@ class ShowDirector {
         // How hard the fixtures themselves (not just the exposure) hit on the kick.
         // Read by the club's frame update; the look's punch sets the depth.
         club.kickDepth = Math.min(1, 0.30 + punch * 1.4);
-        const envelopeFloor = audioData && audioData.hasAudio ? 0.65 : 0.75;
+        // How far the rig dips between kicks. With the kick band the beat grid is trustworthy (every pulse is a real
+        // kick), so the rig breathes properly: about a sixth of the look's level for an average punch, more for a
+        // punchy look. Without it, and under Photosensitive Safe Mode, the old shallow breath. VJDirector caps the
+        // punches at 2.5 a second whatever the tempo, under the 3-a-second flash limit.
+        const trusted = audioData && audioData.hasAudio && typeof audioData.low === 'number';
+        const envelopeFloor = !(audioData && audioData.hasAudio) ? 0.75
+            : (trusted && !club.photosensitiveSafeMode ? 0.3 : 0.65);
         const env = envelopeFloor + trackedEnvelope * (1 - envelopeFloor);
         target *= (1 - punch) + punch * env;
 
@@ -507,7 +519,9 @@ class ShowDirector {
         // --- 3. Smooth, then publish. Snap on the way down (a blackout that
         //        fades is just a dim), fast attack on the way up so the kick
         //        punch reads as a hit and peak looks can actually reach full.
-        const rate = target < this._intensity ? 0.5 : 0.30;
+        // Compounded per elapsed frame, so the attack and the snap feel the same at 72, 90 and 120 Hz.
+        const rate60 = target < this._intensity ? 0.5 : 0.30;
+        const rate = 1 - Math.pow(1 - rate60, this.club.dtScale || 1);
         this._intensity += (target - this._intensity) * rate;
         club.masterIntensity = this._intensity;
     }

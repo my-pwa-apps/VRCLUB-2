@@ -11,6 +11,7 @@
  *     { type: 'state', state: {x,y,z,rotY} }        - throttled position/facing sample (y = eye height)
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
  *     { type: 'gesture', gesture: 'wave'|'nod'|'dance'|'stop' } - body language (allow-listed; 'dance' runs until 'stop')
+ *     { type: 'chat', text }                          - a typed message (at most 200 characters, control characters removed)
  *     { type: 'avatar', pool? }                       - ask for a different random avatar, optionally from 'women', 'men' or 'any'
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
@@ -27,6 +28,7 @@
  *     { type: 'state', id, state }
  *     { type: 'emoji', id, emoji }
  *     { type: 'gesture', id, gesture }
+ *     { type: 'chat', id, text }
  *     { type: 'avatar', id, avatar }
  *     { type: 'music', url, playing, position, updatedAt, podcast, title }
  *     { type: 'show', ... }
@@ -38,7 +40,7 @@
  * shows other guests only `pid`, a hash of it. Blocks and bans are keyed by `pid`, so they survive a reconnect (the
  * session id changes every time) and nobody can be banned or blocked by someone who merely copied their `pid`.
  * Close codes: 4003 room full, 4008 flooding, 4010 removed by the host, 4011 banned, 4012 room locked.
- * Bans live as long as the room's Durable Object does (they reset once the room has been empty and evicted).
+ * Bans and the lock last while anyone is in the room: once it is empty it starts over (see _onClose).
  *
  * Every guest is handed a random avatar from AVATARS that no one else in the room has (a room holds at most 8 guests
  * and the pool has 17), and may ask for another. The pool must match the crowd people in js/club/11-audio-crowd.js.
@@ -103,6 +105,16 @@ export const AVATAR_POOLS = Object.freeze({
 export function sanitizePool(value) {
     return value === 'women' || value === 'men' ? value : 'any';
 }
+export const MAX_CHAT_LENGTH = 200;
+/**
+ * A typed message: control, format and separator characters removed (no bidi overrides, no zero-width tricks, no line
+ * breaks), whitespace collapsed, at most MAX_CHAT_LENGTH code points. Empty after that means nothing is sent.
+ */
+export function sanitizeChat(value) {
+    if (typeof value !== 'string') return '';
+    const cleaned = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/g, ' ').trim();
+    return Array.from(cleaned).slice(0, MAX_CHAT_LENGTH).join('');
+}
 export const MAX_BLOCKED = 64;
 export const MAX_BANNED = 256;
 export const PID_PATTERN = /^[0-9a-f]{16}$/;
@@ -127,6 +139,7 @@ export const RATE_LIMITS = Object.freeze({
     kick: { rate: 1, burst: 3 },
     ban: { rate: 1, burst: 3 },
     lock: { rate: 1, burst: 3 },
+    chat: { rate: 0.5, burst: 4 },
     ping: { rate: 1, burst: 3 }
 });
 
@@ -421,6 +434,14 @@ export class ClubRoom {
                 }
                 break;
 
+            case 'chat': {
+                // Typed messages for guests who would rather not talk. Only to people who can see the sender (block
+                // is two-way), never stored, and the relay names the sender: a client cannot claim to be someone else.
+                const text = sanitizeChat(msg.text);
+                if (text) this._relay(session, { type: 'chat', id: session.id, text }, ws);
+                break;
+            }
+
             case 'avatar': {
                 // A different random one: the pick excludes everyone else's and this guest's current.
                 if (msg.pool !== undefined) session.avatarPool = sanitizePool(msg.pool);
@@ -573,7 +594,16 @@ export class ClubRoom {
             const next = this.sessions.values().next();
             this.hostId = next.done ? null : next.value.id;
             if (this.hostId) this._broadcast({ type: 'host', id: this.hostId });
-            else { this.musicState = null; this.showState = null; }
+        }
+        // An empty room starts over. The lock in particular must go: with nobody left to unlock it, every newcomer
+        // (the host who locked it included, reconnecting after a dropped connection) would be refused with 4012 until
+        // the Durable Object happened to be evicted, and each refused attempt keeps it alive.
+        if (!this.sessions.size) {
+            this.hostId = null;
+            this.musicState = null;
+            this.showState = null;
+            this.locked = false;
+            this.banned.clear();
         }
         this._relay(session, { type: 'leave', id: session.id });
     }

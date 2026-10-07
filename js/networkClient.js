@@ -47,7 +47,15 @@ class NetworkClient {
         }
     }
 
+    static MAX_CHAT_LENGTH = 200;
     static AVATAR_POOLS = Object.freeze(['any', 'women', 'men']);
+    /** What the relay will keep of a message (it applies the same rule): no control characters, at most 200 code points. */
+    static cleanChat(value) {
+        if (typeof value !== 'string') return '';
+        const cleaned = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/g, ' ').trim();
+        return Array.from(cleaned).slice(0, NetworkClient.MAX_CHAT_LENGTH).join('');
+    }
+
     static GESTURES = Object.freeze(['wave', 'nod', 'dance', 'stop']);
     static PID = /^[0-9a-f]{16}$/;
     static MAX_BLOCKED = 64;
@@ -109,6 +117,7 @@ class NetworkClient {
         this.onHostChange = () => {};
         this.onRoom = () => {};
         this.onShow = () => {};
+        this.onChat = () => {};
         this.onRemoteStream = () => {};
         this.onError = () => {};
     }
@@ -290,6 +299,10 @@ class NetworkClient {
                 if (this.peers.has(msg.id)) this.onEmoji(msg.id, msg.emoji);
                 break;
 
+            case 'chat':
+                if (this.peers.has(msg.id) && typeof msg.text === 'string' && msg.text) this.onChat(msg.id, msg.text.slice(0, NetworkClient.MAX_CHAT_LENGTH));
+                break;
+
             case 'gesture':
                 if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
                 break;
@@ -348,6 +361,13 @@ class NetworkClient {
 
     sendState(state) { this._send({ type: 'state', state }); }
     sendEmoji(emoji) { this._send({ type: 'emoji', emoji }); }
+    /** A typed message. Returns false when there was nothing to send. */
+    sendChat(text) {
+        const clean = NetworkClient.cleanChat(text);
+        if (!clean || !this.connected) return false;
+        this._send({ type: 'chat', text: clean });
+        return true;
+    }
     sendGesture(gesture) {
         if (NetworkClient.GESTURES.includes(gesture)) this._send({ type: 'gesture', gesture });
     }

@@ -880,7 +880,7 @@ function initVJMenu() {
         });
         
         const onEnded = scene.onXRSessionEnded.add(() => {
-            vjToggle.style.display = 'block';
+            vjToggle.style.display = ''; // back to the stylesheet's layout (icon over word)
         });
 
         teardowns.push(() => {
@@ -914,17 +914,25 @@ window.addEventListener('pagehide', teardownVJUI);
  * modifier is held (so Ctrl+B, Cmd+1 etc. reach the browser unchanged).
  */
 function initKeyboardShortcuts() {
-    const isInteractiveTarget = (target) => {
+    /** A field you type into: every key belongs to it. */
+    const isTextTarget = (target) => {
         if (!target) return false;
         if (target.isContentEditable) return true;
-        if (/^(INPUT|TEXTAREA|SELECT|BUTTON|SUMMARY)$/.test(target.tagName)) return true;
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return true;
+        return typeof target.closest === 'function' && !!target.closest('[contenteditable="true"]');
+    };
+    /** A button or link: it only uses Space and Enter, so a letter shortcut still works while one has focus. */
+    const isActivatable = (target) => {
+        if (!target) return false;
+        if (/^(BUTTON|SUMMARY)$/.test(target.tagName)) return true;
         if (target.tagName === 'A' && target.href) return true;
-        return typeof target.closest === 'function'
-            && !!target.closest('[role="button"], [role="link"], [contenteditable="true"]');
+        return typeof target.closest === 'function' && !!target.closest('[role="button"], [role="link"]');
     };
     const onKey = (e) => {
         const t = e.target;
-        if (e.defaultPrevented || isInteractiveTarget(t)) return;
+        if (e.defaultPrevented || isTextTarget(t)) return;
+        // Closing a panel leaves focus on its button; M and T must still work then. Space and Enter stay the button's.
+        if (isActivatable(t) && (e.key === ' ' || e.key === 'Enter')) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         const club = vrClubInstance;
         if (!club) return;
@@ -944,6 +952,17 @@ function initKeyboardShortcuts() {
                     if (club.guardHostControl('lights')) vjMacros.blackout();
                 }
                 break;
+            case 'm': case 'M': {
+                // In a room: the microphone on or off, without hunting for the button.
+                const mp = club.multiplayer;
+                if (mp && mp.connected) { e.preventDefault(); mp.toggleMic(); }
+                break;
+            }
+            case 't': case 'T': {
+                const mp = club.multiplayer;
+                if (mp && mp.connected) { e.preventDefault(); openSocialChat(); }
+                break;
+            }
             case 'f': case 'F':
                 if (vjMacros.drop) {
                     e.preventDefault();
@@ -1319,7 +1338,7 @@ function initAudioMenu() {
             audioToggle.style.display = 'none';
         });
         const onEnded = scene.onXRSessionEnded.add(() => {
-            audioToggle.style.display = 'block';
+            audioToggle.style.display = ''; // back to the stylesheet's layout (icon over word)
         });
         teardowns.push(() => {
             scene.onXRSessionInit.remove(onInit);
@@ -1363,7 +1382,9 @@ function initRoomGuestLock(mp) {
 
         const controls = [...root.querySelectorAll('button, input, label.audio-file-label')].filter(el => !el.matches(panel.keep));
         for (const el of controls) el.classList.add('host-owned');
-        const inputs = controls.filter(el => el.tagName === 'INPUT');
+        // Buttons and inputs are really disabled, not only dimmed: a guest cannot reach them with the keyboard, and a
+        // screen reader announces them as unavailable. The capture listener below stays as a second line.
+        const disableable = controls.filter(el => el.tagName === 'INPUT' || el.tagName === 'BUTTON');
 
         const block = (e) => {
             if (!club.isFollowingHost()) return;
@@ -1383,11 +1404,160 @@ function initRoomGuestLock(mp) {
                 const host = mp.hostName();
                 note.textContent = `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
             }
-            for (const input of inputs) input.disabled = following;
+            for (const el of disableable) {
+                // Remember what was disabled for its own reasons (a podcast loading) so leaving the room restores it.
+                if (following && !el.dataset.hostLocked) { el.dataset.hostLocked = el.disabled ? 'was' : '1'; el.disabled = true; }
+                else if (!following && el.dataset.hostLocked) { el.disabled = el.dataset.hostLocked === 'was'; delete el.dataset.hostLocked; }
+            }
             root.classList.toggle('room-guest-locked', following);
         });
     }
     const render = () => { for (const fn of renders) fn(); };
+    uiTeardowns.push(mp.onChange(render));
+    render();
+}
+
+/** Opens the chat box of the social bar (set by initSocialBar; a no-op until then). */
+let openSocialChat = () => {};
+
+/**
+ * The social bar: the three things you do in a room - talk, react, type - one press away at the bottom of the screen,
+ * shown only while in a room and never in VR (the quick menu's TALK / REACT / CHAT row is the headset's version).
+ * It only calls ClubMultiplayer and redraws from onChange, like the panel. Messages are drawn with textContent.
+ */
+function initSocialBar(mp) {
+    const club = vrClubInstance;
+    const bar = document.getElementById('socialBar');
+    if (!bar) return;
+    const micBtn = document.getElementById('socialMic');
+    const micLabel = document.getElementById('socialMicLabel');
+    const reactBtn = document.getElementById('socialReact');
+    const chatBtn = document.getElementById('socialChat');
+    const tray = document.getElementById('socialReactTray');
+    const box = document.getElementById('socialChatBox');
+    const log = document.getElementById('socialChatLog');
+    const form = document.getElementById('socialChatForm');
+    const input = document.getElementById('socialChatInput');
+    const badge = document.getElementById('socialChatBadge');
+    const peek = document.getElementById('socialPeek');
+    let inVR = false;
+    let seen = 0;
+    let peekTimer = null;
+
+    const setOpen = (button, pop, open) => {
+        if (!pop || !button) return;
+        pop.hidden = !open;
+        button.setAttribute('aria-expanded', String(open));
+        button.classList.toggle('active', open);
+    };
+    const closeAll = () => { setOpen(reactBtn, tray, false); setOpen(chatBtn, box, false); };
+
+    const renderLog = () => {
+        if (!log) return;
+        log.replaceChildren();
+        const entries = mp.chat.slice(-30);
+        if (!entries.length) {
+            const empty = document.createElement('li');
+            empty.className = 'social-chat-empty';
+            empty.textContent = 'No messages yet. Say hi!';
+            log.appendChild(empty);
+        }
+        for (const entry of entries) {
+            const item = document.createElement('li');
+            item.className = entry.self ? 'social-chat-self' : '';
+            const who = document.createElement('strong');
+            who.textContent = entry.self ? 'You' : entry.name;
+            item.append(who, document.createTextNode(`: ${entry.text}`));
+            log.appendChild(item);
+        }
+        log.scrollTop = log.scrollHeight;
+    };
+
+    const showPeek = (entry) => {
+        if (!peek) return;
+        peek.textContent = `${entry.name}: ${entry.text}`;
+        peek.hidden = false;
+        clearTimeout(peekTimer);
+        peekTimer = setTimeout(() => { peek.hidden = true; }, 6000);
+    };
+
+    const render = () => {
+        const visible = mp.connected && !inVR;
+        bar.hidden = !visible;
+        if (!visible) closeAll();
+        if (micBtn) {
+            micBtn.setAttribute('aria-pressed', String(mp.micEnabled));
+            micBtn.classList.toggle('active', mp.micEnabled);
+            if (micLabel) micLabel.textContent = mp.micEnabled ? 'Mic on' : 'Mic off';
+        }
+        for (const button of tray ? tray.querySelectorAll('[data-gesture="dance"]') : []) {
+            button.setAttribute('aria-pressed', String(mp.dancing));
+            button.classList.toggle('active', mp.dancing);
+        }
+        // A message that arrives while the box is closed: a short peek above the bar and a count on the button.
+        const chatOpen = box && !box.hidden;
+        const fresh = mp.chat.slice(seen).filter(entry => !entry.self);
+        if (mp.chat.length < seen) seen = 0;
+        if (fresh.length && !chatOpen) showPeek(fresh[fresh.length - 1]);
+        seen = mp.chat.length;
+        if (chatOpen && mp.chatUnread) mp.markChatRead();
+        if (badge) {
+            badge.hidden = !mp.chatUnread || chatOpen;
+            badge.textContent = String(Math.min(99, mp.chatUnread));
+        }
+        if (chatBtn) chatBtn.setAttribute('aria-label', mp.chatUnread ? `Chat, ${mp.chatUnread} new` : 'Chat');
+        if (chatOpen || fresh.length) renderLog();
+    };
+
+    openSocialChat = () => {
+        if (!mp.connected) return;
+        setOpen(reactBtn, tray, false);
+        setOpen(chatBtn, box, true);
+        if (peek) peek.hidden = true;
+        mp.markChatRead();
+        renderLog();
+        render();
+        if (input) input.focus();
+    };
+
+    if (micBtn) micBtn.addEventListener('click', () => mp.toggleMic());
+    if (reactBtn) reactBtn.addEventListener('click', () => {
+        const open = tray.hidden;
+        setOpen(chatBtn, box, false);
+        setOpen(reactBtn, tray, open);
+    });
+    if (chatBtn) chatBtn.addEventListener('click', () => {
+        if (box.hidden) openSocialChat();
+        else setOpen(chatBtn, box, false);
+    });
+    if (tray) {
+        for (const button of tray.querySelectorAll('[data-emoji]')) button.addEventListener('click', () => mp.sendEmoji(button.dataset.emoji));
+        for (const button of tray.querySelectorAll('[data-gesture]')) button.addEventListener('click', () => mp.sendGesture(button.dataset.gesture));
+    }
+    if (form) form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (mp.sendChat(input.value)) input.value = '';
+        renderLog();
+        input.focus();
+    });
+    // Escape closes the open tray or chat box; Escape in the message field also leaves it.
+    const onKey = (e) => {
+        if (e.key !== 'Escape' || (tray.hidden && box.hidden)) return;
+        closeAll();
+        if (document.activeElement === input) input.blur();
+    };
+    document.addEventListener('keydown', onKey);
+    uiTeardowns.push(() => document.removeEventListener('keydown', onKey));
+    uiTeardowns.push(() => clearTimeout(peekTimer));
+
+    if (club.scene && club.scene.onXRSessionInit) {
+        const onInit = club.scene.onXRSessionInit.add(() => { inVR = true; render(); });
+        const onEnded = club.scene.onXRSessionEnded.add(() => { inVR = false; render(); });
+        uiTeardowns.push(() => {
+            club.scene.onXRSessionInit.remove(onInit);
+            club.scene.onXRSessionEnded.remove(onEnded);
+        });
+    }
     uiTeardowns.push(mp.onChange(render));
     render();
 }
@@ -1420,10 +1590,19 @@ function initNetworkMenu() {
     const peopleList = document.getElementById('networkPeopleList');
     const blockedList = document.getElementById('networkBlockedList');
     const personalSpaceBtn = document.getElementById('networkPersonalSpace');
+    const nameTagsBtn = document.getElementById('networkNameTags');
     const muteAllBtn = document.getElementById('networkMuteAll');
     const lockBtn = document.getElementById('networkLockRoom');
     const privateRoomBtn = document.getElementById('networkPrivateRoom');
     const inviteBtn = document.getElementById('networkInviteBtn');
+    const joinSection = document.getElementById('networkJoin');
+    const roomActions = document.getElementById('networkRoomActions');
+    const roomInfo = document.getElementById('networkRoomInfo');
+    const leaveBtn = document.getElementById('networkLeaveBtn');
+    const inRoomSections = ['networkTalk', 'networkReact', 'networkPeople'].map(id => document.getElementById(id)).filter(Boolean);
+    const duckBtn = document.getElementById('networkDuck');
+    const openChatBtn = document.getElementById('networkOpenChat');
+    const hostTools = document.getElementById('networkHostTools');
 
     if (!networkToggle || !networkMenu) return;
 
@@ -1553,48 +1732,62 @@ function initNetworkMenu() {
     function render() {
         const connected = mp.connected, connecting = mp.connecting;
         setStatus(mp.statusText());
-        if (connectBtnLabel) connectBtnLabel.textContent = connecting ? 'Cancel' : connected ? 'Disconnect' : 'Connect';
-        if (micBtn) {
-            micBtn.disabled = !connected;
-            setToggleState(micBtn, mp.micEnabled);
-            if (micBtnLabel) micBtnLabel.textContent = mp.micEnabled ? 'Mute Mic' : 'Enable Mic';
+        // Before joining only the join form shows; once in a room, the things you can do there.
+        if (joinSection) joinSection.hidden = connected;
+        if (roomActions) roomActions.hidden = !connected;
+        for (const section of inRoomSections) section.hidden = !connected;
+        if (hostTools) hostTools.hidden = !(connected && mp.isHost());
+        if (roomInfo && connected) {
+            const code = /^private-(\d{6})$/.exec(mp.currentRoom || '');
+            roomInfo.textContent = code
+                ? `Private room. Friends join with the code ${code[1].slice(0, 3)} ${code[1].slice(3)}, or the invite link. The first person in a room is its host: they choose the music and the lights.`
+                : 'The first person in a room is its host: they choose the music and the lights. Send the invite link to bring friends here.';
         }
-        emojiButtons.forEach(btn => { btn.disabled = !connected; });
-        gestureButtons.forEach(btn => {
-            btn.disabled = !connected;
-            if (btn.dataset.gesture === 'dance') setPressed(btn, mp.dancing);
-        });
+        if (connectBtnLabel) connectBtnLabel.textContent = connecting ? 'Cancel' : 'Join room';
+        for (const input of [nameInput, roomInput, serverUrlInput]) if (input) input.disabled = connecting;
+        if (micBtn) {
+            setToggleState(micBtn, mp.micEnabled);
+            if (micBtnLabel) micBtnLabel.textContent = mp.micEnabled ? 'Turn my microphone off' : 'Turn my microphone on';
+        }
+        if (duckBtn) {
+            duckBtn.textContent = `Lower the music while people talk: ${mp.duckForVoice ? 'ON' : 'OFF'}`;
+            setPressed(duckBtn, mp.duckForVoice);
+        }
+        gestureButtons.forEach(btn => { if (btn.dataset.gesture === 'dance') setPressed(btn, mp.dancing); });
         if (peerCountEl) {
             const n = connected ? mp.client.peerCount : 0;
-            peerCountEl.textContent = `${n} other guest${n === 1 ? '' : 's'} here`;
+            peerCountEl.textContent = n === 0 ? 'Nobody else here yet. Send someone the invite link.' : `${n} other ${n === 1 ? 'person' : 'people'} here`;
         }
         if (avatarSection) avatarSection.hidden = !connected;
         for (const btn of poolButtons) btn.setAttribute('aria-checked', String(btn.dataset.avatarPool === mp.avatarPool));
-        if (avatarEl) avatarEl.textContent = mp.selfAvatar ? label(mp.selfAvatar) : 'Choosing\u2026';
+        if (avatarEl) avatarEl.textContent = mp.selfAvatar ? `Others see you as: ${label(mp.selfAvatar)}` : 'Choosing your character\u2026';
         if (autoNodBtn) {
             autoNodBtn.textContent = `Nod your head to nod (VR): ${mp.autoNod ? 'ON' : 'OFF'}`;
             setPressed(autoNodBtn, mp.autoNod);
+        }
+        if (nameTagsBtn) {
+            nameTagsBtn.textContent = `Name tags: ${mp.nameTags ? 'ON' : 'OFF'}`;
+            setPressed(nameTagsBtn, mp.nameTags);
         }
         if (personalSpaceBtn) {
             personalSpaceBtn.textContent = `Personal space: ${mp.personalSpace ? 'ON' : 'OFF'}`;
             setPressed(personalSpaceBtn, mp.personalSpace);
         }
         if (muteAllBtn) {
-            muteAllBtn.disabled = !connected;
+            muteAllBtn.hidden = !connected;
             muteAllBtn.textContent = `Mute everyone: ${mp.muteAll ? 'ON' : 'OFF'}`;
             setPressed(muteAllBtn, mp.muteAll);
         }
         if (lockBtn) {
-            lockBtn.disabled = !connected || !mp.isHost();
-            lockBtn.textContent = `Lock room: ${mp.locked ? 'ON' : 'OFF'}`;
+            lockBtn.textContent = `Lock room: ${mp.locked ? 'ON (nobody new can join)' : 'OFF'}`;
             setPressed(lockBtn, mp.locked);
         }
         const pending = mp.pendingMusicInfo();
         if (listenAlongSection) listenAlongSection.hidden = !pending;
         if (pending && musicInfoEl) {
             musicInfoEl.textContent = pending.playing
-                ? `The host is playing a stream from ${pending.origin}.`
-                : `The host paused a stream from ${pending.origin}.`;
+                ? `The host is playing music from ${pending.origin}. Press Listen along to hear it too (that site will see your IP address).`
+                : `The host paused music from ${pending.origin}.`;
         }
         renderPeople();
         renderBlocked();
@@ -1616,6 +1809,13 @@ function initNetworkMenu() {
             });
         });
     }
+    // Enter in the name or room field joins, as a form would.
+    for (const input of [nameInput, roomInput]) {
+        if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && connectBtn && !mp.connected) { e.preventDefault(); connectBtn.click(); } });
+    }
+    if (leaveBtn) leaveBtn.addEventListener('click', () => mp.disconnect());
+    if (duckBtn) duckBtn.addEventListener('click', () => mp.setDuckForVoice(!mp.duckForVoice));
+    if (openChatBtn) openChatBtn.addEventListener('click', () => { closeNetworkMenu(false); openSocialChat(); });
 
     if (micBtn) micBtn.addEventListener('click', () => mp.toggleMic());
     for (const btn of emojiButtons) btn.addEventListener('click', () => mp.sendEmoji(btn.dataset.emoji));
@@ -1624,6 +1824,7 @@ function initNetworkMenu() {
     for (const btn of poolButtons) btn.addEventListener('click', () => mp.setAvatarPool(btn.dataset.avatarPool));
     if (autoNodBtn) autoNodBtn.addEventListener('click', () => mp.setAutoNod(!mp.autoNod));
     if (personalSpaceBtn) personalSpaceBtn.addEventListener('click', () => mp.setPersonalSpace(!mp.personalSpace));
+    if (nameTagsBtn) nameTagsBtn.addEventListener('click', () => mp.setNameTags(!mp.nameTags));
     if (muteAllBtn) muteAllBtn.addEventListener('click', () => mp.setMuteAll(!mp.muteAll));
     if (lockBtn) lockBtn.addEventListener('click', () => mp.setLocked(!mp.locked));
     if (privateRoomBtn) {
@@ -1643,6 +1844,8 @@ function initNetworkMenu() {
     }
     // The music and the lights are the host's, and the host's alone: the panels tell a guest so and stand down.
     initRoomGuestLock(mp);
+    // Talk, react and type, one press away while in a room.
+    initSocialBar(mp);
 
     // Hide in VR mode, matching the VJ/audio panels.
     if (vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
@@ -1652,7 +1855,7 @@ function initNetworkMenu() {
             networkToggle.style.display = 'none';
         });
         const onEnded = scene.onXRSessionEnded.add(() => {
-            networkToggle.style.display = 'block';
+            networkToggle.style.display = ''; // back to the stylesheet's layout (icon over word)
         });
         teardowns.push(() => {
             scene.onXRSessionInit.remove(onInit);

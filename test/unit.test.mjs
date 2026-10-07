@@ -471,17 +471,25 @@ test('state for an id never announced by welcome or join creates no avatar', () 
 });
 
 function loadAvatarManager() {
-    class Node3 { constructor() { this.position = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } }; this.rotation = { y: 0 }; } dispose() { this.disposed = true; } }
+    class Node3 { constructor() { this.position = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } }; this.rotation = { y: 0 }; this.enabled = true; } setEnabled(v) { this.enabled = v; } isEnabled() { return this.enabled; } dispose() { this.disposed = true; } }
     const created = [];
     const BABYLON = {
         TransformNode: Node3,
         MeshBuilder: {
             CreateCapsule: () => new Node3(),
             CreateSphere: () => new Node3(),
-            CreatePlane: () => { const m = new Node3(); created.push(m); return m; }
+            CreatePlane: (name, options) => { const m = new Node3(); m.name = name; m.options = options; created.push(m); return m; }
         },
         Mesh: { BILLBOARDMODE_ALL: 7 },
-        DynamicTexture: class { getContext() { return { clearRect() {}, fillRect() {}, fillText() {} }; } getSize() { return { width: 256, height: 64 }; } update() {} dispose() {} },
+        DynamicTexture: class {
+            constructor(name, size, scene, mipmaps) { this.mipmaps = mipmaps; }
+            getContext() {
+                const noop = () => {};
+                return { clearRect: noop, fillRect: noop, fillText: noop, beginPath: noop, moveTo: noop, arcTo: noop, closePath: noop, fill: noop, stroke: noop,
+                    measureText: text => ({ width: String(text).length * 30 }) };
+            }
+            getSize() { return { width: 512, height: 128 }; } update() {} dispose() {}
+        },
         StandardMaterial: class { dispose() {} },
         Color3: class { constructor(r, g, b) { Object.assign(this, { r, g, b }); } }
     };
@@ -524,6 +532,33 @@ test('remote avatar turns follow the shortest arc', () => {
     manager.update(0);
     manager.update(undefined);
     assert.equal(peer.root.rotation.y, before, 'no frame step means no motion');
+});
+
+test('name tags and emoji never write depth, so desktop SSR cannot turn them black; tags are small and can be switched off', () => {
+    const { manager, AvatarManager, created } = loadAvatarManager();
+    manager.updatePeerState('p', 'Pat', { x: 0, y: 1.7, z: 0, rotY: 0 });
+    manager.showEmoji('p', '🔥');
+    const peer = manager.remotes.get('p');
+    for (const plane of [peer.nameplate, peer.emojiPlane]) {
+        // A StandardMaterial that writes depth is pre-pass capable, and the SSR composition drew it black.
+        assert.equal(plane.material.disableDepthWrite, true, `${plane.name} writes depth`);
+        assert.equal(plane.material.useAlphaFromDiffuseTexture, true);
+        assert.equal(plane.material.fogEnabled, false);
+    }
+    assert.ok(AvatarManager.TAG_WIDTH <= 0.6 && AvatarManager.TAG_HEIGHT <= 0.15, 'the tag was 1.1 x 0.28 m; keep it small');
+    const tag = created.find(m => m.name === 'remoteLabel_p');
+    assert.equal(tag.options.width, AvatarManager.TAG_WIDTH);
+    assert.equal(peer.nameplate.material.diffuseTexture.mipmaps, true, 'a small tag needs mipmaps to read from a distance');
+    assert.equal(peer.nameplate.isEnabled(), true);
+
+    manager.setNameTags(false);
+    assert.equal(peer.nameplate.isEnabled(), false);
+    assert.equal(peer.emojiPlane.isEnabled(), true, 'emoji are what the guest chose to say; they stay');
+    manager.updatePeerState('q', 'Quinn', { x: 1, y: 1.7, z: 0, rotY: 0 });
+    assert.equal(manager.remotes.get('q').nameplate.isEnabled(), false, 'a guest who arrives later follows the setting');
+    manager.setNameTags(true);
+    assert.equal(peer.nameplate.isEnabled(), true);
+    assert.equal(manager.remotes.get('q').nameplate.isEnabled(), true);
 });
 
 test('remote emoji are allow-listed and rate-limited per guest', () => {
@@ -1411,7 +1446,11 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     for (const node of [club.subGain, club.roomDelayGain, club.reverbReturn, club.occlusionFilter]) {
         assert.ok(downstream(node).has(club.audioCompressor));
     }
-    assert.ok(connected(club.audioCompressor, club.audioMasterGain));
+    // The compressor feeds the voice-duck gain, then the master gain. The duck sits after the analyser tap, so the
+    // light show still hears the whole track while people talk.
+    assert.ok(connected(club.audioCompressor, club.voiceDuckGain));
+    assert.ok(connected(club.voiceDuckGain, club.audioMasterGain));
+    assert.ok(!downstream(club.voiceDuckGain).has(club.audioAnalyser));
     assert.ok(connected(club.audioMasterGain, ctx.destination));
     assert.ok(downstream(club.audioSource).has(club.roomConvolver));
 
@@ -6405,4 +6444,126 @@ test('VR menu: the LOOK page picks a pool and rerolls, and the online page still
     assert.ok(online.length <= 12);
     assert.ok(online.some(b => b.label === 'LOOK' && b.target === 'look'));
     assert.ok(window.VRClubUI.VR_NET_PAGES.includes('look'));
+});
+
+test('VR menu: SAFETY has a NAME TAGS switch that reads and flips the shared setting', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    club.multiplayer = { nameTags: true, setNameTags(v) { this.nameTags = v; } };
+    club.showErrorMessage = () => {};
+    window.ClubMultiplayer = class { static EMOJI = []; };
+    const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
+    const safety = proto._vrNetPageDefinitions.call(club, 'safety', common);
+    assert.ok(safety.length <= 12, 'the menu has twelve slots');
+    const button = safety.find(b => b.op === 'nameTags');
+    assert.ok(button, 'no NAME TAGS button on the safety page');
+    assert.equal(proto._vrNetActive.call(club, button), true);
+    assert.equal(proto._vrNetValue.call(club, button, true), 'ON');
+    proto._runVRNetworkAction.call(club, button);
+    assert.equal(club.multiplayer.nameTags, false);
+    assert.equal(proto._vrNetValue.call(club, button, proto._vrNetActive.call(club, button)), 'OFF');
+});
+
+test('speech bubbles wrap by word, split a word longer than a line, and end in an ellipsis past three lines', () => {
+    const { AvatarManager } = loadAvatarManager();
+    const measure = text => Array.from(text).length * 10;          // 10 px a character
+    assert.deepEqual([...AvatarManager.wrapText('hello there friend', 120, 3, measure)], ['hello there', 'friend']);
+    assert.deepEqual([...AvatarManager.wrapText('a'.repeat(25), 100, 3, measure)], ['a'.repeat(10), 'a'.repeat(10), 'a'.repeat(5)]);
+    const long = AvatarManager.wrapText('one two three four five six seven eight nine ten', 90, 3, measure);
+    assert.equal(long.length, 3);
+    assert.ok(long[2].endsWith('\u2026'), 'truncated text says so');
+    assert.ok(long.every(line => measure(line) <= 90), 'no line is wider than the bubble');
+    assert.deepEqual([...AvatarManager.wrapText('', 90, 3, measure)], []);
+});
+
+test('a chat bubble appears over the sender, is reused for the next message, times out, and goes with them', () => {
+    const { manager, created } = loadAvatarManager();
+    manager.updatePeerState('p', 'Pat', { x: 0, y: 1.7, z: 0, rotY: 0 });
+    const peer = manager.remotes.get('p');
+    manager.showChat('p', 'hello');
+    const plane = peer.chatPlane;
+    assert.ok(plane && plane.isEnabled());
+    assert.equal(plane.material.disableDepthWrite, true, 'a label, so it stays out of the SSR pre-pass');
+    const planes = created.length;
+    manager.showChat('p', 'again');
+    assert.equal(created.length, planes, 'one plane per guest, redrawn');
+    for (let i = 0; i < 20 * 60; i++) manager.update(1 / 60);
+    assert.equal(plane.isEnabled(), false, 'it times out');
+    manager.showChat('nobody', 'x');
+    manager.removePeer('p');
+    assert.equal(plane.disposed, true);
+});
+
+test('setVoiceDuck dips the music after the compressor, changes only on a change, and leaves the analyser alone', () => {
+    const { club } = createAudioHarness();
+    club._connectAudioSourceOnce();
+    const gain = club.voiceDuckGain.gain;
+    const targets = [];
+    gain.setTargetAtTime = (value) => { targets.push(value); gain.value = value; };
+    gain.cancelScheduledValues = () => {};
+    assert.equal(club.setVoiceDuck(true), true);
+    assert.equal(club.setVoiceDuck(true), true);
+    assert.equal(targets.length, 1, 'a repeated request does not reschedule the fade');
+    assert.equal(targets[0], club.constructor.VOICE_DUCK_LEVEL);
+    club.setVoiceDuck(false);
+    assert.equal(targets.at(-1), 1);
+    assert.equal(club._audioVolume ?? 1, 1, 'the user\'s own music volume is untouched');
+});
+
+test('VR menu: in a room HOME starts with TALK, REACT and CHAT; out of a room they are not there', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    club.multiplayer = { connected: false };
+    const offline = club._vrQuickMenuPageDefinitions('home').map(b => b.label);
+    assert.ok(!offline.includes('TALK'));
+    club.multiplayer = { connected: true };
+    const home = club._vrQuickMenuPageDefinitions('home');
+    assert.deepEqual([...home.slice(0, 3).map(b => b.label)], ['TALK', 'REACT', 'CHAT']);
+    assert.ok(home.length <= 12, 'the menu has twelve slots');
+    assert.equal(home[0].op, 'mic');
+    assert.equal(home[1].target, 'gestures');
+    assert.equal(home[2].target, 'chat');
+    assert.ok(home.some(b => b.label === 'ONLINE'), 'everything else is still reachable');
+});
+
+test('VR menu: unavailable buttons are drawn disabled and say why; the chat page sends quick phrases', () => {
+    const ClubMultiplayer = class { static EMOJI = []; static QUICK_PHRASES = ['Hi!', 'Great track!']; };
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {}, ClubMultiplayer });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    const sent = [];
+    const toasts = [];
+    club.showErrorMessage = m => toasts.push(m);
+    club.multiplayer = {
+        connected: false, following: false, chat: [], chatUnread: 0, duckForVoice: true,
+        isHost: () => false, pendingMusicInfo: () => null, blockedList: () => [],
+        sendChat: text => { sent.push(text); return true; }, setDuckForVoice(v) { this.duckForVoice = v; }
+    };
+    const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
+    const mic = { label: 'TALK', action: 'net', op: 'mic' };
+    assert.equal(proto._isVRButtonDisabled.call(club, mic), true, 'no mic before joining a room');
+    assert.equal(proto._vrNetValue.call(club, mic, false), 'JOIN A ROOM FIRST');
+    assert.equal(proto._isVRButtonDisabled.call(club, { action: 'net', op: 'lock' }), true, 'lock is the host\'s');
+    assert.equal(proto._isVRButtonDisabled.call(club, { action: 'net', op: 'unblockAll' }), true, 'nobody to unblock');
+    assert.equal(proto._isVRButtonDisabled.call(club, { action: 'travel', control: 'danceFloor' }), false);
+    club.multiplayer.connected = true;
+    assert.equal(proto._isVRButtonDisabled.call(club, mic), false);
+    assert.equal(proto._vrNetValue.call(club, mic, false), 'MIC OFF');
+    club.multiplayer.following = true;
+    assert.equal(proto._isVRButtonDisabled.call(club, { control: 'lightsActive' }), true, 'a guest\'s lighting is the host\'s');
+    assert.equal(proto._isVRButtonDisabled.call(club, { control: 'photosensitiveSafeMode' }), false, 'Safe Mode is always the guest\'s own');
+
+    const chat = proto._vrNetPageDefinitions.call(club, 'chat', common);
+    assert.deepEqual([...chat.slice(0, 2).map(b => b.phrase)], ['Hi!', 'Great track!']);
+    assert.ok(chat.length <= 12);
+    proto._runVRNetworkAction.call(club, chat[1]);
+    assert.deepEqual([...sent], ['Great track!']);
+    const duck = proto._vrNetPageDefinitions.call(club, 'safety', common).find(b => b.op === 'duck');
+    assert.ok(duck, 'LOWER MUSIC is on the safety page');
+    proto._runVRNetworkAction.call(club, duck);
+    assert.equal(club.multiplayer.duckForVoice, false);
+    club.multiplayer.chat = [{ name: 'Bo', text: 'hello', self: false }];
+    assert.equal(proto._vrNetSubtitle.call(club, 'chat'), 'BO: HELLO', 'the chat page shows the last message received');
 });

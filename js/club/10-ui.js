@@ -408,36 +408,56 @@ class VRClubUI extends VRClubAnimationFinish {
     _drawVRQuickMenuButton(button) {
         const context = button.texture.getContext();
         const active = this._isVRQuickMenuButtonActive(button);
+        const disabled = this._isVRButtonDisabled(button);
         context.clearRect(0, 0, 512, 192);
         const isNavigation = ['page', 'back', 'seek', 'randomEpisode', 'latestEpisode', 'person'].includes(button.action);
         const isDanger = button.danger === true;
-        context.fillStyle = button.action === 'close' ? '#641f2c'
+        // A button that cannot do anything here (a guest's lighting, the mic before joining a room) is drawn
+        // flat and grey, so it reads as unavailable before anyone points at it. Its second line says why.
+        context.fillStyle = disabled ? '#16191f'
+            : button.action === 'close' ? '#641f2c'
             : isDanger ? '#7a2434'
             : button.action === 'quality' ? '#5b3fa3'
             : isNavigation ? '#173e58'
             : (active ? '#087f75' : '#252a35');
         context.fillRect(0, 0, 512, 192);
-        const gradient = context.createLinearGradient(0, 0, 512, 192);
-        gradient.addColorStop(0, 'rgba(255,255,255,0.10)');
-        gradient.addColorStop(0.5, 'rgba(255,255,255,0)');
-        gradient.addColorStop(1, 'rgba(0,0,0,0.18)');
-        context.fillStyle = gradient;
-        context.fillRect(0, 0, 512, 192);
-        context.strokeStyle = active || isNavigation ? '#8fffee' : '#6f7787';
-        context.lineWidth = 8;
+        if (!disabled) {
+            const gradient = context.createLinearGradient(0, 0, 512, 192);
+            gradient.addColorStop(0, 'rgba(255,255,255,0.10)');
+            gradient.addColorStop(0.5, 'rgba(255,255,255,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.18)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 512, 192);
+        }
+        context.strokeStyle = disabled ? '#343a46' : active || isNavigation ? '#8fffee' : '#6f7787';
+        context.lineWidth = disabled ? 4 : 8;
         context.strokeRect(4, 4, 504, 184);
-        context.fillStyle = '#ffffff';
+        context.fillStyle = disabled ? '#6b7280' : '#ffffff';
         context.font = 'bold 44px sans-serif';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         const value = this._vrQuickMenuButtonValue(button, active);
-        context.fillText(button.label, 256, value ? 70 : 96);
+        context.fillText(button.label, 256, value ? 70 : 96, 480);
         if (value) {
-            context.fillStyle = active ? '#b9fff5' : '#c5cad4';
+            context.fillStyle = disabled ? '#8a919e' : active ? '#b9fff5' : '#c5cad4';
             context.font = 'bold 32px sans-serif';
-            context.fillText(value, 256, 132);
+            context.fillText(value, 256, 132, 480);
         }
         button.texture.update();
+    }
+
+    /** Can this button do nothing right now? (It still answers a press, with a message saying why.) */
+    _isVRButtonDisabled(button) {
+        if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return true;
+        if (button.action !== 'net' && button.action !== 'person') return false;
+        const mp = this._multiplayer();
+        if (!mp) return true;
+        const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave', 'listenAlong'];
+        if (needsRoom.includes(button.op) && !mp.connected) return true;
+        if (button.op === 'lock' && !mp.isHost()) return true;
+        if (button.op === 'listenAlong' && !mp.pendingMusicInfo()) return true;
+        if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
+        return false;
     }
 
     _isVRQuickMenuButtonActive(button) {
@@ -497,17 +517,24 @@ class VRClubUI extends VRClubAnimationFinish {
             close: { label: 'CLOSE', action: 'close' }
         };
         if (VRClubUI.VR_NET_PAGES.includes(page)) return this._vrNetPageDefinitions(page, common);
+        const mp = this._multiplayer();
+        // In a room, talking and reacting come first: one press to the mic, the emoji or a quick message.
+        const social = mp && mp.connected ? [
+            { label: 'TALK', action: 'net', op: 'mic' },
+            { label: 'REACT', action: 'page', target: 'gestures' },
+            { label: 'CHAT', action: 'page', target: 'chat', op: 'chatUnread' }
+        ] : [];
         const pages = {
             home: [
+                ...social,
+                { label: 'MUSIC', action: 'page', target: 'music' },
                 { label: 'LIGHTING', action: 'page', target: 'lighting' },
                 { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
-                { label: 'MUSIC', action: 'page', target: 'music' },
                 { label: 'ONLINE', action: 'page', target: 'online' },
-                { label: 'QUALITY', action: 'quality' },
-                { label: 'COMFORT', action: 'page', target: 'comfort' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
-                { label: 'RESET SHOW', action: 'reset' },
+                { label: 'COMFORT', action: 'page', target: 'comfort' },
+                { label: 'QUALITY', action: 'quality' },
                 common.close
             ],
             lighting: [
@@ -578,6 +605,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _showVRQuickMenuPage(page) {
         this._vrQuickMenuPage = page;
+        if (page === 'chat' && this.multiplayer) this.multiplayer.markChatRead();
         const definitions = this._vrQuickMenuPageDefinitions(page);
         this._vrQuickMenuButtons.forEach((button, index) => {
             const definition = definitions[index];
@@ -595,6 +623,7 @@ class VRClubUI extends VRClubAnimationFinish {
             button.emoji = null;
             button.digit = null;
             button.pool = null;
+            button.phrase = null;
             button.danger = false;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
@@ -613,12 +642,25 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            context.fillText(page === 'home' ? 'VR CLUB' : page.toUpperCase(), 54, 72);
+            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT' };
+            context.fillText(titles[page] || page.toUpperCase(), 54, 72);
             context.fillStyle = '#a7afbf';
             context.font = '30px sans-serif';
-            context.fillText(page === 'music'
-                ? 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
-                : this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
+            // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
+            const hostOwned = ['home', 'lighting', 'effects', 'show', 'music'].includes(page) && this.isFollowingHost();
+            const host = hostOwned ? (this.multiplayer.hostName() || 'THE HOST').toUpperCase().slice(0, 18) : '';
+            // What each page is for, in plain words: the first thing a new visitor reads.
+            const about = {
+                lighting: 'TURN THE CLUB\u2019S LIGHTS ON OR OFF, CHANGE THEIR COLOUR',
+                effects: 'STROBES, SMOKE AND THE MIRROR BALL',
+                show: 'THE AUTOMATIC LIGHT SHOW THAT FOLLOWS THE MUSIC',
+                comfort: 'HOW YOU MOVE, AND WHAT YOU SEE AND FEEL',
+                travel: 'POINT AT A PLACE TO JUMP THERE',
+                music: 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
+            };
+            context.fillText(hostOwned
+                ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
+                : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
             this._vrQuickMenuHeaderTexture.update();
         }
     }
@@ -784,7 +826,7 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof ClubMultiplayer !== 'undefined' ? new ClubMultiplayer(this) : null;
     }
 
-    static get VR_NET_PAGES() { return ['online', 'gestures', 'people', 'person', 'safety', 'room', 'look']; }
+    static get VR_NET_PAGES() { return ['online', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look']; }
 
     /** The five pages' buttons. Names come from other guests, so they are shortened and never interpreted. */
     _vrNetPageDefinitions(page, common) {
@@ -836,9 +878,16 @@ class VRClubUI extends VRClubAnimationFinish {
                 common.close
             ];
         }
+        if (page === 'chat') {
+            // No keyboard in a headset: one tap sends a ready-made message, shown in a bubble over your head.
+            const phrases = ClubMultiplayer.QUICK_PHRASES.map(text => net(text.toUpperCase(), 'phrase', { phrase: text }));
+            return [...phrases, back('home'), common.close];
+        }
         if (page === 'safety') {
             return [
                 net('PERSONAL SPACE', 'personalSpace'),
+                net('LOWER MUSIC', 'duck'),
+                net('NAME TAGS', 'nameTags'),
                 net('MUTE ALL', 'muteAll'),
                 net('LOCK ROOM', 'lock'),
                 net('NOD TO NOD', 'autoNod'),
@@ -886,6 +935,12 @@ class VRClubUI extends VRClubAnimationFinish {
             const person = mp.people().find(item => item.id === this._vrPerson);
             return person ? this._vrShortName(person.name).toUpperCase() : '';
         }
+        if (page === 'gestures') return mp.connected ? 'WAVE, NOD, DANCE OR SEND AN EMOJI' : 'JOIN A ROOM FIRST: ONLINE \u2192 NETWORK';
+        if (page === 'chat') {
+            if (!mp.connected) return 'JOIN A ROOM FIRST: ONLINE \u2192 NETWORK';
+            const last = mp.chat.filter(entry => !entry.self).at(-1);
+            return last ? `${this._vrShortName(last.name)}: ${last.text}`.toUpperCase().slice(0, 52) : 'TAP A MESSAGE TO SEND IT';
+        }
         if (page === 'look') {
             return mp.avatarPool === 'any' ? 'RANDOM LOOK: ANYONE' : `RANDOM LOOK: ${mp.avatarPool.toUpperCase()}`;
         }
@@ -893,7 +948,7 @@ class VRClubUI extends VRClubAnimationFinish {
             const digits = (this._vrRoomDigits || '').padEnd(6, '_');
             return `ROOM CODE  ${digits.slice(0, 3)} ${digits.slice(3)}`;
         }
-        return mp.statusText().replace('Connected \u2014 ', '').slice(0, 56).toUpperCase();
+        return mp.statusText().replace(/^In /, '').slice(0, 56).toUpperCase();
     }
 
     /** Which toggles are lit: a button is "on" when its setting is. */
@@ -904,6 +959,8 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'connection': return mp.connected;
             case 'mic': return mp.micEnabled;
             case 'personalSpace': return mp.personalSpace;
+            case 'nameTags': return mp.nameTags;
+            case 'duck': return mp.duckForVoice;
             case 'muteAll': return mp.muteAll;
             case 'lock': return mp.locked;
             case 'autoNod': return mp.autoNod;
@@ -924,10 +981,13 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!mp) return '';
         switch (button.op) {
             case 'connection': return mp.connected ? 'CONNECTED' : mp.connecting ? 'CONNECTING' : 'OFFLINE';
-            case 'mic': return !mp.connected ? 'CONNECT FIRST' : active ? 'ON' : 'OFF';
+            case 'mic': return !mp.connected ? 'JOIN A ROOM FIRST' : active ? 'MIC ON' : 'MIC OFF';
+            case 'chatUnread': return mp.chatUnread ? ` NEW` : '';
+            case 'duck': return active ? 'WHILE TALKING' : 'OFF';
+            case 'phrase': return !mp.connected ? 'JOIN A ROOM FIRST' : '';
             case 'avatar': return mp.selfAvatar ? (ClubMultiplayer.AVATAR_LABELS[mp.selfAvatar] || '').split(',')[0].toUpperCase() : '';
             case 'peopleCount': return mp.connected ? `${mp.client.peerCount} HERE` : '';
-            case 'personalSpace': case 'muteAll': case 'autoNod': return active ? 'ON' : 'OFF';
+            case 'personalSpace': case 'muteAll': case 'autoNod': case 'nameTags': return active ? 'ON' : 'OFF';
             case 'lock': return !mp.isHost() ? 'HOST ONLY' : active ? 'LOCKED' : 'OPEN';
             case 'unblockAll': return `${mp.blockedList().length} BLOCKED`;
             case 'listenAlong': return active ? 'TAP TO JOIN' : '';
@@ -948,7 +1008,7 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!mp) return;
         const needConnection = () => {
             if (mp.connected) return false;
-            this.showErrorMessage('Connect first: ONLINE \u2192 NETWORK');
+            this.showErrorMessage('Join a room first: ONLINE \u2192 NETWORK');
             return true;
         };
         switch (button.op) {
@@ -960,11 +1020,17 @@ class VRClubUI extends VRClubAnimationFinish {
             }
             case 'mic':
                 if (needConnection()) break;
-                this.showErrorMessage((await mp.toggleMic()) ? 'Microphone on: people nearby can hear you' : 'Microphone off');
+                this.showErrorMessage((await mp.toggleMic())
+                    ? (mp.duckForVoice ? 'Microphone on: others hear you, and the music is lowered' : 'Microphone on: others hear you')
+                    : 'Microphone off');
                 break;
             case 'avatar':
                 if (!needConnection()) { mp.rerollAvatar(); this.showErrorMessage('Picking a new look\u2026'); }
                 break;
+            case 'phrase':
+                if (!needConnection() && mp.sendChat(button.phrase)) this.showErrorMessage(`Sent: ${button.phrase}`);
+                break;
+            case 'duck': mp.setDuckForVoice(!mp.duckForVoice); break;
             case 'pool':
                 mp.setAvatarPool(button.pool);
                 this.showErrorMessage(button.pool === 'any' ? 'Random looks: anyone' : `Random looks: ${button.pool}`);
@@ -1040,6 +1106,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 return;
             }
             case 'personalSpace': mp.setPersonalSpace(!mp.personalSpace); break;
+            case 'nameTags': mp.setNameTags(!mp.nameTags); break;
             case 'muteAll': mp.setMuteAll(!mp.muteAll); break;
             case 'autoNod': mp.setAutoNod(!mp.autoNod); break;
             case 'lock':
@@ -1068,12 +1135,15 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
         if (button.action === 'page') {
+            // Remember where this page was opened from, so its BACK returns there (REACT is reached from HOME and ONLINE).
+            this._vrPageParent = { ...(this._vrPageParent || {}), [button.target]: this._vrQuickMenuPage || 'home' };
             this._showVRQuickMenuPage(button.target);
             this.pulseHaptic(0.45, 25);
             return;
         }
         if (button.action === 'back') {
-            this._showVRQuickMenuPage(button.target || 'home');
+            const parent = this._vrPageParent && this._vrPageParent[this._vrQuickMenuPage];
+            this._showVRQuickMenuPage(parent || button.target || 'home');
             this.pulseHaptic(0.35, 20);
             return;
         }
@@ -1272,8 +1342,10 @@ class VRClubUI extends VRClubAnimationFinish {
                 const open = this._vrQuickMenuRoot && this._vrQuickMenuRoot.isEnabled();
                 const roleChanged = wasFollowing !== mp.following;
                 wasFollowing = mp.following;
-                // Taking or losing the host's lights and music relabels the lighting and music buttons too.
-                if (open && (roleChanged || VRClubUI.VR_NET_PAGES.includes(this._vrQuickMenuPage))) this._refreshVRQuickMenu();
+                // Taking or losing the host's lights and music relabels the lighting and music buttons too, and HOME
+                // shows the mic, the unread chat count and (only in a room) the TALK / REACT / CHAT row.
+                const page = this._vrQuickMenuPage;
+                if (open && (roleChanged || page === 'home' || VRClubUI.VR_NET_PAGES.includes(page))) this._refreshVRQuickMenu();
             });
         }
     }

@@ -430,7 +430,15 @@ class VRClubCore {
             { x: -0.3, z: 0.3 },
             { x: 0.3, z: 0.3 }
         ];
-        this._audioFrameData = { bass: 0, mid: 0, treble: 0, average: 0, hasAudio: false };
+        this._audioFrameData = {
+            bass: 0, mid: 0, treble: 0, average: 0, hasAudio: false,
+            // The kick band (below ~120 Hz, read in the time domain, so it is not smeared by the FFT's smoothing):
+            // `low` is its level against a slow peak (1 = as loud as the recent kicks), null when there is no such tap.
+            low: null, lowRms: 0,
+            // How hard the music is going right now against the last half minute (0..1, ~0.6 in a steady groove,
+            // lower in a breakdown, higher when a drop lands). Null without the kick-band tap.
+            energy: null
+        };
         
         // PERFORMANCE: Frame counters for staggered updates
         this.frameCounter = 0;

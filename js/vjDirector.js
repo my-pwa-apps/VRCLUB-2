@@ -218,6 +218,9 @@ class VJDirector {
     // used by aubio/Mixxx for kick detection.
     // -------------------------------------------------------------------------
     _detectOnset(audioData, now) {
+        // The dedicated kick band, when the audio graph provides it (see VRClub._readKickBand).
+        if (typeof audioData.low === 'number') { this._detectKick(audioData.low, audioData.lowRms || 0, now); return; }
+
         // Use bass band primarily; weight low-mid as a secondary cue so
         // snares on 2/4 still register if the kick is sidechained.
         const bass = audioData.bass || 0;
@@ -258,12 +261,81 @@ class VJDirector {
         }
     }
 
+    /**
+     * Kick detection on the kick band: `low` is its level against a slowly decaying peak (loudness-independent),
+     * `raw` its RMS.
+     *
+     * A kick is a sudden rise: the level now against the lowest it was in the last 60 ms (so the test does not
+     * depend on the frame rate). It counts when
+     *   - the normalised rise is well above the usual frame-to-frame movement (2.5 x the median of the last ~second),
+     *   - the RAW rise is at least KICK_REF_SHARE of the kicks already accepted. A bass note or a tom is a fraction
+     *     of a kick (measured: bass plucks rise at most a quarter of a kick), so a rolling bassline is not taken for a
+     *     four-on-the-floor. Raw, because the normalising peak itself decays through a kick-less breakdown and would
+     *     let the bassline through within seconds. The reference relaxes with a 60 s half-life when no kick comes,
+     *     so a track whose kick changes is followed,
+     *   - and once the tempo is known, more than ~55% of a beat after the last kick (no eighth-note doubles).
+     * Measured on a 124 BPM test track with a plucked eighth-note bassline, hats and a kick-less breakdown:
+     * see BACKLOG (the old bass-band flux took 323 onsets for 128 kicks and read 144 BPM).
+     */
+    _detectKick(low, raw, now) {
+        const k = this._kick || (this._kick = {
+            times: new Float64Array(16), levels: new Float32Array(16), raws: new Float32Array(16), head: 0, count: 0,
+            history: [], sorted: [], ref: 0, at: now
+        });
+        const dt = Math.min(0.25, Math.max(0, (now - k.at) / 1000));
+        k.at = now;
+        // The reference relaxes when no kick has been accepted for a while.
+        k.ref *= Math.pow(0.5, dt / 60);
+
+        // Lowest level in the last 60 ms (not counting this frame), normalised and raw.
+        let floor = low, rawFloor = raw;
+        for (let i = 0; i < k.count; i++) {
+            if (now - k.times[i] > 60) continue;
+            if (k.levels[i] < floor) floor = k.levels[i];
+            if (k.raws[i] < rawFloor) rawFloor = k.raws[i];
+        }
+        k.times[k.head] = now; k.levels[k.head] = low; k.raws[k.head] = raw;
+        k.head = (k.head + 1) % k.times.length;
+        k.count = Math.min(k.count + 1, k.times.length);
+        const rise = Math.max(0, low - floor);
+        const rawRise = Math.max(0, raw - rawFloor);
+
+        k.history.push(rise);
+        if (k.history.length > 60) k.history.shift();
+        if (k.history.length < 12 || now < this._refractoryUntil) return;
+        const sorted = k.sorted;
+        sorted.length = 0;
+        for (let i = 0; i < k.history.length; i++) sorted.push(k.history[i]);
+        sorted.sort(VJDirector._ascending);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        if (rise <= Math.max(0.12, median * 2.5) || low < 0.35) return;
+        if (rawRise < k.ref * VJDirector.KICK_REF_SHARE) return;
+
+        k.ref = k.ref > 0 ? k.ref + (rawRise - k.ref) * 0.2 : rawRise;
+        this._registerBeat(now, false);
+        // With the tempo known, the next kick cannot come before ~55% of a beat (no doubles on the bassline's
+        // eighths); before that, any two kicks are at least 180 ms apart.
+        const confident = this._iois.length >= 6;
+        this._refractoryUntil = now + (confident ? Math.max(180, 0.55 * 60000 / this.bpm) : 180);
+    }
+
+    /** A rise has to reach this share of the accepted kicks' to be a kick. */
+    static get KICK_REF_SHARE() { return 0.45; }
+
+    /** At most one punch of the beat envelope every 400 ms (2.5 a second), whatever the tempo. */
+    static get MIN_PUNCH_GAP_MS() { return 400; }
+
     _registerBeat(now, synthetic) {
         this.lastBeatAt = now;
         this.beatNumber++;
 
-        // Punch the envelope (synthetic beats hit lighter)
-        this.beatEnvelope = synthetic ? 0.35 : 1.0;
+        // Punch the envelope (synthetic beats hit lighter). Never more than one punch every MIN_PUNCH_GAP_MS: the
+        // whole rig dips and rises with it, and above ~150 BPM every beat would be over the 3-a-second flash limit,
+        // so a fast track punches on alternate beats instead.
+        if (!(now - (this._lastPunchAt ?? -Infinity) < VJDirector.MIN_PUNCH_GAP_MS)) {
+            this.beatEnvelope = synthetic ? 0.35 : 1.0;
+            this._lastPunchAt = now;
+        }
 
         if (!synthetic) {
             const beatDur = 60000 / this.bpm;

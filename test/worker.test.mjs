@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 const relay = await import('../worker/src/relay.js');
 const {
-    ClubRoom, TokenBucket, isAllowedOrigin, sanitizeName, sanitizeState, sanitizeMusicUrl, sanitizeShow, sanitizeTitle, sanitizePool, AVATAR_POOLS, IDLE_CLOSE_MS, CLOSE_IDLE,
+    ClubRoom, TokenBucket, isAllowedOrigin, sanitizeName, sanitizeState, sanitizeMusicUrl, sanitizeShow, sanitizeTitle, sanitizePool, AVATAR_POOLS, sanitizeChat, MAX_CHAT_LENGTH, IDLE_CLOSE_MS, CLOSE_IDLE,
     MAX_ROOM_SIZE, MAX_FRAME_BYTES, CLOSE_ROOM_FULL, CLOSE_FLOODING, ALLOWED_EMOJI
 } = relay;
 
@@ -640,10 +640,11 @@ test('a guest can ask for women or men only: on joining, and when rerolling, and
 
 test('a pool that is full gives a free person from the other pool rather than a double', () => {
     const room = new ClubRoom({});
+    // Joined straight into the pool: a join excludes only the others' looks, so eight women-seekers get the eight women.
+    // (A reroll also excludes the guest's own look, so rerolling into a full pool may rightly hand out a man.)
     for (let i = 0; i < 8; i++) {
-        const g = joinAs(room, `W${i}`, 300 + i);
-        g.ws.message({ type: 'avatar', pool: 'women' });
-        assert.match(g.session.avatar, /^f/);
+        const session = room._acceptSession(new FakeSocket(), `W${i}`, pidOf(300 + i), 'women');
+        assert.match(session.avatar, /^f/);
     }
     assert.equal(new Set([...room.sessions.values()].map(s => s.avatar)).size, 8, 'eight different women');
     assert.match(room._pickAvatar(null, 'women'), /^m/, 'all eight women are taken, so a ninth woman-seeker gets a free man');
@@ -677,5 +678,56 @@ test('any frame counts as a sign of life, not only the ping', () => {
     a.session.lastSeen = 1;
     a.ws.message({ type: 'gesture', gesture: 'wave' });
     assert.ok(a.session.lastSeen > 1);
+    clearInterval(room._sweeper);
+});
+
+test('an empty room starts over: a lock or a ban does not outlive the people in it', () => {
+    const room = new ClubRoom({});
+    const host = joinAs(room, 'Host', 501);
+    const pest = joinAs(room, 'Pest', 502);
+    host.ws.message({ type: 'ban', target: pest.session.id });
+    host.ws.message({ type: 'lock', locked: true });
+    host.ws.message({ type: 'show', m: 'show', mv: 'pulse', cue: 0 });
+    assert.equal(room.locked, true);
+    host.ws.emit('close');
+    assert.equal(room.sessions.size, 0);
+    assert.equal(room.locked, false, 'a locked, empty room refused everyone, its own host included');
+    assert.equal(room.banned.size, 0);
+    assert.equal(room.showState, null);
+    const back = joinAs(room, 'Host', 501);
+    assert.ok(back.session, 'the host who locked it can come back');
+    assert.equal(room.hostId, back.session.id);
+    clearInterval(room._sweeper);
+});
+
+test('typed chat reaches everyone who can see the sender, named by the relay, cleaned and bounded', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 601);
+    const b = joinAs(room, 'B', 602);
+    const c = joinAs(room, 'C', 603);
+    a.ws.message({ type: 'chat', text: '  hi\u202E there\n\nfriends\u200B ', id: c.session.id });
+    const got = b.ws.last('chat');
+    assert.equal(got.text, 'hi there friends', 'bidi overrides, zero-width characters and line breaks are removed');
+    assert.equal(got.id, a.session.id, 'the relay names the sender, whatever the client claimed');
+    assert.equal(a.ws.last('chat'), undefined, 'not echoed to the sender');
+    c.ws.message({ type: 'block', pid: pidOf(601) });
+    const before = c.ws.sent.filter(m => m.type === 'chat').length;
+    a.ws.message({ type: 'chat', text: 'can you see this' });
+    assert.equal(c.ws.sent.filter(m => m.type === 'chat').length, before, 'a blocked guest never receives chat');
+    assert.equal(b.ws.last('chat').text, 'can you see this');
+    assert.equal(sanitizeChat('x'.repeat(500)).length, MAX_CHAT_LENGTH);
+    assert.equal(sanitizeChat('\u0000\u0007  '), '');
+    assert.equal(sanitizeChat({ toString: () => 'no' }), '');
+    assert.equal(Array.from(sanitizeChat('🎉'.repeat(300))).length, MAX_CHAT_LENGTH, 'bounded by code point, never mid-surrogate');
+    clearInterval(room._sweeper);
+});
+
+test('chat is rate limited: a burst passes, a flood is dropped', () => {
+    const room = new ClubRoom({});
+    const a = joinAs(room, 'A', 611);
+    const b = joinAs(room, 'B', 612);
+    for (let i = 0; i < 20; i++) a.ws.message({ type: 'chat', text: `msg ${i}` });
+    const received = b.ws.sent.filter(m => m.type === 'chat').length;
+    assert.ok(received >= 3 && received <= 5, `a burst of four, then the bucket is empty (got ${received})`);
     clearInterval(room._sweeper);
 });

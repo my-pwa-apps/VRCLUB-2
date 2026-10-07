@@ -60,13 +60,24 @@ const differences = (a, b) => {
         .map(([key]) => key);
 };
 
-/** Holds the colour and the cue still so two captures of the same scene are comparable. */
+/**
+ * Holds the colour, the cue, every character and the air still, so two captures of the same scene are comparable.
+ * The haze, fog and dust are the largest moving thing in this dark room: two desktop captures of the same pose
+ * correlated at only 0.91-0.94 while they drifted, and the VR comparison swung between 0.60 and 0.74 run to run with
+ * no code change (bisected: identical builds both passed and failed). With them frozen the same pose matches 1.000, so
+ * the score measures how the two modes render, not where the smoke happened to be.
+ */
 const pinShow = page => page.evaluate(() => {
     const club = window.vrClub;
     const look = club.showDirector.looks.firstLight;
     look.hue = 0.1;
     look.colorLock = true;
     club.showDirector._applyCue({ look: 'firstLight', bars: 1024 });
+    for (const group of club.scene.animationGroups) {
+        group.goToFrame(group.from);
+        group.pause();
+    }
+    for (const system of club.scene.particleSystems) system.updateSpeed = 0;
 });
 
 const sampleImages = async (page, count = 3) => {
@@ -81,6 +92,29 @@ const sampleImages = async (page, count = 3) => {
 const average = (images, key) => images.reduce((sum, image) => sum + image[key], 0) / images.length;
 const averageGrid = images => images[0].grid.map((_, cell) => average(images.map(image => ({ cell: image.grid[cell] })), 'cell'));
 
+/**
+ * The image comparison is about how the two modes render the same room. In the headset the player's own hands, the
+ * controller models and the pointer ray fill the lower third of the frame, and the desktop camera has none of them,
+ * so they are hidden while the images are captured (they are already an intended difference, see
+ * INTENTIONAL_DIFFERENCES). With them in view the correlation sat on the threshold: 0.62 to 0.69 over five runs.
+ */
+const showOwnBody = (page, visible) => page.evaluate(on => {
+    const club = window.vrClub;
+    if (club._localRig && typeof club._localRig.setVisible === 'function') club._localRig.setVisible(on);
+    for (const controller of club._xrControllers || []) {
+        for (const node of [controller.grip, controller.pointer, controller.motionController && controller.motionController.rootMesh]) {
+            if (!node) continue;
+            if (typeof node.setEnabled === 'function' && node.getChildMeshes) for (const mesh of node.getChildMeshes(false)) mesh.isVisible = on;
+            if ('isVisible' in node) node.isVisible = on;
+        }
+    }
+    const selection = club.vrHelper && club.vrHelper.pointerSelection;
+    if (selection) {
+        selection.displayLaserPointer = on;
+        selection.displaySelectionMesh = on;
+    }
+}, visible);
+
 test('VR keeps the desktop rendering features and image structure at the same graphics tier', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
@@ -94,13 +128,17 @@ test('VR keeps the desktop rendering features and image structure at the same gr
     await pinShow(page);
     await renderFrames(page, 20);
     const desktopState = await snapshotRenderState(page);
+    await showOwnBody(page, false);
     const desktopImages = await sampleImages(page);
+    await showOwnBody(page, true);
 
     await enterVR(page);
     await pinShow(page);
     await renderFrames(page, 20);
     const vrState = await snapshotRenderState(page);
+    await showOwnBody(page, false);
     const vrImages = await sampleImages(page);
+    await showOwnBody(page, true);
     const eyeSize = await page.evaluate(() => {
         const layer = window.vrClub.vrHelper.baseExperience.sessionManager.session.renderState.baseLayer;
         return [layer.framebufferWidth, layer.framebufferHeight];

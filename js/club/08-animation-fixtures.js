@@ -170,7 +170,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             : Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5));
         const kick = this.kickPulse || 0;
         const scatter = 0.35 + 0.65 * haze;
-        const base = 0.6 * scatter * master * (1 + kick * 0.35) * (this.isInVRMode ? 1.15 : 1);
+        const base = 0.6 * scatter * master * (1 + kick * 0.5) * (this.isInVRMode ? 1.15 : 1);
         const dotBase = 0.95 * master * (1 + kick * 0.3);
 
         const dir = this.vecPool.laserDir;
@@ -415,10 +415,16 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             const globalPhase = this.lastActivePhase || 0;
         
         // Audio speed multiplier: only apply when actual audio is playing
-        // When no audio: use default 1.0x speed for consistent automated patterns
-        const audioSpeedMultiplier = audioData.hasAudio 
-            ? 1.0 + (audioData.average * 0.5) // 1.0x to 1.5x based on audio energy
-            : 1.0; // No audio = consistent timing
+        // When no audio: use default 1.0x speed for consistent automated patterns.
+        // With the kick band the heads follow the music's dynamics (calmer in a breakdown, faster when a drop lands);
+        // the old band average hardly moved between the two.
+        const audioSpeedMultiplier = !audioData.hasAudio ? 1.0
+            : (typeof audioData.energy === 'number'
+                ? 0.75 + audioData.energy * 0.6       // ~1.1x in a groove, ~0.9x in a breakdown, 1.35x on a drop
+                : 1.0 + (audioData.average * 0.5));   // 1.0x to 1.5x based on audio energy
+        // The beams dip toward the floor on each kick and swing back out between them: the heads move WITH the beat,
+        // not only on a smooth sweep. Motion, not light, so it carries no flash.
+        const kickTilt = 1 - Math.min(0.2, (this.kickPulse || 0) * 0.22);
         
         if (this.spotlights && this.lightsActive) {
             
@@ -432,8 +438,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 
                 const dirOut = this._solveSpotDirection(i, globalPhase, audioSpeedMultiplier, speedMultiplier,
                     spot._dirOut || (spot._dirOut = { x: 0, z: 0 }));
-                const dirX = dirOut.x;
-                const dirZ = dirOut.z;
+                const dirX = dirOut.x * kickTilt;
+                const dirZ = dirOut.z * kickTilt;
                 
                 // Set direction (pointing from truss DOWN to dance floor)
                 // Direction should always have strong downward component (negative Y)
@@ -496,7 +502,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // light slots (shader recompiles on cue changes, a scene walk per
                 // spot-strobe flash). See the note where the spots are created.
                 spot.light.intensity = lightEnabled
-                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.6) * master
+                    ? (baseIntensity + smoothPulse) * (1 + (this.kickPulse || 0) * 0.9) * master
                     : 0;
 
                 // Photometric origin is the lens, not the yoke. Snapshot before the

@@ -7,6 +7,24 @@ class VRClubAudioCrowd extends VRClubUI {
             this.audioAnalyser.fftSize = 256;
             this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
 
+            // The kick band: everything under ~120 Hz, read as a waveform (RMS of the last ~12 ms) rather than as FFT
+            // bins. The main analyser's 0..2.2 kHz "bass" average also carries pads, vocals and snare, and its default
+            // 0.8 smoothing smears each kick over ~100 ms, which is why kicks were missed and bass notes were taken for
+            // kicks. Pre-spatial, like the main analyser, so walking away from the PA does not calm the show.
+            try {
+                this.kickFilter = this.audioContext.createBiquadFilter();
+                this.kickFilter.type = 'lowpass';
+                this.kickFilter.frequency.value = 120;
+                this.kickFilter.Q.value = 0.7;
+                this.kickAnalyser = this.audioContext.createAnalyser();
+                this.kickAnalyser.fftSize = 512;
+                this.kickSamples = new Float32Array(this.kickAnalyser.fftSize);
+                this.kickFilter.connect(this.kickAnalyser);
+            } catch (err) {
+                this.kickFilter = null;
+                this.kickAnalyser = null;
+            }
+
             // === 3D SPATIAL AUDIO & CLUB ACOUSTICS CHAIN ===
             // Real club acoustics feature high-power directional main PA arrays
             // flown from the truss, coupled with physical sub-bass in the room
@@ -91,13 +109,21 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.audioMasterGain = this.audioContext.createGain();
                 this.audioMasterGain.gain.value = 1.15;       // Slight push for "loud"
 
+                // Voice ducking: the music dips while people talk (see setVoiceDuck). Its own node, after the
+                // compressor (which would otherwise make up the lost level) and apart from the master gain (which the
+                // room-acoustics model rewrites every frame). The analyser tap is upstream, so the show still hears
+                // the full track and the lights do not calm down while you chat.
+                this.voiceDuckGain = this.audioContext.createGain();
+                this.voiceDuckGain.gain.value = this._voiceDucked ? VRClubAudioCrowd.VOICE_DUCK_LEVEL : 1;
+
                 // Reverb return folds back into the mastering bus.
                 this.roomConvolver.connect(this.reverbReturn);
                 this.reverbSend.connect(this.roomConvolver);
                 this.reverbReturn.connect(this.audioCompressor);
 
                 // Connect mastering output to destination
-                this.audioCompressor.connect(this.audioMasterGain);
+                this.audioCompressor.connect(this.voiceDuckGain);
+                this.voiceDuckGain.connect(this.audioMasterGain);
                 this.audioMasterGain.connect(this.audioContext.destination);
             } catch (err) {
                 // Graceful fallback if spatial nodes or compressor are unavailable
@@ -262,6 +288,7 @@ class VRClubAudioCrowd extends VRClubUI {
             
             // Pre-spatial analyser tap ensures lighting and VJ reactivity remain 100% full-bandwidth
             this.audioSource.connect(this.audioAnalyser);
+            if (this.kickFilter) this.audioSource.connect(this.kickFilter);
 
             if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
                 // Directional Mains
@@ -449,6 +476,9 @@ class VRClubAudioCrowd extends VRClubUI {
             frame.treble = 0;
             frame.average = 0;
             frame.hasAudio = false;
+            frame.low = this.kickAnalyser ? 0 : null;
+            frame.lowRms = 0;
+            frame.energy = this.kickAnalyser ? 0 : null;
             return frame;
         }
         
@@ -518,7 +548,52 @@ class VRClubAudioCrowd extends VRClubUI {
         frame.treble = treble;
         frame.average = average;
         frame.hasAudio = hasAudio;
+        this._readKickBand(frame, nowMs);
         return frame;
+    }
+
+    /**
+     * The kick band and the music's dynamics, into `frame.low` / `frame.lowRms` / `frame.energy` (see 01-core).
+     * No allocation: the sample buffer and the running levels are kept.
+     *  - low: RMS under ~120 Hz against a peak that decays with an 8 s half-life, so it reads the same at any volume.
+     *  - energy: short-term (0.5 s) against long-term (20 s) loudness of that band, mapped so a steady groove sits
+     *    near 0.6, a kick-less breakdown falls toward 0.2 and the first bars of a drop push toward 1.
+     */
+    _readKickBand(frame, nowMs) {
+        const analyser = this.kickAnalyser;
+        if (!analyser || !this.kickSamples || !frame.hasAudio) {
+            frame.low = analyser ? 0 : null;
+            frame.lowRms = 0;
+            frame.energy = analyser ? 0 : null;
+            return;
+        }
+        analyser.getFloatTimeDomainData(this.kickSamples);
+        const samples = this.kickSamples;
+        // The last ~12 ms only: a kick's attack is what onset detection needs to see.
+        const n = Math.min(samples.length, 512);
+        let sum = 0;
+        for (let i = samples.length - n; i < samples.length; i++) sum += samples[i] * samples[i];
+        const rms = Math.sqrt(sum / n);
+        const k = this._kickBand || (this._kickBand = { peak: 1e-3, short: 0, long: 0, at: nowMs, started: false, quietSince: 0 });
+        const dt = Math.min(0.25, Math.max(0, (nowMs - k.at) / 1000));
+        k.at = nowMs;
+        // A new track (or the same one after a pause) starts its levels over, rather than reading as a huge drop.
+        if (!k.started || rms < 1e-5) {
+            if (rms < 1e-5) { k.quietSince = k.quietSince || nowMs; if (nowMs - k.quietSince > 2000) k.started = false; }
+            if (!k.started && rms >= 1e-5) { k.short = k.long = rms; k.peak = Math.max(rms, 1e-4); k.started = true; k.quietSince = 0; k.startedAt = nowMs; }
+        } else {
+            k.quietSince = 0;
+        }
+        k.peak = Math.max(rms, k.peak * Math.pow(0.5, dt / 8), 1e-4);
+        k.short += (rms - k.short) * (1 - Math.exp(-dt / 0.5));
+        // The long average starts quick and slows to 20 s: seeded from the first frame alone it could start on a
+        // kick's peak (five times the track's average) and read the next 40 seconds as a breakdown.
+        const tauLong = Math.min(20, 1 + (nowMs - (k.startedAt || nowMs)) / 1000);
+        k.long += (rms - k.long) * (1 - Math.exp(-dt / tauLong));
+        frame.low = rms / k.peak;
+        frame.lowRms = rms;
+        const ratio = k.long > 1e-5 ? k.short / k.long : 1;
+        frame.energy = Math.max(0, Math.min(1, (ratio - 0.3) / 1.0));
     }
 
     /**
@@ -604,6 +679,32 @@ class VRClubAudioCrowd extends VRClubUI {
         this._audioVolume = v;
         if (this.audioElement) this.audioElement.volume = v;
         return v;
+    }
+
+    /** How far the music dips while people talk: about -12 dB, enough to hear a voice over a loud PA. */
+    static get VOICE_DUCK_LEVEL() { return 0.25; }
+
+    /**
+     * Dip the music under conversation (true) or bring it back (false). Called on changes only, by ClubMultiplayer.
+     * A quick fade down so the first word is heard, and a slower one back up so the music does not pump between
+     * sentences. The user's own music volume is untouched: the two multiply.
+     * @returns {boolean} whether the music is now ducked
+     */
+    setVoiceDuck(active) {
+        active = !!active;
+        if (this._voiceDucked === active) return active;
+        this._voiceDucked = active;
+        const node = this.voiceDuckGain;
+        if (!node || !node.gain) return active;
+        const level = active ? VRClubAudioCrowd.VOICE_DUCK_LEVEL : 1;
+        const ctx = this.audioContext;
+        if (ctx && ctx.currentTime != null && node.gain.setTargetAtTime) {
+            node.gain.cancelScheduledValues(ctx.currentTime);
+            node.gain.setTargetAtTime(level, ctx.currentTime, active ? 0.08 : 0.5);
+        } else {
+            node.gain.value = level;
+        }
+        return active;
     }
 
     /**
@@ -962,8 +1063,10 @@ class VRClubAudioCrowd extends VRClubUI {
             if (this._djEntry) { try { this._djEntry.dispose(); } catch (_) { /* ignore */ } }
             this.npcAvatars.splice(previous, 1);
         }
-        this._djEntry = this._spawnAvatar(
-            container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
+        this._djRig = null;
+        this._djPerformer = null;
+        this._djEntry = this._spawnPerformingDJ(container, look)
+            || this._spawnAvatar(container, 'djPerformer', new BABYLON.Vector3(0, 0.5, -19.4), 0, look.height, 0.55, { clip: 'Idle_Loop' });
         this._djId = id;
         if (this._refreshContactShadows) this._refreshContactShadows();
         if (this._refreshShadowCasters) this._refreshShadowCasters();
@@ -974,6 +1077,105 @@ class VRClubAudioCrowd extends VRClubUI {
         const list = this._crowdSourceContainers;
         if (!list) return null;
         return (style === 'male' ? list[1] : list[0]) || list[0] || list[1] || null;
+    }
+
+    // ───────────────────────── the DJ, performing ─────────────────────────
+    //
+    // The DJ files carry one idle clip. A performing DJ is an AvatarRig (the player-body driver) whose pose comes from
+    // DJPerformer every frame: mixing, cueing in the headphones, looking at the crowd, hands up on a drop, waving at a
+    // visitor, nodding and bouncing on the beat. If the rig cannot drive the file, the idle clip stays (the caller).
+
+    /** The controller on the DJ table, measured from the scene, with the numbers it had when this was written as fallback. */
+    _djDesk() {
+        const mesh = this.scene && this.scene.getMeshByName && this.scene.getMeshByName('console_final');
+        if (mesh && mesh.isEnabled()) {
+            mesh.computeWorldMatrix(true);
+            const box = mesh.getBoundingInfo().boundingBox;
+            return {
+                cx: (box.minimumWorld.x + box.maximumWorld.x) / 2,
+                near: box.minimumWorld.z, far: box.maximumWorld.z,
+                top: box.maximumWorld.y, halfWidth: (box.maximumWorld.x - box.minimumWorld.x) / 2
+            };
+        }
+        return { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    }
+
+    /** @returns {{dispose: function}|null} the DJ, or null when the rig cannot drive this file */
+    _spawnPerformingDJ(container, look) {
+        if (typeof AvatarRig === 'undefined' || typeof DJPerformer === 'undefined') return null;
+        // Eyes ~93% of the standing height (the height includes hair and headphones).
+        const eyeHeight = look.height * 0.93;
+        const rig = new AvatarRig(this, container, { eyeHeight });
+        if (!rig.ok) { rig.dispose(); return null; }
+        rig.root.name = 'djPerformer';
+        const desk = this._djDesk();
+        // Close behind the table: near enough to reach the controller once leaning in (the old idle DJ stood 0.8 m
+        // back, out of reach). The riser's top is 0.5 m.
+        const performer = new DJPerformer({ x: desk.cx, z: desk.near - 0.42, groundY: 0.5, eyeHeight, desk });
+        rig.update(1 / 60, performer.update(1 / 60, { hasAudio: false }, null));
+        const npc = {
+            name: 'djPerformer', root: rig.root, meshes: rig.meshes, animations: [], baseSpeed: 1,
+            reactsToBeat: false, homeYaw: null, avoidYaw: 0
+        };
+        npc.collider = this._attachOccupantCollider(rig.root, 'djPerformer');
+        if (npc.collider) npc.collider.position.set(desk.cx, 0.5 + 0.85, desk.near - 0.45);
+        this.npcAvatars.push(npc);
+        this._djRig = rig;
+        this._djPerformer = performer;
+        this._djMusic = { hasAudio: false, beatPhase: 0, bar: 0, energy: 0, drop: false, bpm: 120 };
+        this._djVisitors = [];
+        this._djLastSetPiece = null;
+        this._djLastMovement = null;
+        return { dispose: () => { rig.dispose(); if (this._djRig === rig) { this._djRig = null; this._djPerformer = null; } } };
+    }
+
+    /** Per frame: tell the DJ where the music is and who is near, then pose the rig. */
+    _updateDJ(dt, audioData) {
+        const rig = this._djRig, performer = this._djPerformer;
+        if (!rig || !rig.ok || !performer) return;
+        const music = this._djMusic;
+        const vj = this.vjDirector, show = this.showDirector;
+        music.hasAudio = !!(audioData && audioData.hasAudio);
+        music.bpm = (vj && vj.bpm) || 120;
+        // Beat phase inside the beat, from the bar phase (0..1 over four beats).
+        const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
+        music.beatPhase = (barPhase * 4) % 1;
+        music.bar = vj ? Math.floor(vj.beatNumber / 4) : 0;
+        music.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
+            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
+        // A drop: the show's release set-piece starting, or it entering IGNITION.
+        let drop = false;
+        if (show) {
+            const piece = show._setPiece ? show._setPiece.title : null;
+            if (piece !== this._djLastSetPiece) {
+                if (show._setPiece === show.setPieces.release) drop = true;
+                this._djLastSetPiece = piece;
+            }
+            if (show._movementName !== this._djLastMovement) {
+                if (show._movementName === 'ignition' && this._djLastMovement !== null) drop = true;
+                this._djLastMovement = show._movementName;
+            }
+        }
+        music.drop = drop;
+        // Who might walk up to the booth: this guest, and the other people in the room.
+        const visitors = this._djVisitors;
+        visitors.length = 0;
+        const cam = this._playerCamera();
+        const pos = cam && (cam.globalPosition || cam.position);
+        if (pos) {
+            const me = this._djMe || (this._djMe = { x: 0, z: 0, id: 'me' });
+            me.x = pos.x; me.z = pos.z;
+            visitors.push(me);
+        }
+        if (this.avatarManager && this.avatarManager.remotes) {
+            for (const peer of this.avatarManager.remotes.values()) {
+                if (!peer.root || peer.hidden) continue;
+                const v = peer._djVisitor || (peer._djVisitor = { x: 0, z: 0, id: peer.id });
+                v.x = peer.root.position.x; v.z = peer.root.position.z;
+                visitors.push(v);
+            }
+        }
+        rig.update(dt, performer.update(dt, music, visitors));
     }
 
     _playerCamera() {

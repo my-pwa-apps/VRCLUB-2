@@ -281,6 +281,10 @@ Open items, each with an acceptance criterion:
   position stays within 1 s of the host's across a 10-minute set, including after a seek and a track change.
 - [ ] **A host who plays a local file shares nothing.** Guests keep the previous stream.
   **Acceptance criteria:** guests are told "the host is playing a file that cannot be shared" and pause.
+- [ ] **The VR Music page seek e2e (`podcast.spec.mjs`, "seeks by clicking the bar with the controller ray") timed out
+  once in a 1.4 h full run** and passed 3 of 3 runs on its own. If the emulated trigger misses the bar it waits out the
+  whole 15-minute test timeout. **Acceptance criteria:** the wait for the new position has its own short timeout and
+  reports where the ray hit, and the test passes in five consecutive full runs.
 - [ ] **Bans and the lock live in the room's memory.** They reset when the room empties.
   **Recommended solution:** Durable Object storage keyed by room, plus a room owner token.
   **Acceptance criteria:** a ban survives an empty room and a relay restart.

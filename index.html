@@ -161,7 +161,7 @@
             aria-label="Club scene. Use W, A, S, D or the arrow keys to move and drag with the mouse to look around."></canvas>
     
     <!-- VJ Toggle Button -->
-    <button id="vjToggle" type="button" title="VJ Controls" aria-label="Open VJ controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span></button>
+    <button id="vjToggle" type="button" title="VJ Controls" aria-label="Open VJ controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span><span class="toggle-word" aria-hidden="true">Lights</span></button>
     
     <!-- VJ Control Menu.
          Deliberately NOT role="dialog": these are non-modal disclosure panels layered
@@ -186,6 +186,7 @@
                  that turns them off must be above the fold on every viewport. -->
             <div class="vj-section">
                 <div class="vj-section-title">♿ Accessibility &amp; Comfort</div>
+                <p class="vj-help">For you only: Safe Mode turns off every strobe and flash, VR Comfort makes headset movement gentler, Haptics lets the controllers buzz to the bass.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" id="vjSafeModeBtn" type="button" aria-pressed="false" title="Photosensitive Safe Mode — disables ALL strobes and bright flashes. Recommended for users with photosensitive epilepsy or migraine.">SAFE MODE</button>
                     <button class="vj-button" id="vjVRComfortBtn" type="button" aria-pressed="false" title="On: teleport and snap turn. Off: left stick walks toward your gaze, right stick turns smoothly.">VR COMFORT</button>
@@ -196,6 +197,7 @@
             <!-- Main Toggles -->
             <div class="vj-section">
                 <div class="vj-section-title">💡 Main Controls</div>
+                <p class="vj-help">Switch the club's lights and effects on or off. A lit button is on.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button active" type="button" aria-pressed="true" data-control="lightsActive">LIGHTS</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="lasersActive">LASERS</button>
@@ -212,6 +214,7 @@
             <!-- Spotlight Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🔦 Spotlight Settings</div>
+                <p class="vj-help">The moving spotlights over the dance floor: their colour, how they move, and how fast.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" data-control="changeColor">COLOR</button>
                     <button class="vj-button" type="button" data-control="cycleSpotMode">MODE: STROBE+SWEEP</button>
@@ -232,6 +235,7 @@
             <!-- Gobo Filter Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🎭 Gobo Filters</div>
+                <p class="vj-help">Gobos project shapes (stars, circles) onto the floor through the spotlights.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" aria-pressed="false" data-control="goboActive">GOBO ON/OFF</button>
                     <button class="vj-button" type="button" data-control="cycleGoboPattern">GOBO: CIRCLE</button>
@@ -251,18 +255,21 @@
             <!-- Mirror Ball Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🪩 Mirror Ball</div>
+                <p class="vj-help">The colour of the light on the mirror ball.</p>
                 <button class="vj-button vj-button-wide" type="button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
             </div>
 
             <!-- Graphics Quality -->
             <div class="vj-section">
                 <div class="vj-section-title">🎨 Graphics Quality</div>
+                <p class="vj-help">Higher looks better; lower runs smoother on a slow computer or headset.</p>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
             </div>
 
             <!-- Show Director: the composed, beat-locked light show -->
             <div class="vj-section">
                 <div class="vj-section-title">🎭 Light Show</div>
+                <p class="vj-help">When on, the lights change by themselves with the music. Touching a light control above takes over by hand for a while.</p>
                 <button class="vj-button vj-button-wide" type="button" aria-pressed="true" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
@@ -277,6 +284,7 @@
             <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
             <div class="vj-section">
                 <div class="vj-section-title">🎬 Live Macros</div>
+                <p class="vj-help">One-press moments for the dance floor, like a real lighting desk.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" id="vjDropBtn" type="button" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams). Shortcut: F">DROP</button>
                     <button class="vj-button" id="vjBlackoutBtn" type="button" title="Kill all lights for one bar — perfect tension before a drop. Shortcut: B">BLACKOUT</button>
@@ -305,7 +313,7 @@
     <button id="vrButton" type="button" title="Enter immersive VR">🥽 Enter VR</button>
     
     <!-- Audio Toggle Button -->
-    <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span></button>
+    <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span><span class="toggle-word" aria-hidden="true">Music</span></button>
     
     <!-- Audio Upload Menu. See the note on #vjMenu for why this is not role="dialog". -->
     <div id="audioMenu" class="panel hidden" role="group" aria-labelledby="audioMenuTitle">
@@ -430,120 +438,151 @@
 
         <div class="audio-content">
             <div class="audio-section">
-                <div id="networkStatus" class="audio-now-playing" role="status" aria-live="polite">Not connected</div>
+                <div id="networkStatus" class="audio-now-playing" role="status" aria-live="polite">Not in a room</div>
             </div>
 
-            <div class="audio-section">
-                <div class="audio-input-group">
-                    <input type="url" class="audio-input" id="networkServerUrl" placeholder="Relay URL (wss://your-worker.workers.dev)"
-                           inputmode="url" autocomplete="off" aria-label="Multiplayer relay server URL">
+            <!-- Step 1, before joining: who you are and which room. Everything a first-time visitor needs, nothing else. -->
+            <div class="audio-section" id="networkJoin">
+                <div class="vj-section-title">Join a room</div>
+                <p class="network-help">Meet other people in the club: you will see each other, and can talk, type and react.</p>
+                <label class="network-field" for="networkName">Your name</label>
+                <input type="text" class="audio-input" id="networkName" maxlength="32" autocomplete="nickname">
+                <label class="network-field" for="networkRoom">Room</label>
+                <input type="text" class="audio-input" id="networkRoom" maxlength="64" autocomplete="off"
+                       placeholder="lobby" aria-describedby="networkRoomHelp">
+                <p class="network-help" id="networkRoomHelp">Leave it on <strong>lobby</strong> to meet anyone, or type the 6-digit code a friend gave you.</p>
+                <button class="audio-button network-primary" id="networkConnectBtn" type="button">
+                    <span aria-hidden="true">🚪</span>
+                    <span id="networkConnectBtnLabel">Join room</span>
+                </button>
+                <button class="audio-button" id="networkPrivateRoom" type="button" title="Start a room with a random 6-digit code, then share the code">
+                    <span aria-hidden="true">🔒</span>
+                    <span>Start a private room</span>
+                </button>
+                <details class="network-advanced">
+                    <summary>Advanced: relay server</summary>
+                    <label class="network-field" for="networkServerUrl">Relay server address</label>
+                    <input type="url" class="audio-input" id="networkServerUrl" inputmode="url" autocomplete="off"
+                           placeholder="wss://your-worker.workers.dev">
+                    <p class="network-help">Only change this if you run your own relay (see the README).</p>
+                </details>
+            </div>
+
+            <!-- In a room: everything below is only shown while connected. -->
+            <div class="audio-section" id="networkRoomActions" hidden>
+                <p class="network-help" id="networkRoomInfo"></p>
+                <div class="network-row">
+                    <button class="audio-button" id="networkInviteBtn" type="button">
+                        <span aria-hidden="true">🔗</span>
+                        <span>Copy invite link</span>
+                    </button>
+                    <button class="audio-button network-danger" id="networkLeaveBtn" type="button">
+                        <span aria-hidden="true">🚪</span>
+                        <span>Leave room</span>
+                    </button>
                 </div>
-                <div class="audio-input-group">
-                    <input type="text" class="audio-input" id="networkRoom" placeholder="Room code" maxlength="64" autocomplete="off" aria-label="Room code">
-                    <input type="text" class="audio-input" id="networkName" placeholder="Your name" maxlength="32" autocomplete="off" aria-label="Display name">
-                </div>
-                <button class="audio-button" id="networkConnectBtn" type="button">
-                    <span aria-hidden="true">🔌</span>
-                    <span id="networkConnectBtnLabel">Connect</span>
-                </button>
-                <p class="audio-file-name" id="networkRoomHelp">Type a room name or a 6-digit private code to join someone's room, or make your own below. The first guest in a room is its host: they choose the music and the lights, and everyone else follows. A room holds 8 guests.</p>
-                <button class="audio-button" id="networkInviteBtn" type="button">
-                    <span aria-hidden="true">🔗</span>
-                    <span>Copy invite link</span>
-                </button>
-            </div>
-
-            <div class="audio-section">
-                <button class="audio-button" id="networkMicBtn" type="button" aria-pressed="false" disabled>
-                    <span aria-hidden="true">🎤</span>
-                    <span id="networkMicBtnLabel">Enable Mic</span>
-                </button>
-            </div>
-
-            <!-- Who the relay may hand you as a random look: chosen before or after connecting, remembered. -->
-            <div class="audio-section" id="networkAvatarPool">
-                <div class="vj-section-title">Random look</div>
-                <div class="audio-podcasts" role="radiogroup" aria-label="Which random looks you can get">
-                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="true" data-avatar-pool="any">Anyone</button>
-                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="women">Women</button>
-                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="men">Men</button>
-                </div>
-            </div>
-
-            <!-- Who you are in the room: the relay hands every guest a random, different character. -->
-            <div class="audio-section" id="networkAvatarSection" hidden>
-                <div class="vj-section-title">You appear as</div>
-                <div id="networkAvatar" class="audio-file-name" role="status" aria-live="polite"></div>
-                <button class="audio-button" id="networkAvatarBtn" type="button">
-                    <span aria-hidden="true">🎲</span>
-                    <span>New random look</span>
-                </button>
             </div>
 
             <!-- Shared music consent: a guest's browser only fetches the host's stream
                  after the guest opts in, because it discloses their IP to that server. -->
             <div class="audio-section" id="networkListenAlong" hidden>
-                <div id="networkMusicInfo" class="audio-file-name" role="status" aria-live="polite"></div>
-                <button class="audio-button" id="networkListenAlongBtn" type="button">
+                <div id="networkMusicInfo" class="network-help" role="status" aria-live="polite"></div>
+                <button class="audio-button network-primary" id="networkListenAlongBtn" type="button">
                     <span aria-hidden="true">🎧</span>
                     <span>Listen along</span>
                 </button>
             </div>
 
-            <div class="audio-section">
-                <div class="vj-section-title">Say something</div>
+            <div class="audio-section" id="networkTalk" hidden>
+                <div class="vj-section-title">🎤 Talk</div>
+                <button class="audio-button network-primary" id="networkMicBtn" type="button" aria-pressed="false">
+                    <span aria-hidden="true">🎤</span>
+                    <span id="networkMicBtnLabel">Turn my microphone on</span>
+                </button>
+                <button class="vj-button network-wide" type="button" id="networkDuck" aria-pressed="true"
+                        title="While your microphone is on, or someone is talking, the music is turned down so you can hear each other">Lower the music while people talk: ON</button>
+                <button class="vj-button network-wide" type="button" id="networkOpenChat">💬 Type a message instead</button>
+                <p class="network-help">Tip: press <kbd>M</kbd> for the microphone and <kbd>T</kbd> to type.</p>
+            </div>
+
+            <div class="audio-section" id="networkReact" hidden>
+                <div class="vj-section-title">😀 React</div>
                 <div class="vj-button-grid" id="networkEmojiGrid">
-                    <button class="vj-button" type="button" data-emoji="🎉" disabled>🎉</button>
-                    <button class="vj-button" type="button" data-emoji="🔥" disabled>🔥</button>
-                    <button class="vj-button" type="button" data-emoji="❤️" disabled>❤️</button>
-                    <button class="vj-button" type="button" data-emoji="😂" disabled>😂</button>
-                    <button class="vj-button" type="button" data-emoji="👋" disabled>👋</button>
-                    <button class="vj-button" type="button" data-emoji="🙌" disabled>🙌</button>
-                    <button class="vj-button" type="button" data-emoji="💃" disabled>💃</button>
-                    <button class="vj-button" type="button" data-emoji="🕺" disabled>🕺</button>
+                    <button class="vj-button" type="button" data-emoji="🎉" aria-label="Party" title="Party">🎉</button>
+                    <button class="vj-button" type="button" data-emoji="🔥" aria-label="Fire" title="Fire">🔥</button>
+                    <button class="vj-button" type="button" data-emoji="❤️" aria-label="Love" title="Love">❤️</button>
+                    <button class="vj-button" type="button" data-emoji="😂" aria-label="Laugh" title="Laugh">😂</button>
+                    <button class="vj-button" type="button" data-emoji="👋" aria-label="Hi" title="Hi">👋</button>
+                    <button class="vj-button" type="button" data-emoji="🙌" aria-label="Hands up" title="Hands up">🙌</button>
+                    <button class="vj-button" type="button" data-emoji="💃" aria-label="Dance" title="Dance">💃</button>
+                    <button class="vj-button" type="button" data-emoji="🕺" aria-label="Dance" title="Dance">🕺</button>
                 </div>
-            </div>
-
-            <div class="audio-section">
-                <div class="vj-section-title">Body language</div>
                 <div class="vj-button-grid" id="networkGestureGrid">
-                    <button class="vj-button" type="button" data-gesture="wave" aria-label="Wave" disabled>👋 Wave</button>
-                    <button class="vj-button" type="button" data-gesture="nod" aria-label="Nod yes" disabled>🙂 Nod</button>
-                    <button class="vj-button" type="button" data-gesture="dance" aria-label="Dance" aria-pressed="false" disabled>🕺 Dance</button>
+                    <button class="vj-button" type="button" data-gesture="wave" title="Your character waves">👋 Wave</button>
+                    <button class="vj-button" type="button" data-gesture="nod" title="Your character nods yes">🙂 Nod</button>
+                    <button class="vj-button" type="button" data-gesture="dance" aria-pressed="false" title="Your character dances until you walk away">🕺 Dance</button>
                 </div>
-                <button class="vj-button" type="button" id="networkAutoNod" aria-pressed="true">Nod your head to nod (VR): ON</button>
+                <button class="vj-button network-wide" type="button" id="networkAutoNod" aria-pressed="true"
+                        title="In VR, nodding your head makes your character nod">Nod your head to nod (VR): ON</button>
             </div>
 
-            <div class="audio-section">
-                <div class="vj-section-title">People here</div>
-                <div id="networkPeerCount" class="audio-file-name">0 guests here</div>
+            <div class="audio-section" id="networkPeople" hidden>
+                <div class="vj-section-title">👥 People here</div>
+                <div id="networkPeerCount" class="network-help">Nobody else yet</div>
                 <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
+            </div>
+
+            <!-- How others see you. The pool is chosen before or after joining and remembered. -->
+            <div class="audio-section" id="networkAvatarPool">
+                <div class="vj-section-title">🧍 How others see you</div>
+                <p class="network-help">You get a random character. Choose who it can be:</p>
+                <div class="audio-podcasts" role="radiogroup" aria-label="Which random characters you can get">
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="true" data-avatar-pool="any">Anyone</button>
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="women">Women</button>
+                    <button class="audio-podcast-choice" type="button" role="radio" aria-checked="false" data-avatar-pool="men">Men</button>
+                </div>
+                <div id="networkAvatarSection" hidden>
+                    <div id="networkAvatar" class="network-help" role="status" aria-live="polite"></div>
+                    <button class="audio-button" id="networkAvatarBtn" type="button">
+                        <span aria-hidden="true">🎲</span>
+                        <span>Give me another character</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Social safety. Block, mute and personal space are this guest's own; kick, ban and lock are the host's. -->
             <div class="audio-section" id="networkSafety">
-                <div class="vj-section-title">Safety</div>
+                <div class="vj-section-title">🛡️ Safety and comfort</div>
                 <div class="vj-button-grid">
-                    <button class="vj-button" type="button" id="networkPersonalSpace" aria-pressed="true">Personal space: ON</button>
-                    <button class="vj-button" type="button" id="networkMuteAll" aria-pressed="false" disabled>Mute everyone: OFF</button>
-                    <button class="vj-button" type="button" id="networkLockRoom" aria-pressed="false" disabled title="Only the host can lock the room">Lock room: OFF</button>
-                    <button class="vj-button" type="button" id="networkPrivateRoom" title="Join a new room with a random code, then share the code">New private room</button>
+                    <button class="vj-button" type="button" id="networkPersonalSpace" aria-pressed="true"
+                            title="Hide anyone who comes within arm's length of you">Personal space: ON</button>
+                    <button class="vj-button" type="button" id="networkNameTags" aria-pressed="true"
+                            title="Show each person's name above their head">Name tags: ON</button>
+                    <button class="vj-button" type="button" id="networkMuteAll" aria-pressed="false" hidden
+                            title="Silence every voice in the room">Mute everyone: OFF</button>
                 </div>
-                <div class="audio-file-name" id="networkSafetyNote">Personal space hides anyone who comes within arm's length. Blocking hides you from each other for good.</div>
+                <p class="network-help" id="networkSafetyNote">Personal space hides anyone who comes within arm's length. To stop seeing and hearing one person, use <strong>Block</strong> next to their name: it works both ways and is remembered.</p>
                 <div class="vj-section-title">Blocked</div>
                 <ul id="networkBlockedList" class="network-people" aria-label="People you have blocked"></ul>
             </div>
+
+            <!-- Only the room's host sees this. -->
+            <div class="audio-section" id="networkHostTools" hidden>
+                <div class="vj-section-title">👑 Host tools</div>
+                <p class="network-help">You are the host: your music and lights are what everyone gets.</p>
+                <button class="vj-button network-wide" type="button" id="networkLockRoom" aria-pressed="false"
+                        title="Stop anyone new from joining this room">Lock room: OFF</button>
+            </div>
         </div>
     </div>
-
     <!-- Multiplayer Toggle Button -->
-    <button id="networkToggle" type="button" title="Multiplayer" aria-label="Open multiplayer panel" aria-expanded="false" aria-controls="networkMenu"><span aria-hidden="true">👥</span></button>
+    <button id="networkToggle" type="button" title="Multiplayer" aria-label="Open multiplayer panel" aria-expanded="false" aria-controls="networkMenu"><span aria-hidden="true">👥</span><span class="toggle-word" aria-hidden="true">People</span></button>
 
     <!-- Camera Controls -->
     <div id="cameraControls">
         <button id="cameraPresetToggle" class="camera-controls-toggle" type="button"
                 title="Camera viewpoints" aria-label="Show camera viewpoints"
-                aria-expanded="false" aria-controls="cameraPresetGrid">📷</button>
+                aria-expanded="false" aria-controls="cameraPresetGrid"><span aria-hidden="true">📷</span><span class="toggle-word" aria-hidden="true">Go to</span></button>
         <div class="preset-grid" id="cameraPresetGrid" hidden>
             <button type="button" data-camera-preset="arrival" title="Enter the room with the full club opening ahead">🚪 Arrival</button>
             <button type="button" data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">💃 Floor</button>
@@ -551,6 +590,51 @@
             <button type="button" data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">💡 Lights</button>
             <button type="button" data-camera-preset="balcony" title="Stand on the steel balcony above the dance floor">🪜 Balcony</button>
             <button type="button" data-camera-preset="street" title="Step out through the street door onto the avenue">🌃 Street</button>
+        </div>
+    </div>
+
+    <!-- The things you do in a room, one press away: talk, react, type. Only shown while in a room (and never in VR,
+         where the quick menu's TALK / REACT / CHAT row does the same). -->
+    <div id="socialBar" class="social-bar" role="toolbar" aria-label="Talk, react and chat" hidden>
+        <div id="socialPeek" class="social-peek" role="status" aria-live="polite" hidden></div>
+        <div id="socialReactTray" class="social-pop" hidden>
+            <div class="social-pop-title">React</div>
+            <div class="social-emoji-row">
+                <button type="button" data-emoji="🎉" aria-label="Party" title="Party">🎉</button>
+                <button type="button" data-emoji="🔥" aria-label="Fire" title="Fire">🔥</button>
+                <button type="button" data-emoji="❤️" aria-label="Love" title="Love">❤️</button>
+                <button type="button" data-emoji="😂" aria-label="Laugh" title="Laugh">😂</button>
+                <button type="button" data-emoji="👋" aria-label="Hi" title="Hi">👋</button>
+                <button type="button" data-emoji="🙌" aria-label="Hands up" title="Hands up">🙌</button>
+                <button type="button" data-emoji="💃" aria-label="Dance" title="Dance">💃</button>
+                <button type="button" data-emoji="🕺" aria-label="Dance" title="Dance">🕺</button>
+            </div>
+            <div class="social-gesture-row">
+                <button type="button" data-gesture="wave">👋 Wave</button>
+                <button type="button" data-gesture="nod">🙂 Nod</button>
+                <button type="button" data-gesture="dance" aria-pressed="false">🕺 Dance</button>
+            </div>
+        </div>
+        <div id="socialChatBox" class="social-pop" hidden>
+            <div class="social-pop-title">Chat with the room</div>
+            <ol id="socialChatLog" class="social-chat-log" aria-label="Messages" aria-live="polite"></ol>
+            <form id="socialChatForm" class="social-chat-form">
+                <input type="text" id="socialChatInput" class="audio-input" maxlength="200" autocomplete="off"
+                       placeholder="Type a message and press Enter" aria-label="Message to everyone in the room">
+                <button type="submit" class="audio-button">Send</button>
+            </form>
+        </div>
+        <div class="social-buttons">
+            <button type="button" id="socialMic" class="social-btn" aria-pressed="false" title="Turn your microphone on or off (M)">
+                <span class="social-icon" aria-hidden="true">🎤</span><span class="social-label" id="socialMicLabel">Mic off</span>
+            </button>
+            <button type="button" id="socialReact" class="social-btn" aria-expanded="false" aria-controls="socialReactTray" title="Send an emoji, wave or dance">
+                <span class="social-icon" aria-hidden="true">😀</span><span class="social-label">React</span>
+            </button>
+            <button type="button" id="socialChat" class="social-btn" aria-expanded="false" aria-controls="socialChatBox" title="Type a message to the room (T)">
+                <span class="social-icon" aria-hidden="true">💬</span><span class="social-label">Chat</span>
+                <span class="social-badge" id="socialChatBadge" hidden></span>
+            </button>
         </div>
     </div>
     
@@ -664,6 +748,7 @@
     <!-- Procedural player body: the shared dancer skeleton posed from where a guest is,
          looks and (in VR) holds their hands. Used for the local guest and remote guests. -->
     <script src="js/avatarRig.js?v=20261006-8"></script>
+    <script src="js/djPerformer.js?v=20261006-8"></script>
 
     <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
          Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -

@@ -39,6 +39,7 @@ class FakeManager {
         this.peers = new Map();
     }
     setPersonalSpace(v) { this.calls.push(['space', v]); }
+    setNameTags(v) { this.calls.push(['nameTags', v]); }
     setMuteAll(v) { this.calls.push(['muteAll', v]); }
     ensurePeer(id, name, info) { this.peers.set(id, { id, name, muted: false, speaking: false, ...info }); }
     setHost() {}
@@ -46,6 +47,8 @@ class FakeManager {
     removePeer(id) { this.peers.delete(id); }
     setAvatar(id, avatar) { this.calls.push(['avatar', id, avatar]); }
     showEmoji(id, emoji) { this.calls.push(['emoji', id, emoji]); }
+    showChat(id, text) { this.calls.push(['chat', id, text]); }
+    anyoneSpeaking() { return false; }
     playGesture(id, gesture) { this.calls.push(['gesture', id, gesture]); }
     attachVoice() {}
     setMuted(id, muted) { const p = this.peers.get(id); if (p) p.muted = muted; }
@@ -59,7 +62,7 @@ function load() {
     const context = vm.createContext({
         window, console, URL, URLSearchParams, Map, Set, Promise, Math, JSON, Object, Array, Number, String, Date,
         Uint8Array, Error, performance, WebSocket: FakeSocket, setTimeout: () => 1, clearTimeout: () => {}, setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; }, clearInterval: id => { intervals[id - 1] = null; },
-        BABYLON: { Axis: { Z: {} } }
+        BABYLON: { Axis: { Z: {} }, Vector3: class { constructor(x = 0, y = 0, z = 0) { Object.assign(this, { x, y, z }); } } }
     });
     for (const file of ['js/networkClient.js', 'js/multiplayer.js']) {
         vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), context, { filename: file });
@@ -228,7 +231,7 @@ test('connecting is opt-in, one at a time, and joins with uid, room and the save
     assert.deepEqual(socket.last('blocklist').pids, [PID_B]);
     assert.equal(club.isMultiplayer, true);
     assert.equal(mp.selfAvatar, 'f3');
-    assert.match(mp.statusText(), /Connected/);
+    assert.match(mp.statusText(), /^In room "party"/);
     assert.match(mp.statusText(), /you are the host/);
     mp.disconnect();
     assert.equal(club.isMultiplayer, false);
@@ -337,7 +340,7 @@ test('gestures, emoji and the mic do nothing while disconnected', async () => {
 test('a head nod in VR becomes the nod gesture, once, and never when looking up and staying there', () => {
     const { mp, socket } = connectedController();
     let pitch = 0;
-    const camera = { getDirection: () => ({ y: Math.sin(pitch) }) };
+    const camera = { getDirectionToRef: (axis, out) => { out.y = Math.sin(pitch); return out; } };
     const step = (p, t) => { pitch = p; mp._watchForNod(camera, t, 1 / 60); };
     for (let t = 0; t < 1; t += 1 / 60) step(0, t);
     step(-0.3, 1.0);
@@ -349,7 +352,7 @@ test('a head nod in VR becomes the nod gesture, once, and never when looking up 
     assert.equal(socket.sent.filter(m => m.gesture === 'nod').length, 1, 'cooldown');
     const quiet = connectedController();
     pitch = 0;
-    const cam2 = { getDirection: () => ({ y: Math.sin(pitch) }) };
+    const cam2 = { getDirectionToRef: (axis, out) => { out.y = Math.sin(pitch); return out; } };
     for (let t = 0; t < 1; t += 1 / 60) quiet.mp._watchForNod(cam2, t, 1 / 60);
     pitch = 0.4;
     for (let t = 1; t < 6; t += 1 / 60) quiet.mp._watchForNod(cam2, t, 1 / 60);
@@ -748,4 +751,151 @@ test('a guest promoted because the host left is told, and asked for music when n
     playing.mp._syncRole();
     playing.socket.receive({ type: 'host', id: 'me' });
     assert.match(toasts.at(-1), /You control the music and the lights/);
+});
+
+test('name tags are a remembered preference, applied to the room on joining and at once when changed', () => {
+    const { mp, storage, ClubMultiplayer } = makeController();
+    assert.equal(mp.nameTags, true, 'on by default');
+    let changes = 0;
+    mp.onChange(() => { changes++; });
+    mp.setNameTags(false);
+    assert.equal(storage.getItem(ClubMultiplayer.PREFS.nameTags), '0');
+    assert.equal(changes, 1);
+    storage.setItem('vrclub.networkServerUrl', 'wss://relay.example');
+    mp.connect({ room: 'r' });
+    assert.deepEqual(plain(mp.manager.calls.filter(c => c[0] === 'nameTags')), [['nameTags', false]], 'joined with tags off');
+    mp.setNameTags(true);
+    assert.deepEqual(plain(mp.manager.calls.filter(c => c[0] === 'nameTags')).at(-1), ['nameTags', true]);
+    const again = makeController({ storage });
+    assert.equal(again.mp.nameTags, true);
+    storage.setItem(ClubMultiplayer.PREFS.nameTags, '0');
+    assert.equal(makeController({ storage }).mp.nameTags, false, 'remembered across sessions');
+});
+
+test('a guest who blocks the host is no longer locked out: the host is out of sight, so the music and lights are theirs', () => {
+    const { mp, club, socket } = connectedController(undefined, { hostId: 'p1' });
+    const calls = fakeRig(club);
+    mp._roleApplied = null;
+    mp._syncRole();
+    const told = [];
+    club.showErrorMessage = message => told.push(message);
+    assert.equal(mp.following, true);
+    assert.equal(club.showDirector.follower, true);
+    mp.blockPeer('p1');
+    assert.equal(mp.following, false, 'blocking is two-way: no more frames will come from this host');
+    assert.equal(club.showDirector.follower, false);
+    assert.equal(club.vjDirector.remoteDriven, false);
+    assert.match(told.at(-1), /can no longer see the host/);
+    assert.ok(!told.some(m => /you are now the host/.test(m)), 'nobody was promoted');
+    void calls; void socket;
+});
+
+test('a guest whose blocked guest becomes host does not follow them, and does follow a visible new host', () => {
+    const { mp, club, socket } = connectedController([{ id: 'p1', pid: PID_B, name: 'Bo' }, { id: 'p2', pid: 'c'.repeat(16), name: 'Cy' }], { hostId: 'p1' });
+    fakeRig(club);
+    club.showErrorMessage = () => {};
+    mp.blockPeer('p2');
+    assert.equal(mp.following, true, 'the host is still visible');
+    socket.receive({ type: 'host', id: 'p2' });
+    socket.receive({ type: 'leave', id: 'p1' });
+    assert.equal(mp.following, false, 'the new host is someone this guest blocked');
+    mp.unblock('c'.repeat(16));
+    socket.receive({ type: 'join', id: 'p2', pid: 'c'.repeat(16), name: 'Cy' });
+    assert.equal(mp.following, true, 'visible again: the room\'s host leads again');
+});
+
+test('the host looks for a show change at most every 100 ms, never on every render frame', () => {
+    const { mp, club } = connectedController();
+    fakeRig(club);
+    let builds = 0;
+    const real = club.vjDirector.colourSnapshot;
+    club.vjDirector.colourSnapshot = function () { builds++; return real.call(this); };
+    mp._syncShared(1000);                       // first frame: sent
+    const afterFirst = builds;
+    for (let t = 1300; t < 1400; t += 1000 / 90) mp._syncShared(t);   // ~9 frames at 90 Hz inside one 100 ms window
+    assert.ok(builds - afterFirst <= 1, `built ${builds - afterFirst} frames in 100 ms`);
+});
+
+// ---- chat, quick phrases and lowering the music for voice ---------------------------------------------------
+
+test('typed chat: sent cleaned, logged for both sides, counted as unread only when it comes from someone else', () => {
+    const { mp, socket } = connectedController();
+    const shown = [];
+    mp.manager.showChat = (id, text) => shown.push([id, text]);
+    assert.equal(mp.sendChat('   '), false, 'nothing to send');
+    assert.equal(mp.sendChat('hi\u202E  there\n'), true);
+    assert.deepEqual(plain(socket.last('chat')), { type: 'chat', text: 'hi there' });
+    assert.equal(mp.chat.at(-1).self, true);
+    assert.equal(mp.chatUnread, 0, 'my own message is not unread');
+    socket.receive({ type: 'chat', id: 'p1', text: 'hello' });
+    socket.receive({ type: 'chat', id: 'ghost', text: 'from nobody' });
+    assert.equal(mp.chat.at(-1).name, 'Bo');
+    assert.equal(mp.chat.at(-1).text, 'hello');
+    assert.equal(mp.chatUnread, 1, 'a message from a guest who is not in the room is dropped');
+    assert.deepEqual(plain(shown), [['p1', 'hello']], 'and it shows over the sender\'s head');
+    mp.markChatRead();
+    assert.equal(mp.chatUnread, 0);
+    for (let i = 0; i < 80; i++) socket.receive({ type: 'chat', id: 'p1', text: `m${i}` });
+    assert.equal(mp.chat.length, mp.constructor.MAX_CHAT_LOG, 'the log is bounded');
+});
+
+test('a new room starts a new conversation, and chat needs a room', () => {
+    const { mp, socket, storage } = connectedController();
+    socket.receive({ type: 'chat', id: 'p1', text: 'hello' });
+    mp.disconnect();
+    assert.equal(mp.sendChat('anyone?'), false);
+    storage.setItem('vrclub.networkServerUrl', 'wss://relay.example');
+    mp.connect({ room: 'other' });
+    assert.deepEqual(plain(mp.chat), []);
+    assert.equal(mp.chatUnread, 0);
+});
+
+test('the music is lowered while my mic is on or someone talks, held briefly, and only if the guest wants it', () => {
+    const { mp, club } = connectedController();
+    const calls = [];
+    club.setVoiceDuck = on => { calls.push(on); return on; };
+    let speaking = false;
+    mp.manager.anyoneSpeaking = () => speaking;
+    mp._updateVoiceDuck(1000);
+    assert.equal(calls.at(-1), false);
+    speaking = true;
+    mp._updateVoiceDuck(1100);
+    assert.equal(calls.at(-1), true, 'someone is talking');
+    speaking = false;
+    mp._updateVoiceDuck(1100 + mp.constructor.DUCK_HOLD_MS - 100);
+    assert.equal(calls.at(-1), true, 'held between sentences');
+    mp._updateVoiceDuck(1100 + mp.constructor.DUCK_HOLD_MS + 100);
+    assert.equal(calls.at(-1), false, 'and released after the hold');
+    mp.client.micEnabled = true;
+    mp._updateVoiceDuck(5000);
+    assert.equal(calls.at(-1), true, 'my own mic is on');
+    mp.setDuckForVoice(false);
+    assert.equal(calls.at(-1), false, 'switching it off brings the music back at once');
+    mp._updateVoiceDuck(6000);
+    assert.equal(calls.at(-1), false);
+    assert.equal(mp.storage.getItem(mp.constructor.PREFS.duckForVoice), '0');
+});
+
+test('leaving the room always brings the music back up', () => {
+    const { mp, club } = connectedController();
+    const calls = [];
+    club.setVoiceDuck = on => { calls.push(on); return on; };
+    mp.disconnect();
+    assert.equal(calls.at(-1), false);
+});
+
+test('the status line speaks plainly, and a private room is named by its code', () => {
+    const { mp } = connectedController([], { hostId: 'me' });
+    assert.match(mp.statusText(), /nobody else yet/);
+    assert.equal(mp.roomLabel('private-482913'), 'private room 482 913');
+    assert.equal(mp.roomLabel('lobby'), 'room "lobby"');
+    const fresh = makeController();
+    assert.equal(fresh.mp.statusText(), 'Not in a room');
+});
+
+test('quick phrases fit the VR keyboard-free chat page', () => {
+    const { ClubMultiplayer, NetworkClient } = load();
+    assert.ok(ClubMultiplayer.QUICK_PHRASES.length <= 10, 'the chat page has ten slots beside BACK and CLOSE');
+    for (const phrase of ClubMultiplayer.QUICK_PHRASES) assert.equal(NetworkClient.cleanChat(phrase), phrase);
+    for (const emoji of ClubMultiplayer.EMOJI) assert.ok(ClubMultiplayer.EMOJI_NAMES[emoji], `${emoji} has a name`);
 });

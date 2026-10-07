@@ -465,10 +465,12 @@ class AvatarRig {
         const tw = walkW * Math.sin(this.phase * 2 * Math.PI);
         const lean = Math.min(0.12, 0.02 + 0.012 * sp) * walkW + 0.01;
         const breath = 0.012 * Math.sin(this.time * 1.7);
+        // An optional extra forward bend (radians), spread over the spine: a DJ leaning over the decks.
+        const bend = Math.max(0, Math.min(0.6, num(pose.lean, 0)));
         this._yawBy(ix.pelvis, -0.08 * tw);
-        this._tiltBy(ix.spine_01, lean * 0.45, F.x, F.z);
+        this._tiltBy(ix.spine_01, lean * 0.45 + bend * 0.4, F.x, F.z);
         this._yawBy(ix.spine_01, 0.06 * tw);
-        this._tiltBy(ix.spine_02, lean * 0.30 + breath, F.x, F.z);
+        this._tiltBy(ix.spine_02, lean * 0.30 + breath + bend * 0.35, F.x, F.z);
         this._yawBy(ix.spine_02, 0.06 * tw);
 
         // --- head: the twist the hips did not take, split over spine, neck and head ----
@@ -476,7 +478,7 @@ class AvatarRig {
         const pitch = Math.max(-0.9, Math.min(0.9, num(pose.headPitch, 0)));
         this._yawBy(ix.spine_03, 0.06 * tw + 0.2 * yawLeft);
         const sy = Math.sin(this.bodyYaw + 0.2 * yawLeft), cy = Math.cos(this.bodyYaw + 0.2 * yawLeft);
-        this._tiltBy(ix.spine_03, lean * 0.25 - pitch * 0.15, sy, cy);
+        this._tiltBy(ix.spine_03, lean * 0.25 + bend * 0.25 - pitch * 0.15, sy, cy);
         this._yawBy(ix.neck_01, 0.3 * yawLeft);
         const hfx = Math.sin(headYaw), hfz = Math.cos(headYaw);
         this._tiltBy(ix.neck_01, -pitch * 0.35, hfx, hfz);

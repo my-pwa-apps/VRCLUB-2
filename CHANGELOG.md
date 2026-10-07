@@ -20,9 +20,29 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Talk, react and type, one press away.** In a room, a bar at the bottom of the screen has **Mic**, **React** and
+  **Chat**: the mic turns red while it is live, React opens the emoji, wave, nod and dance, and Chat opens a message
+  box. Prefer not to talk? Type: messages appear in the chat box, peek above the bar when it is closed, and show in a
+  speech bubble over the sender's head (so a guest in VR can read them). Keys: **M** for the microphone, **T** to type.
+  In VR the quick menu's first row in a room is **TALK**, **REACT** and **CHAT**, where one tap sends a ready-made
+  message (Hi!, Great track!, Let's dance, Come over here...).
+- **The music is lowered while people talk.** While your microphone is on or someone is speaking, the music fades down
+  so you can hear each other, and comes back a moment after the last word. It never changes your own volume setting
+  and the lights still follow the full track. Switch it off under the Multiplayer panel's *Talk* section or VR *Safety*.
+- **Clearer controls for everyone.** The corner buttons say what they open (Lights, Music, People, Go to). The
+  Multiplayer panel is now a short form: your name, the room (lobby or a friend's code) and one **Join room** button,
+  with the relay address tucked under *Advanced*; once in a room it shows Talk, React, People and, for the host only,
+  Host tools. Every lighting section has one plain sentence saying what it does, and every VR menu page says what it
+  is for. Options that are not available are hidden or disabled instead of failing when pressed: a guest's lighting
+  and music controls are really disabled (and drawn grey in VR, with the reason), the mic waits until you are in a
+  room, and room locking is shown only to the host. A refused microphone now says how to allow it.
+- **Smaller name tags, and a switch to hide them.** A guest's tag is now a small pill sized to their name (0.6 x
+  0.15 m, it was a 1.1 x 0.28 m bar) and stays sharp from across the floor; the emoji bubble is smaller too. **Name
+  tags** in the Multiplayer panel's safety section and on the VR SAFETY page turns them off or on; the choice is
+  remembered. Emoji still show with tags off.
 - **The host runs the room's music and lights; everyone else follows.** Join an existing room by name, by a
   6-digit private code (a keypad on the VR ONLINE page) or an invite link; the first guest in is the host (named in
-  the status line) and the next guest takes over if they leave. Guests hear the same track at the same position
+  the status line and, in VR, on the music and lighting pages) and the next guest takes over if they leave. Guests hear the same track at the same position
   (seeks, pauses, a new episode, even the DJ follow the host) and see the same light show: the host's cue, set-piece,
   colour and, under manual control, their console. A guest's lighting and music controls are dimmed (VR buttons read
   HOST ONLY; Space, B and F stand down), while their own comfort settings stay theirs, and **Photosensitive Safe Mode
@@ -88,6 +108,24 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **A locked room stayed locked after everyone left.** With nobody left to unlock it, every newcomer, including the
+  host who locked it and reconnected after a dropped connection, was refused as "room locked". An empty room now
+  starts over: no lock, no bans. (Relay redeployed.)
+- **Blocking the host no longer leaves you stuck.** Blocking hides you from each other, so you stop receiving the
+  host's music and lights; you were still treated as following them, with every music and light control locked. You
+  now get your own music and lights back, and are told why.
+- **Panels on phones and desktops.** On a phone the Multiplayer button covered the VJ panel's close button, so the
+  panel could not be closed; panels now sit above the corner buttons. The Multiplayer panel stretched across the whole
+  desktop screen and its help text was cut off on a phone; panels now have a fixed width, long text wraps, the
+  "Random look" choices sit on one row, and the Multiplayer panel scrolls inside the window instead of running off the
+  bottom. The VJ panel no longer covers the credits link.
+- **Less work per frame for a host and in VR.** The host checked the light show for changes on every rendered
+  frame, building and comparing a new frame each time; it now looks at most every 100 ms. Head-nod detection no
+  longer allocates a vector every frame.
+- **Black name tags and emoji on desktop.** Other guests' name tags and emoji bubbles rendered as black shapes on the
+  desktop quality tiers with screen-space reflections (mobile and Quest have none, so they looked right there). The
+  labels were drawn into the reflection pre-pass, and its composition blacked them out. They no longer write depth,
+  which keeps them out of that pass on every tier.
 - **Invisible walls in VR.** The headset's collision ellipsoid hung from the eye and was 1.6 m tall, so it
   reached the floor only at a head height of exactly 1.6 m: for anyone shorter, seated or crouching it went
   through the floor and the floor mesh blocked every thumbstick step (on the open floor and at the balcony

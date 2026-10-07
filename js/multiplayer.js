@@ -28,12 +28,21 @@ class ClubMultiplayer {
         uid: 'vrclub.networkUid',
         blocked: 'vrclub.blockedPeers',
         personalSpace: 'vrclub.personalSpace',
+        nameTags: 'vrclub.nameTags',
+        duckForVoice: 'vrclub.duckForVoice',
         autoNod: 'vrclub.autoNod',
         avatarPool: 'vrclub.avatarPool'
     });
 
     static HOSTED_RELAY = 'wss://vrclub-network.garfieldapp.workers.dev';
     static EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
+    /** What each reaction means, for buttons and screen readers. */
+    static EMOJI_NAMES = Object.freeze({ '🎉': 'Party', '🔥': 'Fire', '❤️': 'Love', '😂': 'Laugh', '👋': 'Hi', '🙌': 'Hands up', '💃': 'Dance', '🕺': 'Dance' });
+    /** One-tap messages for the headset, where there is no keyboard. */
+    static QUICK_PHRASES = Object.freeze(['Hi!', 'Great track!', 'Let\'s dance', 'Come over here', 'Can you hear me?', 'Brb', 'Thanks!', 'Bye!']);
+    static MAX_CHAT_LOG = 50;
+    /** The music stays down this long after the last word, so it does not pump between sentences. */
+    static DUCK_HOLD_MS = 1500;
     /** What each random character looks like, for the "you appear as" line (the ids are the relay's AVATARS). */
     static AVATAR_LABELS = Object.freeze({
         f1: 'Woman, black hair, white top', f2: 'Woman, auburn hair, teal top', f3: 'Punk, cyan mohawk',
@@ -46,6 +55,8 @@ class ClubMultiplayer {
     /** The host sends the light show at most this often (ms), and at least this often so a late joiner is brought in. */
     static SHOW_MIN_INTERVAL_MS = 250;
     static SHOW_HEARTBEAT_MS = 2000;
+    /** How often the host even looks for a change (ms): building a frame allocates, so never every render frame. */
+    static SHOW_CHECK_MS = 100;
     /** Host: how often the track position is re-announced (ms). A guest corrects a drift larger than DRIFT_SEEK_S. */
     static MUSIC_HEARTBEAT_MS = 3000;
     /** The connection heartbeat (ms), see the relay's `ping`. Timer-driven, so it also runs while the tab is hidden. */
@@ -127,12 +138,19 @@ class ClubMultiplayer {
         /** Which random people this guest may appear as: 'any', 'women' or 'men'. */
         this.avatarPool = ClubMultiplayer.cleanPool(this._read(ClubMultiplayer.PREFS.avatarPool));
         this.personalSpace = this._read(ClubMultiplayer.PREFS.personalSpace) !== '0';
+        this.nameTags = this._read(ClubMultiplayer.PREFS.nameTags) !== '0';
+        /** Lower the music while my mic is on or someone is talking. On unless switched off. */
+        this.duckForVoice = this._read(ClubMultiplayer.PREFS.duckForVoice) !== '0';
+        /** Typed messages this session, oldest first: {id, name, text, at, self}. */
+        this.chat = [];
+        this.chatUnread = 0;
+        this._duckHoldUntil = 0;
         // Shared music: a guest's browser fetches the host's stream only after an explicit "Listen along".
         this.listenAlong = false;
         this.pendingMusic = null;
         this._nod = { baseline: null, down: false, downAt: 0, cooldownUntil: 0 };
         // Shared lights and music (see the header).
-        this._show = { key: '', sentAt: 0, dirty: true, mode: null, lastFrameAt: 0, stale: false, force: true };
+        this._show = { key: '', sentAt: 0, checkedAt: 0, dirty: true, mode: null, lastFrameAt: 0, stale: false, force: true };
         this._musicBeatAt = 0;
         this._audioWatched = null;
         this._audioShareListener = null;
@@ -184,7 +202,13 @@ class ClubMultiplayer {
     get micEnabled() { return !!this.client && this.client.micEnabled; }
     isHost() { return !!this.client && this.client.isHost(); }
     /** In someone else's room: the host owns the music and the lights, and this guest follows them. */
-    get following() { return this.connected && !this.isHost(); }
+    get following() {
+        // Only while the host is someone this guest can see: blocking is two-way, so a guest who blocked the host (or
+        // whose blocked guest became host) receives none of the host's music or lights, and must not be locked out of
+        // their own controls waiting for frames that will never arrive.
+        const client = this.client;
+        return this.connected && !this.isHost() && !!client.hostId && client.peers.has(client.hostId);
+    }
 
     /** The room host's display name ('' when nobody is connected). */
     hostName() {
@@ -205,15 +229,22 @@ class ClubMultiplayer {
     }
     get currentRoom() { return this.client ? this.client.room : this.room; }
 
+    /** The room as a person would say it: a private room by its code, any other by its name. */
+    roomLabel(room = this.currentRoom) {
+        const code = /^private-(\d{6})$/.exec(room || '');
+        return code ? `private room ${code[1].slice(0, 3)} ${code[1].slice(3)}` : `room "${room}"`;
+    }
+
     statusText() {
         const room = this.currentRoom;
         if (this.connected) {
             const n = this.client.peerCount;
-            return `Connected \u2014 room "${room}" \u00B7 ${n} other guest${n === 1 ? '' : 's'}${this.isHost() ? ' \u00B7 you are the host' : (this.hostName() ? ` \u00B7 host: ${this.hostName()}` : '')}${this.locked ? ' \u00B7 locked' : ''}`;
+            const others = n === 0 ? 'nobody else yet' : `${n} other ${n === 1 ? 'person' : 'people'}`;
+            return `In ${this.roomLabel(room)} \u00B7 ${others}${this.isHost() ? ' \u00B7 you are the host' : (this.hostName() ? ` \u00B7 host: ${this.hostName()}` : '')}${this.locked ? ' \u00B7 locked' : ''}`;
         }
-        if (this.connecting) return `Connecting to "${room}"\u2026`;
-        if (this.status === 'error') return this.lastError || 'Connection error';
-        return this.notice || 'Not connected';
+        if (this.connecting) return `Joining ${this.roomLabel(room)}\u2026`;
+        if (this.status === 'error') return this.lastError || 'Could not join the room';
+        return this.notice || 'Not in a room';
     }
 
     /** Everyone else in the room, with what the people list needs. */
@@ -276,12 +307,16 @@ class ClubMultiplayer {
         this.selfAvatar = null;
         this.locked = false;
         this.dancing = false;
+        // A new room starts a new conversation.
+        this.chat = [];
+        this.chatUnread = 0;
 
         const club = this.club;
         const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool, blocked: this.blockedList().map(item => item.pid) });
         if (!club.avatarManager) club.avatarManager = new AvatarManager(club);
         this.manager = club.avatarManager;
         this.manager.setPersonalSpace(this.personalSpace);
+        this.manager.setNameTags(this.nameTags);
         this.manager.setMuteAll(this.muteAll);
         this.manager.onSpeakingChange = () => this._emit();
         this.client = client;
@@ -349,6 +384,8 @@ class ClubMultiplayer {
                 this.locked = false;
             }
             if (status === 'error' || status === 'disconnected') this._stopPing();
+            // Nobody left to talk to: the music comes back up.
+            if (status !== 'connected' && typeof club.setVoiceDuck === 'function') { this._duckHoldUntil = 0; club.setVoiceDuck(false); }
             this._syncRole();
             this._emit();
         };
@@ -357,13 +394,19 @@ class ClubMultiplayer {
             manager.setHost(id, id === client.hostId);
             this._show.dirty = true; // a newcomer needs the lights now, not at the next heartbeat
             this._musicBeatAt = 0;
+            this._syncRole();
             this._emit();
         };
         client.onPeerState = (id, state) => manager.updatePeerState(id, null, state);
-        client.onPeerLeave = (id) => { manager.removePeer(id); this._emit(); };
+        client.onPeerLeave = (id) => { manager.removePeer(id); this._syncRole(); this._emit(); };
         client.onPeerAvatar = (id, avatar) => { manager.setAvatar(id, avatar); this._emit(); };
         client.onSelfAvatar = (avatar) => { this.selfAvatar = avatar; this._emit(); };
         client.onEmoji = (id, emoji) => manager.showEmoji(id, emoji);
+        client.onChat = (id, text) => {
+            const peer = client.peers.get(id);
+            this._logChat({ id, name: peer ? peer.name : 'Guest', text, self: false });
+            manager.showChat(id, text);
+        };
         client.onGesture = (id, gesture) => manager.playGesture(id, gesture);
         client.onHostChange = (hostId) => {
             for (const id of client.peers.keys()) manager.setHost(id, id === hostId);
@@ -397,10 +440,63 @@ class ClubMultiplayer {
                 await client.enableVoice();
             } catch (err) {
                 this.lastError = `Mic error: ${err.message}`;
+                const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+                const missing = err && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError');
+                if (typeof this.club.showErrorMessage === 'function') {
+                    this.club.showErrorMessage(denied
+                        ? 'The browser did not allow the microphone. Allow it (the icon in the address bar), then try again. You can also type instead.'
+                        : missing ? 'No microphone was found. You can type a message instead.'
+                            : 'The microphone could not start. You can type a message instead.');
+                }
             }
         }
         this._emit();
         return client.micEnabled;
+    }
+
+    /** Send a typed message to everyone in the room. Returns false when not connected or there is nothing to send. */
+    sendChat(text) {
+        if (!this.connected) return false;
+        const clean = NetworkClient.cleanChat(text);
+        if (!clean || !this.client.sendChat(clean)) return false;
+        this._logChat({ id: this.client.selfId, name: this.name, text: clean, self: true });
+        return true;
+    }
+
+    _logChat(entry) {
+        this.chat.push({ ...entry, at: Date.now() });
+        if (this.chat.length > ClubMultiplayer.MAX_CHAT_LOG) this.chat.splice(0, this.chat.length - ClubMultiplayer.MAX_CHAT_LOG);
+        if (!entry.self) this.chatUnread++;
+        this._emit();
+    }
+
+    /** The chat was looked at: nothing unread. */
+    markChatRead() {
+        if (!this.chatUnread) return;
+        this.chatUnread = 0;
+        this._emit();
+    }
+
+    /** Lower the music while people talk (my mic on, or someone audibly speaking). Remembered. */
+    setDuckForVoice(enabled) {
+        this.duckForVoice = !!enabled;
+        this._write(ClubMultiplayer.PREFS.duckForVoice, this.duckForVoice ? '1' : '0');
+        if (!this.duckForVoice && typeof this.club.setVoiceDuck === 'function') this.club.setVoiceDuck(false);
+        this._emit();
+    }
+
+    /** Per frame: duck the music while anyone talks, and hold it down briefly after the last word. */
+    _updateVoiceDuck(now) {
+        const club = this.club;
+        if (typeof club.setVoiceDuck !== 'function') return;
+        if (!this.duckForVoice || !this.connected) {
+            this._duckHoldUntil = 0;
+            club.setVoiceDuck(false);
+            return;
+        }
+        const talking = this.micEnabled || (!!this.manager && this.manager.anyoneSpeaking());
+        if (talking) this._duckHoldUntil = now + ClubMultiplayer.DUCK_HOLD_MS;
+        club.setVoiceDuck(talking || now < this._duckHoldUntil);
     }
 
     sendEmoji(emoji) {
@@ -486,6 +582,14 @@ class ClubMultiplayer {
         this.personalSpace = !!enabled;
         this._write(ClubMultiplayer.PREFS.personalSpace, this.personalSpace ? '1' : '0');
         if (this.manager) this.manager.setPersonalSpace(this.personalSpace);
+        this._emit();
+    }
+
+    /** Show or hide the other guests' name tags. Remembered; emoji bubbles stay either way. */
+    setNameTags(enabled) {
+        this.nameTags = !!enabled;
+        this._write(ClubMultiplayer.PREFS.nameTags, this.nameTags ? '1' : '0');
+        if (this.manager) this.manager.setNameTags(this.nameTags);
         this._emit();
     }
 
@@ -660,7 +764,9 @@ class ClubMultiplayer {
         // Leaving a host's show: the rig carries on, and a console left in manual does not expire the instant it is handed back.
         if (was && !following) club.lastVJInteraction = performance.now() / 1000;
         // Promoted because the host left: say so, and ask for music if nothing is playing that guests could follow.
-        if (was === true && !following && this.connected && typeof club.showErrorMessage === 'function') {
+        if (was === true && !following && this.connected && !this.isHost() && typeof club.showErrorMessage === 'function') {
+            club.showErrorMessage('You can no longer see the host, so your music and lights are your own again.');
+        } else if (was === true && !following && this.connected && typeof club.showErrorMessage === 'function') {
             const playing = club.audioElement && !club.audioElement.paused && club._audioKind === 'stream';
             club.showErrorMessage(playing ? 'The host left: you are now the host. You control the music and the lights.'
                 : 'The host left: you are now the host. Pick some music for the room.');
@@ -701,6 +807,8 @@ class ClubMultiplayer {
     _broadcastShow(now) {
         const show = this._show;
         if (now - show.sentAt < ClubMultiplayer.SHOW_MIN_INTERVAL_MS) return;
+        if (!show.dirty && now - show.checkedAt < ClubMultiplayer.SHOW_CHECK_MS) return;
+        show.checkedAt = now;
         const frame = this._buildShowFrame();
         if (!frame) return;
         const bar = frame._bar;
@@ -842,6 +950,7 @@ class ClubMultiplayer {
         if (!this.connected) return;
         const club = this.club;
         this._syncShared(performance.now());
+        this._updateVoiceDuck(performance.now());
         const camera = club.isInVRMode && club.vrHelper && club.vrHelper.baseExperience && club.vrHelper.baseExperience.camera;
         const eye = camera || club.camera;
         if (!eye) return;
@@ -863,7 +972,10 @@ class ClubMultiplayer {
     /** A nod is the head pitching down by about 10 degrees and coming back within a second. */
     _watchForNod(camera, time, dt) {
         const nod = this._nod;
-        const pitch = Math.asin(Math.max(-1, Math.min(1, camera.getDirection(BABYLON.Axis.Z).y)));
+        // Per frame in VR, so into a kept vector: getDirection() would allocate one every frame.
+        if (!nod.dir) nod.dir = new BABYLON.Vector3(0, 0, 1);
+        camera.getDirectionToRef(BABYLON.Axis.Z, nod.dir);
+        const pitch = Math.asin(Math.max(-1, Math.min(1, nod.dir.y)));
         if (nod.baseline === null) nod.baseline = pitch;
         // Slow average: where the head rests, so looking up at the lasers is not a nod.
         nod.baseline += (pitch - nod.baseline) * (1 - (1 - 0.02) ** (dt * 60));
@@ -883,6 +995,7 @@ class ClubMultiplayer {
     dispose() {
         this._disposed = true;
         this._stopPing();
+        if (typeof this.club.setVoiceDuck === 'function') this.club.setVoiceDuck(false);
         clearTimeout(this._shareTimer);
         if (this._audioWatched && this._audioShareListener) {
             for (const type of ['play', 'pause', 'seeked']) this._audioWatched.removeEventListener(type, this._audioShareListener);

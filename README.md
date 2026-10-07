@@ -78,11 +78,11 @@ js/models/                 Local GLB models and model textures
 - **Laser speed**: rotating ceiling beams now move at one quarter of their previous rate. The VJ laser-speed slider still changes their speed; laser-sheet motion is unchanged.
 - **The street**: walk out through the vestibule's street door (or press `6` / use the Street button / the VR menu's Travel page) onto a night avenue lined with lit buildings. Out there the music is only the low bass coming through the walls, a little clearer at the door than down the street. The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
 - **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
-- **🎛️ VJ menu** (top-left): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
-- **🎵 Audio menu** (bottom-right): choose **Hernan Cattaneo** (*Resident*) or **Miss Melera** (*Colourizon*), play a **Random** or the **Latest** episode, drag the **seek bar** (or ±30 s) to move through it, or play an HTTP(S) stream URL / local audio file, plus volume. The last stream you chose is remembered. A dropped episode reconnects at the same position. The VR menu has the same controls on its **Music** page, with a seek strip you click or drag with the controller ray.
+- **🎛️ Lights** (top-left, the VJ menu): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
+- **🎵 Music** (bottom-right, the Audio menu): choose **Hernan Cattaneo** (*Resident*) or **Miss Melera** (*Colourizon*), play a **Random** or the **Latest** episode, drag the **seek bar** (or ±30 s) to move through it, or play an HTTP(S) stream URL / local audio file, plus volume. The last stream you chose is remembered. A dropped episode reconnects at the same position. The VR menu has the same controls on its **Music** page, with a seek strip you click or drag with the controller ray.
 - **Music on entry:** a random episode of the chosen podcast starts when you press ENTER (the splash names which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on. The DJ in the booth changes to match the podcast.
 - **Miss Melera needs the relay:** her SoundCloud podcast has no CORS headers, so it streams through the Worker in `worker/` (`/podcast/colourizon/...`). The hosted relay was updated on 2026-10-07; after changing `worker/`, redeploy it with `wrangler deploy`. Hernan Cattaneo works without it.
-- **📷 Camera presets** (bottom-centre): four fixed viewpoints.
+- **📷 Go to** (bottom-centre): jump to a viewpoint (entrance, dance floor, booth, lights, balcony, street).
 
 ### Keyboard shortcuts
 
@@ -91,6 +91,8 @@ js/models/                 Local GLB models and model textures
 | `Space` | Play / pause audio |
 | `B` | Blackout |
 | `F` | Fire the drop |
+| `M` | In a room: microphone on / off |
+| `T` | In a room: type a message |
 | `1`–`6` | Camera presets (arrival / floor / booth / lights / balcony / street) |
 | `Esc` | Close the focused panel |
 | `Ctrl+Shift+D` | FPS / diagnostics overlay |
@@ -99,9 +101,11 @@ All shortcuts are ignored while a text field has focus.
 
 ## Multiplayer (optional)
 
-The **👥 Multiplayer** panel (top-right) lets several guests share one club: the same
-room state, each other's positions as simple avatars, voice chat, and one shared "now
-playing" stream. It is entirely opt-in — nobody connects until a guest clicks **Connect**.
+The **👥 People** button (top-right) opens the Multiplayer panel, which lets several guests share one club: each
+other as characters, voice, typed chat, emoji and gestures, and one shared "now playing" stream and light show. It is
+entirely opt-in: nobody connects until a guest presses **Join room**. In a room, a bar at the bottom of the screen has
+**Mic**, **React** and **Chat** (keys **M** and **T**), and the music is lowered while anyone talks (switchable). In VR
+the quick menu's first row in a room is **TALK**, **REACT** and **CHAT** (one-tap ready-made messages).
 Both local testing and the deployed site default to the hosted relay:
 `wss://vrclub-network.garfieldapp.workers.dev`. No local Worker is required.
 

@@ -816,7 +816,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool` |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -877,8 +877,30 @@ and had silently diverged; a test now enforces the delegation.
 `data-control` toggles are dispatched through the `TOGGLE_CONTROLS` allow-list, never by
 writing `instance[attributeValue]` directly.
 
-Global keyboard shortcuts ignore focused interactive controls and `defaultPrevented` events,
-so Space still activates a focused button instead of being stolen for audio play/pause.
+Panel layout (`css/styles.css`): the panels (`.panel`, z-index 102) sit above the corner toggle buttons (101) and the
+credits link (100), because on a phone a full-width panel otherwise sat under the Multiplayer toggle, which covered its
+close button; every panel has its own close. Each panel has a definite `width` (VJ 480, Audio 340, Multiplayer 380 px,
+`auto` under 720 px wide), so a long line wraps instead of widening the panel (a room-guest note once stretched the
+Multiplayer panel across the screen). Multi-line explanations use `.network-help` (and `.vj-help` under a VJ section
+title); `.audio-file-name` is single-line with an ellipsis and is only for short status lines.
+
+**Plain-language UI rule.** Every control must say what it does without a tooltip (touch screens and the headset never
+show one): the corner buttons carry a word under the icon (Lights, Music, People, Go to), every VJ section has a
+one-sentence `.vj-help`, and the Multiplayer panel is a form read top to bottom. Before joining it shows only *Join a
+room* (labelled name and room fields, a primary **Join room**, *Start a private room*, and the relay URL tucked in an
+*Advanced* disclosure); in a room it shows *Talk*, *React*, *People*, and *Host tools* only to the host. A control that
+cannot do anything is **hidden** when it belongs to a state the user is not in (in-room sections before joining, host
+tools for a guest) and **disabled** when it is visible but unavailable (`initRoomGuestLock` really sets `disabled` on a
+guest's host-owned buttons and inputs, remembering any that were already disabled for their own reason).
+
+**The social bar** (`#socialBar`, `initSocialBar` in `js/ui-init.js`): Mic / React / Chat at the bottom of the screen,
+only while in a room and never in VR. React opens the emoji and gestures; Chat opens the log and a message field; a
+message that arrives while it is closed peeks above the bar for 6 s and counts on the button. The live mic is red.
+Keyboard: **M** toggles the mic and **T** opens the chat, in a room; they work while a button has focus (only Space and
+Enter belong to a focused button) and never while typing in a field.
+
+Global keyboard shortcuts ignore text fields and `defaultPrevented` events, and leave Space and Enter to a focused
+button, so Space still activates a focused button instead of being stolen for audio play/pause.
 
 Photosensitive Safe Mode is offered on the splash **before** the scene renders, next to the
 photosensitivity warning, and is **off by default** (a product decision: it is never switched on
@@ -902,7 +924,7 @@ protocol only grew, so older clients keep working.
   `4011` banned, `4012` room locked, `4013` no heartbeat (not terminal: the client retries). A client pings every
   10 s (`ClubMultiplayer.PING_MS`, a timer, so it runs in a hidden tab); once a client has pinged, 30 s of silence
   closes it (swept every 10 s), so a host who vanished without closing the socket is replaced in under a minute
-  instead of whenever the network gives up. Clients that never ping (older builds) are never swept. Emoji and gestures (`wave`, `nod`, `dance`, `stop`) are allow-listed and names
+  instead of whenever the network gives up. Clients that never ping (older builds) are never swept. Emoji and gestures (`wave`, `nod`, `dance`, `stop`) are allow-listed, typed `chat` is cleaned and capped (see below), and names
   are sanitised. Tests: `test/worker.test.mjs`, `test/multiplayer.test.mjs`.
   `worker/src/podcast.js` also serves the Colourizon podcast (see Audio); it sits behind the same Origin
   check and fetches only `feeds.soundcloud.com`. A worker change is not live until `wrangler deploy` runs in
@@ -914,8 +936,10 @@ protocol only grew, so older clients keep working.
   A client without a uid is anonymous per connection. **Block** is two-way invisibility: the relay filters state,
   emoji, gesture, music and rtc-signal both ways and sends join/leave when a block changes; the client also ignores
   blocked pids locally, and sends its saved list as `blocklist` after the welcome. The welcome never lists a guest who
-  has blocked the newcomer. The host alone can `kick`, `ban` (in memory, per room object: gone once the room empties)
-  and `lock` (refuses new guests); handover to the next host keeps the lock and the bans.
+  has blocked the newcomer. The host alone can `kick`, `ban` and `lock` (refuses new guests); handover to the next host
+  keeps the lock and the bans. **An empty room starts over** (`_onClose`): lock, bans, music and show are cleared when the
+  last guest leaves, because with nobody left to unlock it a locked room refused everyone (its own host included,
+  reconnecting after a drop) until the Durable Object happened to be evicted.
 - **Avatars.** The relay assigns each guest a random, room-unique character from `AVATARS` (the 17 Quaternius Modular
   people `f1`–`f8`, `m1`–`m9`; a test ties the list to `AVATAR_SOURCES`) and a guest may reroll. A guest can restrict the draw to women (`f*`) or men (`m*`) (`vrclub.avatarPool`: `any`/`women`/`men`; `?avatars=` on connect, `pool` on a reroll; `AVATAR_POOLS` in the relay). If a pool is exhausted the relay gives any free person, never a double; choosing a pool in a room rerolls only a look outside it. Others see you as that
   character. Your own first-person body is still the UE-mannequin `AvatarRig`, which only drives that skeleton, so you
@@ -931,21 +955,44 @@ protocol only grew, so older clients keep working.
   crowd uses; one draw each). A clip state machine plays Idle/Walk/Run from the interpolated speed, plus Wave, Yes
   (nod) and a Dance_Loop toggle. `MAX_PEOPLE` (8) are people; the rest, and any guest still loading, are a capsule +
   head (the capsule always remains as the invisible collision body). `state.y` on the wire is the sender's **eye**
-  height; the avatar root is placed `EYE_HEIGHT` below it. Name tag with a host crown and mute marker, an
+  height; the avatar root is placed `EYE_HEIGHT` below it. Name tag (a 0.6 x 0.15 m pill sized to the name, mipmapped,
+  with a host crown and mute marker; `setNameTags()` hides them, emoji stay), an
   analyser-driven speaking frame, per-guest mute and mute-all through the gain node, and a **personal-space bubble**
   (a guest hides within 0.7 m and returns beyond 0.95 m). Each remote voice is also attached to
   a muted `<audio>` element, because Chromium delivers no samples from a remote WebRTC
   stream into Web Audio otherwise. `AvatarRig` is now only the local player's body.
+  **Labels must not write depth** (`_labelMaterial()`: `disableDepthWrite = true`). A `StandardMaterial` is pre-pass
+  capable exactly while it writes depth, and on the desktop tiers with SSR the SSR composition drew pre-pass
+  alpha-blended labels as black shapes (mobile and Quest have no SSR, so it only showed on desktop). Any new
+  alpha-blended, canvas-textured billboard in the scene needs the same.
 - `js/multiplayer.js` (`ClubMultiplayer`, `club.multiplayer`) owns the session: preferences (`vrclub.networkUid`,
-  `blockedPeers`, `personalSpace`, `autoNod` and the existing server/room/name keys), connect/disconnect, mic, emoji,
+  `blockedPeers`, `personalSpace`, `nameTags`, `autoNod` and the existing server/room/name keys), connect/disconnect, mic, emoji,
   gestures (dance ends when the guest walks 0.6 m; a head nod in VR, detected from camera pitch, sends `nod` unless
   turned off), reroll, mute, block list, host-only kick/ban/lock, and shared music. Both the DOM panel (`initNetworkMenu`
   in `js/ui-init.js`) and the VR menu call it and redraw from `onChange`; neither reimplements an action, and
   `test/multiplayer.test.mjs` checks the delegation.
-- VR menu (`js/club/10-ui.js`): home → **ONLINE** → NETWORK / MIC / **LOOK** (women / men / anyone, new look) / **GESTURES** (wave, nod, dance, 7 emoji) /
+- VR menu (`js/club/10-ui.js`): **in a room, HOME starts with TALK (mic), REACT (the gestures page) and CHAT** (quick
+  phrases: one tap sends a ready-made message; there is no keyboard in a headset), so the things people do most are
+  one press away; out of a room that row is absent. HOME → **ONLINE** → NETWORK / MIC / **LOOK** (women / men / anyone,
+  new look) / **GESTURES** (wave, nod, dance, 7 emoji) /
   **PEOPLE** (9 per page, then a person page: MUTE, BLOCK, KICK, BAN; kick and ban need a second tap within 4 s) /
-  **SAFETY** (personal space, mute all, lock room, nod to nod, unblock all, leave room) / NEW PRIVATE ROOM /
-  PUBLIC LOBBY / LISTEN ALONG. Online pages redraw only while a net page is open.
+  **SAFETY** (personal space, lower music, name tags, mute all, lock room, nod to nod, unblock all, leave room) / NEW
+  PRIVATE ROOM / JOIN ROOM / PUBLIC LOBBY / LISTEN ALONG. A page's BACK returns to where it was opened from
+  (`_vrPageParent`: REACT is reached from HOME and from ONLINE). The menu redraws on a session change while HOME or a
+  net page is open. **Unavailable buttons are drawn disabled** (`_isVRButtonDisabled`: flat grey face, grey text, a
+  second line saying why: HOST ONLY, JOIN A ROOM FIRST); a press still answers with a message. Every page header has a
+  plain one-line description (`about` in `_showVRQuickMenuPage`).
+- **Typed chat** (`chat` in the relay, `sanitizeChat`: control/format/separator characters removed, whitespace
+  collapsed, at most 200 code points, 0.5/s with a burst of 4, block-aware, sender named by the relay, never stored).
+  `ClubMultiplayer.sendChat()` / `chat` (the session's log, last 50, cleared per room) / `chatUnread` /
+  `markChatRead()`. A received message shows in a speech bubble over the sender (`AvatarManager.showChat`, one plane per
+  guest, `wrapText` to three lines, 5-12 s), which is how a headset user reads it.
+- **Lowering the music for voice** (`vrclub.duckForVoice`, on by default): while my mic is on or anyone is audibly
+  speaking (`AvatarManager.anyoneSpeaking()`), `VRClub.setVoiceDuck(true)` fades a dedicated `voiceDuckGain` (after the
+  compressor, before the master gain) to 0.25 in 80 ms, and it comes back over 0.5 s, 1.5 s after the last word
+  (`DUCK_HOLD_MS`). It never touches the user's music volume, the master gain (rewritten every frame by the room
+  acoustics) or the analyser (upstream, so the light show still hears the whole track). Leaving the room or switching
+  it off restores the music at once.
 - **The host owns the music and the lights; everyone else follows.** The host is the first socket in the room and
   passes to the next guest when they leave (the relay keeps the lock, bans, music and show across the handover).
   - *Music.* The host's `music` frame carries `url`, `playing`, `position`, and (for a podcast the app started)
@@ -957,7 +1004,12 @@ protocol only grew, so older clients keep working.
     path on another host does not count); any other URL waits for **Listen along**, because it discloses the
     guest's IP. A guest's own episode queue is dropped and `PodcastPlayer.advance()` stands down while following.
   - *Lights.* The host sends a `show` frame at most every 250 ms, on each bar line, on any change and every 2 s
-    (a lone host sends nothing; a newcomer triggers one at once; the relay keeps the latest for late joiners).
+    (a lone host sends nothing; a newcomer triggers one at once; the relay keeps the latest for late joiners). Building a
+    frame allocates, so the host looks for a change at most every `SHOW_CHECK_MS` (100 ms), never every render frame.
+    A guest *follows* only while the host is visible to them (`ClubMultiplayer.following`: connected, not host, and the
+    host is in `client.peers`). Blocking is two-way, so a guest who blocks the host (or whose blocked guest becomes host)
+    gets no frames, and is handed back their own music and lights instead of being locked out; `_syncRole()` runs on
+    every join, leave and host change.
     While the Show Director drives (`m: 'show'`) it carries `ShowDirector.snapshot()` (movement, cue, bars into the
     cue, set-piece, beat in the bar) plus `VJDirector.colourSnapshot()` (master hue, whether a look pins it, palette,
     LED harmony, mirror-ball colour). Under manual control (`m: 'manual'`, or the legacy cycler `'off'`) it carries
