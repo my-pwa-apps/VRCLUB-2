@@ -38,8 +38,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - **A seek bar on desktop and in VR.** The Audio menu has a position slider with elapsed/total time and
   ±30 s buttons; the VR Music page has a seek strip you click or drag with the controller ray, ±1 min and
   play/pause. Live streams are not seekable. The host's position is shared with listeners-along.
-- **The DJ follows the podcast:** a silver-haired, bearded DJ in black for Hernan, a long dark-haired DJ in
-  black for Miss Melera, swapped live when the podcast changes (`club-dj-hernan.glb`, `club-dj-melera.glb`,
+- **The DJ follows the podcast:** a clean-shaven DJ with half-long dark brown hair in a dark tee for Hernan, a DJ
+  with long straight blond hair in a grey tee for Miss Melera (both from the artists' own photos), swapped live
+  when the podcast changes (`club-dj-hernan.glb`, `club-dj-melera.glb`,
   built by `scripts/build-dj-glbs.mjs`; approximations, not likenesses). Replaces `club-dj.glb`.
 
 ### Privacy

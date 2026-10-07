@@ -6032,12 +6032,12 @@ test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, qu
     assert.match(Crowd.DJ_LOOKS.melera.url, /club-dj-melera\.glb$/);
     for (const bad of ['__proto__', 'constructor', 'toString', '', null, undefined, 7]) assert.equal(Crowd.djLook(bad), null, String(bad));
     const hair = id => Crowd.DJ_LOOKS[id].hair;
-    assert.ok(hair('hernan').r > 0.7 && hair('hernan').g > 0.7 && hair('hernan').b > 0.7, 'Hernan Cattaneo has silver hair');
-    assert.ok(hair('melera').r < 0.3 && hair('melera').g < 0.2 && hair('melera').b < 0.15, 'Miss Melera has dark brunette hair');
-    for (const id of ['hernan', 'melera']) {
-        const { garment } = Crowd.DJ_LOOKS[id];
-        assert.ok(garment.r < 0.15 && garment.g < 0.15 && garment.b < 0.15, `${id} wears black`);
-    }
+    // Hernan Cattaneo: half-long dark brown hair. Miss Melera: long light blond hair (their press photos).
+    assert.ok(hair('hernan').r < 0.35 && hair('hernan').g < 0.2 && hair('hernan').b < 0.12 && hair('hernan').r > hair('hernan').b, 'Hernan Cattaneo has dark brown hair');
+    assert.ok(hair('melera').r > 0.8 && hair('melera').g > 0.7 && hair('melera').b > 0.45 && hair('melera').r > hair('melera').b, 'Miss Melera has light blond hair');
+    assert.ok(Crowd.DJ_LOOKS.hernan.garment.r < 0.15, 'Hernan wears a dark tee');
+    const tee = Crowd.DJ_LOOKS.melera.garment;
+    assert.ok(tee.r > 0.3 && tee.r < 0.6, 'Miss Melera wears a mid-grey tee');
 
     const spawned = [], disposed = [], loads = [];
     let initDone;
@@ -6137,8 +6137,9 @@ test('the DJ character files: one idle clip, six draws, the right hair, and the 
         return json.meshes.flatMap(mesh => mesh.primitives).reduce((sum, primitive) => sum + json.accessors[primitive.indices].count / 3, 0);
     };
     const files = {
-        // Hernan Cattaneo's beard is the one thing the guest file does not have (1,034 triangles).
-        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [900, 1200], hair: 'Hair_SimpleParted' },
+        // Hernan Cattaneo: the guest file's beard is cut out and Hair_Long, shortened to shoulder length, goes over
+        // the short cap (+1,872 triangles net). Miss Melera is the female guest as she is.
+        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [1500, 2300], hair: 'Hair_SimpleParted' },
         'club-dj-melera.glb': { from: 'club-guest-female.glb', extra: [0, 0], hair: 'Hair_Long' }
     };
     for (const [file, expected] of Object.entries(files)) {

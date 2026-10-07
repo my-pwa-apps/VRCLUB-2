@@ -596,16 +596,17 @@ and fail `npm test`.
   (another loaded character stands in). Slots are ordered so the first six are already varied (men and women,
   several skin tones, a silver head, a punk, one Mixamo dancer). `club-dancer-*.glb` now only dress the player's own
   body and the bartender is the female guest file with a black tint; `club-guest-male.glb` is a build source only.
-- **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (silver
-  hair, beard, black tee, 1.78 m) and `melera` (long dark hair, black, 1.68 m) to `club-dj-hernan.glb` /
-  `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius male/female
-  guests (+ a Universal Base Characters beard that shares the hair material, so the optimiser still
-  merges to ≤6 draws), then `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`.
+- **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (half-long
+  dark brown hair, clean-shaven, dark tee, 1.78 m) and `melera` (long straight light blond hair, grey tee, 1.68 m) to
+  `club-dj-hernan.glb` / `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius
+  male/female guests (Hernan: the guest file's beard is cut out by its exact vertices, and a Universal Base
+  Characters `Hair_Long`, shortened to shoulder length, goes over the short cap and shares its material, so
+  the optimiser still merges to ≤6 draws), then `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`.
   `setDJ(id)` queues behind `initPromise`, loads each DJ once, disposes the previous performer and
   collider, and tints garment and hair (`/^MI_Hair/`) on the DJ's own container so the crowd is
-  unaffected. The looks are approximations from public photos, not likenesses: Hernan is known for grey hair, a
-  grey beard (and often glasses, which are not modelled) in dark tops; Miss Melera for long brunette hair (her
-  braid). Both podcasts are solo sets by their host, so there is no per-track guest to look up; a new DJ is a new
+  unaffected. The looks are approximations from the artists' photos, not likenesses (the owner supplied them:
+  an earlier version used web descriptions and got both wrong). Headphones, which both wear, are not modelled.
+  Both podcasts are solo sets by their host, so there is no per-track guest to look up; a new DJ is a new
   `DJ_LOOKS` entry plus a `dj` field on a podcast in `js/podcasts.js`.
 - **Environment and surfaces**: the reflection environment is `textures/environment/empty_warehouse_01_256.env` (Poly Haven, CC0; how it is made is in ASSETS.md); do not go back to a bright or coloured sky, it tints every metal surface. Floor, wall and ceiling use a packed `orm.jpg` (R occlusion, G roughness, B metallic): add a new surface set with `node scripts/pack-orm.mjs`. Signs are `createSignage()` (one atlas, one additive mesh), and every character gets a contact shadow from `_refreshContactShadows()`; call `_applyCrowdSize()` after enabling or moving characters.
 - **LED wall**: ONE mesh (`ledPanel_wall`), not one per panel. Patterns still write

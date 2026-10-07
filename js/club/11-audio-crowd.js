@@ -835,19 +835,20 @@ class VRClubAudioCrowd extends VRClubUI {
     /**
      * The people who can stand at the decks, one per podcast (js/podcasts.js `dj`). Both are Quaternius characters
      * (CC0) derived from the guest files by scripts/build-dj-glbs.mjs, with one clip (`Idle_Loop`). The pale strand
-     * texture takes its colour from `hair`; `garment` darkens the jacket to the black both artists are known for.
-     * Hernan Cattaneo: silver hair and a short beard. Miss Melera: long dark brunette hair.
+     * texture takes its colour from `hair`; `garment` turns the jacket into the plain tee each artist is photographed in.
+     * Hernan Cattaneo: half-long dark brown wavy hair, no beard, dark grey tee. Miss Melera: long straight light
+     * blond hair, mid-grey tee (and her headphones, which are not modelled).
      */
     static get DJ_LOOKS() {
         if (!this._djLooks) {
             this._djLooks = Object.freeze({
                 hernan: Object.freeze({
                     url: './js/models/avatars/club-dj-hernan.glb', height: 1.78,
-                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.86, 0.88, 0.94)
+                    garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.20, 0.12, 0.07)
                 }),
                 melera: Object.freeze({
                     url: './js/models/avatars/club-dj-melera.glb', height: 1.68,
-                    garment: new BABYLON.Color3(0.09, 0.09, 0.11), hair: new BABYLON.Color3(0.20, 0.11, 0.07)
+                    garment: new BABYLON.Color3(0.42, 0.42, 0.45), hair: new BABYLON.Color3(1.0, 0.88, 0.62)
                 })
             });
         }
