@@ -96,6 +96,7 @@ const projectGlobals = {
     AvatarManager: 'readonly',
     ClubMultiplayer: 'readonly',
     AvatarRig: 'readonly',
+    DJPerformer: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };
