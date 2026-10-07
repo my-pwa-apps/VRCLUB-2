@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance vestibule and bar), `js/mezzanine.js` (steel balcony and stair) and `js/cityDistrict.js` (the street outside), all mixed into `VRClub.prototype`
-9. `js/avatarRig.js` (the local player's procedural body), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/ui-init.js` — instantiates `new VRClub()`
@@ -157,13 +157,45 @@ Rules when editing it:
 - `test/rig.test.mjs` runs the real Babylon and the real GLB headless (no stubs, because a
   stub cannot tell a sliding foot from a planted one) and enforces planted feet, a real
   stride, rigid limbs, head tracking, the turn dead-zone, crouch, reach and a 2 ms ceiling.
+- `pose.lean` (optional, 0..0.6 rad, default 0) bends the spine forward over the hips (spine_01/02/03 share it
+  0.4/0.35/0.25). The head stays over the eye point, so leaning moves the HIPS back. Only the DJ uses it.
+
+### `js/djPerformer.js` — the DJ at the decks
+`DJPerformer` is pure behaviour (no Babylon): each frame it turns the music and the people near the booth into an
+`AvatarRig` pose. `VRClub._spawnPerformingDJ()` builds the rig on the DJ's container (falling back to the file's
+`Idle_Loop` clip if the rig refuses it) and `_updateDJ(dt, audio)` (from `updateDancers`) feeds it `beatPhase` (from
+`barPhase`), `bar` (`vjDirector.beatNumber / 4`), the kick band's `energy`, `bpm`, a `drop` edge (the show's `release`
+set-piece starting or the movement entering `ignition`) and the visitors (this guest and every remote guest).
+- Activities: `mix` (jog wheel + a mixer knob), `cue` (a headphone cup held to the ear), `tweak` (both hands on knobs),
+  `crowd` (looking out, a fist pumped when energy > 0.6), `handsUp` (on a drop) and `wave` (at a visitor who walks into
+  the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
+  drop and the wave, which cut in. With no music it keeps its own 118 BPM and never throws its hands up.
+- On every beat a nod and a knee bounce, both deeper with energy. Everything is eased; the pose object and its hands are
+  reused (no per-frame allocation).
+- **Placement is measured, not guessed.** The desk is `console_final`'s world bounds (`_djDesk()`, with a fallback);
+  the DJ's eyes stand 0.18 m behind its near edge on the 0.5 m riser, eyes at 93% of the look's height. Both DJs' arms
+  (~0.49 m shoulder to wrist) reach every knob only from there with the activity's lean; further back they stop short.
+  `test/rig.test.mjs` drives both DJ GLBs on the real Babylon and fails if any knob or jog target is missed by 3 cm, the
+  hips enter the table (z -19), a foot leaves the riser or a frame costs over 2 ms. Retune against it, not by eye.
+  Headset cost is unmeasured (~0.05-0.3 ms a frame on desktop SwiftShader).
 
 ### `js/vjDirector.js`
-Beat/BPM detection (spectral flux + adaptive median threshold), master colour palette,
+Beat/BPM detection, master colour palette,
 scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes into the
 `VRClub` instance (`beatEnvelope`, `masterIntensity`, `barPhase`, `spotColorIndex`, …).
 `masterIntensity` is a REAL show dimmer: render code must multiply it into show-owned
 emission, wall level and flash impulses; zero means blackout except explicit safety practicals.
+
+**Kicks come from the kick band, not the bass band.** When `audioData.low` is a number, `_detectOnset()` routes to
+`_detectKick(low, lowRms, now)`: a rise over the last 60 ms (frame-rate independent) must clear 2.5x the median rise,
+`low` must be >= 0.35, and the RAW rise must reach `KICK_REF_SHARE` (0.45) of the accepted kicks' (an EMA relaxing with a
+60 s half-life), so a bassline cannot pass as kicks even after the normalising peak has decayed through a breakdown.
+A refractory of max(180 ms, 55% of a beat) stops eighth-note doubles. Without the kick band (a stubbed or old analyser)
+the legacy spectral-flux path on the bass band runs. Measured on a synthetic 124 BPM track with an eighth-note bassline
+and a kick-less breakdown: recall 0.99, precision 0.98, no false onset in the breakdown, 124.9 BPM, ~14 ms lag (the old
+path: 323 onsets for 128 kicks, 144 BPM, no breakdown found). `_registerBeat()` punches `beatEnvelope` at most once
+every `MIN_PUNCH_GAP_MS` (400 ms): above 150 BPM it punches alternate beats, under the 3-a-second flash limit.
+`test/unit.test.mjs` enforces the bassline rejection and the punch gap.
 
 ### `js/showDirector.js` — "NOCTURNE"
 The composed light show, and **the single source of truth for fixture state** whenever
@@ -241,7 +273,13 @@ bar-synced strobe as an accent, like a dimmed LED wall.
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
 the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —
 via `_ledLift` in `updateLEDPanel()` — the whole LED wall. Unit tests drive these methods on
-bare stubs, so every read is `(this.kickPulse || 0)`.
+bare stubs, so every read is `(this.kickPulse || 0)`. The moving heads also dip toward the floor on the kick
+(`kickTilt` in `updateSpotlights`, up to 20% of their horizontal reach: motion, not light).
+**The rig breathes with the kick.** In `_applyContinuous()` the look's `punch` scales a dip between kicks to an
+envelope floor of 0.3 when the kick band is trusted, 0.65 for the legacy path or under Photosensitive Safe Mode, 0.75
+with no audio; the master's smoothing compounds with `dtScale`. The show's energy EMA is weighted by the kick band's
+`energy` (`0.55 + 0.75 * energy`), and fixture speed follows it (`audioSpeedMultiplier` 0.75..1.35), so a breakdown
+calms the room and a drop lifts it.
 ## Non-negotiable rendering rules
 
 ### Frame-rate independence
@@ -605,7 +643,8 @@ and fail `npm test`.
   the optimiser still merges to ≤6 draws), then `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`.
   `setDJ(id)` queues behind `initPromise`, loads each DJ once, disposes the previous performer and
   collider, and tints garment and hair (`/^MI_Hair/`) on the DJ's own container so the crowd is
-  unaffected. The looks are approximations from the artists' photos, not likenesses (the owner supplied them:
+  unaffected. The DJ is then posed by `DJPerformer` through an `AvatarRig` (see `js/djPerformer.js` above); the GLB's
+  `Idle_Loop` only plays if the rig cannot drive it. The looks are approximations from the artists' photos, not likenesses (the owner supplied them:
   an earlier version used web descriptions and got both wrong). Both wear the CC0 "Headphones" model (OpenGameArt,
   see ASSETS.md): `addHeadphones()` in `scripts/build-dj-glbs.mjs` measures each DJ's ears and crown from its bind pose,
   moves the cups out to them and skins the mesh 100% to the `Head` joint, so there is no runtime placement to get wrong.
@@ -757,10 +796,15 @@ to avoid z-fighting.
   the real graph and fails if a speaker is louder in the wrong ear.
 - `getAudioData()` averages the analyser's 128 bins as bass = bins 0–11, mid = 12–63,
   treble = 64–127. At 48 kHz and `fftSize = 256` that is roughly 0–2.2 kHz, 2.2–12 kHz and
-  12–24 kHz, so "bass" also carries vocals and snare body. Bass drives onset detection
-  (and so the kick pulse and bar grid) and the show's energy; treble adds a small LED-wall
-  shimmer. The lasers and mirror ball follow the look and the kick pulse, not the bands.
+  12–24 kHz, so "bass" also carries vocals and snare body. The show's energy uses the bass band
+  and treble adds a small LED-wall shimmer. The lasers and mirror ball follow the look and the kick pulse, not the bands.
   Re-banding needs the Show Director's energy thresholds recalibrated (see `BACKLOG.md`).
+- **The kick band** is a second tap: `audioSource` → `kickFilter` (low-pass 120 Hz, Q 0.7) → `kickAnalyser`
+  (fftSize 512, time domain), a dead end that nothing hears. `_readKickBand()` writes `lowRms` (RMS), `low` (RMS against
+  a peak with an 8 s half-life) and `energy` (a 0.5 s average against one that slows from 1 s to 20 s after the track
+  starts, mapped `(ratio - 0.3) / 1.0` into 0..1; levels start over after 2 s of silence) into `_audioFrameData`.
+  `low`/`energy` are `null` when there is no kick analyser. Kick detection uses it (see `js/vjDirector.js`); the main
+  analyser and its bands are untouched because the LED patterns and movement thresholds are calibrated on them.
 - **Occlusion and the street.** `updateSpatialAudioListener()` runs two low-pass stages in series after the PA panners
   (`occlusionFilter`, then `occlusionFilter2`). Indoors only the first works: the corridor's single pole, 700 Hz at the vestibule.
   Past the street door (`CityLayout.exteriorAmount`) both close, interpolated in log-frequency, to a bass-only 24 dB/oct

@@ -1109,9 +1109,10 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!rig.ok) { rig.dispose(); return null; }
         rig.root.name = 'djPerformer';
         const desk = this._djDesk();
-        // Close behind the table: near enough to reach the controller once leaning in (the old idle DJ stood 0.8 m
-        // back, out of reach). The riser's top is 0.5 m.
-        const performer = new DJPerformer({ x: desk.cx, z: desk.near - 0.42, groundY: 0.5, eyeHeight, desk });
+        // Close behind the table: the arms (~0.49 m shoulder to wrist) reach the controller's near half only when the
+        // eyes are ~0.18 m behind its edge and the DJ leans in; the hips then stay behind the table (z -19). The old
+        // idle DJ stood 0.5 m further back, out of reach. The riser's top is 0.5 m.
+        const performer = new DJPerformer({ x: desk.cx, z: desk.near - 0.18, groundY: 0.5, eyeHeight, desk });
         rig.update(1 / 60, performer.update(1 / 60, { hasAudio: false }, null));
         const npc = {
             name: 'djPerformer', root: rig.root, meshes: rig.meshes, animations: [], baseSpeed: 1,

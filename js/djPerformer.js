@@ -195,8 +195,8 @@ class DJPerformer {
         const top = d.top + 0.035;
         const depth = d.far - d.near;
         // Hand positions on the controller (the DJ faces +z, so its left is -x).
-        const jogX = d.halfWidth * 0.58, jogZ = d.near + depth * 0.45;
-        const mixZ = d.near + depth * 0.55;
+        const jogX = d.halfWidth * 0.58, jogZ = d.near + depth * 0.3;
+        const mixZ = d.near + depth * 0.3;
         // Mixer knobs: a small grid in the middle; a hand moves to a new one every two beats.
         const beatIndex = Math.floor(t * beatRate / 2);
         if (beatIndex !== this._knob.at) {
@@ -218,7 +218,7 @@ class DJPerformer {
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
                 palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.5)));
                 yaw = 0.08 * Math.sin(t * 0.5);
-                pitch = -0.55; lean = 0.3;
+                pitch = -0.55; lean = 0.45;
                 break;
             }
             case 'cue': {
@@ -228,7 +228,7 @@ class DJPerformer {
                 L.fx = 0; L.fy = 1; L.fz = 0.1; L.ux = 0; L.uy = 0; L.uz = 1;
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
                 palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.25)));
-                yaw = -0.12; pitch = -0.38; lean = 0.18;
+                yaw = -0.12; pitch = -0.38; lean = 0.36;
                 break;
             }
             case 'tweak': {
@@ -236,7 +236,7 @@ class DJPerformer {
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
                 palmDown(L, -1, twistAmp * Math.sin(TAU * (t * beatRate * 0.5 + 0.25)));
                 palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.5)));
-                pitch = -0.6; lean = 0.32;
+                pitch = -0.6; lean = 0.52;
                 break;
             }
             case 'crowd': {
@@ -291,7 +291,7 @@ class DJPerformer {
     _knobAt(i, side, out, mixZ, top) {
         const col = i % 3, row = (i / 3) | 0;
         out.x = this.desk.cx + side * (0.03 + col * 0.045);
-        out.z = mixZ + (row - 0.5) * 0.09;
+        out.z = mixZ + (row - 0.5) * 0.07;
         out.y = top;
     }
 

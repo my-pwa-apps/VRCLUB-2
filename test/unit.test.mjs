@@ -6567,3 +6567,236 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     club.multiplayer.chat = [{ name: 'Bo', text: 'hello', self: false }];
     assert.equal(proto._vrNetSubtitle.call(club, 'chat'), 'BO: HELLO', 'the chat page shows the last message received');
 });
+
+// ---------------------------------------------------------------------------
+// Music-driven show: the kick band, its detector and the performing DJ
+// ---------------------------------------------------------------------------
+
+/**
+ * A synthetic kick band, frame by frame at 60 Hz, as `_readKickBand` would read it: four-on-the-floor kicks (RMS
+ * jumps to 0.42, decays in ~0.12 s) over a plucked eighth-note bassline (0.09, every eighth), a noise floor, and the
+ * level normalised against an 8 s half-life peak. `sections` = [[seconds, withKicks], ...].
+ */
+function kickBandFrames(sections, bpm = 124) {
+    const frames = [];
+    const beat = 60 / bpm, dt = 1 / 60;
+    let t = 0, peak = 1e-3;
+    for (const [seconds, kicks] of sections) {
+        const end = t + seconds;
+        for (; t < end; t += dt) {
+            const sinceKick = t % beat, sinceEighth = t % (beat / 2);
+            let raw = 0.02 + 0.09 * Math.exp(-sinceEighth / 0.08);
+            if (kicks) raw += 0.42 * Math.exp(-sinceKick / 0.12);
+            peak = Math.max(raw, peak * Math.pow(0.5, dt / 8));
+            frames.push({ t, now: 1000 + t * 1000, low: raw / peak, raw, kicks });
+        }
+    }
+    return frames;
+}
+
+test('the kick detector takes kicks, not the bassline, through a groove, a long kick-less breakdown and back', () => {
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub() });
+    const vj = new window.VJDirector({ vjBPM: 128 });
+    const frames = kickBandFrames([[32, true], [24, false], [16, true]]);
+    let groove = 0, breakdown = 0, back = 0, firstBack = null;
+    for (const f of frames) {
+        const before = vj.realOnsetCount;
+        vj._detectKick(f.low, f.raw, f.now);
+        if (vj.realOnsetCount === before) continue;
+        if (f.t < 32) groove++;
+        else if (f.t < 56) breakdown++;
+        else { back++; if (firstBack === null) firstBack = f.t; }
+    }
+    const kicksInGroove = Math.ceil(32 * 124 / 60);
+    assert.ok(groove >= kicksInGroove - 3 && groove <= kicksInGroove, `groove: ${groove} onsets for ${kicksInGroove} kicks`);
+    // 24 s without a kick: the normalising peak has decayed to a sixth, so the bassline alone reaches full scale.
+    // Only the raw reference keeps it out.
+    assert.equal(breakdown, 0, 'the bassline must not be read as kicks in a breakdown');
+    assert.ok(firstBack !== null && firstBack - 56 < 2 * 60 / 124 + 0.05, 'the returning kick must be caught within two beats');
+    assert.ok(back >= Math.ceil(16 * 124 / 60) - 3, `after the breakdown: ${back} onsets`);
+    assert.ok(Math.abs(vj.bpm - 124) < 2, `tempo read as ${vj.bpm}`);
+});
+
+test('the beat envelope is punched at most 2.5 times a second, however fast the track', () => {
+    let clock = 0;
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub(), performance: { now: () => clock } });
+    const vj = new window.VJDirector({ vjBPM: 128 });
+    const gapMs = window.VJDirector.MIN_PUNCH_GAP_MS;
+    assert.ok(gapMs >= 1000 / 3, 'the punch gap must stay under three a second');
+    for (const bpm of [120, 150, 174, 200]) {
+        const punches = [];
+        for (let i = 0; i < 40; i++) {
+            clock += 60000 / bpm;
+            vj.beatEnvelope = 0;
+            vj._registerBeat(clock, false);
+            if (vj.beatEnvelope === 1) punches.push(clock);
+        }
+        for (let i = 1; i < punches.length; i++) {
+            assert.ok(punches[i] - punches[i - 1] >= gapMs, `${bpm} BPM: punches ${punches[i] - punches[i - 1]} ms apart`);
+        }
+        // At or under 150 BPM every kick still punches.
+        if (bpm <= 150) assert.equal(punches.length, 40, `${bpm} BPM must punch every beat`);
+        else assert.ok(punches.length >= 18, `${bpm} BPM must still punch every other beat`);
+        clock += 2000;
+    }
+});
+
+test('the kick band reads a breakdown as low energy and the drop as high, and starts over after silence', () => {
+    let now = 0;
+    const h = createAudioHarness({ performance: { now: () => now } });
+    const club = h.club;
+    let level = 0;
+    club.kickSamples = new Float32Array(512);
+    club.kickAnalyser = { getFloatTimeDomainData: (out) => { for (let i = 0; i < out.length; i++) out[i] = (i % 2 ? 1 : -1) * level; } };
+    const frame = { hasAudio: true };
+    // Groove: a kick every 0.48 s; breakdown: a quiet pad; drop: kicks again, louder.
+    const run = (seconds, fn) => {
+        const out = [];
+        for (let t = 0; t < seconds; t += 1 / 60) { now += 1000 / 60; level = fn(t); club._readKickBand(frame, now); out.push(frame.energy); }
+        return out;
+    };
+    const kick = (amp) => (t) => 0.03 + amp * Math.exp(-(t % 0.484) / 0.12);
+    const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const groove = run(40, kick(0.4)).slice(-600);
+    const breakdown = run(12, () => 0.03).slice(-300);
+    const drop = run(8, kick(0.5)).slice(-240);
+    assert.ok(mean(groove) > 0.35 && mean(groove) < 0.8, `groove energy ${mean(groove)}`);
+    assert.ok(mean(breakdown) < 0.2, `breakdown energy ${mean(breakdown)}`);
+    assert.ok(mean(drop) > mean(groove) + 0.15, `drop ${mean(drop)} vs groove ${mean(groove)}`);
+    assert.ok(frame.low >= 0 && frame.low <= 1, 'the normalised level stays in 0..1');
+    // Three seconds of silence, then a new quiet track: it is its own reference, not a breakdown of the last one.
+    run(3, () => 0);
+    const next = run(4, kick(0.1)).slice(-120);
+    assert.ok(mean(next) > 0.35, `a quieter new track must not read as a breakdown (${mean(next)})`);
+    // No kick analyser (an old browser): the fields say so and the legacy detector keeps the beat.
+    const bare = { hasAudio: true };
+    club.kickAnalyser = null;
+    club._readKickBand(bare, now);
+    assert.equal(bare.low, null);
+    assert.equal(bare.energy, null);
+});
+
+test('with a trusted kick the rig dips deeper between kicks, but not under Photosensitive Safe Mode', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const between = (audioData, safe) => {
+        const club = { vjManualMode: false, photosensitiveSafeMode: safe, vjDirector: { paletteMode: 'analogous' } };
+        const director = new window.ShowDirector(club);
+        director._cue = { look: 'detonation', bars: 4 };
+        director._cueStartBar = 0;
+        director._barCounter = 0;
+        director._beatInBar = 0;
+        director._intensity = 0;
+        director._applyContinuous({ beatEnvelope: 0, blackoutUntil: 0 }, audioData);
+        return club.masterIntensity;
+    };
+    const kickBand = { hasAudio: true, low: 0.2, energy: 0.5 };
+    const legacy = { hasAudio: true };
+    assert.ok(between(kickBand, false) < between(legacy, false) * 0.8, 'the kick band must deepen the breath');
+    assert.equal(between(kickBand, true), between(legacy, true), 'Safe Mode keeps the shallow breath');
+});
+
+function loadDJPerformer(seed = 7) {
+    const { window } = loadClassic('js/djPerformer.js');
+    let s = seed;
+    const rng = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    const dj = new window.DJPerformer({ x: 0, z: -19.1, groundY: 0.5, eyeHeight: 1.65, desk, rng });
+    return { dj, desk, DJPerformer: window.DJPerformer };
+}
+
+/** Run the performer at 60 Hz on a 124 BPM grid; `each(frame)` may change the music or visitors. */
+function perform(dj, seconds, { energy = 0.5, hasAudio = true, visitors = null, each = null, t0 = 0 } = {}) {
+    const music = { hasAudio, beatPhase: 0, bar: 0, energy, drop: false, bpm: 124 };
+    const frames = [];
+    for (let t = t0; t < t0 + seconds; t += 1 / 60) {
+        const beats = t * 124 / 60;
+        music.beatPhase = beats % 1;
+        music.bar = Math.floor(beats / 4);
+        music.drop = false;
+        if (each) each(music, t);
+        const pose = dj.update(1 / 60, music, visitors);
+        frames.push({ t, bar: music.bar, activity: dj.activity, pitch: pose.headPitch, eyeY: pose.eyeY, leftY: pose.left.y, rightY: pose.right.y, pose });
+    }
+    return frames;
+}
+
+test('the DJ changes what they are doing only on bar lines, and does more than one thing', () => {
+    const { dj } = loadDJPerformer();
+    const frames = perform(dj, 120);
+    const seen = new Set();
+    for (let i = 1; i < frames.length; i++) {
+        seen.add(frames[i].activity);
+        if (frames[i].activity !== frames[i - 1].activity) {
+            assert.notEqual(frames[i].bar, frames[i - 1].bar, `changed to ${frames[i].activity} mid-bar at ${frames[i].t.toFixed(2)} s`);
+        }
+    }
+    for (const a of ['mix', 'cue', 'tweak', 'crowd']) assert.ok(seen.has(a), `never did ${a} in two minutes`);
+    assert.ok(!seen.has('wave'), 'nobody came by, so nobody was waved at');
+    // Same pose object every frame: nothing allocated per frame.
+    assert.ok(frames.every(f => f.pose === frames[0].pose));
+    assert.ok(frames.every(f => Number.isFinite(f.pitch) && Number.isFinite(f.pose.left.y) && Number.isFinite(f.pose.right.z)));
+});
+
+test('the DJ puts their hands up on the drop, and works the controller while mixing', () => {
+    const { dj, desk } = loadDJPerformer();
+    dj._begin('mix', 99);
+    const mixing = perform(dj, 3);
+    const p = mixing[mixing.length - 1].pose;
+    for (const hand of [p.left, p.right]) {
+        assert.ok(Math.abs(hand.y - (desk.top + 0.035)) < 0.02, `hand at y ${hand.y}, not on the controller`);
+        assert.ok(hand.z > desk.near && hand.z < desk.far, `hand at z ${hand.z}, off the controller`);
+        assert.ok(Math.abs(hand.x - desk.cx) < desk.halfWidth, `hand at x ${hand.x}, off the controller`);
+    }
+    let dropAt = null;
+    const frames = perform(dj, 6, { t0: 3, each: (music, t) => { if (dropAt === null && t > 4) { music.drop = true; dropAt = t; } } });
+    const at = frames.findIndex(f => f.t >= dropAt);
+    assert.equal(frames[at].activity, 'handsUp', 'a drop puts the hands up at once');
+    const up = frames[Math.min(frames.length - 1, at + 50)];
+    assert.ok(up.leftY > up.eyeY && up.rightY > up.eyeY, 'both hands above the head');
+    assert.notEqual(frames[frames.length - 1].activity, 'handsUp', 'and down again a couple of bars later');
+    // Without music there is no drop to react to.
+    const { dj: quiet } = loadDJPerformer();
+    perform(quiet, 2, { hasAudio: false, each: (music) => { music.drop = true; } });
+    assert.notEqual(quiet.activity, 'handsUp');
+});
+
+test('the DJ waves at someone who walks up to the booth, once, and looks their way', () => {
+    const { dj, DJPerformer } = loadDJPerformer();
+    const guest = { x: 2.5, z: -6, id: 'guest' };            // far back on the floor
+    const visitors = [guest];
+    let waves = 0, last = dj.activity;
+    const count = (frames) => { for (const f of frames) { if (f.activity === 'wave' && last !== 'wave') waves++; last = f.activity; } };
+    count(perform(dj, 4, { visitors }));
+    assert.equal(waves, 0, 'nobody near the booth yet');
+    guest.z = -15;                                            // walks up to the front of the booth
+    const frames = perform(dj, 3, { visitors, t0: 4 });
+    count(frames);
+    assert.equal(waves, 1, 'waves as they arrive');
+    assert.ok(dj.headYaw > 0.2, `looks toward the guest (head yaw ${dj.headYaw})`);
+    assert.ok(frames[60].rightY > frames[60].eyeY, 'with a raised hand');
+    guest.z = -6; count(perform(dj, 5, { visitors, t0: 7 }));
+    guest.z = -15; count(perform(dj, 5, { visitors, t0: 12 }));
+    assert.equal(waves, 1, `not again within ${DJPerformer.WAVE_COOLDOWN} s`);
+    guest.z = -6; count(perform(dj, DJPerformer.WAVE_COOLDOWN, { visitors, t0: 17 }));
+    guest.z = -15; count(perform(dj, 3, { visitors, t0: 17 + DJPerformer.WAVE_COOLDOWN }));
+    assert.equal(waves, 2, 'but again after the cool-down');
+});
+
+test('the DJ nods and bounces on the beat, deeper when the music is louder', () => {
+    const swing = (energy, key) => {
+        const { dj } = loadDJPerformer();
+        dj._begin('mix', 99);
+        const frames = perform(dj, 6, { energy }).slice(-120);
+        const values = frames.map(f => f[key]);
+        // The nod peaks on the beat: compare the frames nearest the beat with those half a beat later.
+        return Math.max(...values) - Math.min(...values);
+    };
+    assert.ok(swing(0.9, 'pitch') > swing(0.1, 'pitch') * 2, 'nod depth must grow with energy');
+    assert.ok(swing(0.9, 'eyeY') > swing(0.1, 'eyeY') * 2, 'knee bounce must grow with energy');
+    const { dj } = loadDJPerformer();
+    dj._begin('mix', 99);
+    const frames = perform(dj, 4, { energy: 0.8 });
+    const onBeat = frames.filter(f => (f.t * 124 / 60) % 1 < 0.04).slice(-4);
+    const offBeat = frames.filter(f => Math.abs((f.t * 124 / 60) % 1 - 0.5) < 0.04).slice(-4);
+    assert.ok(Math.max(...onBeat.map(f => f.eyeY)) < Math.min(...offBeat.map(f => f.eyeY)), 'down on the beat, up between');
+});

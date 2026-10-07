@@ -32,7 +32,7 @@ function sandbox() {
     box.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {} };
     box.navigator = { userAgent: 'node' };
     vm.createContext(box);
-    for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js']) {
+    for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js', 'js/djPerformer.js']) {
         vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), box, { filename: file });
     }
     box.BABYLON.Logger.LogLevels = box.BABYLON.Logger.WarningLogLevel | box.BABYLON.Logger.ErrorLogLevel;
@@ -270,6 +270,65 @@ test('the retargeted crowd dances: arms and body move, limbs stay rigid, feet st
         const feetHigh = Math.max(...samples.flatMap(sample => [sample['Foot.L'].y, sample['Foot.R'].y]));
         assert.ok(feetHigh - floor < 0.35 * height, `${file}: a foot leaves the floor by ${(feetHigh - floor).toFixed(2)}`);
         assert.ok(samples.every(sample => sample['Foot.L'].x * sample['Foot.R'].x <= 0.0001 || Math.abs(sample['Foot.L'].x - sample['Foot.R'].x) > 0.05), `${file}: the feet crossed`);
+        scene.dispose();
+    }
+});
+
+test('the performing DJ reaches the controller, leans in, keeps the feet on the riser, and stays cheap', async () => {
+    // The club's numbers: the controller's measured bounds, the DJ 0.18 m behind its near edge, the riser at 0.5 m,
+    // eyes at 93% of the look's height (see _spawnPerformingDJ).
+    const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
+    for (const [glb, height] of [['club-dj-hernan.glb', 1.78], ['club-dj-melera.glb', 1.68]]) {
+        const { rig, scene } = await loadRig(glb, { eyeHeight: height * 0.93 });
+        assert.equal(rig.ok, true, `${glb} cannot be driven`);
+        const Performer = vm.runInContext('DJPerformer', sandbox());
+        let pick = 0.5;
+        const dj = new Performer({ x: 0, z: desk.near - 0.18, groundY: 0.5, eyeHeight: height * 0.93, desk, rng: () => pick });
+        const music = { hasAudio: true, beatPhase: 0, bar: 0, energy: 0.6, drop: false, bpm: 124 };
+        const step = (frames) => {
+            let ms = 0;
+            for (let i = 0; i < frames; i++) {
+                const t0 = performance.now();
+                rig.update(DT, dj.update(DT, music, null));
+                ms += performance.now() - t0;
+            }
+            return ms / frames;
+        };
+        dj._begin('crowd', 99);
+        step(90);
+        // The head stays over the eye point, so leaning tilts the chest ahead of the hips (the hips go back).
+        const tilt = () => pos(rig, 'spine_03').z - pos(rig, 'pelvis').z;
+        const upright = tilt();
+        const rest = limbLengths(rig);
+        dj._begin('tweak', 99);
+        let ms = 0;
+        // Every knob in reach (the performer picks a knob with rng; no bar lines pass, so nothing else draws):
+        // the wrist 5 cm behind each palm target, whichever bone the GLB calls left.
+        for (let knob = 0; knob < 6; knob++) {
+            pick = (knob + 0.5) / 6;
+            ms = Math.max(ms, step(70));
+            for (const h of [dj.pose.left, dj.pose.right]) {
+                const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
+                const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
+                assert.ok(miss < 0.03, `${glb}: knob ${knob}: a hand stops ${miss.toFixed(3)} m short of the controller`);
+            }
+        }
+        dj._begin('mix', 99);
+        step(70);
+        for (const h of [dj.pose.left, dj.pose.right]) {
+            const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
+            const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
+            assert.ok(miss < 0.03, `${glb}: mixing: a hand stops ${miss.toFixed(3)} m short of the jog wheel or mixer`);
+        }
+        assert.ok(tilt() - upright > 0.03, `${glb}: does not lean in over the decks`);
+        assert.ok(pos(rig, 'pelvis').z < -19.0, `${glb}: the hips are inside the DJ table`);
+        assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.015, `${glb}: a foot left the riser`);
+        const l = limbLengths(rig);
+        for (const k of Object.keys(rest)) assert.ok(Math.abs(l[k] - rest[k]) < 0.002, `${glb}: ${k} stretched`);
+        assert.ok(ms < 2, `${glb}: the performing DJ costs ${ms.toFixed(2)} ms a frame`);
+        // Hands up on a drop: both wrists above the head.
+        music.drop = true; step(1); music.drop = false; step(60);
+        assert.ok(pos(rig, 'hand_l').y > pos(rig, 'Head').y && pos(rig, 'hand_r').y > pos(rig, 'Head').y, `${glb}: hands not up on the drop`);
         scene.dispose();
     }
 });

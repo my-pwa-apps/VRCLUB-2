@@ -52,6 +52,9 @@ the optimiser can merge it), then adds the CC0 headphones (`--headphones "<unzip
 mesh skinned to the Head joint, which makes the DJs seven draws where everyone else is six), and writes `club-dj-hernan.glb` and `club-dj-melera.glb`;
 then run `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`. Which one stands at the decks follows the
 chosen podcast (`DJ_LOOKS` and `setDJ()` in `js/club/11-audio-crowd.js`, which also hold their hair and top tints).
+In the club the DJs do not play `Idle_Loop`: `AvatarRig` poses them live from `js/djPerformer.js` (mixing, cueing,
+hands up, waving), so a rebuilt DJ must keep the full UE-mannequin bone set (fingers included) or it falls back to the
+idle clip. `test/rig.test.mjs` checks both files can reach the controller.
 
 ## Rebuilding
 

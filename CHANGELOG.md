@@ -20,6 +20,17 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **The DJ performs the set.** The DJ in the booth no longer stands in an idle loop: they mix on the jog wheels, turn
+  the mixer knobs, hold a headphone cup to one ear to cue the next track, look out over the crowd (pumping a fist when
+  it is loud), throw both hands up when a drop lands, and wave at you when you walk up to the booth (once, then not
+  again for 45 seconds). They nod and bounce on every beat, harder as the music gets louder. They stand close enough to
+  the controller to actually reach it, which the old idle DJ did not.
+- **The light show follows the music much more closely.** The club now listens to the kick drum on its own, so the
+  beat locks to real kicks rather than the bassline or vocals (on a test track: 127 of 128 kicks caught with no false
+  beats in a breakdown, against 323 beats for 128 kicks and the wrong tempo before). The rig dips between kicks and hits
+  on them about twice as deep as before, the moving heads dip toward the floor on each kick, and the lights speed up
+  and brighten as the music builds and calm down in a breakdown. There are still no more than 2.5 hits a second at any
+  tempo, and Photosensitive Safe Mode keeps the old gentle breathing.
 - **Talk, react and type, one press away.** In a room, a bar at the bottom of the screen has **Mic**, **React** and
   **Chat**: the mic turns red while it is live, React opens the emoji, wave, nod and dance, and Chat opens a message
   box. Prefer not to talk? Type: messages appear in the chat box, peek above the bar when it is closed, and show in a

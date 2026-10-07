@@ -1984,6 +1984,31 @@ safe-mode bypass (see the cleanup item).
   detected onsets fall within 30 ms of kicks, with none on vocal-only passages; identical
   results at 72/90/120 Hz.
   **Validation:** Offline analyser harness with recorded spectra, plus an in-headset listen test.
+
+  **Progress (kick isolation done, re-banding not):** The kick is now isolated without touching the main analyser: a
+  second tap (low-pass 120 Hz into a 512-sample time-domain analyser, `_readKickBand()`) feeds `VJDirector._detectKick()`,
+  which requires a sudden rise over 60 ms (frame-rate independent) that is also at least 45% of the accepted kicks'
+  raw rise, so the bassline cannot pass even after a long breakdown. Measured with a synthetic 124 BPM track (16 bars
+  groove, 8 bars kick-less breakdown with an eighth-note bassline, hats, pad and a vocal-like line, 16 bars drop),
+  ticking `updateAnimations()` at 60 Hz in the browser: recall 0.99, precision 0.98, no onset in the breakdown,
+  124.9 BPM, median lag 14 ms; the breakdown set-piece and release now fire. Before: 323 onsets for 128 kicks, 144 BPM,
+  no breakdown detected. The kick band's energy reads ~0.6 in the groove, 0.17-0.29 in the breakdown and 1.0 settling
+  to ~0.8 in the drop. Still open: the bass/mid/treble bands (LED patterns, movement thresholds) are unchanged; the
+  detector is unverified at 72/90/120 Hz in a headset and on real recorded tracks (the unit test covers the logic, not
+  the analyser); a breakdown longer than ~60 s relaxes the kick reference enough that a loud bassline could pass;
+  whether `audioElement.volume` scales the analyser tap (and so a sudden volume drop could stall detection until the
+  reference relaxes) has not been checked.
+
+- [ ] **The performing DJ is unmeasured on a headset**
+
+  **Priority:** Low
+  **Category:** Performance / Avatars
+  **Area:** `js/djPerformer.js`, `VRClub._spawnPerformingDJ()` / `_updateDJ()`
+  **Evidence:** The DJ is now an `AvatarRig` posed every frame (instead of one baked idle clip). Desktop SwiftShader:
+  0.05-0.3 ms a frame; `test/rig.test.mjs` fails above 2 ms. Hands reach every knob in the rig test, and the six
+  activities were checked visually on desktop for both DJs.
+  **Acceptance criteria:** A Quest 3S capture with the DJ in view shows the rig under 0.5 ms a frame; the hands are
+  seen on the controller from the dance floor and the booth in the headset.
   **Estimated effort:** Medium
   **Product value:** High
   **Technical debt reduction:** Medium
