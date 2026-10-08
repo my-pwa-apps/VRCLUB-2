@@ -37,10 +37,11 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(desktopBudget.ordinaryTexturesAtLeast2048).toBeLessThanOrEqual(8);
     expect(desktopBudget.ordinaryRgbaTextureEstimateMB).toBeLessThanOrEqual(400);
     expect(desktopBudget.cubeAndRenderTargetRgbaEstimateMB).toBeGreaterThan(0);
-    // Active submeshes are the geometry-only proxy; engine submissions include glow, probes and post-process passes.
+    // Active submeshes are a conservative geometry inventory: the engine can cull some of them, while probes and
+    // post-process passes can add submissions. Keep independent ceilings rather than assuming either count is larger.
     expect(desktopBudget.activeSubmeshProxyDraws).toBeLessThanOrEqual(400);
     expect(desktopBudget.engineSceneSubmissionsPerFrame).not.toBeNull();
-    expect(desktopBudget.engineSceneSubmissionsPerFrame).toBeGreaterThanOrEqual(desktopBudget.activeSubmeshProxyDraws);
+    expect(desktopBudget.engineSceneSubmissionsPerFrame).toBeGreaterThan(0);
     expect(desktopBudget.engineSceneSubmissionsPerFrame).toBeLessThanOrEqual(400);
     expect(Object.values(desktopBudget.drawsBySubsystem).reduce((sum, draws) => sum + draws, 0))
         .toBe(desktopBudget.activeSubmeshProxyDraws);
@@ -70,7 +71,7 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(xrBudget.cubeAndRenderTargetRgbaEstimateMB).toBeGreaterThan(desktopBudget.cubeAndRenderTargetRgbaEstimateMB);
     expect(xrBudget.renderTargetTextureCount).toBeGreaterThan(desktopBudget.renderTargetTextureCount);
     expect(xrBudget.engineSceneSubmissionsPerFrame).not.toBeNull();
-    expect(xrBudget.engineSceneSubmissionsPerFrame).toBeGreaterThanOrEqual(xrBudget.activeSubmeshProxyDraws);
+    expect(xrBudget.engineSceneSubmissionsPerFrame).toBeGreaterThan(0);
     expect(Object.values(xrBudget.drawsBySubsystem).reduce((sum, draws) => sum + draws, 0))
         .toBe(xrBudget.activeSubmeshProxyDraws);
     expect(xrBudget.shadowMaps).toEqual([]);

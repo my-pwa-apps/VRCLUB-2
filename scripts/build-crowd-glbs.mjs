@@ -73,7 +73,7 @@ const CAST = [
     { id: 'm3', base: 'men', file: 'Casual_Hoodie', skin: 'tan', mirror: true, colors: { Hair: '#2a1b10', Purple: '#1f5b3b' } },
     { id: 'm4', base: 'men', file: 'Casual_Hoodie', skin: 'brown', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Purple: '#a43c2a' } },
     { id: 'm5', base: 'men', file: 'Punk', skin: 'light', colors: { Red: '#2f6dff', Red_Dark: '#1e40a2' } },
-    { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
+    { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, drink: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
@@ -539,6 +539,35 @@ const RAILING_POSE = {
     }
 };
 
+// The mingler's bar stop: the right hand raises a cup, holds it for a sip, then lowers it. The cup itself is a
+// single runtime mesh following Wrist.R; this clip supplies the body language without adding another character rig.
+const DRINK_POSE = {
+    name: 'Drink_Loop',
+    beats: 8,
+    pose: b => {
+        const phase = b / 8;
+        const raise = phase < 0.22 ? phase / 0.22
+            : phase < 0.68 ? 1
+                : Math.max(0, 1 - (phase - 0.68) / 0.32);
+        const eased = raise * raise * (3 - 2 * raise);
+        const breath = Math.sin(TAU * b / 4);
+        return {
+            hip: [0, -0.015, 0], hipRot: [0.01, 0, 0],
+            spine: [0.025 + 0.035 * eased, 0, -0.025 * eased],
+            head: [-0.02 - 0.08 * eased, 0.04 * Math.sin(TAU * b / 8), 0],
+            hands: {
+                R: {
+                    at: [0.06, -0.30 + 0.46 * eased, 0.10 + 0.12 * eased],
+                    pole: [0.65, -0.25, -0.4],
+                    fingers: [0, 0.2 + 0.8 * eased, 1]
+                },
+                L: { at: [-0.06, -0.40, 0.08], pole: [-0.6, -0.35, -0.5] }
+            },
+            shrug: { R: 0.08 * eased, L: 0.02 * breath }
+        };
+    }
+};
+
 /** Defaults, then a mirror that swaps left and right (a reflection across the body's midline). */
 function groovePose(groove, beat, mirror, rig) {
     const raw = groove.pose(beat, rig);
@@ -777,6 +806,7 @@ async function build(person) {
     const { sk: src, clips: all } = await source(person.base);
     const wanted = person.guest ? GUEST_CLIPS : DANCER_CLIPS;
     const results = all.filter(clip => wanted.includes(clip.name)).map(clip => retarget(src, tgt, clip, !!person.mirror));
+    if (person.drink) results.push(synthesize(tgt, DRINK_POSE, !!person.mirror));
     // The dancers on the floor also get the procedural grooves (the guests and the bouncer stand about; they do not).
     // A groove drives exactly the bones the retargeted Dance_Loop drives, so a dancer can switch between any of them
     // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
@@ -805,23 +835,30 @@ async function build(person) {
 }
 
 async function refreshStaticClips() {
-    const name = 'club-crowd-f7.glb';
-    const path = join(outDir, name);
-    const document = await io.read(path);
-    for (const animation of document.getRoot().listAnimations()) {
-        if (animation.getName() === RAILING_POSE.name) animation.dispose();
+    const specs = [
+        { name: 'club-crowd-f7.glb', pose: RAILING_POSE },
+        { name: 'club-crowd-m6.glb', pose: DRINK_POSE }
+    ];
+    const names = [];
+    for (const spec of specs) {
+        const path = join(outDir, spec.name);
+        const document = await io.read(path);
+        for (const animation of document.getRoot().listAnimations()) {
+            if (animation.getName() === spec.pose.name) animation.dispose();
+        }
+        const tgt = readSkeleton(document);
+        addAnimations(document, tgt, [synthesize(tgt, spec.pose, false)]);
+        await document.transform(prune());
+        await io.write(path, document);
+        console.log(`${spec.name}: refreshed ${spec.pose.name}`);
+        names.push(spec.name);
     }
-    const tgt = readSkeleton(document);
-    addAnimations(document, tgt, [synthesize(tgt, RAILING_POSE, false)]);
-    await document.transform(prune());
-    await io.write(path, document);
-    console.log(`${name}: refreshed ${RAILING_POSE.name}`);
-    return name;
+    return names;
 }
 
 const built = [];
 if (refreshStatic) {
-    built.push(await refreshStaticClips());
+    built.push(...await refreshStaticClips());
 } else {
     const wanted = only ? only.split(',') : null;
     for (const person of CAST) if (!wanted || wanted.includes(person.id)) built.push(await build(person));

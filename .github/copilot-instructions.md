@@ -709,21 +709,19 @@ and fail `npm test`.
   only call `togglePeopleVisible`.
 - **Ambient bystander poses.** Fixed bystanders still evaluate exactly one clip: the mezzanine guest f7 rests both
   hands on the rail through the club-authored `Idle_Railing_Loop`; one high-tier queue guest outside uses
-  `Idle_TalkingPhone_Loop` (never an indoor slot beside the PA); and the bouncer uses the single
-  `Idle_FoldArms_Loop` pose, where crossed arms read as security rather than a cloned side-wall crowd. The source
-  guest files and every `guest: true` modular crowd file carry the phone/folded-arms clips. Only f7 carries the
-  procedural rail clip. `_streetSlots()` and `_guestSlots()` are the assignment authority, and unit/rig tests verify
-  the clip exists and the rail hands meet the real mezzanine height.
+  `Idle_TalkingPhone_Loop` (never an indoor slot beside the PA); the bouncer uses the neutral `Idle_Loop`. The source
+  guest files and every `guest: true` modular crowd file carry the ambient clips. Only f7 carries the procedural rail
+  clip. `_streetSlots()` and `_guestSlots()` are the assignment authority, and unit/rig tests verify the clip exists
+  and the rail hands meet the real mezzanine height.
 - **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
-  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop']`) does not stand still: he walks a round and
-  joins the other standing guests' conversations. `_updateMingler(dt)` runs from `updateDancers()` next to
-  `_updateBouncer`.
-  - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain of six points walked up and
+  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop']`) does not stand still: he
+  walks a round, joins the other standing guests' conversations, and visits the bartender. `_updateMingler(dt)` runs
+  from `updateDancers()` next to `_updateBouncer`.
+  - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain walked up and
     back down (`state.node` / `state.dir` ping-pong), with `home` (index 1) his own placed spot. `guest` on a node is
-    the guest slot he stops at; a node without one is a corner. Every leg was measured to clear all 14 dance-floor
-    slots and every standing guest by at least 0.8 m, and a unit test re-measures it: the lane at `z -5.5` is the ONLY
-    safe way across the room, and the gap between dancer `house` and guest `f6` on the left wall is too narrow to walk,
-    which is why he approaches that guest from the north. Moving any crowd or guest slot means re-running that test.
+    the guest slot he stops at; `bartender` marks the one customer-side bar stop; a node without either is a corner.
+    Every leg was measured to clear all 14 dance-floor slots, every standing guest and the bar furniture by at least
+    0.8 m, and a unit test re-measures it. Moving any crowd, guest or bar slot means re-running that test.
   - **Speed.** 1.05 m/s with the `Walk` clip at `route.speed / route.walkClipSpeed` (the packs' walk is authored for
     1.4 m/s, the same mapping `AvatarManager` uses), deliberately independent of `npc.baseSpeed` so his feet do not
     skate. Idles play at `npc.baseSpeed`.
@@ -736,6 +734,12 @@ and fail `npm test`.
   - **The people he stops at** turn toward him and play `Idle_Talking_Loop`, then go back to their placed pose and yaw
     (`slotClip` / `slotYaw`). Only one person eases back at a time. Guests have `homeYaw === null`, so
     `updateDancingNPCs()`'s proximity yaw never fights this.
+  - **At the bar**, the bartender and m6 turn toward each other and run an explicit sequence: order, serve, glass on
+    counter, pickup, drink, return, glass on counter, clear. One persistent PBR glass interpolates from the
+    bartender's `hand_r` to the measured counter top, then to m6's `Wrist.R`; it follows that wrist while
+    `Drink_Loop` raises it to his face, returns to the counter, then goes back to the bartender's hand. She resumes
+    washing it through her hand-moving idle before he walks on. The mesh and its vectors are reused without per-frame
+    allocation; it is not another imported model or animation evaluator.
   - **Tiers.** He is guest slot 2, so Balanced (2 guests) does not show him at all; on High a stop whose guest is
     absent is walked straight through (`_minglerArrive()` departs at once). No per-frame allocation. His cost on a
     headset is **not measured**.

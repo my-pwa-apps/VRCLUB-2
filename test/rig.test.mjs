@@ -330,6 +330,45 @@ test('the balcony watcher keeps both hands on the rail while looking around the 
     scene.dispose();
 });
 
+test('the mingling guest raises a drink to his face without sliding his feet', async () => {
+    const { scene, container, B } = await loadContainer('club-crowd-m6.glb');
+    const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    const node = name => root.getDescendants(false, n => n.name === name)[0];
+    const at = name => {
+        const n = node(name);
+        n.computeWorldMatrix(true);
+        return n.getAbsolutePosition().clone();
+    };
+    const group = entry.animationGroups.find(animation => animation.name.endsWith('Drink_Loop'));
+    assert.ok(group, 'club-crowd-m6.glb has no Drink_Loop');
+    group.start(false);
+    group.pause();
+
+    const samples = [];
+    for (let i = 0; i <= 64; i++) {
+        group.goToFrame(group.from + (group.to - group.from) * i / 64);
+        root.computeWorldMatrix(true);
+        samples.push({
+            head: at('Head'),
+            wrist: at('Wrist.R'),
+            leftFoot: at('Foot.L'),
+            rightFoot: at('Foot.R')
+        });
+    }
+    const wristTravel = Math.max(...samples.map(sample => sample.wrist.y))
+        - Math.min(...samples.map(sample => sample.wrist.y));
+    const closestSip = Math.min(...samples.map(sample => B.Vector3.Distance(sample.wrist, sample.head)));
+    const footTravel = side => {
+        const first = samples[0][side];
+        return Math.max(...samples.map(sample => B.Vector3.Distance(sample[side], first)));
+    };
+    assert.ok(wristTravel > 0.25, `the cup hand rises only ${wristTravel.toFixed(3)} m`);
+    assert.ok(closestSip < 0.32, `the cup hand remains ${closestSip.toFixed(3)} m from his face`);
+    assert.ok(footTravel('leftFoot') < 0.015 && footTravel('rightFoot') < 0.015, 'a foot slides while he drinks');
+    scene.dispose();
+});
+
 test('the performing DJ reaches the controller, leans in, keeps the feet on the riser, and stays cheap', async () => {
     // The club's numbers: the controller's measured bounds, the DJ 0.18 m behind its near edge, the riser at 0.5 m,
     // eyes at 93% of the look's height (see _spawnPerformingDJ).

@@ -2724,6 +2724,22 @@ function minglerHarness(guestTarget = 8) {
             _shadowIndex: index
         };
     });
+    const bartenderGroup = makeGroup('Idle_Talking_Loop');
+    bartenderGroup.isPlaying = true;
+    npcs.push({
+        name: 'bartender',
+        root: {
+            position: { x: 11, y: 0, z: -9.9 },
+            rotation: { y: -Math.PI / 2 },
+            enabled: true,
+            isEnabled() { return this.enabled; }
+        },
+        animations: [bartenderGroup],
+        baseSpeed: 0.9,
+        slotYaw: -Math.PI / 2,
+        slotClip: 'Idle_Talking_Loop',
+        poses: null
+    });
     const club = Object.assign(Object.create(Crowd.prototype), { npcAvatars: npcs });
     const minglerIndex = slots.findIndex(slot => slot.mingles);
     const mingler = npcs[minglerIndex];
@@ -2741,6 +2757,7 @@ test('exactly one side guest walks the room, and his round never crosses anybody
     assert.equal(mingling.length, 1, 'one guest walks the room; the rest stand where they are placed');
     assert.ok(mingling[0].clips.includes('Walk') && mingling[0].clips.includes('Idle_Talking_Loop'),
         'the walking guest must keep a walk and a talking pose');
+    assert.ok(mingling[0].clips.includes('Drink_Loop'), 'the walking guest must keep his bar pose');
 
     const route = Crowd.prototype._minglerRoute.call({});
     assert.ok(route.nodes.length >= 4, 'a round of fewer than four points is not walking the room');
@@ -2756,6 +2773,11 @@ test('exactly one side guest walks the room, and his round never crosses anybody
         assert.ok(Math.hypot(node.x - partner.x, node.z - partner.z) < 1.3,
             `he stops too far from guest ${node.guest} to be talking to them`);
     }
+    const barStop = route.nodes.find(node => node.bartender);
+    assert.ok(barStop && barStop.drink, 'his round never reaches the bartender for a drink');
+    const barLayout = loadClassic('js/venueDressing.js').window.VenueLayout.bar;
+    assert.ok(barStop.x < barLayout.counter.xFront - 0.7 && Math.abs(barStop.z - barLayout.bartender.z) < 0.1,
+        'the drink stop is not on the customer side opposite the bartender');
     // `home` is his own spot, where he stands on his own and where he starts.
     const home = route.nodes[route.home];
     assert.equal(home.guest, undefined);
@@ -2783,7 +2805,8 @@ test('exactly one side guest walks the room, and his round never crosses anybody
             const node = route.nodes[i];
             assert.ok(node.x > -12.5 && node.x < 12.5 && node.z > -20 && node.z < -5,
                 `round point ${i} is outside the room`);
-            assert.ok(!(node.x > bar.stoolX - 0.7 && node.z > bar.backBar.z0 - 0.5 && node.z < bar.backBar.z1 + 0.5),
+            assert.ok(node.bartender
+                || !(node.x > bar.stoolX - 0.7 && node.z > bar.backBar.z0 - 0.5 && node.z < bar.backBar.z1 + 0.5),
                 `round point ${i} walks through the bar`);
             // Under the deck is open floor (its top is at y 3); the stair itself is the only thing in his way.
             assert.ok(!(node.x < mezz.stairs.x1 + 0.6 && node.z < mezz.stairs.zBottom + 0.6 && node.z > mezz.stairs.zTop - 0.6),
@@ -2804,7 +2827,8 @@ test('the mingling guest walks his round, talks with the people he stops at, and
     try {
         const route = Crowd.prototype._minglerRoute.call({});
         const partners = new Set();
-        let walked = 0, walkingFrames = 0, settling = 0, lastPartner = null;
+        const drinkStages = new Set();
+        let walked = 0, walkingFrames = 0, settling = 0, lastPartner = null, drank = false;
         let last = { x: mingler.root.position.x, z: mingler.root.position.z };
         for (let frame = 0; frame < 60 * 180; frame++) {
             club._updateMingler(1 / 60);
@@ -2817,8 +2841,12 @@ test('the mingling guest walks his round, talks with the people he stops at, and
             if (settling > 0) settling--;
             if (talking && mingler.mingle.phase === 'dwell') {
                 partners.add(talking.name);
-                assert.equal(playing(mingler), 'Idle_Talking_Loop', 'he stands there silently');
+                const drinking = ['pickup', 'drink', 'return'].includes(mingler.mingle.activity);
+                const expected = drinking ? 'Drink_Loop' : 'Idle_Talking_Loop';
+                assert.equal(playing(mingler), expected, 'he uses the wrong interaction pose');
                 assert.equal(playing(talking), 'Idle_Talking_Loop', `${talking.name} does not talk back`);
+                if (talking.name === 'bartender') drinkStages.add(mingler.mingle.activity);
+                if (mingler.mingle.activity === 'drink') drank = true;
                 // Both are turned toward each other, not past each other, once they have had a moment to turn round.
                 if (settling === 0) {
                     const want = Math.atan2(pos.x - talking.root.position.x, pos.z - talking.root.position.z);
@@ -2831,6 +2859,9 @@ test('the mingling guest walks his round, talks with the people he stops at, and
                 && Math.abs(mingler.collider.position.z - pos.z) < 1e-6, 'his collider stayed behind');
         }
         assert.ok(partners.size >= 2, `he only ever talked to ${partners.size} person`);
+        assert.ok(drank && partners.has('bartender'), 'he never got a drink from the bartender');
+        assert.deepEqual([...drinkStages], ['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'clear'],
+            'the bartender service, pickup, drink, return and clearing sequence did not run in order');
         assert.ok(walked > 25, `he barely moved (${walked.toFixed(1)} m in three minutes)`);
         assert.ok(walkingFrames > 0 && walkingFrames < 60 * 180, 'he either never walks or never stops');
         assert.ok(Math.abs(mingler.collider.position.x - mingler.root.position.x) < 1e-6
@@ -2996,6 +3027,7 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
             : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
         if (id === 'f7') expected.push('Idle_Railing_Loop');
+        if (id === 'm6') expected.push('Drink_Loop');
         expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
@@ -7533,7 +7565,7 @@ test('the bouncer stands beside the street door and the queue waits behind the r
         assert.ok(slot.height > 1.5 && slot.height < 2.0 && Number.isFinite(slot.yaw));
     }
     assert.equal(Crowd.AVATAR_SOURCES[bouncer.src].id, 'bouncer');
-    assert.equal(bouncer.clip, 'Idle_FoldArms_Loop', 'the bouncer must use the one folded-arms pose');
+    assert.equal(bouncer.clip, 'Idle_Loop', 'the bouncer must use a neutral idle pose');
     assert.equal(queue.filter(slot => slot.clip === 'Idle_TalkingPhone_Loop').length, 1,
         'exactly one person in the outside queue should be on a phone');
     assert.ok(bouncer.x < L.ropeFromX && bouncer.height >= Math.max(...queue.map(slot => slot.height)), 'the bouncer is outside the rope and the biggest');

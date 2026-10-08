@@ -109,7 +109,7 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
 
 /**
  * The one guest who walks the room, in the real club: he leaves his spot, walks a clear path, stops with somebody and
- * they both talk, and his collider and contact shadow come with him.
+ * they both talk, he gets a drink from the bartender, and his collider and contact shadow come with him.
  */
 test('a side guest walks the room and stops to talk to the people standing in it', async ({ page }) => {
     test.setTimeout(900_000);
@@ -135,12 +135,14 @@ test('a side guest walks the room and stops to talk to the people standing in it
         const is = (name, clip) => !!name && (name === clip || name.endsWith(`_${clip}`));
         const out = {
             start: { x: npc.root.position.x, z: npc.root.position.z }, walked: 0, maxFromStart: 0,
-            clips: new Set(), talkedWith: new Set(), bothTalking: 0, soloClip: true, closest: 99,
-            others: others.length, colliderOff: 0, shadowOff: 0
+            clips: new Set(), talkedWith: new Set(), bothTalking: 0, drankAtBar: 0, cupVisible: false,
+            drinkStages: new Set(), servedOnCounter: false, pickedUp: false, returnedToCounter: false, clearedByBartender: false,
+            washingAfterClear: false,
+            soloClip: true, closest: 99, others: others.length, colliderOff: 0, shadowOff: 0
         };
         let last = { x: npc.root.position.x, z: npc.root.position.z };
         const shadows = club._contactShadows;
-        for (let i = 0; i < 4500; i++) {   // 72 simulated seconds
+        for (let i = 0; i < 6000; i++) {   // enough simulated time to complete the full bar-service sequence
             club.updateAnimations();
             scene.animate();
             const pos = npc.root.position;
@@ -158,6 +160,29 @@ test('a side guest walks the room and stops to talk to the people standing in it
             if (partner && npc.mingle.phase === 'dwell') {
                 out.talkedWith.add(partner.name);
                 if (is(mine.name, 'Idle_Talking_Loop') && is(playing(partner).name, 'Idle_Talking_Loop')) out.bothTalking++;
+                if (partner.name === 'bartender' && is(mine.name, 'Drink_Loop')) {
+                    out.drankAtBar++;
+                    out.cupVisible ||= !!(npc.drinkCup && npc.drinkCup.isEnabled());
+                }
+                if (partner.name === 'bartender') {
+                    out.drinkStages.add(npc.mingle.activity);
+                    const cup = npc.drinkCup, counter = npc.drinkCounter;
+                    if (cup && counter && npc.drinkMode === 'counter') {
+                        const onCounter = Math.hypot(cup.position.x - counter.x, cup.position.y - counter.y, cup.position.z - counter.z) < 0.01;
+                        if (npc.mingle.activity === 'served') out.servedOnCounter ||= onCounter;
+                        if (npc.mingle.activity === 'returned') out.returnedToCounter ||= onCounter;
+                    }
+                    out.pickedUp ||= npc.drinkMode === 'pickup';
+                    out.clearedByBartender ||= npc.drinkMode === 'clear';
+                }
+            }
+            if (out.clearedByBartender && !partner && npc.drinkMode === 'wash') {
+                const glass = club._barGlass;
+                out.washingAfterClear ||= !!(glass && glass.mesh.isEnabled()
+                    && Math.hypot(glass.mesh.position.x - glass.serverPosition.x,
+                        glass.mesh.position.y - glass.serverPosition.y,
+                        glass.mesh.position.z - glass.serverPosition.z) < 0.01
+                    && is(playing(glass.bartender).name, 'Idle_Talking_Loop'));
             }
             if (npc.collider) {
                 out.colliderOff = Math.max(out.colliderOff,
@@ -171,7 +196,7 @@ test('a side guest walks the room and stops to talk to the people standing in it
         }
         scene.useConstantAnimationDeltaTime = false;
         club.engine.runRenderLoop(() => scene.render());
-        return { ...out, clips: [...out.clips], talkedWith: [...out.talkedWith] };
+        return { ...out, clips: [...out.clips], talkedWith: [...out.talkedWith], drinkStages: [...out.drinkStages] };
     });
     console.log('MINGLER', JSON.stringify(run));
     expect(run.walked, 'he never left his spot').toBeGreaterThan(5);
@@ -180,6 +205,15 @@ test('a side guest walks the room and stops to talk to the people standing in it
     expect(run.soloClip, 'only one clip plays on him at a time').toBe(true);
     expect(run.talkedWith.length, 'he never stopped to talk to anybody').toBeGreaterThan(0);
     expect(run.bothTalking, 'he and the person he stopped at never both talked').toBeGreaterThan(0);
+    expect(run.talkedWith, 'he never interacted with the bartender').toContain('bartender');
+    expect(run.drankAtBar, 'he never played his drink animation at the bar').toBeGreaterThan(0);
+    expect(run.cupVisible, 'his cup was not visible while he drank').toBe(true);
+    expect(run.drinkStages).toEqual(['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'clear']);
+    expect(run.servedOnCounter, 'the bartender never placed the glass on the counter').toBe(true);
+    expect(run.pickedUp, 'he never picked the glass up from the counter').toBe(true);
+    expect(run.returnedToCounter, 'he never returned the glass to the counter').toBe(true);
+    expect(run.clearedByBartender, 'the bartender never removed the returned glass').toBe(true);
+    expect(run.washingAfterClear, 'the bartender did not resume washing the glass after clearing it').toBe(true);
     expect(run.others, 'nobody else was on the floor to measure against').toBeGreaterThan(10);
     // He walks between people, never through them.
     expect(run.closest).toBeGreaterThan(0.5);
