@@ -397,6 +397,11 @@ class VRClubAudioCrowd extends VRClubUI {
         const city = typeof window !== 'undefined' ? window.CityLayout : null;
         const exterior = city ? city.exteriorAmount(pos.x, pos.z) : 0;
         const doorDistance = city ? city.doorDistance(pos.x, pos.z) : 0;
+        // How enclosed in the room the listener is: 1 on the dance floor, easing to 0 at the top of the entrance
+        // stair. Everything the room itself produces — the direct PA, its tail, its early reflection and the chatter
+        // — follows this one curve, so walking down the stair opens the club up gradually instead of all at once.
+        const venue = typeof window !== 'undefined' ? window.VenueLayout : null;
+        const enclosure = venue && venue.vestibule ? venue.vestibule.enclosure(pos.z) : 1;
         
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
         if (this.subGain && this.subGain.gain) {
@@ -414,24 +419,28 @@ class VRClubAudioCrowd extends VRClubUI {
 
         // Reverb send rises with distance. Standing in front of the PA you hear the
         // box; at the back of the room you mostly hear the room. The room's tail and its early
-        // reflection stay inside it: on the street neither is heard.
+        // reflection stay inside it: they fade out across the doorway and the stair, and on the
+        // street neither is heard. Without that fade the stairwell got the room's full-band tail at
+        // its loudest, which is most of why the club used to sound wide open from up there.
         if (this.reverbSend && this.reverbSend.gain) {
-            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * (1 - exterior);
+            const wet = Math.max(0.08, Math.min(0.62, distToStage / 30)) * enclosure * (1 - exterior);
             this.reverbSend.gain.setTargetAtTime(wet, now, 0.12);
         }
         if (this.roomDelayGain && this.roomDelayGain.gain) {
-            this.roomDelayGain.gain.setTargetAtTime(0.18 * (1 - exterior), now, 0.12);
+            this.roomDelayGain.gain.setTargetAtTime(0.18 * enclosure * (1 - exterior), now, 0.12);
         }
 
-        // Occlusion: the club room spans z -21..-5. Walking out toward the entrance
-        // (z -> 0) puts a wall between the listener and the PA, so the top end goes
-        // and the level drops - the "stepping into the corridor" moment. Past the street door
-        // the whole building is between the listener and the music: only the low bass comes through,
-        // a little more of it right at the door than down the street.
+        // Occlusion: the club room spans z -21..-5. Walking out toward the entrance and up the stair hall puts the
+        // doorway and then the stair's turn between the listener and the PA, so the top end goes and the level drops.
+        // It is ONE continuous sweep over that whole walk (VenueLayout.vestibule.enclosure), not a step at the
+        // doorway: coming down the stair the muffling lifts gradually, and only opens right out at the dance floor.
+        // Past the street door the whole building is between the listener and the music: only the low bass comes
+        // through, a little more of it right at the door than down the street.
         if (this.occlusionFilter && this.occlusionFilter.frequency) {
-            const outsideBy = Math.max(0, pos.z - ROOM_BOUNDS.z.max);
-            const occluded = outsideBy > 0;
-            const corridorCutoff = occluded ? Math.max(700, 20000 - outsideBy * 3800) : 20000;
+            // Top of the stair, where only the street door is left, through to the open room.
+            const STAIR_HZ = 520;
+            const OPEN_HZ = 20000;
+            const corridorCutoff = Math.exp(Math.log(STAIR_HZ) + (Math.log(OPEN_HZ) - Math.log(STAIR_HZ)) * enclosure);
             const leak = Math.max(0, 1 - doorDistance / 14);
             const streetCutoff = 90 + 90 * leak * leak;
             // Interpolate in log-frequency so the sweep is even to the ear.
@@ -441,7 +450,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.occlusionFilter2.frequency.setTargetAtTime(lerpLog(22050, streetCutoff), now, 0.08);
             }
             if (this.audioMasterGain && this.audioMasterGain.gain) {
-                const indoorGain = occluded ? 0.72 : 1.15;
+                const indoorGain = 0.72 + (1.15 - 0.72) * enclosure;
                 // Outdoors the make-up gain keeps the thump present at the door, and the level then falls with distance
                 // from it (the sound comes up the entrance stair and out of the door): -6 dB 8 m out, -10 dB on the far
                 // pavement, -18 dB at the end of the block.
@@ -450,10 +459,11 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
 
-        // Crowd bed ducks under a loud PA and comes up in the gaps between tracks. Nobody is chattering on the street.
+        // Crowd bed ducks under a loud PA and comes up in the gaps between tracks. The chatter is in the room, so it
+        // fades out across the doorway and the stair with everything else; nobody is chattering on the street.
         if (this.crowdAmbienceGain && this.crowdAmbienceGain.gain) {
             const energy = this._audioFrameData ? this._audioFrameData.average : 0;
-            const level = Math.max(0.012, 0.085 - energy * 0.14) * (1 - exterior);
+            const level = Math.max(0.012, 0.085 - energy * 0.14) * enclosure * (1 - exterior);
             this.crowdAmbienceGain.gain.setTargetAtTime(level, now, 0.4);
         }
     }

@@ -1483,6 +1483,7 @@ function createAudioHarness(options = {}) {
         Float32Array, Uint8Array
     });
     window.AudioContext = FakeAudioContext;
+    window.VenueLayout = loadClassic('js/venueDressing.js').window.VenueLayout;
     const club = Object.create(window.VRClubAudioCrowd.prototype);
     club.audioElement = options.audioElement || { src: '' };
     club._audioFrameData = { bass: 0, mid: 0, treble: 0, average: 0, hasAudio: false };
@@ -5719,6 +5720,23 @@ test('the street layout in the bake script, the vestibule and the runtime agree'
     assert.ok(L.fenceZ[0] >= L.forecourtFrom && L.fenceZ[1] <= L.farFront);
 });
 
+test('the vestibule\'s enclosure curve runs from the room\'s mouth to the top of the stair', () => {
+    const vestibule = loadClassic('js/venueDressing.js').window.VenueLayout.vestibule;
+    const bounds = loadClassic('js/club/01-core.js', { localStorage: { getItem: () => null } }).window.ROOM_BOUNDS;
+    assert.equal(vestibule.roomMouthZ, bounds.z.max, 'the enclosure must start at the dance floor\'s front edge');
+    for (const z of [-21, -10, bounds.z.max]) assert.equal(vestibule.enclosure(z), 1, `(z ${z}) is fully in the room`);
+    for (const z of [vestibule.stair.zTop, 6, 12]) assert.equal(vestibule.enclosure(z), 0, `(z ${z}) is out of the room`);
+    let last = 1;
+    for (let z = bounds.z.max; z <= vestibule.stair.zTop; z += 0.05) {
+        const here = vestibule.enclosure(z);
+        assert.ok(here <= last + 1e-9 && here >= 0 && here <= 1, `the curve must fall smoothly (z ${z.toFixed(2)})`);
+        assert.ok(last - here < 0.02, `the curve stepped at z ${z.toFixed(2)}`);
+        last = here;
+    }
+    assert.ok(vestibule.enclosure(vestibule.wallZ) > 0.4 && vestibule.enclosure(vestibule.wallZ) < 0.6,
+        'the doorway should be about half way through the sweep');
+});
+
 test('how far outdoors a guest is: nothing in the club, everything on the street, one smooth ramp through the door', () => {
     const L = loadClassic('js/cityDistrict.js').window.CityLayout;
     for (const [x, z] of [[0, -15], [10, -3], [-12, -0.5], [0, 0.2], [0, 3], [0, 4.9]]) {
@@ -5760,7 +5778,10 @@ test('on the street only the low bass comes through: a little more at the door t
     const avenue = stand(30, 15);
 
     assert.ok(Math.abs(room.c1 - 20000) < 1 && Math.abs(room.c2 - 22050) < 1, 'the room hears the whole PA');
-    assert.ok(Math.abs(corridor.c1 - 700) < 1 && Math.abs(corridor.c2 - 22050) < 1, 'the corridor keeps its single muffling pole');
+    assert.ok(corridor.c1 > 500 && corridor.c1 < 1200 && Math.abs(corridor.c2 - 22050) < 1, 'the stair hall keeps its single muffling pole');
+    // In the stair hall the room's own tail and early reflection are shut away, not heard at their full strength.
+    assert.ok(corridor.reverb < 0.62 * 0.2 && corridor.delay < 0.18 * 0.2,
+        "the room's full-band tail must not follow the guest up the stair");
     for (const [label, spot] of [['at the door', door], ['down the avenue', avenue]]) {
         assert.ok(spot.c1 < 200 && spot.c2 < 200, `${label} the music must be bass only (${spot.c1.toFixed(0)} Hz / ${spot.c2.toFixed(0)} Hz)`);
         assert.ok(spot.c1 >= 85, `${label} the cutoff must stay audible bass`);
@@ -5783,6 +5804,50 @@ test('on the street only the low bass comes through: a little more at the door t
     assert.ok(Math.abs(20 * Math.log10(eight / door.master) + 6) < 1.5, `8 m out is ${(20 * Math.log10(eight / door.master)).toFixed(1)} dB, not about -6`);
     assert.ok(avenue.master < door.master * 0.25, `30 m down the avenue is only ${(20 * Math.log10(avenue.master / door.master)).toFixed(1)} dB down`);
     assert.ok(room.reverb > 0 && room.crowd > 0, 'the room keeps its own tail and chatter');
+});
+
+test('walking down the entrance stair lifts the muffling gradually instead of opening at one step', () => {
+    const { club, window } = createAudioHarness();
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const stair = window.VenueLayout.vestibule.stair;
+    club._connectAudioSourceOnce();
+    club._audioFrameData = { average: 0 };
+    const stand = (z) => {
+        club.scene = { activeCamera: { globalPosition: { x: 0, y: 1.7, z }, getForwardRay: () => ({ direction: { x: 0, y: 0, z: 1 } }), upVector: { x: 0, y: 1, z: 0 } } };
+        club.updateSpatialAudioListener();
+        return {
+            z, c1: club.occlusionFilter.frequency.value, reverb: club.reverbSend.gain.value,
+            delay: club.roomDelayGain.gain.value, crowd: club.crowdAmbienceGain.gain.value,
+            master: club.audioMasterGain.gain.value
+        };
+    };
+    // Every 10 cm from the top of the stair to the edge of the dance floor.
+    const walk = [];
+    for (let z = stair.zTop; z >= -5 - 1e-9; z -= 0.1) walk.push(stand(Number(z.toFixed(3))));
+
+    const octaves = (a, b) => Math.abs(Math.log2(b / a));
+    for (let i = 1; i < walk.length; i++) {
+        const prev = walk[i - 1], here = walk[i];
+        assert.ok(here.c1 >= prev.c1 - 1e-6, `the muffling must only lift walking in (z ${here.z}: ${here.c1.toFixed(0)} Hz after ${prev.c1.toFixed(0)} Hz)`);
+        assert.ok(here.master >= prev.master - 1e-9 && here.crowd >= prev.crowd - 1e-9,
+            `the room must only come up walking in (z ${here.z})`);
+        // No single 10 cm step may jump: the whole point is that it is a ramp, not a door opening.
+        assert.ok(octaves(prev.c1, here.c1) < 0.35, `the filter jumped ${octaves(prev.c1, here.c1).toFixed(2)} octaves in one 10 cm step at z ${here.z}`);
+    }
+
+    const top = walk[0];
+    const bottom = walk[walk.length - 1];
+    assert.ok(top.c1 < 700, `the top of the stair must still be muffled (${top.c1.toFixed(0)} Hz)`);
+    assert.ok(Math.abs(bottom.c1 - 20000) < 1, 'the dance floor hears the whole PA');
+    // The lift must be spread over the stair itself, not saved up for the doorway.
+    const atBottomStep = stand(stair.zBottom);
+    assert.ok(octaves(top.c1, atBottomStep.c1) > 1.5,
+        `the stair itself should open up by over an octave and a half (${octaves(top.c1, atBottomStep.c1).toFixed(2)})`);
+    assert.ok(octaves(top.c1, atBottomStep.c1) < octaves(atBottomStep.c1, bottom.c1) * 1.5,
+        'the stair must carry a real share of the sweep, not a token amount');
+    // And the room's own tail arrives with it rather than being heard at full strength from the stairwell.
+    assert.ok(top.reverb < bottom.reverb * 0.1 && top.delay < bottom.delay * 0.1 && top.crowd < bottom.crowd * 0.1,
+        'the room must be shut away at the top of the stair');
 });
 
 test('the street is drawn only near the entrance (with hysteresis) and the outdoors amount eases', () => {

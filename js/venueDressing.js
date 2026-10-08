@@ -31,6 +31,23 @@ const VENUE_VESTIBULE = {
     // landing at the club's front doorway. Either side of the stairwell a gallery at street level carries the ticket
     // desk and the coat check.
     stair: { halfWidth: 1.8, zBottom: 0.85, zTop: 5.0, steps: 16 },
+    // The mouth of the room: the dance floor's front edge (ROOM_BOUNDS.z.max; a unit test keeps them equal). From
+    // here outward the doorway and then the stair hall progressively shut the PA away.
+    roomMouthZ: -5,
+
+    /**
+     * How enclosed in the club's room a listener is: 1 on the dance floor, easing to 0 at the top of the stair, where
+     * only the street door is left. ONE smooth ramp across the whole walk (floor, doorway, stair), so the muffling
+     * lifts gradually as a guest comes down the stair instead of stepping open at a single z. Past the top of the
+     * stair CityLayout.exteriorAmount takes over. Pure, so the occlusion, the room's tail and the make-up gain agree.
+     */
+    enclosure(z) {
+        const top = this.stair.zTop;
+        if (!(z > this.roomMouthZ)) return 1;
+        if (z >= top) return 0;
+        const t = (z - this.roomMouthZ) / (top - this.roomMouthZ);
+        return 1 - t * t * (3 - 2 * t);
+    },
 
     /**
      * Height of the surface a walker stands on at (x, z) from the club's front wall outward, or null inside the club

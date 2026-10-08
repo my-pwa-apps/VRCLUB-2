@@ -887,14 +887,24 @@ to avoid z-fighting.
   `low`/`energy` are `null` when there is no kick analyser. Kick detection uses it (see `js/vjDirector.js`); the main
   analyser and its bands are untouched because the LED patterns and movement thresholds are calibrated on them.
 - **Occlusion and the street.** `updateSpatialAudioListener()` runs two low-pass stages in series after the PA panners
-  (`occlusionFilter`, then `occlusionFilter2`). Indoors only the first works: the corridor's single pole, 700 Hz at the vestibule.
-  Past the street door (`CityLayout.exteriorAmount`) both close, interpolated in log-frequency, to a bass-only 24 dB/oct
-  (90 Hz down the avenue, 180 Hz at the door), the room's reverb send and early reflection and the crowd bed fade to zero, the
+  (`occlusionFilter`, then `occlusionFilter2`). Indoors only the first works, and it is ONE continuous sweep, not a step
+  at the doorway: `VenueLayout.vestibule.enclosure(z)` smoothsteps from 1 at the dance floor's front edge
+  (`roomMouthZ`, kept equal to `ROOM_BOUNDS.z.max` by a unit test) to 0 at the top of the entrance stair
+  (`stair.zTop`), and the cutoff is interpolated in log-frequency between 520 Hz up there and 20 kHz in the room
+  (~2 kHz at the bottom step, ~2.8 kHz in the doorway). Everything the ROOM itself makes follows the same curve — the
+  reverb send, the early reflection (`roomDelayGain`) and the crowd bed are all scaled by `enclosure` — so a guest on
+  the stair no longer gets the room's full-band tail at its loudest, which was most of why the club used to sound wide
+  open from the stairwell. The make-up gain ramps with it too (0.72 at the top of the stair to 1.15 on the floor)
+  instead of stepping. The **sub channel is deliberately left alone**: bass through a wall is correct.
+  Past the street door (`CityLayout.exteriorAmount`) both poles close, interpolated in log-frequency, to a bass-only
+  24 dB/oct (90 Hz down the avenue, 180 Hz at the door), the room's reverb send and early reflection and the crowd bed
+  fade to zero, the
   sub channel (omni, 100 Hz) stays present and fades with distance from the door, and the master gets make-up gain (1.25 at
   the door) that then falls with distance from it, `1 / (1 + max(0, d - 2) / 6)`: -6 dB 8 m out, -10 dB on the far pavement,
   -18 dB at the end of the block. The analyser
   taps the source BEFORE all of this, so the light show stays full-band outside. `test/e2e/street.spec.mjs` measures the real
-  spectrum: more than 90% of the energy below 250 Hz on the street, under 40% in the room.
+  spectrum: more than 90% of the energy below 250 Hz on the street, under 40% in the room. A unit test walks the stair
+  in 10 cm steps and fails if the cutoff ever falls back or jumps more than a third of an octave in one step.
 - URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
 - A stream served without `Access-Control-Allow-Origin` can produce an all-zero analyser.

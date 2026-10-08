@@ -139,6 +139,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The club now fades in gradually as you come down the entrance stair.** The muffling used to sit flat at its
+  heaviest for the whole stairwell and then open up in the last few steps of the walk to the dance floor, while the
+  room's reverb, its early reflection and the crowd chatter were heard at full strength and full bandwidth from the top
+  of the stair. All four now follow one smooth curve from the top of the stair to the front edge of the dance floor, so
+  the music opens up steadily as you descend. The bass through the wall is unchanged.
 - **Dancers no longer freeze or fall into slow motion.** Enabled NPCs now keep animating regardless of camera distance
   or direction; only a graphics-tier or district visibility change pauses them. The three dancers with authored
   Mixamo clips also keep their normal playback speed when the kick drops out instead of slowing to 45%.
