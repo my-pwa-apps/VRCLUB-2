@@ -1385,14 +1385,17 @@ class VRClubAudioCrowd extends VRClubUI {
         await this._applyDJ(this._initialDJId());
 
         // === THE BARTENDER ===
-        // Behind the counter, facing the stools and chatting: the talking clip of the female guest file. She is
-        // not a guest slot (no tier removes her) and she takes the bar's accent light like the stools do.
+        // Behind the counter, washing the persistent service glass through AvatarRig so her hands can actually reach
+        // the counter. She is not a guest slot (no tier removes her) and takes the bar's accent light like the stools.
         const barCrew = containers[at('bartender')];
         if (barCrew) {
-            const spot = window.VenueLayout.bar.bartender;
-            this._spawnAvatar(barCrew, 'bartender', new BABYLON.Vector3(spot.x, 0, spot.z), -Math.PI / 2, 1.70, 0.95,
-                { clip: 'Idle_Talking_Loop', reactsToBeat: false });
-            const bartender = this.npcAvatars.find(npc => npc.name === 'bartender');
+            let bartender = this._spawnWorkingBartender(barCrew);
+            if (!bartender) {
+                const spot = window.VenueLayout.bar.bartender;
+                this._spawnAvatar(barCrew, 'bartender', new BABYLON.Vector3(spot.x, 0, spot.z), -Math.PI / 2, 1.70, 0.95,
+                    { clip: 'Idle_Talking_Loop', reactsToBeat: false });
+                bartender = this.npcAvatars.find(npc => npc.name === 'bartender');
+            }
             if (bartender) {
                 bartender.slotYaw = -Math.PI / 2;
                 bartender.slotClip = 'Idle_Talking_Loop';
@@ -1406,6 +1409,84 @@ class VRClubAudioCrowd extends VRClubUI {
         this._refreshShadowCasters();
 
         log.info(`✅ Crowd ready: ${this.npcAvatars.length} animated characters (incl. the DJ)`);
+    }
+
+    _spawnWorkingBartender(container) {
+        if (typeof AvatarRig === 'undefined') return null;
+        const rig = new AvatarRig(this, container, { eyeHeight: 1.58 });
+        if (!rig.ok) { rig.dispose(); return null; }
+        const spot = window.VenueLayout.bar.bartender;
+        rig.root.name = 'bartender';
+        const hand = () => ({ x: 0, y: 0, z: 0, fx: -1, fy: 0, fz: 0, ux: 0, uy: 1, uz: 0 });
+        const pose = {
+            x: spot.x, z: spot.z, groundY: 0, eyeY: 1.58, headYaw: -Math.PI / 2, headPitch: 0, lean: 0.18,
+            left: hand(), right: hand()
+        };
+        const npc = {
+            name: 'bartender',
+            root: rig.root,
+            meshes: rig.meshes,
+            animations: [],
+            baseSpeed: 1,
+            reactsToBeat: false,
+            homeYaw: null,
+            avoidYaw: 0,
+            rig
+        };
+        npc.collider = this._attachOccupantCollider(rig.root, 'bartender');
+        this.npcAvatars.push(npc);
+        this._bartenderRig = rig;
+        this._bartenderNpc = npc;
+        this._bartenderPose = pose;
+        this._bartenderWashTime = 0;
+        this._updateBartender(1 / 60, null);
+        return npc;
+    }
+
+    _updateBartender(dt, service) {
+        const rig = this._bartenderRig;
+        const pose = this._bartenderPose;
+        if (!rig || !pose || !rig.root.isEnabled()) return;
+        this._bartenderWashTime += dt;
+        const bar = window.VenueLayout.bar;
+        const counter = this._barGlass ? this._barGlass.counter : null;
+        const washX = bar.bartender.x - 0.42;
+        const wave = Math.sin(this._bartenderWashTime * 4.2);
+        let rightX = washX, rightY = 1.23 + wave * 0.025, rightZ = bar.bartender.z - 0.04;
+        let reach = 0;
+        if (counter && service) {
+            const raw = service.duration > 0 ? Math.min(1, Math.max(0, 1 - service.timer / service.duration)) : 1;
+            if (service.activity === 'serve') reach = raw;
+            else if (service.activity === 'served') reach = 1 - raw;
+            else if (service.activity === 'clear') reach = raw < 0.5 ? raw * 2 : (1 - raw) * 2;
+            reach = reach * reach * (3 - 2 * reach);
+            rightX += (counter.x - rightX) * reach;
+            rightY += (counter.y - rightY) * reach;
+            rightZ += (counter.z - rightZ) * reach;
+        }
+        pose.lean = 0.12 + reach * 0.42;
+        pose.x = bar.bartender.x - reach * 0.48;
+        pose.z = bar.bartender.z + reach * 0.45;
+        pose.right.x = rightX;
+        pose.right.y = rightY;
+        pose.right.z = rightZ;
+        let leftX = washX + 0.02, leftY = 1.20 - wave * 0.02, leftZ = bar.bartender.z + 0.08;
+        if (counter) {
+            leftX += (counter.x - leftX) * reach;
+            leftY += (counter.y - leftY) * reach;
+            leftZ += (counter.z - leftZ) * reach;
+        }
+        pose.left.x = leftX;
+        pose.left.y = leftY;
+        pose.left.z = leftZ;
+        pose.headYaw = Math.atan2(rightX - bar.bartender.x, rightZ - bar.bartender.z);
+        rig.bodyYaw = pose.headYaw;
+        rig.turning = false;
+        rig.update(dt, pose);
+        const collider = this._bartenderNpc && this._bartenderNpc.collider;
+        if (collider) {
+            collider.position.set(rig.root.position.x, rig.root.position.y + 0.85, rig.root.position.z);
+        }
     }
 
     /**
@@ -1430,7 +1511,7 @@ class VRClubAudioCrowd extends VRClubUI {
             // The one guest who does not stay put: he walks the room and joins the others' conversations
             // (_minglerRoute, _updateMingler), which is why he carries the walk and both idles.
             { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84,
-                mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop'] },
+                mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop'] },
             // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor.
             { src: at('f7'), clip: 'Idle_Railing_Loop', x: -9.92, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
             { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68, clips: talks('Idle_Loop') },
@@ -1824,13 +1905,13 @@ class VRClubAudioCrowd extends VRClubUI {
      * plays — it blends out of whatever the last one left — and `animations` follows, so _setAnimating still
      * pauses and restarts the right clip when a tier hides the character.
      */
-    static _playClip(npc, clip, speedRatio) {
+    static _playClip(npc, clip, speedRatio, loop = true) {
         const poses = npc && npc.poses;
         const next = poses && poses.groups.get(clip);
         if (!next) return false;
-        if (next !== poses.current) {
-            next.start(true, speedRatio, next.from, next.to);
-            if (poses.current) poses.current.stop();
+        if (next !== poses.current || !next.isPlaying) {
+            next.start(loop, speedRatio, next.from, next.to);
+            if (poses.current && poses.current !== next) poses.current.stop();
             poses.current = next;
             npc.animations = [next];
         }
@@ -1849,16 +1930,13 @@ class VRClubAudioCrowd extends VRClubUI {
     // ───────────────────────── the guest who works the room ─────────────────────────
     //
     // Everyone else at the sides stands where they were placed. One guest (the slot with `mingles`) walks a fixed
-    // round of the room, joins the others' conversations and sometimes stops at the bar: he turns up, they interact,
-    // then he moves on. The round is a CHAIN walked up and back down, not a
-    // loop, so every leg is a hand-measured line that misses the dance floor, the bar and the mezzanine stair (a
-    // unit test holds it clear of every crowd and guest slot). A stop whose guest the tier does not show is simply
-    // walked through, so he still has somewhere to go on a lower tier.
+    // round of the venue: conversations, a bar visit, watching the floor, a smoke outside and the balcony. The round
+    // is a CHAIN walked up and back down, not a loop, so every leg is hand-measured around people and furniture.
+    // A stop whose guest the tier does not show is simply walked through, so he still has somewhere to go.
 
     /**
-     * The round, in world coordinates. `guest` is a guest slot he talks to, `bartender` is the one service stop, and
-     * a node without either is a corner. `home` is his own spot, where he stands and where he starts. Every leg is
-     * hand-placed to clear the dance floor, the bar furniture and the other standing guests by at least 0.8 m.
+     * The round, in world coordinates. `guest` and `bartender` mark social stops; `activity` marks an intentional
+     * solo stop; a node without any of them is navigation only. Surface height comes from VenueLayout/MezzanineLayout.
      */
     _minglerRoute() {
         return {
@@ -1868,27 +1946,46 @@ class VRClubAudioCrowd extends VRClubUI {
             home: 1,
             nodes: [
                 { x: -9.0, z: -13.6, guest: 6 },
-                { x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2 },
+                { x: -8.2, z: -10.8, yaw: 1.716, activity: 'watch', clip: 'Idle_Loop', dwell: { min: 8, max: 14 } },
                 { x: -7.5, z: -6.1, guest: 4 },
                 { x: -7.5, z: -5.5 },   // the lane along the front of the dance floor, the only way across the room
                 { x: 7.9, z: -5.5 },
                 { x: 7.9, z: -7.1, guest: 1 },  // joining the pair who stand talking by the bar
                 { x: 5.1, z: -7.1 },
                 { x: 5.1, z: -9.9 },
+                { x: 8.5, z: -9.9 },
                 // Customer side of the counter, between stools: the bartender turns to him while he has a drink.
-                { x: 8.3, z: -9.9, bartender: true, drink: true, dwell: { min: 12, max: 20 } }
+                { x: 9.55, z: -9.65, bartender: true, drink: true, dwell: { min: 12, max: 20 } },
+                // Out through the centre of both doors and up the vestibule stair; the queue is on the +x side.
+                { x: 8.5, z: -5.5 },
+                { x: 0, z: -5.5 },
+                { x: 0, z: 0.65 },
+                { x: 0, z: 5.0 },
+                { x: 0, z: 6.6 },
+                { x: -2.5, z: 7.1, yaw: Math.PI / 2, activity: 'smoke', clip: 'Smoke_Loop', dwell: { min: 12, max: 20 } },
+                // Back down, then along the front lane to the mezzanine stair and up onto the deck.
+                { x: 0, z: 6.6 },
+                { x: 0, z: 5.0 },
+                { x: 0, z: 0.65 },
+                { x: 0, z: -5.5 },
+                { x: -9.8, z: -5.5 },
+                { x: -11.4, z: -6.2 },
+                { x: -11.4, z: -8.3 },
+                { x: -11.4, z: -10.4 },
+                { x: -11.3, z: -12.2, yaw: Math.PI / 2, activity: 'balcony', clip: 'Idle_Loop', dwell: { min: 10, max: 18 } }
             ]
         };
     }
 
-    _startMingling(npc, slot) {
+    _startMingling(npc, _slot) {
         const route = this._mingleRoute || (this._mingleRoute = this._minglerRoute());
         npc.mingle = {
-            phase: 'dwell', timer: 5, node: route.home | 0, dir: 1, yaw: slot.yaw,
-            partner: null, returning: null, activity: 'idle'
+            phase: 'dwell', timer: 5, duration: 5, node: route.home | 0, dir: 1,
+            yaw: route.nodes[route.home].yaw, partner: null, returning: null, activity: 'watch'
         };
         this._mingler = npc;
         this._createMinglerDrink(npc);
+        this._createMinglerSmoke(npc);
     }
 
     /** The guest standing in slot `index`, if this tier shows them. */
@@ -1931,7 +2028,7 @@ class VRClubAudioCrowd extends VRClubUI {
             bartender,
             serverWrist: wrist,
             minglerWrist: null,
-            counter: new BABYLON.Vector3(bar.counter.xFront + 0.08, bar.counter.top + 0.06, bar.bartender.z),
+            counter: new BABYLON.Vector3(bar.counter.xFront + 0.29, bar.counter.top + 0.06, bar.bartender.z + 0.515),
             handPosition: new BABYLON.Vector3(),
             serverPosition: new BABYLON.Vector3(),
             visible: false,
@@ -1943,10 +2040,50 @@ class VRClubAudioCrowd extends VRClubUI {
     _createMinglerDrink(npc) {
         const glass = this._barGlass;
         if (!npc || !glass || npc.drinkCup) return;
-        glass.minglerWrist = npc.root.getChildTransformNodes(false).find(node => /Wrist\.R$/.test(node.name)) || null;
+        glass.minglerWrist = npc.root.getChildTransformNodes(false).find(node => /Middle1\.R$/.test(node.name)) || null;
         npc.drinkCup = glass.mesh;
         npc.drinkCounter = glass.counter;
         npc.drinkMode = glass.mode;
+    }
+
+    _createMinglerSmoke(npc) {
+        if (!npc || npc.smokeProp || !this.scene || !this.materialFactory || !BABYLON.MeshBuilder) return;
+        const palm = npc.root.getChildTransformNodes(false).find(node => /Middle1\.R$/.test(node.name));
+        if (!palm) return;
+        const cigarette = BABYLON.MeshBuilder.CreateCylinder('minglerCigarette', {
+            diameter: 0.009, height: 0.085, tessellation: 8
+        }, this.scene);
+        cigarette.material = this.materialFactory.createPBRMaterial('minglerCigaretteMat', {
+            baseColor: [0.78, 0.74, 0.64], metallic: 0, roughness: 0.8
+        }, true);
+        cigarette.rotation.z = Math.PI / 2;
+        cigarette.isPickable = false;
+        cigarette.renderingGroupId = 0;
+        cigarette.setEnabled(false);
+        npc.smokeProp = cigarette;
+        npc.smokePalm = palm;
+        npc.smokeVisible = false;
+    }
+
+    _updateMinglerSmoke(npc, visible) {
+        const cigarette = npc && npc.smokeProp;
+        if (!cigarette) return;
+        visible = !!visible;
+        if (npc.smokeVisible !== visible) {
+            cigarette.setEnabled(visible);
+            npc.smokeVisible = visible;
+        }
+        if (!visible || !npc.smokePalm) return;
+        npc.smokePalm.computeWorldMatrix(true).getTranslationToRef(cigarette.position);
+        cigarette.position.y += 0.015;
+    }
+
+    _minglerSurfaceLevel(x, z, current) {
+        const venue = window.VenueLayout && window.VenueLayout.vestibule;
+        const entrance = venue && venue.walkLevel(x, z);
+        if (Number.isFinite(entrance)) return entrance;
+        const mezz = window.MezzanineLayout;
+        return mezz && mezz.walkLevel ? mezz.walkLevel(x, z, current) : 0;
     }
 
     _updateMinglerDrink(npc, mode, progress) {
@@ -1964,7 +2101,7 @@ class VRClubAudioCrowd extends VRClubUI {
         progress = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 1));
         glass.serverWrist.computeWorldMatrix(true).getTranslationToRef(glass.serverPosition);
         glass.serverPosition.y += 0.055;
-        if (mode === 'wash') {
+        if (mode === 'wash' || mode === 'serve') {
             cup.position.copyFrom(glass.serverPosition);
             return;
         }
@@ -1976,16 +2113,12 @@ class VRClubAudioCrowd extends VRClubUI {
             cup.position.copyFrom(glass.handPosition);
             return;
         }
-        if (mode === 'counter') {
+        if (mode === 'counter' || mode === 'pickup' || (mode === 'clear' && progress < 0.5)) {
             cup.position.copyFrom(glass.counter);
-        } else if (mode === 'pickup') {
-            BABYLON.Vector3.LerpToRef(glass.counter, glass.handPosition, progress, cup.position);
-        } else if (mode === 'return') {
-            BABYLON.Vector3.LerpToRef(glass.handPosition, glass.counter, progress, cup.position);
-        } else if (mode === 'serve') {
-            BABYLON.Vector3.LerpToRef(glass.serverPosition, glass.counter, progress, cup.position);
         } else if (mode === 'clear') {
-            BABYLON.Vector3.LerpToRef(glass.counter, glass.serverPosition, progress, cup.position);
+            cup.position.copyFrom(glass.serverPosition);
+        } else if (mode === 'return') {
+            cup.position.copyFrom(glass.handPosition);
         }
     }
 
@@ -1996,12 +2129,12 @@ class VRClubAudioCrowd extends VRClubUI {
         } else if (state.activity === 'serve') {
             state.activity = 'served'; state.duration = state.timer = 1.8;
         } else if (state.activity === 'served') {
-            state.activity = 'pickup'; state.duration = state.timer = 1.0;
-            VRClubAudioCrowd._playClip(npc, 'Drink_Loop', 1);
+            state.activity = 'pickup'; state.duration = state.timer = 0.8;
+            VRClubAudioCrowd._playClip(npc, 'Drink_Loop', 1, false);
         } else if (state.activity === 'pickup') {
-            state.activity = 'drink'; state.duration = state.timer = 8.0;
+            state.activity = 'drink'; state.duration = state.timer = 1.9;
         } else if (state.activity === 'drink') {
-            state.activity = 'return'; state.duration = state.timer = 1.0;
+            state.activity = 'return'; state.duration = state.timer = 0.9;
         } else if (state.activity === 'return') {
             state.activity = 'returned'; state.duration = state.timer = 1.8;
             VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
@@ -2012,20 +2145,36 @@ class VRClubAudioCrowd extends VRClubUI {
         }
     }
 
+    _syncMinglerDrinkPose(npc) {
+        const state = npc.mingle;
+        const group = npc.poses && npc.poses.groups.get('Drink_Loop');
+        if (!group) return;
+        let start, end;
+        if (state.activity === 'pickup') { start = 0; end = 0.2; }
+        else if (state.activity === 'drink') { start = 0.2; end = 0.68; }
+        else if (state.activity === 'return') { start = 0.68; end = 0.9; }
+        else return;
+        const progress = state.duration > 0 ? Math.min(1, Math.max(0, 1 - state.timer / state.duration)) : 1;
+        group.goToFrame(group.from + (start + (end - start) * progress) * (group.to - group.from));
+    }
+
     /** Per frame: walk the round, hold the conversations, and carry the collider and the contact shadow along. */
     _updateMingler(dt) {
+        const step = Math.min(0.1, Math.max(0, dt || 0));
         const npc = this._mingler;
         const state = npc && npc.mingle;
         if (!state || !npc.root) {
+            this._updateBartender(step, null);
             this._updateMinglerDrink(null, 'wash');
             return;
         }
         if (!npc.root.isEnabled()) {
+            this._updateBartender(step, null);
             this._updateMinglerDrink(npc, 'wash');
+            this._updateMinglerSmoke(npc, false);
             return;
         }
         const route = this._mingleRoute || (this._mingleRoute = this._minglerRoute());
-        const step = Math.min(0.1, Math.max(0, dt || 0));
         const pos = npc.root.position;
 
         if (state.phase === 'walk') {
@@ -2036,10 +2185,12 @@ class VRClubAudioCrowd extends VRClubUI {
             if (distance <= Math.max(travel, 0.02)) {
                 pos.x = node.x;
                 pos.z = node.z;
+                pos.y = this._minglerSurfaceLevel(pos.x, pos.z, pos.y);
                 this._minglerArrive(npc, route, node);
             } else {
                 pos.x += (dx / distance) * travel;
                 pos.z += (dz / distance) * travel;
+                pos.y = this._minglerSurfaceLevel(pos.x, pos.z, pos.y);
                 state.yaw = Math.atan2(dx, dz);
             }
         } else {
@@ -2048,7 +2199,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 this._minglerDepart(npc, route);   // a lower tier took them away
                 return;
             }
-            if (state.partner && state.partner.root) {
+            if (state.partner && state.partner.root && !state.partner.rig) {
                 const px = state.partner.root.position;
                 state.yaw = Math.atan2(px.x - pos.x, px.z - pos.z);
             }
@@ -2058,6 +2209,8 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
 
+        this._updateBartender(step, state.partner && state.partner.name === 'bartender' ? state : null);
+        this._syncMinglerDrinkPose(npc);
         VRClubAudioCrowd._easeYaw(npc.root, state.yaw, step, 4.0);
         // The people he stops at look at him while he is there, and go back to the way they were placed afterwards.
         if (state.partner && state.partner.root) {
@@ -2077,12 +2230,28 @@ class VRClubAudioCrowd extends VRClubUI {
                         : state.activity === 'return' ? 'return'
                             : state.activity === 'clear' ? 'clear' : 'wash';
         this._updateMinglerDrink(npc, drinkMode, progress);
+        this._updateMinglerSmoke(npc, state.activity === 'smoke');
         if (npc.collider) npc.collider.position.set(pos.x, pos.y + 0.85, pos.z);
         this._moveContactShadow(npc);
     }
 
     _minglerArrive(npc, route, node) {
         const state = npc.mingle;
+        if (node.activity) {
+            const dwell = node.dwell || route.dwell;
+            state.phase = 'dwell';
+            state.duration = state.timer = dwell.min + Math.random() * (dwell.max - dwell.min);
+            state.partner = null;
+            state.drinkStop = false;
+            state.activity = node.activity;
+            if (Number.isFinite(node.yaw)) state.yaw = node.yaw;
+            VRClubAudioCrowd._playClip(npc, node.clip || 'Idle_Loop', npc.baseSpeed);
+            return;
+        }
+        if (node.guest == null && !node.bartender) {
+            this._minglerDepart(npc, route);
+            return;
+        }
         const partner = node.bartender ? this._mingleNamed('bartender')
             : node.guest == null ? null : this._mingleGuest(node.guest);
         if (!partner && (node.guest != null || node.bartender)) {
@@ -2104,9 +2273,6 @@ class VRClubAudioCrowd extends VRClubUI {
         } else if (partner) {
             VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
             VRClubAudioCrowd._playClip(partner, 'Idle_Talking_Loop', partner.baseSpeed);
-        } else {
-            VRClubAudioCrowd._playClip(npc, 'Idle_Loop', npc.baseSpeed);
-            if (Number.isFinite(node.yaw)) state.yaw = node.yaw;
         }
     }
 

@@ -14,7 +14,7 @@ const VENUE_BAR = {
     backBar: { xFront: 11.55, xWall: 12.25, z0: -13.8, z1: -6.0, shelves: [1.42, 1.86, 2.30] },
     stoolX: 9.2,
     stoolZ: [-12.9, -11.6, -10.3, -9.0, -7.7],
-    bartender: { x: 11.0, z: -9.9 }
+    bartender: { x: 10.85, z: -9.9 }
 };
 
 const VENUE_VESTIBULE = {

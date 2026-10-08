@@ -18,9 +18,9 @@ provenance and archive hashes are recorded in `ASSETS.md`.
 | `club-dancer-male.glb` | The player's own body (AvatarRig) | Peasant outfit, parted hair, modeled face/eyes | `Dance_Loop` | ~1.4 MB |
 | `club-dj-hernan.glb` | DJ booth while Hernan Cattaneo's podcast is chosen | Jacket (tinted dark grey at load), short parted cap plus shoulder-length `Hair_Long` (tinted dark brown), no beard, headphones, modeled face/eyes | `Idle_Loop` | ~2.7 MB |
 | `club-dj-melera.glb` | DJ booth while Miss Melera's podcast is chosen | Jacket (tinted grey at load), long straight hair (tinted light blond), headphones, modeled face/eyes | `Idle_Loop` | ~2.8 MB |
-| `club-guest-female.glb` | The bartender (black outfit through a tint); build source | Ranger jacket and boots (no hood, no pauldron), long hair | `Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`, `Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` | ~2.9 MB |
+| `club-guest-female.glb` | The bartender (black outfit through a tint); build source | Ranger jacket and boots (no hood, no pauldron), long hair | Carries the guest clips; the bartender instance is driven procedurally by `AvatarRig` for washing and service reaches | ~2.9 MB |
 | `club-guest-male.glb` | Build source only (the DJ and crowd builds); not loaded at runtime | As above, parted hair and beard | as above | ~2.7 MB |
-| `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop` and `Idle_TalkingPhone_Loop`; f7 additionally carries the procedural `Idle_Railing_Loop`; m6 carries the procedural `Drink_Loop`; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
+| `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop` and `Idle_TalkingPhone_Loop`; f7 additionally carries the procedural `Idle_Railing_Loop`; m6 carries the procedural `Drink_Loop` and `Smoke_Loop`; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
 | `club-crowd-bouncer.glb` | The bouncer at the street door (`_streetSlots()`); never a player avatar | Modular Men Suit: espresso skin, black hair, black suit, shirt and tie | as the guests; plays `Idle_Loop` | ~1.0 MB |
 
 The crowd people are one skinned mesh and one material each, coloured per vertex; see the next section. The three
@@ -37,12 +37,19 @@ on the mezzanine rail through the club-authored `Idle_Railing_Loop`, one person 
 `11-audio-crowd.js` lists who
 stands where and does what, and a unit test checks that every slot's clip exists in its file.
 
-The mingling m6 guest also has the club-authored `Drink_Loop`. His measured route stops on the customer side of the
-bar and turns him and the bartender toward each other. One small procedural glass moves from the bartender's right
-hand to the counter, waits there, transfers to his right hand, follows that wrist while the clip raises it to his
-face, then returns to the counter. The bartender takes it back into her right hand and resumes her glass-washing
-motion before he walks away. The persistent bar glass exists independently of the mingler, and the service stages
-reuse its mesh and preallocated vectors; they do not add another imported model or animation evaluator.
+The mingling m6 guest also has the club-authored `Drink_Loop` and `Smoke_Loop`. His measured route stops at the
+counter and turns him toward the bartender. One persistent procedural glass stays attached to a hand or rests on the
+counter; it never interpolates through open space. The bartender's procedural UE rig brings both hands to the
+measured service point before releasing it. M6's one-shot clip reaches that point before the glass attaches to his
+palm, raises it to his mouth, and lowers it to the same point before releasing it. The bartender reaches the returned
+glass before taking it back and resuming her two-handed washing motion.
+
+The same route gives him three intentional solo pauses: watching the dance floor from his original side-wall place,
+smoking outside the street door, and looking over the floor from the balcony. `Smoke_Loop` raises his right hand to
+his face while a small reusable cigarette follows his palm. His root height follows the authoritative vestibule and
+mezzanine walking surfaces as he climbs either stair. Untargeted route points only steer him around furniture and the
+dance floor; he passes through them without stopping. The glass, cigarette, and pose vectors are reused without
+per-frame allocation.
 
 ## The crowd people (`club-crowd-*.glb`)
 

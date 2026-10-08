@@ -898,6 +898,11 @@ class VRClubLifecycle extends VRClubCore {
             try { this._localRig.dispose(); } catch (_) { /* ignore */ }
             this._localRig = null;
         }
+        if (this._bartenderRig) {
+            try { this._bartenderRig.dispose(); } catch (_) { /* ignore */ }
+            this._bartenderRig = null;
+            this._bartenderNpc = null;
+        }
         if (this.avatarManager) {
             try { this.avatarManager.dispose(); } catch (_) { /* ignore */ }
             this.avatarManager = null;

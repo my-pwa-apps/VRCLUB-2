@@ -73,7 +73,7 @@ const CAST = [
     { id: 'm3', base: 'men', file: 'Casual_Hoodie', skin: 'tan', mirror: true, colors: { Hair: '#2a1b10', Purple: '#1f5b3b' } },
     { id: 'm4', base: 'men', file: 'Casual_Hoodie', skin: 'brown', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Purple: '#a43c2a' } },
     { id: 'm5', base: 'men', file: 'Punk', skin: 'light', colors: { Red: '#2f6dff', Red_Dark: '#1e40a2' } },
-    { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, drink: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
+    { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, drink: true, smoke: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
@@ -546,24 +546,59 @@ const DRINK_POSE = {
     beats: 8,
     pose: b => {
         const phase = b / 8;
-        const raise = phase < 0.22 ? phase / 0.22
-            : phase < 0.68 ? 1
-                : Math.max(0, 1 - (phase - 0.68) / 0.32);
+        // Reach the counter first, lift the glass to the mouth, hold it there, then put it back. Runtime transfers
+        // ownership only at the two counter contacts, so the glass never moves independently of a hand.
+        const raise = phase < 0.2 ? 0
+            : phase < 0.42 ? (phase - 0.2) / 0.22
+                : phase < 0.68 ? 1
+                    : phase < 0.9 ? 1 - (phase - 0.68) / 0.22 : 0;
         const eased = raise * raise * (3 - 2 * raise);
         const breath = Math.sin(TAU * b / 4);
+        const reach = [0.04, -0.36, 0.58];
+        const sip = [-0.15, 0.16, -0.01];
         return {
             hip: [0, -0.015, 0], hipRot: [0.01, 0, 0],
-            spine: [0.025 + 0.035 * eased, 0, -0.025 * eased],
-            head: [-0.02 - 0.08 * eased, 0.04 * Math.sin(TAU * b / 8), 0],
+            spine: [0.04 + 0.05 * (1 - eased), 0, -0.025 * eased],
+            head: [-0.02 - 0.12 * eased, 0.03 * Math.sin(TAU * b / 8), 0],
             hands: {
                 R: {
-                    at: [0.06, -0.30 + 0.46 * eased, 0.10 + 0.12 * eased],
+                    at: reach.map((value, i) => value + (sip[i] - value) * eased),
+                    pole: [0.65, -0.25, -0.4],
+                    fingers: [0, 0.15 + 0.85 * eased, 1]
+                },
+                L: { at: [-0.06, -0.40, 0.08], pole: [-0.6, -0.35, -0.5] }
+            },
+            shrug: { R: 0.08 * eased, L: 0.02 * breath }
+        };
+    }
+};
+
+const SMOKE_POSE = {
+    name: 'Smoke_Loop',
+    beats: 8,
+    pose: b => {
+        const phase = b / 8;
+        const lift = phase < 0.22 ? 0
+            : phase < 0.38 ? (phase - 0.22) / 0.16
+                : phase < 0.68 ? 1
+                    : phase < 0.84 ? 1 - (phase - 0.68) / 0.16 : 0;
+        const eased = lift * lift * (3 - 2 * lift);
+        const rest = [-0.03, -0.38, 0.08];
+        const mouth = [-0.15, 0.16, -0.01];
+        return {
+            hip: [0, -0.015, 0],
+            hipRot: [0.01, 0, 0],
+            spine: [0.02, 0.03 * Math.sin(TAU * phase), -0.02 * eased],
+            head: [-0.04 * eased, 0.08 * Math.sin(TAU * phase), 0],
+            hands: {
+                R: {
+                    at: rest.map((value, i) => value + (mouth[i] - value) * eased),
                     pole: [0.65, -0.25, -0.4],
                     fingers: [0, 0.2 + 0.8 * eased, 1]
                 },
                 L: { at: [-0.06, -0.40, 0.08], pole: [-0.6, -0.35, -0.5] }
             },
-            shrug: { R: 0.08 * eased, L: 0.02 * breath }
+            shrug: { R: 0.05 * eased, L: 0 }
         };
     }
 };
@@ -807,6 +842,7 @@ async function build(person) {
     const wanted = person.guest ? GUEST_CLIPS : DANCER_CLIPS;
     const results = all.filter(clip => wanted.includes(clip.name)).map(clip => retarget(src, tgt, clip, !!person.mirror));
     if (person.drink) results.push(synthesize(tgt, DRINK_POSE, !!person.mirror));
+    if (person.smoke) results.push(synthesize(tgt, SMOKE_POSE, !!person.mirror));
     // The dancers on the floor also get the procedural grooves (the guests and the bouncer stand about; they do not).
     // A groove drives exactly the bones the retargeted Dance_Loop drives, so a dancer can switch between any of them
     // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
@@ -836,21 +872,20 @@ async function build(person) {
 
 async function refreshStaticClips() {
     const specs = [
-        { name: 'club-crowd-f7.glb', pose: RAILING_POSE },
-        { name: 'club-crowd-m6.glb', pose: DRINK_POSE }
+        { name: 'club-crowd-f7.glb', poses: [RAILING_POSE] },
+        { name: 'club-crowd-m6.glb', poses: [DRINK_POSE, SMOKE_POSE] }
     ];
     const names = [];
     for (const spec of specs) {
         const path = join(outDir, spec.name);
         const document = await io.read(path);
-        for (const animation of document.getRoot().listAnimations()) {
-            if (animation.getName() === spec.pose.name) animation.dispose();
-        }
+        const poseNames = new Set(spec.poses.map(pose => pose.name));
+        for (const animation of document.getRoot().listAnimations()) if (poseNames.has(animation.getName())) animation.dispose();
         const tgt = readSkeleton(document);
-        addAnimations(document, tgt, [synthesize(tgt, spec.pose, false)]);
+        addAnimations(document, tgt, spec.poses.map(pose => synthesize(tgt, pose, false)));
         await document.transform(prune());
         await io.write(path, document);
-        console.log(`${spec.name}: refreshed ${spec.pose.name}`);
+        console.log(`${spec.name}: refreshed ${spec.poses.map(pose => pose.name).join(', ')}`);
         names.push(spec.name);
     }
     return names;

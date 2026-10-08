@@ -2701,7 +2701,8 @@ function minglerHarness(guestTarget = 8) {
     const makeGroup = name => ({
         name, from: 0, to: 30, isPlaying: false, speedRatio: 1,
         start(loop, ratio) { this.isPlaying = true; this.speedRatio = ratio; },
-        stop() { this.isPlaying = false; }
+        stop() { this.isPlaying = false; },
+        goToFrame(frame) { this.frame = frame; }
     });
     const npcs = slots.slice(0, guestTarget).map((slot, index) => {
         const groups = new Map((slot.clips || [slot.clip]).map(name => [name, makeGroup(name)]));
@@ -2758,6 +2759,7 @@ test('exactly one side guest walks the room, and his round never crosses anybody
     assert.ok(mingling[0].clips.includes('Walk') && mingling[0].clips.includes('Idle_Talking_Loop'),
         'the walking guest must keep a walk and a talking pose');
     assert.ok(mingling[0].clips.includes('Drink_Loop'), 'the walking guest must keep his bar pose');
+    assert.ok(mingling[0].clips.includes('Smoke_Loop'), 'the walking guest must keep his outdoor smoking pose');
 
     const route = Crowd.prototype._minglerRoute.call({});
     assert.ok(route.nodes.length >= 4, 'a round of fewer than four points is not walking the room');
@@ -2776,8 +2778,10 @@ test('exactly one side guest walks the room, and his round never crosses anybody
     const barStop = route.nodes.find(node => node.bartender);
     assert.ok(barStop && barStop.drink, 'his round never reaches the bartender for a drink');
     const barLayout = loadClassic('js/venueDressing.js').window.VenueLayout.bar;
-    assert.ok(barStop.x < barLayout.counter.xFront - 0.7 && Math.abs(barStop.z - barLayout.bartender.z) < 0.1,
+    assert.ok(barStop.x < barLayout.counter.xFront - 0.1 && Math.abs(barStop.z - barLayout.bartender.z) < 0.4,
         'the drink stop is not on the customer side opposite the bartender');
+    assert.deepEqual(Array.from(route.nodes.filter(node => node.activity), node => node.activity),
+        ['watch', 'smoke', 'balcony'], 'the route must include the three intentional solo stops');
     // `home` is his own spot, where he stands on his own and where he starts.
     const home = route.nodes[route.home];
     assert.equal(home.guest, undefined);
@@ -2803,13 +2807,16 @@ test('exactly one side guest walks the room, and his round never crosses anybody
         };
         for (let i = 0; i < route.nodes.length; i++) {
             const node = route.nodes[i];
-            assert.ok(node.x > -12.5 && node.x < 12.5 && node.z > -20 && node.z < -5,
+            assert.ok(node.x > -12.5 && node.x < 12.5 && node.z > -20 && node.z < 8,
                 `round point ${i} is outside the room`);
             assert.ok(node.bartender
                 || !(node.x > bar.stoolX - 0.7 && node.z > bar.backBar.z0 - 0.5 && node.z < bar.backBar.z1 + 0.5),
                 `round point ${i} walks through the bar`);
             // Under the deck is open floor (its top is at y 3); the stair itself is the only thing in his way.
-            assert.ok(!(node.x < mezz.stairs.x1 + 0.6 && node.z < mezz.stairs.zBottom + 0.6 && node.z > mezz.stairs.zTop - 0.6),
+            const followsMezzStair = node.x >= mezz.stairs.x0 - 0.1 && node.x <= mezz.stairs.x1 + 0.1
+                && node.z <= mezz.stairs.zBottom && node.z >= mezz.stairs.zTop;
+            assert.ok(followsMezzStair
+                || !(node.x < mezz.stairs.x1 + 0.6 && node.z < mezz.stairs.zBottom + 0.6 && node.z > mezz.stairs.zTop - 0.6),
                 `round point ${i} walks into the mezzanine stair`);
             if (i === 0) continue;
             for (const person of standing) {
@@ -2829,10 +2836,17 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         const partners = new Set();
         const drinkStages = new Set();
         let walked = 0, walkingFrames = 0, settling = 0, lastPartner = null, drank = false;
+        const soloActivities = new Set([mingler.mingle.activity]);
         let last = { x: mingler.root.position.x, z: mingler.root.position.z };
         for (let frame = 0; frame < 60 * 180; frame++) {
             club._updateMingler(1 / 60);
             const pos = mingler.root.position;
+            if (frame > 5 * 60 && mingler.mingle.phase === 'dwell') {
+                const node = route.nodes[mingler.mingle.node];
+                assert.ok(node.guest != null || node.bartender || node.activity,
+                    `he stopped alone at navigation point ${mingler.mingle.node}`);
+                if (node.activity) soloActivities.add(node.activity);
+            }
             walked += Math.hypot(pos.x - last.x, pos.z - last.z);
             last = { x: pos.x, z: pos.z };
             if (playing(mingler) === 'Walk') walkingFrames++;
@@ -2860,6 +2874,8 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         }
         assert.ok(partners.size >= 2, `he only ever talked to ${partners.size} person`);
         assert.ok(drank && partners.has('bartender'), 'he never got a drink from the bartender');
+        assert.deepEqual([...soloActivities], ['watch', 'smoke', 'balcony'],
+            'he did not complete every intentional solo destination');
         assert.deepEqual([...drinkStages], ['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'clear'],
             'the bartender service, pickup, drink, return and clearing sequence did not run in order');
         assert.ok(walked > 25, `he barely moved (${walked.toFixed(1)} m in three minutes)`);
@@ -3027,7 +3043,7 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
             : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
         if (id === 'f7') expected.push('Idle_Railing_Loop');
-        if (id === 'm6') expected.push('Drink_Loop');
+        if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop');
         expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));

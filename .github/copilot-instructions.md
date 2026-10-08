@@ -714,14 +714,22 @@ and fail `npm test`.
   clip. `_streetSlots()` and `_guestSlots()` are the assignment authority, and unit/rig tests verify the clip exists
   and the rail hands meet the real mezzanine height.
 - **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
-  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop']`) does not stand still: he
-  walks a round, joins the other standing guests' conversations, and visits the bartender. `_updateMingler(dt)` runs
-  from `updateDancers()` next to `_updateBouncer`.
+  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop']`) does not stand
+  still: he walks a round, joins the other standing guests' conversations, visits the bartender, watches the dance
+  floor, goes outside to smoke, and visits the balcony. `_updateMingler(dt)` runs from `updateDancers()` next to
+  `_updateBouncer`.
   - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain walked up and
     back down (`state.node` / `state.dir` ping-pong), with `home` (index 1) his own placed spot. `guest` on a node is
-    the guest slot he stops at; `bartender` marks the one customer-side bar stop; a node without either is a corner.
-    Every leg was measured to clear all 14 dance-floor slots, every standing guest and the bar furniture by at least
-    0.8 m, and a unit test re-measures it. Moving any crowd, guest or bar slot means re-running that test.
+    the guest slot he stops at; `bartender` marks the one customer-side bar stop; `activity` marks the intentional
+    solo `watch`, `smoke` or `balcony` stops; a node without any of those is a corner. Every indoor leg was measured
+    to clear all 14 dance-floor slots, every standing guest and the bar furniture by at least 0.8 m, and the outside
+    route uses the centre of both doors to stay clear of the bouncer and queue. A unit test re-measures it. Corners
+    are navigation only and are passed without a dwell; only social and named activity nodes stop. Moving any crowd,
+    guest, bar, entrance or mezzanine slot means re-running that test.
+  - **Height comes from the venue.** `_minglerSurfaceLevel()` reads `VenueLayout.vestibule.walkLevel()` and then
+    `MezzanineLayout.walkLevel()`, so the same authoritative surfaces used by the player carry him up the entrance
+    stair to street level and up the mezzanine stair to the deck. His collider and contact-shadow translations include
+    that root height; the real-club test verifies both throughout the route.
   - **Speed.** 1.05 m/s with the `Walk` clip at `route.speed / route.walkClipSpeed` (the packs' walk is authored for
     1.4 m/s, the same mapping `AvatarManager` uses), deliberately independent of `npc.baseSpeed` so his feet do not
     skate. Idles play at `npc.baseSpeed`.
@@ -735,17 +743,25 @@ and fail `npm test`.
     (`slotClip` / `slotYaw`). Only one person eases back at a time. Guests have `homeYaw === null`, so
     `updateDancingNPCs()`'s proximity yaw never fights this.
   - **At the bar**, the bartender and m6 turn toward each other and run an explicit sequence: order, serve, glass on
-    counter, pickup, drink, return, glass on counter, clear. One persistent PBR glass interpolates from the
-    bartender's `hand_r` to the measured counter top, then to m6's `Wrist.R`; it follows that wrist while
-    `Drink_Loop` raises it to his face, returns to the counter, then goes back to the bartender's hand. She resumes
-    washing it through her hand-moving idle before he walks on. The mesh and its vectors are reused without per-frame
-    allocation; it is not another imported model or animation evaluator.
+    counter, pickup, drink, return, glass on counter, clear. One persistent PBR glass is handed from the
+    bartender's hand to the measured counter top, then to m6's palm; it follows that palm while `Drink_Loop` raises
+    it to his mouth, returns to the counter, then goes back to the bartender's hand. The glass itself NEVER
+    interpolates through open space: it is either fixed to a hand or fixed on the counter, and ownership switches
+    only after the relevant hand reaches the same measured point. The bartender is driven by an `AvatarRig` so both
+    hands physically place, clear and resume washing the glass. M6's one-shot clip is explicitly phase-synchronised
+    in `_syncMinglerDrinkPose()` rather than trusting render-loop animation time. The real-club test holds every
+    hand/counter and glass/mouth contact under 12 cm. The mesh and pose vectors are reused without per-frame allocation.
+  - **Intentional solo stops.** At home and on the balcony he uses `Idle_Loop` while facing the dance floor. Outside
+    he uses the club-authored `Smoke_Loop`; one tiny procedural cigarette is enabled only for that activity and follows
+    `Middle1.R`. There are deliberately no smoke particles. The prop and its references are reused.
   - **Tiers.** He is guest slot 2, so Balanced (2 guests) does not show him at all; on High a stop whose guest is
     absent is walked straight through (`_minglerArrive()` departs at once). No per-frame allocation. His cost on a
     headset is **not measured**.
   - **Tests.** `test/unit.test.mjs` re-measures the round's clearance, simulates three minutes of it and checks it is
-    frame-rate independent; `test/e2e/crowd-dance.spec.mjs` raises the tier to ultra and walks him in the real club
-    (measured: 90 m in 72 s, three conversations, closest approach 0.83 m to 22 floor characters).
+    frame-rate independent; `test/rig.test.mjs` verifies the real drink and smoke clips reach his face without sliding
+    either foot; `test/e2e/crowd-dance.spec.mjs` raises the tier to ultra and walks him in the real club through all
+    conversations, the physical bar sequence and all three solo destinations (measured: 221 m in 100 s, closest
+    approach 0.8 m to 22 floor characters, street z 7.1 and balcony y 3.0).
 - **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (half-long
   dark brown hair, clean-shaven, dark tee, 1.78 m) and `melera` (long straight light blond hair, grey tee, 1.68 m) to
   `club-dj-hernan.glb` / `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius
@@ -829,8 +845,10 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   `arrival` (the top landing, looking down the stair) and `street` carry `level: streetLevel`. The street wall's EXIT sign is on
   the lintel (`createSignage()` reads `streetLevel`). Tests: the stair's geometry, rails and walking surface (unit, real Babylon);
   walking up and down on the desktop under real collisions and with the VR thumbstick (`test/e2e/street.spec.mjs`).
-- **Bartender**: the Quaternius female guest in her own container (`avatarSources[7]`, black outfit), `Idle_Talking_Loop`,
-  named `bartender` (not `guest*` or `dancer*`, so no tier removes her). The guest slots keep out of the bar footprint (tested).
+- **Bartender**: the Quaternius female guest in her own container (black outfit), named `bartender` (not `guest*` or
+  `dancer*`, so no tier removes her). `AvatarRig` poses both hands for her washing loop and measured counter reaches;
+  the source file's idle clip is only the fallback when the rig refuses the skeleton. The guest slots keep out of the
+  bar footprint (tested).
 - **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
   times by `_furnishBarStools()`; its emissive floor is lowered there because the loader's generic 0.12 reads as pale paint.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.

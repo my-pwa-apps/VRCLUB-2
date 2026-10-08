@@ -137,7 +137,10 @@ test('a side guest walks the room and stops to talk to the people standing in it
             start: { x: npc.root.position.x, z: npc.root.position.z }, walked: 0, maxFromStart: 0,
             clips: new Set(), talkedWith: new Set(), bothTalking: 0, drankAtBar: 0, cupVisible: false,
             drinkStages: new Set(), servedOnCounter: false, pickedUp: false, returnedToCounter: false, clearedByBartender: false,
-            washingAfterClear: false,
+            washingAfterClear: false, glassLeftAHand: false,
+            serverCounterGap: 99, pickupCounterGap: 99, returnCounterGap: 99, mouthGap: 99,
+            soloActivities: new Set(), smokeVisible: false, watchFacingFloor: false, balconyFacingFloor: false,
+            maxY: npc.root.position.y, maxZ: npc.root.position.z,
             soloClip: true, closest: 99, others: others.length, colliderOff: 0, shadowOff: 0
         };
         let last = { x: npc.root.position.x, z: npc.root.position.z };
@@ -149,6 +152,8 @@ test('a side guest walks the room and stops to talk to the people standing in it
             out.walked += Math.hypot(pos.x - last.x, pos.z - last.z);
             last = { x: pos.x, z: pos.z };
             out.maxFromStart = Math.max(out.maxFromStart, Math.hypot(pos.x - out.start.x, pos.z - out.start.z));
+            out.maxY = Math.max(out.maxY, pos.y);
+            out.maxZ = Math.max(out.maxZ, pos.z);
             const mine = playing(npc);
             if (mine.name) out.clips.add(mine.name);
             if (mine.count !== 1) out.soloClip = false;
@@ -157,6 +162,16 @@ test('a side guest walks the room and stops to talk to the people standing in it
                 out.closest = Math.min(out.closest, Math.hypot(pos.x - other.root.position.x, pos.z - other.root.position.z));
             }
             const partner = npc.mingle.partner;
+            if (npc.mingle.phase === 'dwell' && ['watch', 'smoke', 'balcony'].includes(npc.mingle.activity)) {
+                out.soloActivities.add(npc.mingle.activity);
+                const targetYaw = Math.atan2(-pos.x, -12 - pos.z);
+                const off = Math.abs(Math.atan2(Math.sin(targetYaw - npc.root.rotation.y), Math.cos(targetYaw - npc.root.rotation.y)));
+                if (npc.mingle.activity === 'watch') out.watchFacingFloor ||= off < 0.2;
+                if (npc.mingle.activity === 'balcony') out.balconyFacingFloor ||= off < 0.2;
+                if (npc.mingle.activity === 'smoke') {
+                    out.smokeVisible ||= !!(npc.smokeProp && npc.smokeProp.isEnabled());
+                }
+            }
             if (partner && npc.mingle.phase === 'dwell') {
                 out.talkedWith.add(partner.name);
                 if (is(mine.name, 'Idle_Talking_Loop') && is(playing(partner).name, 'Idle_Talking_Loop')) out.bothTalking++;
@@ -167,13 +182,43 @@ test('a side guest walks the room and stops to talk to the people standing in it
                 if (partner.name === 'bartender') {
                     out.drinkStages.add(npc.mingle.activity);
                     const cup = npc.drinkCup, counter = npc.drinkCounter;
+                    const glass = club._barGlass;
                     if (cup && counter && npc.drinkMode === 'counter') {
                         const onCounter = Math.hypot(cup.position.x - counter.x, cup.position.y - counter.y, cup.position.z - counter.z) < 0.01;
                         if (npc.mingle.activity === 'served') out.servedOnCounter ||= onCounter;
                         if (npc.mingle.activity === 'returned') out.returnedToCounter ||= onCounter;
                     }
-                    out.pickedUp ||= npc.drinkMode === 'pickup';
+                    out.pickedUp ||= npc.drinkMode === 'hand';
                     out.clearedByBartender ||= npc.drinkMode === 'clear';
+                    if (cup && glass) {
+                        const atServer = Math.hypot(cup.position.x - glass.serverPosition.x,
+                            cup.position.y - glass.serverPosition.y, cup.position.z - glass.serverPosition.z);
+                        const atCounter = Math.hypot(cup.position.x - counter.x,
+                            cup.position.y - counter.y, cup.position.z - counter.z);
+                        const atMingler = Math.hypot(cup.position.x - glass.handPosition.x,
+                            cup.position.y - glass.handPosition.y, cup.position.z - glass.handPosition.z);
+                        out.glassLeftAHand ||= Math.min(atServer, atCounter, atMingler) > 0.01;
+                        if (npc.mingle.activity === 'serve' || npc.mingle.activity === 'clear') {
+                            const gap = Math.hypot(glass.serverPosition.x - counter.x,
+                                glass.serverPosition.y - counter.y, glass.serverPosition.z - counter.z);
+                            out.serverCounterGap = Math.min(out.serverCounterGap, gap);
+                        }
+                        if (npc.mingle.activity === 'pickup' && atMingler + atCounter < out.pickupCounterGap) {
+                            out.pickupCounterGap = atMingler + atCounter;
+                        }
+                        if (npc.mingle.activity === 'return' && atMingler + atCounter < out.returnCounterGap) {
+                            out.returnCounterGap = atMingler + atCounter;
+                        }
+                        if (npc.mingle.activity === 'drink') {
+                            const head = npc.root.getChildTransformNodes(false).find(node => /Head$/.test(node.name));
+                            if (head) {
+                                head.computeWorldMatrix(true);
+                                const hp = head.absolutePosition;
+                                const gap = Math.hypot(cup.position.x - hp.x, cup.position.y - hp.y, cup.position.z - hp.z);
+                                out.mouthGap = Math.min(out.mouthGap, gap);
+                            }
+                        }
+                    }
                 }
             }
             if (out.clearedByBartender && !partner && npc.drinkMode === 'wash') {
@@ -182,21 +227,29 @@ test('a side guest walks the room and stops to talk to the people standing in it
                     && Math.hypot(glass.mesh.position.x - glass.serverPosition.x,
                         glass.mesh.position.y - glass.serverPosition.y,
                         glass.mesh.position.z - glass.serverPosition.z) < 0.01
-                    && is(playing(glass.bartender).name, 'Idle_Talking_Loop'));
+                    && glass.bartender.rig && glass.bartender.rig.ok);
             }
             if (npc.collider) {
                 out.colliderOff = Math.max(out.colliderOff,
-                    Math.hypot(npc.collider.position.x - pos.x, npc.collider.position.z - pos.z));
+                    Math.hypot(npc.collider.position.x - pos.x, npc.collider.position.y - (pos.y + 0.85),
+                        npc.collider.position.z - pos.z));
             }
             if (shadows && npc._shadowIndex >= 0) {
                 const base = npc._shadowIndex * 16;
                 out.shadowOff = Math.max(out.shadowOff,
-                    Math.hypot(shadows.buffer[base + 12] - pos.x, shadows.buffer[base + 14] - pos.z));
+                    Math.hypot(shadows.buffer[base + 12] - pos.x, shadows.buffer[base + 13] - (pos.y + 0.02),
+                        shadows.buffer[base + 14] - pos.z));
             }
         }
         scene.useConstantAnimationDeltaTime = false;
         club.engine.runRenderLoop(() => scene.render());
-        return { ...out, clips: [...out.clips], talkedWith: [...out.talkedWith], drinkStages: [...out.drinkStages] };
+        return {
+            ...out,
+            clips: [...out.clips],
+            talkedWith: [...out.talkedWith],
+            drinkStages: [...out.drinkStages],
+            soloActivities: [...out.soloActivities]
+        };
     });
     console.log('MINGLER', JSON.stringify(run));
     expect(run.walked, 'he never left his spot').toBeGreaterThan(5);
@@ -214,6 +267,17 @@ test('a side guest walks the room and stops to talk to the people standing in it
     expect(run.returnedToCounter, 'he never returned the glass to the counter').toBe(true);
     expect(run.clearedByBartender, 'the bartender never removed the returned glass').toBe(true);
     expect(run.washingAfterClear, 'the bartender did not resume washing the glass after clearing it').toBe(true);
+    expect(run.glassLeftAHand, 'the glass flew independently instead of staying in a hand or on the counter').toBe(false);
+    expect(run.serverCounterGap, 'the bartender never brought her hand to the counter').toBeLessThan(0.12);
+    expect(run.pickupCounterGap, 'his hand never reached the glass before pickup').toBeLessThan(0.12);
+    expect(run.mouthGap, 'he never brought the glass to his mouth').toBeLessThan(0.12);
+    expect(run.returnCounterGap, 'his hand never returned the glass to the counter').toBeLessThan(0.12);
+    expect(run.soloActivities).toEqual(['watch', 'smoke', 'balcony']);
+    expect(run.watchFacingFloor, 'his indoor idle faces away from the dance floor').toBe(true);
+    expect(run.smokeVisible, 'his cigarette was not visible while he smoked outside').toBe(true);
+    expect(run.balconyFacingFloor, 'his balcony idle faces away from the dance floor').toBe(true);
+    expect(run.maxZ, 'he never walked outside').toBeGreaterThan(7);
+    expect(run.maxY, 'he never climbed to street or balcony level').toBeGreaterThan(2.9);
     expect(run.others, 'nobody else was on the floor to measure against').toBeGreaterThan(10);
     // He walks between people, never through them.
     expect(run.closest).toBeGreaterThan(0.5);
