@@ -4544,6 +4544,24 @@ test('the splash carries no emoji or decorative symbols', () => {
     assert.match(core, /btn\.textContent = 'RETRY';/, 'the retry label must stay plain');
 });
 
+test('the animated splash background cannot create a transient scrollbar', () => {
+    const css = readFileSync(join(ROOT, 'css/styles.css'), 'utf8');
+    const splash = css.match(/#splashScreen\s*\{([\s\S]*?)\n\}/)[1];
+    assert.match(splash, /\boverflow:\s*hidden;/,
+        'the viewport must clip decorative compositor overflow instead of showing a page scrollbar');
+    const card = css.match(/\.splash-content\s*\{([\s\S]*?)\n\}/)[1];
+    assert.match(card, /\bmax-height:\s*100%;/, 'the card must fit a short viewport');
+    assert.match(card, /\boverflow-y:\s*auto;/, 'real content overflow must remain reachable inside the card');
+    const overlay = css.match(/#splashScreen::after\s*\{([\s\S]*?)\n\}/)[1];
+    assert.match(overlay, /\binset:\s*0;/, 'the animated overlay must remain within the viewport');
+    assert.doesNotMatch(overlay, /\b(width|height):\s*200%/, 'an oversized overlay expands the scroll area');
+    assert.doesNotMatch(overlay, /\btransform\s*:/, 'transforming the overlay changes its scroll bounds');
+    assert.match(overlay, /animation:\s*gradientDrift\b/, 'the gradient itself should move inside the fixed box');
+    const animation = css.match(/@keyframes gradientDrift\s*\{([\s\S]*?)\n\}/)[1];
+    assert.doesNotMatch(animation, /\btransform\s*:/, 'the background animation must not transform its box');
+    assert.match(animation, /background-position:/, 'the gradient should animate as paint only');
+});
+
 test('smooth VR movement is the default but an explicit comfort preference is preserved', () => {
     let stored = null;
     const { window } = loadClassic('js/club/01-core.js', { localStorage: { getItem: () => stored } });

@@ -332,6 +332,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   like Photosensitive Safe Mode, instead of a checkbox with a paragraph of explanation. Every emoji and
   decorative symbol is gone from the entry screen as well — the shield, the compass, the play arrow, the
   warning triangle and the diamonds around the subtitle — leaving the wordmark and plain words.
+  Its animated gradient now moves inside a viewport-sized layer instead of rotating an oversized layer.
+  Decorative compositor overflow is clipped at the viewport while the card itself remains scrollable in a
+  genuinely short window, so the side scrollbar no longer appears and disappears or shifts the card.
 - **Lighting rig pulled in over the dance floor**: the side cross beams, their six moving heads and the two
   side lasers moved from x ±8 to x ±7.6 (`CLUB_POSITIONS.sideTrussX`), further from the balcony and the bar,
   and 0.8 m clear of the flown PA cabinets. The side lasers were also fixed: they were

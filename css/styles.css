@@ -1287,11 +1287,10 @@ html, body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     transition: opacity 0.5s ease-out;
-    /* The card can be taller than a small window: scroll rather than clip it. `margin: auto` on the
-       card centres it when it fits and keeps its top reachable when it does not (justify-content:
-       center would cut the top off). */
-    overflow-x: hidden;
-    overflow-y: auto;
+    /* Decorative filters and fixed animated layers can report compositor overflow even though
+       their layout stays inside the viewport. Clip that here so they cannot summon a page
+       scrollbar; the card below owns real scrolling when a short window cannot fit its content. */
+    overflow: hidden;
     overscroll-behavior: contain;
     box-sizing: border-box;
     padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
@@ -1319,12 +1318,12 @@ html, body {
     content: '';
     pointer-events: none;
     position: fixed;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(255,0,255,0.15) 0%, rgba(0,255,255,0.15) 25%, rgba(255,0,255,0.15) 50%, rgba(0,255,255,0.15) 75%, rgba(255,0,255,0.15) 100%);
-    animation: gradientRotate 15s linear infinite;
+    inset: 0;
+    background:
+        radial-gradient(circle, rgba(255,0,255,0.15) 0%, rgba(0,255,255,0.15) 25%,
+            rgba(255,0,255,0.15) 50%, rgba(0,255,255,0.15) 75%, rgba(255,0,255,0.15) 100%);
+    background-size: 160% 160%;
+    animation: gradientDrift 15s ease-in-out infinite alternate;
 }
 
 @keyframes gridMove {
@@ -1332,9 +1331,12 @@ html, body {
     100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
 }
 
-@keyframes gradientRotate {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+/* Animate paint inside the viewport, not the overlay's box. Rotating the old 200%-sized box
+   changed the splash scroll height throughout the cycle, making its scrollbar appear and vanish. */
+@keyframes gradientDrift {
+    0% { background-position: 0% 0%; }
+    50% { background-position: 100% 35%; }
+    100% { background-position: 35% 100%; }
 }
 
 #splashScreen.hidden {
@@ -1402,6 +1404,12 @@ html, body {
     box-shadow: var(--shadow-lg);
     position: relative;
     z-index: 2;
+    /* `margin: auto` centres the card when it fits. In a genuinely short window the card remains
+       viewport-sized and scrolls its own controls, while decorative splash overflow stays clipped. */
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .splash-button {
