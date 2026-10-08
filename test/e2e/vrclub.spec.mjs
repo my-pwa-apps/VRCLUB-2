@@ -675,7 +675,9 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
     expect(opticsState.spot.lensGlowIncluded).toBe(true);
     // The beam material carries the pure diode colour; brightness lives in the batch's vertex alpha.
     expect(opticsState.laser.emissivePeak).toBeCloseTo(1, 2);
-    expect(opticsState.laser.glowIncluded).toBe(true);
+    // The beam batch is excluded from the selective glow layer: its pass has no venue depth, so a glowing beam would
+    // show through walls. The ribbon's own scatter halo and the depth-tested bloom carry the glow instead.
+    expect(opticsState.laser.glowIncluded).toBe(false);
     expect(opticsState.strobe.duration).toBeLessThanOrEqual(0.09);
     expect(opticsState.strobe.glareAlpha).toBe(0.95);
     expect(opticsState.strobe.lightIntensity).toBeGreaterThan(900);

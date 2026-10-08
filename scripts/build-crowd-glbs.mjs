@@ -573,32 +573,68 @@ const DRINK_POSE = {
     }
 };
 
+// A cigarette, one drag every 12 s (24 beats): it is held low with the forearm forward and the palm turned in, the
+// ash is flicked, then the hand comes up with the PALM TOWARD THE FACE, so the cigarette between the index and
+// middle fingers points back at the lips while the fingers stay in front of the nose. He draws on it, lowers it and
+// lifts his chin to blow the smoke up and away. The wrist targets were measured on the real m6 face (a temporary
+// harness: lips at 0.175 m forward of the neck, nose 0.19): the old pose put the WRIST at the mouth, which buried
+// the hand and the cigarette in his head. The runtime reads the drag from where the cigarette is, not from these
+// numbers (VRClubAudioCrowd._updateMinglerSmoke), so retiming this needs no change there.
 const SMOKE_POSE = {
     name: 'Smoke_Loop',
-    beats: 8,
+    beats: 24,
     pose: b => {
-        const phase = b / 8;
-        const lift = phase < 0.22 ? 0
-            : phase < 0.38 ? (phase - 0.22) / 0.16
-                : phase < 0.68 ? 1
-                    : phase < 0.84 ? 1 - (phase - 0.68) / 0.16 : 0;
+        const phase = b / 24;
+        const lift = phase < 0.42 ? 0
+            : phase < 0.52 ? (phase - 0.42) / 0.10
+                : phase < 0.66 ? 1
+                    : phase < 0.76 ? 1 - (phase - 0.66) / 0.10 : 0;
         const eased = lift * lift * (3 - 2 * lift);
-        const rest = [-0.03, -0.38, 0.08];
-        const mouth = [-0.15, 0.16, -0.01];
+        // A quick tap of the ash, while the hand is low.
+        const flick = phase > 0.2 && phase < 0.27 ? Math.sin(Math.PI * (phase - 0.2) / 0.07) : 0;
+        // The exhale: chin up and a little to his right, after the hand has come down.
+        const blow = phase > 0.68 && phase < 0.9 ? Math.sin(Math.PI * (phase - 0.68) / 0.22) : 0;
+        const breath = Math.sin(TAU * phase * 3);
+        const rest = [-0.02, -0.33, 0.21];
+        const mouth = [-0.145, -0.013, 0.08];
+        const at = rest.map((value, i) => value + (mouth[i] - value) * eased);
+        at[1] -= 0.03 * flick;
         return {
             hip: [0, -0.015, 0],
             hipRot: [0.01, 0, 0],
-            spine: [0.02, 0.03 * Math.sin(TAU * phase), -0.02 * eased],
-            head: [-0.04 * eased, 0.08 * Math.sin(TAU * phase), 0],
+            spine: [0.02 + 0.01 * breath, 0.03 * Math.sin(TAU * phase), -0.02 * eased],
+            head: [0.04 * eased - 0.16 * blow, 0.08 * Math.sin(TAU * phase) + 0.22 * blow, 0],
             hands: {
                 R: {
-                    at: rest.map((value, i) => value + (mouth[i] - value) * eased),
-                    pole: [0.65, -0.25, -0.4],
-                    fingers: [0, 0.2 + 0.8 * eased, 1]
+                    at,
+                    pole: [0.65, -0.35, -0.3],
+                    fingers: lerp3([0.05, 0.3, 1], [-0.05, 1, 0.3], eased),
+                    thumb: lerp3([0, 1, 0.2], [1, 0, 0], eased)
                 },
                 L: { at: [-0.06, -0.40, 0.08], pole: [-0.6, -0.35, -0.5] }
             },
             shrug: { R: 0.05 * eased, L: 0 }
+        };
+    }
+};
+
+// The mingler at the balcony rail: the same planted hands and slow sweep of the dance floor as the watcher beside him,
+// on his taller (1.84 m) frame, so the wrists sit on the same 1.08 m rail from where he stands (0.47 m back from it).
+const MINGLER_RAILING_POSE = {
+    name: 'Idle_Railing_Loop',
+    beats: 32,
+    pose: b => {
+        const look = 0.6 * Math.sin(TAU * b / 32 + 1.3) + 0.25 * Math.sin(TAU * b / 13);
+        const breath = Math.sin(TAU * b / 8);
+        return {
+            hip: [0, -0.015, 0], hipRot: [0.08, 0, 0],
+            spine: [0.14 + 0.01 * breath, 0, 0],
+            head: [-0.1 + 0.015 * breath, 0.5 * look, 0.02 * Math.sin(TAU * b / 11)],
+            hands: {
+                R: { at: [0.11, -0.32, 0.40], pole: [0.7, -0.35, -0.45], fingers: [0, -0.1, 1] },
+                L: { at: [-0.11, -0.32, 0.40], pole: [-0.7, -0.35, -0.45], fingers: [0, -0.1, 1] }
+            },
+            shrug: { R: 0.05, L: 0.05 }
         };
     }
 };
@@ -608,7 +644,10 @@ function groovePose(groove, beat, mirror, rig) {
     const raw = groove.pose(beat, rig);
     const hand = (side, spec = {}) => {
         const sign = side === 'R' ? 1 : -1;
-        return { at: spec.at || [0.05 * sign, -0.32, 0.15], pole: spec.pole || [0.5 * sign, -0.4, -0.7], fingers: spec.fingers || null };
+        return {
+            at: spec.at || [0.05 * sign, -0.32, 0.15], pole: spec.pole || [0.5 * sign, -0.4, -0.7],
+            fingers: spec.fingers || null, thumb: spec.thumb || null
+        };
     };
     const pose = {
         hip: raw.hip || [0, -0.03, 0], hipRot: raw.hipRot || [0, 0, 0], spine: raw.spine || [0, 0, 0], head: raw.head || [0, 0, 0],
@@ -620,7 +659,7 @@ function groovePose(groove, beat, mirror, rig) {
     if (!mirror) return pose;
     const flip = v => (v ? [-v[0], v[1], v[2]] : v);
     const turn = a => [a[0], -a[1], -a[2]];
-    const flipHand = h => ({ at: flip(h.at), pole: flip(h.pole), fingers: flip(h.fingers) });
+    const flipHand = h => ({ at: flip(h.at), pole: flip(h.pole), fingers: flip(h.fingers), thumb: flip(h.thumb) });
     return {
         hip: flip(pose.hip), hipRot: turn(pose.hipRot), spine: turn(pose.spine), head: turn(pose.head),
         hands: { R: flipHand(pose.hands.L), L: flipHand(pose.hands.R) },
@@ -732,7 +771,16 @@ function synthesize(tgt, groove, mirror) {
             } else if (limb === 'Wrist') {
                 const { arm, hand } = ik[side];
                 const fingers = hand.fingers ? vnorm(qrot(chestQ, bodyToWorld(hand.fingers))) : vnorm(vsub(arm.end, arm.joint));
-                world = qmul(qswing(restDir(`Wrist.${side}`, `Middle1.${side}`), fingers), bind.q);
+                let swing = qswing(restDir(`Wrist.${side}`, `Middle1.${side}`), fingers);
+                if (hand.thumb) {
+                    // Roll about the fingers until the index side faces `thumb`: this is what turns a palm toward the
+                    // face (a smoker's hand) instead of leaving it wherever the shortest swing happened to put it.
+                    const along = v => vnorm(vsub(v, vscale(fingers, vdot(v, fingers))));
+                    const indexSide = along(qrot(swing, restDir(`Pinky2.${side}`, `Index2.${side}`)));
+                    const wanted = along(qrot(chestQ, bodyToWorld(hand.thumb)));
+                    swing = qmul(qAxis(fingers, Math.atan2(vdot(vcross(indexSide, wanted), fingers), vdot(indexSide, wanted))), swing);
+                }
+                world = qmul(swing, bind.q);
             } else if (limb === 'UpperLeg') {
                 const foot = bindOf(`Foot.${side}`).p;
                 const target = vadd(foot, bodyToWorld(pose.feet[side]));
@@ -848,6 +896,7 @@ async function build(person) {
     // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
     if (!person.guest) for (const groove of GROOVES) results.push(synthesize(tgt, groove, !!person.mirror));
     if (person.id === 'f7') results.push(synthesize(tgt, RAILING_POSE, false));
+    if (person.id === 'm6') results.push(synthesize(tgt, MINGLER_RAILING_POSE, false));
 
     // Bind pose as the node pose. The packs' own Idle, Walk, Run and Wave animate exactly these nodes (same rig), so
     // they are kept as they are for the people who walk around as other guests; every other stock clip goes. Ours follow.
@@ -872,9 +921,9 @@ async function build(person) {
 
 async function refreshStaticClips() {
     const specs = [
-        { name: 'club-crowd-f7.glb', poses: [RAILING_POSE] },
-        { name: 'club-crowd-m6.glb', poses: [DRINK_POSE, SMOKE_POSE] }
-    ];
+        { id: 'f7', name: 'club-crowd-f7.glb', poses: [RAILING_POSE] },
+        { id: 'm6', name: 'club-crowd-m6.glb', poses: [DRINK_POSE, SMOKE_POSE, MINGLER_RAILING_POSE] }
+    ].filter(spec => !only || only.split(',').includes(spec.id));
     const names = [];
     for (const spec of specs) {
         const path = join(outDir, spec.name);

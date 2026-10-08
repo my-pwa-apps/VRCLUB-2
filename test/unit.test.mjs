@@ -1320,6 +1320,11 @@ test('selective glow stays disabled because its private depth buffer cannot see 
     window.VRClubLifecycle.prototype._createGlowLayer.call(club);
     assert.equal(club.glowLayer.isEnabled, false, 'selective glow can reveal a light through a wall or person');
     assert.equal(club.glowLayer.intensity, 0.65, 'the configured value remains available to diagnostics');
+    // Entering or leaving XR must not switch it back on: no source file may enable it.
+    for (const file of ['js/club/01-core.js', 'js/club/02-lifecycle.js', 'js/club/03-rendering.js']) {
+        assert.doesNotMatch(readFileSync(join(ROOT, file), 'utf8'), /glowLayer\.isEnabled\s*=\s*true/,
+            `${file} re-enables the selective glow layer`);
+    }
 });
 
 test('light budget sweeps refresh matching-budget lit materials without refreezing them', () => {
@@ -7432,6 +7437,44 @@ test('the kick band reads a breakdown as low energy and the drop as high, and st
     club._readKickBand(bare, now);
     assert.equal(bare.low, null);
     assert.equal(bare.energy, null);
+});
+
+test('the kick band catches the same kicks at 60, 30, 20 and 12 frames a second', () => {
+    // A continuous waveform under 120 Hz, as the kick analyser holds it: 124 BPM kicks (a 55 Hz thump) over a plucked
+    // eighth-note bassline. Reading only the newest ~11 ms once per rendered frame caught 99% of a real set's beats
+    // at 60 fps, 23% at 30 fps and none at 12 fps, and the crowd stood still whenever the room was heavy to draw.
+    const rate = 48000, seconds = 30, bpm = 124, beat = 60 / bpm;
+    const wave = new Float32Array(Math.ceil((seconds + 1) * rate));
+    for (let n = 0; n < wave.length; n++) {
+        const t = n / rate;
+        const kick = 0.5 * Math.exp(-(t % beat) / 0.12) * Math.sin(2 * Math.PI * 55 * t);
+        const bass = 0.12 * Math.exp(-(t % (beat / 2)) / 0.08) * Math.sin(2 * Math.PI * 110 * t);
+        wave[n] = kick + bass + 0.01 * Math.sin(2 * Math.PI * 40 * t);
+    }
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub() });
+    const kicks = Math.floor(seconds / beat);
+    for (const fps of [60, 30, 20, 12]) {
+        const club = createAudioHarness().club;
+        const ctx = { sampleRate: rate, currentTime: 0, state: 'running' };
+        club.audioContext = ctx;
+        club.kickSamples = new Float32Array(8192);
+        club.kickAnalyser = {
+            getFloatTimeDomainData(out) {
+                const end = Math.round(ctx.currentTime * rate);
+                for (let i = 0; i < out.length; i++) { const n = end - out.length + i; out[i] = n >= 0 ? wave[n] : 0; }
+            }
+        };
+        const vj = new window.VJDirector({ vjBPM: 128 });
+        const frame = { hasAudio: true };
+        for (let now = 0; now < seconds * 1000; now += 1000 / fps) {
+            ctx.currentTime = now / 1000;
+            club._readKickBand(frame, now);
+            vj._detectOnset(frame, now);
+        }
+        assert.ok(vj.realOnsetCount >= kicks - 4 && vj.realOnsetCount <= kicks + 1,
+            `${fps} fps: ${vj.realOnsetCount} onsets for ${kicks} kicks`);
+        assert.ok(Math.abs(vj.bpm - bpm) < 3, `${fps} fps: tempo read as ${vj.bpm}`);
+    }
 });
 
 test('with a trusted kick the rig dips deeper between kicks, but not under Photosensitive Safe Mode', () => {

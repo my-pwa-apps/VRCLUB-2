@@ -727,12 +727,12 @@ class VRClubCore {
         // #5 OPTIMIZED: Use native resolution for VR (let XR layer handle scaling)
         this.engine.setHardwareScalingLevel(1.0); // Native resolution - XR handles foveated rendering
         
-        // #4 OPTIMIZED: Reduce glow layer intensity in VR but keep it ENABLED
-        // Glow is essential for laser beams and LED panels to look like real light sources
+        // The selective glow layer stays disabled in every mode: its private render target has no venue or
+        // characters in its depth buffer, so emitters would shine through walls and people (see _createGlowLayer).
+        // Visible glow comes from the pipeline's depth-correct bloom; only the configured intensity follows the mode.
         if (this.glowLayer) {
-            this.glowLayer.isEnabled = true;
-            this.glowLayer.intensity = vr.glowIntensity; // Reduced but visible
-            log.info('⚡ Reduced glow layer intensity for VR');
+            this.glowLayer.isEnabled = false;
+            this.glowLayer.intensity = vr.glowIntensity;
         }
         
         const ambient = this.scene.getLightByName('ambient');
@@ -915,9 +915,9 @@ class VRClubCore {
         // wall pixel grid, and the hard edges of every light beam.
         this.engine.setHardwareScalingLevel(this.tierSettings.renderScale);
         
-        // Restore glow layer for desktop
+        // The selective glow layer stays disabled on desktop too (see applyVRSettings).
         if (this.glowLayer) {
-            this.glowLayer.isEnabled = true;
+            this.glowLayer.isEnabled = false;
             this.glowLayer.intensity = desktop.glowIntensity;
         }
         

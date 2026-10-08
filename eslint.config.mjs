@@ -50,6 +50,7 @@ const browserGlobals = {
     PointerEvent: 'readonly',
     HTMLElement: 'readonly',
     HTMLCanvasElement: 'readonly',
+    Path2D: 'readonly',
     getComputedStyle: 'readonly',
     structuredClone: 'readonly',
     TextEncoder: 'readonly',

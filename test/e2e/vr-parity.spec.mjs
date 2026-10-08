@@ -155,7 +155,9 @@ test('VR keeps the desktop rendering features and image structure at the same gr
             sharpen: true, grain: false, chromaticAberration: false, vignette: false
         });
         expect(vrState.pipeline.toneMappingType).toBe(desktopState.pipeline.toneMappingType);
-        expect(vrState.glow.enabled).toBe(true);
+        // The selective glow layer ignores the venue's depth, so it stays off in both modes; bloom supplies the glow.
+        expect(vrState.glow.enabled).toBe(false);
+        expect(desktopState.glow.enabled).toBe(false);
         expect(vrState.environment.hasReflections).toBe(true);
         expect(vrState.environment.fogMode).toBe(desktopState.environment.fogMode);
         // The same show, crowd and fixtures are drawn: VR never culls content to save time.

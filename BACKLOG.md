@@ -6,6 +6,118 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review - 2026-10-08 - Post-crowd-work delta review
+
+Review mode only, source revision `fc9f12d`; no runtime fixes. This pass focused on changes
+since the 2026-10-06 review, especially the rig-driven bartender, mingler drink/smoke
+sequence, release gates and relay tooling. Syntax, the production build, the 186-test Node
+suite and the asset audit pass. Root production dependencies and Worker production
+dependencies audit clean. The full browser suite found the bartender contract failure below;
+the remaining browser scenarios were still running when the finding was recorded. Lint also
+fails on the newly used `Path2D` browser global, so the current revision is not deployable
+through the gated workflow. Matching lint and Worker-audit findings are updated in place
+rather than duplicated.
+
+- [x] **Verify the rig-driven bartender by motion instead of an animation-array sentinel**
+
+  **Resolved 2026-10-08.** `bar.spec.mjs` now asserts the bartender has a healthy `AvatarRig` and two hand bones,
+  and that her hands move more than 1 cm over 12 rendered frames. The check passes, and fails (0 m of travel)
+  when `_updateBartender()` is stubbed out.
+
+  **Priority:** High  
+  **Category:** Testing  
+  **Confidence:** High  
+  **Area:** Bar character and release-gated browser tests  
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js), [bar.spec.mjs](test/e2e/bar.spec.mjs),
+  [ci.yml](.github/workflows/ci.yml)  
+  **Evidence:** `npm run test:e2e` fails `bar.spec.mjs:87`: the bartender is enabled but
+  `bartender.animations.length === 1` is false. `_spawnWorkingBartender()` intentionally
+  creates an `AvatarRig`, sets `animations: []`, and updates its pose every frame through
+  `_updateBartender()`. The assertion predates that implementation and checks container
+  shape rather than visible movement.  
+  **Problem:** The production behavior changed from one playing `AnimationGroup` to a
+  procedural rig, but the release-gated browser contract still requires one animation group.  
+  **Impact:** CI and deployment fail even when the bartender is moving; simply deleting the
+  assertion would also remove protection against a genuinely frozen bartender.  
+  **Recommended solution:** Replace the sentinel with a short, deterministic before/after
+  sample of a bartender-driven bone or hand world position while the washing pose runs.
+  Also assert that the rig is healthy and retain the enabled, placement, light-slot and
+  `reactsToBeat` checks.  
+  **Regression considerations:** Do not add a redundant animation group to satisfy the old
+  assertion, and do not weaken the test to presence-only. The bartender must continue using
+  the shared crowd materials and remain outside quality-tier removal.  
+  **Acceptance criteria:** The browser test observes meaningful bartender pose movement over
+  time, fails if `_updateBartender()` is disabled, and passes with the procedural rig.  
+  **Validation:** Targeted `bar.spec.mjs`, the bartender drink-contact scenario in
+  `crowd-dance.spec.mjs`, then the full Playwright suite.  
+  **Estimated effort:** Small  
+  **Business value:** High  
+  **Technical debt reduction:** Medium
+
+- [x] **Keep the selective glow layer disabled across desktop and XR transitions**
+
+  **Resolved 2026-10-08.** `applyVRSettings()` and `applyDesktopSettings()` now keep `glowLayer.isEnabled = false`
+  and only set the mode's intensity. A unit test fails if any club layer sets it `true`. `vr-parity.spec.mjs` now
+  expects it off in both modes. The Quest-emulation test in `vrclub.spec.mjs` passes. That test had been masking a
+  stale assertion (the laser beam batch has been excluded from glow since `1c7494b`), now aligned.
+
+  **Priority:** High  
+  **Category:** Bug  
+  **Confidence:** High  
+  **Area:** Rendering lifecycle and XR parity  
+  **Affected files:** [01-core.js](js/club/01-core.js), [02-lifecycle.js](js/club/02-lifecycle.js),
+  [vr-parity.spec.mjs](test/e2e/vr-parity.spec.mjs), [vrclub.spec.mjs](test/e2e/vrclub.spec.mjs)  
+  **Evidence:** `_createGlowLayer()` deliberately sets `glowLayer.isEnabled = false` because its
+  private render target omits venue/character occluders. `applyVRSettings()` and
+  `applyDesktopSettings()` later set it to `true`. The full Playwright run fails both the
+  parity check (`glow.enabled` changes unexpectedly) and the XR contract
+  (`selectiveGlowDisabled` expected true, received false); 29 other browser scenarios pass.  
+  **Problem:** Entering XR re-enables an effect the rendering contract explicitly disables,
+  and exiting XR leaves it enabled on desktop too.  
+  **Impact:** Emitters and halos can appear through opaque walls and people, the extra render
+  target adds avoidable headset work, and two release-gated browser tests block deployment.  
+  **Recommended solution:** Never change `glowLayer.isEnabled` from false in either mode.
+  Keep mode-specific intensity values only for diagnostics/future opt-in work, and rely on
+  the depth-correct default-pipeline bloom for visible glow. Update the stale parity assertion
+  that currently expects VR glow enabled.  
+  **Regression considerations:** Preserve default-pipeline bloom, fixture registration and
+  diagnostics. Do not delete the compatibility layer unless all registration/diagnostic
+  consumers are migrated.  
+  **Acceptance criteria:** The selective layer remains disabled before XR, during XR and
+  after XR exit; bloom remains enabled in both modes; occlusion and image-parity tests pass.  
+  **Validation:** Targeted `vr-parity.spec.mjs` and the Quest-emulation scenario in
+  `vrclub.spec.mjs`, then the full Playwright suite and resource-budget snapshot.  
+  **Estimated effort:** Small  
+  **Business value:** High  
+  **Technical debt reduction:** Medium
+
+- [x] **Make kick detection independent of the frame rate, so the crowd dances under load**
+
+  **Resolved 2026-10-08.**  
+  **Priority:** High  
+  **Category:** Bug  
+  **Confidence:** High  
+  **Area:** Kick band, VJ beat tracking, crowd choreography  
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js), [vjDirector.js](js/vjDirector.js),
+  [unit.test.mjs](test/unit.test.mjs)  
+  **Evidence:** The Quaternius dancers fall back to the slow free `Groove_Sway` whenever `beatPresent` is false.
+  Rendering was ruled out: in the production build at Balanced and Ultra, desktop and emulated XR, every dancer's
+  skeleton matrices change while the camera faces away. On a real Resident episode, fed through the club's analyser
+  at fixed frame intervals, the beat was present 99% of the time at 16 ms, 23% at 33 ms, 1% at 50 ms and never at
+  80 ms. `_readKickBand()` read only the newest ~11 ms window once per frame. `_detectKick()`'s 60 ms rise test
+  then had one or no earlier sample to compare against. The extra rotation seen next to dancers is the existing
+  1.6 m avoidance turn, not dancing.  
+  **Fix:** The kick analyser holds ~170 ms (fftSize 8192). Each frame reads one 512-sample window for every 1/60 s
+  of audio time since the last read, stamped with when it played, into the preallocated `frame.kickSteps`.
+  `_detectOnset()` runs the detector over each step. At 60 fps this is still one window per frame.  
+  **Validation:** Same real-set measurement after the fix: 99 / 97 / 92 / 100% beat present at 16 / 33 / 50 / 80 ms,
+  124 BPM. A new unit test catches the kicks of a continuous waveform at 60, 30, 20 and 12 fps and fails at 30 fps
+  with the old per-frame read. All 349 Node tests and the real-club crowd-dance e2e pass. Not yet checked with real
+  music on a Quest 3S.  
+  **Estimated effort:** Small  
+  **Business value:** High  
+  **Technical debt reduction:** Medium
+
 ## Review - 2026-10-06 - NOCTURNE principal experience reassessment
 
 Review mode only, source revision `c9650c0`; no runtime fixes. See the
@@ -22,14 +134,24 @@ software-rendered frames, with a maximum level change of 0.179 m (required <0.21
 functional hitch-bound measurements, not headset frame timing. Hardware comfort, seated/standing
 traversal and the additional mirror-spot GPU cost still need Quest validation.
 
-- [ ] **Restore the lint/deployment gate for the shared room-intersection helper**
+- [x] **Keep classic-script browser globals wired into the lint/deployment gate**
+
+  **Resolved 2026-10-08:** `Path2D` added to `browserGlobals` in `eslint.config.mjs`; `npm run lint` exits 0
+  with `no-undef` unchanged. The actual CI run is still unverified.
+
+  **Rechecked 2026-10-08:** `npm run lint` exits 1 at
+  `js/club/04-environment.js:290` because `Path2D` is a standard browser global used by
+  `_drawNocturneNeon()` but is absent from `browserGlobals`. Syntax, the production build and
+  all 186 Node tests pass. The earlier `ROOM_INTERIOR` omission was fixed; this is the same
+  root maintenance failure on a newly used runtime global, so it updates this item instead
+  of creating a duplicate.
 
   **Priority:** High
   **Category:** Bug
   **Confidence:** High
   **Area:** Classic-script globals and CI
-  **Affected files:** [eslint.config.mjs](eslint.config.mjs), [06-effects.js](js/club/06-effects.js),
-  [01-core.js](js/club/01-core.js), [ci.yml](.github/workflows/ci.yml)
+  **Affected files:** [eslint.config.mjs](eslint.config.mjs), [04-environment.js](js/club/04-environment.js),
+  [ci.yml](.github/workflows/ci.yml)
   **Evidence:** `npm run lint` exits 1 with six `no-undef` errors at lines 1019-1024 of
   `06-effects.js`. `ROOM_INTERIOR` is declared/exported by `01-core.js`, but is missing
   from ESLint's `projectGlobals`. Syntax, the production build and all 176 Node tests pass.
@@ -45,7 +167,8 @@ traversal and the additional mirror-spot GPU cost still need Quest validation.
   **Acceptance criteria:** `npm run lint` exits 0; existing tests/build still pass; CI verify is green.
   **Validation:** Lint, contract tests and production build, then the actual CI run.
   **Implementation update (after review):** Added `ROOM_INTERIOR` to the readonly shared globals.
-  Local lint, syntax checking and all 180 Node tests now pass. Actual CI publication remains unverified.
+  Local lint, syntax checking and all 180 Node tests passed at that revision. The later `Path2D`
+  addition regressed the same gate, so the acceptance criteria are not currently satisfied.
   **Estimated effort:** Small
   **Product value:** High
   **Technical debt reduction:** Low
@@ -824,6 +947,11 @@ Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
 - Not adopted: `fixedFoveation` is exposed on the XR session manager in both versions (not new in 9);
   setting it changes the headset's sharpness against its cost, so it belongs with the Quest baseline.
 - [ ] **Resolve the relay tooling advisory chain and audit its separate lockfile in CI**
+
+  **Rechecked 2026-10-08:** Root audit and both production-only audits report zero.
+  `npm --prefix worker audit --audit-level=high` still exits 1 with four high-severity
+  development-tooling nodes in the Wrangler/Miniflare Sharp and Undici chain. CI still runs
+  only the root lockfile audit.
 
   **Rechecked 2026-10-06:** Root audit still reports zero. The worker full audit now reports
   **four high dependency nodes**, not the previous one high/two moderate: Wrangler, Miniflare,

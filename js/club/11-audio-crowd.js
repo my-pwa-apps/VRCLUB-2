@@ -7,17 +7,19 @@ class VRClubAudioCrowd extends VRClubUI {
             this.audioAnalyser.fftSize = 256;
             this.audioDataArray = new Uint8Array(this.audioAnalyser.frequencyBinCount);
 
-            // The kick band: everything under ~120 Hz, read as a waveform (RMS of the last ~12 ms) rather than as FFT
+            // The kick band: everything under ~120 Hz, read as a waveform (RMS of ~11 ms windows) rather than as FFT
             // bins. The main analyser's 0..2.2 kHz "bass" average also carries pads, vocals and snare, and its default
             // 0.8 smoothing smears each kick over ~100 ms, which is why kicks were missed and bass notes were taken for
             // kicks. Pre-spatial, like the main analyser, so walking away from the PA does not calm the show.
+            // The buffer holds ~170 ms, so every frame can read back over everything played since the last one
+            // (see _readKickBand): the detector then sees the same 60 steps a second at any frame rate.
             try {
                 this.kickFilter = this.audioContext.createBiquadFilter();
                 this.kickFilter.type = 'lowpass';
                 this.kickFilter.frequency.value = 120;
                 this.kickFilter.Q.value = 0.7;
                 this.kickAnalyser = this.audioContext.createAnalyser();
-                this.kickAnalyser.fftSize = 512;
+                this.kickAnalyser.fftSize = 8192;
                 this.kickSamples = new Float32Array(this.kickAnalyser.fftSize);
                 this.kickFilter.connect(this.kickAnalyser);
             } catch (err) {
@@ -493,6 +495,7 @@ class VRClubAudioCrowd extends VRClubUI {
             frame.low = this.kickAnalyser ? 0 : null;
             frame.lowRms = 0;
             frame.energy = this.kickAnalyser ? 0 : null;
+            if (frame.kickSteps) frame.kickSteps.count = 0;
             return frame;
         }
         
@@ -567,14 +570,26 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * The kick band and the music's dynamics, into `frame.low` / `frame.lowRms` / `frame.energy` (see 01-core).
-     * No allocation: the sample buffer and the running levels are kept.
+     * The kick band and the music's dynamics, into `frame.low` / `frame.lowRms` / `frame.energy` (see 01-core), plus
+     * `frame.kickSteps`: the band as the kick detector must see it.
      *  - low: RMS under ~120 Hz against a peak that decays with an 8 s half-life, so it reads the same at any volume.
      *  - energy: short-term (0.5 s) against long-term (20 s) loudness of that band, mapped so a steady groove sits
      *    near 0.6, a kick-less breakdown falls toward 0.2 and the first bars of a drop push toward 1.
+     *  - kickSteps: one ~11 ms RMS window every 1/60 s of AUDIO time since the last read, each stamped with when it
+     *    played. Reading only the newest window once per rendered frame made the detector depend on the frame rate:
+     *    measured on a real set, the beat was present 99% of the time at 60 fps, 23% at 30 fps and never at 12 fps,
+     *    so the crowd stopped dancing whenever the room got heavy to draw. At 60 fps this is still one window a frame.
+     * No allocation: the sample buffer, the step arrays and the running levels are kept.
      */
     _readKickBand(frame, nowMs) {
         const analyser = this.kickAnalyser;
+        const steps = frame.kickSteps || (frame.kickSteps = {
+            count: 0,
+            times: new Float64Array(VRClubAudioCrowd.KICK_MAX_STEPS),
+            lows: new Float32Array(VRClubAudioCrowd.KICK_MAX_STEPS),
+            raws: new Float32Array(VRClubAudioCrowd.KICK_MAX_STEPS)
+        });
+        steps.count = 0;
         if (!analyser || !this.kickSamples || !frame.hasAudio) {
             frame.low = analyser ? 0 : null;
             frame.lowRms = 0;
@@ -583,18 +598,52 @@ class VRClubAudioCrowd extends VRClubUI {
         }
         analyser.getFloatTimeDomainData(this.kickSamples);
         const samples = this.kickSamples;
-        // The last ~12 ms only: a kick's attack is what onset detection needs to see.
-        const n = Math.min(samples.length, 512);
-        let sum = 0;
-        for (let i = samples.length - n; i < samples.length; i++) sum += samples[i] * samples[i];
-        const rms = Math.sqrt(sum / n);
-        const k = this._kickBand || (this._kickBand = { peak: 1e-3, short: 0, long: 0, at: nowMs, started: false, quietSince: 0 });
-        const dt = Math.min(0.25, Math.max(0, (nowMs - k.at) / 1000));
-        k.at = nowMs;
+        const length = samples.length;
+        const win = Math.min(length, VRClubAudioCrowd.KICK_WINDOW);
+        const k = this._kickBand || (this._kickBand = {
+            peak: 1e-3, short: 0, long: 0, at: nowMs, started: false, quietSince: 0, clock: null, carry: 0
+        });
+
+        // How much audio has played since the last read, on the audio clock (which is what the buffer follows).
+        const ctx = this.audioContext;
+        const rate = ctx && ctx.sampleRate > 0 ? ctx.sampleRate : 0;
+        const clock = ctx && Number.isFinite(ctx.currentTime) ? ctx.currentTime : null;
+        if (rate && clock !== null && k.clock !== null && length > win) {
+            const stride = rate / VRClubAudioCrowd.KICK_STEP_HZ;
+            const fresh = Math.max(0, Math.min(length - win, (clock - k.clock) * rate));
+            const due = k.carry + fresh;
+            let n = Math.floor(due / stride);
+            const rem = due - n * stride;
+            // A frame longer than the buffer: only the steps still in it can be read.
+            n = Math.min(n, Math.floor((length - win - rem) / stride) + 1, VRClubAudioCrowd.KICK_MAX_STEPS);
+            k.carry = rem;
+            for (let j = n - 1; j >= 0; j--) {
+                const back = rem + j * stride;           // samples between this step and the newest one
+                const end = length - Math.round(back);
+                const rms = VRClubAudioCrowd._windowRms(samples, end - win, end);
+                this._kickBandStep(k, rms, nowMs - back / rate * 1000, steps);
+            }
+        } else {
+            // First read, or no audio clock (an old browser, a test stub): the newest window, now.
+            this._kickBandStep(k, VRClubAudioCrowd._windowRms(samples, length - win, length), nowMs, steps);
+        }
+        k.clock = clock;
+
+        const rms = VRClubAudioCrowd._windowRms(samples, length - win, length);
+        frame.low = Math.min(1, rms / k.peak);
+        frame.lowRms = rms;
+        const ratio = k.long > 1e-5 ? k.short / k.long : 1;
+        frame.energy = Math.max(0, Math.min(1, (ratio - 0.3) / 1.0));
+    }
+
+    /** One step of the kick band: track its levels and record it for the detector. */
+    _kickBandStep(k, rms, tMs, steps) {
+        const dt = Math.min(0.25, Math.max(0, (tMs - k.at) / 1000));
+        k.at = tMs;
         // A new track (or the same one after a pause) starts its levels over, rather than reading as a huge drop.
         if (!k.started || rms < 1e-5) {
-            if (rms < 1e-5) { k.quietSince = k.quietSince || nowMs; if (nowMs - k.quietSince > 2000) k.started = false; }
-            if (!k.started && rms >= 1e-5) { k.short = k.long = rms; k.peak = Math.max(rms, 1e-4); k.started = true; k.quietSince = 0; k.startedAt = nowMs; }
+            if (rms < 1e-5) { k.quietSince = k.quietSince || tMs; if (tMs - k.quietSince > 2000) k.started = false; }
+            if (!k.started && rms >= 1e-5) { k.short = k.long = rms; k.peak = Math.max(rms, 1e-4); k.started = true; k.quietSince = 0; k.startedAt = tMs; }
         } else {
             k.quietSince = 0;
         }
@@ -602,13 +651,28 @@ class VRClubAudioCrowd extends VRClubUI {
         k.short += (rms - k.short) * (1 - Math.exp(-dt / 0.5));
         // The long average starts quick and slows to 20 s: seeded from the first frame alone it could start on a
         // kick's peak (five times the track's average) and read the next 40 seconds as a breakdown.
-        const tauLong = Math.min(20, 1 + (nowMs - (k.startedAt || nowMs)) / 1000);
+        const tauLong = Math.min(20, 1 + (tMs - (k.startedAt || tMs)) / 1000);
         k.long += (rms - k.long) * (1 - Math.exp(-dt / tauLong));
-        frame.low = rms / k.peak;
-        frame.lowRms = rms;
-        const ratio = k.long > 1e-5 ? k.short / k.long : 1;
-        frame.energy = Math.max(0, Math.min(1, (ratio - 0.3) / 1.0));
+        const i = steps.count;
+        if (i >= steps.times.length) return;
+        steps.times[i] = tMs;
+        steps.lows[i] = rms / k.peak;
+        steps.raws[i] = rms;
+        steps.count = i + 1;
     }
+
+    static _windowRms(samples, from, to) {
+        let sum = 0;
+        for (let i = Math.max(0, from); i < to; i++) sum += samples[i] * samples[i];
+        return Math.sqrt(sum / Math.max(1, to - Math.max(0, from)));
+    }
+
+    /** The kick detector's rate: one ~11 ms window every 1/60 s of audio, whatever the display does. */
+    static get KICK_STEP_HZ() { return 60; }
+    /** Samples per window: what the detector was tuned on (~11 ms at 48 kHz). */
+    static get KICK_WINDOW() { return 512; }
+    /** At most this many steps a frame: ~270 ms of audio, more than the kick analyser's buffer holds. */
+    static get KICK_MAX_STEPS() { return 16; }
 
     /**
      * Pulse VR controllers in time with bass hits.

@@ -228,8 +228,9 @@ scene state machine (`breakdown`/`groove`/`build`/`drop`), and macros. Writes in
 `masterIntensity` is a REAL show dimmer: render code must multiply it into show-owned
 emission, wall level and flash impulses; zero means blackout except explicit safety practicals.
 
-**Kicks come from the kick band, not the bass band.** When `audioData.low` is a number, `_detectOnset()` routes to
-`_detectKick(low, lowRms, now)`: a rise over the last 60 ms (frame-rate independent) must clear 2.5x the median rise,
+**Kicks come from the kick band, not the bass band.** When `audioData.low` is a number, `_detectOnset()` feeds every
+entry of `audioData.kickSteps` (one per 1/60 s of AUDIO time since the last frame, stamped when it played) to
+`_detectKick(low, lowRms, t)`; without steps it falls back to one call per frame. A rise over the last 60 ms must clear 2.5x the median rise,
 `low` must be >= 0.35, and the RAW rise must reach `KICK_REF_SHARE` (0.45) of the accepted kicks' (an EMA relaxing with a
 60 s half-life), so a bassline cannot pass as kicks even after the normalising peak has decayed through a breakdown.
 A refractory of max(180 ms, 55% of a beat) stops eighth-note doubles. Without the kick band (a stubbed or old analyser)
@@ -435,7 +436,8 @@ set pipeline values inline. Grain and chromatic aberration are disabled on both 
 (they read as haze); bloom is kept minimal.
 
 The selective Babylon `GlowLayer` object remains available for fixture registration and diagnostics but is deliberately
-`isEnabled = false`. It renders selected emitters into a private target without the opaque venue or characters in its
+`isEnabled = false` in EVERY mode: `applyVRSettings()` and `applyDesktopSettings()` only change its intensity (a unit
+test fails if any club layer sets it `true`). It renders selected emitters into a private target without the opaque venue or characters in its
 depth buffer, which made lights and halos visible through walls and Quaternius people. Visible glow comes only from the
 default rendering pipeline's bloom, after the main scene has resolved depth. Never re-enable the selective layer unless
 its pass includes every relevant occluder and the added full-scene draw cost has been measured.
@@ -971,11 +973,18 @@ to avoid z-fighting.
   and treble adds a small LED-wall shimmer. The lasers and mirror ball follow the look and the kick pulse, not the bands.
   Re-banding needs the Show Director's energy thresholds recalibrated (see `BACKLOG.md`).
 - **The kick band** is a second tap: `audioSource` → `kickFilter` (low-pass 120 Hz, Q 0.7) → `kickAnalyser`
-  (fftSize 512, time domain), a dead end that nothing hears. `_readKickBand()` writes `lowRms` (RMS), `low` (RMS against
+  (fftSize 8192, ~170 ms, time domain), a dead end that nothing hears. `_readKickBand()` writes `lowRms` (RMS), `low` (RMS against
   a peak with an 8 s half-life) and `energy` (a 0.5 s average against one that slows from 1 s to 20 s after the track
   starts, mapped `(ratio - 0.3) / 1.0` into 0..1; levels start over after 2 s of silence) into `_audioFrameData`.
   `low`/`energy` are `null` when there is no kick analyser. Kick detection uses it (see `js/vjDirector.js`); the main
   analyser and its bands are untouched because the LED patterns and movement thresholds are calibrated on them.
+  **The detector runs on the audio clock, not the frame rate.** Each frame `_readKickBand()` reads back over every
+  1/60 s of audio played since the last read (`audioContext.currentTime`), one 512-sample RMS window per step, into
+  `frame.kickSteps` (preallocated, `KICK_MAX_STEPS` 16). It used to read only the newest window once per frame, and
+  the 60 ms rise test then found no earlier sample below ~50 fps: on a real Resident set the beat was present 99% of
+  the time at 60 fps, 23% at 30, 1% at 20 and never at 12, so the crowd fell back to its free sway whenever the room
+  was heavy to draw. With steps: 99 / 97 / 92 / 100%. At 60 fps it is still one window a frame (the tuning is
+  unchanged). `test/unit.test.mjs` drives a continuous waveform through it at 60/30/20/12 fps.
 - **Occlusion and the street.** `updateSpatialAudioListener()` runs two low-pass stages in series after the PA panners
   (`occlusionFilter`, then `occlusionFilter2`). Indoors only the first works, and it is ONE continuous sweep, not a step
   at the doorway: `VenueLayout.vestibule.enclosure(z)` smoothsteps from 1 at the dance floor's front edge

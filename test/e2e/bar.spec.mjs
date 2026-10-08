@@ -17,6 +17,17 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
         const bottles = byName('barBottles');
         const layout = window.VenueLayout;
 
+        // The bartender is posed by an AvatarRig every frame (washing, serving), not by an animation group, so
+        // "animating" means her hands actually move between rendered frames.
+        const hands = bartender.root.getChildTransformNodes(false).filter(node => /hand_[lr]$/.test(node.name));
+        const handPositions = () => hands.map(node => node.computeWorldMatrix(true).getTranslation());
+        const handsBefore = handPositions();
+        let handTravel = 0;
+        for (let i = 0; i < 12; i++) {
+            await new Promise(resolve => scene.onAfterRenderObservable.addOnce(resolve));
+            handPositions().forEach((p, h) => { handTravel = Math.max(handTravel, BABYLON.Vector3.Distance(p, handsBefore[h])); });
+        }
+
         // Walk the real collision system: through the doorway, and into the counter from the floor. The walking-surface
         // follow runs between steps (it lowers the eye going down; the risers lift it going up).
         const camera = club.camera;
@@ -58,7 +69,8 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
             roomSlots: slots(byName('leftWall')),
             bartender: {
                 x: bartender.root.position.x, z: bartender.root.position.z, enabled: bartender.root.isEnabled(),
-                animating: bartender.animations.length === 1, reacts: bartender.reactsToBeat
+                rigged: !!(bartender.rig && bartender.rig.ok), hands: hands.length, handTravel,
+                reacts: bartender.reactsToBeat
             },
             layout: { counterBack: layout.bar.counter.xBack, backBar: layout.bar.backBar.xFront },
             doorwayZ: throughDoor.z,
@@ -84,7 +96,9 @@ test('the entrance vestibule and the bar are built, lit by their own accents and
     expect(state.vestibuleSlots[0]).toBe('entranceLight');
     expect(state.roomSlots[0]).toBe('ambient');
     expect(state.bartender.enabled).toBe(true);
-    expect(state.bartender.animating).toBe(true);
+    expect(state.bartender.rigged, 'the bartender is posed by her AvatarRig').toBe(true);
+    expect(state.bartender.hands).toBe(2);
+    expect(state.bartender.handTravel, 'her hands must move between frames (washing or serving)').toBeGreaterThan(0.01);
     expect(state.bartender.reacts).toBe(false);
     expect(state.bartender.x).toBeGreaterThan(state.layout.counterBack);
     expect(state.bartender.x).toBeLessThan(state.layout.backBar);

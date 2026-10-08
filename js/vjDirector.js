@@ -218,7 +218,13 @@ class VJDirector {
     // used by aubio/Mixxx for kick detection.
     // -------------------------------------------------------------------------
     _detectOnset(audioData, now) {
-        // The dedicated kick band, when the audio graph provides it (see VRClub._readKickBand).
+        // The dedicated kick band, when the audio graph provides it (see VRClub._readKickBand): every step of audio
+        // since the last frame, each at the time it played, so the detector runs at the same rate at any frame rate.
+        const steps = audioData.kickSteps;
+        if (typeof audioData.low === 'number' && steps) {
+            for (let i = 0; i < steps.count; i++) this._detectKick(steps.lows[i], steps.raws[i], steps.times[i]);
+            return;
+        }
         if (typeof audioData.low === 'number') { this._detectKick(audioData.low, audioData.lowRms || 0, now); return; }
 
         // Use bass band primarily; weight low-mid as a secondary cue so
@@ -265,8 +271,9 @@ class VJDirector {
      * Kick detection on the kick band: `low` is its level against a slowly decaying peak (loudness-independent),
      * `raw` its RMS.
      *
-     * A kick is a sudden rise: the level now against the lowest it was in the last 60 ms (so the test does not
-     * depend on the frame rate). It counts when
+     * A kick is a sudden rise: the level now against the lowest it was in the last 60 ms. The club feeds this one
+     * step every 1/60 s of audio whatever the frame rate (VRClub._readKickBand), so that window always holds
+     * several steps. It counts when
      *   - the normalised rise is well above the usual frame-to-frame movement (2.5 x the median of the last ~second),
      *   - the RAW rise is at least KICK_REF_SHARE of the kicks already accepted. A bass note or a tom is a fraction
      *     of a kick (measured: bass plucks rise at most a quarter of a kick), so a rolling bassline is not taken for a
