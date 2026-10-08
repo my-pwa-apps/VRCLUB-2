@@ -80,7 +80,8 @@
     <div id="splashScreen" role="dialog" aria-modal="true" aria-labelledby="splashTitle">
         
         <div class="splash-content">
-            <div class="splash-logo" aria-hidden="true">🎧</div>
+            <!-- The wordmark is the club's own neon sign: thin geometric tubing, drawn as an outline with a
+                 soft smoky halo, exactly like the signs inside the club and over the street entrance. -->
             <h2 class="splash-title" id="splashTitle">NOCTURNE</h2>
             <div class="splash-subtitle">◆ Immersive Virtual Nightclub Experience ◆</div>
 
@@ -91,41 +92,14 @@
                 <strong>⚠ Photosensitivity warning</strong>
                 <span>This experience contains flashing lights and strobe effects.</span>
             </div>
-            <button class="splash-toggle" id="splashSafeModeBtn" type="button" aria-pressed="false"
-                    title="Disables all strobes and sharp flashes for the whole session.">
+            <button class="splash-toggle" id="splashSafeModeBtn" type="button" aria-pressed="false">
                 <span aria-hidden="true">🛡️</span> Photosensitive Safe Mode: <span id="splashSafeModeState">OFF</span>
             </button>
 
-            <label class="splash-toggle" for="splashVRComfort">
-                <input id="splashVRComfort" type="checkbox" aria-describedby="splashVRComfortNote">
-                VR Comfort: Teleport &amp; Snap Turn
-            </label>
-            <p class="splash-hint" id="splashVRComfortNote">
-                When off: left stick walks where you look; right stick turns smoothly.
-                Enable Comfort if smooth movement feels uncomfortable.
-            </p>
-
-            <!-- On by default (the guest can untick it): starting the music connects to the
-                 chosen podcast's servers, which receive the visitor's IP address and listening time. -->
-            <label class="splash-toggle" for="splashRadioOnEntry">
-                <input id="splashRadioOnEntry" type="checkbox" aria-describedby="splashRadioNote" checked>
-                Play music on entry
-            </label>
-            <div class="splash-podcasts" role="radiogroup" aria-label="Podcast to play on entry">
-                <button class="splash-podcast" id="splashPodcastResident" type="button" role="radio" aria-checked="true" data-podcast="resident">
-                    <span class="splash-podcast-artist">Hernan Cattaneo</span>
-                    <span class="splash-podcast-show">Resident</span>
-                </button>
-                <button class="splash-podcast" id="splashPodcastColourizon" type="button" role="radio" aria-checked="false" data-podcast="colourizon">
-                    <span class="splash-podcast-artist">Miss Melera</span>
-                    <span class="splash-podcast-show">Colourizon</span>
-                </button>
-            </div>
-            <p class="splash-hint" id="splashRadioNote">
-                Plays a random episode of <span id="splashRadioName">Resident by Hernan Cattaneo</span> from
-                <span id="splashRadioHost">podcast.hernancattaneo.com and Podbean</span>, which receive your IP address.
-                Untick it to choose a station or a local file later.
-            </p>
+            <!-- The label says what it does; there is no hint paragraph and no tooltip behind it. -->
+            <button class="splash-toggle" id="splashVRComfortBtn" type="button" aria-pressed="false">
+                <span aria-hidden="true">🧭</span> VR Comfort — Teleport &amp; Snap Turn: <span id="splashVRComfortState">OFF</span>
+            </button>
 
             <button class="splash-button" id="enterClubBtn" type="button">
                 ▶ ENTER CLUB
@@ -685,8 +659,21 @@
             — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" class="credit-link">CC BY 4.0</a>
             (textures trimmed and packed into one atlas)
         </div>
+        <div class="credits-heading"><strong>Music</strong></div>
+        <div>
+            • "Resident" — the radio show by Hernan Cattaneo. Feed
+            <a href="https://podcast.hernancattaneo.com/" target="_blank" rel="noopener noreferrer" class="credit-link">podcast.hernancattaneo.com</a>,
+            audio served by Podbean.
+        </div>
+        <div>
+            • "Colourizon" — the podcast by Miss Melera, served from
+            <a href="https://soundcloud.com/missmelera" target="_blank" rel="noopener noreferrer" class="credit-link">SoundCloud</a>
+            through this club's own relay.
+        </div>
         <div class="credits-note">
-            Audio streams are fetched directly from the URL you choose; nothing is sent to us.
+            A DJ set is streamed from its publisher, which receives your IP address and listening
+            time. Any station or file you choose yourself is fetched straight from that URL;
+            nothing is sent to us.
         </div>
         </div>
     </details>

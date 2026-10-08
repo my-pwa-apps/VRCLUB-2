@@ -6,16 +6,15 @@ useQuestHarness();
 // The shared harness only stores graphics tier and Safe Mode; it leaves the music setting untouched,
 // so this runs the real defaults from a clean profile.
 
-test('music plays on entry by default: a Resident episode, announced in the audio menu', async ({ page }) => {
+test('music starts on entry with no opt-in to find: a Resident episode, announced in the audio menu', async ({ page }) => {
     test.setTimeout(900_000);
     const requests = [];
     page.on('request', request => requests.push(request.url()));
 
     await page.goto('/');
-    const toggle = page.locator('#splashRadioOnEntry');
-    await expect(toggle).toBeChecked();
-    await expect(page.locator('#splashRadioName')).toContainText('Hernan Cattaneo');
-    await expect(page.locator('#splashRadioHost')).toContainText('podcast.hernancattaneo.com');
+    // A club has music when you walk in. The splash carries no music toggle and no show name.
+    await expect(page.locator('#splashRadioOnEntry')).toHaveCount(0);
+    await expect(page.locator('#splashScreen input')).toHaveCount(0);
 
     await page.locator('#enterClubBtn').click();
     await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 180_000 });
@@ -82,21 +81,23 @@ test('when an episode finishes the next older one plays, in a real audio element
     expect(await page.evaluate(() => window.vrClub.audioElement.loop)).toBe(false);
 });
 
-test('turning music off on the splash connects to nothing and is remembered', async ({ page }) => {
+test('VR Comfort is a press-to-enable toggle on the splash and is remembered', async ({ page }) => {
     test.setTimeout(900_000);
-    const requests = [];
-    page.on('request', request => requests.push(request.url()));
-
+    // The shared harness pre-selects comfort mode and re-asserts it on every navigation, so this
+    // presses the button both ways in one page instead of reloading to prove the preference stuck.
     await page.goto('/');
-    const toggle = page.locator('#splashRadioOnEntry');
-    await toggle.uncheck();
-    expect(await page.evaluate(() => localStorage.getItem('vrclub.radioOnEntry'))).toBe('0');
+    const comfort = page.locator('#splashVRComfortBtn');
+    await expect(comfort).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#splashVRComfortState')).toHaveText('ON');
+    await comfort.click();
+    await expect(comfort).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('#splashVRComfortState')).toHaveText('OFF');
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.vrComfort'))).toBe('0');
 
-    await page.reload();
-    await expect(page.locator('#splashRadioOnEntry')).not.toBeChecked();
+    await comfort.click();
+    await expect(comfort).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.vrComfort'))).toBe('1');
     await page.locator('#enterClubBtn').click();
     await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 180_000 });
-    await page.waitForTimeout(1500);
-    expect(requests.filter(url => /hernancattaneo|podbean|sunshine-live/.test(url))).toEqual([]);
-    expect(await page.evaluate(() => Boolean(window.vrClub.audioElement && !window.vrClub.audioElement.paused))).toBe(false);
+    expect(await page.evaluate(() => window.vrClub.vrComfortMode)).toBe(true);
 });

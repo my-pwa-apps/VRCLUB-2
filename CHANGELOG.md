@@ -318,6 +318,14 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - **NOCTURNE neon logo:** the club sign now follows the supplied reference with thin white geometric
   tubing and a neutral smoky halo instead of the previous pink neon treatment. The same atlas-backed
   logo is displayed outward above the street entrance, without adding a second texture or draw-call path.
+- **A cleaner splash screen.** The entry screen no longer carries the podcast picker, the name of the show it
+  will play, or the servers behind it (including the club's own relay host). The shows, where their audio comes
+  from and the privacy note about streaming all moved into **ⓘ Credits & licences**, and the choice of DJ set
+  lives in the Audio menu and on the VR Music page. The music question is gone too: a club has music playing
+  when you walk in, so ENTER always starts a DJ set and you change or stop it from the 🎵 menu inside. The
+  headphones emoji was replaced by the club's own NOCTURNE neon wordmark — the same logo that hangs over the
+  dance floor and over the street entrance — and **VR Comfort** is now a single button you press to turn on,
+  like Photosensitive Safe Mode, instead of a checkbox with a paragraph of explanation.
 - **Lighting rig pulled in over the dance floor**: the side cross beams, their six moving heads and the two
   side lasers moved from x ±8 to x ±7.6 (`CLUB_POSITIONS.sideTrussX`), further from the balcony and the bar,
   and 0.8 m clear of the flown PA cabinets. The side lasers were also fixed: they were

@@ -2011,8 +2011,10 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (this.vrComfortMode && this.jumpState) this.jumpState.active = false;
         if (typeof document !== 'undefined') {
-            const splash = document.getElementById('splashVRComfort');
-            if (splash) splash.checked = this.vrComfortMode;
+            const splashState = document.getElementById('splashVRComfortState');
+            const splashBtn = document.getElementById('splashVRComfortBtn');
+            if (splashBtn) splashBtn.setAttribute('aria-pressed', String(this.vrComfortMode));
+            if (splashState) splashState.textContent = this.vrComfortMode ? 'ON' : 'OFF';
             const button = document.getElementById('vjVRComfortBtn');
             if (button) {
                 button.setAttribute('aria-pressed', String(this.vrComfortMode));

@@ -41,7 +41,7 @@ function ensurePodcastPlayer(club) {
     return player;
 }
 
-/** Light the chosen podcast on every control that offers the choice (splash cards, Audio menu buttons). */
+/** Light the chosen podcast on every control that offers the choice (the Audio menu buttons). */
 function refreshPodcastChoices() {
     const id = window.Podcasts.selectedId(window.localStorage);
     document.querySelectorAll('[data-podcast]').forEach((button) => {
@@ -51,8 +51,6 @@ function refreshPodcastChoices() {
 
 /** localStorage key for the last stream the guest actually played. */
 const LAST_STREAM_KEY = 'vrclub.lastStreamUrl';
-// Whether ENTER starts the music. On by default; '0' is the guest's explicit opt-out.
-const RADIO_ON_ENTRY_KEY = 'vrclub.radioOnEntry';
 
 /** Now-playing text for the audio menu, set when the entry music starts (the menu may not exist yet). */
 let entryNowPlaying = '';
@@ -173,13 +171,25 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
+// VR Comfort is a press-to-enable toggle, like Safe Mode above it: a headset guest reads one line
+// and presses it once. The club mirrors the state back here through setVRComfortMode().
 (function initSplashVRComfort() {
-    const checkbox = document.getElementById('splashVRComfort');
-    if (!checkbox) return;
-    checkbox.checked = VRClubCore.resolveVRComfortMode();
-    checkbox.addEventListener('change', () => {
-        try { localStorage.setItem('vrclub.vrComfort', checkbox.checked ? '1' : '0'); } catch (_) {}
-        if (window.vrClub) window.vrClub.setVRComfortMode(checkbox.checked);
+    const btn = document.getElementById('splashVRComfortBtn');
+    const state = document.getElementById('splashVRComfortState');
+    if (!btn || !state) return;
+
+    const render = (on) => {
+        btn.setAttribute('aria-pressed', String(on));
+        state.textContent = on ? 'ON' : 'OFF';
+    };
+    render(VRClubCore.resolveVRComfortMode());
+
+    btn.addEventListener('click', () => {
+        const next = btn.getAttribute('aria-pressed') !== 'true';
+        try { localStorage.setItem('vrclub.vrComfort', next ? '1' : '0'); } catch (_) {}
+        // If the club already exists (RETRY path), apply immediately.
+        if (window.vrClub) window.vrClub.setVRComfortMode(next);
+        render(next);
     });
 })();
 
@@ -262,47 +272,6 @@ function startEntryMusic(club, pointAtAudioMenu) {
     });
 }
 
-(function initSplashRadioOptIn() {
-    const checkbox = document.getElementById('splashRadioOnEntry');
-    if (!checkbox) return;
-    try { checkbox.checked = AudioUtils.shouldPlayOnEntry(localStorage.getItem(RADIO_ON_ENTRY_KEY)); } catch (_) { checkbox.checked = true; }
-    // Name the servers that will actually be contacted, including a remembered stream.
-    const remembered = rememberedStreamUrl();
-    const nameEl = document.getElementById('splashRadioName');
-    const hostEl = document.getElementById('splashRadioHost');
-    const cards = document.querySelector('.splash-podcasts');
-    const describe = () => {
-        const podcast = Podcasts.get(Podcasts.selectedId(localStorage));
-        if (nameEl) nameEl.textContent = podcast.name;
-        if (hostEl) hostEl.textContent = Podcasts.serversText(podcast, podcastRelayBase());
-        if (cards) cards.setAttribute('aria-disabled', String(!checkbox.checked));
-    };
-    refreshPodcastChoices();
-    if (remembered) {
-        // The guest's own stream wins over a podcast: there is nothing to choose.
-        if (cards) cards.hidden = true;
-        try {
-            if (hostEl) hostEl.textContent = new URL(remembered).host;
-            if (nameEl) nameEl.textContent = 'your last stream';
-        } catch (_) { /* keep the static text */ }
-    } else {
-        describe();
-        document.querySelectorAll('.splash-podcast').forEach((card) => {
-            card.addEventListener('click', () => {
-                Podcasts.saveSelected(card.dataset.podcast, localStorage);
-                refreshPodcastChoices();
-                describe();
-                // The club may already be loading (RETRY path): the DJ follows the choice.
-                if (window.vrClub && typeof window.vrClub.setDJ === 'function') window.vrClub.setDJ(Podcasts.get(card.dataset.podcast).dj);
-            });
-        });
-    }
-    checkbox.addEventListener('change', () => {
-        try { localStorage.setItem(RADIO_ON_ENTRY_KEY, checkbox.checked ? '1' : '0'); } catch (_) {}
-        if (!remembered) describe();
-    });
-})();
-
 // Enter Club Button
 if (enterClubBtn) {
     enterClubBtn.addEventListener('click', function() {
@@ -326,8 +295,6 @@ if (enterClubBtn) {
         // One podcast player for both menus (the VR menu reaches it through club.podcastPlayer).
         ensurePodcastPlayer(window.vrClub);
 
-        const radioOptIn = document.getElementById('splashRadioOnEntry');
-        const playOnEntry = radioOptIn ? radioOptIn.checked : AudioUtils.shouldPlayOnEntry(null);
         const pointAtAudioMenu = () => {
             const audioToggle = document.getElementById('audioToggle');
             if (audioToggle) {
@@ -336,13 +303,10 @@ if (enterClubBtn) {
             }
         };
 
-        if (playOnEntry) {
-            startEntryMusic(window.vrClub, pointAtAudioMenu);
-        } else {
-            // The guest turned music off: no third-party connection. Point at the audio
-            // menu instead so a silent club is not mistaken for a broken one.
-            pointAtAudioMenu();
-        }
+        // A club always has music playing when you walk in; there is nothing to opt into. The
+        // guest changes or stops it from the audio menu once inside. This call must stay inside
+        // the ENTER click: deferring it loses the transient user activation and autoplay blocks it.
+        startEntryMusic(window.vrClub, pointAtAudioMenu);
         
         // Show loading state
         enterClubBtn.style.display = 'none';

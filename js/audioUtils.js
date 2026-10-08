@@ -89,14 +89,6 @@ const AudioUtils = Object.freeze({
     },
 
     /**
-     * Music on entry is ON unless the guest has explicitly turned it off (stored '0'). It
-     * is the product default; the splash names the servers contacted and keeps the opt-out.
-     */
-    shouldPlayOnEntry(stored) {
-        return stored !== '0';
-    },
-
-    /**
      * Resident episodes live on Podbean. They are resolved fresh from the feed each time, so
      * one is never remembered as "the last stream": that would pin the default to an old episode.
      */

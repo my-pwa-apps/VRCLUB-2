@@ -911,7 +911,7 @@ to avoid z-fighting.
 - A stream served without `Access-Control-Allow-Origin` can produce an all-zero analyser.
   `getAudioData()` warns only after a sustained, unmuted silent window and phrases it as a
   heuristic ("silent so far; may be a server CORS restriction"), not as proof.
-- **Podcasts (`js/podcasts.js`).** Two shows, chosen on the splash, in the Audio menu or on the VR
+- **Podcasts (`js/podcasts.js`).** Two shows, chosen in the Audio menu or on the VR
   Music page, and stored as `vrclub.podcast`: `resident` (Hernan Cattaneo, Podbean feed fetched
   straight from the browser) and `colourizon` (Miss Melera, SoundCloud). Each catalogue entry names
   its DJ (`dj: 'hernan'` / `'melera'`). `missmelera.com` hosts no audio and is not used. SoundCloud's
@@ -925,8 +925,8 @@ to avoid z-fighting.
   default), `playLatest`, `playFrom`, `switchTo`; when an episode ends the next older one starts, a
   dead link is skipped (3 tries), and past the oldest it picks a random one. `switchTo` and every
   play call `club.setDJ(podcast.dj)`. Use own-key checks on catalogue lookups (`__proto__` bit once).
-- **Entry music.** ENTER plays a RANDOM episode of the chosen podcast (`startEntryMusic()`), unless
-  the guest unticked the splash toggle (`vrclub.radioOnEntry = '0'`; `AudioUtils.shouldPlayOnEntry()`).
+- **Entry music.** ENTER always plays a RANDOM episode of the chosen podcast (`startEntryMusic()`): a club
+  has music when you walk in, so there is no opt-in on the splash and no `vrclub.radioOnEntry` preference.
   The AudioContext is created inside the click (autoplay), the feed lookup is the only async part, and
   a blocked `play()` retries on the next click or key. Episodes play once
   (`startAudioStream(url, { onDemand: true })` turns `loop` off). Choosing any other stream or a file
@@ -954,7 +954,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.radioOnEntry` (`'0'` = music off on entry), `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1045,6 +1045,22 @@ photosensitivity warning, and is **off by default** (a product decision: it is n
 automatically, not even for `prefers-reduced-motion`). Splash and constructor both call
 `VRClubCore.resolvePhotosensitiveSafeMode()`: only a stored `'1'` turns it on. It must never be
 reachable only after the strobes have already fired.
+
+**The splash is deliberately sparse.** It carries the NOCTURNE wordmark, the subtitle, the photosensitivity
+warning, two press-to-enable toggles (Safe Mode and VR Comfort — never checkboxes, and neither carries an
+explanatory paragraph **or a `title` tooltip**: a headset and a touch screen never show one, so a tooltip is
+the same extra text hidden from exactly the guests who need it — the button's own label must say what it
+does), ENTER, the controls line and the `.splash-credits` line — nothing else. There is no
+music opt-in: a club has music when you walk in, so ENTER always starts it. It must not name a podcast, a
+stream, a server or the relay host, and it offers no podcast picker: that choice lives in the Audio menu and
+the VR Music page, and the shows, their servers and the streaming privacy note live in `#modelCredits`. Unit
+tests fail if a show name, a server host, a picker or any `<input type="checkbox">` reappears between
+`#splashScreen` and `<main>`, and if the credits stop naming the feeds or the IP disclosure.
+
+**The wordmark is the club's own sign.** `.splash-title` is the same logo as the neon over the dance floor and
+over the street entrance (`_drawNocturneNeon()` in `js/club/04-environment.js`): thin geometric tubing, drawn
+as a hollow outline (`-webkit-text-stroke` on the page, `strokeText` on the canvas) with a soft neutral halo
+behind it. Change one and change the other; there is no image file to update.
 
 ## Multiplayer
 

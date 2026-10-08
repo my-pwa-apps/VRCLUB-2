@@ -82,8 +82,9 @@ test('the Audio menu seeks the episode: slider, and the 30 second skips', async 
 test('choosing the other podcast swaps the stream and the DJ', async ({ page }) => {
     test.setTimeout(900_000);
     await routePodcasts(page);
+    // The splash no longer picks the show; a remembered choice (made in the Audio menu) drives entry.
+    await page.addInitScript(() => localStorage.setItem('vrclub.podcast', 'colourizon'));
     await page.goto('/');
-    await page.locator('#splashPodcastColourizon').click();
     expect(await page.evaluate(() => localStorage.getItem('vrclub.podcast'))).toBe('colourizon');
     await page.locator('#enterClubBtn').click();
     await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 180_000 });

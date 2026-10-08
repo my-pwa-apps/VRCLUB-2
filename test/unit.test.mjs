@@ -4451,11 +4451,8 @@ test('shipped club air keeps fog on and tints toward the look without changing h
         'fog density must ease, not snap');
 });
 
-test('music on entry is on by default and a Resident episode is never remembered as the default', () => {
+test('music always starts on entry and a Resident episode is never remembered as the default', () => {
     const { AudioUtils } = loadClassic('js/audioUtils.js').window;
-    assert.equal(AudioUtils.shouldPlayOnEntry(null), true, 'nothing stored: music starts on entry');
-    assert.equal(AudioUtils.shouldPlayOnEntry('1'), true);
-    assert.equal(AudioUtils.shouldPlayOnEntry('0'), false, 'an explicit opt-out is honoured');
 
     // Episodes are resolved fresh from the feed; remembering one would pin the default to it.
     assert.equal(AudioUtils.isResidentEpisodeUrl('https://mcdn.podbean.com/mf/web/x/803.mp3?a=1'), true);
@@ -4467,16 +4464,26 @@ test('music on entry is on by default and a Resident episode is never remembered
     // The entry flow is wired to them, and the old station is gone from the defaults.
     const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     assert.ok(!/sunshine-live/i.test(ui), 'the old default station is still referenced');
-    assert.match(ui, /AudioUtils\.shouldPlayOnEntry\(/);
     assert.match(ui, /player\.playRandom\(podcast\)/, 'ENTER must start a RANDOM episode of the chosen podcast');
     assert.doesNotMatch(ui, /playResidentFrom|fetchPodcastEpisodes|RESIDENT_PODCAST/, 'the old in-file queue is back');
+    // A club has music when you walk in: there is no opt-out left to read, so ENTER must not branch on one.
+    assert.doesNotMatch(ui, /shouldPlayOnEntry|radioOnEntry/, 'the music opt-in is gone; ENTER always starts the music');
+    assert.match(ui, /startEntryMusic\(window\.vrClub, pointAtAudioMenu\);/, 'ENTER must start the music unconditionally');
     // Colourizon episodes (served by the relay) are never remembered either.
     assert.equal(AudioUtils.isResidentEpisodeUrl('https://vrclub-network.garfieldapp.workers.dev/podcast/colourizon/stream/1-missmelera-x.mp3'), true);
     assert.equal(AudioUtils.isResidentEpisodeUrl('https://vrclub-network.garfieldapp.workers.dev/podcast/other'), false);
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
-    assert.match(html, /<input id="splashRadioOnEntry"[^>]*\bchecked\b/, 'the splash music toggle must default to checked');
-    assert.match(html, /id="splashPodcastResident"[^>]*aria-checked="true"/, 'Hernan Cattaneo is the default podcast');
-    assert.match(html, /id="splashPodcastColourizon"[^>]*aria-checked="false"/);
+    // The splash is one decision (music or silence): it must not name a show, a server or the relay.
+    const splash = html.match(/<div id="splashScreen"[\s\S]*?<main id="mainExperience"/)[0];
+    assert.doesNotMatch(splash, /splashRadioOnEntry|splash-podcast|workers\.dev|podbean|soundcloud|cattaneo|melera/i,
+        'the splash must not carry a music toggle, the podcast picker or the servers behind it');
+    // The choice and the disclosure both still exist, in the Audio menu and the credits.
+    assert.match(html, /id="podcastResidentBtn"[^>]*aria-checked="true"/, 'Hernan Cattaneo is the default podcast');
+    assert.match(html, /id="podcastColourizonBtn"[^>]*aria-checked="false"/);
+    const credits = html.match(/<details id="modelCredits">([\s\S]*?)<\/details>/)[1];
+    assert.match(credits, /podcast\.hernancattaneo\.com/, 'the credits must name the Resident feed');
+    assert.match(credits, /SoundCloud/, 'the credits must name where Colourizon comes from');
+    assert.match(credits, /IP address/, 'the credits must keep the streaming privacy disclosure');
 });
 
 test('smooth VR movement is the default but an explicit comfort preference is preserved', () => {
@@ -4491,6 +4498,27 @@ test('smooth VR movement is the default but an explicit comfort preference is pr
     assert.equal(loadClassic('js/club/01-core.js', {
         localStorage: { getItem() { throw new Error('storage blocked'); } }
     }).window.VRClubCore.resolveVRComfortMode(), false);
+
+    // On the splash it is a press-to-enable button, exactly like Safe Mode: a headset guest reads one
+    // line and presses it once. A checkbox with an explanatory paragraph was two things to understand.
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    const splash = html.match(/<div id="splashScreen"[\s\S]*?<main id="mainExperience"/)[0];
+    assert.doesNotMatch(splash, /type="checkbox"/, 'the splash must carry no checkboxes');
+    assert.match(splash, /<button class="splash-toggle" id="splashVRComfortBtn"[^>]*aria-pressed="false"/,
+        'VR Comfort must be a press-to-enable toggle that starts off');
+    assert.match(splash, /id="splashVRComfortState">OFF</);
+    // The explanation was removed, not moved into a tooltip: a headset and a touch screen never show one,
+    // so a `title` here would be the same extra text hidden from exactly the guests it was written for.
+    // Neither splash toggle may carry one; their labels say what they do.
+    for (const id of ['splashVRComfortBtn', 'splashSafeModeBtn']) {
+        const button = splash.match(new RegExp(`<button[^>]*id="${id}"[\\s\\S]*?</button>`))[0];
+        assert.doesNotMatch(button, /\btitle=/, `${id} must not explain itself in a tooltip`);
+    }
+    assert.doesNotMatch(splash, /splash-hint">|aria-describedby/, 'the splash hint paragraphs are gone');
+    // The club mirrors its own state back onto that button, not onto a checkbox.
+    const ui = readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8');
+    assert.match(ui, /splashVRComfortBtn/);
+    assert.doesNotMatch(ui, /getElementById\('splashVRComfort'\)/, 'the old checkbox sync is back');
 });
 
 test('safe mode is off by default, never inferred from reduced motion, and an explicit choice is honoured', () => {
