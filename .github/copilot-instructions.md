@@ -1057,10 +1057,20 @@ the VR Music page, and the shows, their servers and the streaming privacy note l
 tests fail if a show name, a server host, a picker or any `<input type="checkbox">` reappears between
 `#splashScreen` and `<main>`, and if the credits stop naming the feeds or the IP disclosure.
 
-**The wordmark is the club's own sign.** `.splash-title` is the same logo as the neon over the dance floor and
-over the street entrance (`_drawNocturneNeon()` in `js/club/04-environment.js`): thin geometric tubing, drawn
-as a hollow outline (`-webkit-text-stroke` on the page, `strokeText` on the canvas) with a soft neutral halo
-behind it. Change one and change the other; there is no image file to update.
+**The wordmark is path geometry, not a typeface.** `js/nocturneLogo.js` (`window.NocturneLogo`) is the ONE
+definition of the NOCTURNE logo: tube centrelines on a 100-unit cap height, traced from the club's artwork.
+The letterforms are not a font's — the O is a ring cut at nine and three o'clock, the R has no left stem (top
+bar into a right-side bowl, back along an inset middle bar, then a diagonal leg), the E is three detached bars
+and each N is one mitred run that points at the top left and bottom right. No installed font draws those, and
+a headset has no web fonts to fall back on, which is why it is geometry.
+
+Two surfaces consume it: `_drawNocturneNeon()` in `js/club/04-environment.js` strokes
+`new Path2D(NocturneLogo.path())` into the signage atlas (halo, tube, core; `lineWidth` follows the canvas
+transform, `shadowBlur` does not) for the neon over the dance floor AND the sign over the street entrance, and
+the splash inlines the same `d` in a static `<svg class="splash-wordmark">` so the logo is in the very first
+paint. A unit test fails if the two drift apart, if the O/R/E/N lose their letterforms, if the canvas falls
+back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.STROKE`. Change the geometry in
+`js/nocturneLogo.js` and paste the new `path()` into index.html; there is no image file to update.
 
 ## Multiplayer
 

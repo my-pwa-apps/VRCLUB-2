@@ -1343,31 +1343,31 @@ html, body {
 }
 
 .splash-title {
-    font-size: clamp(26px, 9vmin, 58px);
-    font-weight: 300;
-    margin-bottom: clamp(6px, 1.2vmin, 10px);
-    /* The trailing gap after the last letter is balanced by an equal indent, so the word stays centred. */
-    letter-spacing: clamp(8px, 2.6vmin, 22px);
-    text-indent: clamp(8px, 2.6vmin, 22px);
-    color: rgba(255, 255, 255, 0.95);
-    /* A blurred solid glyph behind the hollow outline is the tube's halo, exactly as the in-club
-       sign draws it on canvas (a wide soft bloom, then the tube, then a hot core). */
-    text-shadow:
-        0 0 7px rgba(255, 255, 255, 0.45),
-        0 0 22px rgba(205, 214, 232, 0.3),
-        0 0 52px rgba(164, 176, 200, 0.22);
+    margin: 0 0 clamp(6px, 1.2vmin, 10px);
     position: relative;
     z-index: 2;
-    font-family: Futura, 'Century Gothic', 'Avenir Next', 'Trebuchet MS', Arial, sans-serif;
+    line-height: 0;
 }
 
-/* The letters are tubing, not a solid fill: stroke the glyph outline and leave the inside empty.
-   Scoped so a browser without text-stroke keeps the filled wordmark above instead of a blank line. */
-@supports (-webkit-text-stroke: 1px #fff) {
-    .splash-title {
-        color: transparent;
-        -webkit-text-stroke: clamp(1px, 0.18vmin, 1.6px) rgba(255, 255, 255, 0.95);
-    }
+/* The letters are tubing, not a typeface: stroke the wordmark's centrelines and leave the
+   inside empty. The drop-shadows are the tube's halo, exactly as the in-club sign draws it. */
+.splash-wordmark {
+    display: block;
+    width: min(100%, 560px);
+    height: auto;
+    overflow: visible;
+}
+
+.splash-wordmark path {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.95);
+    stroke-width: 8.8;
+    stroke-linecap: butt;
+    stroke-linejoin: miter;
+    filter:
+        drop-shadow(0 0 6px rgba(255, 255, 255, 0.45))
+        drop-shadow(0 0 20px rgba(205, 214, 232, 0.3))
+        drop-shadow(0 0 48px rgba(164, 176, 200, 0.22));
 }
 
 .splash-subtitle {

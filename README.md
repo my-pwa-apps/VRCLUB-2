@@ -39,6 +39,7 @@ js/vjDirector.js           Beat/BPM detection, colour palette and VJ macros
 js/showDirector.js         "NOCTURNE" — the composed, beat-locked cue engine
 js/ledPatterns.js          LED wall pattern methods mixed into VRClub.prototype
 js/barProps.js             Bar bottles: lathe shapes, shelf stocking and the label atlas (pure data)
+js/nocturneLogo.js         The NOCTURNE wordmark as path geometry — the one source for the splash SVG and both neon signs
 js/venueDressing.js        Entrance stair hall (down from the street door) and bar (counter, back bar, stools, lights) mixed into VRClub.prototype
 js/mezzanine.js            Steel balcony and stair along the left wall, plus the walking-surface follow, mixed into VRClub.prototype
 js/cityDistrict.js         The street outside (baked GLB), its sky and skyline, fence, street door and "outdoors" amount, mixed into VRClub.prototype

@@ -100,7 +100,7 @@ test('script load order honours the dependency contract', () => {
 
     // The main app constructs the factories, the loaders and the VJ director.
     const main = idx('js/club_hyperrealistic.js');
-    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js', 'js/barProps.js', 'js/venueDressing.js', 'js/mezzanine.js', 'js/cityDistrict.js', 'js/avatarRig.js', 'js/djPerformer.js', 'js/crowdDance.js', 'js/networkClient.js', 'js/avatarManager.js', 'js/multiplayer.js']) {
+    for (const dep of ['js/textureLoader.js', 'js/modelLoader.js', 'js/materialFactory.js', 'js/lightFactory.js', 'js/vjDirector.js', 'js/showDirector.js', 'js/ledPatterns.js', 'js/barProps.js', 'js/nocturneLogo.js', 'js/venueDressing.js', 'js/mezzanine.js', 'js/cityDistrict.js', 'js/avatarRig.js', 'js/djPerformer.js', 'js/crowdDance.js', 'js/networkClient.js', 'js/avatarManager.js', 'js/multiplayer.js']) {
         assert.ok(idx(dep) > -1 && idx(dep) < main, `${dep} must load before club_hyperrealistic.js`);
     }
     // ShowDirector reads the beat grid VJDirector publishes.
@@ -120,6 +120,7 @@ test('every class used across files is exported onto window', () => {
         'js/showDirector.js': ['ShowDirector'],
         'js/ledPatterns.js': ['LEDPatterns'],
         'js/barProps.js': ['BarProps'],
+        'js/nocturneLogo.js': ['NocturneLogo'],
         'js/venueDressing.js': ['VenueDressing'],
         'js/mezzanine.js': ['Mezzanine'],
         'js/cityDistrict.js': ['CityDistrict', 'CityLayout'],

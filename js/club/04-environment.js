@@ -276,55 +276,42 @@ class VRClubEnvironment extends VRClubRendering {
     }
 
     /**
-     * The club's name as a neon piece, drawn into its atlas cell: the word in widely tracked pink outline
-     * tubes. Every tube is a wide soft halo, the coloured glass and a hot near-white core.
+     * The club's name as a neon piece, drawn into its atlas cell: the wordmark's own letterforms
+     * (window.NocturneLogo, the same geometry the splash screen shows) bent in white tubing, each
+     * run a wide soft halo, the glass and a hot core.
+     *
+     * No font is used: the O is a cut ring, the R has no left stem and the E is three bars, which
+     * no installed typeface draws - and a headset has no web fonts to fall back on either.
      */
     _drawNocturneNeon(ctx, x, y, w, h, rgb) {
+        const logo = window.NocturneLogo;
+        if (!logo) return;
         const HALO = [0.36, 0.38, 0.42], TUBE = [0.92, 0.94, 1], CORE = [1, 1, 1];
-        const tube = (stroke) => {
-            ctx.shadowColor = rgb(HALO, 1.4);
-            ctx.strokeStyle = rgb(TUBE, 0.9);
-            ctx.lineWidth = 10;
-            ctx.shadowBlur = 30;
-            stroke();
-            ctx.shadowBlur = 13;
-            stroke();
-            ctx.shadowBlur = 0;
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = rgb(TUBE);
-            stroke();
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = rgb(CORE);
-            stroke();
-        };
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        const path = new Path2D(logo.path());
 
-        // The word, letter by letter so the tracking does not depend on canvas letterSpacing support.
-        const text = 'NOCTURNE';
-        const left = x + 40, right = x + w - 40;
-        const fontFor = size => `300 ${size}px "Futura", "Century Gothic", "Avenir Next", "Trebuchet MS", Arial, sans-serif`;
-        let size = 200, widths = [], tracking = 0, total = Infinity;
-        while (size > 40) {
-            ctx.font = fontFor(size);
-            widths = [...text].map(ch => ctx.measureText(ch).width);
-            tracking = size * 0.2;
-            total = widths.reduce((sum, v) => sum + v, 0) + tracking * (text.length - 1);
-            if (total <= right - left) break;
-            size -= 4;
-        }
-        ctx.font = fontFor(size);
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        const wordLeft = left + (right - left - total) / 2;
-        const wordY = y + h * 0.5;
-        tube(() => {
-            let pen = wordLeft;
-            for (let i = 0; i < text.length; i++) {
-                ctx.strokeText(text[i], pen, wordY);
-                pen += widths[i] + tracking;
-            }
-        });
+        // Fit the word into the cell, leaving room for the tube itself and for the halo.
+        const margin = Math.min(w, h) * 0.14;
+        const scale = Math.min((w - margin * 2) / logo.WIDTH, (h - margin * 2) / logo.HEIGHT);
+        ctx.save();
+        ctx.translate(x + (w - logo.WIDTH * scale) / 2, y + (h - logo.HEIGHT * scale) / 2);
+        ctx.scale(scale, scale);
+        // Flat cuts and mitred corners are part of the letterforms (the N's points, the cut O).
+        ctx.lineCap = 'butt';
+        ctx.lineJoin = 'miter';
+        ctx.miterLimit = 10;
+        ctx.shadowColor = rgb(HALO, 1.4);
+        // lineWidth follows the transform, shadowBlur does not: it stays in device pixels.
+        const run = (width, colour, blur) => {
+            ctx.lineWidth = width;
+            ctx.strokeStyle = colour;
+            ctx.shadowBlur = blur;
+            ctx.stroke(path);
+        };
+        run(logo.STROKE * 1.15, rgb(TUBE, 0.9), 30);
+        run(logo.STROKE * 1.15, rgb(TUBE, 0.9), 13);
+        run(logo.STROKE, rgb(TUBE), 0);
+        run(logo.STROKE * 0.42, rgb(CORE), 0);
+        ctx.restore();
     }
 
     // === ENHANCED DJ BOOTH ACCESSORIES ===

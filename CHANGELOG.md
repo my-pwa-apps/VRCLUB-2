@@ -318,6 +318,10 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 - **NOCTURNE neon logo:** the club sign now follows the supplied reference with thin white geometric
   tubing and a neutral smoky halo instead of the previous pink neon treatment. The same atlas-backed
   logo is displayed outward above the street entrance, without adding a second texture or draw-call path.
+  The letters are now the artwork's own: the wordmark is drawn from measured path geometry
+  (`js/nocturneLogo.js`) rather than from a font, so the cut-open O, the stemless R, the three-bar E and the
+  N's pointed corners survive everywhere — on the splash screen, over the dance floor and over the street
+  door. One definition feeds all three, and a test fails if they drift apart.
 - **A cleaner splash screen.** The entry screen no longer carries the podcast picker, the name of the show it
   will play, or the servers behind it (including the club's own relay host). The shows, where their audio comes
   from and the privacy note about streaming all moved into **ⓘ Credits & licences**, and the choice of DJ set

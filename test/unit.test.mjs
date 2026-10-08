@@ -4486,6 +4486,48 @@ test('music always starts on entry and a Resident episode is never remembered as
     assert.match(credits, /IP address/, 'the credits must keep the streaming privacy disclosure');
 });
 
+test('the NOCTURNE wordmark is one geometry, shared by the splash and both neon signs', () => {
+    const { NocturneLogo } = loadClassic('js/nocturneLogo.js').window;
+    const d = NocturneLogo.path();
+
+    // The letterforms are the club's own, not a typeface: no font draws these, and a headset has no
+    // web fonts to fall back on. Each rule below is a feature of the sign that a font would lose.
+    const glyph = (index) => NocturneLogo.GLYPHS[index].d(NocturneLogo.GLYPHS[index].x);
+    assert.equal(NocturneLogo.GLYPHS.map(g => g.ch).join(''), 'NOCTURNE');
+    // The O is a ring cut at nine and three o'clock: two arcs, nothing joining them.
+    assert.equal((glyph(1).match(/A/g) || []).length, 2, 'the O must be two arcs');
+    assert.equal((glyph(1).match(/M/g) || []).length, 2, 'the O must be cut open on both sides');
+    // The R has no left stem: a top bar into a bowl, back along an inset middle bar, then the leg.
+    assert.doesNotMatch(glyph(5), /V/, 'the R must not grow a vertical stem');
+    assert.match(glyph(5), /A20\.6 23\.05 /, 'the R keeps its right-side bowl');
+    // The E is three detached bars, all horizontal.
+    assert.equal(glyph(7), 'M943.1 4.4H1016.6M943.1 50.5H1004.9M943.1 95.6H1016.6');
+    // The N comes to a point: one mitred stroke, not a diagonal laid across two stems.
+    assert.equal((glyph(0).match(/M/g) || []).length, 1, 'the N must be a single mitred run');
+
+    // No float noise: the string is mirrored into index.html by hand, so it must be stable.
+    assert.doesNotMatch(d, /\d\.\d{3}/, 'path numbers must be rounded to two decimals');
+
+    // The splash carries that exact path, inline, so the logo is in the very first paint.
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    const splash = html.match(/<div id="splashScreen"[\s\S]*?<main id="mainExperience"/)[0];
+    assert.ok(splash.includes(`d="${d}"`),
+        `the splash SVG has drifted from NocturneLogo.path(); it should read:\n d="${d}"`);
+    assert.ok(splash.includes(`viewBox="${NocturneLogo.VIEW_BOX}"`), 'the splash viewBox has drifted');
+    assert.match(html, /<script src="js\/nocturneLogo\.js/, 'the wordmark module must be loaded');
+
+    // The in-world signs stroke the same path rather than measuring a font.
+    const env = readFileSync(join(ROOT, 'js/club/04-environment.js'), 'utf8');
+    const neon = env.match(/\n    _drawNocturneNeon\(ctx[\s\S]*?\n    }\n/)[0];
+    assert.match(neon, /new Path2D\(logo\.path\(\)\)/, 'the neon sign must stroke the shared geometry');
+    assert.doesNotMatch(neon, /strokeText|ctx\.font/, 'the neon sign must not fall back to a font');
+
+    // The tube is one width everywhere: the sign scales it with the canvas transform, the splash
+    // states it in the same units, so the two signs and the splash read as the same piece of neon.
+    const css = readFileSync(join(ROOT, 'css/styles.css'), 'utf8');
+    assert.match(css, new RegExp(`stroke-width: ${NocturneLogo.STROKE};`), 'the splash tube width has drifted');
+});
+
 test('smooth VR movement is the default but an explicit comfort preference is preserved', () => {
     let stored = null;
     const { window } = loadClassic('js/club/01-core.js', { localStorage: { getItem: () => stored } });
