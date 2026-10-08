@@ -114,6 +114,28 @@ const fetchBufferWithTimeout = (url, options) => fetchBodyWithTimeout(url, 'arra
 const fetchBlobWithTimeout = (url, options) => fetchBodyWithTimeout(url, 'blob', options);
 
 /**
+ * What the server says the file at `url` is right now: its ETag, Last-Modified and length, asked with a HEAD request
+ * that revalidates past the HTTP cache. A cache keyed by URL alone cannot tell a file rebuilt in place from the one it
+ * stored (it served a returning visitor the old street, tiles over the new stairwell, for up to 30 days), so the model
+ * cache keeps this beside each entry and compares it on every start.
+ * @returns {Promise<string|null>} null when it cannot be known (offline, an error, a server with no validators): the
+ *   caller then trusts what it has.
+ */
+async function fetchAssetFingerprint(url, { timeoutMs = 5000, signal } = {}) {
+    try {
+        const response = await fetchWithTimeout(url, { method: 'HEAD', cache: 'no-cache', timeoutMs, signal });
+        if (!response.ok) return null;
+        const etag = response.headers.get('etag') || '';
+        const modified = response.headers.get('last-modified') || '';
+        const length = response.headers.get('content-length') || '';
+        if (!etag && !modified && !length) return null;
+        return `${etag}|${modified}|${length}`;
+    } catch (_) {
+        return null;
+    }
+}
+
+/**
  * Promise-wrapped IndexedDB key/value store for binary assets.
  *
  * Every method degrades to a no-op rather than throwing when IndexedDB is
@@ -237,6 +259,15 @@ class IndexedDBAssetCache {
      * @returns {Promise<any|null>} The cached payload, or null on miss/expiry/error.
      */
     async get(url) {
+        const record = await this.getRecord(url);
+        return record ? record.payload : null;
+    }
+
+    /**
+     * @returns {Promise<{payload: any, meta: object|null}|null>} The cached payload and what was stored beside it
+     *   (`put`'s `meta`, null for entries written before there was any), or null on miss/expiry/error.
+     */
+    async getRecord(url) {
         if (this.disabled || !this.db) return null;
         try {
             const record = await this._run('readonly', (store) => store.get(url));
@@ -246,7 +277,8 @@ class IndexedDBAssetCache {
                 this.delete(url);
                 return null;
             }
-            return record.payload !== undefined ? record.payload : null;
+            if (record.payload === undefined) return null;
+            return { payload: record.payload, meta: record.meta || null };
         } catch (err) {
             this.log.warn(`⚠️ Cache read failed for ${url}:`, err);
             return null;
@@ -254,14 +286,15 @@ class IndexedDBAssetCache {
     }
 
     /**
-     * Persist a payload. Failures are swallowed by design: a full quota must
-     * degrade to "download every time", never to "the app cannot start".
+     * Persist a payload, with optional `meta` (e.g. the file's fingerprint). Failures are swallowed by design: a full
+     * quota must degrade to "download every time", never to "the app cannot start".
      * @returns {Promise<boolean>} whether the write succeeded
      */
-    async put(url, payload) {
+    async put(url, payload, meta = null) {
         if (this.disabled || !this.db) return false;
+        const record = () => (meta ? { url, payload, meta, timestamp: Date.now() } : { url, payload, timestamp: Date.now() });
         try {
-            await this._run('readwrite', (store) => store.put({ url, payload, timestamp: Date.now() }));
+            await this._run('readwrite', (store) => store.put(record()));
             return true;
         } catch (err) {
             const name = err && err.name;
@@ -276,7 +309,7 @@ class IndexedDBAssetCache {
                     if (freed > 0) {
                         this.log.warn(`⚠️ Storage full for ${this.dbName}; evicted ${freed} old entries and retrying.`);
                         try {
-                            await this._run('readwrite', (store) => store.put({ url, payload, timestamp: Date.now() }));
+                            await this._run('readwrite', (store) => store.put(record()));
                             return true;
                         } catch (_) { /* fall through to disable */ }
                     }
@@ -384,5 +417,6 @@ if (typeof window !== 'undefined') {
     window.fetchWithTimeout = fetchWithTimeout;
     window.fetchBufferWithTimeout = fetchBufferWithTimeout;
     window.fetchBlobWithTimeout = fetchBlobWithTimeout;
+    window.fetchAssetFingerprint = fetchAssetFingerprint;
     window.ASSET_FETCH_TIMEOUT_MS = ASSET_FETCH_TIMEOUT_MS;
 }

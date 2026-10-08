@@ -120,6 +120,10 @@ const server = createServer(async (req, res) => {
         const headers = {
             'Content-Type': contentType,
             'Cache-Control': cacheControl,
+            // Validators. The model cache (IndexedDB, keyed by URL) compares these on every start, so a GLB rebuilt in
+            // place reaches returning visitors instead of the copy they cached weeks ago (see fetchAssetFingerprint).
+            'ETag': `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`,
+            'Last-Modified': info.mtime.toUTCString(),
             'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer',
             // frame-ancestors is header-only per spec - browsers ignore it in the <meta>

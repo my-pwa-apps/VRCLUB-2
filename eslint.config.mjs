@@ -83,6 +83,7 @@ const projectGlobals = {
     InFlightRegistry: 'readonly',
     fetchWithTimeout: 'readonly',
     fetchBufferWithTimeout: 'readonly',
+    fetchAssetFingerprint: 'readonly',
     fetchBlobWithTimeout: 'readonly',
     TextureLoader: 'readonly',
     ModelLoader: 'readonly',

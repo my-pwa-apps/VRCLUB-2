@@ -1034,6 +1034,86 @@ test('cache eviction selects timestamp-indexed keys without reading payloads', a
 // Material factory
 // ---------------------------------------------------------------------------
 
+test('a file\'s fingerprint comes from a HEAD that goes past the HTTP cache, and is null when it cannot be known', async () => {
+    const requests = [];
+    const headers = values => ({ get: name => values[name.toLowerCase()] ?? null });
+    let reply = { ok: true, headers: headers({ etag: 'W/"6b6-1"', 'last-modified': 'Wed, 07 Oct 2026 21:00:00 GMT', 'content-length': '7038916' }) };
+    const { window } = loadClassic('js/assetCache.js', {
+        AbortController, setTimeout, clearTimeout,
+        fetch: async (url, init) => { requests.push([url, init.method, init.cache]); if (reply instanceof Error) throw reply; return reply; }
+    });
+    assert.equal(await window.fetchAssetFingerprint('./js/models/city/downtown.glb'), 'W/"6b6-1"|Wed, 07 Oct 2026 21:00:00 GMT|7038916');
+    assert.deepEqual(requests[0], ['./js/models/city/downtown.glb', 'HEAD', 'no-cache'], 'a HEAD, revalidated, not served from the HTTP cache');
+    reply = { ok: true, headers: headers({ 'content-length': '12' }) };
+    assert.equal(await window.fetchAssetFingerprint('a.glb'), '||12', 'the length alone still tells a rebuilt file apart');
+    reply = { ok: true, headers: headers({}) };
+    assert.equal(await window.fetchAssetFingerprint('a.glb'), null, 'no validators: unknown');
+    reply = { ok: false, headers: headers({ etag: 'x' }) };
+    assert.equal(await window.fetchAssetFingerprint('a.glb'), null);
+    reply = new Error('offline');
+    assert.equal(await window.fetchAssetFingerprint('a.glb'), null, 'offline: unknown, never a throw');
+});
+
+test('the cache stores a fingerprint beside a payload and gives both back', async () => {
+    const { window } = loadClassic('js/assetCache.js', { AbortController, setTimeout, clearTimeout, fetch: async () => ({ ok: true }) });
+    const cache = new window.IndexedDBAssetCache({ dbName: 'test', storeName: 'assets', logger: { info() {}, warn() {}, error() {} } });
+    const store = new Map();
+    cache.db = {};
+    cache._run = async (mode, work) => work({ put: record => store.set(record.url, record), get: url => store.get(url) });
+    await cache.put('new.glb', 'bytes', { fingerprint: 'abc' });
+    await cache.put('old.glb', 'bytes');
+    assert.deepEqual({ ...(await cache.getRecord('new.glb')) }, { payload: 'bytes', meta: { fingerprint: 'abc' } });
+    assert.deepEqual({ ...(await cache.getRecord('old.glb')) }, { payload: 'bytes', meta: null }, 'an entry from before fingerprints has none');
+    assert.equal(await cache.get('new.glb'), 'bytes');
+    assert.equal(await cache.getRecord('missing.glb'), null);
+});
+
+test('a model rebuilt in place reaches a returning visitor: the cached copy is used only while it is still the same file', async () => {
+    let fingerprint = 'v2';
+    const { window } = loadClassic('js/modelLoader.js', {
+        BABYLON: makeBabylonStub(),
+        fetchAssetFingerprint: async () => fingerprint
+    });
+    const load = async (cached) => {
+        const downloads = [], writes = [];
+        const loader = {
+            log: { info() {}, warn() {}, error() {} },
+            abortController: new AbortController(),
+            inFlight: { run: (_key, work) => work() },
+            cache: { getRecord: async () => cached, put: async (url, payload, meta) => { writes.push(meta ? { ...meta } : meta); return true; } },
+            downloadModel: async (url, options) => { downloads.push({ ...options }); return 'fresh'; }
+        };
+        const bytes = await window.ModelLoader.prototype.loadOrDownloadModel.call(loader, './js/models/city/downtown.glb');
+        return { bytes, downloads, writes };
+    };
+    let r = await load({ payload: 'cached', meta: { fingerprint: 'v2' } });
+    assert.equal(r.bytes, 'cached', 'the same file: no download');
+    assert.equal(r.downloads.length, 0);
+
+    r = await load({ payload: 'stale street', meta: { fingerprint: 'v1' } });
+    assert.equal(r.bytes, 'fresh', 'a file rebuilt in place must be downloaded again');
+    assert.deepEqual(r.downloads, [{ revalidate: true }], 'and past the HTTP cache too');
+    assert.deepEqual(r.writes, [{ fingerprint: 'v2' }]);
+
+    r = await load({ payload: 'stale street', meta: null });
+    assert.equal(r.bytes, 'fresh', 'an entry cached before fingerprints existed is refreshed once');
+
+    r = await load(null);
+    assert.equal(r.bytes, 'fresh');
+    assert.deepEqual(r.downloads, [{ revalidate: false }], 'a first download may use the HTTP cache');
+    assert.deepEqual(r.writes, [{ fingerprint: 'v2' }]);
+
+    fingerprint = null;   // offline, or a server without validators
+    r = await load({ payload: 'cached', meta: { fingerprint: 'v1' } });
+    assert.equal(r.bytes, 'cached', 'offline the cache still works');
+    r = await load(null);
+    assert.deepEqual(r.writes, [null]);
+});
+
+// ---------------------------------------------------------------------------
+// Material factory
+// ---------------------------------------------------------------------------
+
 test('MaterialFactory cache keys normalize colors and object key order', () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/materialFactory.js', { BABYLON });

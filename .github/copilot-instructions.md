@@ -70,6 +70,13 @@ Shared caching primitives used by both loaders:
   instead of breaking startup.
 - `InFlightRegistry.run(key, factory)` — de-duplicates concurrent downloads of the same URL.
 - `fetchWithTimeout(url, { timeoutMs, ...init })` — `AbortController`-backed hard deadline.
+- `fetchAssetFingerprint(url)` — the server's ETag / Last-Modified / length for a file (a HEAD with `cache: 'no-cache'`),
+  or null when unknown (offline, no validators). `IndexedDBAssetCache.put(url, payload, meta)` stores it beside the
+  payload and `getRecord(url)` returns both. **`ModelLoader.loadOrDownloadModel()` uses a cached GLB only while its stored
+  fingerprint matches the server's** (or the server cannot be asked); otherwise it downloads again with `cache: 'no-cache'`.
+  An entry stored without one counts as changed. The cache is keyed by URL and GLBs are rebuilt in place, so before this
+  a returning visitor kept the old street (pavement over the new entrance stair) for the 30-day TTL. `scripts/serve.mjs`
+  sends a weak ETag and Last-Modified on every file; GitHub Pages sends its own. Textures do not do this yet (see below).
 
 Any new network-backed asset type should reuse these rather than hand-rolling IndexedDB.
 
@@ -620,7 +627,8 @@ and fail `npm test`.
 - **Textures**: local `./textures/{factoryFloor,walls,ceiling}/{diff,normal,roughness,ao}.jpg`
   (Poly Haven, CC0; normal maps are the DirectX `nor_dx` variant). Not fetched from a CDN.
   The folder name is part of the IndexedDB cache key, so replacing a set means renaming its
-  folder — overwriting files in place leaves returning visitors on the old maps for 30 days.
+  folder — overwriting files in place leaves returning visitors on the old maps for 30 days (textures are not
+  fingerprinted; models are, so a GLB may be rebuilt in place).
 - **Models**: local `./js/models/` — `djgear/source/pioneer_DJ_console.glb`,
   `paspeakers/source/stage_speaker___black.glb`, and the characters in `avatars/`.
   Characters: the Quaternius `club-*.glb` files share one UE-mannequin rig and carry their clips

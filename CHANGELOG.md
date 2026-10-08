@@ -139,6 +139,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **The entrance stair was hidden under the pavement for returning visitors.** Downloaded 3D models are kept in the
+  browser for 30 days, and the club reused its copy as long as the file name was the same, so a visitor who had been
+  before kept the old street, whose pavement covered the new stairwell: the stair could be walked but not seen. The
+  club now asks the server (one tiny request per model) whether each file has changed and downloads it again when it
+  has; with no connection it still uses what it has. Copies saved before this change are refreshed once.
 - **People came back frozen after changing the graphics quality.** Lowering the quality and raising it again brought
   back the extra dancers and guests standing still in mid-pose. Their animation is now restarted whenever they are
   shown again, and an end-to-end test switches Ultra, Balanced, Ultra and checks that everyone is moving.

@@ -302,7 +302,7 @@ class ModelLoader {
         }
     }
 
-    async downloadModel(url) {
+    async downloadModel(url, { revalidate = false } = {}) {
         this.log.info(`⬇️ Downloading model: ${url}`);
         try {
             // fetchBufferWithTimeout keeps the deadline alive across the BODY read.
@@ -310,8 +310,9 @@ class ModelLoader {
             // arrived, so a server that answered 200 and then stalled mid-transfer
             // hung startup forever. The largest local GLB is roughly 60 MB, and a
             // software-rendered Quest test can contend heavily with the body read.
+            // `revalidate`: the file is known to have changed, so the HTTP cache must not hand back its old copy either.
             const arrayBuffer = await fetchBufferWithTimeout(url, {
-                cache: 'default',
+                cache: revalidate ? 'no-cache' : 'default',
                 signal: this.abortController.signal,
                 timeoutMs: 120000
             });
@@ -328,16 +329,34 @@ class ModelLoader {
      * Fetch model bytes from cache or network. Concurrent callers for the same
      * URL share one download — the two PA speakers reference the SAME GLB, so
      * without this the file was downloaded twice on every cold start.
+     *
+     * The cache is keyed by URL, and a GLB is rebuilt in place (same name, new bytes), so a cached copy is used only
+     * when it is still the file the server has: its fingerprint (ETag / Last-Modified / length, one HEAD request, asked
+     * while the cache is read) is stored beside it and compared. Without this a returning visitor kept the old street,
+     * tiles over the new entrance stair, for the cache's 30 days. An entry from before fingerprints counts as changed
+     * (downloaded once more); when the server cannot be asked (offline) the cached copy is used.
      */
     async loadOrDownloadModel(url) {
         return this.inFlight.run(url, async () => {
-            const cached = await this.cache.get(url);
-            if (cached) {
-                this.log.info(`💾 Using cached model: ${url.split('/').pop()}`);
-                return cached;
+            const [record, fingerprint] = await Promise.all([
+                this.cache.getRecord
+                    ? this.cache.getRecord(url)
+                    : this.cache.get(url).then(payload => (payload ? { payload, meta: null } : null)),
+                typeof fetchAssetFingerprint === 'function'
+                    ? fetchAssetFingerprint(url, { signal: this.abortController && this.abortController.signal })
+                    : Promise.resolve(null)
+            ]);
+            const name = url.split('/').pop();
+            if (record) {
+                const stored = record.meta && record.meta.fingerprint;
+                if (fingerprint === null || stored === fingerprint) {
+                    this.log.info(`💾 Using cached model: ${name}`);
+                    return record.payload;
+                }
+                this.log.info(`♻️ ${name} has changed on the server; downloading it again`);
             }
-            const arrayBuffer = await this.downloadModel(url);
-            await this.cache.put(url, arrayBuffer);
+            const arrayBuffer = await this.downloadModel(url, { revalidate: !!record });
+            await this.cache.put(url, arrayBuffer, fingerprint ? { fingerprint } : null);
             return arrayBuffer;
         });
     }
