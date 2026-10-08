@@ -1575,9 +1575,11 @@ class VRClubAudioCrowd extends VRClubUI {
             // The one guest who does not stay put: he walks the room and joins the others' conversations
             // (_minglerRoute, _updateMingler), which is why he carries the walk and both idles.
             { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84,
-                mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop'] },
-            // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor.
-            { src: at('f7'), clip: 'Idle_Railing_Loop', x: -9.92, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
+                mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop'] },
+            // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor. The
+            // walking guest stops beside her at the rail and, after a look at the floor, turns to talk with her.
+            { src: at('f7'), clip: 'Idle_Railing_Loop', x: -9.92, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66,
+                clips: talks('Idle_Railing_Loop') },
             { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68, clips: talks('Idle_Loop') },
             { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
             { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63, clips: talks('Idle_Loop') },
@@ -2006,11 +2008,13 @@ class VRClubAudioCrowd extends VRClubUI {
         return {
             speed: 1.05,            // a relaxed walk
             walkClipSpeed: 1.4,     // metres a second the packs' Walk clip is authored for (AvatarManager uses the same)
-            dwell: { min: 9, max: 17 },
+            // He lingers: a conversation lasts half a minute or so, then he moves on. (It was 9-17 s, and he spent most
+            // of his time walking.)
+            dwell: { min: 22, max: 38 },
             home: 1,
             nodes: [
                 { x: -9.0, z: -13.6, guest: 6 },
-                { x: -8.2, z: -10.8, yaw: 1.716, activity: 'watch', clip: 'Idle_Loop', dwell: { min: 8, max: 14 } },
+                { x: -8.2, z: -10.8, yaw: 1.716, activity: 'watch', clip: 'Idle_Loop', dwell: { min: 25, max: 40 } },
                 { x: -7.5, z: -6.1, guest: 4 },
                 { x: -7.5, z: -5.5 },   // the lane along the front of the dance floor, the only way across the room
                 { x: 7.9, z: -5.5 },
@@ -2019,14 +2023,16 @@ class VRClubAudioCrowd extends VRClubUI {
                 { x: 5.1, z: -9.9 },
                 { x: 8.5, z: -9.9 },
                 // Customer side of the counter, between stools: the bartender turns to him while he has a drink.
-                { x: 9.55, z: -9.65, bartender: true, drink: true, dwell: { min: 12, max: 20 } },
+                // The dwell is set by the service itself (two sips, see _advanceMinglerDrink).
+                { x: 9.55, z: -9.65, bartender: true, drink: true },
                 // Out through the centre of both doors and up the vestibule stair; the queue is on the +x side.
                 { x: 8.5, z: -5.5 },
                 { x: 0, z: -5.5 },
                 { x: 0, z: 0.65 },
                 { x: 0, z: 5.0 },
                 { x: 0, z: 6.6 },
-                { x: -2.5, z: 7.1, yaw: Math.PI / 2, activity: 'smoke', clip: 'Smoke_Loop', dwell: { min: 12, max: 20 } },
+                // A whole cigarette: a drag every twelve seconds (the Smoke_Loop), for a minute and a half or so.
+                { x: -2.5, z: 7.1, yaw: Math.PI / 2, activity: 'smoke', clip: 'Smoke_Loop', dwell: { min: 75, max: 105 } },
                 // Back down, then along the front lane to the mezzanine stair and up onto the deck.
                 { x: 0, z: 6.6 },
                 { x: 0, z: 5.0 },
@@ -2036,7 +2042,11 @@ class VRClubAudioCrowd extends VRClubUI {
                 { x: -11.4, z: -6.2 },
                 { x: -11.4, z: -8.3 },
                 { x: -11.4, z: -10.4 },
-                { x: -11.3, z: -12.2, yaw: Math.PI / 2, activity: 'balcony', clip: 'Idle_Loop', dwell: { min: 10, max: 18 } }
+                // At the balcony rail beside the woman already there (guest 3): hands on the rail, watching the floor,
+                // then he turns to her and they talk (`talk`). The rail is at x -9.54; his Idle_Railing_Loop puts his
+                // wrists 0.394 m ahead of his feet, so he stands at x -9.93, a metre along the rail from her.
+                { x: -9.93, z: -12.95, yaw: Math.PI / 2, activity: 'balcony', clip: 'Idle_Railing_Loop', guest: 3,
+                    dwell: { min: 25, max: 40 }, talk: { min: 25, max: 40 } }
             ]
         };
     }
@@ -2110,36 +2120,208 @@ class VRClubAudioCrowd extends VRClubUI {
         npc.drinkMode = glass.mode;
     }
 
+    /**
+     * His cigarette: one small mesh (white paper, tan filter, vertex-coloured, unlit so it reads at night), a glowing
+     * tip, and two small particle systems sharing the club's smoke texture (a thin wisp from the tip, and the exhale
+     * from his mouth after each drag). Nothing exists to draw until he lights up outside.
+     */
     _createMinglerSmoke(npc) {
-        if (!npc || npc.smokeProp || !this.scene || !this.materialFactory || !BABYLON.MeshBuilder) return;
-        const palm = npc.root.getChildTransformNodes(false).find(node => /Middle1\.R$/.test(node.name));
-        if (!palm) return;
-        const cigarette = BABYLON.MeshBuilder.CreateCylinder('minglerCigarette', {
-            diameter: 0.009, height: 0.085, tessellation: 8
-        }, this.scene);
-        cigarette.material = this.materialFactory.createPBRMaterial('minglerCigaretteMat', {
-            baseColor: [0.78, 0.74, 0.64], metallic: 0, roughness: 0.8
-        }, true);
-        cigarette.rotation.z = Math.PI / 2;
+        if (!npc || npc.smoke || !this.scene || !this.materialFactory || !BABYLON.MeshBuilder) return;
+        const nodes = npc.root.getChildTransformNodes(false);
+        const bone = suffix => nodes.find(node => node.name.endsWith(suffix)) || null;
+        const bones = {
+            index2: bone('Index2.R'), index3: bone('Index3.R'), middle2: bone('Middle2.R'), middle3: bone('Middle3.R'),
+            head: bone('_Head') || bone('Head')
+        };
+        if (Object.values(bones).some(node => !node)) return;
+
+        // Pivot at the filter end, the burning end up its +y axis: 2.2 cm of filter and 6.3 cm of paper.
+        const part = (name, height, y, colour) => {
+            const mesh = BABYLON.MeshBuilder.CreateCylinder(name, { diameter: 0.0085, height, tessellation: 8 }, this.scene);
+            mesh.position.y = y;
+            const count = mesh.getTotalVertices();
+            const colours = new Float32Array(count * 4);
+            for (let i = 0; i < count; i++) colours.set(colour, i * 4);
+            mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, colours);
+            return mesh;
+        };
+        const cigarette = BABYLON.Mesh.MergeMeshes([
+            part('minglerCigaretteFilter', 0.022, 0.011, [0.78, 0.52, 0.28, 1]),
+            part('minglerCigarettePaper', 0.063, 0.022 + 0.0315, [0.93, 0.92, 0.88, 1])
+        ], true);
+        if (!cigarette) return;
+        cigarette.name = 'minglerCigarette';
+        cigarette.material = this.materialFactory.createStandardMaterial('minglerCigaretteMat', {
+            diffuseColor: [0.75, 0.75, 0.75], disableLighting: true
+        });
         cigarette.isPickable = false;
-        cigarette.renderingGroupId = 0;
+        cigarette.rotationQuaternion = new BABYLON.Quaternion();
+        const ember = BABYLON.MeshBuilder.CreateSphere('minglerCigaretteEmber', { diameter: 0.0095, segments: 6 }, this.scene);
+        ember.material = this.materialFactory.createStandardMaterial('minglerCigaretteEmberMat', {
+            emissiveColor: [1, 0.32, 0.06], disableLighting: true, mutable: true
+        });
+        ember.parent = cigarette;
+        ember.position.y = 0.085;
+        ember.isPickable = false;
         cigarette.setEnabled(false);
+
+        const texture = this._fogParticleTexture;
+        const smoke = (name, capacity) => {
+            if (!texture || !BABYLON.ParticleSystem) return null;
+            const ps = new BABYLON.ParticleSystem(name, capacity, this.scene);
+            ps.particleTexture = texture;
+            ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+            ps.minEmitPower = 1;
+            ps.maxEmitPower = 1;
+            ps.colorDead = new BABYLON.Color4(0.6, 0.6, 0.64, 0);
+            ps.direction1 = new BABYLON.Vector3();
+            ps.direction2 = new BABYLON.Vector3();
+            ps.minEmitBox = new BABYLON.Vector3(-0.004, 0, -0.004);
+            ps.maxEmitBox = new BABYLON.Vector3(0.004, 0.004, 0.004);
+            ps.emitter = new BABYLON.Vector3();
+            ps.emitRate = 0;
+            return ps;
+        };
+        // The wisp: a thin grey thread curling up from the tip.
+        const wisp = smoke('minglerSmokeWisp', 60);
+        if (wisp) {
+            wisp.color1 = new BABYLON.Color4(0.78, 0.78, 0.82, 0.22);
+            wisp.color2 = new BABYLON.Color4(0.7, 0.7, 0.76, 0.14);
+            wisp.minSize = 0.018; wisp.maxSize = 0.035;
+            wisp.addSizeGradient(0, 0.6); wisp.addSizeGradient(1, 3.2);
+            wisp.minLifeTime = 2.0; wisp.maxLifeTime = 3.4;
+            wisp.direction1.set(-0.025, 0.07, -0.025);
+            wisp.direction2.set(0.025, 0.13, 0.025);
+            wisp.gravity = new BABYLON.Vector3(0.01, 0.015, 0);
+        }
+        // The exhale: a soft cloud pushed out of the mouth, slowing and spreading as it rises.
+        const exhale = smoke('minglerSmokeExhale', 45);
+        if (exhale) {
+            exhale.color1 = new BABYLON.Color4(0.8, 0.8, 0.84, 0.16);
+            exhale.color2 = new BABYLON.Color4(0.72, 0.72, 0.78, 0.1);
+            exhale.minSize = 0.035; exhale.maxSize = 0.06;
+            exhale.addSizeGradient(0, 0.5); exhale.addSizeGradient(1, 3.5);
+            exhale.minLifeTime = 1.4; exhale.maxLifeTime = 2.4;
+            if (exhale.addLimitVelocityGradient) { exhale.addLimitVelocityGradient(0, 0.5); exhale.addLimitVelocityGradient(1, 0.04); exhale.limitVelocityDamping = 0.9; }
+            exhale.gravity = new BABYLON.Vector3(0, 0.06, 0);
+        }
+
         npc.smokeProp = cigarette;
-        npc.smokePalm = palm;
-        npc.smokeVisible = false;
+        npc.smoke = {
+            bones, cigarette, ember, wisp, exhale,
+            mouth: null, breath: null,
+            baseScaleY: 1, visible: false, glow: 0.35, wasNear: false, exhaleIn: 0, exhaleLeft: 0, smoked: 0,
+            filter: new BABYLON.Vector3(), mouthPos: new BABYLON.Vector3(), breathPos: new BABYLON.Vector3(),
+            direction: new BABYLON.Vector3()
+        };
     }
 
-    _updateMinglerSmoke(npc, visible) {
-        const cigarette = npc && npc.smokeProp;
-        if (!cigarette) return;
-        visible = !!visible;
-        if (npc.smokeVisible !== visible) {
-            cigarette.setEnabled(visible);
-            npc.smokeVisible = visible;
+    /**
+     * Put the cigarette between his index and middle fingers, through the palm: the filter on the palm side (his lips
+     * when the hand is up) and the burning end out past the back of the hand. Measured in the body's own (glTF) frame,
+     * because a spawned person is mirrored in the world (the root's handedness flip is replaced by a plain yaw), which
+     * would turn a world-space cross product inside out. Also marks his mouth on the Head bone. Once per smoke stop:
+     * the fingers' current curl is what it holds.
+     */
+    _attachCigarette(npc) {
+        const s = npc.smoke;
+        const root = npc.root.computeWorldMatrix(true);
+        const toBody = root.clone().invert();
+        const local = node => BABYLON.Vector3.TransformCoordinates(node.computeWorldMatrix(true).getTranslation(), toBody);
+        const i2 = local(s.bones.index2), i3 = local(s.bones.index3), m2 = local(s.bones.middle2), m3 = local(s.bones.middle3);
+        const hold = i2.add(i3).add(m2).add(m3).scaleInPlace(0.25);
+        const fingers = m3.subtract(m2).normalize();
+        const palm = BABYLON.Vector3.Cross(i2.subtract(m2), fingers).normalize();
+        const holdWorld = BABYLON.Vector3.TransformCoordinates(hold, root);
+        const palmWorld = BABYLON.Vector3.TransformNormal(palm, root).normalize();
+        const filter = holdWorld.add(palmWorld.scale(0.03));
+        const along = BABYLON.Quaternion.Identity();
+        BABYLON.Quaternion.FromUnitVectorsToRef(BABYLON.Vector3.Up(), palmWorld.negate(), along);
+        const world = BABYLON.Matrix.Compose(BABYLON.Vector3.One(), along, filter);
+        const parentWorld = s.bones.middle2.computeWorldMatrix(true);
+        const cigarette = s.cigarette;
+        cigarette.parent = s.bones.middle2;
+        world.multiply(parentWorld.clone().invert()).decompose(cigarette.scaling, cigarette.rotationQuaternion, cigarette.position);
+        s.baseScaleY = cigarette.scaling.y;
+
+        // His lips, 0.115 m in front of and 6 mm above the Head joint (measured on m6's face), and where he blows:
+        // up and off to his right (the Smoke_Loop also lifts and turns his chin), not into the face of whoever stands
+        // in front of him.
+        if (!s.mouth) {
+            s.mouth = new BABYLON.TransformNode('minglerMouth', this.scene);
+            s.breath = new BABYLON.TransformNode('minglerBreath', this.scene);
         }
-        if (!visible || !npc.smokePalm) return;
-        npc.smokePalm.computeWorldMatrix(true).getTranslationToRef(cigarette.position);
-        cigarette.position.y += 0.015;
+        const head = s.bones.head.computeWorldMatrix(true);
+        const toHead = head.clone().invert();
+        const scale = npc.root.scaling.x || 1;
+        const yaw = npc.root.rotation.y;
+        const forward = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+        const right = new BABYLON.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        // Characters are mirrored in the world (see above), so "his right" is found from the smoking hand, not assumed.
+        const handSide = Math.sign(BABYLON.Vector3.Dot(s.bones.middle2.getAbsolutePosition().subtract(npc.root.position), right)) || 1;
+        const lips = head.getTranslation().add(forward.scale(0.115 * scale)).addInPlaceFromFloats(0, 0.006 * scale, 0);
+        const blow = lips.add(forward.scale(0.14)).addInPlace(right.scale(0.12 * handSide)).addInPlaceFromFloats(0, 0.22, 0);
+        for (const [node, at] of [[s.mouth, lips], [s.breath, blow]]) {
+            node.parent = s.bones.head;
+            node.position.copyFrom(BABYLON.Vector3.TransformCoordinates(at, toHead));
+        }
+    }
+
+    _updateMinglerSmoke(npc, visible, dt = 0, total = 0) {
+        const s = npc && npc.smoke;
+        if (!s) return;
+        visible = !!visible;
+        if (s.visible !== visible) {
+            s.visible = visible;
+            if (visible) {
+                this._attachCigarette(npc);
+                s.smoked = 0; s.glow = 0.35; s.wasNear = false; s.exhaleIn = 0; s.exhaleLeft = 0;
+                if (s.wisp) s.wisp.start();
+                if (s.exhale) s.exhale.start();
+            } else {
+                if (s.wisp) s.wisp.stop();
+                if (s.exhale) s.exhale.stop();
+            }
+            s.cigarette.setEnabled(visible);
+        }
+        if (!visible) return;
+        const step = Math.max(0, dt || 0);
+        s.smoked += step;
+        // It burns down over the stop, to a stub.
+        const burn = 1 - 0.45 * Math.min(1, s.smoked / Math.max(1, total));
+        s.cigarette.scaling.y = s.baseScaleY * burn;
+        s.ember.scaling.y = 1 / burn;
+
+        s.cigarette.computeWorldMatrix(true).getTranslationToRef(s.filter);
+        s.mouth.computeWorldMatrix(true).getTranslationToRef(s.mouthPos);
+        s.breath.computeWorldMatrix(true).getTranslationToRef(s.breathPos);
+        // A drag is whenever the filter is at his lips; the exhale follows once the hand has come down.
+        const near = BABYLON.Vector3.Distance(s.filter, s.mouthPos) < 0.05;
+        if (!near && s.wasNear) s.exhaleIn = 0.45;
+        s.wasNear = near;
+        if (s.exhaleIn > 0) { s.exhaleIn -= step; if (s.exhaleIn <= 0) s.exhaleLeft = 1.5; }
+        const k = 1 - Math.exp(-step * 8);
+        s.glow += ((near ? 1 : 0.32) - s.glow) * k;
+        s.ember.material.emissiveColor.set(s.glow, 0.32 * s.glow * s.glow + 0.04, 0.06 * s.glow);
+        s.ember.scaling.x = s.ember.scaling.z = 0.85 + 0.35 * s.glow;
+
+        if (s.wisp) {
+            s.ember.computeWorldMatrix(true).getTranslationToRef(s.wisp.emitter);
+            s.wisp.emitRate = near ? 2 : 7;
+        }
+        if (s.exhale) {
+            s.exhale.emitter.copyFrom(s.mouthPos);
+            if (s.exhaleLeft > 0) {
+                s.exhaleLeft -= step;
+                s.direction.copyFrom(s.breathPos).subtractInPlace(s.mouthPos);
+                s.exhale.direction1.copyFrom(s.direction).scaleInPlace(0.8).addInPlaceFromFloats(-0.06, -0.03, -0.06);
+                s.exhale.direction2.copyFrom(s.direction).scaleInPlace(1.25).addInPlaceFromFloats(0.06, 0.05, 0.06);
+                // Strongest at the start of the breath, trailing off.
+                s.exhale.emitRate = 26 * Math.min(1, s.exhaleLeft / 1.5 + 0.2);
+            } else {
+                s.exhale.emitRate = 0;
+            }
+        }
     }
 
     _minglerSurfaceLevel(x, z, current) {
@@ -2197,11 +2379,16 @@ class VRClubAudioCrowd extends VRClubUI {
             VRClubAudioCrowd._playClip(npc, 'Drink_Loop', 1, false);
         } else if (state.activity === 'pickup') {
             state.activity = 'drink'; state.duration = state.timer = 1.9;
+            state.sips = (state.sips || 0) + 1;
         } else if (state.activity === 'drink') {
             state.activity = 'return'; state.duration = state.timer = 0.9;
         } else if (state.activity === 'return') {
-            state.activity = 'returned'; state.duration = state.timer = 1.8;
+            // The glass goes back on the counter and he talks with the bartender a while before the next sip.
+            state.activity = 'returned'; state.duration = state.timer = 7;
             VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
+        } else if (state.activity === 'returned' && (state.sips || 0) < 2) {
+            state.activity = 'pickup'; state.duration = state.timer = 0.8;
+            VRClubAudioCrowd._playClip(npc, 'Drink_Loop', 1, false);
         } else if (state.activity === 'returned') {
             state.activity = 'clear'; state.duration = state.timer = 1.2;
         } else {
@@ -2269,6 +2456,7 @@ class VRClubAudioCrowd extends VRClubUI {
             }
             if (state.timer <= 0) {
                 if (state.drinkStop) this._advanceMinglerDrink(npc, route);
+                else if (state.talkGuest != null) this._minglerTurnToTalk(npc, route);
                 else this._minglerDepart(npc, route);
             }
         }
@@ -2294,7 +2482,7 @@ class VRClubAudioCrowd extends VRClubUI {
                         : state.activity === 'return' ? 'return'
                             : state.activity === 'clear' ? 'clear' : 'wash';
         this._updateMinglerDrink(npc, drinkMode, progress);
-        this._updateMinglerSmoke(npc, state.activity === 'smoke');
+        this._updateMinglerSmoke(npc, state.activity === 'smoke', step, state.duration);
         if (npc.collider) npc.collider.position.set(pos.x, pos.y + 0.85, pos.z);
         this._moveContactShadow(npc);
     }
@@ -2307,6 +2495,8 @@ class VRClubAudioCrowd extends VRClubUI {
             state.duration = state.timer = dwell.min + Math.random() * (dwell.max - dwell.min);
             state.partner = null;
             state.drinkStop = false;
+            // A solo stop next to somebody (the balcony rail) turns into a conversation once he has had his look.
+            state.talkGuest = node.guest != null ? node.guest : null;
             state.activity = node.activity;
             if (Number.isFinite(node.yaw)) state.yaw = node.yaw;
             VRClubAudioCrowd._playClip(npc, node.clip || 'Idle_Loop', npc.baseSpeed);
@@ -2328,6 +2518,8 @@ class VRClubAudioCrowd extends VRClubUI {
         state.duration = state.timer;
         state.partner = partner;
         state.drinkStop = !!node.drink;
+        state.talkGuest = null;
+        state.sips = 0;
         state.activity = node.drink ? 'order' : partner ? 'talk' : 'idle';
         if (node.drink) {
             state.duration = state.timer = 2.5;
@@ -2340,11 +2532,27 @@ class VRClubAudioCrowd extends VRClubUI {
         }
     }
 
+    /** At the rail: he lets go, turns to the person beside him and they talk; she lets go of the rail too. */
+    _minglerTurnToTalk(npc, route) {
+        const state = npc.mingle;
+        const node = route.nodes[state.node];
+        const partner = this._mingleGuest(state.talkGuest);
+        state.talkGuest = null;
+        if (!partner) { this._minglerDepart(npc, route); return; }
+        const talk = node.talk || route.dwell;
+        state.activity = 'talk';
+        state.partner = partner;
+        state.duration = state.timer = talk.min + Math.random() * (talk.max - talk.min);
+        VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
+        VRClubAudioCrowd._playClip(partner, 'Idle_Talking_Loop', partner.baseSpeed);
+    }
+
     _minglerDepart(npc, route) {
         const state = npc.mingle;
         this._updateMinglerDrink(npc, 'wash');
         state.activity = 'walk';
         state.drinkStop = false;
+        state.talkGuest = null;
         if (state.partner) {
             VRClubAudioCrowd._playClip(state.partner, state.partner.slotClip, state.partner.baseSpeed);
             // Only one person eases back at a time; anyone still turning is simply put back where they stood.

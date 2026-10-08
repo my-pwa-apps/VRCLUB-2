@@ -381,10 +381,18 @@ test('the mingling guest raises a drink to his face without sliding his feet', a
     scene.dispose();
 });
 
-test('the mingling guest raises his smoking hand to his face without sliding his feet', async () => {
+test('the mingling guest smokes like a smoker: the filter at his lips, his hand and the burning end out of his face', async () => {
     const { scene, container, B } = await loadContainer('club-crowd-m6.glb');
     const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
     const root = entry.rootNodes[0];
+    // Placed the way _spawnAvatar places him: the root's handedness flip replaced by a yaw and a uniform scale.
+    root.rotationQuaternion = null;
+    root.rotation.y = 0;
+    root.computeWorldMatrix(true);
+    const bounds = root.getHierarchyBoundingVectors(true);
+    const scale = 1.84 / (bounds.max.y - bounds.min.y);
+    root.scaling.setAll(scale);
+    root.computeWorldMatrix(true);
     const node = name => root.getDescendants(false, n => n.name === name)[0];
     const at = name => {
         const n = node(name);
@@ -395,20 +403,83 @@ test('the mingling guest raises his smoking hand to his face without sliding his
     assert.ok(group, 'club-crowd-m6.glb has no Smoke_Loop');
     group.start(false);
     group.pause();
+    const seconds = (group.to - group.from) / (group.animatables[0]?.animations?.[0]?.framePerSecond || 20);
 
+    // The runtime's own placement (VRClubAudioCrowd._attachCigarette): between the index and middle fingers, through
+    // the palm, measured in the body's frame; the lips 0.115 m in front of and 6 mm above the Head joint.
+    group.goToFrame(group.from);
+    root.computeWorldMatrix(true);
+    const head = node('Head');
+    const toHead = head.computeWorldMatrix(true).clone().invert();
+    const lipsLocal = B.Vector3.TransformCoordinates(at('Head').add(new B.Vector3(0, 0.006 * scale, 0.115 * scale)), toHead);
+    const centreLocal = B.Vector3.TransformCoordinates(at('Head').add(new B.Vector3(0, 0.088 * scale, 0)), toHead);
     const samples = [];
-    for (let i = 0; i <= 64; i++) {
-        group.goToFrame(group.from + (group.to - group.from) * i / 64);
+    for (let i = 0; i <= 96; i++) {
+        group.goToFrame(group.from + (group.to - group.from) * i / 96);
         root.computeWorldMatrix(true);
-        samples.push({ head: at('Head'), palm: at('Middle1.R'), leftFoot: at('Foot.L'), rightFoot: at('Foot.R') });
+        const rootWorld = root.getWorldMatrix();
+        const toBody = rootWorld.clone().invert();
+        const local = name => B.Vector3.TransformCoordinates(at(name), toBody);
+        const i2 = local('Index2.R'), i3 = local('Index3.R'), m2 = local('Middle2.R'), m3 = local('Middle3.R');
+        const hold = B.Vector3.TransformCoordinates(i2.add(i3).add(m2).add(m3).scale(0.25), rootWorld);
+        const palm = B.Vector3.TransformNormal(B.Vector3.Cross(i2.subtract(m2), m3.subtract(m2).normalize()), rootWorld).normalize();
+        const headWorld = head.computeWorldMatrix(true);
+        const centre = B.Vector3.TransformCoordinates(centreLocal, headWorld);
+        samples.push({
+            filter: hold.add(palm.scale(0.03)),
+            lit: hold.subtract(palm.scale(0.055)),
+            lips: B.Vector3.TransformCoordinates(lipsLocal, headWorld),
+            centre,
+            tips: ['Index4.R', 'Middle4.R', 'Middle3.R', 'Thumb3.R'].map(at),
+            leftFoot: at('Foot.L'), rightFoot: at('Foot.R')
+        });
     }
-    const closest = Math.min(...samples.map(sample => B.Vector3.Distance(sample.palm, sample.head)));
-    const footTravel = side => {
-        const first = samples[0][side];
-        return Math.max(...samples.map(sample => B.Vector3.Distance(sample[side], first)));
-    };
-    assert.ok(closest < 0.16, `the smoking hand remains ${closest.toFixed(3)} m from his face`);
+    const atLips = samples.filter(s => B.Vector3.Distance(s.filter, s.lips) < 0.05);
+    const closest = Math.min(...samples.map(s => B.Vector3.Distance(s.filter, s.lips)));
+    assert.ok(closest < 0.03, `the filter never reaches his lips (closest ${closest.toFixed(3)} m)`);
+    assert.ok(seconds >= 10, `a drag every ${seconds.toFixed(1)} s is chain-smoking`);
+    assert.ok(atLips.length / samples.length * seconds > 1, 'each drag is shorter than a second');
+    for (const s of atLips) {
+        const lit = B.Vector3.Distance(s.lit, s.centre);
+        assert.ok(lit > 0.18, `the burning end is ${lit.toFixed(3)} m from the middle of his head: it is in his face`);
+        const tip = Math.min(...s.tips.map(p => B.Vector3.Distance(p, s.centre)));
+        assert.ok(tip > 0.15, `a finger is ${tip.toFixed(3)} m from the middle of his head: the hand is in his face`);
+    }
+    const footTravel = side => Math.max(...samples.map(s => B.Vector3.Distance(s[side], samples[0][side])));
     assert.ok(footTravel('leftFoot') < 0.015 && footTravel('rightFoot') < 0.015, 'a foot slides while he smokes');
+    scene.dispose();
+});
+
+test('at the balcony the mingling guest rests both hands on the rail beside the watcher', async () => {
+    const { scene, container } = await loadContainer('club-crowd-m6.glb');
+    const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    // His balcony stop (_minglerRoute): x -9.93, z -12.95 on the deck at y 3, facing the rail (+x), 1.84 m tall.
+    root.rotationQuaternion = null;
+    root.rotation.y = Math.PI / 2;
+    root.position.set(-9.93, 3, -12.95);
+    root.computeWorldMatrix(true);
+    let bounds = root.getHierarchyBoundingVectors(true);
+    root.scaling.setAll(1.84 / (bounds.max.y - bounds.min.y));
+    root.computeWorldMatrix(true);
+    bounds = root.getHierarchyBoundingVectors(true);
+    root.position.y += 3 - bounds.min.y;
+    root.computeWorldMatrix(true);
+    const node = name => root.getDescendants(false, n => n.name === name)[0];
+    const at = name => { const n = node(name); n.computeWorldMatrix(true); return n.getAbsolutePosition().clone(); };
+    const group = entry.animationGroups.find(animation => animation.name.endsWith('Idle_Railing_Loop'));
+    assert.ok(group, 'club-crowd-m6.glb has no Idle_Railing_Loop');
+    group.start(false);
+    group.pause();
+    const railX = -9.54, railTop = 3 + 1.08;   // MezzanineLayout: deck edge rail, railHeight 1.08
+    for (let i = 0; i <= 32; i++) {
+        group.goToFrame(group.from + (group.to - group.from) * i / 32);
+        root.computeWorldMatrix(true);
+        for (const wrist of [at('Wrist.L'), at('Wrist.R')]) {
+            assert.ok(Math.abs(wrist.x - railX) < 0.08, `a hand misses the rail by ${Math.abs(wrist.x - railX).toFixed(3)} m`);
+            assert.ok(Math.abs(wrist.y - railTop) < 0.06, `a hand is ${(wrist.y - railTop).toFixed(3)} m off the rail top`);
+        }
+    }
     scene.dispose();
 });
 

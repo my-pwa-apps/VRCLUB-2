@@ -2840,10 +2840,13 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         const route = Crowd.prototype._minglerRoute.call({});
         const partners = new Set();
         const drinkStages = new Set();
-        let walked = 0, walkingFrames = 0, settling = 0, lastPartner = null, drank = false;
+        let walked = 0, walkingFrames = 0, settling = 0, lastPartner = null, drank = false, sips = 0, railFrames = 0;
+        let lastActivity = null;
         const soloActivities = new Set([mingler.mingle.activity]);
         let last = { x: mingler.root.position.x, z: mingler.root.position.z };
-        for (let frame = 0; frame < 60 * 180; frame++) {
+        // A whole round and back: he now lingers at every stop, so it takes several minutes.
+        const frames = 60 * 900;
+        for (let frame = 0; frame < frames; frame++) {
             club._updateMingler(1 / 60);
             const pos = mingler.root.position;
             if (frame > 5 * 60 && mingler.mingle.phase === 'dwell') {
@@ -2851,7 +2854,15 @@ test('the mingling guest walks his round, talks with the people he stops at, and
                 assert.ok(node.guest != null || node.bartender || node.activity,
                     `he stopped alone at navigation point ${mingler.mingle.node}`);
                 if (node.activity) soloActivities.add(node.activity);
+                // At the balcony he first leans on the rail beside her, alone, before he turns to talk.
+                if (mingler.mingle.activity === 'balcony') {
+                    assert.equal(playing(mingler), 'Idle_Railing_Loop', 'at the balcony his hands are not on the rail');
+                    assert.equal(mingler.mingle.partner, null, 'she turned to him before he had had his look at the floor');
+                    railFrames++;
+                }
             }
+            if (mingler.mingle.activity === 'drink' && lastActivity !== 'drink') sips++;
+            lastActivity = mingler.mingle.activity;
             walked += Math.hypot(pos.x - last.x, pos.z - last.z);
             last = { x: pos.x, z: pos.z };
             if (playing(mingler) === 'Walk') walkingFrames++;
@@ -2878,13 +2889,18 @@ test('the mingling guest walks his round, talks with the people he stops at, and
                 && Math.abs(mingler.collider.position.z - pos.z) < 1e-6, 'his collider stayed behind');
         }
         assert.ok(partners.size >= 2, `he only ever talked to ${partners.size} person`);
+        assert.ok(partners.has('guest3'), 'he never talked with the woman at the balcony rail');
+        assert.ok(railFrames > 20 * 60, `he leaned on the rail for only ${(railFrames / 60).toFixed(1)} s`);
+        assert.ok(sips >= 2, `he took ${sips} sip(s) at the bar; a drink is more than one`);
+        // He spends more of his time with people than on the way to them.
+        assert.ok(walkingFrames < 0.4 * frames, `he walks ${(100 * walkingFrames / frames).toFixed(0)}% of the time`);
         assert.ok(drank && partners.has('bartender'), 'he never got a drink from the bartender');
         assert.deepEqual([...soloActivities], ['watch', 'smoke', 'balcony'],
             'he did not complete every intentional solo destination');
         assert.deepEqual([...drinkStages], ['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'clear'],
             'the bartender service, pickup, drink, return and clearing sequence did not run in order');
         assert.ok(walked > 25, `he barely moved (${walked.toFixed(1)} m in three minutes)`);
-        assert.ok(walkingFrames > 0 && walkingFrames < 60 * 180, 'he either never walks or never stops');
+        assert.ok(walkingFrames > 0 && walkingFrames < frames, 'he either never walks or never stops');
         assert.ok(Math.abs(mingler.collider.position.x - mingler.root.position.x) < 1e-6
             && Math.abs(mingler.collider.position.z - mingler.root.position.z) < 1e-6, 'his collider stayed behind');
         // Everyone he visited is back in their own pose, facing the way they were placed.

@@ -145,9 +145,16 @@ test('a side guest walks the room and stops to talk to the people standing in it
         };
         let last = { x: npc.root.position.x, z: npc.root.position.z };
         const shadows = club._contactShadows;
-        for (let i = 0; i < 6000; i++) {   // enough simulated time to complete the full bar-service sequence
+        // Every dwell at the middle of its range, so a whole round (about five minutes) fits the run.
+        const random = Math.random;
+        Math.random = () => 0.5;
+        out.smoke = { lips: 99, glow: 0, exhale: false, wisp: false, burnt: 1 };
+        out.rail = { frames: 0, worst: 0, talkedHere: false, partnerTalks: false };
+        out.steps = 0;
+        for (let i = 0; i < 21000; i++) {   // ~5.6 simulated minutes: the whole round, from his home spot to the balcony
             club.updateAnimations();
             scene.animate();
+            out.steps++;
             const pos = npc.root.position;
             out.walked += Math.hypot(pos.x - last.x, pos.z - last.z);
             last = { x: pos.x, z: pos.z };
@@ -170,7 +177,32 @@ test('a side guest walks the room and stops to talk to the people standing in it
                 if (npc.mingle.activity === 'balcony') out.balconyFacingFloor ||= off < 0.2;
                 if (npc.mingle.activity === 'smoke') {
                     out.smokeVisible ||= !!(npc.smokeProp && npc.smokeProp.isEnabled());
+                    const s = npc.smoke;
+                    if (s && s.visible) {
+                        out.smoke.lips = Math.min(out.smoke.lips, BABYLON.Vector3.Distance(s.filter, s.mouthPos));
+                        out.smoke.glow = Math.max(out.smoke.glow, s.glow);
+                        out.smoke.exhale ||= !!(s.exhale && s.exhale.emitRate > 0);
+                        out.smoke.wisp ||= !!(s.wisp && s.wisp.isStarted() && s.wisp.emitRate > 0);
+                        out.smoke.burnt = Math.min(out.smoke.burnt, s.cigarette.scaling.y / s.baseScaleY);
+                    }
                 }
+                if (npc.mingle.activity === 'balcony') {
+                    // Both hands on the deck rail (x -9.54, top 3 + 1.08), once he has turned to it and settled in.
+                    const dt = Math.min(4, Math.max(0.25, club.engine.getDeltaTime() / 16.667)) / 60;
+                    out.rail.seconds = (out.rail.seconds || 0) + dt;
+                    out.rail.frames++;
+                    if (npc.mingle.duration - npc.mingle.timer > 2.5) {
+                        for (const side of ['Wrist.L', 'Wrist.R']) {
+                            const wrist = npc.root.getChildTransformNodes(false).find(node => node.name.endsWith(side));
+                            const p = wrist.computeWorldMatrix(true).getTranslation();
+                            out.rail.worst = Math.max(out.rail.worst, Math.abs(p.x + 9.54), Math.abs(p.y - 4.08));
+                        }
+                    }
+                }
+            }
+            if (partner && npc.mingle.phase === 'dwell' && partner.root.position.y > 2.5) {
+                out.rail.talkedHere = true;
+                out.rail.partnerTalks ||= is(playing(partner).name, 'Idle_Talking_Loop') && is(mine.name, 'Idle_Talking_Loop');
             }
             if (partner && npc.mingle.phase === 'dwell') {
                 out.talkedWith.add(partner.name);
@@ -242,6 +274,7 @@ test('a side guest walks the room and stops to talk to the people standing in it
             }
         }
         scene.useConstantAnimationDeltaTime = false;
+        Math.random = random;
         club.engine.runRenderLoop(() => scene.render());
         return {
             ...out,
@@ -275,6 +308,16 @@ test('a side guest walks the room and stops to talk to the people standing in it
     expect(run.soloActivities).toEqual(['watch', 'smoke', 'balcony']);
     expect(run.watchFacingFloor, 'his indoor idle faces away from the dance floor').toBe(true);
     expect(run.smokeVisible, 'his cigarette was not visible while he smoked outside').toBe(true);
+    expect(run.smoke.lips, 'the filter never reached his lips').toBeLessThan(0.03);
+    expect(run.smoke.glow, 'the tip never glowed on a drag').toBeGreaterThan(0.8);
+    expect(run.smoke.exhale, 'he never blew out smoke after a drag').toBe(true);
+    expect(run.smoke.wisp, 'no smoke rose from the tip').toBe(true);
+    expect(run.smoke.burnt, 'the cigarette never burned down').toBeLessThan(0.75);
+    expect(run.rail.seconds, 'he never leaned on the balcony rail').toBeGreaterThan(20);
+    expect(run.rail.worst, 'his hands were not on the balcony rail').toBeLessThan(0.08);
+    expect(run.rail.talkedHere && run.rail.partnerTalks, 'he never talked with the woman at the rail').toBe(true);
+    // He lingers: more of the round is spent with people than walking between them.
+    expect(run.walkFrames / run.steps, 'he spends most of his time walking').toBeLessThan(0.45);
     expect(run.balconyFacingFloor, 'his balcony idle faces away from the dance floor').toBe(true);
     expect(run.maxZ, 'he never walked outside').toBeGreaterThan(7);
     expect(run.maxY, 'he never climbed to street or balcony level').toBeGreaterThan(2.9);
