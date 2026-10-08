@@ -617,7 +617,7 @@ class VRClubCore {
             const btn = document.getElementById('enterClubBtn');
             if (btn) {
                 btn.style.display = '';
-                btn.textContent = '↻ RETRY';
+                btn.textContent = 'RETRY';
             }
         } catch (_) { /* DOM may not exist in a test harness */ }
         this.showErrorMessage(

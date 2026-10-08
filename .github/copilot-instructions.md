@@ -1050,7 +1050,12 @@ reachable only after the strobes have already fired.
 warning, two press-to-enable toggles (Safe Mode and VR Comfort — never checkboxes, and neither carries an
 explanatory paragraph **or a `title` tooltip**: a headset and a touch screen never show one, so a tooltip is
 the same extra text hidden from exactly the guests who need it — the button's own label must say what it
-does), ENTER, the controls line and the `.splash-credits` line — nothing else. There is no
+does), ENTER, the controls line and the `.splash-credits` line — nothing else. **No emoji and no decorative
+symbols**: not on the toggles, not on ENTER, not in the controls line, not even the warning triangle or the
+subtitle's diamonds. They render differently on every platform, they are the first thing a headset guest reads
+at low angular resolution, and each one sat beside a label that already said the same thing; a unit test fails
+on any pictograph, dingbat, arrow or geometric shape between `#splashScreen` and `<main>` (including one
+written back at runtime, such as the RETRY label). There is no
 music opt-in: a club has music when you walk in, so ENTER always starts it. It must not name a podcast, a
 stream, a server or the relay host, and it offers no podcast picker: that choice lives in the Audio menu and
 the VR Music page, and the shows, their servers and the streaming privacy note live in `#modelCredits`. Unit

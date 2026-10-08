@@ -329,7 +329,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   when you walk in, so ENTER always starts a DJ set and you change or stop it from the 🎵 menu inside. The
   headphones emoji was replaced by the club's own NOCTURNE neon wordmark — the same logo that hangs over the
   dance floor and over the street entrance — and **VR Comfort** is now a single button you press to turn on,
-  like Photosensitive Safe Mode, instead of a checkbox with a paragraph of explanation.
+  like Photosensitive Safe Mode, instead of a checkbox with a paragraph of explanation. Every emoji and
+  decorative symbol is gone from the entry screen as well — the shield, the compass, the play arrow, the
+  warning triangle and the diamonds around the subtitle — leaving the wordmark and plain words.
 - **Lighting rig pulled in over the dance floor**: the side cross beams, their six moving heads and the two
   side lasers moved from x ±8 to x ±7.6 (`CLUB_POSITIONS.sideTrussX`), further from the balcony and the bar,
   and 0.8 m clear of the flown PA cabinets. The side lasers were also fixed: they were

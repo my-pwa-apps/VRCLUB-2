@@ -4528,6 +4528,22 @@ test('the NOCTURNE wordmark is one geometry, shared by the splash and both neon 
     assert.match(css, new RegExp(`stroke-width: ${NocturneLogo.STROKE};`), 'the splash tube width has drifted');
 });
 
+test('the splash carries no emoji or decorative symbols', () => {
+    // The entry screen is the club's title card: the wordmark, a warning, two toggles and ENTER.
+    // Emoji there are noise - they render differently on every platform, they are the first thing a
+    // headset guest sees at low angular resolution, and every one of them sat beside a label that
+    // already said the same thing. The words carry the meaning; nothing on the splash is decorated.
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    const splash = html.match(/<div id="splashScreen"[\s\S]*?<main id="mainExperience"/)[0];
+    // Pictographs, dingbats, geometric shapes, arrows and variation selectors.
+    const pictograph = /[\u{1F300}-\u{1FAFF}\u{2190}-\u{21FF}\u{2460}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
+    const found = splash.match(pictograph);
+    assert.equal(found, null, `the splash still carries ${found && found[0]}`);
+    // Nor may one be written back into it at runtime (the RETRY label is the splash's own button).
+    const core = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
+    assert.match(core, /btn\.textContent = 'RETRY';/, 'the retry label must stay plain');
+});
+
 test('smooth VR movement is the default but an explicit comfort preference is preserved', () => {
     let stored = null;
     const { window } = loadClassic('js/club/01-core.js', { localStorage: { getItem: () => stored } });
