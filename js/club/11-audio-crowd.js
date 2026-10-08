@@ -1658,10 +1658,7 @@ class VRClubAudioCrowd extends VRClubUI {
         if (changed) this._refreshContactShadows();
     }
 
-    /**
-     * Play or pause a character's clips. Babylon's AnimationGroup reports `isPlaying` (there is no `isPaused`), and a
-     * group paused here restarts here; the distance LOD in updateDancingNPCs keeps its own flag, cleared on the way back.
-     */
+    /** Play or pause a character's clips when its tier or district visibility changes. */
     static _setAnimating(npc, on) {
         for (const group of npc.animations || []) {
             if (on) {
@@ -1670,7 +1667,6 @@ class VRClubAudioCrowd extends VRClubUI {
                 group.pause();
             }
         }
-        if (on) npc._animPaused = false;
     }
 
     /** The bouncer keeps an eye on whoever comes close: he turns toward them (never more than ~75 degrees), then back. */
@@ -1759,7 +1755,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const decision = this._crowdDecision || (this._crowdDecision = {});
         for (const npc of this.npcAvatars) {
             const dance = npc.dance;
-            if (!dance || !npc.root.isEnabled() || npc._animPaused) continue;
+            if (!dance || !npc.root.isEnabled()) continue;
             if (!dance.state) dance.state = choreographer.createDancer([...dance.groups.keys()]);
             choreographer.step(dance.state, music, VRClubAudioCrowd._loopFraction(dance.current), decision);
             let group = dance.current;
@@ -1790,25 +1786,21 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!this.npcAvatars || this.npcAvatars.length === 0) return;
 
         if (!audioData) audioData = this.getAudioData();
-        // The three Mixamo dancers have one clip each: they dance to the low end, and slow right down (a lazy groove)
-        // while the kick is gone, as the rest of the floor sways or stands (_updateCrowdDance).
-        const quiet = this._crowdBeatPresent === false ? 0.45 : 1;
-        const beatBoost = quiet * ((audioData.hasAudio && audioData.bass > 0.3)
+        // The three Mixamo dancers have one authored clip each. Keep its intended pace when the kick drops out;
+        // slowing it to 45% reads as broken slow motion rather than the deliberate free grooves used by CrowdDance.
+        const beatBoost = (audioData.hasAudio && audioData.bass > 0.3)
             ? 1.0 + (audioData.bass - 0.3) * 0.3
-            : 1.0);
+            : 1.0;
 
         const tempoChanged = Math.abs(beatBoost - this._npcBeatBoost) >= 0.01;
         if (tempoChanged) {
             this._npcBeatBoost = beatBoost;
         }
 
-        // === DYNAMIC FRUSTUM CULLING & ANIMATION LOD ===
-        // Standalone Quest 3S evaluating vertex skinning for multiple 60-joint
-        // skeletons burns noticeable GPU/CPU time.
-        // Pause only very distant dancers. TransformNode/skinned-hierarchy frustum
-        // bounds become unreliable as animation advances, especially for stereo XR.
+        // TransformNode/skinned-hierarchy frustum bounds are unreliable as animation advances, especially in stereo
+        // XR. Every enabled character therefore keeps animating; tier and district visibility own explicit pausing.
         const cam = this.scene ? this.scene.activeCamera : null;
-        const checkDistance = cam && (this.frameCounter % 4 === 0);
+        const checkProximity = cam && (this.frameCounter % 4 === 0);
         const camPos = cam ? (cam.globalPosition || cam.position) : null;
 
         for (let i = 0; i < this.npcAvatars.length; i++) {
@@ -1822,7 +1814,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 }
             }
 
-            if (checkDistance && camPos) {
+            if (checkProximity && camPos) {
                 const rootPos = npc.root.position;
                 const dx = rootPos.x - camPos.x;
                 const dz = rootPos.z - camPos.z;
@@ -1837,18 +1829,6 @@ class VRClubAudioCrowd extends VRClubUI {
                         if (Math.abs(npc.avoidYaw) < 0.01) npc.avoidYaw = 0;
                     }
                     npc.root.rotation.y = npc.homeYaw + (npc.avoidYaw || 0);
-                }
-
-                if (distSq > 784) {
-                    if (!npc._animPaused) {
-                        npc.animations.forEach(g => { if (g.pause) g.pause(); });
-                        npc._animPaused = true;
-                    }
-                } else {
-                    if (npc._animPaused) {
-                        npc.animations.forEach(g => { if (g.restart) g.restart(); else if (g.play) g.play(); });
-                        npc._animPaused = false;
-                    }
                 }
             }
         }

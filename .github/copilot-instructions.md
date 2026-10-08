@@ -204,11 +204,12 @@ is not in the repertoire. `mirror` in `CAST` mirrors the grooves too.
 - Choosing: per-dancer taste, a change only on a bar line after 4-8 bars, less of a move below its energy, claps x5 in a
   build (the countdown or the ascent movement), hands up and fist pumps on a drop (the release or ignition starting,
   which cut in at once). The kick is present while real onsets keep coming (`lastRealOnsetAt` within ~2.5 beats) and
-  returns after two in a row (`onsetStreak`); without it everyone leaves the grid: 35% stand (`Groove_Still`), the rest
-  sway (`Groove_Sway`) at `FREE_SPEED`, and the Mixamo three slow to 45%.
+  returns after two in a row (`onsetStreak`); without it the Quaternius dancers leave the grid: 35% stand
+  (`Groove_Still`) and the rest sway (`Groove_Sway`) at `FREE_SPEED`. The three Mixamo dancers keep their authored
+  playback speed; slowing those single clips reads as broken slow motion.
 - The club side (`11-audio-crowd.js`): `_spawnAvatar(..., { repertoire })` keeps the nine groups (others disposed),
-  `npc.dance = { groups, current, state }`, `npc.animations` is always `[current]` (so `_setAnimating` and the distance
-  LOD pause and restart the right one), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
+  `npc.dance = { groups, current, state }`, `npc.animations` is always `[current]` (so `_setAnimating` pauses and
+  restarts the right one when a tier or district hides it), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
   which leaves these dancers' speed alone) starts a new move with `enableBlending` (it blends from the old pose) and
   stops the old one: one group evaluates per dancer.
 - Tests: the choreography in `test/unit.test.mjs` (phase lock at several tempos, bar lines, variety, beat loss, build

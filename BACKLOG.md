@@ -1580,9 +1580,8 @@ material freeze in the hot path; image-processing notifications stay at 0.
   **Area:** Dancers / Babylon animation groups
   **Affected files:** `js/club/11-audio-crowd.js`
   **Evidence:** MEASURED with CDP allocation sampling: Babylon `_interpolate`, `_animate` and
-  `animate` account for ~146 of ~216 MB allocated per 10 s. The only animation LOD pauses
-  dancers beyond 28 m, a distance that cannot occur inside the 25 x 21 m room. A
-  heading-based pause (beyond 120°) was prototyped and reverted: it violates the 2026-08-23
+  `animate` account for ~146 of ~216 MB allocated per 10 s. Distance and
+  heading-based pauses were prototyped and reverted: they violate the 2026-08-23
   rule, encoded in the Quest e2e test (`nearbyAnimationsRunning`), that every enabled dancer
   animates in XR after frustum-based pausing froze dancers per eye.
   **Problem:** GC pressure scales with dancer count and runs regardless of visibility.
@@ -1593,7 +1592,7 @@ material freeze in the hot path; image-processing notifications stay at 0.
   **Performance impact:** ~15 MB/s of allocation.
   **Recommended solution:** Bake the dance loops into vertex animation textures
   (`BakedVertexAnimationManager`) with instancing, which removes per-frame skeletal CPU and
-  allocation while keeping every dancer animating. Remove the dead 28 m rule.
+  allocation while keeping every dancer animating.
   **Regression considerations:** Per-dancer phase and speed offsets; `alwaysSelectAsActiveMesh`.
   **Acceptance criteria:** Allocation below 3 MB/s with the full tier crowd; no dancer ever freezes.
   **Validation:** CDP allocation sampling; Quest GC trace.
@@ -4271,18 +4270,21 @@ Scope: full-repository review as Principal Software Engineer, Principal Quality 
   Business value: High
   Technical debt reduction: Low
 
-- [x] Dynamic Level of Detail (LOD) and frustum culling for crowd avatars
+- [x] Keep enabled crowd avatars animating outside the camera view
   Priority: Medium
-  Category: Performance
+  Category: Reliability / UX
   Area: Crowd / Rendering
   Affected files: `js/club/11-audio-crowd.js`, `test/unit.test.mjs`
-  Problem: Skinned dancer avatars evaluated full 60-joint skeletal animation groups every frame even when located behind the camera or when the user stood inside the DJ booth facing away from the dance floor.
-  Impact: Unnecessary CPU/GPU vertex skinning load on standalone Quest 3S chipsets.
-  Recommended solution: Implemented camera view frustum testing (`cam.isInFrustum(npc.root)`) inside `updateDancingNPCs()`. Off-screen and distant (>28 m) dancers pause skeletal animation evaluation (`group.pause()`) and automatically resume (`group.restart()`) upon re-entering the camera frustum.
-  Acceptance criteria: Off-screen avatars pause animation evaluation; smoothly resume when entering frustum; unit tests verify culling and pause state logic.
+  Problem: Pausing skeletal animation by distance or camera frustum froze enabled dancers when viewed from some angles,
+  and animated hierarchy bounds are unreliable in stereo XR.
+  Impact: NPCs visibly stopped dancing even though their quality tier and district still showed them.
+  Recommended solution: Only `_setAnimating()` pauses a character when tier or district visibility explicitly hides it.
+  Every enabled character keeps evaluating its animation regardless of camera distance or direction.
+  Acceptance criteria: Enabled avatars never pause based on distance or frustum state; hidden avatars still pause and
+  restart through their visibility owner.
   Estimated effort: Medium
   Business value: High
-  Technical debt reduction: Medium
+  Technical debt reduction: Low
 
 - [x] ServiceWorker and PWA Offline Shell for instant WebXR launch
   Priority: Medium

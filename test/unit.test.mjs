@@ -7154,6 +7154,53 @@ test('a character hidden and shown again dances again: clips pause and restart t
     assert.equal(npcs[0].animations[0].isPlaying, true);
 });
 
+test('enabled crowd clips never pause off-screen or slow below their authored speed', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    const group = {
+        speedRatio: 0,
+        pauses: 0,
+        restarts: 0,
+        pause() { this.pauses++; },
+        restart() { this.restarts++; }
+    };
+    const npc = {
+        animations: [group],
+        baseSpeed: 0.9,
+        reactsToBeat: true,
+        root: {
+            position: { x: 100, z: 100 },
+            rotation: { y: 0 },
+            isEnabled: () => true
+        },
+        homeYaw: 0,
+        avoidYaw: 0
+    };
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        npcAvatars: [npc],
+        _npcBeatBoost: 0.45,
+        _crowdBeatPresent: false,
+        frameCounter: 4,
+        scene: {
+            activeCamera: {
+                globalPosition: { x: 0, z: 0 },
+                isInFrustum() { throw new Error('animated hierarchy frustum bounds must not control playback'); }
+            }
+        }
+    });
+
+    club.updateDancingNPCs(0, { hasAudio: false, bass: 0 });
+    assert.equal(group.speedRatio, npc.baseSpeed, 'a missing kick slows an authored dance clip');
+    assert.equal(group.pauses, 0, 'an enabled distant dancer was paused');
+    assert.equal(group.restarts, 0, 'an enabled dancer was needlessly restarted');
+
+    club.updateDancingNPCs(0, { hasAudio: true, bass: 0.8 });
+    assert.ok(group.speedRatio > npc.baseSpeed, 'the low-end lift no longer reaches authored dance clips');
+    club.updateDancingNPCs(0, { hasAudio: false, bass: 0 });
+    assert.equal(group.speedRatio, npc.baseSpeed, 'an authored clip did not return to its normal pace');
+});
+
 test('a late character load puts back the light budgets the glTF loader raised, and touches nothing else', () => {
     const BABYLON = makeBabylonStub();
     BABYLON.Material = { ...BABYLON.Material, LightDirtyFlag: 2 };
