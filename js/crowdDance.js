@@ -128,7 +128,10 @@ class CrowdDance {
         let total = 0;
         for (const name of dancer.moves) {
             const meta = CrowdDance.MOVES[name];
-            if (meta.free && name !== 'Groove_Sway') continue;
+            // Free grooves belong only to a genuinely kick-less passage. Once the beat is trusted, every pick must
+            // visibly dance on that grid; otherwise a dancer can spend another 4-8 bars looking idle beside people
+            // who heard the same kick.
+            if (meta.free) continue;
             let w = meta.weight * dancer.taste[name];
             // Below the energy a move suits it is picked less; a quiet track favours the sway.
             w *= Math.max(0.1, 1 - 2.5 * Math.max(0, meta.energy - energy));

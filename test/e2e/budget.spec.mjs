@@ -42,6 +42,14 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(desktopBudget.engineSceneSubmissionsPerFrame).not.toBeNull();
     expect(desktopBudget.engineSceneSubmissionsPerFrame).toBeGreaterThanOrEqual(desktopBudget.activeSubmeshProxyDraws);
     expect(desktopBudget.engineSceneSubmissionsPerFrame).toBeLessThanOrEqual(400);
+    expect(Object.values(desktopBudget.drawsBySubsystem).reduce((sum, draws) => sum + draws, 0))
+        .toBe(desktopBudget.activeSubmeshProxyDraws);
+    expect(desktopBudget.renderStateInventory.activeMaterials).toBeGreaterThan(0);
+    expect(desktopBudget.renderStateInventory.activeTextures).toBeGreaterThan(0);
+    expect(desktopBudget.topMeshesByProxyDraws.length).toBeGreaterThan(0);
+    expect(desktopBudget.topMaterialsByProxyDraws.length).toBeGreaterThan(0);
+    expect(desktopBudget.shadowMaps).toEqual([]);
+    expect(desktopBudget.reflectionProbe.refreshRate).toBe(0);
 
     await enterVR(page);
     await pinBudgetCue(page);
@@ -63,4 +71,8 @@ test('the club stays inside its render-submission and texture-budget ceilings', 
     expect(xrBudget.renderTargetTextureCount).toBeGreaterThan(desktopBudget.renderTargetTextureCount);
     expect(xrBudget.engineSceneSubmissionsPerFrame).not.toBeNull();
     expect(xrBudget.engineSceneSubmissionsPerFrame).toBeGreaterThanOrEqual(xrBudget.activeSubmeshProxyDraws);
+    expect(Object.values(xrBudget.drawsBySubsystem).reduce((sum, draws) => sum + draws, 0))
+        .toBe(xrBudget.activeSubmeshProxyDraws);
+    expect(xrBudget.shadowMaps).toEqual([]);
+    expect(xrBudget.reflectionProbe.refreshRate).toBe(0);
 });

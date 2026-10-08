@@ -174,6 +174,19 @@
                 </div>
             </div>
 
+            <!-- Who is in the club. A personal, local choice (not the host's), so it stays live in someone
+                 else's room: see initRoomGuestLock's keep list. -->
+            <div class="vj-section">
+                <div class="vj-section-title">🧍 Who is in the club</div>
+                <p class="vj-help">For you only: send a group of people home to get the room to yourself. Bystanders are everyone who is not dancing — the guests at the sides, the bartender, and the doorman and the queue outside. A lit button means they are here.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button active" id="vjPeopleDancers" type="button" aria-pressed="true" data-people="dancers">DANCERS</button>
+                    <button class="vj-button active" id="vjPeopleBystanders" type="button" aria-pressed="true" data-people="bystanders">BYSTANDERS</button>
+                    <button class="vj-button active" id="vjPeopleDJ" type="button" aria-pressed="true" data-people="dj">DJ</button>
+                </div>
+                <button class="vj-button vj-button-wide active" id="vjPeopleAll" type="button" aria-pressed="true" data-people="all">EVERYONE</button>
+            </div>
+
             <!-- Main Toggles -->
             <div class="vj-section">
                 <div class="vj-section-title">💡 Main Controls</div>

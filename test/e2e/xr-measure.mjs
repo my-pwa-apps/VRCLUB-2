@@ -30,10 +30,123 @@ export const snapshotResourceBudget = (page, sampleFrames = 20) => page.evaluate
 
     let activeSubmeshProxyDraws = 0;
     const activeMeshes = scene.getActiveMeshes();
+    const activeMeshList = [];
     for (let i = 0; i < activeMeshes.length; i++) {
         const mesh = activeMeshes.data[i];
+        activeMeshList.push(mesh);
         activeSubmeshProxyDraws += mesh.subMeshes ? mesh.subMeshes.length : 1;
     }
+
+    const proxyDrawsOf = mesh => mesh.subMeshes ? mesh.subMeshes.length : 1;
+    const characterMeshes = new Set();
+    for (const npc of club.npcAvatars) {
+        if (!npc.root || !npc.root.isEnabled()) continue;
+        for (const mesh of npc.meshes) characterMeshes.add(mesh);
+    }
+    const subsystemOf = mesh => {
+        if (characterMeshes.has(mesh) || mesh === club._contactShadows?.mesh) return 'crowd/NPCs';
+        const name = mesh.name || '';
+        if (/^(ledPanel_|spotlight|spotBeam|movingHead|strobe|laser_|laserSheet|gobo)|truss|lightFixture|mirrorBall/i.test(name)) {
+            return 'club lighting';
+        }
+        if (/^mirrorReflection/i.test(name)) return 'mirrors/reflections';
+        if (/barBottles|glass|stool|chair|table|furniture|barShade|barBulb/i.test(name)) return 'furniture/bar stock';
+        if (/djConsole|leftCDJ|rightCDJ|mixer|jogWheel|speaker|bass_bin/i.test(name)) return 'DJ/PA equipment';
+        if (/vrQuick|gui|menu|label|remoteEmoji|remoteChat/i.test(name)) return 'UI';
+        if (/haze|fog|dust|smoke|particle/i.test(name)) return 'effects/particles';
+        if (/city|street|queue|rope/i.test(name)) return 'city/street';
+        return 'architecture/other';
+    };
+    const drawsBySubsystem = {};
+    for (const mesh of activeMeshList) {
+        const subsystem = subsystemOf(mesh);
+        drawsBySubsystem[subsystem] = (drawsBySubsystem[subsystem] || 0) + proxyDrawsOf(mesh);
+    }
+
+    const activeMaterials = new Set();
+    const activeTextures = new Set();
+    const effects = new Set();
+    const drawsByMaterial = new Map();
+    let transparentProxyDraws = 0;
+    let alphaTestProxyDraws = 0;
+    let multiMaterialMeshes = 0;
+    let multiSubmeshMeshes = 0;
+    let instancedSourceMeshes = 0;
+    let meshInstances = 0;
+    let thinInstanceBatches = 0;
+    let thinInstances = 0;
+    const geometryUse = new Map();
+    for (const mesh of activeMeshList) {
+        const draws = proxyDrawsOf(mesh);
+        const material = mesh.material;
+        if (material) {
+            activeMaterials.add(material);
+            drawsByMaterial.set(material, (drawsByMaterial.get(material) || 0) + draws);
+            for (const texture of material.getActiveTextures()) activeTextures.add(texture);
+            let alphaBlended = false;
+            let alphaTested = false;
+            try {
+                alphaBlended = material.needAlphaBlendingForMesh
+                    ? material.needAlphaBlendingForMesh(mesh)
+                    : material.needAlphaBlending();
+                alphaTested = material.needAlphaTestingForMesh
+                    ? material.needAlphaTestingForMesh(mesh)
+                    : material.needAlphaTesting();
+            } catch {
+                // A diagnostic must not disturb a frame when a custom material lacks a readiness dependency.
+            }
+            if (alphaBlended) transparentProxyDraws += draws;
+            if (alphaTested) alphaTestProxyDraws += draws;
+        }
+        if (mesh.subMeshes) {
+            for (const subMesh of mesh.subMeshes) {
+                const effect = subMesh.effect || subMesh._drawWrapper?.effect || material?.getEffect?.();
+                if (effect) effects.add(effect);
+            }
+        }
+        if (material?.getClassName && material.getClassName() === 'MultiMaterial') multiMaterialMeshes++;
+        if (mesh.subMeshes && mesh.subMeshes.length > 1) multiSubmeshMeshes++;
+        if (mesh.instances && mesh.instances.length) {
+            instancedSourceMeshes++;
+            meshInstances += mesh.instances.filter(instance => instance.isEnabled()).length;
+        }
+        if (mesh.hasThinInstances) {
+            thinInstanceBatches++;
+            thinInstances += mesh.thinInstanceCount || 0;
+        }
+        if (mesh.geometry) {
+            geometryUse.set(mesh.geometry, (geometryUse.get(mesh.geometry) || 0) + 1);
+        }
+    }
+
+    const shadowMaps = [];
+    for (const light of scene.lights) {
+        const generator = light.getShadowGenerator && light.getShadowGenerator();
+        if (!generator) continue;
+        const map = generator.getShadowMap && generator.getShadowMap();
+        shadowMaps.push({
+            light: light.name,
+            renderListMeshes: map?.renderList?.length || 0,
+            refreshRate: map?.refreshRate ?? null,
+            size: map?.getSize ? map.getSize().width : null
+        });
+    }
+    const renderTargets = scene.textures
+        .filter(texture => texture.isRenderTarget)
+        .map(texture => ({
+            name: texture.name,
+            size: texture.getSize ? texture.getSize() : null,
+            refreshRate: texture.refreshRate ?? null,
+            renderListMeshes: texture.renderList?.length ?? null
+        }));
+    const topMeshesByProxyDraws = activeMeshList
+        .map(mesh => ({ name: mesh.name, draws: proxyDrawsOf(mesh), subsystem: subsystemOf(mesh) }))
+        .sort((a, b) => b.draws - a.draws || a.name.localeCompare(b.name))
+        .slice(0, 15);
+    const topMaterialsByProxyDraws = [...drawsByMaterial]
+        .map(([material, draws]) => ({ name: material.name, draws, kind: material.getClassName() }))
+        .sort((a, b) => b.draws - a.draws || a.name.localeCompare(b.name))
+        .slice(0, 15);
 
     let ordinaryRgbaBytes = 0;
     let cubeAndRenderTargetRgbaBytes = 0;
@@ -63,6 +176,45 @@ export const snapshotResourceBudget = (page, sampleFrames = 20) => page.evaluate
             ? null
             : Math.round((after - before) / count),
         activeSubmeshProxyDraws,
+        nonMainPassAndEffectSubmissionGap: before === null || after === null
+            ? null
+            : Math.round((after - before) / count) - activeSubmeshProxyDraws,
+        drawsBySubsystem,
+        topMeshesByProxyDraws,
+        topMaterialsByProxyDraws,
+        renderStateInventory: {
+            activeMaterials: activeMaterials.size,
+            activeTextures: activeTextures.size,
+            compiledEffectsObserved: effects.size,
+            transparentProxyDraws,
+            alphaTestProxyDraws,
+            multiMaterialMeshes,
+            multiSubmeshMeshes
+        },
+        reuseInventory: {
+            instancedSourceMeshes,
+            meshInstances,
+            thinInstanceBatches,
+            thinInstances,
+            sharedGeometryObjects: [...geometryUse.values()].filter(uses => uses > 1).length,
+            meshesUsingSharedGeometry: [...geometryUse.values()]
+                .filter(uses => uses > 1)
+                .reduce((sum, uses) => sum + uses, 0)
+        },
+        shadowMaps,
+        reflectionProbe: club.floorReflectionProbe ? {
+            refreshRate: club.floorReflectionProbe.cubeTexture.refreshRate,
+            renderListMeshes: club.floorReflectionProbe.renderList?.length ?? null,
+            size: club.floorReflectionProbe.cubeTexture.getSize()
+        } : null,
+        renderTargets,
+        particleSystems: scene.particleSystems.map(system => ({
+            name: system.name,
+            active: system.isStarted && system.isStarted(),
+            emitRate: system.emitRate,
+            capacity: system.getCapacity ? system.getCapacity() : null,
+            blendMode: system.blendMode
+        })),
         ledWallMeshes: scene.meshes.filter(mesh => /^ledPanel_/.test(mesh.name)).length,
         ledPanels: club.ledPanels.length,
         signage: ['signageGlow', 'signagePlates', 'stepLights'].map(name => !!scene.getMeshByName(name)),

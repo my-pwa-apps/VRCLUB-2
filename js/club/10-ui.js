@@ -462,6 +462,9 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _isVRQuickMenuButtonActive(button) {
         if (button.op) return this._vrNetActive(button);
+        if (button.action === 'people') {
+            return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
+        }
         if (button.action === 'autoShow') return !this.vjManualMode;
         if (button.action === 'podcast') return this._selectedPodcastId() === button.podcast;
         if (button.action === 'playPause') return this.getPlaybackInfo().playing;
@@ -484,6 +487,7 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _vrQuickMenuButtonValue(button, active) {
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
+        if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
         if (button.action === 'podcast') return active ? 'SELECTED' : '';
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
@@ -566,6 +570,11 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'HAPTICS', control: 'bassHapticsEnabled' },
                 { label: 'QUALITY', action: 'quality' },
+                // Who is in the club: a personal choice, like Safe Mode, so it is never the host's.
+                { label: 'DANCERS', action: 'people', people: 'dancers' },
+                { label: 'BYSTANDERS', action: 'people', people: 'bystanders' },
+                { label: 'DJ', action: 'people', people: 'dj' },
+                { label: 'EVERYONE', action: 'people', people: 'all' },
                 common.back,
                 common.close
             ],
@@ -624,6 +633,7 @@ class VRClubUI extends VRClubAnimationFinish {
             button.digit = null;
             button.pool = null;
             button.phrase = null;
+            button.people = null;
             button.danger = false;
             Object.assign(button, definition);
             this._drawVRQuickMenuButton(button);
@@ -654,7 +664,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 lighting: 'TURN THE CLUB\u2019S LIGHTS ON OR OFF, CHANGE THEIR COLOUR',
                 effects: 'STROBES, SMOKE AND THE MIRROR BALL',
                 show: 'THE AUTOMATIC LIGHT SHOW THAT FOLLOWS THE MUSIC',
-                comfort: 'HOW YOU MOVE, AND WHAT YOU SEE AND FEEL',
+                comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL, AND WHO IS IN THE CLUB',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
             };
@@ -1193,6 +1203,17 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (button.control === 'bassHapticsEnabled') {
             this.setBassHapticsEnabled(!this.bassHapticsEnabled);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'people') {
+            // Who is in the club: personal and local, so it is never gated on the host.
+            const here = this.togglePeopleVisible(button.people);
+            const who = button.people === 'all' ? 'Everyone'
+                : button.people === 'dj' ? 'The DJ'
+                : button.people === 'dancers' ? 'The dancers' : 'The bystanders';
+            this.showErrorMessage(here ? `${who}: back in the club` : `${who}: sent home`);
+            this.pulseHaptic(0.6, 30);
             this._refreshVRQuickMenu();
             return;
         }

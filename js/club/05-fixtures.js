@@ -1546,7 +1546,10 @@ class VRClubFixtures extends VRClubEnvironment {
             // dimming it. Distance attenuation is applied in the vertex alpha.
             mat.fogEnabled = false;
             mesh.material = mat;
-            if (this.glowLayer) this.glowLayer.addIncludedOnlyMesh(mesh);
+            // EffectLayer renders only its selected emissive meshes, not the opaque venue depth
+            // that hides them. Blooming a whole beam there therefore makes it visible through walls.
+            // The ribbon already carries its own scatter halo and remains correctly depth-tested.
+            if (this.glowLayer && this.glowLayer.addExcludedMesh) this.glowLayer.addExcludedMesh(mesh);
             return { mesh, material: mat, positions, colors };
         };
 

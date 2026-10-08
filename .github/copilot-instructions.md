@@ -205,7 +205,10 @@ the grooves too.
 - Choosing: per-dancer taste, a change only on a bar line after 4-8 bars, less of a move below its energy, claps x5 in a
   build (the countdown or the ascent movement), hands up and fist pumps on a drop (the release or ignition starting,
   which cut in at once). The kick is present while real onsets keep coming (`lastRealOnsetAt` within ~2.5 beats) and
-  returns after two in a row (`onsetStreak`); without it every Quaternius dancer leaves the grid and sways
+  returns   after two in a row (`onsetStreak`). A trusted beat remains present for seven kick-less beats (the same threshold at
+  which the Show Director declares a breakdown), so a missed onset or render hitch cannot send the floor idle early;
+  the analyser's audible state is also held for two beats so one sparse frame cannot flip it. While the beat is
+  present, free moves are excluded from `_pick()`; without it every Quaternius dancer leaves the grid and sways
   (`Groove_Sway`) at `FREE_SPEED`. The three Mixamo dancers keep their authored
   playback speed; slowing those single clips reads as broken slow motion.
 - The club side (`11-audio-crowd.js`): `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
@@ -504,7 +507,8 @@ Rules when touching this:
 - Mirror reflection spots and outgoing rays are two thin-instanced meshes backed by
   preallocated matrix buffers. `_intersectRoomInterior()` analytically clips them to
   `ROOM_INTERIOR` (the shell's inner faces: x ±12.25, ceiling y 9.85, LED wall z -20, front
-  wall z -0.25). `ROOM_BOUNDS` is the narrower walkable band and must not be used for optics.
+  wall z -0.25), except rays through the front doorway continue onto the analytically modelled
+  entrance stair treads and risers. `ROOM_BOUNDS` is the narrower walkable band and must not be used for optics.
   Do not restore per-spot meshes or `scene.pickWithRay()` calls.
 - **Every new heavy effect must be feature-detected** (`if (BABYLON.X)`) and wrapped in
   `try/catch` — there is no build step or browser test to catch a missing API.
@@ -635,7 +639,8 @@ and fail `npm test`.
   `paspeakers/source/stage_speaker___black.glb`, and the characters in `avatars/`.
   Characters: the Quaternius `club-*.glb` files share one UE-mannequin rig and carry their clips
   inside the file, EXCEPT the crowd (next bullet). `_spawnAvatar(..., { clip })` keeps one clip and
-  disposes the rest. After building or replacing one, run
+  disposes the rest; `_spawnAvatar(..., { clips })` keeps several named ones as `npc.poses`
+  (see "the guest who works the room"). After building or replacing one, run
   `npm run optimize:avatars -- <file>` (it merges skinned parts that share a skin and material, so a
   character is ~6 draws, and a contract test fails above 6). Add every new GLB to `ASSETS.md`. The three
   Mixamo GLBs are a known licensing gap, kept for their authored hip-hop, house and rumba choreography
@@ -650,6 +655,10 @@ and fail `npm test`.
   albedo/normal (2048 px) and shared packed ORM (1024 px). Keep `invertY=false`, normal-map
   handedness matching glTF, metallic/roughness factors at 1, and no uniform emissive floor.
   The optimizer recovers these images before stripping a replacement's embedded copies.
+  The resource-budget snapshot also reports active-submesh proxy draws by subsystem, active
+  material/texture/effect counts, transparency, instancing/shared geometry, shadows, reflection
+  targets and particle systems. Its IWER XR numbers are regression evidence, not Quest frame
+  timing or a device-specific draw-call budget.
   Do not use Draco, meshopt
   or KTX2: Babylon fetches their decoders from a CDN, which the same-origin rule forbids.
 - **The crowd is 17 different people** (`club-crowd-f1..f8`, `m1..m9`), plus the bouncer (`club-crowd-bouncer`, same build): the CC0 Quaternius Modular Women and
@@ -680,6 +689,46 @@ and fail `npm test`.
   Slots are ordered so the first six are already varied (men and women,
   several skin tones, a silver head, a punk, one Mixamo dancer). `club-dancer-*.glb` now only dress the player's own
   body and the bartender is the female guest file with a black tint; `club-guest-male.glb` is a build source only.
+- **Who is in the club** (`vrclub.hiddenPeople`, resolved by `VRClubCore.resolvePeopleVisibility()` into
+  `this.peopleVisibility`). A guest can send three groups home, separately or in combination: **dancers** (`dancerN`),
+  **bystanders** (the side guests `guestN`, the mingler, the bartender, the bouncer and the street queue) and the
+  **DJ**. `isPeopleVisible(category)` is the only read; `setPeopleVisible` / `togglePeopleVisible` (`'all'` comes back
+  only when every group is away) are the only writes, and they persist and then call `applyPeopleVisibility()`.
+  Exactly three places act on it: `_applyCrowdSize()` (which turns a hidden group's target into 0, so a quality-tier
+  change can never resurrect it), `_showStreetPeople()` and `_applyDJVisibility()`. `_requiredCrowdSources()` also
+  gates on it, so a group nobody can see is never downloaded, and `_applyDJ()` only records `_djWanted` while the DJ
+  is away. It is a **personal, local** preference, not a light or a music control: it is never host-gated (the VR
+  button uses `action: 'people'` with no `control`, and `initRoomGuestLock`'s `keep` selector includes
+  `[data-people]`). Both surfaces — the VJ panel's "Who is in the club" section and the VR quick menu's COMFORT page —
+  only call `togglePeopleVisible`.
+- **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
+  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop']`) does not stand still: he walks a round and
+  joins the other standing guests' conversations. `_updateMingler(dt)` runs from `updateDancers()` next to
+  `_updateBouncer`.
+  - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain of six points walked up and
+    back down (`state.node` / `state.dir` ping-pong), with `home` (index 1) his own placed spot. `guest` on a node is
+    the guest slot he stops at; a node without one is a corner. Every leg was measured to clear all 14 dance-floor
+    slots and every standing guest by at least 0.8 m, and a unit test re-measures it: the lane at `z -5.5` is the ONLY
+    safe way across the room, and the gap between dancer `house` and guest `f6` on the left wall is too narrow to walk,
+    which is why he approaches that guest from the north. Moving any crowd or guest slot means re-running that test.
+  - **Speed.** 1.05 m/s with the `Walk` clip at `route.speed / route.walkClipSpeed` (the packs' walk is authored for
+    1.4 m/s, the same mapping `AvatarManager` uses), deliberately independent of `npc.baseSpeed` so his feet do not
+    skate. Idles play at `npc.baseSpeed`.
+  - **One group plays at a time.** `_playClip(npc, clip, speedRatio)` starts the new group (blending from the old
+    pose), stops the old one and reassigns `npc.animations = [next]`, so `_setAnimating()` pauses and restarts the
+    right clip across a tier change.
+  - **He carries his own collider and contact shadow.** The occupant collider is its own mesh (a left-behind one is an
+    invisible wall) and the contact shadows are ONE thin-instance buffer rebuilt only when the enabled set changes, so
+    `_moveContactShadow()` rewrites his own translation in place (`_refreshContactShadows()` records `npc._shadowIndex`).
+  - **The people he stops at** turn toward him and play `Idle_Talking_Loop`, then go back to their placed pose and yaw
+    (`slotClip` / `slotYaw`). Only one person eases back at a time. Guests have `homeYaw === null`, so
+    `updateDancingNPCs()`'s proximity yaw never fights this.
+  - **Tiers.** He is guest slot 2, so Balanced (2 guests) does not show him at all; on High a stop whose guest is
+    absent is walked straight through (`_minglerArrive()` departs at once). No per-frame allocation. His cost on a
+    headset is **not measured**.
+  - **Tests.** `test/unit.test.mjs` re-measures the round's clearance, simulates three minutes of it and checks it is
+    frame-rate independent; `test/e2e/crowd-dance.spec.mjs` raises the tier to ultra and walks him in the real club
+    (measured: 90 m in 72 s, three conversations, closest approach 0.83 m to 22 floor characters).
 - **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (half-long
   dark brown hair, clean-shaven, dark tee, 1.78 m) and `melera` (long straight light blond hair, grey tee, 1.68 m) to
   `club-dj-hernan.glb` / `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius
@@ -954,7 +1003,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.

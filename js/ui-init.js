@@ -777,9 +777,36 @@ function initVJMenu() {
         });
     }
 
+    // === WHO IS IN THE CLUB: dancers, bystanders, the DJ ===
+    // Every action lives on VRClub (setPeopleVisible / togglePeopleVisible); this surface only presses and renders,
+    // exactly like the VR quick menu's COMFORT page.
+    const peopleButtons = [...document.querySelectorAll('.vj-button[data-people]')];
+    function renderPeopleButtons() {
+        for (const button of peopleButtons) {
+            const category = button.getAttribute('data-people');
+            const names = category === 'all' ? ['dancers', 'bystanders', 'dj'] : [category];
+            setToggleState(button, names.every(name => vrClubInstance.isPeopleVisible(name)));
+        }
+    }
+    for (const button of peopleButtons) {
+        button.addEventListener('click', () => {
+            const category = button.getAttribute('data-people');
+            const here = vrClubInstance.togglePeopleVisible(category);
+            renderPeopleButtons();
+            flashButton(button);
+            if (vrClubInstance.showErrorMessage) {
+                const who = category === 'all' ? 'Everyone' : button.textContent.trim().toLowerCase();
+                const label = who.charAt(0).toUpperCase() + who.slice(1);
+                vrClubInstance.showErrorMessage(here ? `${label}: back in the club` : `${label}: sent home`);
+            }
+        });
+    }
+    renderPeopleButtons();
+
     // Update button states periodically
     function updateButtonStates() {
         if (!vrClubInstance || vjMenu.classList.contains('hidden')) return;
+        renderPeopleButtons();
         
         vjButtons.forEach(button => {
             const control = button.getAttribute('data-control');
@@ -1330,7 +1357,7 @@ function defaultNetworkServerUrl() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'lights', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjBassHapticsBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"]' },
+        { id: 'vjMenu', what: 'lights', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjBassHapticsBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people]' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience' }
     ];
     const renders = [];

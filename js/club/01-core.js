@@ -26,7 +26,8 @@ window.ROOM_BOUNDS = ROOM_BOUNDS;
 const ROOM_INTERIOR = {
     x: { min: -12.25, max: 12.25 },
     y: { min: 0, max: 9.85 },
-    z: { min: -20, max: -0.25 }
+    z: { min: -20, max: -0.25 },
+    entrance: { halfWidth: 1.86, height: 3.26 }
 };
 window.ROOM_INTERIOR = ROOM_INTERIOR;
 
@@ -282,6 +283,13 @@ class VRClubCore {
             count: 0
         };
         this.vrComfortMode = VRClubCore.resolveVRComfortMode();
+
+        // === WHO IS IN THE CLUB ===
+        // Each group of characters can be sent home: the dancers on the floor, the bystanders (the guests at the
+        // sides, the mingler, the bartender, and the bouncer and queue outside) and the DJ. Local and personal,
+        // like Safe Mode: it is never a host-owned control, and _applyCrowdSize reads it so a quality-tier change
+        // cannot bring anyone back. Persisted as the list of HIDDEN groups, so a new visitor gets the full club.
+        this.peopleVisibility = VRClubCore.resolvePeopleVisibility();
 
         // === HAPTICS ===
         // Bass-driven controller rumble. Off by default to respect battery /
@@ -1171,6 +1179,33 @@ class VRClubCore {
 
     static resolveVRComfortMode() {
         try { return localStorage.getItem('vrclub.vrComfort') === '1'; } catch (_) { return false; }
+    }
+
+    /** The groups of characters a visitor can send home, in the order the two control surfaces list them. */
+    static get PEOPLE_CATEGORIES() { return ['dancers', 'bystanders', 'dj']; }
+
+    /** The groups a request names: one of them, or all three for 'all' (and for no name at all). */
+    static peopleCategories(category) {
+        return (!category || category === 'all') ? VRClubCore.PEOPLE_CATEGORIES
+            : VRClubCore.PEOPLE_CATEGORIES.includes(category) ? [category] : [];
+    }
+
+    /**
+     * One resolver for the constructor and the control surfaces. `vrclub.hiddenPeople` is a comma-separated list
+     * of the groups that are HIDDEN, so nothing stored — or storage that cannot be read — means a full club.
+     */
+    static resolvePeopleVisibility(storage) {
+        const visibility = {};
+        for (const name of VRClubCore.PEOPLE_CATEGORIES) visibility[name] = true;
+        let stored = '';
+        try {
+            stored = (storage || localStorage).getItem('vrclub.hiddenPeople') || '';
+        } catch (_) { return visibility; }   // private browsing: everyone is here
+        for (const name of String(stored).split(',')) {
+            const key = name.trim();
+            if (Object.prototype.hasOwnProperty.call(visibility, key)) visibility[key] = false;
+        }
+        return visibility;
     }
 
     /**

@@ -83,8 +83,24 @@ test('mirror-only cues do not turn the foreground into a white layer', async ({ 
                     }
                 }
                 gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+                let entranceStairSpots = 0;
+                const originalRotation = club.mirrorBallRotation;
+                for (let step = 0; step < 24 && entranceStairSpots === 0; step++) {
+                    club.mirrorBallRotation = step * Math.PI / 12;
+                    club._updateMirrorReflectionBatch();
+                    const matrices = club.mirrorReflectionBatch.spotMatrices;
+                    for (let i = 0; i < club.mirrorReflectionBatch.spots.thinInstanceCount; i++) {
+                        const o = i * 16;
+                        if (Math.abs(matrices[o + 12]) < 1.86 && matrices[o + 14] > 0.25) {
+                            entranceStairSpots++;
+                        }
+                    }
+                }
+                club.mirrorBallRotation = originalRotation;
+                club._updateMirrorReflectionBatch();
                 resolve({
                     meanBrightness: brightness / samples,
+                    entranceStairSpots,
                     specularPath: club.scene.getMeshByName('floor').subMeshes[0]
                         .materialDefines.toString().includes('#define SPECULARTERM')
                 });
@@ -93,6 +109,7 @@ test('mirror-only cues do not turn the foreground into a white layer', async ({ 
     });
     expect(foreground.specularPath).toBe(true);
     expect(foreground.meanBrightness).toBeLessThan(60);
+    expect(foreground.entranceStairSpots).toBeGreaterThan(0);
     await expectHealthyRuntime(page);
 });
 

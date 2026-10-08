@@ -1008,8 +1008,53 @@ class VRClubEffects extends VRClubFixtures {
         log.info(`✨ Mirror ball reflections batched into two draws (${maxSpots} spots, ${maxRays} rays)`);
     }
 
+    _considerEntranceHit(k, minT, ox, oy, oz, dx, dy, dz,
+        x0, x1, y0, y1, z0, z1, nx, ny, nz, out) {
+        if (!(k > minT + 1e-5) || k >= out.t) return;
+        const x = ox + dx * k, y = oy + dy * k, z = oz + dz * k;
+        if (x < x0 || x > x1 || y < y0 || y > y1 || z < z0 || z > z1) return;
+        out.t = k;
+        out.px = x; out.py = y; out.pz = z;
+        out.nx = nx; out.ny = ny; out.nz = nz;
+    }
+
+    _intersectEntranceInterior(ox, oy, oz, dx, dy, dz, minT, out) {
+        const venue = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.vestibule;
+        if (!venue) return false;
+        const stair = venue.stair;
+        const rise = venue.streetLevel / stair.steps;
+        const tread = (stair.zTop - stair.zBottom) / (stair.steps - 1);
+        out.t = Infinity;
+
+        if (dy < -1e-6) {
+            this._considerEntranceHit((0.02 - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
+                -venue.halfWidth, venue.halfWidth, -Infinity, Infinity,
+                venue.wallZ, stair.zBottom, 0, 1, 0, out);
+            for (let i = 1; i < stair.steps; i++) {
+                const y = i * rise + 0.012;
+                const z0 = stair.zBottom + (i - 1) * tread;
+                this._considerEntranceHit((y - oy) / dy, minT, ox, oy, oz, dx, dy, dz,
+                    -stair.halfWidth, stair.halfWidth, -Infinity, Infinity,
+                    z0, z0 + tread, 0, 1, 0, out);
+            }
+            this._considerEntranceHit((venue.streetLevel + 0.03 - oy) / dy, minT,
+                ox, oy, oz, dx, dy, dz, -venue.halfWidth, venue.halfWidth,
+                -Infinity, Infinity, stair.zTop, venue.farZ + 0.3, 0, 1, 0, out);
+        }
+        if (dz > 1e-6) {
+            for (let i = 1; i <= stair.steps; i++) {
+                const z = stair.zBottom + (i - 1) * tread - 0.012;
+                this._considerEntranceHit((z - oz) / dz, minT, ox, oy, oz, dx, dy, dz,
+                    -stair.halfWidth, stair.halfWidth, (i - 1) * rise, i * rise,
+                    -Infinity, Infinity, 0, 0, -1, out);
+            }
+        }
+
+        return Number.isFinite(out.t);
+    }
+
     /**
-     * Analytic ray vs the room's interior faces (ROOM_INTERIOR). Shared by the mirror-ball reflections and the
+     * Analytic ray vs the room's interior faces and entrance stair. Shared by the mirror-ball reflections and the
      * ceiling lasers. Writes distance, hit point and the inward surface normal into `out`; allocates nothing.
      */
     _intersectRoomInterior(ox, oy, oz, dx, dy, dz, out) {
@@ -1028,6 +1073,13 @@ class VRClubEffects extends VRClubFixtures {
         else if (dy < -1e-6) { const k = (minY - oy) / dy; if (k < t) { t = k; nx = 0; ny = 1; nz = 0; } }
         if (dz > 1e-6) { const k = (maxZ - oz) / dz; if (k < t) { t = k; nx = 0; ny = 0; nz = -1; } }
         else if (dz < -1e-6) { const k = (minZ - oz) / dz; if (k < t) { t = k; nx = 0; ny = 0; nz = 1; } }
+        const frontX = ox + dx * t;
+        const frontY = oy + dy * t;
+        const opening = ROOM_INTERIOR.entrance;
+        if (nz === -1 && opening && Math.abs(frontX) < opening.halfWidth && frontY > 0 && frontY < opening.height &&
+            this._intersectEntranceInterior(ox, oy, oz, dx, dy, dz, t, out)) {
+            return out;
+        }
         out.t = Number.isFinite(t) && t > 0 ? t : 0;
         out.px = ox + dx * out.t;
         out.py = oy + dy * out.t;

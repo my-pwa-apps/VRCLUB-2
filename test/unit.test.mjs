@@ -2653,6 +2653,10 @@ test('every guest slot asks for a clip its character file carries, inside the ro
         assert.ok(Number.isFinite(slot.yaw) && slot.height > 1.5 && slot.height < 2, `slot ${index} has an odd pose or height`);
         assert.notEqual(slot.clip, 'Idle_TalkingPhone_Loop', `slot ${index} tries to make a phone call beside the PA`);
         assert.notEqual(slot.clip, 'Idle_FoldArms_Loop', `slot ${index} uses the stiff crossed-arm pose`);
+        for (const clip of slot.clips || []) {
+            assert.ok(clipsOf(file).has(clip), `slot ${index} keeps "${clip}", which ${file} does not carry`);
+        }
+        if (slot.clips) assert.ok(slot.clips.includes(slot.clip), `slot ${index} does not keep the clip it starts in`);
     });
     assert.equal(slots[3].clip, 'Idle_Railing_Loop', 'the balcony guest must put her hands on the railing');
     for (let a = 0; a < slots.length; a++) {
@@ -2667,6 +2671,196 @@ test('every guest slot asks for a clip its character file carries, inside the ro
     assert.equal(sizes.length, 3, 'every graphics tier must set guestSize');
     assert.ok(sizes.every(size => size <= slots.length) && sizes[0] >= sizes[1] && sizes[1] >= sizes[2],
         'guestSize must not exceed the slots and must fall with the tier');
+});
+
+/** The mingling guest, the people on his round, and a club stub that can be stepped a frame at a time. */
+function minglerHarness(guestTarget = 8) {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    const slots = Crowd.prototype._guestSlots.call({});
+    const makeGroup = name => ({
+        name, from: 0, to: 30, isPlaying: false, speedRatio: 1,
+        start(loop, ratio) { this.isPlaying = true; this.speedRatio = ratio; },
+        stop() { this.isPlaying = false; }
+    });
+    const npcs = slots.slice(0, guestTarget).map((slot, index) => {
+        const groups = new Map((slot.clips || [slot.clip]).map(name => [name, makeGroup(name)]));
+        const current = groups.get(slot.clip);
+        current.isPlaying = true;
+        return {
+            name: `guest${index}`,
+            root: {
+                position: { x: slot.x, y: slot.y || 0, z: slot.z },
+                rotation: { y: slot.yaw },
+                enabled: true,
+                isEnabled() { return this.enabled; }
+            },
+            animations: [current],
+            baseSpeed: 0.9,
+            slotYaw: slot.yaw,
+            slotClip: slot.clip,
+            poses: slot.clips ? { groups, current } : null,
+            collider: { position: { x: slot.x, y: 0.85, z: slot.z, set(x, y, z) { this.x = x; this.y = y; this.z = z; } } },
+            _shadowIndex: index
+        };
+    });
+    const club = Object.assign(Object.create(Crowd.prototype), { npcAvatars: npcs });
+    const minglerIndex = slots.findIndex(slot => slot.mingles);
+    const mingler = npcs[minglerIndex];
+    club._startMingling(mingler, slots[minglerIndex]);
+    const playing = npc => (npc.poses ? npc.poses.current.name : npc.animations[0].name);
+    return { Crowd, club, slots, npcs, mingler, minglerIndex, playing };
+}
+
+test('exactly one side guest walks the room, and his round never crosses anybody standing in it', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, log: { info() {}, warn() {}, error() {} } });
+    const Crowd = window.VRClubAudioCrowd;
+    const guests = Crowd.prototype._guestSlots.call({});
+    const mingling = guests.filter(slot => slot.mingles);
+    assert.equal(mingling.length, 1, 'one guest walks the room; the rest stand where they are placed');
+    assert.ok(mingling[0].clips.includes('Walk') && mingling[0].clips.includes('Idle_Talking_Loop'),
+        'the walking guest must keep a walk and a talking pose');
+
+    const route = Crowd.prototype._minglerRoute.call({});
+    assert.ok(route.nodes.length >= 4, 'a round of fewer than four points is not walking the room');
+    assert.ok(route.speed > 0.6 && route.speed < 1.6, 'a club guest walks, he does not march or stroll to a halt');
+    const stops = route.nodes.filter(node => node.guest != null);
+    assert.ok(stops.length >= 2, 'he must have someone to talk to');
+    for (const node of stops) {
+        const partner = guests[node.guest];
+        assert.ok(partner && !partner.mingles, `node points at guest slot ${node.guest}, who is not there to talk to`);
+        assert.ok(partner.clip === 'Idle_Talking_Loop'
+            || (partner.clips && partner.clips.includes('Idle_Talking_Loop')),
+            `guest slot ${node.guest} cannot talk back`);
+        assert.ok(Math.hypot(node.x - partner.x, node.z - partner.z) < 1.3,
+            `he stops too far from guest ${node.guest} to be talking to them`);
+    }
+    // `home` is his own spot, where he stands on his own and where he starts.
+    const home = route.nodes[route.home];
+    assert.equal(home.guest, undefined);
+    assert.ok(Math.hypot(home.x - mingling[0].x, home.z - mingling[0].z) < 0.01,
+        'the round must start where he was placed');
+
+    // Everybody he would have to walk through: the dance floor, the other side guests, the bar and the stair.
+    const floor = Object.assign(Object.create(Crowd.prototype), {
+        tierSettings: { crowdSize: 14, guestSize: 8 }, npcAvatars: [], _loadCrowdSources: async () => {},
+        _applyDJ: async () => true, _initialDJId: () => 'hernan', _spawnCrowdTo() {}, _spawnLocalPlayerBody() {},
+        _applyCrowdSize() {}, _refreshShadowCasters() {}, _spawnAvatar() {}
+    });
+    return floor.createDancingNPCs().then(() => {
+        const standing = [...floor._crowdSlots, ...guests.filter(slot => !slot.mingles && !slot.y)];
+        const bar = loadClassic('js/venueDressing.js').window.VenueLayout.bar;
+        const mezz = loadClassic('js/mezzanine.js').window.MezzanineLayout;
+        // Distance from a point to the leg a->b.
+        const clearance = (a, b, p) => {
+            const vx = b.x - a.x, vz = b.z - a.z;
+            const len2 = vx * vx + vz * vz;
+            const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.z - a.z) * vz) / len2)) : 0;
+            return Math.hypot(a.x + vx * t - p.x, a.z + vz * t - p.z);
+        };
+        for (let i = 0; i < route.nodes.length; i++) {
+            const node = route.nodes[i];
+            assert.ok(node.x > -12.5 && node.x < 12.5 && node.z > -20 && node.z < -5,
+                `round point ${i} is outside the room`);
+            assert.ok(!(node.x > bar.stoolX - 0.7 && node.z > bar.backBar.z0 - 0.5 && node.z < bar.backBar.z1 + 0.5),
+                `round point ${i} walks through the bar`);
+            // Under the deck is open floor (its top is at y 3); the stair itself is the only thing in his way.
+            assert.ok(!(node.x < mezz.stairs.x1 + 0.6 && node.z < mezz.stairs.zBottom + 0.6 && node.z > mezz.stairs.zTop - 0.6),
+                `round point ${i} walks into the mezzanine stair`);
+            if (i === 0) continue;
+            for (const person of standing) {
+                const gap = clearance(route.nodes[i - 1], node, person);
+                assert.ok(gap >= 0.8, `the leg to round point ${i} passes ${gap.toFixed(2)} m from someone at ${person.x}, ${person.z}`);
+            }
+        }
+    });
+});
+
+test('the mingling guest walks his round, talks with the people he stops at, and leaves them as he found them', () => {
+    const { Crowd, club, mingler, npcs, playing } = minglerHarness(8);
+    const random = Math.random;
+    Math.random = () => 0.5;
+    try {
+        const route = Crowd.prototype._minglerRoute.call({});
+        const partners = new Set();
+        let walked = 0, walkingFrames = 0, settling = 0, lastPartner = null;
+        let last = { x: mingler.root.position.x, z: mingler.root.position.z };
+        for (let frame = 0; frame < 60 * 180; frame++) {
+            club._updateMingler(1 / 60);
+            const pos = mingler.root.position;
+            walked += Math.hypot(pos.x - last.x, pos.z - last.z);
+            last = { x: pos.x, z: pos.z };
+            if (playing(mingler) === 'Walk') walkingFrames++;
+            const talking = mingler.mingle.partner;
+            if (talking !== lastPartner) { lastPartner = talking; settling = 2 * 60; }
+            if (settling > 0) settling--;
+            if (talking && mingler.mingle.phase === 'dwell') {
+                partners.add(talking.name);
+                assert.equal(playing(mingler), 'Idle_Talking_Loop', 'he stands there silently');
+                assert.equal(playing(talking), 'Idle_Talking_Loop', `${talking.name} does not talk back`);
+                // Both are turned toward each other, not past each other, once they have had a moment to turn round.
+                if (settling === 0) {
+                    const want = Math.atan2(pos.x - talking.root.position.x, pos.z - talking.root.position.z);
+                    const off = Math.abs(Math.atan2(Math.sin(want - talking.root.rotation.y), Math.cos(want - talking.root.rotation.y)));
+                    assert.ok(off < 0.4, `${talking.name} is not facing him (${off.toFixed(2)} rad off)`);
+                }
+            }
+            // The collider travels with him; a left-behind collider is an invisible wall.
+            assert.ok(Math.abs(mingler.collider.position.x - pos.x) < 1e-6
+                && Math.abs(mingler.collider.position.z - pos.z) < 1e-6, 'his collider stayed behind');
+        }
+        assert.ok(partners.size >= 2, `he only ever talked to ${partners.size} person`);
+        assert.ok(walked > 25, `he barely moved (${walked.toFixed(1)} m in three minutes)`);
+        assert.ok(walkingFrames > 0 && walkingFrames < 60 * 180, 'he either never walks or never stops');
+        assert.ok(Math.abs(mingler.collider.position.x - mingler.root.position.x) < 1e-6
+            && Math.abs(mingler.collider.position.z - mingler.root.position.z) < 1e-6, 'his collider stayed behind');
+        // Everyone he visited is back in their own pose, facing the way they were placed.
+        for (const npc of npcs) {
+            if (npc === mingler || npc === mingler.mingle.partner) continue;
+            assert.equal(playing(npc), npc.slotClip, `${npc.name} was left in the wrong pose`);
+            const off = Math.abs(Math.atan2(Math.sin(npc.slotYaw - npc.root.rotation.y), Math.cos(npc.slotYaw - npc.root.rotation.y)));
+            assert.ok(off < 0.2, `${npc.name} was left turned ${off.toFixed(2)} rad off her spot`);
+        }
+        assert.ok(route.nodes.length > 0);
+    } finally {
+        Math.random = random;
+    }
+});
+
+test('the mingling guest walks the same distance at any frame rate, and still has somewhere to go on a lower tier', () => {
+    const random = Math.random;
+    Math.random = () => 0.5;
+    try {
+        const run = (dt, steps) => {
+            const { club, mingler } = minglerHarness(8);
+            let walked = 0;
+            let last = { x: mingler.root.position.x, z: mingler.root.position.z };
+            for (let i = 0; i < steps; i++) {
+                club._updateMingler(dt);
+                walked += Math.hypot(mingler.root.position.x - last.x, mingler.root.position.z - last.z);
+                last = { x: mingler.root.position.x, z: mingler.root.position.z };
+            }
+            return walked;
+        };
+        const at60 = run(1 / 60, 60 * 90), at30 = run(1 / 30, 30 * 90), at90 = run(1 / 90, 90 * 90);
+        assert.ok(Math.abs(at60 - at30) < 1.0 && Math.abs(at60 - at90) < 1.0,
+            `the walk is frame-rate dependent (${at60.toFixed(1)} / ${at30.toFixed(1)} / ${at90.toFixed(1)} m)`);
+
+        // The high tier shows four guests, so most of his round is empty: he must walk through those points,
+        // not stall on them.
+        const { club, mingler, playing } = minglerHarness(4);
+        const visited = new Set();
+        for (let frame = 0; frame < 60 * 180; frame++) {
+            club._updateMingler(1 / 60);
+            if (mingler.mingle.phase === 'dwell') visited.add(mingler.mingle.node);
+            assert.ok(playing(mingler) !== 'Walk' || mingler.mingle.phase === 'walk');
+        }
+        assert.ok(visited.size >= 2, `on the high tier he stops at only ${visited.size} point`);
+    } finally {
+        Math.random = random;
+    }
 });
 
 test('the crowd is diverse at every tier: every slot has a file that dances, and nobody is duplicated within a tier', () => {
@@ -4767,13 +4961,15 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     const ROOM_INTERIOR = {
         x: { min: -12.25, max: 12.25 },
         y: { min: 0, max: 9.85 },
-        z: { min: -20, max: -0.25 }
+        z: { min: -20, max: -0.25 },
+        entrance: { halfWidth: 1.86, height: 3.26 }
     };
-    const effects = loadClassic('js/club/06-effects.js', {
+    const effectsModule = loadClassic('js/club/06-effects.js', {
         BABYLON,
         VRClubFixtures: class {},
         ROOM_INTERIOR
-    }).window.VRClubEffects.prototype;
+    });
+    const effects = effectsModule.window.VRClubEffects.prototype;
     const enabled = { spots: false, rays: false };
     const updates = { spots: 0, rays: 0 };
     const mesh = (name) => ({
@@ -4816,6 +5012,8 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
             hit: {}
         },
         _intersectRoomInterior: effects._intersectRoomInterior,
+        _intersectEntranceInterior: effects._intersectEntranceInterior,
+        _considerEntranceHit: effects._considerEntranceHit,
         _writeMirrorSpotMatrix: effects._writeMirrorSpotMatrix,
         _writeMirrorRayMatrix: effects._writeMirrorRayMatrix,
         _updateMirrorReflectionBatch: effects._updateMirrorReflectionBatch,
@@ -4843,9 +5041,22 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     const hit = {};
     effects._intersectRoomInterior(0, 6.5, -12, 0, 1, 0, hit);
     assert.ok(Math.abs(hit.py - (9.85 - 0.02)) < 1e-9, `ceiling hit at y ${hit.py}`);
-    effects._intersectRoomInterior(0, 6.5, -12, 0, 0, 1, hit);
+    effects._intersectRoomInterior(3, 6.5, -12, 0, 0, 1, hit);
     assert.ok(Math.abs(hit.pz - (-0.25 - 0.02)) < 1e-9, `front-wall hit at z ${hit.pz}`);
     assert.deepEqual([hit.nx, hit.ny, hit.nz], [0, 0, -1]);
+
+    // The front doorway is not a phantom wall: a downward ray through it lands on the real stair.
+    effectsModule.window.VenueLayout = {
+        vestibule: {
+            halfWidth: 3.85, wallZ: 0.25, farZ: 6, streetLevel: 2.8,
+            stair: { halfWidth: 1.8, zBottom: 0.85, zTop: 5, steps: 16 }
+        }
+    };
+    const stairDir = new BABYLON.Vector3(0, -0.36, 1).normalize();
+    effects._intersectRoomInterior.call(club, 0, 6.5, -12, stairDir.x, stairDir.y, stairDir.z, hit);
+    assert.ok(hit.pz > 0.25, `doorway reflection stopped on the old front-wall plane at z ${hit.pz}`);
+    assert.ok(hit.py >= 0 && hit.py <= 2.83, `doorway reflection missed the stair at y ${hit.py}`);
+    assert.ok(hit.ny === 1 || hit.nz === -1, 'doorway reflection did not land on a tread or riser');
 });
 
 test('laser sheet uses bounded two-axis motion for vertical and lateral cues', () => {
@@ -5112,7 +5323,12 @@ test('master dimming scales moving heads, ceiling lasers and the laser sheet con
 
 test('ceiling lasers end on the wall they reach, scatter forward, never alias below a few pixels, and the sheet ends where it meets the floor', () => {
     const BABYLON = require('../js/vendor/babylon.js');
-    const ROOM_INTERIOR = { x: { min: -12.25, max: 12.25 }, y: { min: 0, max: 9.85 }, z: { min: -20, max: -0.25 } };
+    const ROOM_INTERIOR = {
+        x: { min: -12.25, max: 12.25 },
+        y: { min: 0, max: 9.85 },
+        z: { min: -20, max: -0.25 },
+        entrance: { halfWidth: 1.86, height: 3.26 }
+    };
     const fixtures = loadClassic('js/club/08-animation-fixtures.js', { BABYLON, VRClubAnimationCore: class {} }).window.VRClubAnimationFixtures.prototype;
     const core = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {}, ROOM_INTERIOR }).window.VRClubAnimationCore.prototype;
     const effects = loadClassic('js/club/06-effects.js', { BABYLON, VRClubFixtures: class {}, ROOM_INTERIOR }).window.VRClubEffects.prototype;
@@ -5145,6 +5361,15 @@ test('ceiling lasers end on the wall they reach, scatter forward, never alias be
 
     // The fan ends where the floor occludes it; it draws no separate line on the floor (removed by request).
     assert.equal(core._updateLaserSheetScanLines, undefined);
+});
+
+test('ceiling laser ribbons stay out of the depthless glow pass', () => {
+    const source = readFileSync(join(ROOT, 'js/club/05-fixtures.js'), 'utf8');
+    const start = source.indexOf('_createLaserBeamBatch(count)');
+    const end = source.indexOf('\n    }\n\n}', start);
+    const method = source.slice(start, end);
+    assert.match(method, /glowLayer\.addExcludedMesh\(mesh\)/);
+    assert.doesNotMatch(method, /glowLayer\.addIncludedOnlyMesh\(mesh\)/);
 });
 
 test('moving-head spot strobes stay under the flash ceiling at every refresh rate and Safe Mode removes the transitions', () => {
@@ -5648,7 +5873,8 @@ test('a crowd member hidden by the quality tier takes its occupant collider with
     const club = {
         npcAvatars: npcs,
         tierSettings: { crowdSize: 2, guestSize: 1 },
-        _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {}
+        _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {},
+        isPeopleVisible: proto.isPeopleVisible
     };
     proto._applyCrowdSize.call(club);
     const visible = npcs.filter(npc => npc.state.rootEnabled).map(npc => npc.name);
@@ -5658,6 +5884,81 @@ test('a crowd member hidden by the quality tier takes its occupant collider with
     club.tierSettings = { crowdSize: 3, guestSize: 2 };
     proto._applyCrowdSize.call(club);
     assert.ok(npcs.every(npc => npc.state.colliderEnabled && npc.state.rootEnabled), 'a returning dancer is not solid again');
+});
+
+test('a group of people can be sent home, and stays away across a tier change and a reload', () => {
+    const store = new Map();
+    const localStorage = {
+        getItem: key => (store.has(key) ? store.get(key) : null),
+        setItem: (key, value) => store.set(key, String(value)),
+        removeItem: key => store.delete(key)
+    };
+    const VRClubCore = loadClassic('js/club/01-core.js', { localStorage }).window.VRClubCore;
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, VRClubCore, localStorage });
+    const proto = window.VRClubAudioCrowd.prototype;
+
+    const member = name => {
+        const state = { root: true, collider: true };
+        return {
+            name, state, animations: [],
+            root: { setEnabled: value => { state.root = value; }, isEnabled: () => state.root },
+            collider: { setEnabled: value => { state.collider = value; } }
+        };
+    };
+    const npcs = [member('dancer0'), member('dancer1'), member('guest0'), member('bartender'),
+        member('bouncer'), member('queue0'), member('djPerformer')];
+    const here = () => npcs.filter(npc => npc.state.root).map(npc => npc.name).sort();
+    const club = Object.assign(Object.create(proto), {
+        npcAvatars: npcs,
+        tierSettings: { crowdSize: 2, guestSize: 1, queueSize: 1 },
+        peopleVisibility: VRClubCore.resolvePeopleVisibility(),
+        _crowdSlots: [{ src: 2 }, { src: 3 }],
+        _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {}
+    });
+    // No _applyStreetPeople on the stub: the pavement is exercised through _showStreetPeople below.
+
+    club._applyCrowdSize();
+    club._applyDJVisibility();
+    assert.deepEqual(here(), ['bartender', 'bouncer', 'dancer0', 'dancer1', 'djPerformer', 'guest0', 'queue0'],
+        'a new visitor gets the full club');
+
+    // One group at a time.
+    assert.equal(club.togglePeopleVisible('dancers'), false);
+    assert.deepEqual(here(), ['bartender', 'bouncer', 'djPerformer', 'guest0', 'queue0']);
+    assert.equal(store.get('vrclub.hiddenPeople'), 'dancers');
+    assert.ok(npcs.filter(npc => npc.name.startsWith('dancer')).every(npc => !npc.state.collider),
+        'a dancer who is not there must not leave an invisible wall behind');
+
+    // A quality-tier change must not bring a group back (it is _applyCrowdSize that reads the preference).
+    club.tierSettings = { crowdSize: 14, guestSize: 8, queueSize: 8 };
+    club._applyCrowdSize();
+    assert.deepEqual(here(), ['bartender', 'bouncer', 'djPerformer', 'guest0', 'queue0'], 'a tier change refilled the floor');
+
+    // In combination: the bystanders are the side guests, the bartender and the people outside.
+    club.setPeopleVisible('bystanders', false);
+    club._showStreetPeople(true);
+    assert.deepEqual(here(), ['djPerformer']);
+    assert.equal(store.get('vrclub.hiddenPeople'), 'dancers,bystanders');
+
+    // ...and the DJ.
+    club.setPeopleVisible('dj', false);
+    assert.deepEqual(here(), [], 'the club can be emptied completely');
+    assert.equal(store.get('vrclub.hiddenPeople'), 'dancers,bystanders,dj');
+    assert.deepEqual(Object.assign({}, VRClubCore.resolvePeopleVisibility(localStorage)),
+        { dancers: false, bystanders: false, dj: false },
+        'the choice is what a reload reads back');
+
+    // A group nobody can see is never downloaded either.
+    assert.deepEqual([...club._requiredCrowdSources()], [0, 1], 'only the player\'s own body is still needed');
+
+    // Everyone back in one press.
+    assert.equal(club.togglePeopleVisible('all'), true);
+    club._showStreetPeople(true);
+    assert.deepEqual(here(), ['bartender', 'bouncer', 'dancer0', 'dancer1', 'djPerformer', 'guest0', 'queue0']);
+    assert.equal(store.has('vrclub.hiddenPeople'), false, 'a full club stores nothing');
+    assert.deepEqual(Object.assign({}, VRClubCore.resolvePeopleVisibility(localStorage)),
+        { dancers: true, bystanders: true, dj: true });
 });
 
 test('the walking-surface follow climbs the stair and the deck but never snaps walkers off the floor', () => {
@@ -7319,7 +7620,7 @@ test('a character hidden and shown again dances again: clips pause and restart t
     };
     const npc = name => ({ name, animations: [group()], root: { setEnabled() {} }, collider: { setEnabled() {} } });
     const npcs = [npc('dancer0'), npc('dancer1')];
-    const club = { npcAvatars: npcs, tierSettings: { crowdSize: 1, guestSize: 0 }, _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {} };
+    const club = { npcAvatars: npcs, tierSettings: { crowdSize: 1, guestSize: 0 }, _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {}, isPeopleVisible: proto.isPeopleVisible };
     proto._applyCrowdSize.call(club);
     assert.equal(npcs[1].animations[0].isPlaying, false, 'a hidden dancer keeps animating');
     club.tierSettings.crowdSize = 2;
@@ -7492,6 +7793,8 @@ test('dancers change moves only on bar lines, and the floor is varied', () => {
     const dancers = Array.from({ length: 14 }, () => choreographer.createDancer(ALL_MOVES));
     const timelines = dancers.map(dancer => playDancer(CrowdDance, choreographer, dancer, { seconds: 90 }));
     for (const frames of timelines) {
+        assert.ok(frames.every(f => !CrowdDance.MOVES[f.move].free),
+            'a dancer chose the idle sway while a beat was present');
         for (let i = 1; i < frames.length; i++) {
             if (frames[i].move === frames[i - 1].move) continue;
             assert.notEqual(Math.floor(frames[i].beat / 4), Math.floor(frames[i - 1].beat / 4), `changed move mid-bar at beat ${frames[i].beat.toFixed(2)}`);
@@ -7517,13 +7820,50 @@ test('when the kick goes every dancer keeps swaying off the grid, and dances aga
     for (const frames of timelines) {
         const quiet = frames.filter(f => !f.present);
         assert.ok(quiet.every(f => f.move === 'Groove_Sway'), 'a dancer stopped moving or kept dancing to a beat that is gone');
-        assert.ok(frames.filter(f => f.present && f.t > 36).every(f => !CrowdDance.MOVES[f.move].free || f.move === 'Groove_Sway'),
+        assert.ok(frames.filter(f => f.present && f.t > 36).every(f => !CrowdDance.MOVES[f.move].free),
             'the kick came back and they kept standing about');
     }
     // Off the grid: the free pace is slow, and not the track's tempo.
     const out = {};
     const d = choreographer.step(dancers[0], { beatPresent: false, beat: 100, bpm: 128, energy: 0.2 }, 0.3, out);
     assert.equal(d.speed, CrowdDance.FREE_SPEED);
+});
+
+test('the crowd keeps a trusted beat through sparse audio frames and isolated missed kicks', () => {
+    let clock = 10000;
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON, VRClubUI: class {}, performance: { now: () => clock },
+        log: { info() {}, warn() {}, error() {} }
+    });
+    const club = Object.assign(Object.create(window.VRClubAudioCrowd.prototype), {
+        barPhase: 0,
+        vjDirector: {
+            bpm: 120, beatNumber: 16, realOnsetCount: 2,
+            lastRealOnsetAt: clock, onsetStreak: 2
+        },
+        showDirector: null
+    });
+
+    assert.equal(club._crowdMusic({ hasAudio: true, energy: 0.5 }).beatPresent, true,
+        'two fresh kicks establish the beat');
+    clock += 100;
+    assert.equal(club._crowdMusic({ hasAudio: false, energy: 0 }).beatPresent, true,
+        'one sparse analyser frame dropped the whole floor to sway');
+    clock = 13000; // six beats after the last real onset
+    assert.equal(club._crowdMusic({ hasAudio: true, energy: 0.5 }).beatPresent, true,
+        'one or two missed kicks ended the dance before the show recognized a breakdown');
+    clock = 13600; // beyond the seven-beat breakdown threshold
+    assert.equal(club._crowdMusic({ hasAudio: true, energy: 0.5 }).beatPresent, false,
+        'a real kick-less passage never released the dancers from the grid');
+
+    club.vjDirector.lastRealOnsetAt = clock;
+    club.vjDirector.onsetStreak = 1;
+    assert.equal(club._crowdMusic({ hasAudio: true, energy: 0.5 }).beatPresent, false,
+        'one stray kick was trusted as a returning beat');
+    club.vjDirector.onsetStreak = 2;
+    assert.equal(club._crowdMusic({ hasAudio: true, energy: 0.5 }).beatPresent, true,
+        'two returning kicks did not restart the dancing');
 });
 
 test('a build brings out the claps, and a drop puts the hands up', () => {
@@ -7542,7 +7882,7 @@ test('a build brings out the claps, and a drop puts the hands up', () => {
     const normalClaps = share({}, ['Groove_Clap']);
     assert.ok(share({ build: true }, ['Groove_Clap']) > 2 * normalClaps, 'a build does not bring claps');
     assert.ok(share({}, ['Groove_HandsUp', 'Groove_Pump'], true) > 0.5, 'a drop does not put the hands up');
-    // A quiet track: little hands-up, more swaying.
+    // A quiet track: little hands-up, but still a beat-driven dance rather than the free sway.
     assert.ok(share({ energy: 0.1 }, ['Groove_HandsUp']) < share({ energy: 0.9 }, ['Groove_HandsUp']));
-    assert.ok(share({ energy: 0.1 }, ['Groove_Sway']) > share({ energy: 0.9 }, ['Groove_Sway']));
+    assert.equal(share({ energy: 0.1 }, ['Groove_Sway']), 0);
 });

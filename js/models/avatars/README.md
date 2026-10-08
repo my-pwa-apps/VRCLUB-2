@@ -29,8 +29,10 @@ other dance floor characters, kept for their distinct choreography.
 
 A multi-clip file carries several clips. `_spawnAvatar(..., { clip })` keeps the one a slot asks for and
 disposes the rest, so a guest evaluates one animation like everyone else; with no `clip` a multi-clip
-file plays `Dance_Loop`. `_guestSlots()` in `11-audio-crowd.js` lists who stands where and does what, and a
-unit test checks that every slot's clip exists in its file.
+file plays `Dance_Loop`. A slot that changes pose at runtime passes `clips: [...]` instead, which keeps
+exactly those groups as `npc.poses` and still plays only one at a time (`_playClip`) — today that is the
+mingling guest and the people he stops to talk to. `_guestSlots()` in `11-audio-crowd.js` lists who
+stands where and does what, and a unit test checks that every slot's clip exists in its file.
 
 ## The crowd people (`club-crowd-*.glb`)
 

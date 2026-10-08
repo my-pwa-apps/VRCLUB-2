@@ -143,6 +143,41 @@ parity at correlation 0.69285 (required >0.700). An unchanged isolated parity re
 luminance x1.41, correlation 0.74, edge energy x0.81. This is not a fixed failure or a clean
 initial batch; see the [review](REVIEW_2026-10-06.md) and repeatability backlog item.
 
+## 2026-10-08 Production Chromium / IWER render-submission audit
+
+Windows, Playwright Chromium/SwiftShader, balanced tier, pinned `firstLight`, 20 rendered
+frames per sample. The production-build [resource-budget test](../test/e2e/budget.spec.mjs)
+passed. `snapshotResourceBudget()` now reports active-submesh proxy draws by subsystem,
+active material/texture/effect counts, transparency and alpha-test proxies, instancing and
+shared-geometry use, shadow maps, reflection targets, particle systems, and the leading
+meshes/materials. These are scene-architecture diagnostics; they do not instrument the
+driver's actual material, shader, texture, or pipeline switches.
+
+| Metric | Desktop | Emulated XR |
+|---|---:|---:|
+| Engine-reported scene submissions/frame | 304 | 260 |
+| Active-submesh proxy | 295 | 134 |
+| Non-main-pass/effect submission gap | 9 | 126 |
+| Architecture/other proxy draws | 155 | 74 |
+| Club-lighting proxy draws | 46 | 28 |
+| DJ/PA proxy draws | 48 | 2 |
+| Crowd/NPC proxy draws | 32 | 27 |
+| Furniture/bar-stock proxy draws | 7 | 1 |
+| Transparent / alpha-test proxy draws | 23 / 2 | 16 / 1 |
+| Active materials / textures | 148 / 116 | 96 / 84 |
+| Enabled NPCs / maximum meshes per NPC | 15 / 7 | 10 / 7 |
+| Shadow maps | 0 | 0 |
+| Frozen reflection-probe render list | 126 | 126 |
+| Mesh instances / thin instances | 18 / 15 | 12 / 10 |
+| Ordinary / cube-and-render-target RGBA estimate | 338 / 10 MiB | 338 / 13 MiB |
+
+The XR submission gap is not an attributed pass count: it is the engine total minus visible
+active submeshes and includes the XR path, glow, particles and post-process work. IWER is mono
+and SwiftShader is not Quest hardware, so these figures establish a reproducible regression
+baseline only. Actual Quest CPU/render-thread time, GPU time, stereo/multiview behavior,
+p95/p99 frame time, thermal behavior and sustainable device-specific submission budget remain
+**not measured** and require an on-headset capture.
+
 The historical mirror-ball ~12 ms CPU and ~80 animated-draw figures no longer describe
 the implementation: it now uses analytic shell hits and two thin-instance batches.
 No replacement CPU/GPU timing, p95/p99 or physical Quest thermal result was measured here.

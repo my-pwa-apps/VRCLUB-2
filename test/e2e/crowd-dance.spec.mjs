@@ -44,7 +44,10 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
             return music;
         };
         const dancers = () => club.npcAvatars.filter(npc => npc.dance && npc.root.isEnabled() && npc.dance.state && npc.dance.state.move);
-        const stats = { worst: 0, sum: 0, n: 0, moves: new Set(), quietMoves: new Set(), moved: 0 };
+        const stats = {
+            worst: 0, sum: 0, n: 0,
+            moves: new Set(), presentMoves: new Set(), quietMoves: new Set(), moved: 0
+        };
         const pose = () => dancers().map(npc => npc.root.getChildTransformNodes(false).filter(n => n.rotationQuaternion).slice(0, 10)
             .map(n => n.rotationQuaternion.asArray().join(',')).join('|'));
         let before = null, cameraYaw = null;
@@ -64,7 +67,11 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
             }
             club.updateAnimations();
             scene.animate();
-            for (const npc of dancers()) (quiet(clock - 1000) && quiet(clock) ? stats.quietMoves : stats.moves).add(npc.dance.state.move);
+            for (const npc of dancers()) {
+                const move = npc.dance.state.move;
+                if (!quiet(clock)) stats.presentMoves.add(move);
+                (quiet(clock - 1000) && quiet(clock) ? stats.quietMoves : stats.moves).add(move);
+            }
             if (i === 1000) {
                 const camera = scene.activeCamera;
                 cameraYaw = camera.rotation.y;
@@ -81,7 +88,8 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
         club.engine.runRenderLoop(() => scene.render());
         return {
             worst: stats.worst, mean: stats.sum / stats.n, samples: stats.n, dancers: dancers().length,
-            moves: [...stats.moves], quietMoves: [...stats.quietMoves], moved: stats.moved
+            moves: [...stats.moves], presentMoves: [...stats.presentMoves],
+            quietMoves: [...stats.quietMoves], moved: stats.moved
         };
     });
     console.log('CROWD_DANCE', JSON.stringify(run));
@@ -91,9 +99,93 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
     expect(run.worst).toBeLessThan(0.08);
     // Varied: over half a minute the floor does many different moves, claps included or not by chance, but not one dance.
     expect(run.moves.filter(move => move !== 'Groove_Sway').length).toBeGreaterThanOrEqual(4);
+    expect(run.presentMoves, 'a dancer chose the free sway while the kick was present').not.toContain('Groove_Sway');
     // With the kick gone they all keep swaying; nobody freezes or dances on.
     expect(run.quietMoves.length).toBeGreaterThan(0);
     expect(run.quietMoves.every(move => move === 'Groove_Sway')).toBe(true);
     expect(run.moved, 'every dancer keeps moving while behind the camera').toBe(run.dancers);
+    await expectHealthyRuntime(page);
+});
+
+/**
+ * The one guest who walks the room, in the real club: he leaves his spot, walks a clear path, stops with somebody and
+ * they both talk, and his collider and contact shadow come with him.
+ */
+test('a side guest walks the room and stops to talk to the people standing in it', async ({ page }) => {
+    test.setTimeout(900_000);
+    await enterClub(page);
+    // The harness runs `balanced`, which shows two guests; the walking guest is the third.
+    await page.evaluate(() => window.vrClub.setGraphicsTier('ultra'));
+    await page.waitForFunction(() => window.vrClub._mingler && window.vrClub._mingler.root
+        && window.vrClub._mingler.root.isEnabled(), null, { timeout: 300_000 });
+
+    const run = await page.evaluate(() => {
+        const club = window.vrClub, scene = club.scene;
+        club.engine.stopRenderLoop();
+        scene.useConstantAnimationDeltaTime = true;
+        const npc = club._mingler;
+        // Everybody standing on the floor (the mezzanine guest is up at y 3 and cannot be walked into).
+        const others = club.npcAvatars.filter(a => a !== npc && a.root && a.root.isEnabled() && a.root.position.y < 1);
+        const playing = person => {
+            const groups = person.poses ? [...person.poses.groups.values()] : (person.animations || []);
+            const live = groups.filter(group => group.isPlaying);
+            return { count: live.length, name: live.length ? live[0].name : null };
+        };
+        // Babylon prefixes an instantiated group's name with the container's root name.
+        const is = (name, clip) => !!name && (name === clip || name.endsWith(`_${clip}`));
+        const out = {
+            start: { x: npc.root.position.x, z: npc.root.position.z }, walked: 0, maxFromStart: 0,
+            clips: new Set(), talkedWith: new Set(), bothTalking: 0, soloClip: true, closest: 99,
+            others: others.length, colliderOff: 0, shadowOff: 0
+        };
+        let last = { x: npc.root.position.x, z: npc.root.position.z };
+        const shadows = club._contactShadows;
+        for (let i = 0; i < 4500; i++) {   // 72 simulated seconds
+            club.updateAnimations();
+            scene.animate();
+            const pos = npc.root.position;
+            out.walked += Math.hypot(pos.x - last.x, pos.z - last.z);
+            last = { x: pos.x, z: pos.z };
+            out.maxFromStart = Math.max(out.maxFromStart, Math.hypot(pos.x - out.start.x, pos.z - out.start.z));
+            const mine = playing(npc);
+            if (mine.name) out.clips.add(mine.name);
+            if (mine.count !== 1) out.soloClip = false;
+            if (is(mine.name, 'Walk')) out.walkFrames = (out.walkFrames || 0) + 1;
+            for (const other of others) {
+                out.closest = Math.min(out.closest, Math.hypot(pos.x - other.root.position.x, pos.z - other.root.position.z));
+            }
+            const partner = npc.mingle.partner;
+            if (partner && npc.mingle.phase === 'dwell') {
+                out.talkedWith.add(partner.name);
+                if (is(mine.name, 'Idle_Talking_Loop') && is(playing(partner).name, 'Idle_Talking_Loop')) out.bothTalking++;
+            }
+            if (npc.collider) {
+                out.colliderOff = Math.max(out.colliderOff,
+                    Math.hypot(npc.collider.position.x - pos.x, npc.collider.position.z - pos.z));
+            }
+            if (shadows && npc._shadowIndex >= 0) {
+                const base = npc._shadowIndex * 16;
+                out.shadowOff = Math.max(out.shadowOff,
+                    Math.hypot(shadows.buffer[base + 12] - pos.x, shadows.buffer[base + 14] - pos.z));
+            }
+        }
+        scene.useConstantAnimationDeltaTime = false;
+        club.engine.runRenderLoop(() => scene.render());
+        return { ...out, clips: [...out.clips], talkedWith: [...out.talkedWith] };
+    });
+    console.log('MINGLER', JSON.stringify(run));
+    expect(run.walked, 'he never left his spot').toBeGreaterThan(5);
+    expect(run.maxFromStart).toBeGreaterThan(2);
+    expect(run.walkFrames, 'he never played the walk clip').toBeGreaterThan(0);
+    expect(run.soloClip, 'only one clip plays on him at a time').toBe(true);
+    expect(run.talkedWith.length, 'he never stopped to talk to anybody').toBeGreaterThan(0);
+    expect(run.bothTalking, 'he and the person he stopped at never both talked').toBeGreaterThan(0);
+    expect(run.others, 'nobody else was on the floor to measure against').toBeGreaterThan(10);
+    // He walks between people, never through them.
+    expect(run.closest).toBeGreaterThan(0.5);
+    // His collider and contact shadow come with him; a left-behind collider is an invisible wall.
+    expect(run.colliderOff).toBeLessThan(0.01);
+    expect(run.shadowOff).toBeLessThan(0.01);
+    await page.evaluate(() => window.vrClub.setGraphicsTier('balanced'));
     await expectHealthyRuntime(page);
 });

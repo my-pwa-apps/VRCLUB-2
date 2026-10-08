@@ -815,6 +815,9 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {object} [options]
      * @param {string} [options.clip]            which clip to play when the GLB carries several
      *                                           (default 'Dance_Loop'); the rest are discarded
+     * @param {string[]} [options.clips]         keep these clips instead of only `clip`, for a guest who changes
+     *                                           pose at runtime (the mingling guest walks and talks). Only one
+     *                                           plays at a time; VRClubAudioCrowd._playClip switches between them.
      * @param {boolean} [options.reactsToBeat]   false for guests who do not dance (default true)
      */
     _spawnAvatar(container, name, position, facing, height, speedRatio, options = {}) {
@@ -876,6 +879,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const prefix = `${name}_`;
         const clipOf = group => (group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name);
         let dance = null;
+        let poses = null;
         if (options.repertoire && groups.some(group => clipOf(group) === 'Groove_Bounce')) {
             // A dancer who can do every move (the Quaternius people): keep the moves, start one, the choreographer
             // (CrowdDance, _updateCrowdDance) switches between them on the beat. Only one group plays at a time.
@@ -888,6 +892,22 @@ class VRClubAudioCrowd extends VRClubUI {
             moves.forEach(group => { group.enableBlending = true; group.blendingSpeed = 0.08; });
             dance = { groups: moves, current: first, state: null };
             groups = [first];
+        } else if (options.clips && groups.length > 1) {
+            // A guest who changes pose at runtime: keep the poses it can strike, drop the rest. Only the started
+            // group evaluates; _playClip() swaps them, blending out of whatever the previous one left.
+            const kept = new Map();
+            groups.forEach(group => {
+                if (options.clips.includes(clipOf(group))) kept.set(clipOf(group), group);
+                else group.dispose();
+            });
+            const first = kept.get(options.clip) || kept.values().next().value;
+            kept.forEach(group => { group.enableBlending = true; group.blendingSpeed = 0.06; });
+            if (first) {
+                poses = { groups: kept, current: first };
+                groups = [first];
+            } else {
+                groups = [];
+            }
         } else if (groups.length > 1) {
             const wanted = options.clip || 'Dance_Loop';
             const chosen = groups.find(group => clipOf(group) === wanted) || groups[0];
@@ -916,6 +936,7 @@ class VRClubAudioCrowd extends VRClubUI {
             avoidYaw: 0
         };
         if (dance) npc.dance = dance;
+        if (poses) npc.poses = poses;
         npc.collider = this._attachOccupantCollider(root, name);
         this.npcAvatars.push(npc);
 
@@ -1102,7 +1123,10 @@ class VRClubAudioCrowd extends VRClubUI {
 
     async _applyDJ(id) {
         const look = VRClubAudioCrowd.djLook(id);
-        if (!look || this._djId === id) return this._djId === id;
+        if (!look) return false;
+        // Sent home: remember who the podcast wants at the decks and fetch nothing until the DJ is asked back.
+        if (!this.isPeopleVisible('dj')) { this._djWanted = id; return false; }
+        if (this._djId === id) return true;
         this._djContainers = this._djContainers || {};
         if (!this._djContainers[id]) this._djContainers[id] = await this._loadAvatarSource(look.url, look.garment, look.hair);
         const container = this._djContainers[id];
@@ -1186,7 +1210,7 @@ class VRClubAudioCrowd extends VRClubUI {
     /** Per frame: tell the DJ where the music is and who is near, then pose the rig. */
     _updateDJ(dt, audioData) {
         const rig = this._djRig, performer = this._djPerformer;
-        if (!rig || !rig.ok || !performer) return;
+        if (!rig || !rig.ok || !performer || !rig.root || !rig.root.isEnabled()) return;
         const music = this._djMusic;
         const vj = this.vjDirector, show = this.showDirector;
         music.hasAudio = !!(audioData && audioData.hasAudio);
@@ -1390,24 +1414,35 @@ class VRClubAudioCrowd extends VRClubUI {
     _guestSlots() {
         const towardDJ = (x, z) => Math.atan2(-x, -18 - z);
         const at = id => VRClubAudioCrowd.sourceIndex(id);
+        // The poses a guest can change into at runtime. Only the mingling guest walks; the people he stops at turn
+        // to him and talk back, so they keep their own pose plus the talking one.
+        const talks = clip => (clip === 'Idle_Talking_Loop' ? undefined : [clip, 'Idle_Talking_Loop']);
         return [
             // The talking pair stands off the counter (x 9.7 is its front, the stools are at x 9.2).
             { src: at('m4'), clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80 },
             { src: at('f6'), clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66 },
-            { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84 },
+            // The one guest who does not stay put: he walks the room and joins the others' conversations
+            // (_minglerRoute, _updateMingler), which is why he carries the walk and both idles.
+            { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84,
+                mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop'] },
             // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor.
             { src: at('f7'), clip: 'Idle_Railing_Loop', x: -9.92, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
-            { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68 },
+            { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68, clips: talks('Idle_Loop') },
             { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
-            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63 },
+            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63, clips: talks('Idle_Loop') },
             { src: at('m4'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
         ];
     }
 
-    /** Source indices the active tier shows: the player's body, the bartender, the first N dancers and the first N guests. */
-    _requiredCrowdSources(crowdSize = this.tierSettings.crowdSize, guestSize = this.tierSettings.guestSize) {
-        const need = new Set([VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM'),
-            VRClubAudioCrowd.sourceIndex('bartender')]);
+    /**
+     * Source indices the active tier shows: the player's body, the bartender, the first N dancers and the first N
+     * guests. A group the visitor has sent home is not fetched at all (see isPeopleVisible); turning it back on
+     * tops up the missing files in the background.
+     */
+    _requiredCrowdSources(crowdSize = this.isPeopleVisible('dancers') ? this.tierSettings.crowdSize : 0,
+        guestSize = this.isPeopleVisible('bystanders') ? this.tierSettings.guestSize : 0) {
+        const need = new Set([VRClubAudioCrowd.sourceIndex('dancerF'), VRClubAudioCrowd.sourceIndex('dancerM')]);
+        if (this.isPeopleVisible('bystanders')) need.add(VRClubAudioCrowd.sourceIndex('bartender'));
         (this._crowdSlots || []).slice(0, Math.max(0, crowdSize | 0)).forEach(slot => need.add(slot.src));
         this._guestSlots().slice(0, Math.max(0, guestSize | 0)).forEach(slot => need.add(slot.src));
         return [...need].filter(index => index >= 0);
@@ -1443,7 +1478,14 @@ class VRClubAudioCrowd extends VRClubUI {
             // Only the multi-clip guest files carry these poses; without them there is nothing sensible to play.
             if (existing.has(name) || !source) return;
             this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, slot.y || 0, slot.z), slot.yaw, slot.height,
-                0.9 + (index % 3) * 0.06, { clip: slot.clip, reactsToBeat: false });
+                0.9 + (index % 3) * 0.06, { clip: slot.clip, clips: slot.clips, reactsToBeat: false });
+            const npc = this.npcAvatars[this.npcAvatars.length - 1];
+            if (!npc || npc.name !== name) return;
+            // Where this guest stands and what it does when nobody is talking to it: the mingler returns
+            // everyone it visited to exactly this.
+            npc.slotYaw = slot.yaw;
+            npc.slotClip = slot.clip;
+            if (slot.mingles) this._startMingling(npc, slot);
         });
     }
 
@@ -1529,12 +1571,15 @@ class VRClubAudioCrowd extends VRClubUI {
         const translation = new BABYLON.Vector3();
         const matrix = new BABYLON.Matrix();
         for (const npc of this.npcAvatars) {
+            npc._shadowIndex = -1;
             if (!npc.root || !npc.root.isEnabled() || (count + 1) * 16 > shadows.buffer.length) continue;
             const diameter = npc.name === 'djPerformer' ? 1.0 : 1.15;
             scale.set(diameter, 1, diameter);
             translation.set(npc.root.position.x, npc.root.position.y + 0.02, npc.root.position.z);
             BABYLON.Matrix.ComposeToRef(scale, BABYLON.Quaternion.Identity(), translation, matrix);
             matrix.copyToArray(shadows.buffer, count * 16);
+            // A character that walks (the mingling guest) rewrites this slot's translation as it moves.
+            npc._shadowIndex = count;
             count++;
         }
         shadows.mesh.thinInstanceSetBuffer('matrix', shadows.buffer, 16, false);
@@ -1555,22 +1600,107 @@ class VRClubAudioCrowd extends VRClubUI {
 
     _applyCrowdSize() {
         if (!this.npcAvatars) return;
-        const target = Math.max(0, this.tierSettings.crowdSize | 0);
-        const guestTarget = Math.max(0, this.tierSettings.guestSize | 0);
+        // A hidden group is simply a target of zero, so the tier's own sizes are untouched and turning the group
+        // back on restores exactly the crowd this tier would have had.
+        const dancersOn = this.isPeopleVisible('dancers');
+        const bystandersOn = this.isPeopleVisible('bystanders');
+        const target = dancersOn ? Math.max(0, this.tierSettings.crowdSize | 0) : 0;
+        const guestTarget = bystandersOn ? Math.max(0, this.tierSettings.guestSize | 0) : 0;
         this._topUpCrowdSources();
         this._spawnCrowdTo(target);
         this._spawnGuestsTo(guestTarget);
         this.npcAvatars.forEach(npc => {
             const isGuest = npc.name.startsWith('guest');
-            if (!isGuest && !npc.name.startsWith('dancer')) return;
-            const index = Number(npc.name.slice(isGuest ? 'guest'.length : 'dancer'.length));
-            const enabled = Number.isFinite(index) && index < (isGuest ? guestTarget : target);
+            const isDancer = npc.name.startsWith('dancer');
+            let enabled;
+            if (isGuest || isDancer) {
+                const index = Number(npc.name.slice(isGuest ? 'guest'.length : 'dancer'.length));
+                enabled = Number.isFinite(index) && index < (isGuest ? guestTarget : target);
+            } else if (npc.name === 'bartender') {
+                // She is not a guest slot (no tier removes her), but she is a bystander.
+                enabled = bystandersOn;
+            } else {
+                return;
+            }
             npc.root.setEnabled(enabled);
             // The occupant box is its own mesh: left enabled, a hidden dancer stays solid.
             if (npc.collider) npc.collider.setEnabled(enabled);
             VRClubAudioCrowd._setAnimating(npc, enabled);
         });
         if (typeof this._applyStreetPeople === 'function') this._applyStreetPeople();
+        this._refreshContactShadows();
+    }
+
+    // ───────────────────────── who is in the club ─────────────────────────
+    //
+    // Three groups of characters, each of which a visitor can send home: the dancers on the dance floor, the
+    // bystanders (the side guests, the mingler, the bartender, and the bouncer and the queue on the pavement) and
+    // the DJ. The preference lives on the instance (VRClubCore.resolvePeopleVisibility), _applyCrowdSize and
+    // _showStreetPeople are the only places that act on it, and both run again after a tier change or a DJ swap.
+
+    /** Is this group of characters in the club? An unknown name is never hidden. */
+    isPeopleVisible(category) {
+        const visibility = this.peopleVisibility;
+        if (!visibility || !Object.prototype.hasOwnProperty.call(visibility, category)) return true;
+        return visibility[category] !== false;
+    }
+
+    /**
+     * Send a group of characters home, or bring it back. This is a personal, local preference — not a light or a
+     * music control — so it is never gated on the host.
+     * @param {string|null} category 'dancers', 'bystanders', 'dj', or 'all' for every group at once
+     * @returns {boolean} whether the group is now visible
+     */
+    setPeopleVisible(category, visible) {
+        const on = !!visible;
+        const visibility = this.peopleVisibility || (this.peopleVisibility = VRClubCore.resolvePeopleVisibility());
+        let changed = false;
+        for (const name of VRClubCore.peopleCategories(category)) {
+            if (visibility[name] === on) continue;
+            visibility[name] = on;
+            changed = true;
+        }
+        if (changed) {
+            this._persistPeopleVisibility();
+            this.applyPeopleVisibility();
+        }
+        return on;
+    }
+
+    /** Flip a group. 'all' comes back only when every group is away, so one press empties the club. */
+    togglePeopleVisible(category) {
+        const names = VRClubCore.peopleCategories(category);
+        if (names.length === 0) return true;
+        return this.setPeopleVisible(category, !names.some(name => this.isPeopleVisible(name)));
+    }
+
+    _persistPeopleVisibility() {
+        const hidden = VRClubCore.PEOPLE_CATEGORIES.filter(name => !this.isPeopleVisible(name));
+        try {
+            if (hidden.length > 0) localStorage.setItem('vrclub.hiddenPeople', hidden.join(','));
+            else localStorage.removeItem('vrclub.hiddenPeople');
+        } catch (_) { /* private browsing */ }
+    }
+
+    /** Put all three groups where the preference says, now. */
+    applyPeopleVisibility() {
+        this._applyCrowdSize();          // the dancers, the side guests, the bartender, then the street people
+        this._applyDJVisibility();
+    }
+
+    /** The DJ is not a crowd slot: an AvatarRig posed by DJPerformer, replaced whenever the podcast changes. */
+    _applyDJVisibility() {
+        const enabled = this.isPeopleVisible('dj');
+        const npc = this.npcAvatars && this.npcAvatars.find(item => item.name === 'djPerformer');
+        if (!npc || !npc.root) {
+            // Nobody at the decks: the DJ was sent home before the file was fetched. Bring back whoever was asked for.
+            if (enabled && this._djWanted && this._djWanted !== this._djId) this.setDJ(this._djWanted);
+            return;
+        }
+        if (npc.root.isEnabled() === enabled) return;
+        npc.root.setEnabled(enabled);
+        if (npc.collider) npc.collider.setEnabled(enabled);
+        VRClubAudioCrowd._setAnimating(npc, enabled);
         this._refreshContactShadows();
     }
 
@@ -1612,6 +1742,8 @@ class VRClubAudioCrowd extends VRClubUI {
     /** The street people the active tier shows, spawned once their files have loaded; then shown with the street. */
     _applyStreetPeople() {
         if (!this._cityRoot || !this._crowdSourceContainers || !this.npcAvatars || this._disposed) return;
+        // Sent home: hide whoever is already out there and fetch nobody new.
+        if (!this.isPeopleVisible('bystanders')) { this._showStreetPeople(false); return; }
         const { bouncer, queue } = this._streetSlots();
         const target = Math.min(queue.length, Math.max(0, (this.tierSettings && this.tierSettings.queueSize) | 0));
         const wanted = [bouncer, ...queue.slice(0, target)];
@@ -1656,11 +1788,12 @@ class VRClubAudioCrowd extends VRClubUI {
     _showStreetPeople(visible, placed = false) {
         if (!this.npcAvatars) return;
         const target = Math.max(0, (this.tierSettings && this.tierSettings.queueSize) | 0);
+        const here = !!visible && this.isPeopleVisible('bystanders');
         let changed = placed;
         for (const npc of this.npcAvatars) {
             const isQueue = /^queue\d+$/.test(npc.name);
             if (!isQueue && npc.name !== 'bouncer') continue;
-            const enabled = !!visible && (!isQueue || Number(npc.name.slice(5)) < target);
+            const enabled = here && (!isQueue || Number(npc.name.slice(5)) < target);
             if (npc.root.isEnabled() !== enabled) changed = true;
             npc.root.setEnabled(enabled);
             if (npc.collider) npc.collider.setEnabled(enabled);
@@ -1678,6 +1811,182 @@ class VRClubAudioCrowd extends VRClubUI {
                 group.pause();
             }
         }
+    }
+
+    /**
+     * Switch a character kept with several poses (_spawnAvatar's `clips`) to one of them. Only one group ever
+     * plays — it blends out of whatever the last one left — and `animations` follows, so _setAnimating still
+     * pauses and restarts the right clip when a tier hides the character.
+     */
+    static _playClip(npc, clip, speedRatio) {
+        const poses = npc && npc.poses;
+        const next = poses && poses.groups.get(clip);
+        if (!next) return false;
+        if (next !== poses.current) {
+            next.start(true, speedRatio, next.from, next.to);
+            if (poses.current) poses.current.stop();
+            poses.current = next;
+            npc.animations = [next];
+        }
+        next.speedRatio = speedRatio;
+        return true;
+    }
+
+    /** Turn a character toward a world yaw at a rate, frame-rate independently. True once it has arrived. */
+    static _easeYaw(node, goal, dt, rate) {
+        let diff = goal - node.rotation.y;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        node.rotation.y += diff * (1 - Math.exp(-Math.max(0, dt) * rate));
+        return Math.abs(diff) < 0.01;
+    }
+
+    // ───────────────────────── the guest who works the room ─────────────────────────
+    //
+    // Everyone else at the sides stands where they were placed. One guest (the slot with `mingles`) walks a fixed
+    // round of the room and joins the others' conversations: he turns up, they both talk (Idle_Talking_Loop), the
+    // person he stopped at turns to face him, then he moves on. The round is a CHAIN walked up and back down, not a
+    // loop, so every leg is a hand-measured line that misses the dance floor, the bar and the mezzanine stair (a
+    // unit test holds it clear of every crowd and guest slot). A stop whose guest the tier does not show is simply
+    // walked through, so he still has somewhere to go on a lower tier.
+
+    /**
+     * The round, in world coordinates. `guest` is the guest slot he stops to talk to; a node without one is a
+     * corner. `home` is his own spot, where he stands on his own and watches the floor, and where he starts.
+     * Every leg is hand-placed to clear the dance floor, the bar and the other standing guests by at least 0.8 m.
+     */
+    _minglerRoute() {
+        return {
+            speed: 1.05,            // a relaxed walk
+            walkClipSpeed: 1.4,     // metres a second the packs' Walk clip is authored for (AvatarManager uses the same)
+            dwell: { min: 9, max: 17 },
+            home: 1,
+            nodes: [
+                { x: -9.0, z: -13.6, guest: 6 },
+                { x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2 },
+                { x: -7.5, z: -6.1, guest: 4 },
+                { x: -7.5, z: -5.5 },   // the lane along the front of the dance floor, the only way across the room
+                { x: 7.9, z: -5.5 },
+                { x: 7.9, z: -7.1, guest: 1 }   // joining the pair who stand talking by the bar
+            ]
+        };
+    }
+
+    _startMingling(npc, slot) {
+        const route = this._mingleRoute || (this._mingleRoute = this._minglerRoute());
+        npc.mingle = { phase: 'dwell', timer: 5, node: route.home | 0, dir: 1, yaw: slot.yaw, partner: null, returning: null };
+        this._mingler = npc;
+    }
+
+    /** The guest standing in slot `index`, if this tier shows them. */
+    _mingleGuest(index) {
+        const name = `guest${index}`;
+        const avatars = this.npcAvatars || [];
+        for (let i = 0; i < avatars.length; i++) {
+            if (avatars[i].name !== name) continue;
+            return avatars[i].root && avatars[i].root.isEnabled() ? avatars[i] : null;
+        }
+        return null;
+    }
+
+    /** Per frame: walk the round, hold the conversations, and carry the collider and the contact shadow along. */
+    _updateMingler(dt) {
+        const npc = this._mingler;
+        const state = npc && npc.mingle;
+        if (!state || !npc.root || !npc.root.isEnabled()) return;
+        const route = this._mingleRoute || (this._mingleRoute = this._minglerRoute());
+        const step = Math.min(0.1, Math.max(0, dt || 0));
+        const pos = npc.root.position;
+
+        if (state.phase === 'walk') {
+            const node = route.nodes[state.node];
+            const dx = node.x - pos.x, dz = node.z - pos.z;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            const travel = route.speed * step;
+            if (distance <= Math.max(travel, 0.02)) {
+                pos.x = node.x;
+                pos.z = node.z;
+                this._minglerArrive(npc, route, node);
+            } else {
+                pos.x += (dx / distance) * travel;
+                pos.z += (dz / distance) * travel;
+                state.yaw = Math.atan2(dx, dz);
+            }
+        } else {
+            state.timer -= step;
+            if (state.partner && !state.partner.root.isEnabled()) state.timer = 0;   // a lower tier took them away
+            if (state.partner && state.partner.root) {
+                const px = state.partner.root.position;
+                state.yaw = Math.atan2(px.x - pos.x, px.z - pos.z);
+            }
+            if (state.timer <= 0) this._minglerDepart(npc, route);
+        }
+
+        VRClubAudioCrowd._easeYaw(npc.root, state.yaw, step, 4.0);
+        // The people he stops at look at him while he is there, and go back to the way they were placed afterwards.
+        if (state.partner && state.partner.root) {
+            const px = state.partner.root.position;
+            VRClubAudioCrowd._easeYaw(state.partner.root, Math.atan2(pos.x - px.x, pos.z - px.z), step, 2.2);
+        }
+        if (state.returning && state.returning.root) {
+            if (VRClubAudioCrowd._easeYaw(state.returning.root, state.returning.slotYaw || 0, step, 2.0)) {
+                state.returning = null;
+            }
+        }
+        if (npc.collider) npc.collider.position.set(pos.x, pos.y + 0.85, pos.z);
+        this._moveContactShadow(npc);
+    }
+
+    _minglerArrive(npc, route, node) {
+        const state = npc.mingle;
+        const partner = node.guest == null ? null : this._mingleGuest(node.guest);
+        if (!partner && node.guest != null) {
+            this._minglerDepart(npc, route);   // nobody stands here on this tier: walk straight on
+            return;
+        }
+        state.phase = 'dwell';
+        state.timer = route.dwell.min + Math.random() * (route.dwell.max - route.dwell.min);
+        state.partner = partner;
+        if (partner) {
+            VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
+            VRClubAudioCrowd._playClip(partner, 'Idle_Talking_Loop', partner.baseSpeed);
+        } else {
+            VRClubAudioCrowd._playClip(npc, 'Idle_Loop', npc.baseSpeed);
+            if (Number.isFinite(node.yaw)) state.yaw = node.yaw;
+        }
+    }
+
+    _minglerDepart(npc, route) {
+        const state = npc.mingle;
+        if (state.partner) {
+            VRClubAudioCrowd._playClip(state.partner, state.partner.slotClip, state.partner.baseSpeed);
+            // Only one person eases back at a time; anyone still turning is simply put back where they stood.
+            if (state.returning && state.returning.root) {
+                state.returning.root.rotation.y = state.returning.slotYaw || 0;
+            }
+            state.returning = state.partner;
+            state.partner = null;
+        }
+        state.node += state.dir;
+        if (state.node >= route.nodes.length) { state.node = route.nodes.length - 2; state.dir = -1; }
+        else if (state.node < 0) { state.node = 1; state.dir = 1; }
+        state.phase = 'walk';
+        VRClubAudioCrowd._playClip(npc, 'Walk', route.speed / route.walkClipSpeed);
+    }
+
+    /**
+     * Keep a walking character's blob under its feet. The contact shadows are one thin-instance buffer rebuilt only
+     * when the set of enabled characters changes, so a character that moves rewrites its own translation in place.
+     */
+    _moveContactShadow(npc) {
+        const shadows = this._contactShadows;
+        const index = npc._shadowIndex;
+        if (!shadows || !(index >= 0) || typeof shadows.mesh.thinInstanceBufferUpdated !== 'function') return;
+        const base = index * 16;
+        if (base + 16 > shadows.buffer.length) return;
+        shadows.buffer[base + 12] = npc.root.position.x;
+        shadows.buffer[base + 13] = npc.root.position.y + 0.02;
+        shadows.buffer[base + 14] = npc.root.position.z;
+        shadows.mesh.thinInstanceBufferUpdated('matrix');
     }
 
     /** The bouncer keeps an eye on whoever comes close: he turns toward them (never more than ~75 degrees), then back. */
@@ -1716,17 +2025,25 @@ class VRClubAudioCrowd extends VRClubUI {
     _crowdMusic(audioData) {
         const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
         const vj = this.vjDirector, show = this.showDirector;
-        const hasAudio = !!(audioData && audioData.hasAudio);
         m.bpm = (vj && vj.bpm) || 120;
+        const now = performance.now();
+        const beatMs = 60000 / m.bpm;
+        const hasAudioNow = !!(audioData && audioData.hasAudio);
+        // A single quiet analyser frame must not make the whole floor drop into its free sway. Hold audible state
+        // for two beats; genuine silence still wins quickly, while a render hitch or a sparse frame does not.
+        if (hasAudioNow) this._crowdAudioUntil = now + Math.max(1000, 2 * beatMs);
+        const hasAudio = hasAudioNow || now < (this._crowdAudioUntil || 0);
         if (vj) {
             // The continuous beat position: the counter plus how far into this beat the bar phase is.
             const inBar = vj.beatNumber % 4;
             const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
             m.beat = vj.beatNumber + Math.max(0, Math.min(1, barPhase * 4 - inBar));
         }
-        // The kick is here while it keeps coming; it is back after two kicks in a row (one stray hit is not a beat).
-        const beatMs = 60000 / m.bpm;
-        const recent = !!vj && vj.realOnsetCount > 0 && performance.now() - vj.lastRealOnsetAt < Math.max(1600, 2.5 * beatMs);
+        // The kick is here until the show would call the gap a breakdown. It is back after two kicks in a row (one
+        // stray hit is not a beat). The old 2.5-beat window made frame stalls and an occasional missed onset send
+        // everybody to the idle-looking sway while the track and the VJ flywheel were plainly still on the beat.
+        const recent = !!vj && vj.realOnsetCount > 0 &&
+            now - vj.lastRealOnsetAt < Math.max(1600, 7 * beatMs);
         m.beatPresent = hasAudio && recent && (m.beatPresent || (vj.onsetStreak || 0) >= 2);
         m.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
             : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
