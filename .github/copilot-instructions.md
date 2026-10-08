@@ -187,27 +187,28 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
   Headset cost is unmeasured (~0.05-0.3 ms a frame on desktop SwiftShader).
 
 ### `js/crowdDance.js` — the crowd dances on the beat
-The Quaternius dancers on the floor (not the three Mixamo files, not the guests) carry nine moves: the retargeted
+The Quaternius dancer files (not the three Mixamo files, not the guests) carry nine authored moves: the retargeted
 `Dance_Loop` and eight procedural grooves (`Groove_Bounce`, `_SideTap`, `_Clap`, `_Pump`, `_Twist`, `_HandsUp`, `_Sway`,
 `_Still`) authored by `synthesize()` in `scripts/build-crowd-glbs.mjs` straight onto the modular rig: hips, spine and
 head angles plus wrist and ankle targets solved with two-bone IK, at `GROOVE_BPM` 120 and `GROOVE_FPS` 20, every loop a
 whole number of beats with a beat on its first key. A groove drives EXACTLY the bones `Dance_Loop` drives (Body, spine,
 neck, head, shoulders, arms, wrists, legs, the free feet), so switching between them never leaves a joint in the last
-clip's pose; that is why the still pose is authored (`Groove_Still`) and the stock `Idle` (which drives every finger)
-is not in the repertoire. `mirror` in `CAST` mirrors the grooves too.
+clip's pose. `Groove_Still` remains in the files for compatibility but is deliberately excluded from the live
+repertoire: an enabled floor dancer must always move, even while kick detection is absent. `mirror` in `CAST` mirrors
+the grooves too.
 - `CrowdDance` is pure (no Babylon). `MOVES` gives each move its `beats`, `anchor` (where a beat lands: `Dance_Loop`
-  dips half a beat in), pick `weight`, the `energy` it suits, and `build` / `drop` multipliers; `free` moves (sway and
-  still) are what dancers do without a beat. `step(dancer, music, frac)` returns the move and a speed: `bpm / 120`
+  dips half a beat in), pick `weight`, the `energy` it suits, and `build` / `drop` multipliers; the free `Groove_Sway`
+  is what every dancer does without a beat. `step(dancer, music, frac)` returns the move and a speed: `bpm / 120`
   (halved at half time) corrected by the phase error in beats (x0.8, clamped +-40%; over 0.6 beats it jumps), so knees
   bend and hands clap ON the club's beat grid (`vjDirector.beatNumber` plus the bar-phase fraction). A half-time clap
   lands on 2 and 4 (`halfAnchor`).
 - Choosing: per-dancer taste, a change only on a bar line after 4-8 bars, less of a move below its energy, claps x5 in a
   build (the countdown or the ascent movement), hands up and fist pumps on a drop (the release or ignition starting,
   which cut in at once). The kick is present while real onsets keep coming (`lastRealOnsetAt` within ~2.5 beats) and
-  returns after two in a row (`onsetStreak`); without it the Quaternius dancers leave the grid: 35% stand
-  (`Groove_Still`) and the rest sway (`Groove_Sway`) at `FREE_SPEED`. The three Mixamo dancers keep their authored
+  returns after two in a row (`onsetStreak`); without it every Quaternius dancer leaves the grid and sways
+  (`Groove_Sway`) at `FREE_SPEED`. The three Mixamo dancers keep their authored
   playback speed; slowing those single clips reads as broken slow motion.
-- The club side (`11-audio-crowd.js`): `_spawnAvatar(..., { repertoire })` keeps the nine groups (others disposed),
+- The club side (`11-audio-crowd.js`): `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
   `npc.dance = { groups, current, state }`, `npc.animations` is always `[current]` (so `_setAnimating` pauses and
   restarts the right one when a tier or district hides it), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
   which leaves these dancers' speed alone) starts a new move with `enableBlending` (it blends from the old pose) and
@@ -837,8 +838,8 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   queue back to the facade), a warm lamp bar over the door and `streetDoorLight`, a scoped point light (renderPriority 1)
   that reaches only the rope, the vestibule's facade, the street ground and the people outside. Ropes are parented to the
   district root (hidden with it); two invisible blocks make them solid. `VRClubAudioCrowd._streetSlots()` places the bouncer
-  (`club-crowd-bouncer.glb`, black suit, `Idle_FoldArms_Loop`, 1.96 m, beside the door at x 2.25, clear of its opening) and
-  up to eight people queueing behind the rope facing the door (a talking pair at the head, then `Idle`, a phone call). The
+  (`club-crowd-bouncer.glb`, black suit, relaxed `Idle_Loop`, 1.96 m, beside the door at x 2.25, clear of its opening) and
+  up to eight people queueing behind the rope facing the door (a talking pair at the head, then relaxed `Idle` poses). The
   queue's length is the tier's `queueSize` (8/6/4), and its order keeps a balanced queue free of anyone dancing inside on
   that tier. `_applyStreetPeople()` runs when both the street and the crowd exist (either may finish first), loads the files
   it needs in the background (`_streetTopUp`) and adds everyone to `streetDoorLight` and `cityFill`;

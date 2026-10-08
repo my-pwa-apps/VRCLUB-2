@@ -10,8 +10,8 @@
 //
 // Choosing: each dancer has their own taste (some love the twist, some never clap), changes move only on bar lines
 // after 4-8 bars, follows the energy of the music, claps more through a build, throws their hands up on a drop, and
-// now and then takes a move at half time. When the kick goes (a breakdown, silence, between tracks) they stop dancing
-// to a grid that is not there: most sway slowly, some just stand, until the kick returns.
+// now and then takes a move at half time. When the kick goes (a breakdown, silence, between tracks) they leave the
+// absent grid and sway freely until it returns. Nobody on the dance floor becomes a motionless background prop.
 
 class CrowdDance {
     /**
@@ -27,15 +27,12 @@ class CrowdDance {
         Groove_Pump: Object.freeze({ beats: 4, anchor: 0, weight: 0.7, energy: 0.6, build: 1.5, drop: 4 }),
         Groove_Twist: Object.freeze({ beats: 2, anchor: 0, weight: 1.0, energy: 0.4 }),
         Groove_HandsUp: Object.freeze({ beats: 4, anchor: 0, weight: 0.35, energy: 0.75, build: 1.5, drop: 6 }),
-        Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true }),
-        Groove_Still: Object.freeze({ beats: 8, anchor: 0, weight: 0, energy: 0, free: true })
+        Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true })
     });
 
     /** The tempo the clips are authored at. */
     static CLIP_BPM = 120;
-    /** Share of dancers who stand still (rather than sway) when the beat goes. */
-    static STILL_SHARE = 0.35;
-    /** Free-running pace of the sway and the still pose (a slow wiggle, about one sway every four seconds). */
+    /** Free-running pace of the quiet sway (about one sway every four seconds). */
     static FREE_SPEED = 0.5;
 
     constructor({ rng = Math.random } = {}) {
@@ -50,7 +47,6 @@ class CrowdDance {
         return {
             moves, taste,
             move: null, half: false, barsLeft: 0, lastBar: null,
-            stillWhenQuiet: this.rng() < CrowdDance.STILL_SHARE,
             hadBeat: null, dropSeen: false
         };
     }
@@ -67,8 +63,7 @@ class CrowdDance {
         const bar = Math.floor(music.beat / 4);
 
         if (!music.beatPresent) {
-            const wanted = dancer.stillWhenQuiet ? 'Groove_Still' : 'Groove_Sway';
-            const move = dancer.moves.includes(wanted) ? wanted : (dancer.moves.includes('Groove_Sway') ? 'Groove_Sway' : dancer.moves[0]);
+            const move = dancer.moves.includes('Groove_Sway') ? 'Groove_Sway' : dancer.moves[0];
             if (dancer.move !== move || dancer.hadBeat !== false) {
                 dancer.move = move;
                 dancer.half = false;

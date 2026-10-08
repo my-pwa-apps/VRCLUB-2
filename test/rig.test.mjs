@@ -274,6 +274,62 @@ test('the retargeted crowd dances: arms and body move, limbs stay rigid, feet st
     }
 });
 
+test('the balcony watcher keeps both hands on the rail while looking around the dance floor', async () => {
+    const { scene, container } = await loadContainer('club-crowd-f7.glb');
+    const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    root.rotationQuaternion = null;
+    root.rotation.y = Math.PI / 2;
+    root.position.set(-9.92, 3, -13.9);
+    root.computeWorldMatrix(true);
+    let bounds = root.getHierarchyBoundingVectors(true);
+    root.scaling.setAll(1.66 / (bounds.max.y - bounds.min.y));
+    root.computeWorldMatrix(true);
+    bounds = root.getHierarchyBoundingVectors(true);
+    root.position.y += 3 - bounds.min.y;
+    root.computeWorldMatrix(true);
+
+    const node = name => root.getDescendants(false, n => n.name === name)[0];
+    const at = name => {
+        const n = node(name);
+        n.computeWorldMatrix(true);
+        return n.getAbsolutePosition().clone();
+    };
+    const group = entry.animationGroups.find(animation => animation.name.endsWith('Idle_Railing_Loop'));
+    assert.ok(group, 'club-crowd-f7.glb has no Idle_Railing_Loop');
+    group.start(false);
+    group.pause();
+
+    const samples = [];
+    for (let i = 0; i <= 48; i++) {
+        group.goToFrame(group.from + (group.to - group.from) * i / 48);
+        root.computeWorldMatrix(true);
+        const head = node('Head');
+        head.computeWorldMatrix(true);
+        samples.push({
+            left: at('Wrist.L'),
+            right: at('Wrist.R'),
+            headRotation: head.absoluteRotationQuaternion.clone()
+        });
+    }
+    const wrists = samples.flatMap(sample => [sample.left, sample.right]);
+    const railX = -9.5;
+    assert.ok(wrists.every(wrist => Math.abs(wrist.x - railX) < 0.09),
+        `a hand misses the rail by ${Math.max(...wrists.map(wrist => Math.abs(wrist.x - railX))).toFixed(3)} m`);
+    assert.ok(Math.max(...wrists.map(wrist => wrist.y)) - Math.min(...wrists.map(wrist => wrist.y)) < 0.015,
+        'the planted hands slide vertically');
+    assert.ok(Math.max(...wrists.map(wrist => wrist.x)) - Math.min(...wrists.map(wrist => wrist.x)) < 0.015,
+        'the planted hands slide across the rail');
+    const first = samples[0].headRotation;
+    const headTravel = Math.max(...samples.map(sample => {
+        const q = sample.headRotation;
+        const dot = Math.min(1, Math.abs(first.x * q.x + first.y * q.y + first.z * q.z + first.w * q.w));
+        return 2 * Math.acos(dot);
+    }));
+    assert.ok(headTravel > 0.35, `she only looks around by ${headTravel.toFixed(3)} rad`);
+    scene.dispose();
+});
+
 test('the performing DJ reaches the controller, leans in, keeps the feet on the riser, and stays cheap', async () => {
     // The club's numbers: the controller's measured bounds, the DJ 0.18 m behind its near edge, the riser at 0.5 m,
     // eyes at 93% of the look's height (see _spawnPerformingDJ).

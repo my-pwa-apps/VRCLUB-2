@@ -9,7 +9,7 @@ useQuestHarness();
  * club's update and Babylon's animate() per step, and a steady 124 BPM grid fed in where the choreographer reads the
  * music (with the kick gone for ten seconds in the middle).
  */
-test('the crowd dances varied moves locked to the beat, and sways or stands when the kick is gone', async ({ page }) => {
+test('the crowd dances varied moves locked to the beat, and keeps swaying when the kick is gone', async ({ page }) => {
     test.setTimeout(900_000);
     await enterClub(page);
     await page.waitForFunction(() => window.vrClub.npcAvatars.filter(npc => npc.dance).length >= 4, null, { timeout: 300_000 });
@@ -24,10 +24,10 @@ test('the crowd dances varied moves locked to the beat, and sways or stands when
         };
     });
     expect(setup.dancers).toBeGreaterThanOrEqual(4);
-    expect(setup.repertoire).toBe(9);
+    expect(setup.repertoire).toBe(8);
     expect(setup.playing.every(count => count === 1), 'one clip plays per dancer').toBe(true);
     // No music in the harness: nobody dances to a beat that is not there.
-    expect(setup.moves.every(move => move === 'Groove_Sway' || move === 'Groove_Still')).toBe(true);
+    expect(setup.moves.every(move => move === 'Groove_Sway')).toBe(true);
 
     const run = await page.evaluate(() => {
         const club = window.vrClub, scene = club.scene;
@@ -47,7 +47,7 @@ test('the crowd dances varied moves locked to the beat, and sways or stands when
         const stats = { worst: 0, sum: 0, n: 0, moves: new Set(), quietMoves: new Set(), moved: 0 };
         const pose = () => dancers().map(npc => npc.root.getChildTransformNodes(false).filter(n => n.rotationQuaternion).slice(0, 10)
             .map(n => n.rotationQuaternion.asArray().join(',')).join('|'));
-        let before = null;
+        let before = null, cameraYaw = null;
         for (let i = 0; i < 3000; i++) {
             clock += 16;
             if (i > 300 && !quiet(clock) && clock < 29000) {
@@ -65,8 +65,16 @@ test('the crowd dances varied moves locked to the beat, and sways or stands when
             club.updateAnimations();
             scene.animate();
             for (const npc of dancers()) (quiet(clock - 1000) && quiet(clock) ? stats.quietMoves : stats.moves).add(npc.dance.state.move);
-            if (i === 1000) before = pose();
-            if (i === 1010) stats.moved = pose().filter((p, index) => p !== before[index]).length;
+            if (i === 1000) {
+                const camera = scene.activeCamera;
+                cameraYaw = camera.rotation.y;
+                camera.rotation.y += Math.PI;
+                before = pose();
+            }
+            if (i === 1010) {
+                stats.moved = pose().filter((p, index) => p !== before[index]).length;
+                scene.activeCamera.rotation.y = cameraYaw;
+            }
         }
         scene.useConstantAnimationDeltaTime = false;
         club._crowdMusic = original;
@@ -82,10 +90,10 @@ test('the crowd dances varied moves locked to the beat, and sways or stands when
     expect(run.mean).toBeLessThan(0.01);
     expect(run.worst).toBeLessThan(0.08);
     // Varied: over half a minute the floor does many different moves, claps included or not by chance, but not one dance.
-    expect(run.moves.filter(move => move !== 'Groove_Sway' && move !== 'Groove_Still').length).toBeGreaterThanOrEqual(4);
-    // With the kick gone they sway or stand; nobody dances on.
+    expect(run.moves.filter(move => move !== 'Groove_Sway').length).toBeGreaterThanOrEqual(4);
+    // With the kick gone they all keep swaying; nobody freezes or dances on.
     expect(run.quietMoves.length).toBeGreaterThan(0);
-    expect(run.quietMoves.every(move => move === 'Groove_Sway' || move === 'Groove_Still')).toBe(true);
-    expect(run.moved, 'every dancer is moving').toBe(run.dancers);
+    expect(run.quietMoves.every(move => move === 'Groove_Sway')).toBe(true);
+    expect(run.moved, 'every dancer keeps moving while behind the camera').toBe(run.dancers);
     await expectHealthyRuntime(page);
 });

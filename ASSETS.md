@@ -142,7 +142,7 @@ script authors procedurally onto the rig itself (no third-party animation; see `
 | `js/models/avatars/club-crowd-f4.glb` | Women / Formal | Brown skin, black hair, burgundy dress | `Dance_Loop` |
 | `js/models/avatars/club-crowd-f5.glb` | Women / Formal | Light skin, blonde hair, royal-blue dress | `Dance_Loop` |
 | `js/models/avatars/club-crowd-f6.glb` | Women / Suit | Fair skin, silver hair (an older guest), dark suit | all six |
-| `js/models/avatars/club-crowd-f7.glb` | Women / Suit | Espresso skin, black hair, red blazer | all six |
+| `js/models/avatars/club-crowd-f7.glb` | Women / Suit | Espresso skin, black hair, red blazer | all six + `Idle_Railing_Loop` |
 | `js/models/avatars/club-crowd-f8.glb` | Women / Casual | Medium skin, dark hair, cream top, plum trousers | all six |
 | `js/models/avatars/club-crowd-m1.glb` | Men / Casual 2 | Deep skin, black hair, black tee | `Dance_Loop` |
 | `js/models/avatars/club-crowd-m2.glb` | Men / Casual 2 | Fair skin, silver hair (an older man), slate top | `Dance_Loop` |
@@ -158,7 +158,8 @@ script authors procedurally onto the rig itself (no third-party animation; see `
 "All six" is `Dance_Loop`, `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` and `Yes`:
 the guests, who stand and talk instead of dancing, need the idle poses. Every file also keeps the packs' own `Idle`,
 `Walk`, `Run` and `Wave` clips: they are what the other players in a multiplayer room use (`AvatarManager`), so the
-Clips column above lists the retargeted extras. Dancers therefore carry six clips and guests ten. Each file is one skinned mesh and one material
+Clips column above lists the retargeted extras. Dancers therefore carry six clips and guests ten; `f7` carries the
+additional procedural railing pose used only on the mezzanine. Each file is one skinned mesh and one material
 (per-vertex colour, no textures), about 1.0 MB, so a person costs one draw call where the Universal Base Characters
 cost about six.
 

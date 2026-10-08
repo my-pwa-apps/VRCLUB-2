@@ -1380,8 +1380,9 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Guests who are not on the dance floor: a pair talking by the right wall, someone on a call, someone watching
-     * with folded arms, one nodding along to the music. Clubs are not only dancers, and the side walls were empty.
+     * Guests who are not on the dance floor: a pair talking by the right wall, relaxed watchers, someone nodding
+     * along to the music, and a balcony guest resting both hands on the rail. Clubs are not only dancers, and the side
+     * walls were empty. Phone calls do not make sense beside a club PA, and crossed arms read as stiff cloned poses.
      * Same hand-placed ordering rule as the crowd: the first N are already spread around the room, so a lower tier
      * still looks populated (and its first two are the talking pair). Yaw 0 faces +z (the entrance side), PI faces
      * the DJ, +PI/2 faces +x. Every slot is well clear of the side walls, the truss legs and the DJ riser.
@@ -1393,13 +1394,13 @@ class VRClubAudioCrowd extends VRClubUI {
             // The talking pair stands off the counter (x 9.7 is its front, the stools are at x 9.2).
             { src: at('m4'), clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80 },
             { src: at('f6'), clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66 },
-            { src: at('m6'), clip: 'Idle_FoldArms_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84 },
-            // Leaning on the mezzanine rail, watching the floor (y is the deck the guest stands on).
-            { src: at('f7'), clip: 'Idle_FoldArms_Loop', x: -10.1, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
-            { src: at('f8'), clip: 'Idle_TalkingPhone_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68 },
+            { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84 },
+            // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor.
+            { src: at('f7'), clip: 'Idle_Railing_Loop', x: -9.92, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66 },
+            { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68 },
             { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
             { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63 },
-            { src: at('m4'), clip: 'Idle_TalkingPhone_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
+            { src: at('m4'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
         ];
     }
 
@@ -1597,13 +1598,13 @@ class VRClubAudioCrowd extends VRClubUI {
             { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82 },
             { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66 },
             { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76 },
-            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70 },
+            { src: at('f7'), clip: 'Idle', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70 },
             { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80 },
             { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69 }
         ].map(slot => ({ ...slot, y: ground }));
         return {
             // Beside the door, outside its opening, watching the street and the head of the queue.
-            bouncer: { src: at('bouncer'), clip: 'Idle_FoldArms_Loop', x: 2.25, y: ground, z: 6.85, yaw: 0.35, height: 1.96 },
+            bouncer: { src: at('bouncer'), clip: 'Idle_Loop', x: 2.25, y: ground, z: 6.85, yaw: 0.35, height: 1.96 },
             queue
         };
     }

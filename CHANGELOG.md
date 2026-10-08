@@ -139,6 +139,13 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **Floor dancers no longer become still when kick detection drops.** The Quaternius choreography used to assign
+  `Groove_Still` to 35% of the floor whenever it temporarily lost the kick. That looked like camera-dependent animation
+  culling when a guest turned around and looked back. Every enabled floor dancer now keeps moving with the free sway
+  until the beat returns.
+- **Static guests now fit their surroundings.** The balcony guest plants both hands on the measured mezzanine rail and
+  slowly looks around the dance floor. The bouncer and the other folded-arm watcher use relaxed idle poses instead, and
+  phone-call poses were removed from both the club and its outdoor queue because they looked implausible beside the PA.
 - **The club now fades in gradually as you come down the entrance stair.** The muffling used to sit flat at its
   heaviest for the whole stairwell and then open up in the last few steps of the walk to the dance floor, while the
   room's reverb, its early reflection and the crowd chatter were heard at full strength and full bandwidth from the top

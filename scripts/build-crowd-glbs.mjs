@@ -3,6 +3,7 @@
 //
 //   node scripts/build-crowd-glbs.mjs --women "<dir of the Modular Women glTFs>" --men "<dir of the Modular Men glTFs>"
 //   npm run optimize:avatars -- club-crowd-f1.glb ...        (the script runs it for you with --optimize)
+//   node scripts/build-crowd-glbs.mjs --refresh-static --optimize   # rebake shipped procedural guest-only clips
 //
 // What it does, per person in CAST below:
 //  1. Retargets the club's own clips (Dance_Loop, Idle_Talking_Loop, ...) from the Universal Animation Library
@@ -35,8 +36,10 @@ const argument = name => {
 const dirs = { women: argument('--women'), men: argument('--men') };
 const outDir = argument('--out') || join(ROOT, 'js/models/avatars');
 const only = argument('--only');
-if (!dirs.women || !dirs.men) {
+const refreshStatic = process.argv.includes('--refresh-static');
+if ((!dirs.women || !dirs.men) && !refreshStatic) {
     console.error('usage: node scripts/build-crowd-glbs.mjs --women "<dir>" --men "<dir>" [--out <dir>] [--only id,id] [--optimize]');
+    console.error('   or: node scripts/build-crowd-glbs.mjs --refresh-static [--out <dir>]');
     process.exit(1);
 }
 
@@ -74,7 +77,7 @@ const CAST = [
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
     { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
-    // The bouncer at the street door: black suit, black shirt and tie. Not a guest slot; he folds his arms (guest clips).
+    // The bouncer at the street door: black suit, black shirt and tie. Not a guest slot; he uses a relaxed idle.
     { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#111114', Tie: '#08080a', White: '#1d1d22' } }
 ];
 const GUEST_CLIPS = ['Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Idle_FoldArms_Loop', 'Idle_TalkingPhone_Loop', 'Yes'];
@@ -515,6 +518,27 @@ const GROOVES = [
     }
 ];
 
+// The balcony watcher faces the inside edge of the mezzanine: both wrists stay on its rail while her head takes a
+// slow, irregular-looking sweep over the dance floor. This is a guest-only clip, not part of the dance repertoire.
+const RAILING_POSE = {
+    name: 'Idle_Railing_Loop',
+    beats: 32,
+    pose: b => {
+        const look = 0.72 * Math.sin(TAU * b / 32) + 0.28 * Math.sin(TAU * b / 11);
+        const breath = Math.sin(TAU * b / 8);
+        return {
+            hip: [0, -0.015, 0], hipRot: [0.08, 0, 0],
+            spine: [0.12 + 0.01 * breath, 0, 0],
+            head: [-0.08 + 0.015 * breath, 0.58 * look, 0.025 * Math.sin(TAU * b / 13)],
+            hands: {
+                R: { at: [0.13, -0.24, 0.46], pole: [0.7, -0.35, -0.45], fingers: [0, -0.1, 1] },
+                L: { at: [-0.13, -0.24, 0.46], pole: [-0.7, -0.35, -0.45], fingers: [0, -0.1, 1] }
+            },
+            shrug: { R: 0.06, L: 0.06 }
+        };
+    }
+};
+
 /** Defaults, then a mirror that swaps left and right (a reflection across the body's midline). */
 function groovePose(groove, beat, mirror, rig) {
     const raw = groove.pose(beat, rig);
@@ -757,6 +781,7 @@ async function build(person) {
     // A groove drives exactly the bones the retargeted Dance_Loop drives, so a dancer can switch between any of them
     // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
     if (!person.guest) for (const groove of GROOVES) results.push(synthesize(tgt, groove, !!person.mirror));
+    if (person.id === 'f7') results.push(synthesize(tgt, RAILING_POSE, false));
 
     // Bind pose as the node pose. The packs' own Idle, Walk, Run and Wave animate exactly these nodes (same rig), so
     // they are kept as they are for the people who walk around as other guests; every other stock clip goes. Ours follow.
@@ -779,9 +804,28 @@ async function build(person) {
     return name;
 }
 
-const wanted = only ? only.split(',') : null;
+async function refreshStaticClips() {
+    const name = 'club-crowd-f7.glb';
+    const path = join(outDir, name);
+    const document = await io.read(path);
+    for (const animation of document.getRoot().listAnimations()) {
+        if (animation.getName() === RAILING_POSE.name) animation.dispose();
+    }
+    const tgt = readSkeleton(document);
+    addAnimations(document, tgt, [synthesize(tgt, RAILING_POSE, false)]);
+    await document.transform(prune());
+    await io.write(path, document);
+    console.log(`${name}: refreshed ${RAILING_POSE.name}`);
+    return name;
+}
+
 const built = [];
-for (const person of CAST) if (!wanted || wanted.includes(person.id)) built.push(await build(person));
+if (refreshStatic) {
+    built.push(await refreshStaticClips());
+} else {
+    const wanted = only ? only.split(',') : null;
+    for (const person of CAST) if (!wanted || wanted.includes(person.id)) built.push(await build(person));
+}
 if (process.argv.includes('--optimize')) {
     execFileSync(process.execPath, [join(ROOT, 'scripts/optimize-avatars.mjs'), ...built], { cwd: ROOT, stdio: 'inherit' });
 }

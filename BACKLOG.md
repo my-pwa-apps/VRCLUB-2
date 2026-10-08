@@ -2960,11 +2960,12 @@ pass, so findings that depend on them are not presented as confirmed visual defe
 
 - [ ] **Replace the looping clone crowd with social micro-behaviours**
 
-  **Partly done 2026-10-03.** Static social states now exist: `_guestSlots()` stands a talking pair, a
-  caller, an arms-folded watcher, a head-nodder and a standing idler by the side walls, using clips from
-  Quaternius Universal Animation Library 1 and 2 (`Idle_Talking_Loop`, `Idle_TalkingPhone_Loop`,
-  `Idle_FoldArms_Loop`, `Yes`, `Idle_Loop`). Still open: a scheduler that changes state over time
-  (the guests hold one pose indefinitely), transit/walking, and gaze. The balanced tier now has 2 more
+  **Partly done 2026-10-08.** Static social states now exist: `_guestSlots()` stands a talking pair,
+  relaxed watchers, a head-nodder and a standing idler by the side walls. The balcony guest has a dedicated
+  `Idle_Railing_Loop`: both hands stay on the measured mezzanine rail while her head scans the dance floor.
+  Phone-call poses (implausible beside the PA) and the stiff folded-arm assignments were removed; the bouncer
+  now uses `Idle_Loop` while his runtime gaze still follows nearby guests. Still open: a scheduler that changes
+  the other guests' state over time, transit/walking, and wider gaze. The balanced tier now has 2 more
   skeletons than before, which breaks this item's own "skeleton counts do not increase" criterion until
   the headset baseline says it is affordable. Quaternius's free libraries have no second dance clip;
   the Mixamo files remain the only extra dance motion.

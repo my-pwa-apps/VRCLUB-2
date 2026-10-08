@@ -2651,7 +2651,10 @@ test('every guest slot asks for a clip its character file carries, inside the ro
         assert.ok(clipsOf(file).has(slot.clip), `slot ${index} wants "${slot.clip}", which ${file} does not carry`);
         assert.ok(Math.abs(slot.x) <= 11.5 && slot.z >= -20 && slot.z <= -5.8, `slot ${index} is outside the room`);
         assert.ok(Number.isFinite(slot.yaw) && slot.height > 1.5 && slot.height < 2, `slot ${index} has an odd pose or height`);
+        assert.notEqual(slot.clip, 'Idle_TalkingPhone_Loop', `slot ${index} tries to make a phone call beside the PA`);
+        assert.notEqual(slot.clip, 'Idle_FoldArms_Loop', `slot ${index} uses the stiff crossed-arm pose`);
     });
+    assert.equal(slots[3].clip, 'Idle_Railing_Loop', 'the balcony guest must put her hands on the railing');
     for (let a = 0; a < slots.length; a++) {
         for (let b = a + 1; b < slots.length; b++) {
             const apart = Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z);
@@ -2779,6 +2782,8 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
             : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
+        if (id === 'f7') expected.push('Idle_Railing_Loop');
+        expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
         assert.ok(bytes.length < 1.1 * 1048576, `${file} is too heavy (${bytes.length})`);
@@ -7296,7 +7301,7 @@ function loadCrowdDance(seed = 11) {
     const rng = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
     return { CrowdDance: window.CrowdDance, choreographer: new window.CrowdDance({ rng }), rng };
 }
-const ALL_MOVES = ['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway', 'Groove_Still'];
+const ALL_MOVES = ['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway'];
 
 /**
  * Play a dancer like the club does: the clip advances at the speed the choreographer asks for (a loop is beats x 0.5 s at
@@ -7400,20 +7405,17 @@ test('dancers change moves only on bar lines, and the floor is varied', () => {
     assert.ok(timelines.some(frames => frames.some(f => f.half)), 'nobody ever takes a move at half time');
 });
 
-test('when the kick goes they sway or stand still, off the grid, and dance again when it comes back', () => {
+test('when the kick goes every dancer keeps swaying off the grid, and dances again when it comes back', () => {
     const { CrowdDance, choreographer } = loadCrowdDance(23);
     const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
     const gone = (m, t) => { m.beatPresent = !(t >= 20 && t < 35); };
     const timelines = dancers.map(dancer => playDancer(CrowdDance, choreographer, dancer, { seconds: 45, each: gone, fps: 30 }));
     for (const frames of timelines) {
         const quiet = frames.filter(f => !f.present);
-        assert.ok(quiet.every(f => f.move === 'Groove_Sway' || f.move === 'Groove_Still'), 'someone kept dancing to a beat that is gone');
+        assert.ok(quiet.every(f => f.move === 'Groove_Sway'), 'a dancer stopped moving or kept dancing to a beat that is gone');
         assert.ok(frames.filter(f => f.present && f.t > 36).every(f => !CrowdDance.MOVES[f.move].free || f.move === 'Groove_Sway'),
             'the kick came back and they kept standing about');
-        assert.ok(frames.find(f => f.t > 35.05).move !== 'Groove_Still', 'standing still after the kick returned');
     }
-    const still = timelines.filter(frames => frames.find(f => f.t > 25).move === 'Groove_Still').length / timelines.length;
-    assert.ok(Math.abs(still - CrowdDance.STILL_SHARE) < 0.1, `${(still * 100).toFixed(0)}% stand still`);
     // Off the grid: the free pace is slow, and not the track's tempo.
     const out = {};
     const d = choreographer.step(dancers[0], { beatPresent: false, beat: 100, bpm: 128, energy: 0.2 }, 0.3, out);
