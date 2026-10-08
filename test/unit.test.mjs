@@ -2678,10 +2678,10 @@ test('a higher quality tier fetches only the missing characters, then places the
 test('the crowd character files: one skin, one draw, vertex-coloured, only the clips they are used for, and all different', async () => {
     const dir = join(ROOT, 'js/models/avatars');
     const files = readdirSync(dir).filter(file => /^club-crowd-.*\.glb$/.test(file));
-    assert.equal(files.length, 17, 'the cast is 8 women and 9 men');
+    assert.equal(files.length, 18, 'the cast is 8 women, 9 men and the bouncer');
     const { createHash } = await import('node:crypto');
     const hashes = new Set();
-    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8']);
+    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8', 'bouncer']);
     for (const file of files) {
         const id = file.replace(/^club-crowd-|\.glb$/g, '');
         const json = readGlbJson(`js/models/avatars/${file}`);
@@ -2693,9 +2693,11 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         assert.ok(!json.images && !json.textures, `${file} should not carry textures`);
         const clips = json.animations.map(animation => animation.name).sort();
         const natives = ['Idle', 'Run', 'Walk', 'Wave'];   // the packs' own clips, kept for the guests who walk the room
+        // The dancers on the floor also carry the procedural grooves the choreographer switches between (js/crowdDance.js).
+        const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway', 'Groove_Still'];
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
-            : ['Dance_Loop', 'Yes']).concat(natives).sort();
+            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
         assert.ok(bytes.length < 1.1 * 1048576, `${file} is too heavy (${bytes.length})`);
@@ -6912,4 +6914,337 @@ test('the DJ nods and bounces on the beat, deeper when the music is louder', () 
     const onBeat = frames.filter(f => (f.t * 124 / 60) % 1 < 0.04).slice(-4);
     const offBeat = frames.filter(f => Math.abs((f.t * 124 / 60) % 1 - 0.5) < 0.04).slice(-4);
     assert.ok(Math.max(...onBeat.map(f => f.eyeY)) < Math.min(...offBeat.map(f => f.eyeY)), 'down on the beat, up between');
+});
+
+// ---------------------------------------------------------------------------
+// The street door: the bouncer and the queue
+// ---------------------------------------------------------------------------
+
+test('the bouncer stands beside the street door and the queue waits behind the rope, on the pavement, facing the door', () => {
+    const BABYLON = makeBabylonStub();
+    const L = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    window.CityLayout = L;
+    const Crowd = window.VRClubAudioCrowd;
+    const { bouncer, queue } = Crowd.prototype._streetSlots.call({});
+    const clipsOf = file => new Set(readGlbJson(`js/models/avatars/${file}`).animations.map(animation => animation.name));
+    const all = [bouncer, ...queue];
+    for (const [index, slot] of all.entries()) {
+        const file = Crowd.AVATAR_SOURCES[slot.src].url.split('/').pop();
+        assert.ok(clipsOf(file).has(slot.clip), `${file} has no "${slot.clip}"`);
+        assert.equal(slot.y, L.groundY, 'everyone stands on the pavement, at street level');
+        assert.ok(slot.z > L.doorZ + 0.35 && slot.z < L.ropeZ - 0.3, `slot ${index} is not between the facade and the rope`);
+        assert.ok(Math.abs(slot.x) > L.doorHalfWidth + 0.3, `slot ${index} stands in the street door`);
+        assert.ok(slot.height > 1.5 && slot.height < 2.0 && Number.isFinite(slot.yaw));
+    }
+    assert.equal(Crowd.AVATAR_SOURCES[bouncer.src].id, 'bouncer');
+    assert.ok(bouncer.x < L.ropeFromX && bouncer.height >= Math.max(...queue.map(slot => slot.height)), 'the bouncer is outside the rope and the biggest');
+    for (const slot of queue) {
+        assert.ok(slot.x > L.ropeFromX + 0.25 && slot.x < L.ropeToX - 0.25, 'a queue slot is outside the rope line');
+        if (slot.clip === 'Idle_Talking_Loop') {
+            // A talking pair faces each other.
+            const partner = queue.find(other => other !== slot && other.clip === slot.clip && Math.hypot(other.x - slot.x, other.z - slot.z) < 1.2);
+            assert.ok(partner, 'someone talks to nobody');
+            assert.ok(Math.abs(Math.atan2(Math.sin(slot.yaw - Math.atan2(partner.x - slot.x, partner.z - slot.z)), Math.cos(slot.yaw - Math.atan2(partner.x - slot.x, partner.z - slot.z)))) < 0.1,
+                'a talking pair does not face each other');
+        } else {
+            assert.ok(Math.sin(slot.yaw) < -0.6, `someone in the queue is not facing the door (yaw ${slot.yaw.toFixed(2)})`);
+        }
+    }
+    for (let a = 0; a < all.length; a++) {
+        for (let b = a + 1; b < all.length; b++) {
+            assert.ok(Math.hypot(all[a].x - all[b].x, all[a].z - all[b].z) >= 0.6, `street slots ${a} and ${b} overlap`);
+        }
+    }
+    // The queue's length follows the tier, and a short queue holds nobody who dances inside on that tier.
+    const tiers = readFileSync(join(ROOT, 'js/club/01-core.js'), 'utf8');
+    const sizes = [...tiers.matchAll(/queueSize:\s*(\d+)/g)].map(match => Number(match[1]));
+    assert.equal(sizes.length, 3, 'every graphics tier must set queueSize');
+    assert.ok(sizes.every(size => size <= queue.length) && sizes[0] >= sizes[1] && sizes[1] >= sizes[2] && sizes[2] >= 3);
+    const ids = slots => slots.map(slot => Crowd.AVATAR_SOURCES[slot.src].id);
+    const balancedQueue = ids(queue.slice(0, sizes[2]));
+    assert.equal(new Set(balancedQueue).size, balancedQueue.length, 'the queue repeats a person');
+    const balancedInside = ids(Crowd.prototype._guestSlots.call({}).slice(0, 2));
+    for (const id of ['f1', 'm2', 'hipHop', 'm1', 'f3', 'f2']) balancedInside.push(id);
+    assert.deepEqual([...balancedQueue.filter(id => balancedInside.includes(id))], [], 'a balanced queue shows someone who is also inside');
+});
+
+function streetCrowdHarness() {
+    const BABYLON = makeBabylonStub();
+    BABYLON.Vector3 = class { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const Crowd = window.VRClubAudioCrowd;
+    const requested = [], spawned = [], lit = [];
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        tierSettings: { queueSize: 2 }, npcAvatars: [], _disposed: false, _cityVisible: true,
+        _crowdSourceContainers: new Array(Crowd.AVATAR_SOURCES.length), _crowdSourcePending: {},
+        _streetDoorLight: { name: 'door' }, _cityFillLight: { name: 'fill' },
+        _loadAvatarSource(url) { requested.push(url.split('/').pop()); return Promise.resolve({ url }); },
+        _extendAccentLight(light, meshes) { lit.push([light.name, meshes.length]); },
+        _refreshContactShadows() {}
+    });
+    club._spawnAvatar = function (source, name, position, yaw) {
+        const state = { enabled: true, colliderEnabled: true, paused: false };
+        // Babylon's AnimationGroup: isPlaying, pause(), restart() (there is no isPaused).
+        const group = { get isPlaying() { return !state.paused; }, pause() { state.paused = true; }, restart() { state.paused = false; } };
+        const npc = {
+            name, state, meshes: [{}], animations: [group],
+            root: { position, rotation: { y: yaw }, isEnabled: () => state.enabled, setEnabled: v => { state.enabled = v; } },
+            collider: { setEnabled: v => { state.colliderEnabled = v; } }
+        };
+        spawned.push([name, source.url.split('/').pop()]);
+        this.npcAvatars.push(npc);
+        return {};
+    };
+    return { club, requested, spawned, lit };
+}
+
+test('the street people wait for the street, load their files once in the background, then hide and show with it', async () => {
+    const { club, requested, spawned, lit } = streetCrowdHarness();
+    club._applyStreetPeople();
+    assert.deepEqual(requested, [], 'nothing outside before the street has loaded');
+    club._cityRoot = {};
+    club._applyStreetPeople();
+    club._applyStreetPeople();
+    await club._streetTopUp;
+    assert.deepEqual(requested.sort(), ['club-crowd-bouncer.glb', 'club-crowd-f8.glb', 'club-crowd-m8.glb'], 'each file is fetched once');
+    assert.deepEqual(spawned.map(item => item[0]), ['bouncer', 'queue0', 'queue1']);
+    assert.ok(lit.length === 6 && lit.every(([, count]) => count === 1), 'everyone outside takes the door lamp and the street fill');
+    assert.equal(club._bouncer.name, 'bouncer');
+
+    // Deep in the club the street is hidden: so are they, with their animations paused and their colliders off.
+    club._showStreetPeople(false);
+    assert.ok(club.npcAvatars.every(npc => !npc.state.enabled && !npc.state.colliderEnabled && npc.state.paused));
+    club._showStreetPeople(true);
+    assert.ok(club.npcAvatars.every(npc => npc.state.enabled && npc.state.colliderEnabled && !npc.state.paused));
+
+    // A higher tier lengthens the queue (loading only the new person); a lower one shortens it again.
+    club.tierSettings.queueSize = 3;
+    club._applyStreetPeople();
+    await club._streetTopUp;
+    assert.deepEqual(spawned.map(item => item[0]), ['bouncer', 'queue0', 'queue1', 'queue2']);
+    assert.equal(requested.length, 4);
+    club.tierSettings.queueSize = 1;
+    club._showStreetPeople(true);
+    assert.deepEqual(club.npcAvatars.filter(npc => npc.state.enabled).map(npc => npc.name), ['bouncer', 'queue0']);
+});
+
+test('the bouncer watches whoever comes close, never turning his back on the street, and looks away again', () => {
+    const { club } = streetCrowdHarness();
+    const root = { position: { x: 2.25, y: 2.8, z: 6.85 }, rotation: { y: 0.35 }, isEnabled: () => true };
+    club._bouncer = { root, streetYaw: 0.35 };
+    const player = { x: 0, y: 4.5, z: 12 };
+    club._playerCamera = () => ({ globalPosition: player });
+    const settle = () => { for (let i = 0; i < 240; i++) club._updateBouncer(1 / 60); return root.rotation.y; };
+    // In front of him, toward the road: he looks straight at them.
+    const toward = Math.atan2(player.x - 2.25, player.z - 6.85);
+    assert.ok(Math.abs(settle() - toward) < 0.02, 'he does not look at someone in front of him');
+    // Right behind him, in the doorway: he turns as far as he can, but no further.
+    player.x = 2.3; player.z = 5.2;
+    const turned = settle();
+    assert.ok(Math.abs(Math.abs(turned - 0.35) - 1.3) < 0.02, `he turned ${(turned - 0.35).toFixed(2)} rad`);
+    // Far away, or in the club below: he goes back to watching the street.
+    player.x = 0; player.z = -12; player.y = 1.7;
+    assert.ok(Math.abs(settle() - 0.35) < 0.02);
+    // Gradually: one frame is a small step, at any refresh rate.
+    player.x = 6; player.z = 8; player.y = 4.5;
+    root.rotation.y = 0.35;
+    club._updateBouncer(1 / 60);
+    assert.ok(Math.abs(root.rotation.y - 0.35) < 0.1, 'he snapped round');
+});
+
+test('a character hidden and shown again dances again: clips pause and restart through AnimationGroup.isPlaying', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const proto = window.VRClubAudioCrowd.prototype;
+    // A Babylon 9 AnimationGroup: `isPlaying`, and no `isPaused` at all.
+    const group = () => {
+        const g = { _paused: false, get isPlaying() { return !this._paused; }, pause() { this._paused = true; }, restart() { this._paused = false; } };
+        return g;
+    };
+    const npc = name => ({ name, animations: [group()], root: { setEnabled() {} }, collider: { setEnabled() {} } });
+    const npcs = [npc('dancer0'), npc('dancer1')];
+    const club = { npcAvatars: npcs, tierSettings: { crowdSize: 1, guestSize: 0 }, _spawnCrowdTo() {}, _spawnGuestsTo() {}, _refreshContactShadows() {}, _topUpCrowdSources() {} };
+    proto._applyCrowdSize.call(club);
+    assert.equal(npcs[1].animations[0].isPlaying, false, 'a hidden dancer keeps animating');
+    club.tierSettings.crowdSize = 2;
+    proto._applyCrowdSize.call(club);
+    assert.equal(npcs[1].animations[0].isPlaying, true, 'a dancer shown again stays frozen');
+    assert.equal(npcs[0].animations[0].isPlaying, true);
+});
+
+test('a late character load puts back the light budgets the glTF loader raised, and touches nothing else', () => {
+    const BABYLON = makeBabylonStub();
+    BABYLON.Material = { ...BABYLON.Material, LightDirtyFlag: 2 };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const proto = window.VRClubAudioCrowd.prototype;
+    const material = (name, lights, extra = {}) => ({ name, maxSimultaneousLights: lights, dirty: 0, isFrozen: false, markAsDirty() { this.dirty++; }, unfreeze() { this.isFrozen = false; }, ...extra });
+    // The loader set every material to the scene's light count (14) as its last step.
+    const raised = material('brick', 14), frozen = material('truss', 14, { isFrozen: true }), fine = material('floor', 3);
+    const unlit = material('sky', 14, { disableLighting: true });
+    const scene = { materials: [raised, frozen, fine, unlit], blockMaterialDirtyMechanism: true };
+    proto._restoreLightBudgets.call({ scene, maxLights: 3 });
+    assert.equal(raised.maxSimultaneousLights, 3);
+    assert.equal(frozen.maxSimultaneousLights, 3);
+    assert.equal(frozen.isFrozen, false, 'a frozen lit material would keep its stale shader');
+    assert.equal(raised.dirty, 1);
+    assert.equal(fine.dirty, 0, 'an untouched material must not be recompiled');
+    assert.equal(unlit.maxSimultaneousLights, 14, 'unlit materials have no light budget to fix');
+    assert.equal(scene.blockMaterialDirtyMechanism, true, 'the dirty mechanism is restored as it was');
+});
+
+// ---------------------------------------------------------------------------
+// The crowd's choreographer (js/crowdDance.js)
+// ---------------------------------------------------------------------------
+
+function loadCrowdDance(seed = 11) {
+    const { window } = loadClassic('js/crowdDance.js');
+    let s = seed;
+    const rng = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    return { CrowdDance: window.CrowdDance, choreographer: new window.CrowdDance({ rng }), rng };
+}
+const ALL_MOVES = ['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway', 'Groove_Still'];
+
+/**
+ * Play a dancer like the club does: the clip advances at the speed the choreographer asks for (a loop is beats x 0.5 s at
+ * speed 1), the music advances at `bpm`. `each(music, t)` may change the music. Returns per-frame records.
+ */
+function playDancer(CrowdDance, choreographer, dancer, { seconds = 20, bpm = 124, music: base = {}, each = null, fps = 72 } = {}) {
+    const music = { beatPresent: true, beat: 0, bpm, energy: 0.6, build: false, drop: false, ...base };
+    let frac = null, move = null;
+    const out = {}, frames = [];
+    for (let t = 0; t < seconds; t += 1 / fps) {
+        music.beat = t * music.bpm / 60;
+        music.drop = false;
+        if (each) each(music, t);
+        const d = choreographer.step(dancer, music, frac, out);
+        if (d.switched || d.snap || move !== d.move) { frac = d.frac; move = d.move; }
+        frames.push({ t, beat: music.beat, move, frac, half: dancer.half, switched: d.switched, present: music.beatPresent });
+        const beats = CrowdDance.MOVES[move].beats;
+        frac = (frac + (1 / fps) * d.speed / (beats * 0.5)) % 1;
+    }
+    return frames;
+}
+
+test('every move the choreographer knows is in the dancers\' files, as long as it says', () => {
+    const { CrowdDance } = loadCrowdDance();
+    assert.deepEqual(Object.keys(CrowdDance.MOVES).sort(), [...ALL_MOVES].sort());
+    for (const file of ['club-crowd-f1.glb', 'club-crowd-m7.glb']) {
+        const json = readGlbJson(`js/models/avatars/${file}`);
+        for (const [name, meta] of Object.entries(CrowdDance.MOVES)) {
+            const animation = json.animations.find(a => a.name === name);
+            assert.ok(animation, `${file} has no ${name}`);
+            const duration = Math.max(...animation.channels.map(c => json.accessors[animation.samplers[c.sampler].input].max[0]));
+            assert.ok(Math.abs(duration - meta.beats * 60 / CrowdDance.CLIP_BPM) < 0.02, `${file} ${name}: ${duration} s is not ${meta.beats} beats`);
+        }
+    }
+});
+
+test('dancers lock onto the beat: claps land on it, at any tempo, from any starting point', () => {
+    for (const bpm of [96, 124, 140]) {
+        const { CrowdDance, choreographer } = loadCrowdDance(bpm);
+        const dancer = choreographer.createDancer(ALL_MOVES);
+        dancer.move = 'Groove_Clap'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false;
+        // Start a third of a beat off.
+        const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 8, bpm, each: (m, t) => { if (t === 0) m.beat = 0; } });
+        const late = frames.filter(f => f.beat > 4);
+        for (const f of late) {
+            // The clap loop is 2 beats with a clap at 0 and 0.5 of it: where the clip is should match the beat.
+            const want = (f.beat % 2) / 2;
+            const err = Math.abs(CrowdDance.wrapHalf(f.frac - want)) * 2;
+            assert.ok(err < 0.04, `${bpm} BPM: the clap is ${err.toFixed(3)} beats off at beat ${f.beat.toFixed(2)}`);
+        }
+    }
+    // Pulled off the grid (a stall), it comes back within two beats without a jump.
+    const { CrowdDance, choreographer } = loadCrowdDance(3);
+    const dancer = choreographer.createDancer(ALL_MOVES);
+    const out = {};
+    dancer.move = 'Groove_Bounce'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0;
+    const d = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 2 + 0.2), out);
+    assert.equal(d.snap, false);
+    assert.ok(d.speed < 1, 'ahead of the beat it slows down');
+    const far = choreographer.step(dancer, { beatPresent: true, beat: 10, bpm: 120, energy: 0.5 }, CrowdDance.wrap01(10 / 2 + 0.45), out);
+    assert.equal(far.snap, true, 'nearly a beat off it jumps rather than drifting for bars');
+});
+
+test('Dance_Loop dips on the beat, and a half-time clap lands on 2 and 4', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(5);
+    const out = {};
+    const dancer = choreographer.createDancer(ALL_MOVES);
+    dancer.move = 'Dance_Loop'; dancer.hadBeat = true; dancer.barsLeft = 999; dancer.lastBar = 0; dancer.half = false;
+    for (const beat of [8, 9, 10, 11]) {
+        const d = choreographer.step(dancer, { beatPresent: true, beat, bpm: 120, energy: 0.5 }, null, out);
+        // Its dips are at 0.25 and 0.75 of the loop.
+        assert.ok(Math.abs(CrowdDance.wrapHalf(d.frac * 2 - 0.5)) < 1e-9, `beat ${beat}: not on a dip (${d.frac})`);
+    }
+    dancer.move = 'Groove_Clap'; dancer.half = true;
+    const clapAt = beat => {
+        const d = choreographer.step(dancer, { beatPresent: true, beat, bpm: 120, energy: 0.5 }, null, out);
+        return Math.abs(CrowdDance.wrapHalf(d.frac * 2)) < 1e-9;   // a clap at 0 and 0.5 of the loop
+    };
+    assert.deepEqual([4, 5, 6, 7].map(clapAt), [false, true, false, true], 'half-time claps belong on the backbeat');
+});
+
+test('dancers change moves only on bar lines, and the floor is varied', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(17);
+    const dancers = Array.from({ length: 14 }, () => choreographer.createDancer(ALL_MOVES));
+    const timelines = dancers.map(dancer => playDancer(CrowdDance, choreographer, dancer, { seconds: 90 }));
+    for (const frames of timelines) {
+        for (let i = 1; i < frames.length; i++) {
+            if (frames[i].move === frames[i - 1].move) continue;
+            assert.notEqual(Math.floor(frames[i].beat / 4), Math.floor(frames[i - 1].beat / 4), `changed move mid-bar at beat ${frames[i].beat.toFixed(2)}`);
+        }
+    }
+    // At any moment several different moves are on the floor, and over the minute every dancer does several.
+    let distinct = 0, samples = 0;
+    for (let i = 600; i < timelines[0].length; i += 300) {
+        distinct += new Set(timelines.map(frames => frames[i].move)).size;
+        samples++;
+    }
+    assert.ok(distinct / samples >= 4, `only ${(distinct / samples).toFixed(1)} different moves on the floor at a time`);
+    for (const frames of timelines) assert.ok(new Set(frames.map(f => f.move)).size >= 3, 'a dancer does the same thing all night');
+    assert.ok(timelines.some(frames => frames.some(f => f.move === 'Groove_Clap')), 'nobody ever claps');
+    assert.ok(timelines.some(frames => frames.some(f => f.half)), 'nobody ever takes a move at half time');
+});
+
+test('when the kick goes they sway or stand still, off the grid, and dance again when it comes back', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(23);
+    const dancers = Array.from({ length: 200 }, () => choreographer.createDancer(ALL_MOVES));
+    const gone = (m, t) => { m.beatPresent = !(t >= 20 && t < 35); };
+    const timelines = dancers.map(dancer => playDancer(CrowdDance, choreographer, dancer, { seconds: 45, each: gone, fps: 30 }));
+    for (const frames of timelines) {
+        const quiet = frames.filter(f => !f.present);
+        assert.ok(quiet.every(f => f.move === 'Groove_Sway' || f.move === 'Groove_Still'), 'someone kept dancing to a beat that is gone');
+        assert.ok(frames.filter(f => f.present && f.t > 36).every(f => !CrowdDance.MOVES[f.move].free || f.move === 'Groove_Sway'),
+            'the kick came back and they kept standing about');
+        assert.ok(frames.find(f => f.t > 35.05).move !== 'Groove_Still', 'standing still after the kick returned');
+    }
+    const still = timelines.filter(frames => frames.find(f => f.t > 25).move === 'Groove_Still').length / timelines.length;
+    assert.ok(Math.abs(still - CrowdDance.STILL_SHARE) < 0.1, `${(still * 100).toFixed(0)}% stand still`);
+    // Off the grid: the free pace is slow, and not the track's tempo.
+    const out = {};
+    const d = choreographer.step(dancers[0], { beatPresent: false, beat: 100, bpm: 128, energy: 0.2 }, 0.3, out);
+    assert.equal(d.speed, CrowdDance.FREE_SPEED);
+});
+
+test('a build brings out the claps, and a drop puts the hands up', () => {
+    const { choreographer } = loadCrowdDance(29);
+    const share = (music, moves, drop = false) => {
+        let hits = 0, n = 0;
+        for (let i = 0; i < 400; i++) {
+            const dancer = choreographer.createDancer(ALL_MOVES);
+            dancer.move = 'Groove_Bounce'; dancer.hadBeat = true; dancer.lastBar = 0; dancer.barsLeft = 1;
+            const d = choreographer.step(dancer, { beatPresent: true, beat: drop ? 1 : 4, bpm: 124, energy: 0.6, build: false, drop, ...music }, 0, {});
+            if (moves.includes(d.move)) hits++;
+            n++;
+        }
+        return hits / n;
+    };
+    const normalClaps = share({}, ['Groove_Clap']);
+    assert.ok(share({ build: true }, ['Groove_Clap']) > 2 * normalClaps, 'a build does not bring claps');
+    assert.ok(share({}, ['Groove_HandsUp', 'Groove_Pump'], true) > 0.5, 'a drop does not put the hands up');
+    // A quiet track: little hands-up, more swaying.
+    assert.ok(share({ energy: 0.1 }, ['Groove_HandsUp']) < share({ energy: 0.9 }, ['Groove_HandsUp']));
+    assert.ok(share({ energy: 0.1 }, ['Groove_Sway']) > share({ energy: 0.9 }, ['Groove_Sway']));
 });

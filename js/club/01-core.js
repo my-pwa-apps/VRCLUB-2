@@ -101,6 +101,7 @@ class VRClubCore {
                 floorShadows: true,
                 crowdSize: 14,             // animated skinned dancers on the floor
                 guestSize: 8,            // guests off the floor: talking, on a call, watching
+                queueSize: 8,            // people queueing outside the street door (drawn only near the entrance)
                 mirrorSpots: 280,
                 mirrorRays: 64,
                 mirrorBeamStride: 1
@@ -128,6 +129,7 @@ class VRClubCore {
                 floorShadows: false,
                 crowdSize: 10,
                 guestSize: 4,
+                queueSize: 6,
                 mirrorSpots: 180,
                 mirrorRays: 52,
                 mirrorBeamStride: 2
@@ -159,6 +161,7 @@ class VRClubCore {
                 // `balanced`, so this is the number a headset actually renders.
                 crowdSize: 6,
                 guestSize: 2,                // the talking pair; headset cost of extra skeletons is unmeasured
+                queueSize: 4,                // outside, and hidden with the street whenever a guest is deep in the club
                 mirrorSpots: 96,
                 mirrorRays: 32,
                 mirrorBeamStride: 3

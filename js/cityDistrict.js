@@ -32,6 +32,11 @@ const CITY_LAYOUT = Object.freeze({
     doorZ: 6.3,
     doorHalfWidth: 1.66,
     doorHeight: 3.06,
+    // The queue outside: a velvet rope along the pavement from beside the street door (x ropeFromX, clear of its
+    // opening and of the bouncer) to past the end of the longest queue, ropeZ out from the facade.
+    ropeZ: 7.65,
+    ropeFromX: 2.7,
+    ropeToX: 9.8,
     // The street is drawn only while a guest is near the front: from the dance floor's front edge forward.
     showFromZ: -8,
     hideBelowZ: -10,
@@ -130,6 +135,7 @@ const CityDistrict = {
         this._createCitySky();
         this._createCitySkyline();
         this._createCityColliders(meshes);
+        this._createStreetDoorDressing();
 
         // Keep it all enabled until every material has compiled (the VR button waits on whenReady), then let the
         // per-frame manager hide it whenever the guest is deep inside the club.
@@ -142,6 +148,8 @@ const CityDistrict = {
         this._openStreetDoor();
         // Teleport floors and blockers are gathered when locomotion is applied; refresh them now the street exists.
         if (this.vrHelper) this._applyXRLocomotionMode();
+        // The bouncer and the queue need the pavement; if the crowd is not ready yet, it places them when it is.
+        if (typeof this._applyStreetPeople === 'function') this._applyStreetPeople();
         log.info(`🏙️ Street built: ${meshes.length} meshes`);
     },
 
@@ -181,6 +189,74 @@ const CityDistrict = {
             light.renderPriority = 1;
             this._extendAccentLight(light, meshes);
         }
+        // The fill also lights the people outside (the bouncer and the queue join it when they arrive).
+        this._cityFillLight = fill;
+    },
+
+    /**
+     * The street door's front: a warm lamp over the door with its light, and a velvet rope line along the pavement
+     * that the queue waits behind (posts every ~1.4 m from the door's side to the end of the queue, and one rope across
+     * its head, so the line waits for the bouncer). Built in the district's local space and parented to its root, so it
+     * is hidden with the street; one draw per material. The lamp's light reaches only the street door's surroundings
+     * (the rope, the facade, the pavement near the door) and, later, the people outside.
+     */
+    _createStreetDoorDressing() {
+        const factory = this.materialFactory;
+        const b = this._dressingBuilder('cityDoor');
+        const posts = b.group('Posts', factory.getPreset('stanchionPost'));
+        const bases = b.group('PostBases', factory.getPreset('stanchionBase'));
+        const ropes = b.group('Ropes', factory.getPreset('velvetRope'));
+        const lamp = b.group('Lamp', this._emissive('cityDoorLampMat', [1.0, 0.72, 0.42]));
+        const Z = CityLayout.ropeZ, X0 = CityLayout.ropeFromX, X1 = CityLayout.ropeToX;
+        const post = (x, z) => {
+            b.cylinder(bases, 0.36, 0.06, x, 0.03, z, 'y', 18);
+            b.cylinder(posts, 0.05, 0.98, x, 0.55, z, 'y', 12);
+            b.add(posts, BABYLON.MeshBuilder.CreateSphere('cityDoorKnob', { diameter: 0.11, segments: 8 }, this.scene)).position.set(x, 1.08, z);
+        };
+        const rope = (from, to) => {
+            const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+            const mesh = b.cylinder(ropes, 0.045, length, (from[0] + to[0]) / 2, 0.93, (from[1] + to[1]) / 2, 'y', 10);
+            // Lay it along the span between the two posts, with a slight sag.
+            mesh.rotation.z = Math.PI / 2;
+            mesh.rotation.y = -Math.atan2(to[1] - from[1], to[0] - from[0]);
+            mesh.position.y -= 0.03;
+        };
+        const count = Math.max(2, Math.round((X1 - X0) / 1.4) + 1);
+        let previous = null;
+        for (let i = 0; i < count; i++) {
+            const x = X0 + (X1 - X0) * i / (count - 1);
+            post(x, Z);
+            if (previous !== null) rope([previous, Z], [x, Z]);
+            previous = x;
+        }
+        // Across the head of the queue, back to the facade beside the door.
+        const headZ = CityLayout.doorZ + 0.2;
+        post(X0, headZ);
+        rope([X0, Z], [X0, headZ]);
+        // The lamp: a warm bar on the facade over the door.
+        b.box(lamp, 2.6, 0.06, 0.08, 0, CityLayout.doorHeight + 0.42, CityLayout.doorZ + 0.04);
+
+        const built = b.finish();
+        const meshes = Object.values(built);
+        for (const mesh of meshes) {
+            mesh.unfreezeWorldMatrix();
+            mesh.parent = this._cityRoot;
+            mesh.computeWorldMatrix(true);
+            mesh.freezeWorldMatrix();
+        }
+        // Solid where the ropes are (world space: the street is lifted): a walker cannot step through into the queue.
+        const ground = CityLayout.groundY;
+        this._streetRopeBlocks = [
+            this._collisionBlock('streetRopeBlock', X1 - X0 + 0.2, 1.1, 0.12, (X0 + X1) / 2, ground + 0.55, Z),
+            this._collisionBlock('streetRopeHeadBlock', 0.12, 1.1, Z - headZ, X0, ground + 0.55, (Z + headZ) / 2)
+        ];
+        const lit = meshes.filter(mesh => mesh !== built.Lamp);
+        const facade = this.scene.getMeshByName('vestibuleWalls');
+        if (facade) lit.push(facade);
+        lit.push(...(this._cityGround || []));
+        this._streetDoorLight = this._createScopedAccent('streetDoorLight', new BABYLON.Vector3(2.0, ground + 3.2, CityLayout.doorZ + 1.3),
+            { intensity: 2.4, range: 11, diffuse: [1, 0.78, 0.55], group: 'city' }, lit);
+        this._streetDoorDressing = meshes;
     },
 
     /** A dark dome with a faint city glow on the horizon and a few stars. It follows the camera. */
@@ -361,12 +437,13 @@ const CityDistrict = {
         if (visible !== this._cityVisible) {
             this._cityVisible = visible;
             root.setEnabled(visible);
+            if (typeof this._showStreetPeople === 'function') this._showStreetPeople(visible);
         }
     },
 
     _disposeCityDistrict() {
-        for (const mesh of this._cityColliders || []) { try { mesh.dispose(); } catch (_) { /* ignore */ } }
-        this._cityColliders = null;
+        for (const mesh of [...(this._cityColliders || []), ...(this._streetRopeBlocks || [])]) { try { mesh.dispose(); } catch (_) { /* ignore */ } }
+        this._cityColliders = this._streetRopeBlocks = null;
         for (const part of [this._citySky, this._citySkyline]) {
             if (!part) continue;
             for (const key of ['mesh', 'dome']) if (part[key]) { try { part[key].dispose(); } catch (_) { /* ignore */ } }

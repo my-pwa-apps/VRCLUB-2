@@ -20,6 +20,18 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **The crowd dances, on the beat, in many ways.** Everyone on the floor used to do the same single dance. Now each
+  dancer moves between nine moves: the original dance, a knee bounce, side taps, clapping, fist pumps, the twist,
+  hands in the air and a slow sway. Every move is locked to the music's beat at any tempo, so knees bend and hands
+  clap exactly on it, and some dancers take a move at half time (clapping on 2 and 4). Each person has their own
+  favourites and changes move only at the start of a bar. They clap more as a build rises and throw their hands up
+  when the drop lands. When the kick drops out, in a breakdown or between tracks, they stop dancing: most sway
+  slowly, some just stand, until the beat comes back.
+- **A bouncer and a queue at the door.** Outside the street door a bouncer in a black suit stands with his arms folded
+  and turns to keep an eye on you as you come close. Behind a velvet rope along the pavement, a line of people waits to
+  get in: a couple chatting at the front, someone on the phone, the rest waiting their turn (eight on Ultra, six on
+  High, four on Balanced). A warm lamp over the door lights them. They are only drawn while you are near the entrance,
+  so they cost nothing on the dance floor, and the rope keeps you from walking through the line.
 - **The club is a basement: a stair goes down from the street.** The street door is now at street level, 2.8 m above the
   dance floor. Inside it, a landing looks down a wide, carpeted stair (16 comfortable steps with brass stair rods, lit
   nosings and handrails) to the club's front doorway, between two railed galleries with the ticket desk and the coat
@@ -127,6 +139,12 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Fixed
 
+- **People came back frozen after changing the graphics quality.** Lowering the quality and raising it again brought
+  back the extra dancers and guests standing still in mid-pose. Their animation is now restarted whenever they are
+  shown again, and an end-to-end test switches Ultra, Balanced, Ultra and checks that everyone is moving.
+- **Loading a character later no longer breaks the lighting limit.** Swapping the DJ, raising the quality, or the queue
+  arriving outside made the model loader raise every material's light count above what the device supports; it is
+  now put back after each load.
 - **A locked room stayed locked after everyone left.** With nobody left to unlock it, every newcomer, including the
   host who locked it and reconnected after a dropped connection, was refused as "room locked". An empty room now
   starts over: no lock, no bans. (Relay redeployed.)

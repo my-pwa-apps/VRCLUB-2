@@ -322,6 +322,26 @@ IWER harness only. Open items:
 
 ---
 
+## Implementation - 2026-10-08 - The crowd dances varied moves on the beat
+
+Shipped: eight procedural grooves on the eleven Quaternius floor dancers and a choreographer that picks them per dancer
+and phase-locks them to the beat (see [CHANGELOG.md](CHANGELOG.md) and `js/crowdDance.js`). Validated by unit tests,
+the real skeleton in `test/rig.test.mjs`, and the real club stepped at 16 ms in `test/e2e/crowd-dance.spec.mjs` (mean
+phase error ~0.0013 beats). Open items:
+
+- [ ] **Judge the dancing in a headset, and with real music**
+
+  **Priority:** Medium
+  **Category:** Crowd / VR
+  **Evidence:** The grooves were checked on screenshots on desktop SwiftShader and by measurement; the beat lock was
+  measured with a synthetic beat grid, not with the kick detector on real tracks (whose `beatNumber` can step when a
+  kick lands early or late: the lock absorbs up to 0.6 beats smoothly, more is a jump). The extra clips add ~100 KB to
+  each floor dancer's file (now 0.95-1.09 MB). The hand orientation is swing-only (palms are not twisted to face in a clap).
+  **Acceptance criteria:** On a Quest 3S with a set playing, the floor reads as varied and on the beat from the booth and
+  from the floor, claps visibly meet on the beat, no dancer pops when changing move, and breakdowns visibly calm the floor.
+
+---
+
 ## Implementation - 2026-10-07 - The club is a basement: an entrance stair down from the street
 
 Shipped: the street door is at street level (2.8 m) and a 16-riser stair hall leads down to the club's doorway; the street GLB
@@ -338,6 +358,17 @@ IWER harness (desktop collisions up and down, VR thumbstick up and down, telepor
   The outdoor falloff (`1 / (1 + max(0, d - 2) / 6)` on the master gain) was set by numbers, not by ear on the headset.
   **Acceptance criteria:** A Quest 3S walk up and down the stair with the thumbstick reports no discomfort and no catch on the
   rails or the doorways; the bass at the door and at the end of the block sounds plausible through the headset's speakers.
+
+- [ ] **Measure the bouncer and the queue on a headset**
+
+  **Priority:** Medium
+  **Category:** Performance
+  **Evidence:** Up to nine skinned characters (the bouncer and a queue of `queueSize`: 8/6/4 by tier) stand outside the street
+  door. They are disabled, with their animation groups paused, whenever the street is hidden (deeper than `z -8`), so the dance
+  floor is unaffected; but on the stair and on the street they add one skeleton evaluation and one draw each, on top of the
+  street's ~60 draws. Measured only on desktop SwiftShader (feet at street level, lights and visibility toggling verified).
+  **Acceptance criteria:** On a Quest 3S at the top of the entrance stair and on the pavement facing the queue, frame time
+  stays within the headset's refresh budget on the shipped tier; otherwise lower that tier's `queueSize`.
 
 ---
 

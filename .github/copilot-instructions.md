@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level), all mixed into `VRClub.prototype`
-9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/ui-init.js` — instantiates `new VRClub()`
@@ -178,6 +178,36 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
   `test/rig.test.mjs` drives both DJ GLBs on the real Babylon and fails if any knob or jog target is missed by 3 cm, the
   hips enter the table (z -19), a foot leaves the riser or a frame costs over 2 ms. Retune against it, not by eye.
   Headset cost is unmeasured (~0.05-0.3 ms a frame on desktop SwiftShader).
+
+### `js/crowdDance.js` — the crowd dances on the beat
+The Quaternius dancers on the floor (not the three Mixamo files, not the guests) carry nine moves: the retargeted
+`Dance_Loop` and eight procedural grooves (`Groove_Bounce`, `_SideTap`, `_Clap`, `_Pump`, `_Twist`, `_HandsUp`, `_Sway`,
+`_Still`) authored by `synthesize()` in `scripts/build-crowd-glbs.mjs` straight onto the modular rig: hips, spine and
+head angles plus wrist and ankle targets solved with two-bone IK, at `GROOVE_BPM` 120 and `GROOVE_FPS` 20, every loop a
+whole number of beats with a beat on its first key. A groove drives EXACTLY the bones `Dance_Loop` drives (Body, spine,
+neck, head, shoulders, arms, wrists, legs, the free feet), so switching between them never leaves a joint in the last
+clip's pose; that is why the still pose is authored (`Groove_Still`) and the stock `Idle` (which drives every finger)
+is not in the repertoire. `mirror` in `CAST` mirrors the grooves too.
+- `CrowdDance` is pure (no Babylon). `MOVES` gives each move its `beats`, `anchor` (where a beat lands: `Dance_Loop`
+  dips half a beat in), pick `weight`, the `energy` it suits, and `build` / `drop` multipliers; `free` moves (sway and
+  still) are what dancers do without a beat. `step(dancer, music, frac)` returns the move and a speed: `bpm / 120`
+  (halved at half time) corrected by the phase error in beats (x0.8, clamped +-40%; over 0.6 beats it jumps), so knees
+  bend and hands clap ON the club's beat grid (`vjDirector.beatNumber` plus the bar-phase fraction). A half-time clap
+  lands on 2 and 4 (`halfAnchor`).
+- Choosing: per-dancer taste, a change only on a bar line after 4-8 bars, less of a move below its energy, claps x5 in a
+  build (the countdown or the ascent movement), hands up and fist pumps on a drop (the release or ignition starting,
+  which cut in at once). The kick is present while real onsets keep coming (`lastRealOnsetAt` within ~2.5 beats) and
+  returns after two in a row (`onsetStreak`); without it everyone leaves the grid: 35% stand (`Groove_Still`), the rest
+  sway (`Groove_Sway`) at `FREE_SPEED`, and the Mixamo three slow to 45%.
+- The club side (`11-audio-crowd.js`): `_spawnAvatar(..., { repertoire })` keeps the nine groups (others disposed),
+  `npc.dance = { groups, current, state }`, `npc.animations` is always `[current]` (so `_setAnimating` and the distance
+  LOD pause and restart the right one), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
+  which leaves these dancers' speed alone) starts a new move with `enableBlending` (it blends from the old pose) and
+  stops the old one: one group evaluates per dancer.
+- Tests: the choreography in `test/unit.test.mjs` (phase lock at several tempos, bar lines, variety, beat loss, build
+  and drop); the grooves on the real skeleton in `test/rig.test.mjs` (feet planted, the tap lands on the beat, hands meet
+  on the beat, fists and hands up, the bounce lowest on the beat, seamless loops); and the whole thing in the real club
+  in `test/e2e/crowd-dance.spec.mjs`, stepped at 16 ms (measured mean phase error ~0.0013 beats, worst 0.033).
 
 ### `js/vjDirector.js`
 Beat/BPM detection, master colour palette,
@@ -612,14 +642,15 @@ and fail `npm test`.
   The optimizer recovers these images before stripping a replacement's embedded copies.
   Do not use Draco, meshopt
   or KTX2: Babylon fetches their decoders from a CDN, which the same-origin rule forbids.
-- **The crowd is 17 different people** (`club-crowd-f1..f8`, `m1..m9`): the CC0 Quaternius Modular Women and
+- **The crowd is 17 different people** (`club-crowd-f1..f8`, `m1..m9`), plus the bouncer (`club-crowd-bouncer`, same build): the CC0 Quaternius Modular Women and
   Modular Men packs, recoloured (skin tone, hair, clothes, silver heads for older guests) and given the club's own
   dance and idle clips. They are NOT on the UE mannequin: their rig is the 62-bone modular one (a `Body` bone
   carries the height and the legs hang from it, free-standing IK foot bones, arms-down bind pose, no dance clip),
   so `node scripts/build-crowd-glbs.mjs --women <dir> --men <dir> --optimize` retargets the clips offline: trunk
   bones take the source's WORLD rotation delta from its bind pose, arms and legs are aimed along the source's
   world bone directions (swing only, which is what lets a T-posed source drive a relaxed rig), and the foot
-  bones are placed at the end of the animated legs. Each person is ONE mesh with ONE material and per-vertex
+  bones are placed at the end of the animated legs. The floor dancers also carry the procedural grooves (see
+  `js/crowdDance.js` above). Each person is ONE mesh with ONE material and per-vertex
   colour (no textures, ~0.8 MB), where the Universal Base Characters cost about six draws. The cast, palettes
   and which people carry the guest clips live in that script's `CAST`; props (pistols, hats, crowns) are dropped.
   `test/rig.test.mjs` measures the real skeletons dancing (limbs rigid, feet on the floor, hands moving) and is
@@ -631,7 +662,12 @@ and fail `npm test`.
   Balanced headset downloads about half of what Ultra does; `_applyCrowdSize()` fetches the missing ones in the
   background when the tier rises (`_topUpCrowdSources`) and places them afterwards. In
   `_crowdSourceContainers` `undefined` means "not requested yet" (the slot waits) and `null` means "failed"
-  (another loaded character stands in). Slots are ordered so the first six are already varied (men and women,
+  (another loaded character stands in). A character a tier hides is paused, and restarted when shown, only through
+  `VRClubAudioCrowd._setAnimating(npc, on)`: Babylon 9's `AnimationGroup` has `isPlaying` and NO `isPaused`, and the
+  old `group.isPaused && group.restart()` check never restarted anyone, so dancers brought back by a higher tier stood
+  frozen (`test/e2e/tiers.spec.mjs` goes Ultra, Balanced, Ultra and fails on any character whose bones do not move). After
+  any GLB loads late, `_restoreLightBudgets()` resets the light budgets the glTF loader raised on every scene material.
+  Slots are ordered so the first six are already varied (men and women,
   several skin tones, a silver head, a punk, one Mixamo dancer). `club-dancer-*.glb` now only dress the player's own
   body and the bartender is the female guest file with a black tint; `club-guest-male.glb` is a build source only.
 - **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (half-long
@@ -787,6 +823,20 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   bollards (`fenceX 45.5`) are always enabled; they are far from the club so they cost nothing indoors. The street ground, the
   vestibule floor and stair, the club floor and the deck are the teleport floors (`_teleportFloorMeshes()`). The `street` camera preset
   and the VR menu's STREET button refuse until `_streetDoor.open`.
+- **The street door's front: a bouncer and a queue.** `CityDistrict._createStreetDoorDressing()` builds a velvet rope
+  line on the pavement (`CityLayout.ropeZ` 7.65, from `ropeFromX` 2.7 to `ropeToX` 9.8, plus a rope across the head of the
+  queue back to the facade), a warm lamp bar over the door and `streetDoorLight`, a scoped point light (renderPriority 1)
+  that reaches only the rope, the vestibule's facade, the street ground and the people outside. Ropes are parented to the
+  district root (hidden with it); two invisible blocks make them solid. `VRClubAudioCrowd._streetSlots()` places the bouncer
+  (`club-crowd-bouncer.glb`, black suit, `Idle_FoldArms_Loop`, 1.96 m, beside the door at x 2.25, clear of its opening) and
+  up to eight people queueing behind the rope facing the door (a talking pair at the head, then `Idle`, a phone call). The
+  queue's length is the tier's `queueSize` (8/6/4), and its order keeps a balanced queue free of anyone dancing inside on
+  that tier. `_applyStreetPeople()` runs when both the street and the crowd exist (either may finish first), loads the files
+  it needs in the background (`_streetTopUp`) and adds everyone to `streetDoorLight` and `cityFill`;
+  `_showStreetPeople(visible)` (from `updateCityDistrict()`'s visibility toggle) disables them, their colliders and their
+  animation groups whenever the street is hidden. `_updateBouncer(dt)` turns the bouncer toward a player within 7 m, at
+  most 1.3 rad off his post, and back. The relay's avatar pool is only `f*`/`m*`, so no player is handed the bouncer.
+  Headset cost (up to nine extra skeletons near the entrance) is unmeasured.
 - **Street level.** The club is a basement: the GLB is baked at y = 0 and the `cityDistrict` root is lifted by `CityLayout.groundY`
   (2.8, equal to `VenueLayout.vestibule.streetLevel`, unit-tested), so colliders and the fence are built from world bounds and the
   skyline is re-frozen after parenting. The forecourt's paving is left out within `forecourtOpening` (3 m) of the centre line, over

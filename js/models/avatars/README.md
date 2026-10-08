@@ -20,7 +20,8 @@ provenance and archive hashes are recorded in `ASSETS.md`.
 | `club-dj-melera.glb` | DJ booth while Miss Melera's podcast is chosen | Jacket (tinted grey at load), long straight hair (tinted light blond), headphones, modeled face/eyes | `Idle_Loop` | ~2.8 MB |
 | `club-guest-female.glb` | The bartender (black outfit through a tint); build source | Ranger jacket and boots (no hood, no pauldron), long hair | `Dance_Loop`, `Idle_Talking_Loop`, `Idle_Loop`, `Yes`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` | ~2.9 MB |
 | `club-guest-male.glb` | Build source only (the DJ and crowd builds); not loaded at runtime | As above, parted hair and beard | as above | ~2.7 MB |
-| `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor and the side-wall guests: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry the idle clips | ~1.0 MB each |
+| `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry the idle clips; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
+| `club-crowd-bouncer.glb` | The bouncer at the street door (`_streetSlots()`); never a player avatar | Modular Men Suit: espresso skin, black hair, black suit, shirt and tie | as the guests (plays `Idle_FoldArms_Loop`) | ~1.0 MB |
 
 The crowd people are one skinned mesh and one material each, coloured per vertex; see the next section. The three
 Mixamo files in this folder (`Hip Hop Dancing.glb`, `house.glb`, `rumba_dancing_female_character.glb`) are the

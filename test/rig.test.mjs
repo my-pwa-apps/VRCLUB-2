@@ -332,3 +332,86 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         scene.dispose();
     }
 });
+
+// The grooves are authored procedurally onto the modular rig (scripts/build-crowd-glbs.mjs) at 120 BPM with a beat on
+// every 0.5 s: measure them on the real skeleton, at the frames where the beats fall.
+test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {
+    const GROOVES = { Groove_Bounce: 2, Groove_SideTap: 4, Groove_Clap: 2, Groove_Pump: 4, Groove_Twist: 2, Groove_HandsUp: 4, Groove_Sway: 4, Groove_Still: 8 };
+    for (const file of ['club-crowd-f1.glb', 'club-crowd-m1.glb', 'club-crowd-m7.glb']) {
+        const { scene, container, B } = await loadContainer(file);
+        const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+        const root = entry.rootNodes[0];
+        const node = name => root.getDescendants(false, n => n.name === name)[0];
+        const names = ['Head', 'Chest', 'Hips', 'Wrist.L', 'Wrist.R', 'Foot.L', 'Foot.R', 'UpperArm.L', 'LowerArm.L', 'UpperLeg.R', 'LowerLeg.R'];
+        const at = () => {
+            root.computeWorldMatrix(true);
+            return Object.fromEntries(names.map(name => { const n = node(name); n.computeWorldMatrix(true); return [name, n.getAbsolutePosition().clone()]; }));
+        };
+        const rest = at();
+        const height = rest.Head.y;
+        for (const [clip, beats] of Object.entries(GROOVES)) {
+            const group = entry.animationGroups.find(g => g.name === clip || g.name.endsWith(`_${clip}`) || g.name === `${clip}`);
+            assert.ok(group, `${file} has no ${clip}`);
+            entry.animationGroups.forEach(g => g.stop());
+            group.start(false);
+            group.pause();
+            const span = group.to - group.from;
+            // Babylon plays glTF at 60 frames a second: a beat at 120 BPM is 30 frames.
+            assert.ok(Math.abs(span - beats * 30) < 0.5, `${file} ${clip}: ${span} frames for ${beats} beats`);
+            const pose = beat => { group.goToFrame(group.from + beat * 30); return at(); };
+            const samples = [];
+            for (let k = 0; k <= beats * 8; k++) samples.push({ beat: k / 8, ...pose(k / 8) });
+            const first = samples[0], last = samples[samples.length - 1];
+            for (const name of names) assert.ok(B.Vector3.Distance(first[name], last[name]) < 0.01, `${file} ${clip}: the loop jumps at ${name}`);
+            for (const s of samples) {
+                assert.ok(s.Head.y > s.Chest.y + 0.08 && s.Chest.y > s.Hips.y, `${file} ${clip}: the body folds at beat ${s.beat}`);
+                for (const [a, b] of [['UpperArm.L', 'LowerArm.L'], ['UpperLeg.R', 'LowerLeg.R']]) {
+                    const d = B.Vector3.Distance(s[a], s[b]), d0 = B.Vector3.Distance(rest[a], rest[b]);
+                    assert.ok(Math.abs(d - d0) < 0.005, `${file} ${clip}: ${a} stretches`);
+                }
+            }
+            const floor = Math.min(rest['Foot.L'].y, rest['Foot.R'].y);
+            const onBeats = samples.filter(s => Number.isInteger(s.beat));
+            const between = samples.filter(s => s.beat % 1 === 0.5);
+            if (clip === 'Groove_SideTap') {
+                // A foot travels between beats and is down, on the floor, on every beat.
+                const lift = Math.max(...samples.map(s => Math.max(s['Foot.L'].y, s['Foot.R'].y))) - floor;
+                assert.ok(lift > 0.04, `${file}: the tapping foot never leaves the floor (${lift.toFixed(3)})`);
+                for (const s of onBeats) assert.ok(Math.max(s['Foot.L'].y, s['Foot.R'].y) - floor < 0.01, `${file}: a foot is in the air on beat ${s.beat}`);
+                const travel = Math.max(...samples.map(s => Math.abs(s['Foot.R'].x - rest['Foot.R'].x) + Math.abs(s['Foot.L'].x - rest['Foot.L'].x)));
+                assert.ok(travel > 0.15, `${file}: the side tap does not go to the side`);
+            } else {
+                // Planted: the feet stay where they are.
+                for (const s of samples) {
+                    for (const foot of ['Foot.L', 'Foot.R']) {
+                        assert.ok(Math.abs(s[foot].y - rest[foot].y) < 0.01, `${file} ${clip}: ${foot} lifts at beat ${s.beat}`);
+                        assert.ok(Math.hypot(s[foot].x - first[foot].x, s[foot].z - first[foot].z) < 0.015, `${file} ${clip}: ${foot} slides`);
+                    }
+                }
+            }
+            if (clip === 'Groove_Clap') {
+                for (const s of onBeats) assert.ok(B.Vector3.Distance(s['Wrist.L'], s['Wrist.R']) < 0.14, `${file}: the hands do not meet on beat ${s.beat}`);
+                for (const s of between) assert.ok(B.Vector3.Distance(s['Wrist.L'], s['Wrist.R']) > 0.3, `${file}: the hands do not open between claps`);
+                for (const s of samples) assert.ok(s['Wrist.L'].y > s.Hips.y && s['Wrist.L'].y < s.Head.y, `${file}: the clap is not in front of the chest`);
+            }
+            if (clip === 'Groove_Pump') {
+                for (const s of onBeats) assert.ok(Math.max(s['Wrist.L'].y, s['Wrist.R'].y) > s.Head.y + 0.05, `${file}: the fist is not up on beat ${s.beat}`);
+            }
+            if (clip === 'Groove_HandsUp') {
+                for (const s of samples) assert.ok(Math.min(s['Wrist.L'].y, s['Wrist.R'].y) > s.Head.y, `${file}: a hand is not up at beat ${s.beat}`);
+            }
+            if (['Groove_Bounce', 'Groove_Clap', 'Groove_Pump', 'Groove_HandsUp', 'Groove_SideTap', 'Groove_Twist'].includes(clip)) {
+                // Down on the beat: the hips are lower on every beat than half way between.
+                const low = Math.max(...onBeats.map(s => s.Hips.y)), high = Math.min(...between.map(s => s.Hips.y));
+                assert.ok(low < high - 0.01, `${file} ${clip}: the bounce does not land on the beat (${low.toFixed(3)} vs ${high.toFixed(3)})`);
+            }
+            if (clip !== 'Groove_Still') {
+                const wrists = Math.max(...samples.map(s => s['Wrist.L'].y)) - Math.min(...samples.map(s => s['Wrist.L'].y))
+                    + Math.max(...samples.map(s => s['Wrist.R'].x)) - Math.min(...samples.map(s => s['Wrist.R'].x));
+                assert.ok(wrists > 0.04 || clip === 'Groove_Twist', `${file} ${clip}: the arms do not move`);
+            }
+            assert.ok(height > 1.2, `${file}: odd height`);
+        }
+        scene.dispose();
+    }
+});

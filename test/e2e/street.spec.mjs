@@ -44,6 +44,21 @@ const walk = (page, [dx, dz], frames) => page.evaluate(async ([direction, count]
     return { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) };
 }, [[dx, dz], frames]);
 
+/**
+ * The same walk without rendering (a rendered frame with the street in view takes seconds on SwiftShader): the camera's
+ * own collision step, then the walking-surface follow, which is what a frame does to the desktop camera.
+ */
+const stride = (page, [dx, dz], steps) => page.evaluate(([direction, count]) => {
+    const club = window.vrClub, camera = club.camera;
+    const step = new BABYLON.Vector3(direction[0], 0, direction[1]);
+    for (let i = 0; i < count; i++) {
+        camera._collideWithWorld(step);
+        club.scene.onBeforeRenderObservable.notifyObservers(club.scene);
+    }
+    const p = camera.position;
+    return { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), level: club._walkLevel };
+}, [[dx, dz], steps]);
+
 test('the club has a way out: through the street door onto the avenue, stopped by the buildings and the fence', async ({ page }) => {
     test.setTimeout(600_000);
     await enterClub(page);
@@ -56,7 +71,9 @@ test('the club has a way out: through the street door onto the avenue, stopped b
             return {
                 meshes: club._cityMeshes.length,
                 materials: club._cityContainer.materials.length,
-                lightsScoped: lights.every(light => light && light.includedOnlyMeshes.length === club._cityMeshes.length),
+                lightsScoped: lights.every(light => light && club._cityMeshes.every(mesh => light.includedOnlyMeshes.includes(mesh))
+                    && light.includedOnlyMeshes.every(mesh => club._cityMeshes.includes(mesh)
+                        || club.npcAvatars.some(npc => (npc.name === 'bouncer' || /^queue/.test(npc.name)) && npc.meshes.includes(mesh)))),
                 lightsPrioritised: lights.every(light => light.renderPriority === 1),
                 maxLights: club._cityContainer.materials.every(material => material.maxSimultaneousLights === club.maxLights),
                 noneFrozen: club._cityContainer.materials.every(material => !material.isFrozen),
@@ -68,7 +85,7 @@ test('the club has a way out: through the street door onto the avenue, stopped b
             };
         });
         expect(city.meshes).toBeGreaterThan(40);
-        expect(city.lightsScoped, 'the night lights must reach only the street').toBe(true);
+        expect(city.lightsScoped, 'the night lights must reach only the street and the people outside').toBe(true);
         expect(city.lightsPrioritised).toBe(true);
         expect(city.maxLights, 'every street material must obey the device light budget').toBe(true);
         expect(city.noneFrozen).toBe(true);
@@ -81,30 +98,46 @@ test('the club has a way out: through the street door onto the avenue, stopped b
 
     await test.step('up the entrance stair and out of the door, under real collisions', async () => {
         const S = await page.evaluate(() => window.VenueLayout.vestibule.streetLevel);
-        await stand(page, 0, -2.5, 0);
-        const outside = await walk(page, [0, 0.12], 120);
+        await stand(page, 0, -2.5, 0, 2);
+        const outside = await stride(page, [0, 0.12], 110);
         expect(outside.z, 'the guest never made it up the stair and through the street door').toBeGreaterThan(8);
         expect(Math.abs(outside.x), 'the door should be passed straight').toBeLessThan(1.7);
+        expect(outside.level).toBe(S);
         expect(outside.y, 'outside, the guest stands at street level').toBeGreaterThan(S + 1.4);
         expect(outside.y).toBeLessThan(S + 2.1);
-        const stopped = await walk(page, [0, 0.9], 40);
+        const stopped = await stride(page, [0, 0.3], 60);
         expect(stopped.z, 'the far row of buildings must stop the guest on the far sidewalk').toBeGreaterThan(20);
         expect(stopped.z).toBeLessThan(24.0);
         expect(stopped.y).toBeGreaterThan(S + 1.4);
         // And back: in through the door, down the stair, into the club at floor height.
-        await stand(page, 0, 8.5, 180);
-        const back = await walk(page, [0, -0.12], 120);
+        await stand(page, 0, 8.5, 180, 2);
+        const back = await stride(page, [0, -0.12], 110);
         expect(back.z, 'the guest never made it back down into the club').toBeLessThan(-1);
+        expect(back.level).toBe(0);
         expect(back.y, 'back in the club, the eye is at standing height over the floor').toBeLessThan(2.1);
         expect(back.y).toBeGreaterThan(1.3);
     });
 
+    await test.step('the velvet rope keeps a walker out of the queue, and the door stays clear', async () => {
+        const S = await page.evaluate(() => window.VenueLayout.vestibule.streetLevel);
+        const rope = await page.evaluate(() => window.CityLayout.ropeZ);
+        await stand(page, 6, 9.0, 180, 2);
+        const intoQueue = await stride(page, [0, -0.12], 30);
+        expect(intoQueue.z, 'walked through the rope into the queue').toBeGreaterThan(rope);
+        expect(intoQueue.y).toBeGreaterThan(S + 1.4);
+        // Nobody stands in the street door: straight in from the pavement is open.
+        await stand(page, 0, 9.0, 180, 2);
+        const inside = await stride(page, [0, -0.12], 40);
+        expect(inside.z).toBeLessThan(5.5);
+    });
+
     await test.step('the avenue is fenced at both ends', async () => {
-        await stand(page, 0, 8, 270);
+        await stand(page, 0, 8.7, 270);
         const west = await walk(page, [-0.9, 0], 70);
         expect(west.x).toBeLessThan(-30);
         expect(west.x, 'the end fence must stop the guest inside the bollards').toBeGreaterThan(-45.2);
-        await stand(page, 0, 8, 90);
+        // Along the kerb side of the pavement, past the rope line of the queue.
+        await stand(page, 0, 8.7, 90);
         const east = await walk(page, [0.9, 0], 70);
         expect(east.x).toBeGreaterThan(30);
         expect(east.x).toBeLessThan(45.2);
@@ -121,22 +154,31 @@ test('the street is drawn only while the guest is near the entrance, and the air
 
     const state = () => page.evaluate(() => {
         const club = window.vrClub;
+        const outside = club.npcAvatars.filter(npc => npc.name === 'bouncer' || /^queue\d+$/.test(npc.name));
         return {
             visible: club._cityRoot.isEnabled(),
             active: club.scene.getActiveMeshes().length,
             fog: club.scene.fogDensity,
-            exterior: club._exterior
+            exterior: club._exterior,
+            people: outside.filter(npc => npc.root.isEnabled()).length,
+            peopleAnimating: outside.filter(npc => npc.animations.some(group => group.isPlaying)).length
         };
     });
+    // The bouncer and the queue arrive with the street (their files load in the background).
+    await page.waitForFunction(() => window.vrClub.npcAvatars.some(npc => npc.name === 'bouncer'), null, { timeout: 180_000 });
 
     await stand(page, 0, -14, 180, 8);
     const deep = await state();
     expect(deep.visible, 'the street costs nothing deep in the club').toBe(false);
+    expect(deep.people, 'nor do the people outside').toBe(0);
+    expect(deep.peopleAnimating).toBe(0);
 
     await stand(page, 0, -5, 0, 8);
     const nearDoor = await state();
     expect(nearDoor.visible, 'the street shows through the doorway near the entrance').toBe(true);
     expect(nearDoor.active).toBeGreaterThan(deep.active);
+    expect(nearDoor.people, 'the bouncer and a queue of at least three').toBeGreaterThanOrEqual(4);
+    expect(nearDoor.peopleAnimating).toBe(nearDoor.people);
 
     await stand(page, 0, 9, 0, 80);
     const street = await state();

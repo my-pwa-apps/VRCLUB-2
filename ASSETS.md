@@ -129,9 +129,10 @@ The download used carries no licence file; the page states CC0.
 
 ### The crowd: Modular Women and Modular Men
 
-Seventeen people, built by `scripts/build-crowd-glbs.mjs` from the Quaternius **Modular Women** and **Modular Men**
+Seventeen people, plus the bouncer at the street door, built by `scripts/build-crowd-glbs.mjs` from the Quaternius **Modular Women** and **Modular Men**
 packs (the "Individual Characters" glTF downloads), recoloured into a varied cast and carrying the club's own dance
-and idle clips retargeted onto their rig. The scripts and tests treat them as `club-crowd-<id>.glb`:
+and idle clips retargeted onto their rig. The eleven floor dancers also carry eight dance moves (`Groove_*`) that the
+script authors procedurally onto the rig itself (no third-party animation; see `js/crowdDance.js`). The scripts and tests treat them as `club-crowd-<id>.glb`:
 
 | File | Base character | Look | Clips |
 |------|----------------|------|-------|
@@ -152,6 +153,7 @@ and idle clips retargeted onto their rig. The scripts and tests treat them as `c
 | `js/models/avatars/club-crowd-m7.glb` | Men / Suit | Deep skin, black hair, burgundy suit, pistol removed | `Dance_Loop` |
 | `js/models/avatars/club-crowd-m8.glb` | Men / Beach | Light skin, blond hair, cream shirt, blue shorts | all six |
 | `js/models/avatars/club-crowd-m9.glb` | Men / Casual 2 | Medium skin, brown hair, purple tee | `Dance_Loop` |
+| `js/models/avatars/club-crowd-bouncer.glb` | Men / Suit | The bouncer at the street door: espresso skin, black hair, black suit, shirt and tie, pistol removed | all six |
 
 "All six" is `Dance_Loop`, `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` and `Yes`:
 the guests, who stand and talk instead of dancing, need the idle poses. Every file also keeps the packs' own `Idle`,

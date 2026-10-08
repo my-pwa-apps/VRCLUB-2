@@ -863,9 +863,22 @@ class VRClubAudioCrowd extends VRClubUI {
         // A multi-clip GLB (the leather-jacket guests) carries every pose it can strike. Keep the one this guest plays and drop
         // the others, so no hidden animation group keeps evaluating 60 joints.
         let groups = entry.animationGroups;
-        if (groups.length > 1) {
-            const prefix = `${name}_`;
-            const clipOf = group => (group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name);
+        const prefix = `${name}_`;
+        const clipOf = group => (group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name);
+        let dance = null;
+        if (options.repertoire && groups.some(group => clipOf(group) === 'Groove_Bounce')) {
+            // A dancer who can do every move (the Quaternius people): keep the moves, start one, the choreographer
+            // (CrowdDance, _updateCrowdDance) switches between them on the beat. Only one group plays at a time.
+            const moves = new Map();
+            groups.forEach(group => {
+                if (options.repertoire.includes(clipOf(group))) moves.set(clipOf(group), group);
+                else group.dispose();
+            });
+            const first = moves.get(options.clip || 'Dance_Loop') || moves.values().next().value;
+            moves.forEach(group => { group.enableBlending = true; group.blendingSpeed = 0.08; });
+            dance = { groups: moves, current: first, state: null };
+            groups = [first];
+        } else if (groups.length > 1) {
             const wanted = options.clip || 'Dance_Loop';
             const chosen = groups.find(group => clipOf(group) === wanted) || groups[0];
             groups.forEach(group => { if (group !== chosen) group.dispose(); });
@@ -892,6 +905,7 @@ class VRClubAudioCrowd extends VRClubUI {
             homeYaw: options.reactsToBeat === false ? null : facing,
             avoidYaw: 0
         };
+        if (dance) npc.dance = dance;
         npc.collider = this._attachOccupantCollider(root, name);
         this.npcAvatars.push(npc);
 
@@ -968,6 +982,7 @@ class VRClubAudioCrowd extends VRClubUI {
      *  - bartender: the Quaternius female guest, in a black work outfit through a tint.
      *  - f1..f8, m1..m9: the Modular Women / Modular Men cast built by scripts/build-crowd-glbs.mjs (club-crowd-*.glb):
      *    one draw each, vertex-coloured, the club's own dance and idle clips retargeted onto them.
+     *  - bouncer: the same build, a man in a black suit, at the street door (see _streetSlots).
      */
     static get AVATAR_SOURCES() {
         if (!this._avatarSources) {
@@ -998,7 +1013,9 @@ class VRClubAudioCrowd extends VRClubUI {
                 { id: 'm6', url: './js/models/avatars/club-crowd-m6.glb' },
                 { id: 'm7', url: './js/models/avatars/club-crowd-m7.glb' },
                 { id: 'm8', url: './js/models/avatars/club-crowd-m8.glb' },
-                { id: 'm9', url: './js/models/avatars/club-crowd-m9.glb' }
+                { id: 'm9', url: './js/models/avatars/club-crowd-m9.glb' },
+                // The bouncer at the street door (black suit; carries the guest idle clips). Never a player avatar.
+                { id: 'bouncer', url: './js/models/avatars/club-crowd-bouncer.glb' }
             ].map(source => Object.freeze(source)));
         }
         return this._avatarSources;
@@ -1023,12 +1040,34 @@ class VRClubAudioCrowd extends VRClubUI {
         try {
             const container = await BABYLON.SceneLoader.LoadAssetContainerAsync("", url, this.scene);
             this._prepareAvatarMaterials(container.materials, garmentColor, hairColor);
+            this._restoreLightBudgets();
             this._avatarContainers.push(container);
             return container;
         } catch (error) {
             log.warn(`  ❌ Failed to load avatar source ${url}: ${error.message}`);
             return null;
         }
+    }
+
+    /**
+     * The glTF loader raises EVERY material in the scene to the scene's light count when a file lands (even into a
+     * container), so a load after start-up (a DJ swap, a tier top-up, the people outside the street door) left the club's
+     * and the street's lit materials asking for more lights than the device binds. Put back only the ones it changed, so
+     * nothing else recompiles.
+     */
+    _restoreLightBudgets() {
+        const scene = this.scene;
+        if (!scene || !scene.materials || !Number.isFinite(this.maxLights)) return;
+        const blocked = scene.blockMaterialDirtyMechanism;
+        scene.blockMaterialDirtyMechanism = false;
+        for (const material of scene.materials) {
+            if (material.maxSimultaneousLights === undefined || material.disableLighting) continue;
+            if (material.maxSimultaneousLights === this.maxLights) continue;
+            if (material.isFrozen) material.unfreeze();
+            material.maxSimultaneousLights = this.maxLights;
+            if (material.markAsDirty) material.markAsDirty(BABYLON.Material.LightDirtyFlag);
+        }
+        scene.blockMaterialDirtyMechanism = blocked;
     }
 
     /**
@@ -1419,7 +1458,9 @@ class VRClubAudioCrowd extends VRClubUI {
                 new BABYLON.Vector3(slot.x, 0, slot.z),
                 Math.PI + slot.facing,
                 slot.height,
-                0.85 + (index % 5) * 0.07
+                0.85 + (index % 5) * 0.07,
+                // The Quaternius people carry several moves and dance them on the beat; the Mixamo three keep their own.
+                { repertoire: VRClubAudioCrowd.DANCE_MOVES }
             );
         });
     }
@@ -1469,7 +1510,7 @@ class VRClubAudioCrowd extends VRClubUI {
             mesh.isPickable = false;
             mesh.alwaysSelectAsActiveMesh = true; // instances live far from the base mesh's bounds
             mesh.renderingGroupId = 0;
-            shadows = this._contactShadows = { mesh, buffer: new Float32Array(32 * 16) };
+            shadows = this._contactShadows = { mesh, buffer: new Float32Array(48 * 16) };
         }
 
         let count = 0;
@@ -1516,17 +1557,228 @@ class VRClubAudioCrowd extends VRClubUI {
             npc.root.setEnabled(enabled);
             // The occupant box is its own mesh: left enabled, a hidden dancer stays solid.
             if (npc.collider) npc.collider.setEnabled(enabled);
-            npc.animations.forEach(group => {
-                if (enabled) {
-                    if (group.isPaused && group.restart) group.restart();
-                } else if (!group.isPaused && group.pause) {
-                    group.pause();
-                }
-            });
+            VRClubAudioCrowd._setAnimating(npc, enabled);
         });
+        if (typeof this._applyStreetPeople === 'function') this._applyStreetPeople();
         this._refreshContactShadows();
     }
+
+    // ───────────────────────── the street door: a bouncer and a queue ─────────────────────────
+    //
+    // Outside the street door, on the pavement at street level, a bouncer in a black suit stands beside the door and a
+    // line of people waits along the club's front behind a velvet rope (CityDistrict._createStreetDoorDressing). They
+    // exist only once the street has loaded (there is no pavement for them otherwise), their files load in the
+    // background, they are drawn only while the street is (updateCityDistrict -> _showStreetPeople), and they take the
+    // door lamp as their first light. The queue is as long as the tier allows (`queueSize`).
+
+    /**
+     * The bouncer and the queue, in world coordinates (`y` is the pavement). Yaw 0 faces +z (the road), +PI/2 faces +x;
+     * the door is to the -x side of everyone in the queue. Ordered so a short queue is already varied (a talking pair, a
+     * man and a woman on their own) and, on the lower tiers, holds nobody who is also dancing inside.
+     */
+    _streetSlots() {
+        const ground = (typeof window !== 'undefined' && window.CityLayout && window.CityLayout.groundY) || 0;
+        const at = id => VRClubAudioCrowd.sourceIndex(id);
+        const door = -Math.PI / 2;
+        const face = (x, z, tx, tz) => Math.atan2(tx - x, tz - z);
+        const queue = [
+            { src: at('m8'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78 },
+            { src: at('f8'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67 },
+            { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82 },
+            { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66 },
+            { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76 },
+            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70 },
+            { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80 },
+            { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69 }
+        ].map(slot => ({ ...slot, y: ground }));
+        return {
+            // Beside the door, outside its opening, watching the street and the head of the queue.
+            bouncer: { src: at('bouncer'), clip: 'Idle_FoldArms_Loop', x: 2.25, y: ground, z: 6.85, yaw: 0.35, height: 1.96 },
+            queue
+        };
+    }
+
+    /** The street people the active tier shows, spawned once their files have loaded; then shown with the street. */
+    _applyStreetPeople() {
+        if (!this._cityRoot || !this._crowdSourceContainers || !this.npcAvatars || this._disposed) return;
+        const { bouncer, queue } = this._streetSlots();
+        const target = Math.min(queue.length, Math.max(0, (this.tierSettings && this.tierSettings.queueSize) | 0));
+        const wanted = [bouncer, ...queue.slice(0, target)];
+        const missing = [...new Set(wanted.map(slot => slot.src))]
+            .filter(index => index >= 0 && this._crowdSourceContainers[index] === undefined);
+        if (missing.length > 0) {
+            // In the background, off everything else's path: then come back and place them.
+            if (!this._streetTopUp) {
+                this._streetTopUp = this._loadCrowdSources(missing).catch(() => {}).then(() => {
+                    this._streetTopUp = null;
+                    if (!this._disposed) this._applyStreetPeople();
+                });
+            }
+            return;
+        }
+        const placed = [];
+        const spawn = (slot, name, index) => {
+            if (this.npcAvatars.some(npc => npc.name === name)) return;
+            const source = this._crowdSourceContainers[slot.src];
+            if (!source) return;   // the file failed to load: nobody stands in that spot
+            const entry = this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, slot.y, slot.z), slot.yaw, slot.height,
+                0.85 + (index % 4) * 0.06, { clip: slot.clip, reactsToBeat: false });
+            const npc = entry && this.npcAvatars[this.npcAvatars.length - 1];
+            if (npc && npc.name === name) {
+                npc.homeYaw = null;
+                npc.streetYaw = slot.yaw;
+                placed.push(npc);
+            }
+        };
+        spawn(bouncer, 'bouncer', 0);
+        queue.slice(0, target).forEach((slot, index) => spawn(slot, `queue${index}`, index + 1));
+        const lights = [this._streetDoorLight, this._cityFillLight].filter(Boolean);
+        for (const npc of placed) for (const light of lights) this._extendAccentLight(light, npc.meshes);
+        this._bouncer = this.npcAvatars.find(npc => npc.name === 'bouncer') || null;
+        this._showStreetPeople(this._cityVisible !== false, placed.length > 0);
+    }
+
+    /**
+     * Show (and animate) the street people while the street is drawn, up to the tier's queue length; hide them otherwise.
+     * `placed`: someone new arrived, so the contact shadows are rebuilt even if nobody's visibility changed.
+     */
+    _showStreetPeople(visible, placed = false) {
+        if (!this.npcAvatars) return;
+        const target = Math.max(0, (this.tierSettings && this.tierSettings.queueSize) | 0);
+        let changed = placed;
+        for (const npc of this.npcAvatars) {
+            const isQueue = /^queue\d+$/.test(npc.name);
+            if (!isQueue && npc.name !== 'bouncer') continue;
+            const enabled = !!visible && (!isQueue || Number(npc.name.slice(5)) < target);
+            if (npc.root.isEnabled() !== enabled) changed = true;
+            npc.root.setEnabled(enabled);
+            if (npc.collider) npc.collider.setEnabled(enabled);
+            VRClubAudioCrowd._setAnimating(npc, enabled);
+        }
+        if (changed) this._refreshContactShadows();
+    }
+
+    /**
+     * Play or pause a character's clips. Babylon's AnimationGroup reports `isPlaying` (there is no `isPaused`), and a
+     * group paused here restarts here; the distance LOD in updateDancingNPCs keeps its own flag, cleared on the way back.
+     */
+    static _setAnimating(npc, on) {
+        for (const group of npc.animations || []) {
+            if (on) {
+                if (!group.isPlaying && group.restart) group.restart();
+            } else if (group.isPlaying && group.pause) {
+                group.pause();
+            }
+        }
+        if (on) npc._animPaused = false;
+    }
+
+    /** The bouncer keeps an eye on whoever comes close: he turns toward them (never more than ~75 degrees), then back. */
+    _updateBouncer(dt) {
+        const npc = this._bouncer;
+        if (!npc || !npc.root || !npc.root.isEnabled()) return;
+        const cam = this._playerCamera();
+        const pos = cam && (cam.globalPosition || cam.position);
+        const home = npc.streetYaw || 0;
+        let goal = home;
+        if (pos) {
+            const dx = pos.x - npc.root.position.x, dz = pos.z - npc.root.position.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < 49 && d2 > 0.04 && Math.abs(pos.y - npc.root.position.y) < 3) {
+                let off = Math.atan2(dx, dz) - home;
+                off = Math.atan2(Math.sin(off), Math.cos(off));
+                goal = home + Math.max(-1.3, Math.min(1.3, off));
+            }
+        }
+        const k = 1 - Math.exp(-Math.max(0, dt || 0) * 2.5);
+        npc.root.rotation.y += (goal - npc.root.rotation.y) * k;
+    }
     
+    // ───────────────────────── the crowd dances on the beat ─────────────────────────
+    //
+    // The Quaternius dancers each keep several moves (Dance_Loop and the grooves built by scripts/build-crowd-glbs.mjs)
+    // and CrowdDance (js/crowdDance.js) decides who does what, on the club's beat grid. Here: the music it needs, once a
+    // frame, and its decisions applied to the animation groups (one plays at a time; a new move blends in).
+
+    /** The clips a Quaternius dancer keeps (the rest of its file is disposed at spawn). */
+    static get DANCE_MOVES() {
+        return typeof CrowdDance !== 'undefined' ? Object.keys(CrowdDance.MOVES) : ['Dance_Loop'];
+    }
+
+    /** The music as the choreographer sees it, in one reused object. */
+    _crowdMusic(audioData) {
+        const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
+        const vj = this.vjDirector, show = this.showDirector;
+        const hasAudio = !!(audioData && audioData.hasAudio);
+        m.bpm = (vj && vj.bpm) || 120;
+        if (vj) {
+            // The continuous beat position: the counter plus how far into this beat the bar phase is.
+            const inBar = vj.beatNumber % 4;
+            const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
+            m.beat = vj.beatNumber + Math.max(0, Math.min(1, barPhase * 4 - inBar));
+        }
+        // The kick is here while it keeps coming; it is back after two kicks in a row (one stray hit is not a beat).
+        const beatMs = 60000 / m.bpm;
+        const recent = !!vj && vj.realOnsetCount > 0 && performance.now() - vj.lastRealOnsetAt < Math.max(1600, 2.5 * beatMs);
+        m.beatPresent = hasAudio && recent && (m.beatPresent || (vj.onsetStreak || 0) >= 2);
+        m.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
+            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
+        // A build (the countdown, or the ascent movement) and the frame a drop lands (the release, or ignition starting).
+        m.build = false;
+        m.drop = false;
+        if (show) {
+            const piece = show._setPiece || null;
+            m.build = (!!show.setPieces && piece === show.setPieces.countdown) || show._movementName === 'ascent';
+            if (piece !== this._crowdLastPiece) {
+                if (piece && show.setPieces && piece === show.setPieces.release) m.drop = true;
+                this._crowdLastPiece = piece;
+            }
+            if (show._movementName !== this._crowdLastMovement) {
+                if (show._movementName === 'ignition' && this._crowdLastMovement != null) m.drop = true;
+                this._crowdLastMovement = show._movementName;
+            }
+        }
+        return m;
+    }
+
+    /** Where a playing group is in its loop (0..1), or null. */
+    static _loopFraction(group) {
+        const animatable = group && group.isPlaying && group.animatables && group.animatables[0];
+        const span = group ? group.to - group.from : 0;
+        if (!animatable || !(span > 0)) return null;
+        const f = (animatable.masterFrame - group.from) / span;
+        return f - Math.floor(f);
+    }
+
+    /** Per frame: every Quaternius dancer on the floor does its move, on the beat. */
+    _updateCrowdDance(dt, audioData) {
+        if (!this.npcAvatars || typeof CrowdDance === 'undefined') return;
+        const choreographer = this._crowdDance || (this._crowdDance = new CrowdDance());
+        const music = this._crowdMusic(audioData);
+        this._crowdBeatPresent = music.beatPresent;
+        const decision = this._crowdDecision || (this._crowdDecision = {});
+        for (const npc of this.npcAvatars) {
+            const dance = npc.dance;
+            if (!dance || !npc.root.isEnabled() || npc._animPaused) continue;
+            if (!dance.state) dance.state = choreographer.createDancer([...dance.groups.keys()]);
+            choreographer.step(dance.state, music, VRClubAudioCrowd._loopFraction(dance.current), decision);
+            let group = dance.current;
+            if (decision.switched || decision.snap) {
+                const next = dance.groups.get(decision.move);
+                if (next && next !== group) {
+                    // Start the new move first: it blends from the pose the old one leaves (enableBlending), then the
+                    // old one stops where it is.
+                    next.start(true, decision.speed, next.from, next.to);
+                    group.stop();
+                    dance.current = group = next;
+                    npc.animations = [next];
+                }
+                group.goToFrame(group.from + decision.frac * (group.to - group.from));
+            }
+            group.speedRatio = decision.speed;
+        }
+    }
+
     /**
      * @param {number} time
      * @param {object} [audioData] Analyser output for THIS frame, supplied by
@@ -1538,9 +1790,12 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!this.npcAvatars || this.npcAvatars.length === 0) return;
 
         if (!audioData) audioData = this.getAudioData();
-        const beatBoost = (audioData.hasAudio && audioData.bass > 0.3)
+        // The three Mixamo dancers have one clip each: they dance to the low end, and slow right down (a lazy groove)
+        // while the kick is gone, as the rest of the floor sways or stands (_updateCrowdDance).
+        const quiet = this._crowdBeatPresent === false ? 0.45 : 1;
+        const beatBoost = quiet * ((audioData.hasAudio && audioData.bass > 0.3)
             ? 1.0 + (audioData.bass - 0.3) * 0.3
-            : 1.0;
+            : 1.0);
 
         const tempoChanged = Math.abs(beatBoost - this._npcBeatBoost) >= 0.01;
         if (tempoChanged) {
@@ -1560,7 +1815,8 @@ class VRClubAudioCrowd extends VRClubUI {
             const npc = this.npcAvatars[i];
             if (!npc.animations || !npc.root || !npc.root.isEnabled()) continue;
 
-            if (tempoChanged && npc.reactsToBeat !== false) {
+            // A dancer with a repertoire takes its tempo from the choreographer, on the beat.
+            if (tempoChanged && npc.reactsToBeat !== false && !npc.dance) {
                 for (let a = 0; a < npc.animations.length; a++) {
                     npc.animations[a].speedRatio = npc.baseSpeed * beatBoost;
                 }

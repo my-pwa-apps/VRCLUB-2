@@ -73,7 +73,9 @@ const CAST = [
     { id: 'm6', base: 'men', file: 'Suit', skin: 'tan', guest: true, colors: { Hair: '#b9bac2', Eyebrows: '#9c9ca3', Suit: '#2a303b' } },
     { id: 'm7', base: 'men', file: 'Suit', skin: 'deep', mirror: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#4b202c' } },
     { id: 'm8', base: 'men', file: 'Beach', skin: 'light', guest: true, colors: { Hair: '#c9a459', Eyebrows: '#8a6b34', LightBrown: '#e2d9bd', Red_Dark: '#1f6090' } },
-    { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } }
+    { id: 'm9', base: 'men', file: 'Casual_2', skin: 'medium', colors: { Hair: '#4a2f1a', LightBrown: '#6a3c8d' } },
+    // The bouncer at the street door: black suit, black shirt and tie. Not a guest slot; he folds his arms (guest clips).
+    { id: 'bouncer', base: 'men', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair: BLACK_HAIR, Eyebrows: BLACK_HAIR, Suit: '#111114', Tie: '#08080a', White: '#1d1d22' } }
 ];
 const GUEST_CLIPS = ['Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Idle_FoldArms_Loop', 'Idle_TalkingPhone_Loop', 'Yes'];
 // Everybody can dance and nod (`Yes`); the guests who stand about also carry the idle poses. The people who walk the
@@ -369,6 +371,312 @@ function retarget(src, tgt, clip, mirror = false) {
     return { times, tracks, name: clip.name };
 }
 
+// --- procedural grooves ------------------------------------------------------------------------------------------
+// Quaternius ships one dance (`Dance_Loop`), so a floor of people all did the same thing. These loops are authored
+// straight onto the modular rig from a few numbers per move: the hips (offset and turn), the spine and the head, a
+// target for each wrist (from its shoulder, in the chest's frame; two-bone IK with an elbow pole) and one for each
+// ankle (from its bind spot; two-bone IK, knee forward). Everything is at GROOVE_BPM: a beat is 0.5 s (10 keys), each
+// loop is a whole number of beats with a beat on its first frame, and the club plays them at the track's tempo, on its
+// beat (js/crowdDance.js). Body-frame vectors are [right, up, forward]; angles are [pitch forward, yaw right, roll right].
+const GROOVE_BPM = 120;
+// 10 keys a beat: a beat always falls on a key (a clap meets exactly there), and smooth motion needs no more.
+const GROOVE_FPS = 20;
+const TAU = 2 * Math.PI;
+/** 1 on the beat, 0 half way to the next: the shape of a bounce that lands on the beat. */
+const onBeat = beat => 0.5 + 0.5 * Math.cos(TAU * beat);
+const smooth = t => { const c = Math.min(1, Math.max(0, t)); return c * c * (3 - 2 * c); };
+const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+/** A step that leaves its key in the second half of a beat and lands exactly on the next: keys are per beat. */
+const stepped = (keys, beat) => {
+    const i = Math.floor(beat) % keys.length, frac = beat - Math.floor(beat);
+    const travel = smooth((frac - 0.45) / 0.55);
+    const from = keys[i], to = keys[(i + 1) % keys.length];
+    return { value: from + (to - from) * travel, moving: from !== to ? Math.sin(Math.PI * Math.min(1, Math.max(0, (frac - 0.45) / 0.55))) : 0 };
+};
+
+const GROOVES = [
+    {
+        // Knees bend down on every beat, weight rocks side to side, arms swing low with bent elbows, head nods.
+        name: 'Groove_Bounce', beats: 2,
+        pose: b => {
+            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            return {
+                hip: [0.03 * c, -(0.03 + 0.055 * p), 0.015 * p], hipRot: [0.05 + 0.05 * p, 0.08 * c, 0.05 * c],
+                spine: [0.03 * p, -0.12 * c, -0.04 * c], head: [-0.04 + 0.16 * p, 0.05 * c, 0.06 * c],
+                hands: { R: { at: [0.05, -0.30 + 0.05 * p, 0.17 + 0.1 * c] }, L: { at: [-0.05, -0.30 + 0.05 * p, 0.17 - 0.1 * c] } }
+            };
+        }
+    },
+    {
+        // Side taps: the right foot taps out on beat 1 and back on 2, the left out on 3 and back on 4; the arms open
+        // toward the tapping side and the head follows it.
+        name: 'Groove_SideTap', beats: 4,
+        pose: b => {
+            const p = onBeat(b);
+            const r = stepped([0.22, 0, 0, 0], b), l = stepped([0, 0, -0.22, 0], b);
+            const outR = r.value / 0.22, outL = -l.value / 0.22;
+            const restR = [0.05, -0.32, 0.15], restL = [-0.05, -0.32, 0.15];
+            return {
+                hip: [-0.25 * (r.value + l.value), -(0.03 + 0.04 * p), 0], hipRot: [0.05 + 0.03 * p, 0.1 * (outR - outL), 0.1 * (outR - outL)],
+                spine: [0.02 * p, -0.06 * (outR - outL), -0.06 * (outR - outL)], head: [0.08 * p, 0.25 * (outR - outL), 0.05 * (outR - outL)],
+                hands: { R: { at: lerp3(restR, [0.3, -0.1, 0.12], outR) }, L: { at: lerp3(restL, [-0.3, -0.1, 0.12], outL) } },
+                feet: { R: [0.03 + r.value, 0.07 * r.moving, 0.05 * outR], L: [-0.03 + l.value, 0.07 * l.moving, 0.05 * outL] }
+            };
+        }
+    },
+    {
+        // A clap on every beat in front of the chest, bouncing with it.
+        name: 'Groove_Clap', beats: 2,
+        pose: (b, rig) => {
+            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            const open = Math.pow(Math.sin(Math.PI * (b % 1)), 1.2);
+            const half = 0.045 + 0.17 * open;
+            return {
+                hip: [0.015 * c, -(0.025 + 0.045 * p), 0.01 * p], hipRot: [0.06 + 0.04 * p, 0.05 * c, 0.03 * c],
+                spine: [0.03 * p, -0.06 * c, 0], head: [-0.02 + 0.12 * p, 0.06 * c, 0.04 * c],
+                hands: {
+                    R: { at: [-rig.shoulder + half, -0.17 + 0.03 * open, 0.3], pole: [0.7, -0.6, -0.3], fingers: [-0.25, 0.5, 1] },
+                    L: { at: [rig.shoulder - half, -0.17 + 0.03 * open, 0.3], pole: [-0.7, -0.6, -0.3], fingers: [0.25, 0.5, 1] }
+                }
+            };
+        }
+    },
+    {
+        // A fist punched up on every beat, the other hand low; the body turns a little over the bar.
+        name: 'Groove_Pump', beats: 4,
+        pose: b => {
+            const p = onBeat(b), s = Math.sin(Math.PI * b / 2);
+            return {
+                hip: [0.02 * s, -(0.03 + 0.05 * p), 0.01 * p], hipRot: [0.04 + 0.04 * p, 0.12 + 0.08 * s, 0.03 * s],
+                spine: [0.02 * p, -0.05 * s, 0.03], head: [-0.06 + 0.12 * p, 0.1 + 0.05 * s, 0.03],
+                hands: {
+                    R: { at: [0.1, 0.3 + 0.12 * p, 0.16 + 0.04 * p], pole: [1, -0.2, -0.4], fingers: [0, 1, 0.2] },
+                    L: { at: [-0.04, -0.28 + 0.04 * p, 0.2] }
+                },
+                shrug: { R: 0.18 }
+            };
+        }
+    },
+    {
+        // The twist: hips turn one way on each beat, shoulders the other, feet pivot, forearms forward.
+        name: 'Groove_Twist', beats: 2,
+        pose: b => {
+            const p = onBeat(b), c = Math.cos(Math.PI * b);
+            return {
+                hip: [0, -(0.04 + 0.04 * p), 0], hipRot: [0.06, 0.38 * c, 0.03 * c],
+                spine: [0.04, -0.55 * c, -0.02 * c], head: [0.04 + 0.06 * p, -0.15 * c, 0],
+                hands: { R: { at: [-0.02, -0.22, 0.26] }, L: { at: [0.02, -0.22, 0.26] } },
+                feet: { R: [0.06, 0, 0], L: [-0.06, 0, 0] }, feetYaw: 0.3 * c
+            };
+        }
+    },
+    {
+        // Both hands up, swaying across over the bar, bouncing on every beat, looking up.
+        name: 'Groove_HandsUp', beats: 4,
+        pose: b => {
+            const p = onBeat(b), w = Math.sin(TAU * b / 4);
+            return {
+                hip: [0.04 * w, -(0.03 + 0.05 * p), 0], hipRot: [0.02 + 0.03 * p, 0.04 * w, -0.06 * w],
+                spine: [-0.04, 0, 0.04 * w], head: [-0.18 + 0.1 * p, 0.05 * w, 0.05 * w],
+                hands: {
+                    R: { at: [0.1 + 0.12 * w, 0.4, 0.06], pole: [1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] },
+                    L: { at: [-0.1 + 0.12 * w, 0.4, 0.06], pole: [-1, 0, -0.3], fingers: [0.3 * w, 1, 0.1] }
+                },
+                shrug: { R: 0.25, L: 0.25 }
+            };
+        }
+    },
+    {
+        // A slow sway from foot to foot over a bar, arms loose: on the beat when the music is quiet, free-running (slower)
+        // when the beat has gone.
+        name: 'Groove_Sway', beats: 4,
+        pose: b => {
+            const w = Math.sin(TAU * b / 4), c = Math.cos(TAU * b / 4);
+            return {
+                hip: [0.05 * w, -0.03 - 0.01 * (1 - Math.cos(TAU * b / 2)), 0], hipRot: [0.03, 0.06 * w, 0.07 * w],
+                spine: [0, -0.04 * w, -0.08 * w], head: [0.02, 0.08 * c, 0.07 * w],
+                hands: { R: { at: [0.04, -0.4 + 0.02 * w, 0.08 + 0.03 * w] }, L: { at: [-0.04, -0.4 - 0.02 * w, 0.08 - 0.03 * w] } }
+            };
+        }
+    },
+    {
+        // Standing still: weight settled on both feet, arms hanging, just breathing and a slow look around. What a
+        // dancer does when the beat drops out and they are not swaying (the stock Idle drives other bones; see build()).
+        name: 'Groove_Still', beats: 8,
+        pose: b => {
+            const breath = Math.sin(TAU * b / 4), look = Math.sin(TAU * b / 8);
+            return {
+                hip: [0.012 * look, -0.02, 0], hipRot: [0.01, 0.03 * look, 0.02 * look],
+                spine: [-0.015 * breath, 0, -0.02 * look], head: [0.03, 0.18 * look, 0.02],
+                hands: { R: { at: [0.06, -0.42, 0.05 + 0.01 * breath] }, L: { at: [-0.06, -0.42, 0.05 + 0.01 * breath] } },
+                shrug: { R: 0.03 * breath, L: 0.03 * breath }
+            };
+        }
+    }
+];
+
+/** Defaults, then a mirror that swaps left and right (a reflection across the body's midline). */
+function groovePose(groove, beat, mirror, rig) {
+    const raw = groove.pose(beat, rig);
+    const hand = (side, spec = {}) => {
+        const sign = side === 'R' ? 1 : -1;
+        return { at: spec.at || [0.05 * sign, -0.32, 0.15], pole: spec.pole || [0.5 * sign, -0.4, -0.7], fingers: spec.fingers || null };
+    };
+    const pose = {
+        hip: raw.hip || [0, -0.03, 0], hipRot: raw.hipRot || [0, 0, 0], spine: raw.spine || [0, 0, 0], head: raw.head || [0, 0, 0],
+        hands: { R: hand('R', raw.hands && raw.hands.R), L: hand('L', raw.hands && raw.hands.L) },
+        feet: { R: (raw.feet && raw.feet.R) || [0.03, 0, 0], L: (raw.feet && raw.feet.L) || [-0.03, 0, 0] },
+        feetYaw: raw.feetYaw || 0,
+        shrug: { R: (raw.shrug && raw.shrug.R) || 0, L: (raw.shrug && raw.shrug.L) || 0 }
+    };
+    if (!mirror) return pose;
+    const flip = v => (v ? [-v[0], v[1], v[2]] : v);
+    const turn = a => [a[0], -a[1], -a[2]];
+    const flipHand = h => ({ at: flip(h.at), pole: flip(h.pole), fingers: flip(h.fingers) });
+    return {
+        hip: flip(pose.hip), hipRot: turn(pose.hipRot), spine: turn(pose.spine), head: turn(pose.head),
+        hands: { R: flipHand(pose.hands.L), L: flipHand(pose.hands.R) },
+        feet: { R: flip(pose.feet.L), L: flip(pose.feet.R) },
+        feetYaw: -pose.feetYaw,
+        shrug: { R: pose.shrug.L, L: pose.shrug.R }
+    };
+}
+
+// The modular rig faces +z with its left on +x: body-frame [right, up, forward] is world [-x, y, z].
+const bodyToWorld = v => [-v[0], v[1], v[2]];
+const qAxis = (axis, angle) => { const s = Math.sin(angle / 2); return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2)]; };
+/** [pitch forward, yaw right, roll right] as a world rotation (yaw outermost). */
+const bodyRotation = ([pitch, yaw, roll], scale = 1) =>
+    qmul(qAxis([0, 1, 0], -yaw * scale), qmul(qAxis([1, 0, 0], pitch * scale), qAxis([0, 0, 1], roll * scale)));
+
+/** Two-bone IK: the elbow (knee) and the reachable end, for a chain rooted at `a`, bending toward `pole`. */
+function twoBone(a, target, l1, l2, pole) {
+    const d = vsub(target, a);
+    const dist = Math.hypot(...d) || 1e-6;
+    const reach = Math.min((l1 + l2) * 0.999, Math.max(Math.abs(l1 - l2) * 1.001 + 1e-4, dist));
+    const dir = vscale(d, 1 / dist);
+    const along = (l1 * l1 - l2 * l2 + reach * reach) / (2 * reach);
+    const h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+    let n = vsub(pole, vscale(dir, vdot(pole, dir)));
+    if (Math.hypot(...n) < 1e-6) n = Math.abs(dir[1]) < 0.9 ? vcross(dir, [0, 1, 0]) : vcross(dir, [1, 0, 0]);
+    n = vnorm(n);
+    return { joint: vadd(a, vadd(vscale(dir, along), vscale(n, h))), end: vadd(a, vscale(dir, reach)) };
+}
+
+/** Author one groove on the modular rig: returns { times, tracks, name } like retarget(). */
+function synthesize(tgt, groove, mirror) {
+    const T = name => {
+        const joint = tgt.byName.get(name);
+        if (!joint) throw new Error(`the modular rig has no joint "${name}"`);
+        return joint;
+    };
+    const bindOf = name => tgt.bind.get(T(name));
+    const perBeat = GROOVE_FPS * 60 / GROOVE_BPM;
+    const frames = Math.round(groove.beats * perBeat);
+    const times = [];
+    const tracks = new Map();
+    const previous = new Map();
+    const push = (name, path, value) => {
+        if (!tracks.has(name)) tracks.set(name, { rotation: [], translation: [] });
+        if (path === 'rotation') {
+            const last = previous.get(name);
+            if (last && last[0] * value[0] + last[1] * value[1] + last[2] * value[2] + last[3] * value[3] < 0) value = value.map(v => -v);
+            previous.set(name, value);
+        }
+        tracks.get(name)[path].push(value);
+    };
+    const order = [];
+    const seen = new Set();
+    const visit = joint => {
+        if (seen.has(joint)) return;
+        const parent = tgt.parentOf(joint);
+        if (parent) visit(parent);
+        seen.add(joint); order.push(joint);
+    };
+    tgt.joints.forEach(visit);
+    const length = (a, b) => Math.hypot(...vsub(bindOf(b).p, bindOf(a).p));
+    const restDir = (a, b) => vnorm(vsub(bindOf(b).p, bindOf(a).p));
+    const SPINE = { Abdomen: 0.3, Torso: 0.65, Chest: 1 };
+    // What a pose needs to know about this body: how far each shoulder joint is from the midline.
+    const rig = { shoulder: Math.abs(bindOf('UpperArm.L').p[0] - bindOf('UpperArm.R').p[0]) / 2 };
+    const HEAD = { Neck: 0.4, Head: 1 };
+
+    for (let k = 0; k <= frames; k++) {
+        times.push(k / GROOVE_FPS);
+        const pose = groovePose(groove, (k / perBeat) % groove.beats, mirror, rig);
+        const hipQ = bodyRotation(pose.hipRot);
+        const chestQ = qmul(hipQ, bodyRotation(pose.spine));
+        const now = new Map();
+        const ik = {};
+
+        for (const joint of order) {
+            const name = joint.getName();
+            const parent = tgt.parentOf(joint);
+            const parentNow = parent ? now.get(parent) : { q: [0, 0, 0, 1], p: [0, 0, 0] };
+            const bind = tgt.bind.get(joint);
+            const local = tgt.localBind.get(joint);
+            const position = vadd(parentNow.p, qrot(parentNow.q, local.t));
+            let world = null;   // a driven bone's world rotation
+            let lt = local.t;
+            const side = name.slice(-1);
+            const limb = name.replace(/\.[LR]$/, '');
+            if (name === 'Body') {
+                world = qmul(hipQ, bind.q);
+                lt = qrot(qinv(parentNow.q), vsub(vadd(bind.p, bodyToWorld(pose.hip)), parentNow.p));
+                push(name, 'translation', lt);
+            } else if (SPINE[name]) {
+                world = qmul(qmul(hipQ, bodyRotation(pose.spine, SPINE[name])), bind.q);
+            } else if (HEAD[name]) {
+                world = qmul(qmul(chestQ, bodyRotation(pose.head, HEAD[name])), bind.q);
+            } else if (limb === 'Shoulder') {
+                // Raise the outer end of the collarbone (about forward), with the chest.
+                const raise = qAxis([0, 0, 1], (side === 'L' ? 1 : -1) * pose.shrug[side]);
+                world = qmul(qmul(chestQ, raise), bind.q);
+            } else if (limb === 'UpperArm') {
+                const hand = pose.hands[side];
+                const target = vadd(position, qrot(chestQ, bodyToWorld(hand.at)));
+                const pole = qrot(chestQ, bodyToWorld(hand.pole));
+                ik[side] = { arm: twoBone(position, target, length(`UpperArm.${side}`, `LowerArm.${side}`), length(`LowerArm.${side}`, `Wrist.${side}`), pole), hand };
+                world = qmul(qswing(restDir(`UpperArm.${side}`, `LowerArm.${side}`), vnorm(vsub(ik[side].arm.joint, position))), bind.q);
+            } else if (limb === 'LowerArm') {
+                const { arm } = ik[side];
+                world = qmul(qswing(restDir(`LowerArm.${side}`, `Wrist.${side}`), vnorm(vsub(arm.end, position))), bind.q);
+            } else if (limb === 'Wrist') {
+                const { arm, hand } = ik[side];
+                const fingers = hand.fingers ? vnorm(qrot(chestQ, bodyToWorld(hand.fingers))) : vnorm(vsub(arm.end, arm.joint));
+                world = qmul(qswing(restDir(`Wrist.${side}`, `Middle1.${side}`), fingers), bind.q);
+            } else if (limb === 'UpperLeg') {
+                const foot = bindOf(`Foot.${side}`).p;
+                const target = vadd(foot, bodyToWorld(pose.feet[side]));
+                const leg = twoBone(position, target, length(`UpperLeg.${side}`, `LowerLeg.${side}`), length(`LowerLeg.${side}`, `Foot.${side}`), [0, 0, 1]);
+                ik[`leg${side}`] = leg;
+                world = qmul(qswing(restDir(`UpperLeg.${side}`, `LowerLeg.${side}`), vnorm(vsub(leg.joint, position))), bind.q);
+            } else if (limb === 'LowerLeg') {
+                const leg = ik[`leg${side}`];
+                world = qmul(qswing(restDir(`LowerLeg.${side}`, `Foot.${side}`), vnorm(vsub(leg.end, position))), bind.q);
+            } else if (limb === 'Foot') {
+                // Free-standing (an IK bone under Root): at the end of the leg, flat, toes down while it travels.
+                const leg = ik[`leg${side}`];
+                const lift = pose.feet[side][1];
+                const footQ = qmul(qAxis([0, 1, 0], -pose.feetYaw), qAxis([1, 0, 0], Math.min(0.5, lift * 4)));
+                world = qmul(footQ, bind.q);
+                lt = qrot(qinv(parentNow.q), vsub(leg.end, parentNow.p));
+                push(name, 'translation', lt);
+            }
+            let lq = local.q;
+            if (world) {
+                lq = qmul(qinv(parentNow.q), world);
+                push(name, 'rotation', lq);
+            }
+            const worldQ = qmul(parentNow.q, lq);
+            now.set(joint, { q: worldQ, p: vadd(parentNow.p, qrot(parentNow.q, lt)) });
+        }
+    }
+    return { times, tracks, name: groove.name };
+}
+
+
+
 // --- colours ----------------------------------------------------------------------------------------------------
 const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const hexToLinear = hex => [1, 3, 5].map(i => srgbToLinear(parseInt(hex.slice(i, i + 2), 16) / 255));
@@ -445,6 +753,10 @@ async function build(person) {
     const { sk: src, clips: all } = await source(person.base);
     const wanted = person.guest ? GUEST_CLIPS : DANCER_CLIPS;
     const results = all.filter(clip => wanted.includes(clip.name)).map(clip => retarget(src, tgt, clip, !!person.mirror));
+    // The dancers on the floor also get the procedural grooves (the guests and the bouncer stand about; they do not).
+    // A groove drives exactly the bones the retargeted Dance_Loop drives, so a dancer can switch between any of them
+    // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
+    if (!person.guest) for (const groove of GROOVES) results.push(synthesize(tgt, groove, !!person.mirror));
 
     // Bind pose as the node pose. The packs' own Idle, Walk, Run and Wave animate exactly these nodes (same rig), so
     // they are kept as they are for the people who walk around as other guests; every other stock clip goes. Ours follow.

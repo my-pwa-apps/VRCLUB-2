@@ -97,6 +97,7 @@ const projectGlobals = {
     ClubMultiplayer: 'readonly',
     AvatarRig: 'readonly',
     DJPerformer: 'readonly',
+    CrowdDance: 'readonly',
     log: 'readonly',
     module: 'readonly'
 };
