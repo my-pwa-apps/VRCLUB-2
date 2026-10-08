@@ -315,6 +315,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Changed
 
+- **NOCTURNE neon logo:** the club sign now follows the supplied reference with thin white geometric
+  tubing and a neutral smoky halo instead of the previous pink neon treatment. The same atlas-backed
+  logo is displayed outward above the street entrance, without adding a second texture or draw-call path.
 - **Lighting rig pulled in over the dance floor**: the side cross beams, their six moving heads and the two
   side lasers moved from x ±8 to x ±7.6 (`CLUB_POSITIONS.sideTrussX`), further from the balcony and the bar,
   and 0.8 m clear of the flown PA cabinets. The side lasers were also fixed: they were

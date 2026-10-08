@@ -134,6 +134,8 @@ class VRClubEnvironment extends VRClubRendering {
         const signs = [
             // The club's name over the doorway, facing the DJ and the dance floor (top of the door is y 3.4).
             { cell: 'nocturne', kind: 'nocturne', w: 6.0, h: 6.0 * 272 / 1024, wall: WALL_FRONT, axis: 'z', y: 5.2, along: 0, yaw: 0, plate: false },
+            // The same logo faces outward above the street door, so the entrance remains branded from the avenue.
+            { cell: 'nocturne', kind: 'nocturne', w: 4.9, h: 4.9 * 272 / 1024, wall: 6.0, axis: 'z', y: streetLevel + 4.25, along: 0, yaw: Math.PI, plate: false },
             { cell: 'bar', kind: 'neon', color: [1, 0.55, 0.12], w: 1.5, h: 1.07, wall: WALL_RIGHT, axis: 'x', y: 3.95, along: -9.9, yaw: Math.PI / 2 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_FRONT, axis: 'z', y: 3.0, along: 3.4, yaw: 0 },
             { cell: 'exit', kind: 'exit', color: [0.1, 1, 0.35], w: 0.5, h: 0.18, wall: WALL_LEFT, axis: 'x', y: 2.5, along: -17.5, yaw: -Math.PI / 2 },
@@ -278,18 +280,21 @@ class VRClubEnvironment extends VRClubRendering {
      * tubes. Every tube is a wide soft halo, the coloured glass and a hot near-white core.
      */
     _drawNocturneNeon(ctx, x, y, w, h, rgb) {
-        const PINK = [1, 0.16, 0.6], PINK_CORE = [1, 0.78, 0.92];
-        const tube = (color, core, width, stroke) => {
-            ctx.shadowColor = rgb(color);
-            ctx.strokeStyle = rgb(color, 0.9);
-            ctx.lineWidth = width;
-            ctx.shadowBlur = width * 5;
+        const HALO = [0.36, 0.38, 0.42], TUBE = [0.92, 0.94, 1], CORE = [1, 1, 1];
+        const tube = (stroke) => {
+            ctx.shadowColor = rgb(HALO, 1.4);
+            ctx.strokeStyle = rgb(TUBE, 0.9);
+            ctx.lineWidth = 10;
+            ctx.shadowBlur = 30;
             stroke();
-            ctx.shadowBlur = width * 2;
+            ctx.shadowBlur = 13;
             stroke();
             ctx.shadowBlur = 0;
-            ctx.lineWidth = width * 0.4;
-            ctx.strokeStyle = rgb(core);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = rgb(TUBE);
+            stroke();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = rgb(CORE);
             stroke();
         };
         ctx.lineCap = 'round';
@@ -298,7 +303,7 @@ class VRClubEnvironment extends VRClubRendering {
         // The word, letter by letter so the tracking does not depend on canvas letterSpacing support.
         const text = 'NOCTURNE';
         const left = x + 40, right = x + w - 40;
-        const fontFor = size => `600 ${size}px "Futura", "Century Gothic", "Avenir Next", "Trebuchet MS", Arial, sans-serif`;
+        const fontFor = size => `300 ${size}px "Futura", "Century Gothic", "Avenir Next", "Trebuchet MS", Arial, sans-serif`;
         let size = 200, widths = [], tracking = 0, total = Infinity;
         while (size > 40) {
             ctx.font = fontFor(size);
@@ -313,7 +318,7 @@ class VRClubEnvironment extends VRClubRendering {
         ctx.textBaseline = 'middle';
         const wordLeft = left + (right - left - total) / 2;
         const wordY = y + h * 0.5;
-        tube(PINK, PINK_CORE, size * 0.065, () => {
+        tube(() => {
             let pen = wordLeft;
             for (let i = 0; i < text.length; i++) {
                 ctx.strokeText(text[i], pen, wordY);
