@@ -1218,7 +1218,8 @@ class VRClubUI extends VRClubAnimationFinish {
             return;
         }
 
-        // Everything below changes the lights, which in someone else's room are the host's.
+        // The remaining show controls are host-owned in someone else's room (the legacy "lights" guard name is
+        // retained for multiplayer protocol compatibility).
         if (!this.guardHostControl('lights')) return;
 
         if (button.control === 'cycleLedPattern') {

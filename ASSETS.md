@@ -21,7 +21,7 @@ in `index.html`).
 | `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
-| `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
+| `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
 
@@ -62,9 +62,18 @@ asphalt are one material each), and packs the three room pictures plus a black g
 simplified by its distance from the door (meshoptimizer: the topological simplifier alone stops near 50% because a facade is thousands
 of separate window-frame islands; beyond about 22 m the window-frame material also goes through the sloppy simplifier), merged per
 building and per material, and quantised (14-bit positions, 8-bit normals). Textures become WebP: base colour 1024 px, packed ORM and
-normals 512 px. Result: 148k triangles in 10 buildings plus the street, 7 materials, 6.7 MB, about 5 to 6 draws per building. It is only
+normals 512 px.
+
+`npm run bake:street-props -- --cars "<Car Pack>/OBJ" --house "<Ultimate House Interior Pack>/OBJ"` is the idempotent
+second bake. It adds three parked cars (`BasicCar`, `SimpleCarShort`, `Taxi`), the two small bins
+(`Trashcan_Small1`, `Trashcan_Small2`) and one entrance plant (`Houseplant_4`) from those two additional Quaternius
+CC0 packs. Their flat materials and the cars' 4 px palette textures are baked into vertex colour on one shared opaque
+material; the source textures are not shipped. Each prop remains a separate node so the runtime can give it one
+measured collision box. The combined result is about 154k triangles, 8 materials, 7.2 MB and 66 draws. It is only
 drawn while a guest is near the entrance. The sky dome and the distant towers are procedural (`js/cityDistrict.js`). The kit's licence
-file asks for nothing, but the creator is credited here.
+file asks for nothing, but the creator is credited here. The exact CC0 source archives used for the prop bake have
+SHA-256 hashes `40B1F046227D1D7D3BC208E6DFFB36803AF71FA62476E371019D76860F08CE07` (Car Pack) and
+`E59E14F0C2F57C6E5D3A057A77DEEB7416C4FE3A6BDC5F27C8431F8A0BD7BBBB` (Ultimate House Interior Pack).
 
 ### The bar
 

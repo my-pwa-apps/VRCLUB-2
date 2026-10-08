@@ -1406,7 +1406,8 @@ class VRClubAudioCrowd extends VRClubUI {
     /**
      * Guests who are not on the dance floor: a pair talking by the right wall, relaxed watchers, someone nodding
      * along to the music, and a balcony guest resting both hands on the rail. Clubs are not only dancers, and the side
-     * walls were empty. Phone calls do not make sense beside a club PA, and crossed arms read as stiff cloned poses.
+     * walls were empty. Phone calls stay outside, away from the PA; the bouncer's folded arms suit his job rather than
+     * being repeated on the side-wall guests.
      * Same hand-placed ordering rule as the crowd: the first N are already spread around the room, so a lower tier
      * still looks populated (and its first two are the talking pair). Yaw 0 faces +z (the entrance side), PI faces
      * the DJ, +PI/2 faces +x. Every slot is well clear of the side walls, the truss legs and the DJ riser.
@@ -1728,13 +1729,13 @@ class VRClubAudioCrowd extends VRClubUI {
             { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82 },
             { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66 },
             { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76 },
-            { src: at('f7'), clip: 'Idle', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70 },
+            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70 },
             { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80 },
             { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69 }
         ].map(slot => ({ ...slot, y: ground }));
         return {
             // Beside the door, outside its opening, watching the street and the head of the queue.
-            bouncer: { src: at('bouncer'), clip: 'Idle_Loop', x: 2.25, y: ground, z: 6.85, yaw: 0.35, height: 1.96 },
+            bouncer: { src: at('bouncer'), clip: 'Idle_FoldArms_Loop', x: 2.25, y: ground, z: 6.85, yaw: 0.35, height: 1.96 },
             queue
         };
     }

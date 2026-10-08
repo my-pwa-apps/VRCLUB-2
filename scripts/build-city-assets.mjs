@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Bake the street outside the club from the Quaternius "Downtown City MegaKit" (Standard, CC0) into ONE
-// runtime-ready GLB: js/models/city/downtown.glb.
+// runtime-ready GLB: js/models/city/downtown.glb. Then run scripts/bake-street-props.mjs to add the parked cars,
+// two bins and the entrance plant from the two smaller Quaternius packs.
 //
 // The kit is a modular set of 153 pieces (3 whole buildings, street and sidewalk tiles, decals, props) with 78 MB of
 // PNG textures. A headset cannot afford that, so this script does the work offline:

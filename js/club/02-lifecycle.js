@@ -357,14 +357,18 @@ class VRClubLifecycle extends VRClubCore {
         this.scene.activeCamera = this.camera;
     }
 
-    /** Glow layer and the per-mesh-type emissive glow policy. */
+    /** Compatibility glow layer and its per-mesh policy. Visible glow comes from the depth-correct camera bloom. */
     _createGlowLayer() {
-        // Glow layer for dramatic emissive effects (LEDs, lasers, spotlights)
+        // A GlowLayer redraws only selected emissive meshes into its own render target. The opaque venue and
+        // characters are absent from that depth buffer, so emitters and halos behind them appear to shine through.
+        // Keep the object for fixture registration and diagnostics, but disable its composite. The default rendering
+        // pipeline's bloom runs on the already depth-tested camera image and supplies the same visible glow safely.
         this.glowLayer = new BABYLON.GlowLayer("glow", this.scene, {
             mainTextureFixedSize: 512,
             blurKernelSize: 32  // Wider blur for more realistic light halos
         });
         this.glowLayer.intensity = this.vrSettings.desktop.glowIntensity;
+        this.glowLayer.isEnabled = false;
         
         // Custom glow intensity per mesh type - selective glow for realism
         // LED panels and strobes get strong glow, lasers get intense glow, structures get none

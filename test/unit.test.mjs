@@ -1303,6 +1303,25 @@ test('startup preserves opaque depth for both later lighting groups', async () =
     assert.equal(configurations.has(0), false);
 });
 
+test('selective glow stays disabled because its private depth buffer cannot see opaque occluders', () => {
+    class GlowLayer {
+        constructor() {
+            this.isEnabled = true;
+            this.intensity = 0;
+        }
+    }
+    const { window } = loadClassic('js/club/02-lifecycle.js', {
+        BABYLON: { GlowLayer }, VRClubCore: class {}, log: { info() {} }
+    });
+    const club = {
+        scene: {},
+        vrSettings: { desktop: { glowIntensity: 0.65 } }
+    };
+    window.VRClubLifecycle.prototype._createGlowLayer.call(club);
+    assert.equal(club.glowLayer.isEnabled, false, 'selective glow can reveal a light through a wall or person');
+    assert.equal(club.glowLayer.intensity, 0.65, 'the configured value remains available to diagnostics');
+});
+
 test('light budget sweeps refresh matching-budget lit materials without refreezing them', () => {
     const BABYLON = { Material: { LightDirtyFlag: 2 } };
     const rendering = loadClassic('js/club/03-rendering.js', {
@@ -6345,6 +6364,27 @@ test('the baked street is small, opaque and cheap to draw', () => {
     const names = json.nodes.map(node => node.name);
     assert.ok(names.includes('street'));
     assert.ok(names.filter(name => /^(far|near[LR])\d+$/.test(name)).length >= 8, 'the buildings are missing');
+    assert.deepEqual(names.filter(name => /^parked(Car|Taxi)/.test(name)).sort(),
+        ['parkedCarEast', 'parkedCarWest', 'parkedTaxi'], 'three baked parked cars are missing');
+    assert.deepEqual(names.filter(name => /^streetBin/.test(name)).sort(),
+        ['streetBinEntrance', 'streetBinQueue'], 'the two street bins are missing');
+    assert.ok(names.includes('entrancePlant'), 'the entrance plant is missing');
+    const node = name => json.nodes.find(item => item.name === name);
+    for (const name of ['parkedCarWest', 'parkedTaxi']) {
+        const { min, max } = node(name).extras;
+        assert.ok(min[2] >= 9.25 && max[2] <= 12, `${name} is not parked against the near kerb`);
+    }
+    {
+        const { min, max } = node('parkedCarEast').extras;
+        assert.ok(min[2] >= 18.5 && max[2] <= 21.25, 'parkedCarEast is not parked against the far kerb');
+    }
+    for (const x of [0, -36, 36]) {
+        for (const name of ['parkedCarWest', 'parkedCarEast', 'parkedTaxi']) {
+            const { min, max } = node(name).extras;
+            assert.ok(x < min[0] - 1 || x > max[0] + 1, `${name} blocks the crosswalk at x=${x}`);
+        }
+    }
+    assert.ok(node('entrancePlant').extras.max[0] < -1.9, 'the plant narrows the street doorway');
     // The kit's own 4096 px (and bigger) PNGs must not have been carried over.
     assert.ok(json.images.length <= 16);
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /Downtown City MegaKit/);
@@ -7493,6 +7533,9 @@ test('the bouncer stands beside the street door and the queue waits behind the r
         assert.ok(slot.height > 1.5 && slot.height < 2.0 && Number.isFinite(slot.yaw));
     }
     assert.equal(Crowd.AVATAR_SOURCES[bouncer.src].id, 'bouncer');
+    assert.equal(bouncer.clip, 'Idle_FoldArms_Loop', 'the bouncer must use the one folded-arms pose');
+    assert.equal(queue.filter(slot => slot.clip === 'Idle_TalkingPhone_Loop').length, 1,
+        'exactly one person in the outside queue should be on a phone');
     assert.ok(bouncer.x < L.ropeFromX && bouncer.height >= Math.max(...queue.map(slot => slot.height)), 'the bouncer is outside the rope and the biggest');
     for (const slot of queue) {
         assert.ok(slot.x > L.ropeFromX + 0.25 && slot.x < L.ropeToX - 0.25, 'a queue slot is outside the rope line');

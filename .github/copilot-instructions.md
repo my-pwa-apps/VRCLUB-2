@@ -434,6 +434,12 @@ Change the config and call `applyVRSettings(xrCamera)` / `applyDesktopSettings()
 set pipeline values inline. Grain and chromatic aberration are disabled on both targets
 (they read as haze); bloom is kept minimal.
 
+The selective Babylon `GlowLayer` object remains available for fixture registration and diagnostics but is deliberately
+`isEnabled = false`. It renders selected emitters into a private target without the opaque venue or characters in its
+depth buffer, which made lights and halos visible through walls and Quaternius people. Visible glow comes only from the
+default rendering pipeline's bloom, after the main scene has resolved depth. Never re-enable the selective layer unless
+its pass includes every relevant occluder and the added full-scene draw cost has been measured.
+
 **`pipeline.sharpen.colorAmount` is a brightness GAIN, not a sharpness.** Babylon's sharpen shader is
 `colour * colorAmount - edge * edgeAmount` and runs after tone mapping, so a value below 1 darkens the
 whole image and caps peak white at that value. VR shipped at 0.1 (a headset frame at 10% brightness,
@@ -701,6 +707,13 @@ and fail `npm test`.
   button uses `action: 'people'` with no `control`, and `initRoomGuestLock`'s `keep` selector includes
   `[data-people]`). Both surfaces — the VJ panel's "Who is in the club" section and the VR quick menu's COMFORT page —
   only call `togglePeopleVisible`.
+- **Ambient bystander poses.** Fixed bystanders still evaluate exactly one clip: the mezzanine guest f7 rests both
+  hands on the rail through the club-authored `Idle_Railing_Loop`; one high-tier queue guest outside uses
+  `Idle_TalkingPhone_Loop` (never an indoor slot beside the PA); and the bouncer uses the single
+  `Idle_FoldArms_Loop` pose, where crossed arms read as security rather than a cloned side-wall crowd. The source
+  guest files and every `guest: true` modular crowd file carry the phone/folded-arms clips. Only f7 carries the
+  procedural rail clip. `_streetSlots()` and `_guestSlots()` are the assignment authority, and unit/rig tests verify
+  the clip exists and the rail hands meet the real mezzanine height.
 - **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
   `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop']`) does not stand still: he walks a round and
   joins the other standing guests' conversations. `_updateMingler(dt)` runs from `updateDancers()` next to
@@ -857,8 +870,13 @@ Out of the vestibule's street door, at the top of the entrance stair, is a night
 strip either side, a paved forecourt `z 0.25..6.25` in front of the club, a row of six buildings facing the club across the
 road (front plane `z 24.25`) and two buildings either side of the club facing the street (front plane `z 0.25`, from `|x| 13.5`).
 It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is NOT in the repository.
-- **One baked GLB.** `js/models/city/downtown.glb` comes from `node scripts/build-city-assets.mjs --kit "<unzipped kit>/Exports/glTF (Godot)"`
-  (layout, LOD, materials and texture sizes are all in that script; recipe in ASSETS.md). Change the layout there and in
+- **One baked GLB.** `js/models/city/downtown.glb` comes from `node scripts/build-city-assets.mjs --kit "<unzipped kit>/Exports/glTF (Godot)"`,
+  then `npm run bake:street-props -- --cars "<Car Pack>/OBJ" --house "<Ultimate House Interior Pack>/OBJ"`.
+  The idempotent second bake adds three parked cars, two small bins and one entrance plant from those additional CC0
+  Quaternius packs. It bakes their flat colours and the cars' tiny palette textures into vertex colour on one shared
+  material; every prop remains one named node/one draw so `_createCityColliders()` can give it its measured blocker
+  instead of a building's six-metre blocker. The layout, LOD, materials and texture sizes are in those scripts (recipe
+  in ASSETS.md). Change the layout there and in
   `CITY_LAYOUT` (`js/cityDistrict.js`) together: a unit test fails if they differ. The script needs `meshoptimizer` (a dev
   dependency used offline only; the runtime still needs no decoder). Kit geometry is right-handed and Babylon's loader mirrors X,
   so the script writes kit x = -club x. Babylon makes one mesh per primitive (`far3_primitive0`), named after the node.
@@ -901,7 +919,7 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   skyline is re-frozen after parenting. The forecourt's paving is left out within `forecourtOpening` (3 m) of the centre line, over
   the entrance stair; the stair hall's own floors cover the gap, which is inside the vestibule (tested both ways). A new layout
   must change `CITY` in the bake script and `CITY_LAYOUT` together (a unit test compares them).
-- **Unmeasured:** 148k triangles and 6.7 MB, about 60 draws with the whole street in view; no Quest 3S frame time yet. LOD was set by eye
+- **Unmeasured:** about 154k triangles and 7.2 MB, 66 draws with the whole street in view; no Quest 3S frame time yet. LOD was set by eye
   and by the simplifier's plateau (facades are thousands of separate window-frame islands, so the topological simplifier stops near 50%;
   beyond 22 m the window frames also go through the sloppy one). `test/e2e/street.spec.mjs` walks out under real collisions, checks the
   visibility toggle and measures the spectrum on the street.

@@ -157,7 +157,9 @@ test('production build initializes a rendered club without browser errors', asyn
         cameraArtifactsDisabled: !window.vrClub.renderPipeline.grainEnabled &&
             !window.vrClub.renderPipeline.chromaticAberrationEnabled,
         floorFogRemoved: !window.vrClub.scene.particleSystems.some(system => system.name === 'floorFog'),
-        configuredGlow: window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.desktop.glowIntensity,
+        depthSafeGlow: !window.vrClub.glowLayer.isEnabled &&
+            window.vrClub.renderPipeline.bloomEnabled &&
+            window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.desktop.glowIntensity,
         blindersRemoved: !('blindersActive' in window.vrClub) &&
             !window.vrClub.scene.meshes.some(mesh => /blinder/i.test(mesh.name)) &&
             !document.querySelector('[data-control="blindersActive"]')
@@ -168,7 +170,7 @@ test('production build initializes a rendered club without browser errors', asyn
         engineDisposed: false,
         cameraArtifactsDisabled: true,
         floorFogRemoved: true,
-        configuredGlow: true,
+        depthSafeGlow: true,
         blindersRemoved: true
     });
     expect(renderState.canvasWidth).toBeGreaterThan(0);
@@ -527,6 +529,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             bloomWeight: window.vrClub.renderPipeline.bloomWeight === window.vrClub.vrSettings.vr.bloomWeight,
             bloomThreshold: window.vrClub.renderPipeline.bloomThreshold === window.vrClub.vrSettings.vr.bloomThreshold,
             glowIntensity: window.vrClub.glowLayer.intensity === window.vrClub.vrSettings.vr.glowIntensity,
+            selectiveGlowDisabled: !window.vrClub.glowLayer.isEnabled,
             vrDiffersFromDesktop: window.vrClub.vrSettings.vr.exposure !== window.vrClub.vrSettings.desktop.exposure
         },
         vrSmoke: {
@@ -562,6 +565,7 @@ test('Quest 3 emulation enters WebXR, registers controllers, and restores deskto
             bloomWeight: true,
             bloomThreshold: true,
             glowIntensity: true,
+            selectiveGlowDisabled: true,
             vrDiffersFromDesktop: true
         },
         vrSmoke: {

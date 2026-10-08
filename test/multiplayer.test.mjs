@@ -654,7 +654,7 @@ test('every control that changes the room\'s music or lights is gated for a gues
         assert.match(body(ui, name), new RegExp(`guardHostControl\\('${what}'\\)`), `${name} is not gated`);
     }
     const activate = body(ui, '_activateVRQuickMenuButton(button) {');
-    assert.ok((activate.match(/guardHostControl\('lights'\)/g) || []).length >= 3, 'reset, auto show and the lighting buttons must be gated');
+    assert.ok((activate.match(/guardHostControl\('lights'\)/g) || []).length >= 3, 'reset, auto show and the show controls must be gated');
     assert.match(ui, /clickedButton && !this\.guardHostControl\('lights'\)/, 'the in-world desk is not gated');
     assert.match(dom, /club\.guardHostControl\('lights'\)\) vjMacros\.drop\(\)/);
     assert.match(dom, /club\.guardHostControl\('lights'\)\) vjMacros\.blackout\(\)/);

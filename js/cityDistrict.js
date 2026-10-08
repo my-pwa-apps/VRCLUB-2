@@ -1,8 +1,9 @@
 'use strict';
 // The street outside the club. Mixed into VRClub.prototype by club_hyperrealistic.js, so `this` is the club.
 //
-// The district is ONE baked GLB (js/models/city/downtown.glb, made by scripts/build-city-assets.mjs from the CC0
-// Quaternius "Downtown City MegaKit"): an avenue with a row of buildings on either side, in club coordinates. This file
+// The district is ONE baked GLB (js/models/city/downtown.glb, made by scripts/build-city-assets.mjs and
+// scripts/bake-street-props.mjs from three CC0 Quaternius packs): an avenue with a row of buildings on either side,
+// parked cars and small entrance props, in club coordinates. This file
 // loads it, makes it fit the club's rendering rules, lights it for night, adds a sky and a distant skyline, fences it, and
 // opens the vestibule's street door once it is there. If the GLB cannot be loaded the door simply stays shut.
 //
@@ -375,7 +376,7 @@ const CityDistrict = {
         return mesh.name.replace(/_primitive\d+$/, '');
     },
 
-    /** Invisible blockers: one box per building, and a fence across each end of the avenue. */
+    /** Invisible blockers: one box per building/parked prop, and a fence across each end of the avenue. */
     _createCityColliders(meshes) {
         const colliders = [];
         const box = (name, minX, maxX, minY, maxY, minZ, maxZ) => {
@@ -383,7 +384,7 @@ const CityDistrict = {
                 (minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
             colliders.push(mesh);
         };
-        // A building's primitives share one footprint: take the union of their world bounds.
+        // A baked object's primitives share one footprint: take the union of their world bounds.
         const footprints = new Map();
         for (const mesh of meshes) {
             const node = this._cityNodeName(mesh);
@@ -398,7 +399,12 @@ const CityDistrict = {
             }
         }
         for (const [node, { lo, hi }] of footprints) {
-            box(`cityCollider_${node}`, lo.x, hi.x, lo.y, Math.max(hi.y, lo.y + 6), lo.z, hi.z);
+            const isBuilding = /^(far|near[LR])\d+$/.test(node);
+            const isSolidProp = /^(parkedCar|parkedTaxi|streetBin|entrancePlant)/.test(node);
+            if (!isBuilding && !isSolidProp) continue;
+            // Buildings are deliberately full-height blockers. Cars, bins and the plant use their measured bounds:
+            // they are solid without becoming invisible six-metre walls.
+            box(`cityCollider_${node}`, lo.x, hi.x, lo.y, isBuilding ? Math.max(hi.y, lo.y + 6) : hi.y, lo.z, hi.z);
         }
         const [z0, z1] = CityLayout.fenceZ;
         for (const sign of [-1, 1]) {
