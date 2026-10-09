@@ -752,12 +752,18 @@ and fail `npm test`.
   `[data-people]`). Three surfaces only call `togglePeopleVisible`: the VJ panel's "Who is in the club" section, the VR
   quick menu's CROWD page (its own HOME button; it used to sit at the bottom of COMFORT, where nobody found it) and the
   VJ desk's RESIDENT DJ button.
-- **Ambient bystander poses.** Fixed bystanders still evaluate exactly one clip: the mezzanine guest f7 rests both
-  hands on the rail through the club-authored `Idle_Railing_Loop`; one high-tier queue guest outside uses
+- **Ambient bystander poses.** Fixed bystanders still evaluate exactly one clip: the mezzanine guest f7 grips the
+  rail through the club-authored `Idle_Railing_Loop`. Her wrists sit above and behind the 6 x 5 cm top tube, and
+  the generated clip drives all three joints of each finger so the knuckles cross its dance-floor side and the
+  fingertips curl back underneath; do not reduce this to a wrist-on-centreline assertion, which allows the straight
+  hand mesh to pass through the metal. One high-tier queue guest outside uses
   `Idle_TalkingPhone_Loop` (never an indoor slot beside the PA); the bouncer uses the neutral `Idle_Loop`. The source
   guest files and every `guest: true` modular crowd file carry the ambient clips. f7 and the mingler (m6, a taller
   variant fitted to his 1.84 m frame) carry the procedural rail clip. `_streetSlots()` and `_guestSlots()` are the
-  assignment authority, and unit/rig tests verify the clip exists and the rail hands meet the real mezzanine height.
+  assignment authority, and unit/rig tests verify the clip exists and the wrist/knuckle/fingertip grip fits the real rail.
+  A slot's `ambient` map adds a slow, bounded attention yaw and small playback-rate variation over the authored breathing
+  and hand motion. It never moves a rail grip, dancer, rig-driven character, mingler, or somebody currently talking to
+  the mingler. The absolute-time wave plus elapsed-time yaw easing is refresh-rate independent and allocates nothing.
 - **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
   `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop']`) does not stand
   still: he walks a round, joins the other standing guests' conversations, visits the bartender, watches the dance
@@ -1000,8 +1006,10 @@ It is built from the CC0 Quaternius *Downtown City MegaKit (Standard)*, which is
   that tier. `_applyStreetPeople()` runs when both the street and the crowd exist (either may finish first), loads the files
   it needs in the background (`_streetTopUp`) and adds everyone to `streetDoorLight` and `cityFill`;
   `_showStreetPeople(visible)` (from `updateCityDistrict()`'s visibility toggle) disables them, their colliders and their
-  animation groups whenever the street is hidden. `_updateBouncer(dt)` turns the bouncer toward a player within 7 m, at
-  most 1.3 rad off his post, and back. The relay's avatar pool is only `f*`/`m*`, so no player is handed the bouncer.
+  animation groups whenever the street is hidden. Queue slots carry different slow `ambient` timing so relaxed idles
+  glance toward the door or street without moving the talking pair off each other. `_updateBouncer(dt)` slowly scans the
+  pavement when alone and turns toward a player within 7 m, at most 1.3 rad off his post. The relay's avatar pool is only
+  `f*`/`m*`, so no player is handed the bouncer.
   Headset cost (up to nine extra skeletons near the entrance) is unmeasured.
 - **Street level.** The club is a basement: the GLB is baked at y = 0 and the `cityDistrict` root is lifted by `CityLayout.groundY`
   (2.8, equal to `VenueLayout.vestibule.streetLevel`, unit-tested), so colliders and the fence are built from world bounds and the

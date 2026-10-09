@@ -280,7 +280,7 @@ test('the balcony watcher keeps both hands on the rail while looking around the 
     const root = entry.rootNodes[0];
     root.rotationQuaternion = null;
     root.rotation.y = Math.PI / 2;
-    root.position.set(-9.92, 3, -13.9);
+    root.position.set(-10.02, 3, -13.9);
     root.computeWorldMatrix(true);
     let bounds = root.getHierarchyBoundingVectors(true);
     root.scaling.setAll(1.66 / (bounds.max.y - bounds.min.y));
@@ -309,13 +309,23 @@ test('the balcony watcher keeps both hands on the rail while looking around the 
         samples.push({
             left: at('Wrist.L'),
             right: at('Wrist.R'),
+            leftKnuckle: at('Middle2.L'),
+            rightKnuckle: at('Middle2.R'),
+            leftTip: at('Middle4.L'),
+            rightTip: at('Middle4.R'),
             headRotation: head.absoluteRotationQuaternion.clone()
         });
     }
     const wrists = samples.flatMap(sample => [sample.left, sample.right]);
-    const railX = -9.5;
-    assert.ok(wrists.every(wrist => Math.abs(wrist.x - railX) < 0.09),
-        `a hand misses the rail by ${Math.max(...wrists.map(wrist => Math.abs(wrist.x - railX))).toFixed(3)} m`);
+    const knuckles = samples.flatMap(sample => [sample.leftKnuckle, sample.rightKnuckle]);
+    const tips = samples.flatMap(sample => [sample.leftTip, sample.rightTip]);
+    const railX = -9.54, railY = 4.08, halfWidth = 0.03, halfHeight = 0.025;
+    assert.ok(wrists.every(wrist => wrist.x < railX - halfWidth && wrist.y > railY + halfHeight),
+        'a wrist is not above and behind the rail');
+    assert.ok(knuckles.every(knuckle => knuckle.x > railX + halfWidth && Math.abs(knuckle.y - railY) < 0.04),
+        'a knuckle does not wrap over the rail to its dance-floor side');
+    assert.ok(tips.every(tip => tip.y < railY - halfHeight && Math.abs(tip.x - railX) < halfWidth),
+        'a fingertip does not curl back underneath the rail');
     assert.ok(Math.max(...wrists.map(wrist => wrist.y)) - Math.min(...wrists.map(wrist => wrist.y)) < 0.015,
         'the planted hands slide vertically');
     assert.ok(Math.max(...wrists.map(wrist => wrist.x)) - Math.min(...wrists.map(wrist => wrist.x)) < 0.015,

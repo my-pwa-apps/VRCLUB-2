@@ -6,6 +6,34 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Feature - 2026-10-09 - Ambient NPC attention
+
+- [x] **Give fixed bystanders independent, natural micro-behavior**
+
+  **Resolved 2026-10-09.** Authored idle clips already moved the characters' breathing, hands and weight, but every
+  fixed guest repeated at one exact rate and one exact facing. The street queue and bouncer therefore read as posed
+  figures unless the player walked into the bouncer's reaction radius.
+
+  **Priority:** Medium
+  **Category:** Crowd realism
+  **Confidence:** High
+  **Area:** Side guests, balcony, street queue, bouncer and mingler solo stops
+  **Affected files:** [07-animation-core.js](js/club/07-animation-core.js),
+  [11-audio-crowd.js](js/club/11-audio-crowd.js), [unit.test.mjs](test/unit.test.mjs)
+  **Solution implemented:**
+  - `_guestSlots()` and `_streetSlots()` now give each fixed bystander distinct, slow `ambient` timing. Relaxed
+    watchers scan a bounded arc and all fixed bystanders vary idle playback by at most 5%, layered over the authored
+    clip rather than replacing its body motion.
+  - `_updateAmbientNPC()` uses absolute-time mixed waves and elapsed-time easing, allocates nothing per frame, and
+    explicitly stands down for dancers, rig-driven characters, the mingler, planted rail grips, and anyone currently
+    talking to or returning from the mingler.
+  - The bouncer scans a small arc while alone but still gives a nearby player his full attention. At solo watch and
+    smoke stops, the mingler now changes his gaze slowly instead of holding one exact body angle for up to 105 seconds.
+  **Validation:** focused Node tests verify slot coverage, rail exclusion, bounded motion, conversation ownership,
+  refresh-rate independence and the bouncer's scan/visitor tracking. `npm run check` and focused ESLint pass.
+
+---
+
 ## Feature - 2026-10-09 - Crowd dances through kick-less breakdowns
 
 - [x] **The rhythm band: follow hats, snares and synth pulses when the kick drops out**
@@ -53,6 +81,28 @@ they are carried forward and re-prioritised.
   **Estimated effort:** Large
   **Business value:** Medium
   **Technical debt reduction:** Low
+
+- [x] **Make the balcony watcher grip the rail instead of intersecting it**
+
+  **Resolved 2026-10-09.** The watcher’s wrists were authored and tested against the top rail’s centreline, while
+  every finger remained straight and pointed through the tube. The animation could therefore satisfy the old
+  wrist-distance assertion while visibly putting both hands partly inside the metal.
+
+  **Priority:** Medium
+  **Category:** Character posing
+  **Confidence:** High
+  **Area:** Mezzanine ambient guest
+  **Affected files:** [build-crowd-glbs.mjs](scripts/build-crowd-glbs.mjs),
+  [11-audio-crowd.js](js/club/11-audio-crowd.js), [club-crowd-f7.glb](js/models/avatars/club-crowd-f7.glb),
+  [rig.test.mjs](test/rig.test.mjs)
+  **Solution implemented:** Moved her stance 10 cm back from the original placement, raised both wrists above the
+  top tube, and added an optional three-segment `grip` curve to the procedural clip synthesizer. It rotates the
+  index, middle, ring and pinky chains around the rail: wrist above/guest-side, middle knuckle beyond the
+  dance-floor edge, fingertip below and curled back under the tube. Other synthesized clips do not provide `grip`
+  and retain their existing finger animation. The real-GLB test now checks those three geometric contacts across
+  the complete loop instead of accepting any wrist within 9 cm of the rail centre.
+  **Validation:** `node --test --test-name-pattern "balcony watcher keeps" test/rig.test.mjs`; the old straight,
+  centreline pose fails the new wrist/knuckle/tip assertions.
 
 ---
 

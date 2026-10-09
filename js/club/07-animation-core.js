@@ -696,7 +696,7 @@ class VRClubAnimationCore extends VRClubEffects {
         const { time, audio: audioData } = ctx;
         if (typeof this._updateCrowdDance === 'function') this._updateCrowdDance(ctx.dt, audioData);
         if (this.npcAvatars && this.npcAvatars.length > 0) {
-            this.updateDancingNPCs(time, audioData);
+            this.updateDancingNPCs(time, audioData, ctx.dt);
         }
         if (typeof this._updateLocalPlayerBody === 'function') this._updateLocalPlayerBody(ctx.dt);
         if (typeof this._updateDJ === 'function') this._updateDJ(ctx.dt, audioData);

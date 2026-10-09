@@ -913,6 +913,7 @@ class VRClubAudioCrowd extends VRClubUI {
      *                                           pose at runtime (the mingling guest walks and talks). Only one
      *                                           plays at a time; VRClubAudioCrowd._playClip switches between them.
      * @param {boolean} [options.reactsToBeat]   false for guests who do not dance (default true)
+     * @param {object} [options.ambient]          subtle yaw and idle-speed variation for a fixed bystander
      */
     _spawnAvatar(container, name, position, facing, height, speedRatio, options = {}) {
         // doNotInstantiate: these are skinned meshes, so each dancer needs its own
@@ -1031,6 +1032,15 @@ class VRClubAudioCrowd extends VRClubUI {
         };
         if (dance) npc.dance = dance;
         if (poses) npc.poses = poses;
+        if (options.ambient) {
+            npc.ambient = {
+                baseYaw: facing,
+                yawRange: Math.max(0, options.ambient.yawRange || 0),
+                speedVariation: Math.max(0, options.ambient.speedVariation || 0),
+                period: Math.max(8, options.ambient.period || 18),
+                phase: options.ambient.phase || 0
+            };
+        }
         npc.collider = this._attachOccupantCollider(root, name);
         this.npcAvatars.push(npc);
 
@@ -1600,20 +1610,26 @@ class VRClubAudioCrowd extends VRClubUI {
         const talks = clip => (clip === 'Idle_Talking_Loop' ? undefined : [clip, 'Idle_Talking_Loop']);
         return [
             // The talking pair stands off the counter (x 9.7 is its front, the stools are at x 9.2).
-            { src: at('m4'), clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80 },
-            { src: at('f6'), clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66 },
+            { src: at('m4'), clip: 'Idle_Talking_Loop', x: 7.9, z: -9.1, yaw: 0.35, height: 1.80,
+                ambient: { speedVariation: 0.035, period: 19, phase: 0.4 } },
+            { src: at('f6'), clip: 'Idle_Talking_Loop', x: 7.9, z: -8.1, yaw: Math.PI + 0.35, height: 1.66,
+                ambient: { speedVariation: 0.04, period: 23, phase: 2.1 } },
             // The one guest who does not stay put: he walks the room and joins the others' conversations
             // (_minglerRoute, _updateMingler), which is why he carries the walk and both idles.
             { src: at('m6'), clip: 'Idle_Loop', x: -8.2, z: -10.8, yaw: Math.PI / 2 - 0.2, height: 1.84,
                 mingles: true, clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop'] },
             // Facing the mezzanine rail, both hands planted on it while her head slowly scans the dance floor. The
             // walking guest stops beside her at the rail and, after a look at the floor, turns to talk with her.
-            { src: at('f7'), clip: 'Idle_Railing_Loop', x: -9.92, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66,
-                clips: talks('Idle_Railing_Loop') },
-            { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68, clips: talks('Idle_Loop') },
-            { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77 },
-            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63, clips: talks('Idle_Loop') },
-            { src: at('m4'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70 }
+            { src: at('f7'), clip: 'Idle_Railing_Loop', x: -10.02, y: 3.0, z: -13.9, yaw: Math.PI / 2, height: 1.66,
+                clips: talks('Idle_Railing_Loop'), ambient: { speedVariation: 0.025, period: 27, phase: 1.2 } },
+            { src: at('f8'), clip: 'Idle_Loop', x: -8.4, z: -6.5, yaw: Math.PI / 2 + 0.6, height: 1.68,
+                clips: talks('Idle_Loop'), ambient: { yawRange: 0.16, speedVariation: 0.045, period: 21, phase: 2.8 } },
+            { src: at('m8'), clip: 'Yes', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77,
+                ambient: { yawRange: 0.1, speedVariation: 0.03, period: 25, phase: 4.1 } },
+            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63,
+                clips: talks('Idle_Loop'), ambient: { yawRange: 0.14, speedVariation: 0.05, period: 18, phase: 5.3 } },
+            { src: at('m4'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70,
+                ambient: { yawRange: 0.12, speedVariation: 0.04, period: 24, phase: 0.9 } }
         ];
     }
 
@@ -1661,7 +1677,8 @@ class VRClubAudioCrowd extends VRClubUI {
             // Only the multi-clip guest files carry these poses; without them there is nothing sensible to play.
             if (existing.has(name) || !source) return;
             this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, slot.y || 0, slot.z), slot.yaw, slot.height,
-                0.9 + (index % 3) * 0.06, { clip: slot.clip, clips: slot.clips, reactsToBeat: false });
+                0.9 + (index % 3) * 0.06,
+                { clip: slot.clip, clips: slot.clips, reactsToBeat: false, ambient: slot.ambient });
             const npc = this.npcAvatars[this.npcAvatars.length - 1];
             if (!npc || npc.name !== name) return;
             // Where this guest stands and what it does when nobody is talking to it: the mingler returns
@@ -1906,14 +1923,22 @@ class VRClubAudioCrowd extends VRClubUI {
         const door = -Math.PI / 2;
         const face = (x, z, tx, tz) => Math.atan2(tx - x, tz - z);
         const queue = [
-            { src: at('m8'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78 },
-            { src: at('f8'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67 },
-            { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82 },
-            { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66 },
-            { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76 },
-            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70 },
-            { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80 },
-            { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69 }
+            { src: at('m8'), clip: 'Idle_Talking_Loop', x: 3.15, z: 7.1, yaw: face(3.15, 7.1, 3.9, 6.9), height: 1.78,
+                ambient: { speedVariation: 0.04, period: 19, phase: 0.3 } },
+            { src: at('f8'), clip: 'Idle_Talking_Loop', x: 3.9, z: 6.9, yaw: face(3.9, 6.9, 3.15, 7.1), height: 1.67,
+                ambient: { speedVariation: 0.035, period: 23, phase: 2.2 } },
+            { src: at('m5'), clip: 'Idle', x: 4.85, z: 7.0, yaw: door + 0.12, height: 1.82,
+                ambient: { yawRange: 0.18, speedVariation: 0.045, period: 21, phase: 1.1 } },
+            { src: at('f5'), clip: 'Idle', x: 5.7, z: 6.95, yaw: door - 0.18, height: 1.66,
+                ambient: { yawRange: 0.13, speedVariation: 0.05, period: 26, phase: 3.7 } },
+            { src: at('m9'), clip: 'Idle', x: 6.6, z: 7.05, yaw: door + 0.25, height: 1.76,
+                ambient: { yawRange: 0.2, speedVariation: 0.04, period: 18, phase: 5.1 } },
+            { src: at('f7'), clip: 'Idle_TalkingPhone_Loop', x: 7.45, z: 6.9, yaw: door + 0.7, height: 1.70,
+                ambient: { yawRange: 0.07, speedVariation: 0.035, period: 24, phase: 4.2 } },
+            { src: at('m3'), clip: 'Idle', x: 8.35, z: 7.05, yaw: door - 0.1, height: 1.80,
+                ambient: { yawRange: 0.15, speedVariation: 0.045, period: 22, phase: 2.6 } },
+            { src: at('f4'), clip: 'Idle', x: 9.15, z: 6.95, yaw: door + 0.3, height: 1.69,
+                ambient: { yawRange: 0.17, speedVariation: 0.04, period: 27, phase: 0.8 } }
         ].map(slot => ({ ...slot, y: ground }));
         return {
             // Beside the door, outside its opening, watching the street and the head of the queue.
@@ -1948,11 +1973,13 @@ class VRClubAudioCrowd extends VRClubUI {
             const source = this._crowdSourceContainers[slot.src];
             if (!source) return;   // the file failed to load: nobody stands in that spot
             const entry = this._spawnAvatar(source, name, new BABYLON.Vector3(slot.x, slot.y, slot.z), slot.yaw, slot.height,
-                0.85 + (index % 4) * 0.06, { clip: slot.clip, reactsToBeat: false });
+                0.85 + (index % 4) * 0.06,
+                { clip: slot.clip, reactsToBeat: false, ambient: slot.ambient });
             const npc = entry && this.npcAvatars[this.npcAvatars.length - 1];
             if (npc && npc.name === name) {
                 npc.homeYaw = null;
                 npc.streetYaw = slot.yaw;
+                if (name === 'bouncer') npc.ambient = null;
                 placed.push(npc);
             }
         };
@@ -2085,7 +2112,8 @@ class VRClubAudioCrowd extends VRClubUI {
         const route = this._mingleRoute || (this._mingleRoute = this._minglerRoute());
         npc.mingle = {
             phase: 'dwell', timer: 5, duration: 5, node: route.home | 0, dir: 1,
-            yaw: route.nodes[route.home].yaw, partner: null, returning: null, activity: 'watch'
+            yaw: route.nodes[route.home].yaw, baseYaw: route.nodes[route.home].yaw,
+            attentionTime: 0, partner: null, returning: null, activity: 'watch'
         };
         this._mingler = npc;
         this._createMinglerDrink(npc);
@@ -2482,6 +2510,7 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         } else {
             state.timer -= step;
+            state.attentionTime = (state.attentionTime || 0) + step;
             if (state.partner && !state.partner.root.isEnabled()) {
                 this._minglerDepart(npc, route);   // a lower tier took them away
                 return;
@@ -2489,6 +2518,12 @@ class VRClubAudioCrowd extends VRClubUI {
             if (state.partner && state.partner.root && !state.partner.rig) {
                 const px = state.partner.root.position;
                 state.yaw = Math.atan2(px.x - pos.x, px.z - pos.z);
+            } else if ((state.activity === 'watch' || state.activity === 'smoke') && Number.isFinite(state.baseYaw)) {
+                const amount = state.activity === 'smoke' ? 0.22 : 0.13;
+                state.yaw = state.baseYaw + amount * (
+                    0.72 * Math.sin(state.attentionTime * 0.29)
+                    + 0.28 * Math.sin(state.attentionTime * 0.11 + 1.4)
+                );
             }
             if (state.timer <= 0) {
                 if (state.drinkStop) this._advanceMinglerDrink(npc, route);
@@ -2534,7 +2569,8 @@ class VRClubAudioCrowd extends VRClubUI {
             // A solo stop next to somebody (the balcony rail) turns into a conversation once he has had his look.
             state.talkGuest = node.guest != null ? node.guest : null;
             state.activity = node.activity;
-            if (Number.isFinite(node.yaw)) state.yaw = node.yaw;
+            state.attentionTime = 0;
+            if (Number.isFinite(node.yaw)) state.yaw = state.baseYaw = node.yaw;
             VRClubAudioCrowd._playClip(npc, node.clip || 'Idle_Loop', npc.baseSpeed);
             return;
         }
@@ -2557,6 +2593,8 @@ class VRClubAudioCrowd extends VRClubUI {
         state.talkGuest = null;
         state.sips = 0;
         state.activity = node.drink ? 'order' : partner ? 'talk' : 'idle';
+        state.attentionTime = 0;
+        state.baseYaw = state.yaw;
         if (node.drink) {
             state.duration = state.timer = 2.5;
             VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
@@ -2578,6 +2616,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const talk = node.talk || route.dwell;
         state.activity = 'talk';
         state.partner = partner;
+        state.attentionTime = 0;
         state.duration = state.timer = talk.min + Math.random() * (talk.max - talk.min);
         VRClubAudioCrowd._playClip(npc, 'Idle_Talking_Loop', npc.baseSpeed);
         VRClubAudioCrowd._playClip(partner, 'Idle_Talking_Loop', partner.baseSpeed);
@@ -2587,6 +2626,7 @@ class VRClubAudioCrowd extends VRClubUI {
         const state = npc.mingle;
         this._updateMinglerDrink(npc, 'wash');
         state.activity = 'walk';
+        state.attentionTime = 0;
         state.drinkStop = false;
         state.talkGuest = null;
         if (state.partner) {
@@ -2621,14 +2661,19 @@ class VRClubAudioCrowd extends VRClubUI {
         shadows.mesh.thinInstanceBufferUpdated('matrix');
     }
 
-    /** The bouncer keeps an eye on whoever comes close: he turns toward them (never more than ~75 degrees), then back. */
+    /** The bouncer scans the pavement until somebody comes close, then turns toward them (never more than ~75 degrees). */
     _updateBouncer(dt) {
         const npc = this._bouncer;
         if (!npc || !npc.root || !npc.root.isEnabled()) return;
+        const step = Math.max(0, dt || 0);
+        npc.watchTime = (npc.watchTime || 0) + step;
         const cam = this._playerCamera();
         const pos = cam && (cam.globalPosition || cam.position);
         const home = npc.streetYaw || 0;
-        let goal = home;
+        let goal = home + 0.12 * (
+            0.7 * Math.sin(npc.watchTime * 0.23 + 0.8)
+            + 0.3 * Math.sin(npc.watchTime * 0.09 + 2.1)
+        );
         if (pos) {
             const dx = pos.x - npc.root.position.x, dz = pos.z - npc.root.position.z;
             const d2 = dx * dx + dz * dz;
@@ -2638,8 +2683,33 @@ class VRClubAudioCrowd extends VRClubUI {
                 goal = home + Math.max(-1.3, Math.min(1.3, off));
             }
         }
-        const k = 1 - Math.exp(-Math.max(0, dt || 0) * 2.5);
+        const k = 1 - Math.exp(-step * 2.5);
         npc.root.rotation.y += (goal - npc.root.rotation.y) * k;
+    }
+
+    /**
+     * Fixed bystanders already have authored breathing and hand motion. This adds slow attention changes without
+     * disturbing a planted rail grip or fighting a conversation that the mingler currently owns.
+     */
+    _updateAmbientNPC(npc, time, dt) {
+        const ambient = npc && npc.ambient;
+        if (!ambient || !npc.root || !npc.root.isEnabled() || npc.dance || npc.mingle || npc.rig) return;
+        const mingle = this._mingler && this._mingler.mingle;
+        if (mingle && (mingle.partner === npc || mingle.returning === npc)) return;
+        const period = ambient.period || 18;
+        const phase = ambient.phase || 0;
+        const wave = (
+            Math.sin(time * (Math.PI * 2 / period) + phase)
+            + 0.35 * Math.sin(time * (Math.PI * 2 / (period * 2.3)) + phase * 1.7)
+        ) / 1.35;
+        if (ambient.yawRange > 0) {
+            const goal = ambient.baseYaw + ambient.yawRange * wave;
+            VRClubAudioCrowd._easeYaw(npc.root, goal, dt, 1.4);
+        }
+        if (ambient.speedVariation > 0) {
+            const speed = npc.baseSpeed * (1 + ambient.speedVariation * wave);
+            for (let i = 0; i < npc.animations.length; i++) npc.animations[i].speedRatio = speed;
+        }
     }
     
     // ───────────────────────── the crowd dances on the beat ─────────────────────────
@@ -2742,7 +2812,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * @param {object} [audioData] Analyser output for THIS frame, supplied by
      *   updateAnimations.
      */
-    updateDancingNPCs(time, audioData) {
+    updateDancingNPCs(time, audioData, dt = 1 / 60) {
         // GLB avatars animate themselves via their animation groups; this only
         // nudges playback rate so the floor visibly reacts to the low end.
         if (!this.npcAvatars || this.npcAvatars.length === 0) return;
@@ -2768,6 +2838,7 @@ class VRClubAudioCrowd extends VRClubUI {
         for (let i = 0; i < this.npcAvatars.length; i++) {
             const npc = this.npcAvatars[i];
             if (!npc.animations || !npc.root || !npc.root.isEnabled()) continue;
+            this._updateAmbientNPC(npc, time, dt);
 
             // A dancer with a repertoire takes its tempo from the choreographer, on the beat.
             if (tempoChanged && npc.reactsToBeat !== false && !npc.dance) {

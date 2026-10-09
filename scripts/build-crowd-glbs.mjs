@@ -531,8 +531,14 @@ const RAILING_POSE = {
             spine: [0.12 + 0.01 * breath, 0, 0],
             head: [-0.08 + 0.015 * breath, 0.58 * look, 0.025 * Math.sin(TAU * b / 13)],
             hands: {
-                R: { at: [0.13, -0.24, 0.46], pole: [0.7, -0.35, -0.45], fingers: [0, -0.1, 1] },
-                L: { at: [-0.13, -0.24, 0.46], pole: [-0.7, -0.35, -0.45], fingers: [0, -0.1, 1] }
+                R: {
+                    at: [0.13, -0.1, 0.37], pole: [0.7, -0.35, -0.45], fingers: [0, -0.3, 1],
+                    grip: [[0, -0.2, 1], [0, -1, 0], [0, -0.3, -1]]
+                },
+                L: {
+                    at: [-0.13, -0.1, 0.37], pole: [-0.7, -0.35, -0.45], fingers: [0, -0.3, 1],
+                    grip: [[0, -0.2, 1], [0, -1, 0], [0, -0.3, -1]]
+                }
             },
             shrug: { R: 0.06, L: 0.06 }
         };
@@ -646,7 +652,7 @@ function groovePose(groove, beat, mirror, rig) {
         const sign = side === 'R' ? 1 : -1;
         return {
             at: spec.at || [0.05 * sign, -0.32, 0.15], pole: spec.pole || [0.5 * sign, -0.4, -0.7],
-            fingers: spec.fingers || null, thumb: spec.thumb || null
+            fingers: spec.fingers || null, thumb: spec.thumb || null, grip: spec.grip || null
         };
     };
     const pose = {
@@ -659,7 +665,10 @@ function groovePose(groove, beat, mirror, rig) {
     if (!mirror) return pose;
     const flip = v => (v ? [-v[0], v[1], v[2]] : v);
     const turn = a => [a[0], -a[1], -a[2]];
-    const flipHand = h => ({ at: flip(h.at), pole: flip(h.pole), fingers: flip(h.fingers), thumb: flip(h.thumb) });
+    const flipHand = h => ({
+        at: flip(h.at), pole: flip(h.pole), fingers: flip(h.fingers), thumb: flip(h.thumb),
+        grip: h.grip && h.grip.map(flip)
+    });
     return {
         hip: flip(pose.hip), hipRot: turn(pose.hipRot), spine: turn(pose.spine), head: turn(pose.head),
         hands: { R: flipHand(pose.hands.L), L: flipHand(pose.hands.R) },
@@ -747,6 +756,7 @@ function synthesize(tgt, groove, mirror) {
             let lt = local.t;
             const side = name.slice(-1);
             const limb = name.replace(/\.[LR]$/, '');
+            const finger = /^(Index|Middle|Ring|Pinky)([123])\.([LR])$/.exec(name);
             if (name === 'Body') {
                 world = qmul(hipQ, bind.q);
                 lt = qrot(qinv(parentNow.q), vsub(vadd(bind.p, bodyToWorld(pose.hip)), parentNow.p));
@@ -781,6 +791,13 @@ function synthesize(tgt, groove, mirror) {
                     swing = qmul(qAxis(fingers, Math.atan2(vdot(vcross(indexSide, wanted), fingers), vdot(indexSide, wanted))), swing);
                 }
                 world = qmul(swing, bind.q);
+            } else if (finger) {
+                const hand = finger && ik[finger[3]] && ik[finger[3]].hand;
+                if (hand && hand.grip) {
+                    const next = `${finger[1]}${Number(finger[2]) + 1}.${finger[3]}`;
+                    const direction = vnorm(qrot(chestQ, bodyToWorld(hand.grip[Number(finger[2]) - 1])));
+                    world = qmul(qswing(restDir(name, next), direction), bind.q);
+                }
             } else if (limb === 'UpperLeg') {
                 const foot = bindOf(`Foot.${side}`).p;
                 const target = vadd(foot, bodyToWorld(pose.feet[side]));

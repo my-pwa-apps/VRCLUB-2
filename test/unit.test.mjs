@@ -2681,8 +2681,13 @@ test('every guest slot asks for a clip its character file carries, inside the ro
             assert.ok(clipsOf(file).has(clip), `slot ${index} keeps "${clip}", which ${file} does not carry`);
         }
         if (slot.clips) assert.ok(slot.clips.includes(slot.clip), `slot ${index} does not keep the clip it starts in`);
+        if (!slot.mingles) {
+            assert.ok(slot.ambient && slot.ambient.period >= 8,
+                `fixed guest ${index} has no slow ambient timing`);
+        }
     });
     assert.equal(slots[3].clip, 'Idle_Railing_Loop', 'the balcony guest must put her hands on the railing');
+    assert.equal(slots[3].ambient.yawRange || 0, 0, 'ambient attention must not turn the balcony guest away from the rail');
     for (let a = 0; a < slots.length; a++) {
         for (let b = a + 1; b < slots.length; b++) {
             const apart = Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z);
@@ -8004,6 +8009,7 @@ test('the bouncer stands beside the street door and the queue waits behind the r
         assert.ok(slot.z > L.doorZ + 0.35 && slot.z < L.ropeZ - 0.3, `slot ${index} is not between the facade and the rope`);
         assert.ok(Math.abs(slot.x) > L.doorHalfWidth + 0.3, `slot ${index} stands in the street door`);
         assert.ok(slot.height > 1.5 && slot.height < 2.0 && Number.isFinite(slot.yaw));
+        if (slot !== bouncer) assert.ok(slot.ambient && slot.ambient.period >= 8, `queue slot ${index} has no ambient timing`);
     }
     assert.equal(Crowd.AVATAR_SOURCES[bouncer.src].id, 'bouncer');
     assert.equal(bouncer.clip, 'Idle_Loop', 'the bouncer must use a neutral idle pose');
@@ -8101,7 +8107,7 @@ test('the street people wait for the street, load their files once in the backgr
     assert.deepEqual(club.npcAvatars.filter(npc => npc.state.enabled).map(npc => npc.name), ['bouncer', 'queue0']);
 });
 
-test('the bouncer watches whoever comes close, never turning his back on the street, and looks away again', () => {
+test('the bouncer scans the pavement, watches whoever comes close, and never turns his back on the street', () => {
     const { club } = streetCrowdHarness();
     const root = { position: { x: 2.25, y: 2.8, z: 6.85 }, rotation: { y: 0.35 }, isEnabled: () => true };
     club._bouncer = { root, streetYaw: 0.35 };
@@ -8115,14 +8121,64 @@ test('the bouncer watches whoever comes close, never turning his back on the str
     player.x = 2.3; player.z = 5.2;
     const turned = settle();
     assert.ok(Math.abs(Math.abs(turned - 0.35) - 1.3) < 0.02, `he turned ${(turned - 0.35).toFixed(2)} rad`);
-    // Far away, or in the club below: he goes back to watching the street.
+    // Far away, or in the club below: he resumes a small, slow scan around his post direction.
     player.x = 0; player.z = -12; player.y = 1.7;
-    assert.ok(Math.abs(settle() - 0.35) < 0.02);
+    assert.ok(Math.abs(settle() - 0.35) < 0.13);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < 1800; i++) {
+        club._updateBouncer(1 / 60);
+        lo = Math.min(lo, root.rotation.y);
+        hi = Math.max(hi, root.rotation.y);
+    }
+    assert.ok(hi - lo > 0.05 && hi - lo < 0.25, `his idle scan spans ${(hi - lo).toFixed(3)} rad`);
     // Gradually: one frame is a small step, at any refresh rate.
     player.x = 6; player.z = 8; player.y = 4.5;
     root.rotation.y = 0.35;
     club._updateBouncer(1 / 60);
     assert.ok(Math.abs(root.rotation.y - 0.35) < 0.1, 'he snapped round');
+});
+
+test('fixed bystanders vary their attention slowly without drifting or fighting a conversation', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    const makeNpc = () => {
+        const group = { speedRatio: 1 };
+        return {
+            name: 'guest4',
+            baseSpeed: 1,
+            animations: [group],
+            ambient: { baseYaw: 0.7, yawRange: 0.16, speedVariation: 0.05, period: 21, phase: 1.2 },
+            root: { rotation: { y: 0.7 }, isEnabled: () => true }
+        };
+    };
+    const run = hz => {
+        const npc = makeNpc();
+        const club = Object.assign(Object.create(Crowd.prototype), { _mingler: null });
+        let lo = Infinity, hi = -Infinity, speedLo = Infinity, speedHi = -Infinity;
+        for (let i = 0; i < hz * 30; i++) {
+            const time = i / hz;
+            club._updateAmbientNPC(npc, time, 1 / hz);
+            lo = Math.min(lo, npc.root.rotation.y);
+            hi = Math.max(hi, npc.root.rotation.y);
+            speedLo = Math.min(speedLo, npc.animations[0].speedRatio);
+            speedHi = Math.max(speedHi, npc.animations[0].speedRatio);
+        }
+        return { npc, lo, hi, speedLo, speedHi };
+    };
+    const at60 = run(60), at120 = run(120);
+    assert.ok(at60.lo >= 0.7 - 0.161 && at60.hi <= 0.7 + 0.161, 'ambient gaze left its allowed arc');
+    assert.ok(at60.hi - at60.lo > 0.16, 'the bystander never looks around');
+    assert.ok(at60.speedLo >= 0.949 && at60.speedHi <= 1.051, 'idle speed variation became conspicuous');
+    assert.ok(Math.abs(at60.npc.root.rotation.y - at120.npc.root.rotation.y) < 0.002, 'ambient gaze depends on refresh rate');
+
+    const partner = makeNpc();
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        _mingler: { mingle: { partner, returning: null } }
+    });
+    club._updateAmbientNPC(partner, 10, 1 / 60);
+    assert.equal(partner.root.rotation.y, 0.7, 'ambient gaze fought an active conversation');
+    assert.equal(partner.animations[0].speedRatio, 1, 'ambient timing fought an active conversation');
 });
 
 test('a character hidden and shown again dances again: clips pause and restart through AnimationGroup.isPlaying', () => {
