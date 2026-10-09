@@ -645,41 +645,20 @@ class ClubMultiplayer {
 
     // ───────────────────────── shared music (the host drives it) ─────────────────────────
 
-    /** Where the stream comes from, for the host's "now playing" line: only a podcast knows its name. */
+    /** Share the user's set name, never a provider-selected DJ. */
     _decorateMusic(music) {
         const club = this.club;
-        const player = club.podcastPlayer;
-        const queued = player && player.queue && typeof player.isQueuedUrl === 'function' && player.isQueuedUrl(music.url)
-            ? player.queue.podcast.id : null;
-        return { ...music, podcast: queued, title: queued ? String(club.nowPlayingLabel || '') : '' };
+        return { ...music, podcast: null, title: String(club.nowPlayingLabel || '') };
     }
 
     /**
-     * Is this a source the app already contacts on its own (a Resident episode on Podbean, or the club's own relay)?
-     * Listening to one tells that server nothing new about the guest, so it needs no extra consent.
-     */
-    _isKnownMusicSource(url) {
-        try {
-            const parsed = new URL(url);
-            if (parsed.protocol !== 'https:') return false;
-            if (parsed.hostname === 'podbean.com' || parsed.hostname.endsWith('.podbean.com')) return true;
-            const relay = new URL(this.serverUrl.replace(/^ws/, 'http'));
-            return parsed.origin === relay.origin && parsed.pathname.startsWith('/podcast/');
-        } catch (_) {
-            return false;
-        }
-    }
-
-    /**
-     * Apply the room host's "now playing": the same track at the same place, and the same DJ. A guest who hosts
-     * ignores it (they ARE the source of truth). Podcasts the app already talks to start at once; any other stream
-     * needs an explicit Listen along first, because it discloses the guest's IP to that server.
+     * Follow the host's track only after Listen along consents to contacting the audio server.
      */
     _applyMusic(music) {
         const client = this.client, club = this.club;
         if (!music || !client || client.isHost()) return;
         if (!music.url || !NetworkClient.isShareableMusicUrl(music.url)) return;
-        if (!this.listenAlong && !this._isKnownMusicSource(music.url)) {
+        if (!this.listenAlong) {
             this.pendingMusic = music;
             this._emit();
             return;
@@ -697,29 +676,23 @@ class ClubMultiplayer {
             if (Number.isFinite(el.duration) && Math.abs(el.currentTime - targetTime()) > ClubMultiplayer.DRIFT_SEEK_S) {
                 el.currentTime = Math.min(targetTime(), Math.max(0, el.duration - 1));
             }
-            if (music.playing && el.paused) el.play().catch(() => { /* needs a user gesture the first time */ });
+            if (music.playing && el.paused) el.play().catch(error => club.showErrorMessage(`The host's audio needs a playback click: ${error.message}`));
             if (!music.playing && !el.paused) el.pause();
         };
         let sameTrack = false;
         try { sameTrack = !!club.audioElement && club.audioElement.src === new URL(music.url).href; } catch (_) { /* not a URL */ }
-        // The DJ follows the host's podcast on every update, not only when a new episode starts: a guest already on
-        // this track, or one whose host has paused, would otherwise keep the previous DJ behind the decks.
-        this._followPodcast(music, sameTrack);
+        this._followMusicTitle(music, sameTrack);
         if (sameTrack) { seekAndPlay(); return; }
         if (!music.playing) { if (club.audioElement && !club.audioElement.paused) club.audioElement.pause(); return; }
-        // Following the host: this guest's own episode queue must not carry on once the host's track replaces it.
-        if (club.podcastPlayer) club.podcastPlayer.queue = null;
-        club.startAudioStream(music.url, { onDemand: !!music.podcast }).then(() => {
-            this._followPodcast(music, true);
+        club.startAudioStream(music.url, { onDemand: true }).then(() => {
+            this._followMusicTitle(music, true);
             seekAndPlay();
-        }).catch(() => { /* unreachable for this guest */ });
+        }).catch(error => club.showErrorMessage(`The host's audio could not play: ${error.message}`));
     }
 
-    /** Put the host's DJ behind the decks (idempotent), and, once the track is the host's, its title on the now-playing line. */
-    _followPodcast(music, showTitle) {
+    /** Show the host's title only once the local audio is the host's track. */
+    _followMusicTitle(music, showTitle) {
         const club = this.club;
-        const podcast = music.podcast && window.Podcasts ? window.Podcasts.get(music.podcast) : null;
-        if (podcast && podcast.id === music.podcast && typeof club.setDJ === 'function') Promise.resolve(club.setDJ(podcast.dj)).catch(() => {});
         if (showTitle && music.title && club.nowPlayingLabel !== music.title) {
             club.nowPlayingLabel = music.title;
             if (typeof window.announceNowPlaying === 'function') window.announceNowPlaying(music.title);

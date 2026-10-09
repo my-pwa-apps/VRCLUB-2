@@ -957,6 +957,20 @@ html, body {
     width: 340px;
     min-width: 320px;
     max-width: calc(100vw - 40px);
+    max-height: calc(100dvh - 150px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#audioMenu .panel-header {
+    flex-shrink: 0;
+}
+
+#audioMenu .audio-content {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 #audioMenu.minimized {
@@ -1208,6 +1222,18 @@ html, body {
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
+}
+
+.soundcloud-player {
+    margin-top: 8px;
+}
+
+.soundcloud-player iframe {
+    display: block;
+    width: 100%;
+    height: 166px;
+    border: 0;
+    border-radius: 6px;
 }
 
 .audio-status {
@@ -1740,8 +1766,6 @@ button:active,
     #audioMenu {
         bottom: calc(72px + env(safe-area-inset-bottom, 0px));
         max-height: calc(100dvh - 150px);
-        overflow-y: auto;
-        overscroll-behavior: contain;
     }
 
     .vj-button-grid {

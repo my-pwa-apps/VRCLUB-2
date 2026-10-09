@@ -21,7 +21,7 @@ emits one minified, content-hashed production bundle with esbuild.
 2. `js/vendor/babylonjs.proceduralTextures.min.js`
 3. `js/vendor/babylonjs.loaders.min.js` — **required** for `.glb`
 4. `js/assetCache.js` — `IndexedDBAssetCache`, `InFlightRegistry`, `fetchWithTimeout`
-5. `js/audioUtils.js`, then `js/podcasts.js` (`window.Podcasts`: podcast catalogue, random/queue player)
+5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio and official SoundCloud-player saved sets)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
@@ -133,7 +133,7 @@ second flash source, or make a program change on every beat of a fast track with
 
 ### `js/avatarRig.js` — the player's body
 `AvatarRig` poses ONE person on the shared UE-mannequin dancer skeleton (`club-dancer-female`,
-`club-dancer-male`, `club-dj-hernan`, `club-dj-melera`; the three Mixamo sources are refused). Those GLBs carry only a
+`club-dancer-male`, `club-dj-male`, `club-dj-female`). Those GLBs carry only a
 dance or DJ-idle clip, so there is nothing to play for walking, turning or reaching: the rig
 poses the skeleton every frame from where the player is, where they look and (in VR) where
 their hands are. `VRClub._updateLocalPlayerBody()` builds the local pose from the camera and
@@ -217,8 +217,8 @@ the grooves too.
   entirely (nobody throws their hands up to a hi-hat) — and free moves, excluded outright while a kick is present,
   are allowed back into contention so a `'rhythm'` frame can still choose one without forcing it. `true` behaves as
   before: free moves excluded from `_pick()`, normal weights.
-- The three Mixamo dancers keep their authored
-  playback speed; slowing those single clips reads as broken slow motion.
+- The historical Mixamo slot ids remain for layout compatibility but now resolve to
+  CC0 modular people; no Mixamo GLB is loaded or copied into the Quest build.
 - The club side (`11-audio-crowd.js`): `_crowdMusic()` computes `m.rhythm = !m.beatPresent && hasAudio && vj.rhythmPresent`
   (see the rhythm band in `js/vjDirector.js`) alongside the existing `m.beatPresent`, so `'rhythm'` only ever applies
   when the kick is genuinely absent. `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
@@ -656,6 +656,14 @@ reclaim. Anything you add that holds one of those must be released there.
 
 ## Build and service worker
 
+Quest uses `npm run build:quest` for the same content-hashed production web build.
+It also copies `LICENSE`, `ASSETS.md` and `licenses/`. `npm run quest:prepare` validates
+the owner's public HTTPS URL, real Meta App ID, permanent package ID, external signing
+key and certificate, then writes ignored `quest-package/` configuration. It builds no APK.
+Only an explicitly prepared public `assetlinks.json` is copied into `dist/.well-known/`;
+publish it at the origin root even with subdirectory hosting. See `docs/QUEST.md`.
+Keep keystores, credentials and packaging outputs out of source and the web server.
+
 `index.html` is the single source of truth for the script load order. `scripts/build.mjs`
 **derives** the bundle order from it by parsing the `<script>` tags — never add a second
 hand-maintained list. The build also **generates** `dist/sw.js`: its `PRECACHE` array and
@@ -693,7 +701,7 @@ and fail `npm test`.
   (see "the guest who works the room"). After building or replacing one, run
   `npm run optimize:avatars -- <file>` (it merges skinned parts that share a skin and material, so a
   character is ~6 draws, and a contract test fails above 6). Add every new GLB to `ASSETS.md`. The three
-  Mixamo GLBs are a known licensing gap, kept for their authored hip-hop, house and rumba choreography
+  Mixamo GLBs are source-only historical assets, excluded from Quest distribution
   (Quaternius's free libraries have ONE dance clip, `Dance_Loop`). The two Quaternius sci-fi prop packs were evaluated and not used:
   chunky pieces (a 1.6 m chair, 2 m desks, 4-6k-vertex crates) that do not fit this club.
   The DJ console and PA speaker are **optimised derivatives**: run
@@ -737,7 +745,7 @@ and fail `npm test`.
   frozen (`test/e2e/tiers.spec.mjs` goes Ultra, Balanced, Ultra and fails on any character whose bones do not move). After
   any GLB loads late, `_restoreLightBudgets()` resets the light budgets the glTF loader raised on every scene material.
   Slots are ordered so the first six are already varied (men and women,
-  several skin tones, a silver head, a punk, one Mixamo dancer). `club-dancer-*.glb` now only dress the player's own
+  several skin tones, a silver head and a punk). `club-dancer-*.glb` now only dress the player's own
   body and the bartender is the female guest file with a black tint; `club-guest-male.glb` is a build source only.
 - **Who is in the club** (`vrclub.hiddenPeople`, resolved by `VRClubCore.resolvePeopleVisibility()` into
   `this.peopleVisibility`). A guest can send three groups home, separately or in combination: **dancers** (`dancerN`),
@@ -835,23 +843,22 @@ and fail `npm test`.
     the rail within 8 cm, a conversation with f7, the physical bar sequence, closest approach 0.8 m to 22 floor
     characters, street z 7.1 and balcony y 3.0). After changing his clips: `node scripts/build-crowd-glbs.mjs
     --refresh-static --only m6 --optimize` (no asset packs needed).
-- **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (half-long
-  dark brown hair, clean-shaven, dark tee, 1.78 m) and `melera` (long straight light blond hair, grey tee, 1.68 m) to
-  `club-dj-hernan.glb` / `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius
-  male/female guests (Hernan: the guest file's beard is cut out by its exact vertices, and a Universal Base
+- **Generic DJs are local choices.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `male` (1.78 m)
+  and `female` (1.68 m) to `club-dj-male.glb` / `club-dj-female.glb`, built from CC0 Quaternius
+  guests. `chooseDJ()` persists `vrclub.questDJ`; neither music nor remote podcast metadata selects
+  a DJ. The male guest's beard is cut out by its exact vertices, and a Universal Base
   Characters `Hair_Long`, shortened to shoulder length and trimmed of everything in front of the ears (its bangs read
   as long eyebrows), goes over the short cap and shares its material, so
-  the optimiser still merges to ≤6 draws), then `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`.
+  the optimiser still merges to ≤6 draws; optimise `club-dj-male.glb` and `club-dj-female.glb`.
   `setDJ(id)` queues behind `initPromise`, loads each DJ once, disposes the previous performer and
   collider, and tints garment and hair (`/^MI_Hair/`) on the DJ's own container so the crowd is
   unaffected. The DJ is then posed by `DJPerformer` through an `AvatarRig` (see `js/djPerformer.js` above); the GLB's
-  `Idle_Loop` only plays if the rig cannot drive it. The looks are approximations from the artists' photos, not likenesses (the owner supplied them:
-  an earlier version used web descriptions and got both wrong). Both wear the CC0 "Headphones" model (OpenGameArt,
+  `Idle_Loop` only plays if the rig cannot drive it. They are fictional DJs, not endorsed artists.
+  Both wear the CC0 "Headphones" model (OpenGameArt,
   see ASSETS.md): `addHeadphones()` in `scripts/build-dj-glbs.mjs` measures each DJ's ears and crown from its bind pose,
   moves the cups out to them and skins the mesh 100% to the `Head` joint, so there is no runtime placement to get wrong.
   That makes a DJ SEVEN draws (the six-draw rule is for everyone else; `test/contract.test.mjs` allows 7 for `club-dj-*`).
-  Both podcasts are solo sets by their host, so there is no per-track guest to look up; a new DJ is a new
-  `DJ_LOOKS` entry plus a `dj` field on a podcast in `js/podcasts.js`.
+  A new DJ is a `DJ_LOOKS` entry and an explicitly wired local selection, never an artist lookup.
 - **Environment and surfaces**: the reflection environment is `textures/environment/empty_warehouse_01_256.env` (Poly Haven, CC0; how it is made is in ASSETS.md); do not go back to a bright or coloured sky, it tints every metal surface. Floor, wall and ceiling use a packed `orm.jpg` (R occlusion, G roughness, B metallic): add a new surface set with `node scripts/pack-orm.mjs`. Signs are `createSignage()` (one atlas, one additive mesh), and every character gets a contact shadow from `_refreshContactShadows()`; call `_applyCrowdSize()` after enabling or moving characters.
 - **LED wall**: ONE mesh (`ledPanel_wall`), not one per panel. Patterns still write
   `panel.material.emissiveColor` (a plain holder, not a Babylon material), and `_flushLedWall()`
@@ -1089,38 +1096,20 @@ to avoid z-fighting.
 - A stream served without `Access-Control-Allow-Origin` can produce an all-zero analyser.
   `getAudioData()` warns only after a sustained, unmuted silent window and phrases it as a
   heuristic ("silent so far; may be a server CORS restriction"), not as proof.
-- **Podcasts (`js/podcasts.js`).** Two shows, chosen in the Audio menu or on the VR
-  Music page, and stored as `vrclub.podcast`: `resident` (Hernan Cattaneo, Podbean feed fetched
-  straight from the browser) and `colourizon` (Miss Melera, SoundCloud). Each catalogue entry names
-  its DJ (`dj: 'hernan'` / `'melera'`). `missmelera.com` hosts no audio and is not used. SoundCloud's
-  feed and stream carry no CORS headers (the analyser needs `crossOrigin="anonymous"`), so
-  Colourizon goes through the relay Worker's `/podcast/colourizon/{feed.xml,stream/<id>-missmelera-<slug>.mp3}`
-  (`worker/src/podcast.js`: Origin allow-list, fixed upstream host, range-aware, fresh signed URL per
-  request). The relay base is the multiplayer server URL converted to https
-  (`podcastRelayBase()` in `js/ui-init.js`); it must be deployed for Colourizon, a self-hosted relay
-  needs its own CSP `connect-src` entry, and Hernan works without it.
-  `Podcasts.createPlayer(club, ...)` (stored as `club.podcastPlayer`) owns `playRandom` (entry
-  default), `playLatest`, `playFrom`, `switchTo`; when an episode ends the next older one starts, a
-  dead link is skipped (3 tries), and past the oldest it picks a random one. `switchTo` and every
-  play call `club.setDJ(podcast.dj)`. Use own-key checks on catalogue lookups (`__proto__` bit once).
-- **Entry music.** ENTER always plays a RANDOM episode of the chosen podcast (`startEntryMusic()`): a club
-  has music when you walk in, so there is no opt-in on the splash and no `vrclub.radioOnEntry` preference.
-  The AudioContext is created inside the click (autoplay), the feed lookup is the only async part, and
-  a blocked `play()` retries on the next click or key. Episodes play once
-  (`startAudioStream(url, { onDemand: true })` turns `loop` off). Choosing any other stream or a file
-  ends the queue; everything else loops. A stream the guest chose is remembered
-  (`vrclub.lastStreamUrl`) and wins; a podcast episode URL is never remembered
-  (`AudioUtils.isResidentEpisodeUrl()`). The e2e harness serves a fake Resident feed
-  (`routeResidentFeed()` in `test/e2e/support.mjs`); `test/e2e/podcast.spec.mjs` serves both shows with
-  a Range-capable episode.
+- **Quest music (`js/musicLibrary.js`).** `MusicLibrary` owns at most eight direct HTTPS audio links
+  in `vrclub.questMusic`, with optional names and a selected index. Storage failures surface explicitly.
+  Music webpage URLs are rejected; CORS is required and no relay/extraction is offered.
+  The Audio panel, VR menu and VJ desk all call the same library. No built-in stream, feed or queue
+  is initialised. Historical `js/podcasts.js` and Worker podcast endpoints remain source-only.
+- **Entry music.** ENTER creates the AudioContext in the user click and resumes only an explicitly
+  saved set. Fresh profiles show guidance to open Music, with no third-party music request.
+  Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. Sets use `{ onDemand: true }`
+  (no loop or automatic next track). Blocked playback retries on the next click/key.
 - **Seeking.** `getPlaybackInfo()`, `seekAudioTo/Fraction/By()` and `toggleAudioPlayback()` in
   `js/club/10-ui.js` are the one API (Audio menu slider `#audioSeek` and ±30 s, VR Music page). Seeks
   clamp to `duration − 1` (seeking to the very end fires `ended` and advances the queue); live streams
   (infinite duration) are not seekable; only the host publishes the position (`_shareAudioPosition`).
-- The Audio menu's **Latest** button resolves the newest episode with
-  `AudioUtils.parseLatestPodcastEpisode()`. The feed origins are in the CSP `connect-src` and in the
-  contract test's third-party allow-list; any other feed needs both. A reconnect of a finite-duration
-  source resumes at its position (`_recoverAudioStream()`).
+- A reconnect of a finite-duration source resumes at its position (`_recoverAudioStream()`).
 - The Audio menu separates **Music** (the chosen stream/file only) from **Ambience** (the
   generated crowd bed). `setAudioVolume()` writes only the media element; the crowd bed has
   its own persisted `vrclub.crowdAmbience` gain, and the per-frame acoustic ducking never
@@ -1132,7 +1121,7 @@ to avoid z-fighting.
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.lastStreamUrl`, `vrclub.podcast` (`resident`/`colourizon`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1175,8 +1164,10 @@ preserving head orientation and measured seated height with a booth floor offset
 The paged quick menu includes lighting, effects, show/reset, a CROWD page (who is in the club), comfort (locomotion,
 safe mode, haptics, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
-scene pointer observables, the seek happens on release), ±1 min, play/pause, the two podcasts,
-random and latest. Its clock redraws from a 500 ms ticker that runs only while that page is open;
+scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
+Play saved set and ADD LINKS / FILE. `_openQuestPanel()` exits XR for music entry or licences;
+the guest then presses Enter VR to return. CROWD → CHOOSE DJ offers male/female.
+Its clock redraws from a 500 ms ticker that runs only while that page is open;
 Y/B or the runtime menu component opens it, world-locked where the player is looking
 (`_placeVRQuickMenu()`); never parent it to the XR camera. Haptics are opt-in for new visitors and
 the same preference gates both bass pulses and UI feedback. These preference and
@@ -1205,7 +1196,7 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
 `setupVJControlInteraction`).
 - **SHOW** (left): the header always says who has the lights (AUTOMATIC SHOW with the NOCTURNE movement, YOU ARE THE
   VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, RESIDENT DJ (`togglePeopleVisible('dj')`,
-  personal so never host-gated), MUSIC (play/pause, or a random set of the chosen podcast), DROP (the show's countdown
+  personal so never host-gated), MUSIC (play/pause, or the selected user-saved set), DROP (the show's countdown
   while it drives, else the director's peak look), BLACKOUT, NEXT SECTION (automatic show only, and says so),
   TAP TEMPO, BEAMS TO FLOOR, RESET LIGHTS, plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
@@ -1228,6 +1219,8 @@ close button; every panel has its own close. Each panel has a definite `width` (
 `auto` under 720 px wide), so a long line wraps instead of widening the panel (a room-guest note once stretched the
 Multiplayer panel across the screen). Multi-line explanations use `.network-help` (and `.vj-help` under a VJ section
 title); `.audio-file-name` is single-line with an ellipsis and is only for short status lines.
+The Quest Music panel is height-bounded at every viewport width, with a fixed header and a scrollable
+`.audio-content`; focusing the URL must never move the close/Enter VR path offscreen.
 
 **Plain-language UI rule.** Every control must say what it does without a tooltip (touch screens and the headset never
 show one): the corner buttons carry a word under the icon (Lights, Music, People, Go to), every VJ section has a
@@ -1263,11 +1256,11 @@ subtitle's diamonds. They render differently on every platform, they are the fir
 at low angular resolution, and each one sat beside a label that already said the same thing; a unit test fails
 on any pictograph, dingbat, arrow or geometric shape between `#splashScreen` and `<main>` (including one
 written back at runtime, such as the RETRY label). There is no
-music opt-in: a club has music when you walk in, so ENTER always starts it. It must not name a podcast, a
-stream, a server or the relay host, and it offers no podcast picker: that choice lives in the Audio menu and
-the VR Music page, and the shows, their servers and the streaming privacy note live in `#modelCredits`. Unit
+music picker: ENTER resumes only a user-saved set. It must not name a podcast, a
+stream, a server or the relay host. User links live in Music and the
+streaming privacy note lives in `#modelCredits`. Unit
 tests fail if a show name, a server host, a picker or any `<input type="checkbox">` reappears between
-`#splashScreen` and `<main>`, and if the credits stop naming the feeds or the IP disclosure.
+`#splashScreen` and `<main>`, and if the credits lose the no-music and IP disclosures.
 
 **The wordmark is path geometry, not a typeface.** `js/nocturneLogo.js` (`window.NocturneLogo`) is the ONE
 definition of the NOCTURNE logo: tube centrelines on a 100-unit cap height, traced from the club's artwork.
@@ -1302,10 +1295,8 @@ protocol only grew, so older clients keep working.
   closes it (swept every 10 s), so a host who vanished without closing the socket is replaced in under a minute
   instead of whenever the network gives up. Clients that never ping (older builds) are never swept. Emoji and gestures (`wave`, `nod`, `dance`, `stop`) are allow-listed, typed `chat` is cleaned and capped (see below), and names
   are sanitised. Tests: `test/worker.test.mjs`, `test/multiplayer.test.mjs`.
-  `worker/src/podcast.js` also serves the Colourizon podcast (see Audio); it sits behind the same Origin
-  check and fetches only `feeds.soundcloud.com`. A worker change is not live until `wrangler deploy` runs in
-  `worker/`: when the Melera podcast fails with a "websocket upgrade" reply, or the ONLINE pages show no avatars,
-  the hosted relay is an old build.
+  `worker/src/podcast.js` is a historical relay utility, unused by Quest. This branch changes no Worker
+  endpoints and needs no Worker redeployment. A future Worker change is not live until deployment.
 - **Identity and safety.** The browser keeps a secret `uid` (`vrclub.networkUid`), sent as a query parameter; the relay
   shows everyone else only `pid = SHA-256("vrclub-pid-v1:" + uid)` truncated to 16 hex. Blocks and bans are keyed by
   `pid`, so they survive reconnects (session ids change every time) and copying a `pid` cannot get anyone banned.
@@ -1371,14 +1362,13 @@ protocol only grew, so older clients keep working.
   it off restores the music at once.
 - **The host owns the music and the lights; everyone else follows.** The host is the first socket in the room and
   passes to the next guest when they leave (the relay keeps the lock, bans, music and show across the handover).
-  - *Music.* The host's `music` frame carries `url`, `playing`, `position`, and (for a podcast the app started)
-    `podcast` and `title`; the relay stamps `updatedAt` with its own clock and the guest reads it through
+  - *Music.* The host's `music` frame carries `url`, `playing`, `position`, `title` and legacy `podcast: null`.
+    The relay stamps `updatedAt` with its own clock and the guest reads it through
     `NetworkClient.serverOffset` (measured from the welcome's `serverTime`), never `Date.now()` directly. The host
     re-announces every 3 s and on play, pause and seek (`ClubMultiplayer._watchAudio`, so every control is covered);
-    a guest seeks only when it drifts more than 0.75 s and never on a live stream. A Podbean episode or the club's
-    own relay `/podcast/` path starts at once (`_isKnownMusicSource`; the app contacts those anyway, and a look-alike
-    path on another host does not count); any other URL waits for **Listen along**, because it discloses the
-    guest's IP. A guest's own episode queue is dropped and `PodcastPlayer.advance()` stands down while following.
+    a guest seeks only when it drifts more than 0.75 s and never on a live stream.
+    Every source waits for **Listen along**, because it discloses the guest's IP.
+    The host's title is followed but never its historical artist/DJ metadata.
   - *Lights.* The host sends a `show` frame at most every 250 ms, on each bar line, on any change and every 2 s
     (a lone host sends nothing; a newcomer triggers one at once; the relay keeps the latest for late joiners). Building a
     frame allocates, so the host looks for a change at most every `SHOW_CHECK_MS` (100 ms), never every render frame.

@@ -26,6 +26,7 @@ const browserGlobals = {
     FormData: 'readonly',
     Image: 'readonly',
     Audio: 'readonly',
+    Option: 'readonly',
     AudioContext: 'readonly',
     webkitAudioContext: 'readonly',
     Worker: 'readonly',

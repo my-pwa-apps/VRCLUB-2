@@ -1,0 +1,44 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.vrclub.poc"
+    compileSdk 35
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId "com.vrclub.poc"
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0-poc"
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField "boolean", "POC_BYPASS_ENTITLEMENT", "true"
+        }
+        release {
+            minifyEnabled false
+            buildConfigField "boolean", "POC_BYPASS_ENTITLEMENT", "false"
+        }
+    }
+}
+
+tasks.register("verifyWebPayload") {
+    doLast {
+        def entry = file("src/main/assets/web/index.html")
+        if (!entry.isFile()) {
+            throw new GradleException("Missing local web payload. Run: npm run build:native-poc")
+        }
+        def html = entry.getText("UTF-8")
+        if (html.contains("https://your-domain.example") || html.contains("bubblewrap")) {
+            throw new GradleException("Native POC must not depend on the public TWA URL")
+        }
+    }
+}
+
+preBuild.dependsOn("verifyWebPayload")

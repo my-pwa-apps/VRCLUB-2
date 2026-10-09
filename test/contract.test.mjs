@@ -327,11 +327,11 @@ test('no first-party code fetches from a third-party origin', () => {
             }
         });
     }
-    // The default radio stream is inherently third-party and user-replaceable. The
-    // Resident podcast feed is read only when the guest clicks its button, never at
-    // startup, and is listed in the CSP's connect-src.
+    // These are user-triggered media rather than startup dependencies. SoundCloud is
+    // loaded only in its official iframe player after a guest submits a page URL.
     const filtered = offenders.filter(o => !o.includes('stream.sunshine-live.de') &&
-        !o.includes('https://podcast.hernancattaneo.com/feed.xml'));
+        !o.includes('https://podcast.hernancattaneo.com/feed.xml') &&
+        !o.includes('https://w.soundcloud.com/player/'));
     assert.deepEqual(filtered, [],
         `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });
@@ -343,6 +343,8 @@ test('the CSP does not grant script-src to any third-party origin', () => {
     assert.ok(!/https?:\/\//.test(scriptSrc), `script-src allows a remote origin: ${scriptSrc.trim()}`);
     assert.ok(!/unsafe-inline|unsafe-eval/.test(scriptSrc), `script-src is not strict: ${scriptSrc.trim()}`);
     assert.ok(!/frame-ancestors/.test(csp), 'frame-ancestors is ignored in a meta CSP - send it as an HTTP header');
+    const frameSrc = csp.match(/frame-src([^;]*);/)?.[1]?.trim();
+    assert.equal(frameSrc, 'https://w.soundcloud.com', 'only the official SoundCloud player may be framed');
 });
 
 test('no first-party JS file leaves debug logging switched on', () => {

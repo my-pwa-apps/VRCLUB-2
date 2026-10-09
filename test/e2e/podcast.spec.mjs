@@ -31,22 +31,13 @@ const serveRanged = (route, body) => {
     });
 };
 
-/** Both podcasts: the Resident feed on its own origin, Colourizon through the relay's /podcast path. */
-async function routePodcasts(page) {
+/** Range-capable synthetic audio, explicitly chosen by the test user. */
+async function routeUserMusic(page) {
     const episode = wav(EPISODE_SECONDS);
-    const item = (title, url) => `<item><title>${title}</title><enclosure url="${url}" type="audio/mpeg" length="1"/></item>`;
-    const feed = (name, items) => ({
-        status: 200,
-        contentType: 'application/rss+xml',
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: `<?xml version="1.0"?><rss><channel><title>${name}</title>${items}</channel></rss>`
-    });
-    await page.route('https://podcast.hernancattaneo.com/feed.xml', route => route.fulfill(
-        feed('Resident', item('Resident Episode', 'https://mcdn.podbean.com/e2e/resident.mp3'))));
-    await page.route('https://mcdn.podbean.com/**', route => serveRanged(route, episode));
-    await page.route('**/podcast/colourizon/feed.xml', route => route.fulfill(feed('Colourizon', item(
-        'Colourizon Episode', 'https://vrclub-network.garfieldapp.workers.dev/podcast/colourizon/stream/123456-missmelera-e2e.mp3'))));
-    await page.route('**/podcast/colourizon/stream/**', route => serveRanged(route, episode));
+    await page.route('https://audio.example/**', route => serveRanged(route, episode));
+    await page.addInitScript(() => localStorage.setItem('vrclub.questMusic', JSON.stringify({
+        items: [{ url: 'https://audio.example/e2e/set.mp3', name: 'My own set' }], selected: 0
+    })));
 }
 
 const playing = (page, needle) => page.waitForFunction(text => {
@@ -55,14 +46,17 @@ const playing = (page, needle) => page.waitForFunction(text => {
 }, needle, { timeout: 120_000 });
 
 test('the Audio menu seeks the episode: slider, and the 30 second skips', async ({ page }) => {
-    test.setTimeout(900_000);
-    await routePodcasts(page);
+    test.setTimeout(240_000);
+    page.setDefaultTimeout(30_000);
+    await routeUserMusic(page);
     await enterClub(page);
-    await playing(page, 'resident.mp3');
+    await playing(page, 'set.mp3');
 
     await page.locator('#audioToggle').click();
     await expect(page.locator('#audioSeekSection')).toBeVisible();
     await expect(page.locator('#audioSeekTotal')).toHaveText('3:00');
+    await page.locator('#playStreamBtn').click();
+    await page.waitForFunction(() => window.vrClub.audioElement.paused);
 
     await page.locator('#audioSeek').evaluate(input => {
         input.value = '500';
@@ -74,28 +68,37 @@ test('the Audio menu seeks the episode: slider, and the 30 second skips', async 
     await page.locator('#audioSeekForward').click();
     await page.waitForFunction(() => Math.abs(window.vrClub.audioElement.currentTime - 120) < 4);
     await page.locator('#audioSeekBack').click();
+    await page.waitForFunction(() => Math.abs(window.vrClub.audioElement.currentTime - 90) < 1);
     await page.locator('#audioSeekBack').click();
     await page.waitForFunction(() => Math.abs(window.vrClub.audioElement.currentTime - 60) < 4);
+    await page.locator('#playStreamBtn').click();
+    await page.waitForFunction(() => !window.vrClub.audioElement.paused && window.vrClub.audioElement.currentTime >= 60);
     await expectHealthyRuntime(page);
 });
 
-test('choosing the other podcast swaps the stream and the DJ', async ({ page }) => {
-    test.setTimeout(900_000);
-    await routePodcasts(page);
-    // The splash no longer picks the show; a remembered choice (made in the Audio menu) drives entry.
+test('user links save and restore; generic DJ selection is independent of the music', async ({ page }) => {
+    test.setTimeout(240_000);
+    page.setDefaultTimeout(30_000);
+    await routeUserMusic(page);
+    // A historical preference must never restore an artist catalogue.
     await page.addInitScript(() => localStorage.setItem('vrclub.podcast', 'colourizon'));
-    await page.goto('/');
-    expect(await page.evaluate(() => localStorage.getItem('vrclub.podcast'))).toBe('colourizon');
-    await page.locator('#enterClubBtn').click();
-    await page.waitForFunction(() => window.vrClub?.ready === true, null, { timeout: 180_000 });
-    await playing(page, '/podcast/colourizon/stream/');
-    await page.waitForFunction(() => window.vrClub._djId === 'melera', null, { timeout: 120_000 });
+    await enterClub(page);
+    await playing(page, 'set.mp3');
+    await page.waitForFunction(() => window.vrClub._djId === 'male', null, { timeout: 120_000 });
 
     await page.locator('#audioToggle').click();
-    await page.locator('#podcastResidentBtn').click();
-    await playing(page, 'resident.mp3');
-    await page.waitForFunction(() => window.vrClub._djId === 'hernan', null, { timeout: 120_000 });
-    expect(await page.evaluate(() => localStorage.getItem('vrclub.podcast'))).toBe('resident');
+    await page.locator('#streamUrl').fill('https://audio.example/e2e/second.mp3');
+    await page.locator('#setName').fill('Second set');
+    await page.locator('#playStreamBtn').click();
+    await playing(page, 'second.mp3');
+    await expect(page.locator('#savedSets option')).toHaveCount(2);
+    await page.locator('#djStyle').selectOption('female');
+    await page.waitForFunction(() => window.vrClub._djId === 'female', null, { timeout: 120_000 });
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.questDJ'))).toBe('female');
+    await page.locator('#djStyle').selectOption('male');
+    await page.waitForFunction(() => window.vrClub._djId === 'male', null, { timeout: 120_000 });
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.questMusic')).items[1].name)).toBe('Second set');
+    expect(await page.evaluate(() => window.vrClub.audioElement.src)).toContain('second.mp3');
     await expectHealthyRuntime(page);
 });
 
@@ -109,10 +112,12 @@ const aimQuaternion = direction => {
 };
 
 test('the VR Music page seeks by clicking the bar with the controller ray', async ({ page }) => {
-    test.setTimeout(900_000);
-    await routePodcasts(page);
+    test.setTimeout(240_000);
+    page.setDefaultTimeout(30_000);
+    await routeUserMusic(page);
     await enterClub(page);
-    await playing(page, 'resident.mp3');
+    await playing(page, 'set.mp3');
+    await page.evaluate(() => window.vrClub.toggleAudioPlayback());
     await enterVR(page);
     await page.evaluate(() => window.vrClub.toggleVRQuickMenu(true));
     await page.evaluate(() => window.vrClub._showVRQuickMenuPage('music'));

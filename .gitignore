@@ -25,6 +25,12 @@ yarn-error.log*
 
 # Build outputs
 dist/
+quest-package/
+native-poc/app/src/main/assets/web/
+*.keystore
+*.jks
+*.apk
+*.aab
 build/
 playwright-report/
 test-results/
@@ -48,3 +54,4 @@ temp_*.css
 
 # Cloudflare Wrangler local dev state (Durable Object SQLite, caches)
 .wrangler/
+native-poc/local.properties

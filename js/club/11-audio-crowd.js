@@ -1086,22 +1086,16 @@ class VRClubAudioCrowd extends VRClubUI {
         return next;
     }
 
-    /**
-     * The people who can stand at the decks, one per podcast (js/podcasts.js `dj`). Both are Quaternius characters
-     * (CC0) derived from the guest files by scripts/build-dj-glbs.mjs, with one clip (`Idle_Loop`). The pale strand
-     * texture takes its colour from `hair`; `garment` turns the jacket into the plain tee each artist is photographed in.
-     * Hernan Cattaneo: half-long dark brown wavy hair, no beard, dark grey tee. Miss Melera: long straight light
-     * blond hair, mid-grey tee (and her headphones, which are not modelled).
-     */
+    /** Two fictional CC0 DJs, derived from the guest files, with rigged CC0 headphones. */
     static get DJ_LOOKS() {
         if (!this._djLooks) {
             this._djLooks = Object.freeze({
-                hernan: Object.freeze({
-                    url: './js/models/avatars/club-dj-hernan.glb', height: 1.78,
+                male: Object.freeze({
+                    url: './js/models/avatars/club-dj-male.glb', height: 1.78,
                     garment: new BABYLON.Color3(0.10, 0.10, 0.12), hair: new BABYLON.Color3(0.20, 0.12, 0.07)
                 }),
-                melera: Object.freeze({
-                    url: './js/models/avatars/club-dj-melera.glb', height: 1.68,
+                female: Object.freeze({
+                    url: './js/models/avatars/club-dj-female.glb', height: 1.68,
                     garment: new BABYLON.Color3(0.42, 0.42, 0.45), hair: new BABYLON.Color3(1.0, 0.88, 0.62)
                 })
             });
@@ -1113,7 +1107,7 @@ class VRClubAudioCrowd extends VRClubUI {
      * Every character file the room can show, by index; the crowd and guest slots point at these through
      * `sourceIndex(id)`. Files load on demand per quality tier (see `_requiredCrowdSources`).
      *  - dancerF/dancerM: the UE-rig peasant dancers. Only the player's own body wears them now (AvatarRig).
-     *  - hipHop/house/rumba: the Mixamo dancers, kept for their distinct authored choreography.
+     *  - hipHop/house/rumba: legacy slot ids, now CC0 Modular Men/Women replacements; no Mixamo files ship.
      *  - bartender: the Quaternius female guest, in a black work outfit through a tint.
      *  - f1..f8, m1..m9: the Modular Women / Modular Men cast built by scripts/build-crowd-glbs.mjs (club-crowd-*.glb):
      *    one draw each, vertex-coloured, the club's own dance and idle clips retargeted onto them.
@@ -1126,9 +1120,9 @@ class VRClubAudioCrowd extends VRClubUI {
             this._avatarSources = Object.freeze([
                 { id: 'dancerF', url: './js/models/avatars/club-dancer-female.glb', garmentColor: new BABYLON.Color3(0.45, 0.82, 1.0) },
                 { id: 'dancerM', url: './js/models/avatars/club-dancer-male.glb', garmentColor: new BABYLON.Color3(1.0, 0.42, 0.68) },
-                { id: 'hipHop', url: './js/models/avatars/Hip Hop Dancing.glb' },
-                { id: 'house', url: './js/models/avatars/house.glb' },
-                { id: 'rumba', url: './js/models/avatars/rumba_dancing_female_character.glb' },
+                { id: 'hipHop', url: './js/models/avatars/club-crowd-m1.glb' },
+                { id: 'house', url: './js/models/avatars/club-crowd-m9.glb' },
+                { id: 'rumba', url: './js/models/avatars/club-crowd-f4.glb' },
                 // The bartender: the female guest file as its own container, so it can carry a black work outfit
                 // without recolouring anyone else.
                 { id: 'bartender', url: './js/models/avatars/club-guest-female.glb', garmentColor: new BABYLON.Color3(0.16, 0.16, 0.19) },
@@ -1161,13 +1155,24 @@ class VRClubAudioCrowd extends VRClubUI {
         return VRClubAudioCrowd.AVATAR_SOURCES.findIndex(source => source.id === id);
     }
 
-    /** The DJ for the club's first frame: the chosen podcast's, 'hernan' when nothing is chosen. */
+    /** Local DJ preference, independent of music and the room host. */
     _initialDJId() {
         try {
-            const podcasts = window.Podcasts;
-            if (podcasts) return podcasts.get(podcasts.selectedId(localStorage)).dj;
+            if (localStorage.getItem('vrclub.questDJ') === 'female') return 'female';
         } catch (_) { /* storage blocked */ }
-        return 'hernan';
+        return 'male';
+    }
+
+    async chooseDJ(id) {
+        if (!VRClubAudioCrowd.djLook(id)) throw new Error('Choose Male DJ or Female DJ.');
+        if (!await this.setDJ(id) && this.isPeopleVisible('dj')) throw new Error('The DJ could not load. Try again later.');
+        this._djWanted = id;
+        try { localStorage.setItem('vrclub.questDJ', id); }
+        catch (error) {
+            log.warn(`DJ preference could not be saved: ${error.message}`);
+            this.showErrorMessage('The DJ changed, but this device could not save your choice.');
+        }
+        return true;
     }
 
     /** Load one avatar GLB into a container with its materials normalised. Null when it cannot be loaded. */
@@ -1206,7 +1211,7 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Put the DJ for `id` ('hernan' | 'melera') behind the decks. Swaps are queued, so a quick double switch
+     * Put the DJ for `id` ('male' | 'female') behind the decks. Swaps are queued, so a quick double switch
      * ends on the last one, and the first call loads the file (each DJ is loaded once and kept).
      * @returns {Promise<boolean>} true when the requested DJ is at the decks
      */
@@ -1218,7 +1223,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
     setDJ(id) {
         if (!VRClubAudioCrowd.djLook(id)) return Promise.resolve(false);
-        // The entry music can ask for a DJ while the club is still being built: wait for init (it places the DJ itself).
+        // A selection during startup waits for init, which places the initial DJ itself.
         this._djQueue = (this._djQueue || Promise.resolve(this.initPromise).catch(() => {}))
             .then(() => (this._disposed ? false : this._applyDJ(id)))
             .catch(() => false);
@@ -1228,7 +1233,7 @@ class VRClubAudioCrowd extends VRClubUI {
     async _applyDJ(id) {
         const look = VRClubAudioCrowd.djLook(id);
         if (!look) return false;
-        // Sent home: remember who the podcast wants at the decks and fetch nothing until the DJ is asked back.
+        // Sent home: remember the local choice and fetch nothing until the DJ is asked back.
         if (!this.isPeopleVisible('dj')) { this._djWanted = id; return false; }
         if (this._djId === id) return true;
         this._djContainers = this._djContainers || {};
@@ -1484,8 +1489,7 @@ class VRClubAudioCrowd extends VRClubUI {
         // === THE DJ ===
         // Stands on the 0.5 m riser in the 1 m gap between the LED wall (z=-20) and
         // the deck plinth (z=-19), facing the floor. Playback is dialled well down so
-        // they read as working the decks rather than raving in the crowd. Who stands there follows the podcast
-        // that is chosen (Hernan Cattaneo or Miss Melera): see DJ_LOOKS and setDJ().
+        // they read as working the decks rather than raving in the crowd. The local generic choice owns the look.
         await this._applyDJ(this._initialDJId());
 
         // === THE BARTENDER ===
@@ -1712,7 +1716,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 Math.PI + slot.facing,
                 slot.height,
                 0.85 + (index % 5) * 0.07,
-                // The Quaternius people carry several moves and dance them on the beat; the Mixamo three keep their own.
+                // All floor dancers use the CC0 repertoire.
                 { repertoire: VRClubAudioCrowd.DANCE_MOVES }
             );
         });
@@ -1888,13 +1892,16 @@ class VRClubAudioCrowd extends VRClubUI {
         this._applyDJVisibility();
     }
 
-    /** The DJ is not a crowd slot: an AvatarRig posed by DJPerformer, replaced whenever the podcast changes. */
+    /** The DJ is not a crowd slot: an AvatarRig posed by DJPerformer, replaced on local selection. */
     _applyDJVisibility() {
         const enabled = this.isPeopleVisible('dj');
+        if (enabled && this._djWanted && this._djWanted !== this._djId) {
+            this.setDJ(this._djWanted).then(applied => {
+                if (!applied) this.showErrorMessage('The selected DJ could not load. Try again later.');
+            }).catch(error => this.showErrorMessage(`The selected DJ could not load: ${error.message}`));
+        }
         const npc = this.npcAvatars && this.npcAvatars.find(item => item.name === 'djPerformer');
         if (!npc || !npc.root) {
-            // Nobody at the decks: the DJ was sent home before the file was fetched. Bring back whoever was asked for.
-            if (enabled && this._djWanted && this._djWanted !== this._djId) this.setDJ(this._djWanted);
             return;
         }
         if (npc.root.isEnabled() === enabled) return;

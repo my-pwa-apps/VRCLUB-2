@@ -173,13 +173,16 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         focus() {},
         querySelector() { return null; },
         setCustomValidity() {},
-        reportValidity() { return true; }
+        reportValidity() { return true; },
+        replaceChildren() {},
+        add() {}
     });
     const elements = Object.fromEntries([
         'audioToggle', 'audioMenu', 'audioMinimize', 'audioClose', 'streamUrl',
         'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
         'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
-        'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue'
+        'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue', 'savedSets',
+        'setName', 'playSavedSetBtn', 'removeSavedSetBtn', 'djStyle'
     ].map(id => [id, makeEl()]));
     elements.audioToggle.attributes['aria-expanded'] = 'false';
     elements.audioVolume.value = '1';
@@ -188,6 +191,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
     const calls = [];
     const context = vm.createContext({
         Promise,
+        Option: class {},
         document: {
             getElementById(id) { return elements[id] || null; },
             querySelectorAll() { return []; },
@@ -204,7 +208,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         AudioUtils: { isResidentEpisodeUrl: () => false, formatClock: String },
         Podcasts: { get: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }) },
         // The podcast player and its choice buttons are exercised by their own tests (podcasts.js).
-        ensurePodcastPlayer: () => ({ selected: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }), queue: null, isQueuedUrl: () => false }),
+        ensureMusicLibrary: () => ({ current: () => null, items: [], selected: 0 }),
         refreshPodcastChoices() {},
         setInterval() { return 1; },
         clearInterval() {},
@@ -215,6 +219,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             _audioVolume: 0.6,
             audioElement: null,
             scene: null,
+            _initialDJId: () => 'male',
             _isSafeAudioUrl() { return true; },
             getPlaybackInfo() { return { seekable: false, position: 0, duration: 0, playing: false }; },
             setAudioVolume(value) { calls.push(['music', value]); },
@@ -4738,7 +4743,7 @@ test('shipped club air keeps fog on and tints toward the look without changing h
         'fog density must ease, not snap');
 });
 
-test('music always starts on entry and a Resident episode is never remembered as the default', () => {
+test('Quest entry uses only explicitly saved music and ships no podcast picker', () => {
     const { AudioUtils } = loadClassic('js/audioUtils.js').window;
 
     // Episodes are resolved fresh from the feed; remembering one would pin the default to it.
@@ -4751,7 +4756,9 @@ test('music always starts on entry and a Resident episode is never remembered as
     // The entry flow is wired to them, and the old station is gone from the defaults.
     const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     assert.ok(!/sunshine-live/i.test(ui), 'the old default station is still referenced');
-    assert.match(ui, /player\.playRandom\(podcast\)/, 'ENTER must start a RANDOM episode of the chosen podcast');
+    assert.match(ui, /library\.current\(\)/, 'ENTER checks user-saved music');
+    assert.match(ui, /if \(!item\)/, 'fresh entry must not download music');
+    assert.doesNotMatch(ui, /ensurePodcastPlayer|Podcasts\./, 'Quest must not initialise a podcast player');
     assert.doesNotMatch(ui, /playResidentFrom|fetchPodcastEpisodes|RESIDENT_PODCAST/, 'the old in-file queue is back');
     // A club has music when you walk in: there is no opt-out left to read, so ENTER must not branch on one.
     assert.doesNotMatch(ui, /shouldPlayOnEntry|radioOnEntry/, 'the music opt-in is gone; ENTER always starts the music');
@@ -4765,11 +4772,10 @@ test('music always starts on entry and a Resident episode is never remembered as
     assert.doesNotMatch(splash, /splashRadioOnEntry|splash-podcast|workers\.dev|podbean|soundcloud|cattaneo|melera/i,
         'the splash must not carry a music toggle, the podcast picker or the servers behind it');
     // The choice and the disclosure both still exist, in the Audio menu and the credits.
-    assert.match(html, /id="podcastResidentBtn"[^>]*aria-checked="true"/, 'Hernan Cattaneo is the default podcast');
-    assert.match(html, /id="podcastColourizonBtn"[^>]*aria-checked="false"/);
+    assert.doesNotMatch(html, /id="podcastResidentBtn"|id="podcastColourizonBtn"/);
+    assert.match(html, /id="savedSets"/);
     const credits = html.match(/<details id="modelCredits">([\s\S]*?)<\/details>/)[1];
-    assert.match(credits, /podcast\.hernancattaneo\.com/, 'the credits must name the Resident feed');
-    assert.match(credits, /SoundCloud/, 'the credits must name where Colourizon comes from');
+    assert.match(credits, /No music, podcasts or third-party sound recordings are included/);
     assert.match(credits, /IP address/, 'the credits must keep the streaming privacy disclosure');
 });
 
@@ -5607,7 +5613,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
 test('PWA manifest declares an installable configuration', () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
     assert.equal(manifest.name, 'NOCTURNE - Virtual Nightclub');
-    assert.equal(manifest.display, 'fullscreen');
+    assert.equal(manifest.display, 'standalone');
     // `id` pins app identity so a future start_url change does not create a second
     // installed app; `scope` bounds the SW-controlled navigation surface.
     assert.ok(manifest.id, 'manifest.json must declare an `id`');
@@ -6702,7 +6708,7 @@ test('a seek or a pause by the room host is published; a guest never publishes; 
     let message = '';
     quiet.showErrorMessage = text => { message = text; };
     assert.equal(quiet.toggleAudioPlayback(), false);
-    assert.match(message, /Nothing is playing/);
+    assert.match(message, /No music yet/);
 });
 
 test('the VR seek bar maps a pointer position to a fraction, drags and commits on release', () => {
@@ -6780,21 +6786,20 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     const music = club._vrQuickMenuPageDefinitions('music');
     assert.deepEqual([...music.slice(0, 3)], [null, null, null], 'the first row belongs to the seek bar');
     assert.deepEqual([...music.slice(3).map(item => item.action)],
-        ['seek', 'playPause', 'seek', 'podcast', 'podcast', 'randomEpisode', 'latestEpisode', 'back', 'close']);
+        ['seek', 'playPause', 'seek', 'setStep', 'savedSet', 'setStep', 'musicSetup', 'back', 'close']);
     assert.deepEqual([...music.filter(item => item && item.action === 'seek').map(item => item.delta)], [-60, 60]);
-    assert.deepEqual([...music.filter(item => item && item.action === 'podcast').map(item => item.podcast)], ['resident', 'colourizon']);
+    assert.deepEqual([...music.filter(item => item && item.action === 'setStep').map(item => item.delta)], [-1, 1]);
 
     // Actions.
     const log = [];
     const player = {
-        selectedId: () => 'colourizon',
-        switchTo: async id => { log.push(['switchTo', id]); },
-        playRandom: async () => { log.push(['random']); },
-        playLatest: async () => { log.push(['latest']); }
+        current: () => ({ name: 'My set' }),
+        step: delta => { log.push(['step', delta]); },
+        play: async () => { log.push(['play']); }
     };
     const toasts = [];
     Object.assign(club, {
-        podcastPlayer: player,
+        musicLibrary: player,
         pulseHaptic() {}, _refreshVRQuickMenu() {},
         showErrorMessage: text => toasts.push(text),
         seekAudioBy: delta => { log.push(['seekBy', delta]); return true; },
@@ -6802,28 +6807,24 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     });
     await club._runVRMusicAction({ action: 'seek', delta: -60 });
     await club._runVRMusicAction({ action: 'playPause' });
-    await club._runVRMusicAction({ action: 'podcast', podcast: 'resident' });
-    await club._runVRMusicAction({ action: 'randomEpisode' });
-    await club._runVRMusicAction({ action: 'latestEpisode' });
-    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['switchTo', 'resident'], ['random'], ['latest']]);
-    assert.ok(toasts.some(text => /Miss Melera/.test(text)), 'the toast names the artist whose set is being found');
+    await club._runVRMusicAction({ action: 'setStep', delta: 1 });
+    await club._runVRMusicAction({ action: 'savedSet' });
+    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['step', 1], ['play']]);
 
     // Failures are reported, never thrown; a missing player is explained.
-    player.playRandom = async () => { throw new Error('feed down'); };
-    await club._runVRMusicAction({ action: 'randomEpisode' });
+    player.play = async () => { throw new Error('feed down'); };
+    await club._runVRMusicAction({ action: 'savedSet' });
     assert.match(toasts.at(-1), /feed down/);
-    club.podcastPlayer = null;
-    await club._runVRMusicAction({ action: 'latestEpisode' });
+    club.musicLibrary = null;
+    await club._runVRMusicAction({ action: 'savedSet' });
     assert.match(toasts.at(-1), /not ready/);
     club.seekAudioBy = () => false;
     await club._runVRMusicAction({ action: 'seek', delta: 60 });
     assert.match(toasts.at(-1), /Nothing to seek/);
 
     // The page's button states.
-    club.podcastPlayer = player; // colourizon is chosen
-    assert.equal(club._isVRQuickMenuButtonActive({ action: 'podcast', podcast: 'colourizon' }), true);
-    assert.equal(club._isVRQuickMenuButtonActive({ action: 'podcast', podcast: 'resident' }), false);
-    assert.equal(club._vrQuickMenuButtonValue({ action: 'podcast' }, true), 'SELECTED');
+    club.musicLibrary = player;
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'savedSet' }, true), 'MY SET');
     club.audioElement = fakeAudio({ paused: true });
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PAUSED');
     club.audioElement.paused = false;
@@ -6840,22 +6841,22 @@ test('clock labels read h:mm:ss and survive garbage', () => {
     for (const bad of [NaN, Infinity, -5, null, undefined, 'x']) assert.equal(AudioUtils.formatClock(bad), bad === Infinity ? '0:00' : '0:00', String(bad));
 });
 
-test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, queued switches and safe ids', async () => {
+test('generic DJs: one load per DJ, a clean swap, queued switches and safe ids', async () => {
     const BABYLON = makeBabylonStub();
     const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
     const Crowd = window.VRClubAudioCrowd;
 
     // The looks: two people, each with its own file, height and tints; unknown ids are refused as own keys only.
-    assert.deepEqual(Object.keys(Crowd.DJ_LOOKS), ['hernan', 'melera']);
-    assert.match(Crowd.DJ_LOOKS.hernan.url, /club-dj-hernan\.glb$/);
-    assert.match(Crowd.DJ_LOOKS.melera.url, /club-dj-melera\.glb$/);
+    assert.deepEqual(Object.keys(Crowd.DJ_LOOKS), ['male', 'female']);
+    assert.match(Crowd.DJ_LOOKS.male.url, /club-dj-male\.glb$/);
+    assert.match(Crowd.DJ_LOOKS.female.url, /club-dj-female\.glb$/);
     for (const bad of ['__proto__', 'constructor', 'toString', '', null, undefined, 7]) assert.equal(Crowd.djLook(bad), null, String(bad));
     const hair = id => Crowd.DJ_LOOKS[id].hair;
     // Hernan Cattaneo: half-long dark brown hair. Miss Melera: long light blond hair (their press photos).
-    assert.ok(hair('hernan').r < 0.35 && hair('hernan').g < 0.2 && hair('hernan').b < 0.12 && hair('hernan').r > hair('hernan').b, 'Hernan Cattaneo has dark brown hair');
-    assert.ok(hair('melera').r > 0.8 && hair('melera').g > 0.7 && hair('melera').b > 0.45 && hair('melera').r > hair('melera').b, 'Miss Melera has light blond hair');
-    assert.ok(Crowd.DJ_LOOKS.hernan.garment.r < 0.15, 'Hernan wears a dark tee');
-    const tee = Crowd.DJ_LOOKS.melera.garment;
+    assert.ok(hair('male').r < 0.35 && hair('male').g < 0.2 && hair('male').b < 0.12 && hair('male').r > hair('male').b);
+    assert.ok(hair('female').r > 0.8 && hair('female').g > 0.7 && hair('female').b > 0.45 && hair('female').r > hair('female').b);
+    assert.ok(Crowd.DJ_LOOKS.male.garment.r < 0.15);
+    const tee = Crowd.DJ_LOOKS.female.garment;
     assert.ok(tee.r > 0.3 && tee.r < 0.6, 'Miss Melera wears a mid-grey tee');
 
     const spawned = [], disposed = [], loads = [];
@@ -6877,45 +6878,45 @@ test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, qu
     });
 
     // A switch requested while the club is still being built waits for init and does not race it.
-    const early = club.setDJ('melera');
+    const early = club.setDJ('female');
     await flush();
     assert.equal(spawned.length, 0, 'the DJ must wait for the club to finish building');
     initDone();
     assert.equal(await early, true);
     assert.equal(spawned.length, 1);
-    assert.deepEqual({ ...spawned[0] }, { url: Crowd.DJ_LOOKS.melera.url, height: 1.68, speed: 0.55, clip: 'Idle_Loop', y: 0.5, z: -19.4 });
+    assert.deepEqual({ ...spawned[0] }, { url: Crowd.DJ_LOOKS.female.url, height: 1.68, speed: 0.55, clip: 'Idle_Loop', y: 0.5, z: -19.4 });
     assert.equal(club.npcAvatars.filter(npc => npc.name === 'djPerformer').length, 1);
 
     // The same DJ again does nothing; the other one replaces the first completely.
-    assert.equal(await club.setDJ('melera'), true);
+    assert.equal(await club.setDJ('female'), true);
     assert.equal(spawned.length, 1);
-    assert.equal(await club.setDJ('hernan'), true);
+    assert.equal(await club.setDJ('male'), true);
     assert.equal(spawned.length, 2);
     assert.equal(club.npcAvatars.filter(npc => npc.name === 'djPerformer').length, 1, 'exactly one DJ at the decks');
-    assert.deepEqual(disposed, [`collider:${Crowd.DJ_LOOKS.melera.url}`, `entry:${Crowd.DJ_LOOKS.melera.url}`], 'the previous DJ is disposed entirely');
-    assert.equal(club._djId, 'hernan');
+    assert.deepEqual(disposed, [`collider:${Crowd.DJ_LOOKS.female.url}`, `entry:${Crowd.DJ_LOOKS.female.url}`], 'the previous DJ is disposed entirely');
+    assert.equal(club._djId, 'male');
     assert.ok(club.shadowRefreshes >= 2, 'the contact shadow follows the new DJ');
 
     // Switching back reuses the loaded file; quick switches end on the last one.
-    club.setDJ('melera'); club.setDJ('hernan'); await club.setDJ('melera');
-    assert.equal(club._djId, 'melera');
+    club.setDJ('female'); club.setDJ('male'); await club.setDJ('female');
+    assert.equal(club._djId, 'female');
     assert.equal(loads.length, 2, 'each DJ file is loaded once');
-    assert.deepEqual(loads.map(load => load[0]), [Crowd.DJ_LOOKS.melera.url, Crowd.DJ_LOOKS.hernan.url]);
-    assert.equal(loads[0][1], Crowd.DJ_LOOKS.melera.garment);
-    assert.equal(loads[0][2], Crowd.DJ_LOOKS.melera.hair);
+    assert.deepEqual(loads.map(load => load[0]), [Crowd.DJ_LOOKS.female.url, Crowd.DJ_LOOKS.male.url]);
+    assert.equal(loads[0][1], Crowd.DJ_LOOKS.female.garment);
+    assert.equal(loads[0][2], Crowd.DJ_LOOKS.female.hair);
 
     // Refused ids leave the DJ alone; a failed load keeps the current one; a disposed club does nothing.
     assert.equal(await club.setDJ('__proto__'), false);
-    assert.equal(club._djId, 'melera');
-    club._djContainers.hernan = null;
+    assert.equal(club._djId, 'female');
+    club._djContainers.male = null;
     club._loadAvatarSource = async () => null;
-    assert.equal(await club.setDJ('hernan'), false, 'a DJ whose file cannot load never replaces the working one');
-    assert.equal(club._djId, 'melera');
+    assert.equal(await club.setDJ('male'), false, 'a DJ whose file cannot load never replaces the working one');
+    assert.equal(club._djId, 'female');
     club._disposed = true;
-    assert.equal(await club.setDJ('hernan'), false);
+    assert.equal(await club.setDJ('male'), false);
 
-    // Until a podcast is chosen the first DJ is Hernan Cattaneo's; afterwards the chosen podcast's.
-    assert.equal(Object.create(Crowd.prototype)._initialDJId(), 'hernan');
+    // The generic choice is local and never reads a historical podcast preference.
+    assert.equal(Object.create(Crowd.prototype)._initialDJId(), 'male');
     const store = new Map();
     window.Podcasts = loadPodcasts();
     const storage = { getItem: key => store.get(key) ?? null };
@@ -6924,10 +6925,43 @@ test('the DJ at the decks follows the podcast: one load per DJ, a clean swap, qu
     const withStorage = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {}, localStorage: storage });
     withStorage.window.Podcasts = window.Podcasts;
     const club2 = Object.create(withStorage.window.VRClubAudioCrowd.prototype);
-    assert.equal(club2._initialDJId(), 'hernan');
-    store.set('vrclub.podcast', 'colourizon');
-    assert.equal(club2._initialDJId(), 'melera');
+    assert.equal(club2._initialDJId(), 'male');
+    store.set('vrclub.questDJ', 'female');
+    assert.equal(club2._initialDJId(), 'female');
     assert.ok(chooser);
+});
+
+test('a generic DJ choice persists while the DJ is hidden and applies when they return', async () => {
+    const store = new Map();
+    const storage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', {
+        BABYLON: makeBabylonStub(), VRClubUI: class {}, localStorage: storage
+    });
+    const club = Object.create(window.VRClubAudioCrowd.prototype);
+    let visible = false, loaded = 0;
+    Object.assign(club, {
+        _djId: 'male', npcAvatars: [],
+        isPeopleVisible: () => visible,
+        showErrorMessage: message => assert.fail(message),
+        setDJ: async id => {
+            if (!visible) return false;
+            loaded++;
+            club._djId = id;
+            return true;
+        }
+    });
+    assert.equal(await club.chooseDJ('female'), true);
+    assert.equal(loaded, 0);
+    assert.equal(store.get('vrclub.questDJ'), 'female');
+    visible = true;
+    club._applyDJVisibility();
+    await Promise.resolve();
+    assert.equal(loaded, 1);
+    assert.equal(club._djId, 'female');
+    await assert.rejects(club.chooseDJ('__proto__'), /Choose Male DJ/);
+    club.setDJ = async () => false;
+    await assert.rejects(club.chooseDJ('male'), /could not load/);
+    assert.equal(store.get('vrclub.questDJ'), 'female');
 });
 
 test('avatar materials take their hair and jacket tints only where they belong', () => {
@@ -6959,8 +6993,8 @@ test('the DJ character files: one idle clip, six draws, the right hair, and the 
         // Hernan Cattaneo: the guest file's beard is cut out and Hair_Long, shortened to shoulder length and with its
         // front (bangs and face-framing locks) removed, goes over the short cap (+548 triangles net). Both DJs wear the
         // 3,324-triangle headphones.
-        'club-dj-hernan.glb': { from: 'club-guest-male.glb', extra: [3500, 4200], hair: 'Hair_SimpleParted' },
-        'club-dj-melera.glb': { from: 'club-guest-female.glb', extra: [3000, 3700], hair: 'Hair_Long' }
+        'club-dj-male.glb': { from: 'club-guest-male.glb', extra: [3500, 4200], hair: 'Hair_SimpleParted' },
+        'club-dj-female.glb': { from: 'club-guest-female.glb', extra: [3000, 3700], hair: 'Hair_Long' }
     };
     for (const [file, expected] of Object.entries(files)) {
         const json = readGlbJson(`js/models/avatars/${file}`);
@@ -7178,7 +7212,7 @@ test('VR menu: lighting and music buttons read HOST ONLY for a guest, and travel
     const club = Object.create(proto);
     club.multiplayer = { following: true };
     club.graphicsTier = 'ultra';
-    for (const owned of [{ action: 'seek' }, { action: 'playPause' }, { action: 'podcast' }, { action: 'autoShow' }, { action: 'reset' },
+    for (const owned of [{ action: 'seek' }, { action: 'playPause' }, { action: 'savedSet' }, { action: 'autoShow' }, { action: 'reset' },
         { action: 'cycle', control: 'changeColor' }, { control: 'lightsActive' }, { control: 'strobesActive' }]) {
         assert.equal(proto._vrQuickMenuButtonValue.call(club, owned, true), 'HOST ONLY', JSON.stringify(owned));
     }

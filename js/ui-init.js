@@ -13,44 +13,10 @@ const uiLog = {
     error: (...args) => console.error('[UI]', ...args)
 };
 
-// On-demand DJ sets: Hernan Cattaneo's Resident and Miss Melera's Colourizon. Their catalogue, the guest's
-// choice, the random/latest pick and the queue live in js/podcasts.js (shared with the VR menu); this file only
-// wires them to the DOM. The music starts on ENTER (unless the guest turns that off on the splash), with a RANDOM
-// episode of the chosen podcast. The guest's IP goes to that podcast's servers (see Podcasts.serversText).
-
-/** The relay's https base (for the podcast that needs it), from the same setting the multiplayer panel uses. */
-function podcastRelayBase() {
-    return window.Podcasts.relayBase(defaultNetworkServerUrl());
+function ensureMusicLibrary(club) {
+    if (!club.musicLibrary) club.musicLibrary = new window.MusicLibrary(club);
+    return club.musicLibrary;
 }
-
-/**
- * The one podcast player for this club, shared with the VR menu through `club.podcastPlayer`. Its onEpisode hook
- * keeps the labels, the URL box and the podcast choice buttons in step with whatever surface started the episode.
- */
-function ensurePodcastPlayer(club) {
-    if (club.podcastPlayer) return club.podcastPlayer;
-    const player = window.Podcasts.createPlayer(club, { getRelay: podcastRelayBase, storage: window.localStorage });
-    player.onEpisode = (episode) => {
-        announceNowPlaying(episode.title);
-        // The URL box follows the episode, so the Play/Pause button controls the one that plays.
-        const input = document.getElementById('streamUrl');
-        if (input) input.value = episode.url;
-        refreshPodcastChoices();
-    };
-    club.podcastPlayer = player;
-    return player;
-}
-
-/** Light the chosen podcast on every control that offers the choice (the Audio menu buttons). */
-function refreshPodcastChoices() {
-    const id = window.Podcasts.selectedId(window.localStorage);
-    document.querySelectorAll('[data-podcast]').forEach((button) => {
-        button.setAttribute('aria-checked', String(button.dataset.podcast === id));
-    });
-}
-
-/** localStorage key for the last stream the guest actually played. */
-const LAST_STREAM_KEY = 'vrclub.lastStreamUrl';
 
 /** Now-playing text for the audio menu, set when the entry music starts (the menu may not exist yet). */
 let entryNowPlaying = '';
@@ -194,16 +160,6 @@ const mainExperience = document.getElementById('mainExperience');
     });
 })();
 
-/** A stream the guest chose themselves and played before, if any. Resident episodes never count. */
-function rememberedStreamUrl() {
-    try {
-        const remembered = localStorage.getItem(LAST_STREAM_KEY);
-        if (remembered && AudioUtils.isSafeAudioUrl(remembered, window.location.href) &&
-            !AudioUtils.isResidentEpisodeUrl(remembered)) return remembered;
-    } catch (_) { /* ignore */ }
-    return null;
-}
-
 function announceNowPlaying(label) {
     entryNowPlaying = `\u25B6 ${label}`;
     const nowPlaying = document.getElementById('audioNowPlaying');
@@ -214,61 +170,45 @@ function announceNowPlaying(label) {
     if (playBtn) playBtn.setAttribute('aria-label', 'Pause audio');
 }
 
-/**
- * Start the default music from the ENTER click: the guest's own remembered stream, else a RANDOM episode of
- * the podcast chosen on the splash (the next older one follows each that ends). The AudioContext is created
- * and resumed synchronously here, while the click's user activation is fresh; only the feed lookup that
- * follows is asynchronous. If the browser still blocks playback, the next click or key press starts it,
- * unless the guest has chosen something else.
- */
+/** Resume only an explicitly saved set, with the ENTER click's autoplay permission. */
 function startEntryMusic(club, pointAtAudioMenu) {
     try { club._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
-    const player = ensurePodcastPlayer(club);
-    const podcast = player.selected();
-    entryNowPlaying = `Finding a ${podcast.artist} episode\u2026`;
+    const library = ensureMusicLibrary(club);
+    const item = library.current();
     const nowPlaying = document.getElementById('audioNowPlaying');
+    if (!item) {
+        entryNowPlaying = 'No music included. Open Music to add your own set.';
+        if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+        pointAtAudioMenu();
+        return;
+    }
+    entryNowPlaying = `Starting ${item.name}\u2026`;
     if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
-
-    // What a blocked start would resume: the URL to compare against and how to start it.
-    let blocked = null;
     const retryOnGesture = () => {
         document.removeEventListener('pointerdown', retryOnGesture);
         document.removeEventListener('keydown', retryOnGesture);
         const audio = club.audioElement;
-        if (!blocked || (audio && !audio.paused) || club._audioStreamUrl !== blocked.url()) return;
-        blocked.start().catch(() => { /* toast already shown */ });
+        if ((audio && !audio.paused) || club._audioStreamUrl !== item.url) return;
+        library.play().catch(error => club.showErrorMessage(`Could not play your set: ${error.message}`));
     };
-
-    const remembered = rememberedStreamUrl();
-    let started;
-    if (remembered) {
-        blocked = {
-            url: () => remembered,
-            start: () => club.startAudioStream(remembered).then(() => announceNowPlaying('your last stream'))
-        };
-        started = blocked.start();
-    } else {
-        blocked = {
-            url: () => player.queue.episodes[player.queue.index].url,
-            start: () => player.playFrom(player.queue.podcast, player.queue.episodes, player.queue.index)
-        };
-        started = player.playRandom(podcast);
-    }
-
-    started.catch((err) => {
+    library.play().then(() => announceNowPlaying(item.name)).catch((err) => {
         // Music is atmosphere, not a startup dependency - but failing silently leaves the
         // guest in a club that looks alive and makes no sound, with no indication that the
         // fix is behind the audio button.
-        uiLog.warn(`Default music unavailable: ${err.message}`);
+        uiLog.warn(`Saved music unavailable: ${err.message}`);
         entryNowPlaying = 'No audio yet';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
         pointAtAudioMenu();
-        const canRetry = err && err.name === 'NotAllowedError' && (remembered || player.queue);
+        const canRetry = err && err.name === 'NotAllowedError';
         if (canRetry) {
             document.addEventListener('pointerdown', retryOnGesture);
             document.addEventListener('keydown', retryOnGesture);
+            uiTeardowns.push(() => {
+                document.removeEventListener('pointerdown', retryOnGesture);
+                document.removeEventListener('keydown', retryOnGesture);
+            });
         } else if (club.showErrorMessage) {
-            club.showErrorMessage('No music yet \u2014 open \ud83c\udfb5 to pick a station or play a local file.');
+            club.showErrorMessage('Your set could not play. Open Music to try another link or a local file.');
         }
     });
 }
@@ -293,8 +233,7 @@ if (enterClubBtn) {
         // operation loses the browser's transient user activation and audible
         // playback is then blocked by autoplay policy.
         window.vrClub = new VRClub();
-        // One podcast player for both menus (the VR menu reaches it through club.podcastPlayer).
-        ensurePodcastPlayer(window.vrClub);
+        ensureMusicLibrary(window.vrClub);
 
         const pointAtAudioMenu = () => {
             const audioToggle = document.getElementById('audioToggle');
@@ -304,9 +243,7 @@ if (enterClubBtn) {
             }
         };
 
-        // A club always has music playing when you walk in; there is nothing to opt into. The
-        // guest changes or stops it from the audio menu once inside. This call must stay inside
-        // the ENTER click: deferring it loses the transient user activation and autoplay blocks it.
+        // Only explicitly saved user music may resume. Keep this in the click for autoplay permission.
         startEntryMusic(window.vrClub, pointAtAudioMenu);
         
         // Show loading state
@@ -1001,12 +938,7 @@ function initAudioMenu() {
     if (!audioToggle || !audioMenu) return;
 
     if (streamUrl && !streamUrl.value) {
-        // Prefill with whatever the guest last chose to play, so the single
-        // highest-friction input in the app (a URL typed on a Quest virtual
-        // keyboard) does not have to be re-entered every session. Left empty when
-        // there is none: the default music is the latest Resident episode, which
-        // has no fixed URL.
-        const remembered = rememberedStreamUrl();
+        const remembered = ensureMusicLibrary(vrClubInstance).current()?.url;
         if (remembered && vrClubInstance._isSafeAudioUrl(remembered)) streamUrl.value = remembered;
     }
 
@@ -1039,6 +971,21 @@ function initAudioMenu() {
         audioToggle.classList.remove('needs-attention');
         if (audioTitle) audioTitle.focus();
     };
+    window.openMusicSetup = () => {
+        openAudioMenu();
+        document.getElementById('djStyle').value = vrClubInstance._djWanted || vrClubInstance._djId || vrClubInstance._initialDJId();
+        if (streamUrl) streamUrl.focus();
+    };
+    window.openClubCredits = () => {
+        const credits = document.getElementById('modelCredits');
+        credits.open = true;
+        credits.scrollIntoView();
+        credits.querySelector('summary').focus();
+    };
+    teardowns.push(() => {
+        delete window.openMusicSetup;
+        delete window.openClubCredits;
+    });
 
     audioToggle.addEventListener('click', () => {
         if (audioMenu.classList.contains('hidden')) openAudioMenu();
@@ -1140,6 +1087,7 @@ function initAudioMenu() {
     if (playStreamBtn && streamUrl) {
         playStreamBtn.addEventListener('click', () => {
             const url = streamUrl.value.trim();
+            if (!vrClubInstance.guardHostControl('music')) return;
             streamUrl.setCustomValidity('');
             if (!url) {
                 streamUrl.setCustomValidity('Enter an audio stream URL.');
@@ -1174,51 +1122,45 @@ function initAudioMenu() {
                 return;
             }
 
-            playUrl(url, url);
+            playUrl(url, document.getElementById('setName').value);
         });
     }
 
-    // Podcast choice, Random and Latest. They all go through the one player the VR menu uses.
-    const podcastPlayer = ensurePodcastPlayer(vrClubInstance);
-    const playPodcastBtn = document.getElementById('playPodcastBtn');
-    const playRandomEpisodeBtn = document.getElementById('playRandomEpisodeBtn');
-    const podcastButtons = [playPodcastBtn, playRandomEpisodeBtn,
-        ...document.querySelectorAll('.audio-podcast-choice')].filter(Boolean);
-    /** Run a player action with the buttons locked and a status line; the player's onEpisode hook updates the labels. */
-    const runPodcastAction = async (message, action) => {
-        if (podcastButtons.some(button => button.disabled)) return;
-        podcastButtons.forEach(button => { button.disabled = true; });
-        showStatus(message, 'success');
-        try {
-            const episode = await action();
-            showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success');
-        } catch (err) {
-            uiLog.warn('Podcast feed failed:', err);
-            showStatus(`Could not load the podcast: ${err.message}`, 'error');
-        } finally {
-            podcastButtons.forEach(button => { button.disabled = false; });
-        }
+    const library = ensureMusicLibrary(vrClubInstance);
+    const savedSets = document.getElementById('savedSets');
+    const renderSets = (playing) => {
+        savedSets.replaceChildren();
+        if (!library.items.length) savedSets.add(new Option('No saved sets yet', ''));
+        library.items.forEach((item, index) => savedSets.add(new Option(item.name, String(index))));
+        savedSets.value = library.items.length ? String(library.selected) : '';
+        const item = library.current();
+        streamUrl.value = item ? item.url : '';
+        document.getElementById('setName').value = item ? item.name : '';
+        if (playing) announceNowPlaying(playing.name);
+        if (vrClubInstance._vrQuickMenuVisible) vrClubInstance._refreshVRQuickMenu();
     };
-    refreshPodcastChoices();
-    document.querySelectorAll('.audio-podcast-choice').forEach((button) => {
-        button.addEventListener('click', () => {
-            const podcast = Podcasts.get(button.dataset.podcast);
-            // Choosing a podcast plays it: a random episode of that artist, and the DJ at the decks follows.
-            runPodcastAction(`Finding a ${podcast.artist} episode\u2026`, () => podcastPlayer.switchTo(podcast.id));
+    library.onChange = renderSets;
+    renderSets();
+    savedSets.addEventListener('change', () => {
+        try { library.select(Number(savedSets.value)); }
+        catch (error) { showStatus(error.message, 'error'); }
+    });
+    document.getElementById('playSavedSetBtn').addEventListener('click', () => {
+        library.play().catch(error => showStatus(error.message, 'error'));
+    });
+    document.getElementById('removeSavedSetBtn').addEventListener('click', () => {
+        try { library.remove(); }
+        catch (error) { showStatus(error.message, 'error'); }
+    });
+    const djStyle = document.getElementById('djStyle');
+    djStyle.value = vrClubInstance._initialDJId();
+    djStyle.addEventListener('change', () => {
+        vrClubInstance.chooseDJ(djStyle.value).catch(error => {
+            djStyle.value = vrClubInstance._djId || vrClubInstance._initialDJId();
+            showStatus(error.message, 'error');
         });
     });
-    if (playRandomEpisodeBtn) {
-        playRandomEpisodeBtn.addEventListener('click', () => {
-            const podcast = podcastPlayer.selected();
-            runPodcastAction(`Finding a ${podcast.artist} episode\u2026`, () => podcastPlayer.playRandom(podcast));
-        });
-    }
-    if (playPodcastBtn) {
-        playPodcastBtn.addEventListener('click', () => {
-            const podcast = podcastPlayer.selected();
-            runPodcastAction(`Finding the latest ${podcast.artist} episode\u2026`, () => podcastPlayer.playLatest(podcast));
-        });
-    }
+    teardowns.push(() => { library.onChange = null; });
 
     // Position in the episode. The slider and the labels follow the audio (4 times a second while the
     // panel is open); dragging seeks on release, and the -30s / +30s buttons nudge.
@@ -1234,7 +1176,20 @@ function initAudioMenu() {
         if (!seek || !seekSection) return;
         const info = vrClubInstance.getPlaybackInfo();
         // Keep the Play/Pause label honest when something else (the VR menu, a media key) changed it.
-        if (streamUrl && streamUrl.value && vrClubInstance.audioElement && vrClubInstance.audioElement.src) setPlayLabel(info.playing);
+        if (vrClubInstance._audioKind === 'soundcloud') {
+            if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Player open';
+            if (playStreamBtn) playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
+            if (volume) {
+                volume.disabled = true;
+                volume.title = 'Use the SoundCloud player volume control';
+            }
+        } else if (streamUrl && streamUrl.value && vrClubInstance.audioElement && vrClubInstance.audioElement.src) {
+            setPlayLabel(info.playing);
+            if (volume) {
+                volume.disabled = false;
+                volume.title = 'Music playback volume';
+            }
+        }
         seekSection.hidden = !info.seekable;
         if (!info.seekable) return;
         const shown = seekDragging ? (Number(seek.value) / SEEK_STEPS) * info.duration : info.position;
@@ -1260,32 +1215,19 @@ function initAudioMenu() {
 
     /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
     function playUrl(url, label) {
-        const requestedUrl = new URL(url, window.location.href).href;
-        // Pressing Play on the podcast episode that was playing resumes the queue, so it still
-        // moves on to the next one when it ends (a plain stream URL would loop it).
-        if (podcastPlayer.isQueuedUrl(requestedUrl)) {
-            const queue = podcastPlayer.queue;
-            return podcastPlayer.playFrom(queue.podcast, queue.episodes, queue.index)
-                .then(episode => showStatus(`\ud83c\udfb5 Playing: ${episode.title}`, 'success'))
-                .catch(err => {
-                    showStatus(`Error: ${err.message}`, 'error');
-                    setNowPlaying('No audio yet');
-                });
-        }
-        return vrClubInstance.startAudioStream(url)
+        try { library.save(url, label); }
+        catch (error) { showStatus(error.message, 'error'); return Promise.resolve(false); }
+        return library.play()
             .then(() => {
-                showStatus(`\ud83c\udfb5 Playing: ${label}`, 'success');
-                setPlayLabel(true);
-                setNowPlaying(`\u25B6 ${label}`);
-                try {
-                    // A Resident episode is resolved fresh each time; remembering it would pin
-                    // the default (and the URL box) to an old one.
-                    if (!AudioUtils.isResidentEpisodeUrl(url)) localStorage.setItem(LAST_STREAM_KEY, url);
-                } catch (_) { /* ignore */ }
-                // Broadcast the new "now playing" to the room, if this guest hosts it.
-                if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
-                    vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: true, position: 0 });
+                const soundcloud = library.current().kind === 'soundcloud';
+                showStatus(soundcloud ? 'SoundCloud player opened' : `Playing: ${library.current().name}`, 'success');
+                if (soundcloud) {
+                    playStreamBtnLabel.textContent = 'Player open';
+                    playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
+                } else {
+                    setPlayLabel(true);
                 }
+                setNowPlaying(`\u25B6 ${library.current().name}`);
             })
             .catch(err => {
                 showStatus(`Error: ${err.message}`, 'error');
@@ -1346,10 +1288,6 @@ function initAudioMenu() {
 // MULTIPLAYER (NETWORK) MENU
 // =============================================================================
 
-function defaultNetworkServerUrl() {
-    return ClubMultiplayer.defaultServerUrl(window.localStorage);
-}
-
 /**
  * In someone else's room the host owns the music and the lights. Every control in the lighting and audio panels that
  * would change them is dimmed and swallowed (one capture-phase listener per panel, so a control added later is covered
@@ -1360,7 +1298,7 @@ function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
         { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjBassHapticsBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people]' },
-        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience' }
+        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #djStyle' }
     ];
     const renders = [];
     for (const panel of panels) {
@@ -1398,7 +1336,7 @@ function initRoomGuestLock(mp) {
                 note.textContent = `${host || 'The host'} is the host: they choose the ${panel.what}, and yours follow. Leave the room to take over.`;
             }
             for (const el of disableable) {
-                // Remember what was disabled for its own reasons (a podcast loading) so leaving the room restores it.
+                // Preserve controls disabled for their own reasons when leaving the room.
                 if (following && !el.dataset.hostLocked) { el.dataset.hostLocked = el.disabled ? 'was' : '1'; el.disabled = true; }
                 else if (!following && el.dataset.hostLocked) { el.disabled = el.dataset.hostLocked === 'was'; delete el.dataset.hostLocked; }
             }

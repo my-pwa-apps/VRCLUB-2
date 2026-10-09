@@ -867,6 +867,7 @@ class VRClubLifecycle extends VRClubCore {
             } catch (_) { /* ignore */ }
             this.audioElement = null;
         }
+        if (typeof this._stopSoundCloudPlayer === 'function') this._stopSoundCloudPlayer();
         if (this.audioContext && this.audioContext.state !== 'closed') {
             if (this.crowdAmbienceSource) {
                 try { this.crowdAmbienceSource.stop(); } catch (_) { /* already stopped */ }

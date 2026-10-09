@@ -22,6 +22,9 @@ const sources = [...indexHtml.matchAll(/<script[^>]*\ssrc="(js\/(?!vendor\/)[^"?
 if (sources.length === 0) {
     throw new Error('build: no first-party <script> tags found in index.html');
 }
+if (sources.includes('js/podcasts.js')) {
+    throw new Error('Quest build must not load the historical podcast catalogue.');
+}
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, 'assets'), { recursive: true });
@@ -120,12 +123,20 @@ for (const source of sources) {
 if (modelReferences.size === 0) {
     throw new Error('build: found no js/models references - the allow-list would ship an empty scene');
 }
+for (const reference of modelReferences) {
+    if (/\/(?:Hip Hop Dancing|house|rumba_dancing_female_character|club-dj-hernan|club-dj-melera)\.glb$/.test(reference)) {
+        throw new Error(`Quest build contains an excluded character: ${reference}`);
+    }
+}
 
 await Promise.all([
     cp(path.join(root, 'js/vendor'), path.join(dist, 'js/vendor'), { recursive: true }),
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
+    cp(path.join(root, 'licenses'), path.join(dist, 'licenses'), { recursive: true }),
+    cp(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE')),
+    cp(path.join(root, 'ASSETS.md'), path.join(dist, 'ASSETS.md')),
     // Security headers for static hosts, which send no frame-ancestors of their own.
     cp(path.join(root, '_headers'), path.join(dist, '_headers')),
     ...[...modelReferences].map(rel =>
@@ -134,6 +145,19 @@ await Promise.all([
         })
     )
 ]);
+
+const assetLinks = path.join(root, 'quest-package', 'assetlinks.json');
+let association;
+try {
+    association = await readFile(assetLinks);
+} catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    console.warn('Quest signing is not configured. Run npm run quest:prepare before building for installation.');
+}
+if (association) {
+    await mkdir(path.join(dist, '.well-known'), { recursive: true });
+    await writeFile(path.join(dist, '.well-known', 'assetlinks.json'), association);
+}
 
 console.log(`Built dist/ with assets/${jsName} and assets/${cssName}`);
 console.log(`Service worker version: ${swVersion}`);

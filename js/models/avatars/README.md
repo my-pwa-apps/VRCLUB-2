@@ -16,8 +16,8 @@ provenance and archive hashes are recorded in `ASSETS.md`.
 |------|------|------------|-------|------|
 | `club-dancer-female.glb` | The player's own body (AvatarRig) | Peasant outfit, buns, modeled face/eyes | `Dance_Loop` | ~1.5 MB |
 | `club-dancer-male.glb` | The player's own body (AvatarRig) | Peasant outfit, parted hair, modeled face/eyes | `Dance_Loop` | ~1.4 MB |
-| `club-dj-hernan.glb` | DJ booth while Hernan Cattaneo's podcast is chosen | Jacket (tinted dark grey at load), short parted cap plus shoulder-length `Hair_Long` (tinted dark brown), no beard, headphones, modeled face/eyes | `Idle_Loop` | ~2.7 MB |
-| `club-dj-melera.glb` | DJ booth while Miss Melera's podcast is chosen | Jacket (tinted grey at load), long straight hair (tinted light blond), headphones, modeled face/eyes | `Idle_Loop` | ~2.8 MB |
+| `club-dj-male.glb` | Fictional male DJ, locally selected | Jacket (tinted dark grey), short cap plus shoulder-length `Hair_Long` (dark brown), no beard, headphones, modeled face/eyes | `Idle_Loop` | ~2.7 MB |
+| `club-dj-female.glb` | Fictional female DJ, locally selected | Jacket (tinted grey), long straight blond hair, headphones, modeled face/eyes | `Idle_Loop` | ~2.8 MB |
 | `club-guest-female.glb` | The bartender (black outfit through a tint); build source | Ranger jacket and boots (no hood, no pauldron), long hair | Carries the guest clips; the bartender instance is driven procedurally by `AvatarRig` for washing and service reaches | ~2.9 MB |
 | `club-guest-male.glb` | Build source only (the DJ and crowd builds); not loaded at runtime | As above, parted hair and beard | as above | ~2.7 MB |
 | `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop` and `Idle_TalkingPhone_Loop`; f7 additionally carries the procedural `Idle_Railing_Loop`; m6 carries the procedural `Drink_Loop`, `Smoke_Loop` and his own `Idle_Railing_Loop`; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
@@ -25,7 +25,8 @@ provenance and archive hashes are recorded in `ASSETS.md`.
 
 The crowd people are one skinned mesh and one material each, coloured per vertex; see the next section. The three
 Mixamo files in this folder (`Hip Hop Dancing.glb`, `house.glb`, `rumba_dancing_female_character.glb`) are the
-other dance floor characters, kept for their distinct choreography.
+historical source-only files, excluded from Quest. Their legacy slots now use CC0
+`club-crowd-m1`, `club-crowd-m9` and `club-crowd-f4`, respectively.
 
 A multi-clip file carries several clips. `_spawnAvatar(..., { clip })` keeps the one a slot asks for and
 disposes the rest, so a guest evaluates one animation like everyone else; with no `clip` a multi-clip
@@ -72,9 +73,9 @@ The two DJs are derived from the guest files (the outfit and animation packs the
 `node scripts/build-dj-glbs.mjs --ubc "<unzipped Universal Base Characters[Standard]>"` keeps one clip, cuts the beard out
 of Hernan's hair mesh and adds `Hair_Long` shortened to shoulder length, with its front trimmed away, over his short cap (sharing the hair material so
 the optimiser can merge it), then adds the CC0 headphones (`--headphones "<unzipped Headphones dir>"`, see ASSETS.md: a
-mesh skinned to the Head joint, which makes the DJs seven draws where everyone else is six), and writes `club-dj-hernan.glb` and `club-dj-melera.glb`;
-then run `npm run optimize:avatars -- club-dj-hernan.glb club-dj-melera.glb`. Which one stands at the decks follows the
-chosen podcast (`DJ_LOOKS` and `setDJ()` in `js/club/11-audio-crowd.js`, which also hold their hair and top tints).
+mesh skinned to the Head joint, which makes the DJs seven draws where everyone else is six), and writes `club-dj-male.glb` and `club-dj-female.glb`;
+then run `npm run optimize:avatars -- club-dj-male.glb club-dj-female.glb`. The choice is local
+(`DJ_LOOKS`, `chooseDJ()` and `setDJ()` in `js/club/11-audio-crowd.js`, which also hold their hair and top tints).
 In the club the DJs do not play `Idle_Loop`: `AvatarRig` poses them live from `js/djPerformer.js` (mixing, cueing,
 hands up, waving), so a rebuilt DJ must keep the full UE-mannequin bone set (fingers included) or it falls back to the
 idle clip. `test/rig.test.mjs` checks both files can reach the controller.

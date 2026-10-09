@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { enterClub, enterVR, useQuestHarness } from './support.mjs';
 import { renderFrames } from './xr-measure.mjs';
 
-useQuestHarness();
+useQuestHarness({ music: true });
 
 /** 90 s of mono white noise: steady, broadband, so left/right level differences are all spatialisation. */
 function noiseWav(seconds = 90, sampleRate = 22050) {
@@ -84,8 +84,8 @@ test('the PA is heard on the side it appears, on desktop and in VR', async ({ pa
     test.setTimeout(900_000);
     const wav = noiseWav();
     // Unroute the harness's silent episode so the loud noise replaces it.
-    await page.unroute('https://mcdn.podbean.com/**');
-    await page.route('https://mcdn.podbean.com/**', route => route.fulfill({
+    await page.unroute('https://audio.example/**');
+    await page.route('https://audio.example/**', route => route.fulfill({
         status: 200,
         contentType: 'audio/wav',
         headers: { 'Access-Control-Allow-Origin': '*' },

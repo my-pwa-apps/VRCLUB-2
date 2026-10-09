@@ -70,7 +70,7 @@ const limbLengths = rig => ({
 });
 
 test('the rig builds on every UE-skeleton body and stands at the requested eye height', async () => {
-    for (const glb of ['club-dancer-female.glb', 'club-dancer-male.glb', 'club-dj-hernan.glb', 'club-dj-melera.glb']) {
+    for (const glb of ['club-dancer-female.glb', 'club-dancer-male.glb', 'club-dj-male.glb', 'club-dj-female.glb']) {
         const { rig } = await loadRig(glb, { eyeHeight: 1.7, hideHead: true });
         assert.equal(rig.ok, true, `${glb} did not build`);
         const pose = makePose();
@@ -501,7 +501,7 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
     // The club's numbers: the controller's measured bounds, the DJ 0.18 m behind its near edge, the riser at 0.5 m,
     // eyes at 93% of the look's height (see _spawnPerformingDJ).
     const desk = { cx: 0, near: -18.89, far: -18.35, top: 1.54, halfWidth: 0.51 };
-    for (const [glb, height] of [['club-dj-hernan.glb', 1.78], ['club-dj-melera.glb', 1.68]]) {
+    for (const [glb, height] of [['club-dj-male.glb', 1.78], ['club-dj-female.glb', 1.68]]) {
         const { rig, scene } = await loadRig(glb, { eyeHeight: height * 0.93 });
         assert.equal(rig.ok, true, `${glb} cannot be driven`);
         const Performer = vm.runInContext('DJPerformer', sandbox());

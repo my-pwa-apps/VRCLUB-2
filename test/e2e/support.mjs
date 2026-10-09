@@ -35,7 +35,7 @@ const silentWav = Buffer.from(
 export const browserFailures = new WeakMap();
 
 /** Registers the per-test Quest 3 emulation, failure capture and local silent stream. */
-export function useQuestHarness({ comfort = true } = {}) {
+export function useQuestHarness({ comfort = true, music = false } = {}) {
     test.beforeEach(async ({ page }) => {
         const failures = [];
         browserFailures.set(page, failures);
@@ -52,25 +52,16 @@ export function useQuestHarness({ comfort = true } = {}) {
             if (comfort) localStorage.setItem('vrclub.vrComfort', '1');
             else localStorage.removeItem('vrclub.vrComfort');
         }, { comfort });
-        // Music plays on entry by default: serve a local Resident feed and a silent episode,
-        // so the real default path runs without touching the network.
-        await routeResidentFeed(page, silentWav);
+        await routeSavedMusic(page, silentWav, music);
     });
 }
 
-/** Routes the Resident feed and its episode to local bodies; returns nothing, the routes stay for the page. */
-export async function routeResidentFeed(page, episodeBody) {
-    const feed = '<?xml version="1.0"?><rss><channel><title>Resident</title><item>'
-        + '<title>E2E Episode</title>'
-        + '<enclosure url="https://mcdn.podbean.com/e2e/episode.mp3" type="audio/mpeg" length="1"/>'
-        + '</item></channel></rss>';
-    await page.route('https://podcast.hernancattaneo.com/feed.xml', route => route.fulfill({
-        status: 200,
-        contentType: 'application/rss+xml',
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: feed
-    }));
-    await page.route('https://mcdn.podbean.com/**', route => route.fulfill({
+/** Intercept a synthetic user audio URL; only audio-specific tests preselect a saved set. */
+export async function routeSavedMusic(page, episodeBody, saved = true) {
+    if (saved) await page.addInitScript(() => localStorage.setItem('vrclub.questMusic', JSON.stringify({
+        items: [{ url: 'https://audio.example/e2e/set.mp3', name: 'My test set' }], selected: 0
+    })));
+    await page.route('https://audio.example/**', route => route.fulfill({
         status: 200,
         contentType: 'audio/wav',
         headers: { 'Access-Control-Allow-Origin': '*' },

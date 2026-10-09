@@ -553,7 +553,7 @@ test('a guest\'s mode is re-asserted every frame, so a stray local change cannot
     assert.equal(club.vjManualMode, false);
 });
 
-test('a podcast the app already talks to starts at once; any other stream waits for consent; the host\'s clock is read through the measured offset', async () => {
+test('every host music source requires consent and the host clock uses the measured offset', async () => {
     const { mp, club, socket, window } = connectedController(undefined, { hostId: 'p1' });
     const started = [];
     const el = { src: '', paused: true, duration: 3000, currentTime: 0, play() { this.paused = false; return Promise.resolve(); }, pause() { this.paused = true; } };
@@ -565,13 +565,16 @@ test('a podcast the app already talks to starts at once; any other stream waits 
     mp.client.serverOffset = 5000;
     const updatedAt = Date.now() + 5000 - 10000; // stamped 10 s ago, on the relay's clock
     socket.receive({ type: 'music', url: 'https://mcdn.podbean.com/ep.mp3', playing: true, position: 100, updatedAt, podcast: 'colourizon', title: 'Colourizon 168' });
+    assert.equal(started.length, 0, 'even a historical podcast source needs consent');
+    mp.listenAlong = true;
+    mp._applyMusic(mp.pendingMusic);
     await Promise.resolve(); await Promise.resolve();
-    assert.deepEqual(plain(started), [['https://mcdn.podbean.com/ep.mp3', true]], 'a Podbean episode needs no extra consent');
+    assert.deepEqual(plain(started), [['https://mcdn.podbean.com/ep.mp3', true]]);
     assert.ok(Math.abs(el.currentTime - 110) < 1, `the guest joined at ${el.currentTime}s instead of 110s`);
     assert.equal(club.nowPlayingLabel, 'Colourizon 168');
-    assert.equal(club.dj, 'melera');
-    assert.equal(club.podcastPlayer.queue, null, 'the guest\'s own episode queue is dropped');
+    assert.equal(club.dj, undefined, 'music does not change the local generic DJ');
     assert.equal(mp.pendingMusicInfo(), null);
+    mp.listenAlong = false;
 
     socket.receive({ type: 'music', url: 'https://unknown.example/live.mp3', playing: true, position: 0, updatedAt: Date.now() + 5000 });
     assert.equal(plain(started).length, 1);
@@ -584,6 +587,7 @@ test('a podcast the app already talks to starts at once; any other stream waits 
 
 test('the track position follows the host: a drift of a second is corrected, a small one is left alone, a live stream is never sought', async () => {
     const { mp, club, socket } = connectedController(undefined, { hostId: 'p1' });
+    mp.listenAlong = true;
     const el = { src: 'https://mcdn.podbean.com/ep.mp3', paused: false, duration: 3000, currentTime: 100, play() { this.paused = false; return Promise.resolve(); }, pause() { this.paused = true; } };
     club.audioElement = el;
     const music = (position) => ({ type: 'music', url: 'https://mcdn.podbean.com/ep.mp3', playing: true, position, updatedAt: mp.client.serverNow() });
@@ -675,8 +679,9 @@ test('every control that changes the room\'s music or lights is gated for a gues
     }
 });
 
-test('the DJ follows the host on every music update: a guest already on the track, or with the host paused, still changes DJ', () => {
+test('host music updates change the title but never select an artist DJ', () => {
     const { mp, club, socket, window } = connectedController(undefined, { hostId: 'p1' });
+    mp.listenAlong = true;
     const djs = [];
     club.setDJ = id => { djs.push(id); return Promise.resolve(true); };
     // Like the real catalogue, an unknown id falls back to the default podcast (whose id differs from the one asked for).
@@ -685,13 +690,13 @@ test('the DJ follows the host on every music update: a guest already on the trac
     club.audioElement = { src: url, paused: false, duration: 3000, currentTime: 50, play() { return Promise.resolve(); }, pause() { this.paused = true; } };
     const frame = (podcast, extra = {}) => ({ type: 'music', url, playing: true, position: 50, updatedAt: mp.client.serverNow(), podcast, title: `Episode of ${podcast}`, ...extra });
     socket.receive(frame('colourizon'));
-    assert.deepEqual([...djs], ['melera'], 'same track, new podcast');
+    assert.deepEqual([...djs], [], 'host metadata cannot change the local DJ');
     assert.equal(club.nowPlayingLabel, 'Episode of colourizon');
     socket.receive(frame('resident', { playing: false }));
-    assert.deepEqual([...djs], ['melera', 'hernan'], 'a paused host still changes the DJ');
+    assert.deepEqual([...djs], [], 'a paused host cannot change the DJ');
     socket.receive(frame('../nope'));
     socket.receive({ ...frame(null), podcast: null });
-    assert.equal(djs.length, 2, 'an unknown or missing podcast leaves the DJ alone');
+    assert.equal(djs.length, 0, 'an unknown or missing podcast leaves the DJ alone');
 });
 
 test('the avatar pool is a remembered preference, sent on joining, and a pool change replaces only a look outside it', () => {

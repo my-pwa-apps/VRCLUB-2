@@ -4,6 +4,24 @@ Hyperrealistic WebXR nightclub built with Babylon.js for Meta Quest 3S and deskt
 
 ## Quick Start
 
+### Quest branch
+
+This branch is a **Quest distribution candidate**, not an uploaded or signed store release.
+Run `npm run build:quest` for the web payload. See [docs/QUEST.md](docs/QUEST.md) for
+signing, Meta Bubblewrap packaging, Digital Asset Links, release checks and remaining blockers.
+
+No music is included. Open **Music**, choose a local file, paste a direct HTTPS audio link,
+or paste a SoundCloud track/set page in the same **Choose a file or paste a URL** section,
+optionally name it, and press **Save & play**. Up to eight sets are saved on this device.
+Choose them from the VR Music menu; **ADD MUSIC** returns to the setup panel for the Quest
+keyboard/file picker, then **Enter VR** returns to the club. SoundCloud uses its official
+visible player: its seek/volume controls work, but VR Club cannot analyse, spatialize or
+share that audio. YouTube/Spotify page URLs are not playable. Direct audio hosts must allow
+CORS; no proxy is provided.
+Only explicitly saved music resumes on entry; historical podcast/stream preferences are ignored.
+Generic **Male DJ / Female DJ** choices are in the Music panel and VR CROWD → CHOOSE DJ.
+The Quest payload uses CC0 dancers only; historical Mixamo files do not ship.
+
 ```powershell
 npm install
 npm start
@@ -30,7 +48,8 @@ css/styles.css             Splash screen and desktop control styling
 js/vendor/                 Pinned Babylon.js runtime and loader libraries
 js/assetCache.js           IndexedDB cache, in-flight dedup, fetch timeouts (loaders depend on it)
 js/audioUtils.js           Pure, tested audio URL security policy
-js/podcasts.js             Podcast catalogue (Hernan Cattaneo, Miss Melera), the choice, random/latest pick and queue behind both the Audio menu and the VR menu
+js/podcasts.js             Historical podcast utility, not loaded or bundled in Quest
+js/musicLibrary.js         Quest user-provided saved sets, shared by the Music panel, VR menu and VJ desk
 js/textureLoader.js        Texture caching and pooling
 js/modelLoader.js          GLB model loading, caching, placement and procedural fallbacks
 js/materialFactory.js      Shared Babylon material presets
@@ -78,18 +97,18 @@ js/models/                 Local GLB models and model textures
 
 - **Move**: `W` `A` `S` `D` or the arrow keys; drag with the mouse to look. `Q`/`E` for down/up.
 - **VR**: the 🥽 **Enter VR** button sits top-right and is disabled when no headset is detected. On first load it reads **Preparing VR…** while the background models finish loading. By default, the **left stick walks in the direction you look** (without flying when you look up/down), and the **right stick turns smoothly**. Walk up/down the left-hand stairs to reach or leave the balcony. Click a thumbstick or squeeze a grip to sprint; `A`/`X` to jump. **VR Comfort** switches to teleport and snap turn, disabling sprint/jump. Press `Y`/`B` (or the controller menu button when exposed) for the world-locked, paged quick menu. It provides headset-friendly pages for lighting, effects, the automatic show, **CROWD** (send the dancers, the other guests or the DJ home), comfort, safety and quality (**Balanced / High / Ultra**), and travel.
-- **The crowd**: up to 14 dancers and 8 guests, all different: 17 recoloured Quaternius Modular Women / Men (every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits) plus the three Mixamo dancers. Lower quality tiers show fewer people and download fewer characters. They are built by `scripts/build-crowd-glbs.mjs`, which also retargets the club's dance and idle clips onto their rig; see `js/models/avatars/README.md`.
+- **The crowd**: up to 14 dancers and 8 guests drawn from the CC0 Quaternius Modular Women / Men cast. Quest replaces the three historical Mixamo slots with CC0 people (some appearances repeat at Ultra). Lower quality tiers show fewer people and download fewer characters. They are built by `scripts/build-crowd-glbs.mjs`; see `ASSETS.md`.
 - **Laser speed**: rotating ceiling beams now move at one quarter of their previous rate. The VJ laser-speed slider still changes their speed; laser-sheet motion is unchanged.
 - **The street**: the club is a basement. From its front doorway a carpeted stair climbs between the ticket desk and the coat check to the street door, which opens onto a night avenue lined with lit buildings (or press `6` / use the Street button / the VR menu's Travel page). A bouncer in a black suit watches the door, and a line of people waits behind a velvet rope to get in (longer on higher graphics tiers). Out there the music is only the low bass coming through the walls, loudest at the door and quieter the further you walk from it (about half as loud 8 m away, much quieter at the end of the block). The street is drawn only while you are near the entrance, and the door stays shut if it cannot load. Its source kit is not in the repo; see ASSETS.md.
 - **Mirror ball**: 96 surface spots on Balanced, 180 on High, 280 on Ultra. Outgoing-ray counts and the two-batch rendering layout are unchanged; High and Ultra headset GPU cost is not yet measured.
 - **🎛️ Lights** (top-left, the VJ menu): safe mode, haptics, fixture toggles, spotlight/gobo settings, graphics quality, the NOCTURNE show, live macros and a reset.
 - **Take over from the DJ** (the VJ desk on the DJ table): go to the booth (**Go to → DJ Booth**, or the VR menu's TRAVEL page) and use the two touch panels either side of the DJ controller, with the mouse or a controller ray. The left panel, **SHOW**, says who has the lights right now. It holds **AUTO SHOW** (hand the lights back to the automatic show), **RESIDENT DJ** (send the DJ home and the decks are yours), **MUSIC** (play/pause, or start a set), DROP, BLACKOUT, NEXT SECTION, TAP TEMPO, BEAMS TO FLOOR and RESET LIGHTS, plus BRIGHTNESS and MOVEMENT SPEED faders. The right panel, **LIGHTS**, switches every fixture on or off and steps the spot colour, moves, aim, gobo, wall picture and mirror colour, each showing its current value. Touching any light makes you the VJ; the lights stay yours while you stand at the desk and go back to the automatic show a minute after you walk away, or at once with AUTO SHOW.
-- **🎵 Music** (bottom-right, the Audio menu): choose **Hernan Cattaneo** (*Resident*) or **Miss Melera** (*Colourizon*), play a **Random** or the **Latest** episode, drag the **seek bar** (or ±30 s) to move through it, or play an HTTP(S) stream URL / local audio file, plus volume. The last stream you chose is remembered. A dropped episode reconnects at the same position. The VR menu has the same controls on its **Music** page, with a seek strip you click or drag with the controller ray.
-- **Music on entry:** a random episode of the chosen podcast starts when you press ENTER (the splash names which servers see your IP address, and one tick turns it off for good). When an episode finishes, the next older one plays, and so on. The DJ in the booth changes to match the podcast.
+- **Music** (bottom-right): save/play your direct HTTPS audio links, choose a saved set or local file, select a generic male/female DJ, seek with the slider or +/-30 seconds, and adjust music/ambience independently. The VR Music page offers saved-set controls and a ray-selectable seek strip; ADD LINKS / FILE returns to the setup panel.
+- **Music on entry:** only a set you explicitly saved resumes. Fresh profiles have no music downloads. Sets play once, without an automatic queue. DJs are a separate local choice.
 - **A DJ who plays the set:** the DJ mixes on the jog wheels, works the mixer knobs, holds a headphone cup to one ear, looks out over the crowd (with a fist pump when it is loud), throws both hands up when a drop lands, and waves at you when you walk up to the booth. They nod and bounce on the beat, harder when the music is louder. With no music they keep a calm groove of their own.
 - **A crowd that dances on the beat:** the people on the floor switch between nine moves (a bounce, side taps, clapping, fist pumps, the twist, hands up, a sway and the original dance), each at the track's tempo and locked to its beat, each dancer with their own favourites, changing on bar lines. More clapping in a build, hands up on the drop; when the kick drops out they sway slowly or just stand until it returns.
 - **A show that follows the kick:** the club listens to the kick drum on its own (a 120 Hz band, separate from the bass/mid/treble analyser), so the beat grid locks to real kicks rather than the bassline. The whole rig dips between kicks and hits on them (at most 2.5 hits a second, whatever the tempo), the moving heads dip toward the floor on each kick, and fixture speed and the show's energy follow how loud the low end is now against the last ~20 seconds: a breakdown calms the room, a drop lifts it. Photosensitive Safe Mode keeps the old shallow breathing.
-- **Miss Melera needs the relay:** her SoundCloud podcast has no CORS headers, so it streams through the Worker in `worker/` (`/podcast/colourizon/...`). The hosted relay was updated on 2026-10-07; after changing `worker/`, redeploy it with `wrangler deploy`. Hernan Cattaneo works without it.
+- **Direct audio hosts** must provide CORS for reactive lighting. Music is not extracted from webpage links or proxied through the multiplayer relay.
 - **📷 Go to** (bottom-centre): jump to a viewpoint (entrance, dance floor, booth, lights, balcony, street).
 
 ### Keyboard shortcuts
@@ -141,8 +160,7 @@ ROOM**. The first guest in is the room's **host** (named in the status line); if
 guest becomes host. The host owns the music and the lights: everyone else hears the same track at the same
 position and sees the same show, and their lighting and music controls are dimmed (VR buttons read
 *HOST ONLY*). A guest's own comfort settings stay theirs: Safe Mode (it still removes the host's
-strobes), volume, quality, VR comfort and haptics. The host's podcast episodes start for a guest at
-once (the app already talks to those servers); any other stream is not fetched until the guest
+strobes), volume, quality, VR comfort, haptics and the generic DJ choice. No host stream is fetched until the guest
 chooses **Listen along**, because loading it discloses their IP address to that server. Local files
 the host plays are not shared.
 

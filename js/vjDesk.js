@@ -249,16 +249,15 @@ const VJDesk = {
         }
     },
 
-    /** Play or pause; with nothing loaded yet, start a set of the chosen podcast. */
+    /** Play or pause; with nothing loaded yet, play the user's selected saved set. */
     _vjDeskMusic() {
         if (!this.guardHostControl('music')) return;
         const audio = this.audioElement;
         if (audio && audio.src) { this.toggleAudioPlayback(); return; }
-        if (this.podcastPlayer && typeof this.podcastPlayer.playRandom === 'function') {
-            this.showErrorMessage('Finding a set\u2026');
-            Promise.resolve(this.podcastPlayer.playRandom()).catch(() => this.showErrorMessage('Could not start the music'));
+        if (this.musicLibrary && this.musicLibrary.current()) {
+            Promise.resolve(this.musicLibrary.play()).catch(error => this.showErrorMessage(`Could not start the music: ${error.message}`));
         } else {
-            this.showErrorMessage('Nothing to play yet: pick a podcast in the Music menu');
+            this.showErrorMessage('No music yet: use ADD LINKS in the Music menu to save your own set.');
         }
     },
 

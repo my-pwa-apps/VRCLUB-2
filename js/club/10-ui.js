@@ -540,22 +540,16 @@ class VRClubUI extends VRClubAnimationFinish {
             return VRClubCore.peopleCategories(button.people).every(name => this.isPeopleVisible(name));
         }
         if (button.action === 'autoShow') return !this.vjManualMode;
-        if (button.action === 'podcast') return this._selectedPodcastId() === button.podcast;
+        if (button.action === 'dj') return this._initialDJId() === button.dj;
         if (button.action === 'playPause') return this.getPlaybackInfo().playing;
         if (button.action === 'quality' || button.action === 'cycle') return true;
         if (button.control) return !!this[button.control];
         return false;
     }
 
-    /** The chosen podcast's id ('resident' | 'colourizon'), whichever surface chose it. */
-    _selectedPodcastId() {
-        if (this.podcastPlayer) return this.podcastPlayer.selectedId();
-        try { return window.Podcasts ? window.Podcasts.selectedId(localStorage) : 'resident'; } catch (_) { return 'resident'; }
-    }
-
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
-        if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
+        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode', 'bassHapticsEnabled'].includes(button.control);
     }
 
@@ -563,7 +557,11 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
         if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
-        if (button.action === 'podcast') return active ? 'SELECTED' : '';
+        if (button.action === 'dj') return active ? 'SELECTED' : '';
+        if (button.action === 'savedSet') {
+            const item = this.musicLibrary && this.musicLibrary.current();
+            return item ? item.name.slice(0, 22).toUpperCase() : 'ADD LINKS FIRST';
+        }
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
@@ -647,6 +645,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'HAPTICS', control: 'bassHapticsEnabled' },
                 { label: 'QUALITY', action: 'quality' },
+                { label: 'CREDITS / LICENCES', action: 'credits' },
                 common.back,
                 common.close
             ],
@@ -655,6 +654,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
                 { label: 'BYSTANDERS', action: 'people', people: 'bystanders' },
                 { label: 'DJ', action: 'people', people: 'dj' },
+                { label: 'CHOOSE DJ', action: 'page', target: 'dj' },
                 { label: 'EVERYONE', action: 'people', people: 'all' },
                 common.back,
                 common.close
@@ -682,10 +682,16 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: '\u2212 1 MIN', action: 'seek', delta: -60 },
                 { label: 'PLAY / PAUSE', action: 'playPause' },
                 { label: '+ 1 MIN', action: 'seek', delta: 60 },
-                { label: 'HERNAN', action: 'podcast', podcast: 'resident' },
-                { label: 'MELERA', action: 'podcast', podcast: 'colourizon' },
-                { label: 'RANDOM', action: 'randomEpisode' },
-                { label: 'LATEST', action: 'latestEpisode' },
+                { label: 'PREVIOUS SET', action: 'setStep', delta: -1 },
+                { label: 'PLAY SAVED SET', action: 'savedSet' },
+                { label: 'NEXT SET', action: 'setStep', delta: 1 },
+                { label: 'ADD MUSIC', action: 'musicSetup' },
+                common.back,
+                common.close
+            ],
+            dj: [
+                { label: 'MALE DJ', action: 'dj', dj: 'male' },
+                { label: 'FEMALE DJ', action: 'dj', dj: 'female' },
                 common.back,
                 common.close
             ]
@@ -705,7 +711,7 @@ class VRClubUI extends VRClubAnimationFinish {
             button.control = null;
             button.action = null;
             button.target = null;
-            button.podcast = null;
+            button.dj = null;
             button.delta = 0;
             button.op = null;
             button.peer = null;
@@ -823,7 +829,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ctx.textAlign = 'right';
             ctx.fillText(clock(info.duration), right, 178);
         } else {
-            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'Pick a podcast to start', left, 178);
+            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'ADD MUSIC: FILE OR URL', left, 178);
         }
         this._vrSeek.texture.update();
     }
@@ -878,23 +884,34 @@ class VRClubUI extends VRClubAnimationFinish {
         this._drawVRSeekBar();
     }
 
-    /** Music page actions: run on whichever podcast player the DOM script attached (the same one the Audio menu uses). */
+    async _openQuestPanel(kind) {
+        this.toggleVRQuickMenu(false);
+        try {
+            if (this.isInVRMode && this.vrHelper) await this.vrHelper.baseExperience.exitXRAsync();
+            const open = kind === 'credits' ? window.openClubCredits : window.openMusicSetup;
+            if (!open) throw new Error('The setup panel is not ready.');
+            open();
+        } catch (error) {
+            this.showErrorMessage(`Could not open the panel: ${error.message}`);
+        }
+    }
+
     async _runVRMusicAction(button) {
         if (!this.guardHostControl('music')) return;
-        const player = this.podcastPlayer;
+        const library = this.musicLibrary;
         if (button.action === 'seek') {
             if (!this.seekAudioBy(button.delta)) this.showErrorMessage('Nothing to seek in.');
         } else if (button.action === 'playPause') {
             this.toggleAudioPlayback();
-        } else if (!player) {
+        } else if (button.action === 'musicSetup') {
+            await this._openQuestPanel('music');
+            return;
+        } else if (!library) {
             this.showErrorMessage('The music player is not ready yet.');
         } else {
-            const podcast = window.Podcasts.get(button.action === 'podcast' ? button.podcast : player.selectedId());
-            this.showErrorMessage(`Finding ${podcast.artist}'s set\u2026`);
             try {
-                if (button.action === 'podcast') await player.switchTo(button.podcast);
-                else if (button.action === 'randomEpisode') await player.playRandom();
-                else await player.playLatest();
+                if (button.action === 'setStep') library.step(button.delta);
+                else await library.play();
             } catch (err) {
                 this.showErrorMessage(`Could not start the music: ${err && err.message ? err.message : 'unknown error'}`);
             }
@@ -1243,7 +1260,16 @@ class VRClubUI extends VRClubAnimationFinish {
             this._runVRNetworkAction(button);
             return;
         }
-        if (['seek', 'playPause', 'podcast', 'randomEpisode', 'latestEpisode'].includes(button.action)) {
+        if (button.action === 'credits') {
+            this._openQuestPanel('credits');
+            return;
+        }
+        if (button.action === 'dj') {
+            this.chooseDJ(button.dj).then(() => this._refreshVRQuickMenu())
+                .catch(error => this.showErrorMessage(error.message));
+            return;
+        }
+        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
             this._runVRMusicAction(button);
             return;
         }
@@ -1577,6 +1603,7 @@ class VRClubUI extends VRClubAnimationFinish {
      *        end so the caller can queue the next one. Everything else loops, as before.
      */
     _playAudio(src, kind, label, options = {}) {
+        this._stopSoundCloudPlayer();
         const audio = this._ensureAudioElement();
         audio.loop = options.loop !== false;
         this._audioKind = kind;
@@ -1612,6 +1639,43 @@ class VRClubUI extends VRClubAnimationFinish {
         return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
     }
 
+    startSoundCloud(url, label = 'SoundCloud set') {
+        const parsed = new URL(String(url));
+        if (parsed.protocol !== 'https:' || !/(^|\.)soundcloud\.com$/.test(parsed.hostname) ||
+            parsed.username || parsed.password) {
+            return Promise.reject(new TypeError('Use a SoundCloud track or set page URL.'));
+        }
+        if (this.audioElement) this.audioElement.pause();
+        this._stopSoundCloudPlayer();
+        const holder = document.getElementById('soundCloudPlayer');
+        if (!holder) return Promise.reject(new Error('The SoundCloud player is unavailable.'));
+        const iframe = document.createElement('iframe');
+        iframe.title = `SoundCloud player: ${label}`;
+        iframe.allow = 'autoplay; encrypted-media';
+        iframe.referrerPolicy = 'no-referrer';
+        iframe.src = `https://w.soundcloud.com/player/?url=${encodeURIComponent(parsed.href)}&auto_play=true&hide_related=true&show_comments=false&show_reposts=false&visual=false`;
+        holder.appendChild(iframe);
+        holder.hidden = false;
+        this._soundCloudFrame = iframe;
+        this._soundCloudUrl = parsed.href;
+        this._audioKind = 'soundcloud';
+        this._audioStreamUrl = null;
+        return Promise.resolve(iframe);
+    }
+
+    _stopSoundCloudPlayer() {
+        if (this._soundCloudFrame) {
+            this._soundCloudFrame.remove();
+            this._soundCloudFrame = null;
+        }
+        const holder = typeof document !== 'undefined' && document.getElementById('soundCloudPlayer');
+        if (holder) {
+            holder.replaceChildren();
+            holder.hidden = true;
+        }
+        this._soundCloudUrl = null;
+    }
+
     startAudioFromFile(file) {
         log.info(`🎵 Loading audio file: ${file.name}`);
         const fileUrl = URL.createObjectURL(file);
@@ -1632,6 +1696,9 @@ class VRClubUI extends VRClubAnimationFinish {
      * @returns {{ seekable: boolean, position: number, duration: number, playing: boolean }}
      */
     getPlaybackInfo() {
+        if (this._audioKind === 'soundcloud') {
+            return { seekable: false, position: 0, duration: 0, playing: false };
+        }
         const audio = this.audioElement;
         if (!audio) return { seekable: false, position: 0, duration: 0, playing: false };
         const duration = audio.duration;
@@ -1670,9 +1737,13 @@ class VRClubUI extends VRClubAnimationFinish {
     /** Play or pause what is loaded. Returns true when it is now playing. */
     toggleAudioPlayback() {
         if (!this.guardHostControl('music')) return false;
+        if (this._audioKind === 'soundcloud') {
+            this.showErrorMessage('Use the official SoundCloud player in Music to play or pause this set.');
+            return false;
+        }
         const audio = this.audioElement;
         if (!audio || !audio.src) {
-            this.showErrorMessage('Nothing is playing yet. Pick a podcast.');
+            this.showErrorMessage('No music yet. Open Music and add your own audio link or file.');
             return false;
         }
         if (audio.paused) {
