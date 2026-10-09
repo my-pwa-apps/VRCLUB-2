@@ -7301,6 +7301,10 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     for (const b of VJDeskLayout.buttons.lights) {
         assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
     }
+    const labels = VJDeskLayout.buttons.lights.map(button => button.label);
+    assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');
+    assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
+    assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
@@ -7398,6 +7402,23 @@ test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom
     assert.deepEqual([...crowd.filter(item => item.action === 'people').map(item => item.people)], ['dancers', 'bystanders', 'dj', 'all']);
     assert.ok(!club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'people'));
     assert.ok(club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'quality'), 'QUALITY moved off HOME, not away');
+});
+
+test('all VJ surfaces distinguish spotlight aim paths from projected gobo images', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const lighting = club._vrQuickMenuPageDefinitions('lighting');
+    const effects = club._vrQuickMenuPageDefinitions('effects');
+    assert.ok(lighting.some(button => button && button.label === 'SPOT AIM PATH' && button.control === 'cyclePattern'));
+    assert.ok(effects.some(button => button && button.label === 'PROJECT GOBO' && button.control === 'goboActive'));
+    assert.ok(effects.some(button => button && button.label === 'GOBO IMAGE' && button.control === 'cycleGoboPattern'));
+    assert.ok(lighting.length <= 12 && effects.length <= 12, 'clarified controls overflow the VR menu');
+
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /data-control="cyclePattern">AIM PATH: RANDOM</);
+    assert.match(html, /data-control="goboActive">PROJECT GOBO</);
+    assert.match(html, /data-control="cycleGoboPattern">IMAGE: OPEN</);
+    assert.doesNotMatch(html, />PATTERN: RANDOM|>GOBO: CIRCLE|>GOBO ON\/OFF/);
 });
 
 test('VR menu: SAFETY has a NAME TAGS switch that reads and flips the shared setting', () => {

@@ -207,11 +207,11 @@
             <!-- Spotlight Controls -->
             <div class="vj-section">
                 <div class="vj-section-title">🔦 Spotlight Settings</div>
-                <p class="vj-help">The moving spotlights over the dance floor: their colour, how they move, and how fast.</p>
+                <p class="vj-help">The moving spotlights over the dance floor: their colour, movement mode, aim path, and speed.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" data-control="changeColor">COLOR</button>
                     <button class="vj-button" type="button" data-control="cycleSpotMode">MODE: STROBE+SWEEP</button>
-                    <button class="vj-button" type="button" data-control="cyclePattern">PATTERN: RANDOM</button>
+                    <button class="vj-button" type="button" data-control="cyclePattern">AIM PATH: RANDOM</button>
                     <button class="vj-button" type="button" aria-pressed="true" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT FLASH</button>
                 </div>
                 <div class="vj-slider-container">
@@ -227,19 +227,19 @@
             
             <!-- Gobo Filter Controls -->
             <div class="vj-section">
-                <div class="vj-section-title">🎭 Gobo Filters</div>
-                <p class="vj-help">Gobos project shapes (stars, circles) onto the floor through the spotlights.</p>
+                <div class="vj-section-title">🎭 Projected Gobo Images</div>
+                <p class="vj-help">A gobo replaces each spotlight's soft pool with a rotating image projected where its beam meets the floor or wall. Open means the normal soft pool.</p>
                 <div class="vj-button-grid">
-                    <button class="vj-button" type="button" aria-pressed="false" data-control="goboActive">GOBO ON/OFF</button>
-                    <button class="vj-button" type="button" data-control="cycleGoboPattern">GOBO: CIRCLE</button>
-                    <button class="vj-button" type="button" data-control="reverseGoboSpin">REVERSE</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="goboActive">PROJECT GOBO</button>
+                    <button class="vj-button" type="button" data-control="cycleGoboPattern">IMAGE: OPEN</button>
+                    <button class="vj-button" type="button" data-control="reverseGoboSpin">REVERSE SPIN</button>
                 </div>
                 <div class="vj-slider-container">
                     <input type="range" class="vj-slider" id="goboSpeed" min="-2.0" max="2.0" step="0.1" value="1.0"
                            aria-labelledby="goboSpeedLabel" aria-valuetext="1.0x"
                            title="Gobo rotation speed (negative = reverse)">
                     <div class="vj-slider-label">
-                        <span id="goboSpeedLabel">Spin Speed</span>
+                        <span id="goboSpeedLabel">Image Spin</span>
                         <span id="goboSpeedValue">1.0x</span>
                     </div>
                 </div>

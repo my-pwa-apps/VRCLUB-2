@@ -1190,7 +1190,10 @@ The DOM panel (`js/ui-init.js`), the VR quick menu (`js/club/10-ui.js`) and the 
 `applyFixtureExclusivity()`, and `takeLightControl()`), `resumeAutoShow()`, `setLightSpeed()`, `cycleSpotColor()`,
 `cycleMirrorBallColor()`, `resetVJControls()` — and the handlers only call those and render feedback. They previously
 reimplemented the same actions and had silently diverged; tests enforce the delegation. The display names for spot
-modes and aims are `VRClubUI.SPOT_MODE_NAMES` / `SPOT_PATTERN_NAMES` on every surface.
+modes and aims are `VRClubUI.SPOT_MODE_NAMES` / `SPOT_PATTERN_NAMES` on every surface. Keep the terminology distinct:
+`cyclePattern` is the moving heads' **SPOT AIM PATH**, while `goboActive` / `cycleGoboPattern` control a **PROJECTED
+GOBO** / **GOBO IMAGE** on the floor or wall. The internal `circle` gobo means an open gate and is displayed as
+`OPEN`, because it deliberately leaves the normal soft spotlight pool visible.
 
 **The VJ desk** (`js/vjDesk.js`, mixed into `VRClub.prototype`; `createVJDesk()` is called from `createDJBooth()`).
 It replaced eleven unlabelled coloured boxes, a speed slider and an audio box that opened a DOM dialog (useless in a
@@ -1205,8 +1208,8 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   personal so never host-gated), MUSIC (play/pause, or a random set of the chosen podcast), DROP (the show's countdown
   while it drives, else the director's peak look), BLACKOUT, NEXT SECTION (automatic show only, and says so),
   TAP TEMPO, BEAMS TO FLOOR, RESET LIGHTS, plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
-- **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), moves, aim, gobo, wall
-  picture (n of 20) and mirror colour. Every button's second line is its live value; unavailable ones are grey and say
+- **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
+  path, projected gobo image, wall picture (n of 20) and mirror colour. Every button's second line is its live value; unavailable ones are grey and say
   why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY).
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
   (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,

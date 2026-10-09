@@ -6,6 +6,22 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Feature - 2026-10-09 - Clarify spotlight and gobo controls
+
+- [x] **Distinguish moving-head aim paths from projected gobo images on every control surface**
+
+  **Resolved 2026-10-09.** The controls were not stale: `cyclePattern` changes where the moving heads aim, while
+  the gobo system draws rotating textured projection discs where each beam meets the floor or wall. Labels such as
+  `PATTERN`, `GOBO`, and `GOBO SHAPE` made those two independent systems look like duplicate shape selectors.
+
+  The DOM VJ panel, VR quick menu, and in-world VJ desk now consistently say **SPOT AIM PATH**, **PROJECT GOBO**,
+  and **GOBO IMAGE**. The internal `circle` gobo is displayed as **OPEN**, accurately describing its deliberate
+  untextured soft-pool state. The VR menu exposes the gobo on/off control alongside its image selector instead of
+  offering an image selector whose result could remain invisible. Tests pin the terminology and twelve-button VR
+  page limit.
+
+---
+
 ## Feature - 2026-10-09 - Ambient NPC attention
 
 - [x] **Give fixed bystanders independent, natural micro-behavior**

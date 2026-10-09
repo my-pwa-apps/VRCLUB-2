@@ -4,7 +4,7 @@
 //
 //   left  SHOW    who runs the lights (the automatic show, or you), the resident DJ, the music, the live moments
 //                 (drop, blackout, next section, tap tempo, beams to the floor, reset) and two faders
-//   right LIGHTS  every fixture on or off, and the colour, movement, aim, gobo and wall picture stepped one at a time
+//   right LIGHTS  every fixture on or off, plus spotlight movement, aim path, projected gobo image and wall picture
 //
 // Every button says what it is and what it is doing now, on the panel itself (a headset shows no tooltip), and the
 // panel's header always says who has the lights. The panels are one mesh each: a canvas texture redrawn only when
@@ -72,12 +72,12 @@ function vjDeskLayout() {
             light('flash', 'SPOT FLASH', 'spotStrobeActive', 3, 1, '#ff6ad5'),
             light('colour', 'SPOT COLOUR', 'changeColor', 0, 2, '#ff8a1f', { step: true }),
             light('moves', 'SPOT MOVES', 'cycleSpotMode', 1, 2, '#ff8a1f', { step: true }),
-            light('aim', 'SPOT AIM', 'cyclePattern', 2, 2, '#ff8a1f', { step: true }),
-            light('gobo', 'GOBO', 'goboActive', 3, 2, '#39e0c8'),
+            light('aim', 'SPOT AIM PATH', 'cyclePattern', 2, 2, '#ff8a1f', { step: true }),
+            light('gobo', 'PROJECT GOBO', 'goboActive', 3, 2, '#39e0c8'),
             light('picture', 'WALL PICTURE', 'cycleLedPattern', 0, 3, '#3aa0ff', { step: true }),
             light('mono', 'WALL B&W', 'ledMonochrome', 1, 3, '#d0d0d0'),
             light('mirrorColour', 'MIRROR COLOUR', 'changeMirrorBallColor', 2, 3, '#ffd23a', { step: true }),
-            light('goboShape', 'GOBO SHAPE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true })
+            light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true })
         ])
     });
 }
@@ -377,7 +377,11 @@ const VJDesk = {
                     case 'changeMirrorBallColor': out.value = 'NEXT COLOUR'; out.swatch = deskCss(this.mirrorBallSpotlightColor || (this.mirrorBallColors && this.mirrorBallColors[this.mirrorBallColorIndex || 0])); break;
                     case 'cycleSpotMode': out.value = VRClubUI.SPOT_MODE_NAMES[this.spotlightMode || 0] || ''; break;
                     case 'cyclePattern': out.value = VRClubUI.SPOT_PATTERN_NAMES[this.spotlightPattern || 0] || ''; break;
-                    case 'cycleGoboPattern': out.value = String((this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || '').toUpperCase(); break;
+                    case 'cycleGoboPattern': {
+                        const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
+                        out.value = name === 'circle' ? 'OPEN' : String(name).toUpperCase();
+                        break;
+                    }
                     case 'cycleLedPattern': {
                         const count = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 20;
                         out.value = `${((this.ledPattern || 0) % count) + 1} OF ${count}`;

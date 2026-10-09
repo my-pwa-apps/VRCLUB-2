@@ -465,6 +465,7 @@ function initVJMenu() {
     
     // Handle VJ control buttons
     const vjButtons = document.querySelectorAll('.vj-button[data-control]');
+    const goboDisplayName = name => name === 'circle' ? 'OPEN' : String(name || 'circle').toUpperCase();
 
     // Show the auto-detected graphics tier on the quality button so the label never
     // reads "AUTO" once we actually know what was picked.
@@ -501,9 +502,9 @@ function initVJMenu() {
             const modeBtn = document.querySelector('.vj-button[data-control="cycleSpotMode"]');
             if (modeBtn) modeBtn.textContent = `MODE: ${SPOT_MODE_NAMES[vrClubInstance.spotlightMode]}`;
             const patBtn = document.querySelector('.vj-button[data-control="cyclePattern"]');
-            if (patBtn) patBtn.textContent = `PATTERN: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
+            if (patBtn) patBtn.textContent = `AIM PATH: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
             const goboBtn = document.querySelector('.vj-button[data-control="cycleGoboPattern"]');
-            if (goboBtn) goboBtn.textContent = `GOBO: ${(vrClubInstance.goboPatterns[vrClubInstance.goboPatternIndex] || 'circle').toUpperCase()}`;
+            if (goboBtn) goboBtn.textContent = `IMAGE: ${goboDisplayName(vrClubInstance.goboPatterns[vrClubInstance.goboPatternIndex])}`;
             updateButtonStates();
             if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage('VJ controls reset to defaults');
         });
@@ -590,7 +591,7 @@ function initVJMenu() {
                 
             } else if (control === 'cyclePattern') {
                 vrClubInstance.spotlightPattern = (vrClubInstance.spotlightPattern + 1) % SPOT_PATTERN_NAMES.length;
-                button.textContent = `PATTERN: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
+                button.textContent = `AIM PATH: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
                 flashButton(button);
                 
             } else if (control === 'goboActive') {
@@ -602,7 +603,7 @@ function initVJMenu() {
                 const patternName = vrClubInstance.nextGoboPattern
                     ? vrClubInstance.nextGoboPattern()
                     : 'circle';
-                button.textContent = `GOBO: ${patternName.toUpperCase()}`;
+                button.textContent = `IMAGE: ${goboDisplayName(patternName)}`;
                 flashButton(button);
                 
             } else if (control === 'reverseGoboSpin') {

@@ -579,10 +579,11 @@ class VRClubUI extends VRClubAnimationFinish {
             return `MODE ${(this.spotlightMode || 0) + 1}`;
         }
         if (button.action === 'cycle' && button.control === 'cyclePattern') {
-            return `PATTERN ${(this.spotlightPattern || 0) + 1}`;
+            return VRClubUI.SPOT_PATTERN_NAMES[this.spotlightPattern || 0] || '';
         }
         if (button.action === 'cycle' && button.control === 'cycleGoboPattern') {
-            return `GOBO ${(this.goboPatternIndex || 0) + 1}`;
+            const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
+            return name === 'circle' ? 'OPEN' : String(name).toUpperCase();
         }
         if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
         if (button.control) return active ? 'ON' : 'OFF';
@@ -625,8 +626,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
                 { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
-                { label: 'SPOT PATTERN', control: 'cyclePattern', action: 'cycle' },
-                { label: 'GOBO', control: 'cycleGoboPattern', action: 'cycle' },
+                { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
                 common.back,
                 common.close
             ],
@@ -636,6 +636,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SMOKE', control: 'smokeActive' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
                 { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
+                { label: 'PROJECT GOBO', control: 'goboActive' },
+                { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 common.back,
                 common.close
