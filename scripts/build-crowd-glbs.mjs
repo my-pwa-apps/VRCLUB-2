@@ -596,7 +596,7 @@ const SMOKE_POSE = {
         const blow = phase > 0.68 && phase < 0.9 ? Math.sin(Math.PI * (phase - 0.68) / 0.22) : 0;
         const breath = Math.sin(TAU * phase * 3);
         const rest = [-0.02, -0.33, 0.21];
-        const mouth = [-0.209, -0.006, 0.083];
+        const mouth = [-0.04, -0.026, 0.099];
         const at = rest.map((value, i) => value + (mouth[i] - value) * eased);
         at[1] -= 0.03 * flick;
         return {
@@ -608,8 +608,8 @@ const SMOKE_POSE = {
                 R: {
                     at,
                     pole: [0.65, -0.35, -0.3],
-                    fingers: lerp3([0.05, 0.3, 1], [0.35, 1, 0.25], eased),
-                    thumb: lerp3([0, 1, 0.2], [1, 0, 0], eased)
+                    fingers: lerp3([0.05, 0.3, 1], [-0.45, 1, 0.15], eased),
+                    thumb: lerp3([0, 1, 0.2], [0.68, 0.4, -0.6], eased)
                 },
                 L: { at: [-0.06, -0.40, 0.08], pole: [-0.6, -0.35, -0.5] }
             },

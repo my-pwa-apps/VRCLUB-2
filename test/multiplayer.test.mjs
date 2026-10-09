@@ -650,12 +650,20 @@ test('every control that changes the room\'s music or lights is gated for a gues
         return source.slice(start, source.indexOf('\n    }\n', start));
     };
     for (const [name, what] of [['seekAudioTo(seconds) {', 'music'], ['toggleAudioPlayback() {', 'music'], ['_beginVRSeek(pickResult) {', 'music'],
-        ['async _runVRMusicAction(button) {', 'music'], ['toggleAudioStream() {', 'music']]) {
+        ['async _runVRMusicAction(button) {', 'music']]) {
         assert.match(body(ui, name), new RegExp(`guardHostControl\\('${what}'\\)`), `${name} is not gated`);
     }
     const activate = body(ui, '_activateVRQuickMenuButton(button) {');
     assert.ok((activate.match(/guardHostControl\('lights'\)/g) || []).length >= 3, 'reset, auto show and the show controls must be gated');
-    assert.match(ui, /clickedButton && !this\.guardHostControl\('lights'\)/, 'the in-world desk is not gated');
+    assert.match(body(ui, 'toggleLightControl(control) {'), /guardHostControl\('lights'\)/, 'the shared light toggle is not gated');
+    // The desk at the DJ table: every light, macro and fader goes through the host check; the music through its own;
+    // only the resident-DJ button (who is in YOUR club) is local.
+    const desk = readFileSync(join(ROOT, 'js/vjDesk.js'), 'utf8');
+    const run = body(desk, '_runVJDeskButton(button) {');
+    assert.ok(run.indexOf("guardHostControl('lights')") > run.indexOf("button.kind === 'music'"),
+        'the desk must check the host before anything but the DJ and the music');
+    assert.match(body(desk, '_vjDeskSetFader(button, x) {'), /guardHostControl\('lights'\)/, 'the desk faders are not gated');
+    assert.match(body(desk, '_vjDeskMusic() {'), /guardHostControl\('music'\)/, 'the desk music button is not gated');
     assert.match(dom, /club\.guardHostControl\('lights'\)\) vjMacros\.drop\(\)/);
     assert.match(dom, /club\.guardHostControl\('lights'\)\) vjMacros\.blackout\(\)/);
     assert.match(dom, /guardHostControl\('music'\)/);

@@ -461,8 +461,9 @@ class VRClubLifecycle extends VRClubCore {
         this._onResize = () => this.engine.resize();
         window.addEventListener('resize', this._onResize);
 
-        // Prevent the browser's default "navigate to the dropped file" behaviour
-        // everywhere except our own audio drop target.
+        // Prevent the browser's default "navigate to the dropped file" behaviour: a stray
+        // drop would replace the whole club with the file. (Music files are chosen through
+        // the Audio menu's file picker; nothing in the page is a drop target.)
         //
         // These handlers MUST be stored and removed in dispose(). They are registered
         // on `window`, so the closure's `this` reference pins the entire VRClub
@@ -470,7 +471,6 @@ class VRClubLifecycle extends VRClubCore {
         // resources - in memory for the lifetime of the document, even after
         // dispose() has run.
         this._onWindowDragOver = (e) => {
-            if (e.target && e.target.id === 'audioUrlInput') return;
             e.preventDefault();
             if (e.dataTransfer) {
                 e.dataTransfer.effectAllowed = 'none';
@@ -478,7 +478,6 @@ class VRClubLifecycle extends VRClubCore {
             }
         };
         this._onWindowDrop = (e) => {
-            if (e.target && e.target.id === 'audioUrlInput') return;
             e.preventDefault();
             e.stopPropagation();
         };

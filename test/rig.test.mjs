@@ -405,8 +405,9 @@ test('the mingling guest smokes like a smoker: the filter at his lips, his hand 
     group.pause();
     const seconds = (group.to - group.from) / (group.animatables[0]?.animations?.[0]?.framePerSecond || 20);
 
-    // The runtime's own placement (VRClubAudioCrowd._attachCigarette): between the index and middle fingers, through
-    // the palm, measured in the body's frame; the lips 0.115 m in front of and 6 mm above the Head joint.
+    // The runtime's own placement (VRClubAudioCrowd._attachCigarette): pinched between the index and middle fingertips,
+    // through the palm, measured in the body's frame; the lips 0.115 m in front of and 6 mm above the Head joint. The
+    // face is ~0.14 m from the middle of the head (lips and nose), so anything nearer is in his face.
     group.goToFrame(group.from);
     root.computeWorldMatrix(true);
     const head = node('Head');
@@ -420,17 +421,19 @@ test('the mingling guest smokes like a smoker: the filter at his lips, his hand 
         const rootWorld = root.getWorldMatrix();
         const toBody = rootWorld.clone().invert();
         const local = name => B.Vector3.TransformCoordinates(at(name), toBody);
-        const i2 = local('Index2.R'), i3 = local('Index3.R'), m2 = local('Middle2.R'), m3 = local('Middle3.R');
-        const hold = B.Vector3.TransformCoordinates(i2.add(i3).add(m2).add(m3).scale(0.25), rootWorld);
-        const palm = B.Vector3.TransformNormal(B.Vector3.Cross(i2.subtract(m2), m3.subtract(m2).normalize()), rootWorld).normalize();
+        const i3 = local('Index3.R'), i4 = local('Index4.R'), m3 = local('Middle3.R'), m4 = local('Middle4.R');
+        const hold = B.Vector3.TransformCoordinates(i3.add(i4).add(m3).add(m4).scale(0.25), rootWorld);
+        const palm = B.Vector3.TransformNormal(B.Vector3.Cross(i3.subtract(m3), m4.subtract(m3).normalize()), rootWorld).normalize();
         const headWorld = head.computeWorldMatrix(true);
         const centre = B.Vector3.TransformCoordinates(centreLocal, headWorld);
         samples.push({
-            filter: hold.add(palm.scale(0.03)),
-            lit: hold.subtract(palm.scale(0.055)),
+            filter: hold.add(palm.scale(0.045)),
+            lit: hold.subtract(palm.scale(0.04)),
             lips: B.Vector3.TransformCoordinates(lipsLocal, headWorld),
             centre,
-            tips: ['Index4.R', 'Middle4.R', 'Middle3.R', 'Thumb3.R'].map(at),
+            tips: ['Index4.R', 'Middle4.R', 'Thumb3.R'].map(at),
+            // How far the wrist is in front of his neck, in his own frame (the collar is ~6 cm in front of it).
+            wristAhead: (local('Wrist.R').z - local('Neck').z) * scale,
             leftFoot: at('Foot.L'), rightFoot: at('Foot.R')
         });
     }
@@ -444,6 +447,7 @@ test('the mingling guest smokes like a smoker: the filter at his lips, his hand 
         assert.ok(lit > 0.18, `the burning end is ${lit.toFixed(3)} m from the middle of his head: it is in his face`);
         const tip = Math.min(...s.tips.map(p => B.Vector3.Distance(p, s.centre)));
         assert.ok(tip > 0.15, `a finger is ${tip.toFixed(3)} m from the middle of his head: the hand is in his face`);
+        assert.ok(s.wristAhead > 0.09, `his wrist is only ${s.wristAhead.toFixed(3)} m in front of his neck: it is in his collar`);
     }
     const footTravel = side => Math.max(...samples.map(s => B.Vector3.Distance(s[side], samples[0][side])));
     assert.ok(footTravel('leftFoot') < 0.015 && footTravel('rightFoot') < 0.015, 'a foot slides while he smokes');

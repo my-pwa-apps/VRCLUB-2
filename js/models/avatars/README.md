@@ -20,7 +20,7 @@ provenance and archive hashes are recorded in `ASSETS.md`.
 | `club-dj-melera.glb` | DJ booth while Miss Melera's podcast is chosen | Jacket (tinted grey at load), long straight hair (tinted light blond), headphones, modeled face/eyes | `Idle_Loop` | ~2.8 MB |
 | `club-guest-female.glb` | The bartender (black outfit through a tint); build source | Ranger jacket and boots (no hood, no pauldron), long hair | Carries the guest clips; the bartender instance is driven procedurally by `AvatarRig` for washing and service reaches | ~2.9 MB |
 | `club-guest-male.glb` | Build source only (the DJ and crowd builds); not loaded at runtime | As above, parted hair and beard | as above | ~2.7 MB |
-| `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop` and `Idle_TalkingPhone_Loop`; f7 additionally carries the procedural `Idle_Railing_Loop`; m6 carries the procedural `Drink_Loop` and `Smoke_Loop`; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
+| `club-crowd-f1..f8.glb`, `club-crowd-m1..m9.glb` | The dance floor, the side-wall guests and the queue outside the street door: 17 different people | Quaternius Modular Women / Men, recoloured: every skin tone, black, brown, auburn, blond and silver hair, casual, punk, formal and suit outfits | `Dance_Loop`; the six guests (f6-f8, m4, m6, m8) also carry `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop` and `Idle_TalkingPhone_Loop`; f7 additionally carries the procedural `Idle_Railing_Loop`; m6 carries the procedural `Drink_Loop`, `Smoke_Loop` and his own `Idle_Railing_Loop`; the eleven floor dancers carry the eight procedural `Groove_*` moves (`js/crowdDance.js`) | ~1.0 MB each |
 | `club-crowd-bouncer.glb` | The bouncer at the street door (`_streetSlots()`); never a player avatar | Modular Men Suit: espresso skin, black hair, black suit, shirt and tie | as the guests; plays `Idle_Loop` | ~1.0 MB |
 
 The crowd people are one skinned mesh and one material each, coloured per vertex; see the next section. The three
@@ -45,11 +45,14 @@ palm, raises it to his mouth, and lowers it to the same point before releasing i
 glass before taking it back and resuming her two-handed washing motion.
 
 The same route gives him three intentional solo pauses: watching the dance floor from his original side-wall place,
-smoking outside the street door, and looking over the floor from the balcony. `Smoke_Loop` raises his right hand to
-his face while a small reusable cigarette follows his palm. His root height follows the authoritative vestibule and
+smoking outside the street door, and the balcony, where he rests both hands on the rail beside f7 (m6 carries his own
+taller `Idle_Railing_Loop`) and then turns to talk with her. `Smoke_Loop` is a 12 s cycle: the hand rests low, flicks
+the ash, then comes up palm toward his face so the cigarette between his index and middle fingers meets his lips;
+he draws on it and exhales up and to the side. The cigarette is parented to his middle finger, glows on each drag,
+burns down over the stop, and gives off a thin wisp and an exhale (two small particle systems). His root height follows the authoritative vestibule and
 mezzanine walking surfaces as he climbs either stair. Untargeted route points only steer him around furniture and the
 dance floor; he passes through them without stopping. The glass, cigarette, and pose vectors are reused without
-per-frame allocation.
+per-frame allocation. Rebake his clips with `node scripts/build-crowd-glbs.mjs --refresh-static --only m6 --optimize`.
 
 ## The crowd people (`club-crowd-*.glb`)
 

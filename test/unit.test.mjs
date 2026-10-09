@@ -3064,7 +3064,7 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
             : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
         if (id === 'f7') expected.push('Idle_Railing_Loop');
-        if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop');
+        if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop');
         expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
@@ -6769,7 +6769,7 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
 
     const home = club._vrQuickMenuPageDefinitions('home');
     assert.ok(home.some(item => item && item.target === 'music'), 'the home page must reach the Music page');
-    for (const page of ['home', 'lighting', 'effects', 'comfort', 'travel', 'show', 'music']) {
+    for (const page of ['home', 'lighting', 'effects', 'comfort', 'crowd', 'travel', 'show', 'music']) {
         assert.ok(club._vrQuickMenuPageDefinitions(page).length <= 12, `${page} has more buttons than the menu has slots`);
     }
     const music = club._vrQuickMenuPageDefinitions('music');
@@ -7225,6 +7225,176 @@ test('VR menu: the LOOK page picks a pool and rerolls, and the online page still
     assert.ok(window.VRClubUI.VR_NET_PAGES.includes('look'));
 });
 
+// ---------------------------------------------------------------------------
+// The VJ desk at the DJ table (js/vjDesk.js) and the VR menu's CROWD page
+// ---------------------------------------------------------------------------
+
+function deskHarness() {
+    let now = 1000;
+    const performance = { now: () => now };
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, performance }).window;
+    const { VJDesk, VJDeskLayout } = loadClassic('js/vjDesk.js', { BABYLON: {}, VRClubUI, performance }).window;
+    const club = Object.create(VRClubUI.prototype);
+    Object.assign(club, VJDesk);
+    const toasts = [], calls = [], people = { dj: true };
+    Object.assign(club, {
+        lightsActive: true, lasersActive: false, laserSheetActive: false, mirrorBallActive: false, ledWallActive: true,
+        ledMonochrome: false, strobesActive: true, smokeActive: false, spotStrobeActive: true,
+        spotlightMode: 0, spotlightPattern: 0, vjManualMode: false, lastVJInteraction: 0, VJ_TIMEOUT: 60,
+        photosensitiveSafeMode: false, multiplayer: null,
+        showErrorMessage: text => toasts.push(text),
+        pulseHaptic() {},
+        isPeopleVisible: name => people[name] !== false,
+        togglePeopleVisible: name => (people[name] = people[name] === false),
+        getPlaybackInfo: () => ({ playing: false }),
+        resetVJControls() { calls.push('reset'); this.vjManualMode = false; },
+        vjDirector: {
+            bpm: 124, targetMasterIntensity: 1,
+            triggerDrop: () => calls.push('vjDrop'), blackout: ms => calls.push(`blackout ${ms}`),
+            tapTempo: () => calls.push('tap'), lockToCenter: () => calls.push('lock'),
+            setMasterIntensity(v) { this.targetMasterIntensity = v; }
+        },
+        showDirector: {
+            enabled: true, _movementName: 'pulse', movements: { pulse: { title: 'Pulse' } },
+            isDriving: () => !club.vjManualMode,
+            triggerShowDrop: () => calls.push('showDrop'),
+            nextMovement: () => { calls.push('next'); return 'Ascent'; }
+        },
+        camera: { position: { x: 0, y: 2.2, z: -19.4 } },
+        _playerCamera() { return this.camera; }
+    });
+    const button = id => [...VJDeskLayout.buttons.show, ...VJDeskLayout.buttons.lights].find(b => b.id === id);
+    const press = id => club._runVJDeskButton(button(id));
+    return { club, toasts, calls, people, press, button, VJDeskLayout, VRClubUI, setNow: ms => { now = ms; } };
+}
+
+test('the VJ desk: every button fits its panel, nothing overlaps, and every light is one the club knows', () => {
+    const { VJDeskLayout, VRClubUI } = deskHarness();
+    const { width, height } = VJDeskLayout.config.canvas;
+    for (const [panel, buttons] of Object.entries(VJDeskLayout.buttons)) {
+        const ids = new Set();
+        for (const b of buttons) {
+            assert.ok(!ids.has(b.id), `${panel}: ${b.id} twice`);
+            ids.add(b.id);
+            assert.ok(b.label && b.label === b.label.toUpperCase(), `${b.id} needs a plain upper-case label`);
+            const r = b.rect;
+            assert.ok(r.x >= 0 && r.y >= 130 && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
+            assert.ok(r.h >= 70 && r.w >= 300, `${b.id} is too small to hit with a controller ray`);
+            for (const other of buttons) {
+                if (other === b) continue;
+                const o = other.rect;
+                const overlap = r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h;
+                assert.ok(!overlap, `${b.id} overlaps ${other.id}`);
+            }
+            if (b.kind === 'fader') {
+                const track = VJDeskLayout.faderTrack(r);
+                assert.ok(track.left > r.x + 200 && track.right < r.x + r.w - 100 && track.right - track.left > 400, `${b.id}'s track`);
+            }
+        }
+    }
+    const steps = ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern'];
+    for (const b of VJDeskLayout.buttons.lights) {
+        assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
+    }
+    // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
+        .split(',').map(s => s.trim().replace(/['\s]/g, '')).filter(Boolean);
+    assert.deepEqual([...listed].sort(), [...VRClubUI.LIGHT_TOGGLES].sort());
+});
+
+test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them back, and the header says who has them', () => {
+    const { club, press, calls, toasts } = deskHarness();
+    assert.equal(club._vjDeskStatus().title, 'AUTOMATIC SHOW');
+    assert.match(club._vjDeskStatus().detail, /NOCTURNE: PULSE/);
+    assert.equal(club._vjDeskButtonState(deskHarness().button('auto')).value, 'RUNNING');
+
+    press('drop');
+    assert.deepEqual(calls, ['showDrop'], 'under the automatic show DROP fires its countdown');
+    press('next');
+    assert.equal(calls.at(-1), 'next');
+
+    press('spots');
+    assert.equal(club.lightsActive, false);
+    assert.equal(club.vjManualMode, true, 'a light press must hand the lights to whoever pressed it');
+    assert.equal(club._vjDeskStatus().title, 'YOU ARE THE VJ');
+    assert.match(club._vjDeskStatus().detail, /AUTO SHOW/);
+    press('mirror');
+    assert.equal(club.mirrorBallActive, true);
+    assert.equal(club.lasersActive, false, 'the one-aerial-idea rule applies at the desk too');
+
+    calls.length = 0;
+    press('drop');
+    assert.deepEqual(calls, ['vjDrop'], 'by hand DROP slams the peak look');
+    const before = toasts.length;
+    press('next');
+    assert.ok(!calls.includes('next') && toasts.length > before, 'NEXT SECTION is the automatic show\'s');
+    assert.equal(club._vjDeskDisabledReason(deskHarness().button('next')), 'AUTO SHOW ONLY');
+
+    press('auto');
+    assert.equal(club.vjManualMode, false);
+    assert.equal(club._vjDeskStatus().title, 'AUTOMATIC SHOW');
+
+    // The faders: brightness to the director's master, speed to every fixture, both by hand.
+    club._vjDeskSetFader(deskHarness().button('brightness'), 10_000);
+    assert.equal(club.vjDirector.targetMasterIntensity, 1);
+    assert.equal(club.vjManualMode, true);
+    const speed = deskHarness().button('speed');
+    club._vjDeskSetFader(speed, -10_000);
+    assert.ok(Math.abs(club.spotlightSpeed - 0.1) < 1e-9 && club.laserSpeed === club.spotlightSpeed && club.strobeSpeed === club.spotlightSpeed);
+});
+
+test('the VJ desk keeps the lights with whoever stands at it, and hands them back once they walk away', () => {
+    const { club, press, setNow } = deskHarness();
+    club._vjDesk = { panels: [], clock: 0, dirty: false };
+    setNow(10_000);
+    press('lasers');
+    assert.equal(club.vjManualMode, true);
+    setNow(500_000);   // eight minutes later, still at the desk
+    club.updateVJDesk({ dt: 1 / 60 });
+    assert.equal(club.lastVJInteraction, 500, 'standing at the desk must keep the idle hand-back away');
+    club.camera.position = { x: 0, y: 1.7, z: -10 };   // down on the dance floor
+    setNow(530_000);
+    club.updateVJDesk({ dt: 1 / 60 });
+    assert.equal(club.lastVJInteraction, 500, 'away from the desk the idle clock runs');
+    assert.match(club._vjDeskStatus().detail, /TAKES OVER IN 30 S/);
+});
+
+test('the VJ desk in someone else\'s room: the lights and music are the host\'s, the resident DJ is still yours', () => {
+    const { club, press, people, toasts, button } = deskHarness();
+    club.multiplayer = { following: true, hostName: () => 'Bo' };
+    press('spots');
+    assert.equal(club.lightsActive, true, 'a guest must not change the host\'s lights');
+    assert.match(toasts.at(-1), /Only the host \(Bo\)/);
+    assert.equal(club._vjDeskButtonState(button('spots')).value, 'HOST ONLY');
+    assert.equal(club._vjDeskStatus().title, 'BO HAS THE LIGHTS');
+    press('dj');
+    assert.equal(people.dj, false, 'who is in your club is your own choice');
+    assert.equal(club._vjDeskButtonState(button('dj')).value, 'SENT HOME');
+    assert.equal(club._vjDeskButtonState(button('dj')).disabled, false);
+});
+
+test('the VJ desk under Photosensitive Safe Mode: the strobes cannot be switched on and say why', () => {
+    const { club, press, button } = deskHarness();
+    club.photosensitiveSafeMode = true;
+    club.strobesActive = false;
+    press('strobes');
+    assert.equal(club.strobesActive, false);
+    assert.equal(club._vjDeskButtonState(button('strobes')).value, 'SAFE MODE');
+    assert.equal(club._vjDeskButtonState(button('flash')).value, 'SAFE MODE');
+});
+
+test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom of COMFORT', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const home = club._vrQuickMenuPageDefinitions('home');
+    assert.ok(home.some(item => item && item.target === 'crowd' && item.label === 'CROWD'));
+    const crowd = club._vrQuickMenuPageDefinitions('crowd');
+    assert.deepEqual([...crowd.filter(item => item.action === 'people').map(item => item.people)], ['dancers', 'bystanders', 'dj', 'all']);
+    assert.ok(!club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'people'));
+    assert.ok(club._vrQuickMenuPageDefinitions('comfort').some(item => item && item.action === 'quality'), 'QUALITY moved off HOME, not away');
+});
+
 test('VR menu: SAFETY has a NAME TAGS switch that reads and flips the shared setting', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
     const proto = window.VRClubUI.prototype;
@@ -7491,6 +7661,202 @@ test('the kick band catches the same kicks at 60, 30, 20 and 12 frames a second'
             `${fps} fps: ${vj.realOnsetCount} onsets for ${kicks} kicks`);
         assert.ok(Math.abs(vj.bpm - bpm) < 3, `${fps} fps: tempo read as ${vj.bpm}`);
     }
+});
+
+/**
+ * The two bands the club reads, as continuous waveforms (48 kHz): `kick(t)` under 120 Hz and `high(t)` above 200 Hz,
+ * fed through the real _readKickBand and VJDirector at 60 frames a second. Returns the director and a log per second.
+ */
+function runBands({ seconds, kick = () => 0, high = () => 0, fps = 60, before = null, each = null }) {
+    const rate = 48000;
+    const kickWave = new Float32Array(Math.ceil((seconds + 1) * rate));
+    const highWave = new Float32Array(kickWave.length);
+    for (let n = 0; n < kickWave.length; n++) { kickWave[n] = kick(n / rate, n); highWave[n] = high(n / rate, n); }
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON: makeBabylonStub() });
+    const club = createAudioHarness().club;
+    const ctx = { sampleRate: rate, currentTime: 0, state: 'running' };
+    const tap = wave => ({
+        getFloatTimeDomainData(out) {
+            const end = Math.round(ctx.currentTime * rate);
+            for (let i = 0; i < out.length; i++) { const n = end - out.length + i; out[i] = n >= 0 ? wave[n] : 0; }
+        }
+    });
+    Object.assign(club, {
+        audioContext: ctx, kickSamples: new Float32Array(8192), rhythmSamples: new Float32Array(8192),
+        kickAnalyser: tap(kickWave), rhythmAnalyser: tap(highWave)
+    });
+    const vj = new window.VJDirector({ vjBPM: 128 });
+    if (before) before(vj);
+    const frame = { hasAudio: true };
+    const log = [];
+    for (let now = 0; now < seconds * 1000; now += 1000 / fps) {
+        ctx.currentTime = now / 1000;
+        club._readKickBand(frame, now);
+        vj._detectOnset(frame, now);
+        vj._flywheel(now);   // as update() runs it
+        if (each) each(vj, now);
+        if (Math.floor(now / 1000) !== Math.floor((now - 1000 / fps) / 1000)) {
+            log.push({ t: Math.round(now / 1000), present: vj.rhythmPresent, strength: vj.rhythmStrength, bpm: vj.bpm, rhythmBpm: vj.rhythmBpm });
+        }
+    }
+    return { vj, log, window };
+}
+
+/** Deterministic noise. */
+function noiseSource(seed = 7) {
+    let s = seed;
+    return () => { s = (s * 16807) % 2147483647; return s / 1073741823.5 - 1; };
+}
+
+test('the rest of the rhythm: hats and a snare, or a synth arpeggio, are a pulse; a swelling pad, random hits and silence are not', () => {
+    const bpm = 124, beat = 60 / bpm;
+    const noise = noiseSource();
+    const pad = t => 0.05 * Math.sin(2 * Math.PI * 330 * t) * (0.6 + 0.4 * Math.sin(2 * Math.PI * 0.1 * t));
+    const hatsAndSnare = t => {
+        const eighth = t % (beat / 2), bar = t % (4 * beat);
+        const snare = (bar >= beat && bar < 2 * beat) || (bar >= 3 * beat) ? Math.exp(-((t % beat)) / 0.09) * 0.35 : 0;
+        return pad(t) + noise() * (0.12 * Math.exp(-eighth / 0.025) + snare);
+    };
+    const arp = t => {
+        const sixteenth = beat / 4, i = Math.floor(t / sixteenth) % 4;
+        const f = [440, 554, 659, 880][i];
+        return pad(t) + 0.2 * Math.exp(-(t % sixteenth) / 0.05) * Math.sign(Math.sin(2 * Math.PI * f * t));
+    };
+    const hits = (() => {
+        // Poisson-timed noise hits, about three a second, with no tempo.
+        const r = noiseSource(99), times = [];
+        for (let t = 0; t < 40;) { t += -Math.log(Math.max(1e-6, (r() + 1) / 2)) / 3; times.push(t); }
+        return t => { let v = 0; for (const h of times) { if (h > t) break; if (t - h < 0.2) v += Math.exp(-(t - h) / 0.04); } return pad(t) + noise() * 0.2 * v; };
+    })();
+    const verdict = high => {
+        const { log } = runBands({ seconds: 30, high });
+        const late = log.filter(entry => entry.t >= 10);
+        return { share: late.filter(entry => entry.present).length / late.length, strength: late.at(-1).strength, bpm: late.at(-1).rhythmBpm };
+    };
+    const hats = verdict(hatsAndSnare);
+    assert.ok(hats.share > 0.9, `hats and a snare: a pulse only ${(hats.share * 100).toFixed(0)}% of the time (strength ${hats.strength.toFixed(2)})`);
+    assert.ok(Math.abs(hats.bpm - bpm) < 4 || Math.abs(hats.bpm - bpm / 2) < 3, `hats and a snare read as ${hats.bpm.toFixed(1)} BPM`);
+    const arpeggio = verdict(arp);
+    assert.ok(arpeggio.share > 0.9, `a synth arpeggio: a pulse only ${(arpeggio.share * 100).toFixed(0)}% of the time (strength ${arpeggio.strength.toFixed(2)})`);
+    for (const [name, high] of [['a swelling pad', pad], ['random hits', hits], ['silence', () => 0]]) {
+        const v = verdict(high);
+        assert.ok(v.share < 0.1, `${name} read as a pulse ${(v.share * 100).toFixed(0)}% of the time (strength ${v.strength.toFixed(2)})`);
+    }
+});
+
+test('in a breakdown the hats keep the dance grid on the beat even when the tempo was read a little wrong', () => {
+    const bpm = 124, beat = 60 / bpm;
+    const noise = noiseSource(3);
+    const kickUntil = 16;
+    const kick = t => t < kickUntil ? 0.5 * Math.exp(-(t % beat) / 0.12) * Math.sin(2 * Math.PI * 55 * t) : 0;
+    const hats = t => noise() * (0.12 * Math.exp(-(t % (beat / 2)) / 0.025)
+        + ((t % (4 * beat)) >= beat && (t % (4 * beat)) < 2 * beat || (t % (4 * beat)) >= 3 * beat ? 0.3 * Math.exp(-(t % beat) / 0.09) : 0));
+    // Where the grid's last beat is against the music's, in beats (0 = on the beat).
+    const phaseError = vj => {
+        const t = vj.lastBeatAt / 1000;
+        return Math.abs(((t / beat) % 1 + 1.5) % 1 - 0.5);
+    };
+    const run = high => {
+        let drifted = false;
+        return runBands({
+            seconds: 60, kick, high,
+            // The breakdown starts with the tempo misread by 0.7 BPM (once the kick's own envelope has stopped
+            // correcting it): over the next 41 s the flywheel alone drifts half a beat.
+            each: (vj, now) => { if (!drifted && now >= (kickUntil + 3) * 1000) { vj.bpm = bpm - 0.7; drifted = true; } }
+        }).vj;
+    };
+    const withHats = run(hats);
+    assert.ok(withHats.realOnsetCount > 20, 'the groove before the breakdown was not heard');
+    assert.equal(withHats.rhythmPresent, true, 'the hats were not heard as a pulse');
+    assert.ok(phaseError(withHats) < 0.1, `with hats the grid is ${phaseError(withHats).toFixed(2)} beats off`);
+    const alone = run(() => 0);
+    assert.ok(phaseError(alone) > 0.3, `without hats the misread tempo should drift (${phaseError(alone).toFixed(2)})`);
+});
+
+/** A 55 Hz kick thump at each of `hits` (seconds, ascending), as the kick band holds it. Sampled in order. */
+function kickTrack(hits) {
+    let next = 0;
+    return t => {
+        while (next < hits.length && hits[next] <= t) next++;
+        let v = 0.01 * Math.sin(2 * Math.PI * 40 * t);
+        for (let i = next - 1; i >= 0 && t - hits[i] < 0.6; i--) {
+            v += 0.5 * Math.exp(-(t - hits[i]) / 0.12) * Math.sin(2 * Math.PI * 55 * (t - hits[i]));
+        }
+        return v;
+    };
+}
+
+test('a syncopated hit in the kick band neither speeds the tempo up nor adds a beat to the bar', () => {
+    // Real progressive house (Resident 801): a bass note or an extra kick on "and-a" of 2 and 4 was counted as a beat.
+    // The kick-to-kick median read the 124 BPM set as 140-167 BPM for minutes and the crowd danced visibly too fast.
+    const bpm = 124, beat = 60 / bpm, seconds = 40;
+    const hits = [], onGrid = [];
+    for (let b = 0; b * beat < seconds + 1; b++) {
+        hits.push(b * beat); onGrid.push(b * beat);
+        if (b % 2 === 1) hits.push((b + 0.6) * beat);   // beats 1.6 and 3.6 of every bar
+    }
+    hits.sort((a, b) => a - b);
+    const noise = noiseSource(3);
+    const hats = t => noise() * 0.1 * Math.exp(-(t % (beat / 2)) / 0.025);
+    let countedAt15 = 0;
+    const { vj, log } = runBands({
+        seconds, kick: kickTrack(hits), high: hats,
+        each: (v, now) => { if (!countedAt15 && now >= 15000) countedAt15 = v.realOnsetCount; }
+    });
+    for (const entry of log.filter(e => e.t >= 15)) {
+        assert.ok(Math.abs(entry.bpm - bpm) < 2, `at ${entry.t} s the tempo read ${entry.bpm.toFixed(1)} BPM`);
+    }
+    const beats = onGrid.filter(t => t >= 15 && t < seconds).length;
+    const counted = vj.realOnsetCount - countedAt15;
+    assert.ok(Math.abs(counted - beats) <= 3, `${counted} beats counted for ${beats} kicks (the syncopation is ${beats / 2} more)`);
+    const phase = ((vj.lastBeatAt / 1000) % beat) / beat;
+    assert.ok(Math.min(phase, 1 - phase) < 0.1, `the beat sits ${phase.toFixed(2)} of a beat off the kick`);
+});
+
+test('when the kick really moves off the grid, the grid follows it within a few beats', () => {
+    // A mix that lands half a beat late: every kick is "off the grid" from then on.
+    const bpm = 124, beat = 60 / bpm, seconds = 34, shiftAt = 20;
+    const hits = [];
+    for (let b = 0; b * beat < seconds + 1; b++) hits.push(b * beat + (b * beat >= shiftAt ? beat / 2 : 0));
+    const { vj } = runBands({ seconds, kick: kickTrack(hits) });
+    const sinceReal = (seconds * 1000 - vj.lastRealOnsetAt) / 1000;
+    const phase = ((shiftAt + beat / 2 - sinceReal) % beat + beat) % beat / beat;
+    assert.ok(Math.min(phase, 1 - phase) < 0.1, `the last accepted kick sits ${phase.toFixed(2)} of a beat off the moved kick`);
+    assert.ok(Math.abs(vj.bpm - bpm) < 3, `the tempo read ${vj.bpm.toFixed(1)} BPM after the move`);
+});
+
+test('the crowd stays on the beat with the lighter moves when only the rest of the rhythm carries on', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance(29);
+    const dancers = Array.from({ length: 120 }, () => choreographer.createDancer(ALL_MOVES));
+    // A groove, then 20 s of hats only, then the kick again, then 10 s of nothing.
+    const phase = t => (t < 15 ? 'kick' : t < 35 ? 'rhythm' : t < 45 ? 'kick' : 'none');
+    const each = (m, t) => { const p = phase(t); m.beatPresent = p === 'kick'; m.rhythm = p === 'rhythm'; m.energy = p === 'rhythm' ? 0.25 : 0.6; };
+    const out = {};
+    for (const dancer of dancers) {
+        const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 55, each, fps: 30 });
+        const rhythm = frames.filter(f => phase(f.t) === 'rhythm');
+        assert.ok(rhythm.every(f => f.move !== 'Groove_HandsUp'), 'hands in the air in a breakdown');
+        assert.ok(frames.filter(f => phase(f.t) === 'none').every(f => f.move === 'Groove_Sway'), 'with no pulse at all they sway');
+        // On the grid: the clip's phase follows the beat, whatever the move.
+        for (const f of rhythm.filter(f => f.t > 17)) {
+            const meta = CrowdDance.MOVES[f.move];
+            const k = f.half ? 0.5 : 1;
+            const anchor = f.half && meta.halfAnchor !== undefined ? meta.halfAnchor : meta.anchor;
+            const want = CrowdDance.wrap01((f.beat * k + anchor) / meta.beats);
+            assert.ok(Math.abs(CrowdDance.wrapHalf(f.frac - want)) * meta.beats / k < 0.12, `${f.move} off the beat in the breakdown`);
+        }
+    }
+    const d = choreographer.step(dancers[0], { beatPresent: false, rhythm: true, beat: 200, bpm: 124, energy: 0.25 }, null, out);
+    const base = 124 / 120;
+    assert.ok([base, base / 2].some(b => Math.abs(d.speed - b) < 1e-9),
+        `with a pulse they move at the track's tempo (or half of it), not the slow free pace (${d.speed})`);
+    // Across the floor the breakdown is varied, not everyone swaying.
+    const moves = new Set();
+    for (const dancer of dancers.slice(0, 40)) {
+        const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 40, each: (m, t) => { m.beatPresent = t < 5; m.rhythm = t >= 5; m.energy = 0.25; }, fps: 20 });
+        frames.filter(f => f.t > 6).forEach(f => moves.add(f.move));
+    }
+    assert.ok(moves.size >= 4 && moves.has('Groove_Sway'), `in a breakdown the floor does ${[...moves].join(', ')}`);
 });
 
 test('with a trusted kick the rig dips deeper between kicks, but not under Photosensitive Safe Mode', () => {

@@ -81,8 +81,9 @@ const TOGGLE_CONTROLS = Object.freeze(new Set([
     'smokeActive', 'spotStrobeActive'
 ]));
 
-const SPOT_MODE_NAMES = Object.freeze(['STROBE+SWEEP', 'SWEEP ONLY', 'STROBE STATIC', 'STATIC']);
-const SPOT_PATTERN_NAMES = Object.freeze(['RANDOM', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS']);
+// One list of names for every surface (this panel, the VR menu and the desk at the DJ table).
+const SPOT_MODE_NAMES = VRClubUI.SPOT_MODE_NAMES;
+const SPOT_PATTERN_NAMES = VRClubUI.SPOT_PATTERN_NAMES;
 
 /** Shared teardown list. Module-scoped rather than on `window` so an injected
  *  element with a matching id cannot clobber it via named window access. */

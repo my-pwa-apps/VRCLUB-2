@@ -24,7 +24,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`, then `js/podcasts.js` (`window.Podcasts`: podcast catalogue, random/queue player)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level), all mixed into `VRClub.prototype`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -207,17 +207,27 @@ the grooves too.
   which cut in at once). The kick is present while real onsets keep coming (`lastRealOnsetAt` within ~2.5 beats) and
   returns   after two in a row (`onsetStreak`). A trusted beat remains present for seven kick-less beats (the same threshold at
   which the Show Director declares a breakdown), so a missed onset or render hitch cannot send the floor idle early;
-  the analyser's audible state is also held for two beats so one sparse frame cannot flip it. While the beat is
-  present, free moves are excluded from `_pick()`; without it every Quaternius dancer leaves the grid and sways
-  (`Groove_Sway`) at `FREE_SPEED`. The three Mixamo dancers keep their authored
+  the analyser's audible state is also held for two beats so one sparse frame cannot flip it.
+- **`step()` takes a three-state pulse, not a boolean.** `music.beatPresent` (the kick) gives `true`; failing that,
+  `music.rhythm` (`VJDirector.rhythmPresent`, see `js/vjDirector.js`) gives `'rhythm'` — hats, a snare or a synth
+  keeping time through a kick-less breakdown; neither gives `false`. Only `false` drops every Quaternius dancer onto
+  the free `Groove_Sway` at `FREE_SPEED`, off the grid: a breakdown that still has audible rhythm now keeps the
+  floor on-grid instead, just lighter. `RHYTHM_WEIGHTS` reweights `_pick()` during `'rhythm'` — `Groove_Sway` far
+  more likely (it also doubles as an on-grid move here, not only the off-grid fallback), `Groove_HandsUp` excluded
+  entirely (nobody throws their hands up to a hi-hat) — and free moves, excluded outright while a kick is present,
+  are allowed back into contention so a `'rhythm'` frame can still choose one without forcing it. `true` behaves as
+  before: free moves excluded from `_pick()`, normal weights.
+- The three Mixamo dancers keep their authored
   playback speed; slowing those single clips reads as broken slow motion.
-- The club side (`11-audio-crowd.js`): `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
+- The club side (`11-audio-crowd.js`): `_crowdMusic()` computes `m.rhythm = !m.beatPresent && hasAudio && vj.rhythmPresent`
+  (see the rhythm band in `js/vjDirector.js`) alongside the existing `m.beatPresent`, so `'rhythm'` only ever applies
+  when the kick is genuinely absent. `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
   `npc.dance = { groups, current, state }`, `npc.animations` is always `[current]` (so `_setAnimating` pauses and
   restarts the right one when a tier or district hides it), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
   which leaves these dancers' speed alone) starts a new move with `enableBlending` (it blends from the old pose) and
   stops the old one: one group evaluates per dancer.
-- Tests: the choreography in `test/unit.test.mjs` (phase lock at several tempos, bar lines, variety, beat loss, build
-  and drop); the grooves on the real skeleton in `test/rig.test.mjs` (feet planted, the tap lands on the beat, hands meet
+- Tests: the choreography in `test/unit.test.mjs` (phase lock at several tempos, bar lines, variety, beat loss, build,
+  drop, and the `'rhythm'` state keeping the lighter moves rather than `Groove_HandsUp`); the grooves on the real skeleton in `test/rig.test.mjs` (feet planted, the tap lands on the beat, hands meet
   on the beat, fists and hands up, the bounce lowest on the beat, seamless loops); and the whole thing in the real club
   in `test/e2e/crowd-dance.spec.mjs`, stepped at 16 ms (measured mean phase error ~0.0013 beats, worst 0.033).
 
@@ -239,6 +249,38 @@ and a kick-less breakdown: recall 0.99, precision 0.98, no false onset in the br
 path: 323 onsets for 128 kicks, 144 BPM, no breakdown found). `_registerBeat()` punches `beatEnvelope` at most once
 every `MIN_PUNCH_GAP_MS` (400 ms): above 150 BPM it punches alternate beats, under the 3-a-second flash limit.
 `test/unit.test.mjs` enforces the bassline rejection and the punch gap.
+
+**The rest of the rhythm keeps the grid alive when the kick drops out.** A long breakdown often drops the kick
+entirely while hats, a snare or a synth arpeggio keep a clear pulse; without reading them the crowd fell back to its
+slow free sway the moment the kick did, even on a track that was still obviously in time. `_detectRhythm()` runs the
+rhythm band (see `js/club/11-audio-crowd.js`) through the SAME onset-envelope machinery as the kick
+(`_pushEnvelope`/`_envelope`), but decides presence differently: autocorrelation strength alone falsely flagged
+Poisson-timed noise as periodic, so `_onsetCoherence()` also requires the onsets to be phase-locked to the beat's
+sixteenth-note or triplet subdivisions (a circular phase-locking value) — real hats/snares/arpeggios measure
+~0.96-0.98 coherent over a 4 s window, random hits 0.3-0.68 — before `rhythmPresent`/`rhythmStrength`/`rhythmBpm`
+are set. `js/crowdDance.js` treats a frame as `true` (kick), `'rhythm'` (rhythm band only) or `false` (neither); only
+`false` lets the floor fall back to the free `Groove_Sway`.
+
+**Tempo tracking is autocorrelation, not kick-to-kick medians.** The old median-of-intervals approach misread a
+124 BPM set as 140-167 BPM the moment a bassline pluck or an extra kick landed between two real beats, because a
+single outlier interval skews a median of few samples. `_autocorrelate()`/`_acfAt()`/`_pulseAt()` instead score
+candidate periods (70-180 BPM, plus the period's double/half at a discount) against the SHARED onset envelope, and
+`_tempoPrior()` (a Gaussian in log2-BPM space centred on `preferredBpm`) nudges an ambiguous half/double-time read
+toward the plausible range; `_tempoTrusted(now)` reports whether a recent evaluation was confident enough to drive
+the grid. `_flywheel(now)` (extracted from `update()`) keeps counting bars from the tracked tempo for up to 1.5 beats
+without a real kick, synthesizing the NEXT bar line at its exact due time (`lastBeatAt + beat`, not the time it was
+noticed) so a slow frame cannot drift the grid; `_nudgeFlywheel()` gently pulls `lastBeatAt` toward the rhythm
+band's own onsets while the kick is away, so claps and taps still land where the crowd expects them when the tempo
+was read a little wrong.
+
+**A syncopated hit (a bass note, an extra kick on the "and") must not be counted as the beat.** `_detectKick()`
+gates a hit against the phase the last `phaseVotes` candidates (accepted or not) agree on — a circular median, so a
+minority of off-grid hits cannot win the vote — rather than against the single last accepted kick: that anchor
+could itself have been the syncopated hit, after which every REAL kick sits off-grid from it and gets rejected in
+its place, forever, because the syncopation recurs at its own fixed offset from the beat. The same vote lets a kick
+that has genuinely moved (a mix landing late) back in once most recent candidates agree on the new position.
+`test/unit.test.mjs` mutation-tests both directions: disable the vote and the syncopated hit is counted as a beat;
+keep it and a real tempo/phase shift is still followed within a few beats.
 
 ### `js/showDirector.js` — "NOCTURNE"
 The composed light show, and **the single source of truth for fixture state** whenever
@@ -707,19 +749,22 @@ and fail `npm test`.
   gates on it, so a group nobody can see is never downloaded, and `_applyDJ()` only records `_djWanted` while the DJ
   is away. It is a **personal, local** preference, not a light or a music control: it is never host-gated (the VR
   button uses `action: 'people'` with no `control`, and `initRoomGuestLock`'s `keep` selector includes
-  `[data-people]`). Both surfaces — the VJ panel's "Who is in the club" section and the VR quick menu's COMFORT page —
-  only call `togglePeopleVisible`.
+  `[data-people]`). Three surfaces only call `togglePeopleVisible`: the VJ panel's "Who is in the club" section, the VR
+  quick menu's CROWD page (its own HOME button; it used to sit at the bottom of COMFORT, where nobody found it) and the
+  VJ desk's RESIDENT DJ button.
 - **Ambient bystander poses.** Fixed bystanders still evaluate exactly one clip: the mezzanine guest f7 rests both
   hands on the rail through the club-authored `Idle_Railing_Loop`; one high-tier queue guest outside uses
   `Idle_TalkingPhone_Loop` (never an indoor slot beside the PA); the bouncer uses the neutral `Idle_Loop`. The source
-  guest files and every `guest: true` modular crowd file carry the ambient clips. Only f7 carries the procedural rail
-  clip. `_streetSlots()` and `_guestSlots()` are the assignment authority, and unit/rig tests verify the clip exists
-  and the rail hands meet the real mezzanine height.
+  guest files and every `guest: true` modular crowd file carry the ambient clips. f7 and the mingler (m6, a taller
+  variant fitted to his 1.84 m frame) carry the procedural rail clip. `_streetSlots()` and `_guestSlots()` are the
+  assignment authority, and unit/rig tests verify the clip exists and the rail hands meet the real mezzanine height.
 - **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
-  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop']`) does not stand
+  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop']`) does not stand
   still: he walks a round, joins the other standing guests' conversations, visits the bartender, watches the dance
   floor, goes outside to smoke, and visits the balcony. `_updateMingler(dt)` runs from `updateDancers()` next to
-  `_updateBouncer`.
+  `_updateBouncer`. **He lingers**: a conversation is 22-38 s, watching the floor 25-40 s, the bar is two sips with a
+  chat between them (~25 s), a cigarette 75-105 s and the balcony 25-40 s at the rail plus 25-40 s talking. He walks
+  about a quarter of the time (the real-club test fails above 45%); before 2026-10-08 he walked most of it.
   - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain walked up and
     back down (`state.node` / `state.dir` ping-pong), with `home` (index 1) his own placed spot. `guest` on a node is
     the guest slot he stops at; `bartender` marks the one customer-side bar stop; `activity` marks the intentional
@@ -745,7 +790,7 @@ and fail `npm test`.
     (`slotClip` / `slotYaw`). Only one person eases back at a time. Guests have `homeYaw === null`, so
     `updateDancingNPCs()`'s proximity yaw never fights this.
   - **At the bar**, the bartender and m6 turn toward each other and run an explicit sequence: order, serve, glass on
-    counter, pickup, drink, return, glass on counter, clear. One persistent PBR glass is handed from the
+    counter, pickup, drink, return, glass on counter (and a 7 s chat), a second pickup, drink and return, clear. One persistent PBR glass is handed from the
     bartender's hand to the measured counter top, then to m6's palm; it follows that palm while `Drink_Loop` raises
     it to his mouth, returns to the counter, then goes back to the bartender's hand. The glass itself NEVER
     interpolates through open space: it is either fixed to a hand or fixed on the counter, and ownership switches
@@ -753,17 +798,37 @@ and fail `npm test`.
     hands physically place, clear and resume washing the glass. M6's one-shot clip is explicitly phase-synchronised
     in `_syncMinglerDrinkPose()` rather than trusting render-loop animation time. The real-club test holds every
     hand/counter and glass/mouth contact under 12 cm. The mesh and pose vectors are reused without per-frame allocation.
-  - **Intentional solo stops.** At home and on the balcony he uses `Idle_Loop` while facing the dance floor. Outside
-    he uses the club-authored `Smoke_Loop`; one tiny procedural cigarette is enabled only for that activity and follows
-    `Middle1.R`. There are deliberately no smoke particles. The prop and its references are reused.
+  - **Intentional solo stops.** At home he uses `Idle_Loop` while facing the dance floor.
+  - **The balcony** is a solo stop next to somebody: the node carries `activity: 'balcony'` AND `guest: 3` (f7). He
+    stands at x -9.93, a metre along the rail from her, both hands on the rail (`Idle_Railing_Loop`, measured: wrists
+    0.394 m ahead of his feet, 1.09 m up; the rail is x -9.54, 1.08 m above the deck) watching the floor; when that
+    dwell ends `_minglerTurnToTalk()` turns them to each other (both `Idle_Talking_Loop`, f7's slot keeps that clip
+    through `clips`). Leaving puts her back on the rail through the usual `slotClip` / `slotYaw` return.
+  - **Smoking outside.** `Smoke_Loop` is a 12 s loop: hand low with the palm turned in, an ash flick, then the hand
+    comes up PALM TOWARD THE FACE so the cigarette between index and middle fingers points at his lips, a ~1.7 s drag,
+    and a chin-up exhale. The wrist targets were measured on his real face: the old clip put the wrist at the mouth, so
+    hand and cigarette vanished into his head. `build-crowd-glbs.mjs` hands can carry `thumb` (which way the index
+    side faces) as well as `fingers`, which is what turns a palm. The cigarette (`_createMinglerSmoke`) is one
+    vertex-coloured unlit mesh plus a glowing tip, PARENTED to `Middle2.R` by `_attachCigarette()` once per stop,
+    from the current finger joints. **Spawned people are mirrored in the world** (`_spawnAvatar` replaces the glTF
+    root's handedness flip with a plain yaw), so the palm is computed in the body's own frame, never as a world-space
+    cross product. A drag is detected from geometry (filter within 5 cm of a mouth node on the Head bone), never from
+    clip timing: the tip glows, and 0.45 s after the hand drops an exhale leaves the mouth up and toward the smoking
+    hand. Two small particle systems (`minglerSmokeWisp` 60, `minglerSmokeExhale` 45, the club's
+    `_fogParticleTexture`, standard blend) run only while he smokes; the cigarette burns down to 55% over the stop.
+    Headset cost is unmeasured (a few dozen particles and three draws while he smokes outside).
   - **Tiers.** He is guest slot 2, so Balanced (2 guests) does not show him at all; on High a stop whose guest is
     absent is walked straight through (`_minglerArrive()` departs at once). No per-frame allocation. His cost on a
     headset is **not measured**.
-  - **Tests.** `test/unit.test.mjs` re-measures the round's clearance, simulates three minutes of it and checks it is
-    frame-rate independent; `test/rig.test.mjs` verifies the real drink and smoke clips reach his face without sliding
-    either foot; `test/e2e/crowd-dance.spec.mjs` raises the tier to ultra and walks him in the real club through all
-    conversations, the physical bar sequence and all three solo destinations (measured: 221 m in 100 s, closest
-    approach 0.8 m to 22 floor characters, street z 7.1 and balcony y 3.0).
+  - **Tests.** `test/unit.test.mjs` re-measures the round's clearance, simulates fifteen minutes of it (rail before
+    the balcony talk, two sips, walking under 40% of the time) and checks it is frame-rate independent;
+    `test/rig.test.mjs` places him as the club does (mirrored) and checks the cigarette's filter reaches his lips while
+    the burning end and every fingertip stay out of his face, that the drink reaches his face, and that his rail
+    wrists land on the real rail, all without sliding either foot; `test/e2e/crowd-dance.spec.mjs` raises the tier to
+    ultra and walks him a whole round in the real club (filter at the lips, glowing tip, exhale, burn-down, hands on
+    the rail within 8 cm, a conversation with f7, the physical bar sequence, closest approach 0.8 m to 22 floor
+    characters, street z 7.1 and balcony y 3.0). After changing his clips: `node scripts/build-crowd-glbs.mjs
+    --refresh-static --only m6 --optimize` (no asset packs needed).
 - **The DJ follows the podcast.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `hernan` (half-long
   dark brown hair, clean-shaven, dark tee, 1.78 m) and `melera` (long straight light blond hair, grey tee, 1.68 m) to
   `club-dj-hernan.glb` / `club-dj-melera.glb`, built by `node scripts/build-dj-glbs.mjs` from the Quaternius
@@ -985,6 +1050,13 @@ to avoid z-fighting.
   the time at 60 fps, 23% at 30, 1% at 20 and never at 12, so the crowd fell back to its free sway whenever the room
   was heavy to draw. With steps: 99 / 97 / 92 / 100%. At 60 fps it is still one window a frame (the tuning is
   unchanged). `test/unit.test.mjs` drives a continuous waveform through it at 60/30/20/12 fps.
+- **The rhythm band** is a third tap, in parallel with the kick band: `audioSource` → `rhythmFilter` (high-pass
+  200 Hz) → `rhythmAnalyser` (fftSize 8192, time domain), read by the SAME `_bandStep()` audio-clock windows as the
+  kick band (`frame.kickSteps.rhythm` / `.rhythmLevels`), so the two bands are always compared sample-for-sample.
+  It exists because a long breakdown can drop the kick entirely while hats, a snare or a synth arpeggio keep a
+  danceable pulse going; without it the crowd fell back to its slow free sway the moment the kick did, even though
+  the track was still clearly in time. See `js/vjDirector.js` for how the band becomes `rhythmPresent` and
+  `js/crowdDance.js` for what the crowd does with it.
 - **Occlusion and the street.** `updateSpatialAudioListener()` runs two low-pass stages in series after the PA panners
   (`occlusionFilter`, then `occlusionFilter2`). Indoors only the first works, and it is ONE continuous sweep, not a step
   at the doorway: `VenueLayout.vestibule.enclosure(z)` smoothsteps from 1 at the dance floor's front edge
@@ -1092,8 +1164,8 @@ Teleport blockers are derived from enabled collidable scene meshes, excluding th
 and refreshed on every comfort reapplication. XR entry preserves tracked eye height.
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
-The paged quick menu includes quality, lighting, effects, show/reset, comfort, safe mode,
-haptics, four destinations (entrance, dance floor, DJ booth, balcony) and a **Music** page: a seek
+The paged quick menu includes lighting, effects, show/reset, a CROWD page (who is in the club), comfort (locomotion,
+safe mode, haptics, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables, the seek happens on release), ±1 min, play/pause, the two podcasts,
 random and latest. Its clock redraws from a 500 ms ticker that runs only while that page is open;
@@ -1104,11 +1176,37 @@ travel actions must not force VJ manual mode.
 
 ## UI
 
-The DOM panel (`js/ui-init.js`) and the in-world desk (`js/club/10-ui.js`) are two surfaces
-over ONE control set. All state mutation lives on `VRClub` — `cycleSpotColor()`,
-`cycleMirrorBallColor()`, `applyFixtureExclusivity()`, `resetVJControls()` — and both
-handlers only call those and render feedback. They previously reimplemented the same actions
-and had silently diverged; a test now enforces the delegation.
+The DOM panel (`js/ui-init.js`), the VR quick menu (`js/club/10-ui.js`) and the VJ desk at the DJ table
+(`js/vjDesk.js`) are three surfaces over ONE control set. All state mutation lives on `VRClub` —
+`toggleLightControl(control)` (the shared allow-list `VRClubUI.LIGHT_TOGGLES`, the Safe Mode strobe rule,
+`applyFixtureExclusivity()`, and `takeLightControl()`), `resumeAutoShow()`, `setLightSpeed()`, `cycleSpotColor()`,
+`cycleMirrorBallColor()`, `resetVJControls()` — and the handlers only call those and render feedback. They previously
+reimplemented the same actions and had silently diverged; tests enforce the delegation. The display names for spot
+modes and aims are `VRClubUI.SPOT_MODE_NAMES` / `SPOT_PATTERN_NAMES` on every surface.
+
+**The VJ desk** (`js/vjDesk.js`, mixed into `VRClub.prototype`; `createVJDesk()` is called from `createDJBooth()`).
+It replaced eleven unlabelled coloured boxes, a speed slider and an audio box that opened a DOM dialog (useless in a
+headset) along the table's front lip. Now there are two touch panels either side of the DJ controller, tilted 30° and
+turned toward the operator. Each is ONE plane with a 1536x720 canvas texture plus one merged housing, so the desk is
+three meshes. Panels are redrawn only when what they show changes (a signature checked every 0.2 s), and a press is
+mapped from the pick point into the panel's own plane to a button rect, like the VR seek bar. A mouse click and a
+controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `releaseVJDesk`, from
+`setupVJControlInteraction`).
+- **SHOW** (left): the header always says who has the lights (AUTOMATIC SHOW with the NOCTURNE movement, YOU ARE THE
+  VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, RESIDENT DJ (`togglePeopleVisible('dj')`,
+  personal so never host-gated), MUSIC (play/pause, or a random set of the chosen podcast), DROP (the show's countdown
+  while it drives, else the director's peak look), BLACKOUT, NEXT SECTION (automatic show only, and says so),
+  TAP TEMPO, BEAMS TO FLOOR, RESET LIGHTS, plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
+- **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), moves, aim, gobo, wall
+  picture (n of 20) and mirror colour. Every button's second line is its live value; unavailable ones are grey and say
+  why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY).
+- **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
+  (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,
+  the usual `VJ_TIMEOUT` (60 s, counted down in the header) hands them back; AUTO SHOW does it at once.
+- Tests: the layout (inside the panel, no overlaps, every control known), the hand-over and hand-back, the booth hold,
+  host and Safe Mode gating (`test/unit.test.mjs`, `test/multiplayer.test.mjs`); in the real club a ray at the middle
+  of every button lands on that button from the booth viewpoint, and presses redraw the panels
+  (`test/e2e/vj-desk.spec.mjs`, which also saves a screenshot of each panel).
 
 `data-control` toggles are dispatched through the `TOGGLE_CONTROLS` allow-list, never by
 writing `instance[attributeValue]` directly.
@@ -1293,7 +1391,8 @@ protocol only grew, so older clients keep working.
     change cannot pull it off; with no frame for 12 s (`SHOW_STALE_MS`: an old-client or backgrounded host) the guest's
     own show runs until the host speaks again.
   - *Guests cannot change either.* `VRClub.isFollowingHost()` / `guardHostControl('music'|'lights')` gate the VR
-    quick menu (buttons read HOST ONLY), the in-world desk, `seekAudioTo`, `toggleAudioPlayback`, the keyboard
+    quick menu (buttons read HOST ONLY), the VJ desk at the DJ table (its buttons say HOST ONLY too; RESIDENT DJ stays
+    yours), `toggleLightControl`, `seekAudioTo`, `toggleAudioPlayback`, the keyboard
     shortcuts (Space, B, F) and the director's own macros; `initRoomGuestLock()` in `js/ui-init.js` dims and swallows
     every control of the lighting and audio panels with one capture-phase listener per panel (new controls are covered
     automatically) and disables their inputs. The comfort settings stay live. A new control that changes the music

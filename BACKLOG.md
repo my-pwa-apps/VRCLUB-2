@@ -6,6 +6,56 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Feature - 2026-10-09 - Crowd dances through kick-less breakdowns
+
+- [x] **The rhythm band: follow hats, snares and synth pulses when the kick drops out**
+
+  **Resolved 2026-10-09.** A long breakdown could drop the kick entirely while hats, a snare or a synth arpeggio
+  kept a clear pulse; without reading them the crowd fell back to its slow free `Groove_Sway` the moment the kick
+  did, even on a track that was still obviously in time.
+
+  **Priority:** Medium
+  **Category:** Crowd realism / audio analysis
+  **Confidence:** High
+  **Area:** Crowd choreography during kick-less passages
+  **Affected files:** [vjDirector.js](js/vjDirector.js), [crowdDance.js](js/crowdDance.js),
+  [11-audio-crowd.js](js/club/11-audio-crowd.js), [unit.test.mjs](test/unit.test.mjs)
+  **Problem:** `CrowdDance.step()` only ever saw `music.beatPresent` (the kick). With no kick, every Quaternius
+  floor dancer dropped onto `Groove_Sway`, the one deliberately slow, off-grid move, regardless of how much
+  rhythmic material (hats, snares, a synth arpeggio) was still audible.
+  **Solution implemented:**
+  - A third audio tap, the rhythm band (`rhythmFilter`, a 200 Hz high-pass, into `rhythmAnalyser`), read by the
+    same audio-clock-aligned step windows as the kick band so the two are always sample-for-sample comparable
+    (`_bandStep()` in `11-audio-crowd.js`).
+  - `VJDirector._detectRhythm()`/`_evaluateRhythm()` score the band's onset envelope for periodicity
+    (autocorrelation) AND phase-lock the onsets to the beat's sixteenth/triplet subdivisions
+    (`_onsetCoherence()`), because periodicity alone falsely flagged Poisson-timed noise as a pulse. Real hats,
+    snares and arpeggios measure ~0.96-0.98 coherent over a 4 s window; random hits measure 0.3-0.68.
+  - `CrowdDance.step()` now takes a three-state pulse (`true` kick / `'rhythm'` rhythm-band-only / `false`
+    neither). Only `false` drops the floor onto the free sway; `'rhythm'` keeps dancers on-grid with
+    `RHYTHM_WEIGHTS`-reweighted, lighter moves (`Groove_HandsUp` excluded; `Groove_Sway` likelier and now also an
+    on-grid choice, not only the off-grid fallback).
+  - Tempo tracking was reworked from kick-to-kick interval medians to autocorrelation
+    (`_autocorrelate`/`_acfAt`/`_pulseAt`/`_tempoPrior`) because the old median misread a 124 BPM set as
+    140-167 BPM the moment a bassline pluck or an extra kick landed between two real beats — discovered by
+    running the real detector against a downloaded Hernan Cattaneo set through `OfflineAudioContext` (temporary
+    diagnostic, since removed). `_flywheel()` now synthesizes a missed bar line at its exact due time
+    (`lastBeatAt + beat`) instead of the time it was noticed, fixing a frame-rate-dependent drift.
+  - A syncopated kick-band hit (a bass note, an extra kick on the "and") is rejected by voting the candidate's
+    phase against the last several candidates (accepted or not) — a circular median — rather than against the
+    single last accepted kick, which could itself have been the syncopated hit and then lock every real kick out
+    forever.
+  **Validation:** 5 new `test/unit.test.mjs` cases (rhythm-band pulse vs. noise/silence, breakdown phase-nudge,
+  crowd move selection during `'rhythm'`, syncopation rejection, and legitimate tempo/phase-shift recovery), each
+  mutation-tested (fails when the relevant fix is reverted). Full suites pass: `npm run check` (59 files),
+  `npm run lint`, `npm test` (361 tests). Not yet re-run against the real-club `crowd-dance.spec.mjs` e2e scenario
+  with an actual kick-less passage, and the extra per-frame autocorrelation cost is unmeasured on Quest hardware.
+  **Estimated effort:** Large
+  **Business value:** Medium
+  **Technical debt reduction:** Low
+
+---
+
 ## Review - 2026-10-08 - Post-crowd-work delta review
 
 Review mode only, source revision `fc9f12d`; no runtime fixes. This pass focused on changes
@@ -117,6 +167,67 @@ rather than duplicated.
   **Estimated effort:** Small  
   **Business value:** High  
   **Technical debt reduction:** Medium
+
+- [x] **Make the walking guest linger, lean on the balcony rail with the woman there, and smoke properly**
+
+  **Resolved 2026-10-08.** He walked most of the time (stops of 9-17 s). On the balcony he stood alone in `Idle_Loop`.
+  Smoking, his wrist went to his mouth, burying his hand and the cigarette in his head. The cigarette was a
+  pale-grey 9 mm tube on his palm, lit only by the ambient light at night, with no smoke at all.
+  - Stops are now 22-40 s, the cigarette 75-105 s and the bar two sips with a chat. He walks 26% of a measured
+    round (the real-club test fails above 45%).
+  - The balcony stop stands him at the rail beside f7 with his own taller `Idle_Railing_Loop`; his hands are within
+    1.1 cm of the rail once settled. After his look at the floor, the two of them turn and talk.
+  - `Smoke_Loop` is now a 12 s cycle with an ash flick, a palm-to-face drag and a chin-up exhale, measured against his
+    real face. `build-crowd-glbs.mjs` hands gained a `thumb` direction so a palm can be turned.
+  - The cigarette (unlit, vertex-coloured, glowing tip) is pinched between his index and middle fingertips and
+    burns down over the stop. A wisp and an exhale (two small particle systems) run only while he smokes.
+  - Spawned characters are mirrored in the world, so the hand frame is computed in the body's own frame.
+
+  **Validation:** rig tests on the real GLB as the club places him: the filter reaches his lips; fingertips, the
+  burning end and his collar stay clear; the rail hands land on the rail. Both rig tests fail on the old file. Unit
+  tests cover 15 minutes of his round. The real-club e2e covers a whole round: filter within 2.3 cm of the lips,
+  tip glow, exhale, burn-down, rail and conversation. Screenshots were reviewed. Budget, tiers, bar and street
+  e2e also pass.
+
+- [ ] **Measure the mingler's smoke particles and cigarette on a Quest 3S**
+
+  **Priority:** Low  
+  **Category:** Performance  
+  **Confidence:** Medium  
+  **Area:** Street, mingler  
+  **Affected files:** [11-audio-crowd.js](js/club/11-audio-crowd.js)  
+  **Evidence:** Two alpha-blended particle systems (60 + 60 capacity, ~10-34 particles a second) and two small
+  meshes run while he smokes outside. Measured only on desktop SwiftShader.  
+  **Acceptance criteria:** Quest 3S frame time on the street with him smoking within 0.2 ms of him standing; the
+  smoke reads in the headset at 1-3 m without sorting artefacts.  
+  **Estimated effort:** Small  
+  **Business value:** Low  
+  **Technical debt reduction:** Low
+
+- [x] **Put crowd control on its own VR menu page, and redesign the VJ desk at the DJ table**
+
+  **Resolved 2026-10-08.**
+  - **VR menu.** DANCERS / BYSTANDERS / DJ / EVERYONE were the last four buttons of COMFORT, where the owner did not
+    find them. They now have their own CROWD page on HOME. QUALITY moved to COMFORT to keep HOME within its twelve
+    slots.
+  - **Old desk.** Eleven unlabelled coloured boxes and a speed slider sat on the table's front lip, with an audio
+    box that opened a DOM dialog no headset can use. Several actions had no desk control: auto show, the DJ,
+    macros, brightness, gobo. The real-club e2e checks none of the old meshes remain.
+  - **New desk** (`js/vjDesk.js`): two angled, labelled touch panels.
+    - **SHOW**: who has the lights, AUTO SHOW, RESIDENT DJ, MUSIC, DROP, BLACKOUT, NEXT SECTION, TAP TEMPO, BEAMS TO
+      FLOOR, RESET LIGHTS, and BRIGHTNESS and MOVEMENT SPEED faders.
+    - **LIGHTS**: every fixture plus the steppers, each showing its live value.
+  - **Shared code.** All three surfaces now share `toggleLightControl()`, `resumeAutoShow()` and `setLightSpeed()`.
+  - **Who has the lights.** They stay with whoever stands at the desk and go back to the automatic show 60 s after
+    they leave, counted down on the desk.
+
+  **Validation:**
+  - Unit tests: layout, hand-over and hand-back, the booth hold, host and Safe Mode gating, and the CROWD page.
+  - Real-club e2e: a ray at the middle of every button lands on it, and presses redraw the panels.
+  - Screenshots of both panels were reviewed.
+  - The VR menu and session e2e tests, the full Node suite, lint and build pass.
+  - Not checked on a headset: text legibility at arm's length on a Quest 3S, or hand-ray comfort while leaning over
+    the decks.
 
 ## Review - 2026-10-06 - NOCTURNE principal experience reassessment
 

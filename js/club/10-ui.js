@@ -269,6 +269,80 @@ class VRClubUI extends VRClubAnimationFinish {
         return null;
     }
 
+    /** Display names for the moving heads' movement modes and aiming patterns: one list for every surface. */
+    static get SPOT_MODE_NAMES() {
+        return this._spotModeNames || (this._spotModeNames = Object.freeze(['STROBE+SWEEP', 'SWEEP ONLY', 'STROBE STATIC', 'STATIC']));
+    }
+
+    static get SPOT_PATTERN_NAMES() {
+        return this._spotPatternNames || (this._spotPatternNames = Object.freeze(['RANDOM', 'STATIC DOWN', 'MIRROR SWEEP', 'CROSSED BEAMS']));
+    }
+
+    /** The on/off light controls a person may flip by name (never `this[anything]`). */
+    static get LIGHT_TOGGLES() {
+        return this._lightToggles || (this._lightToggles = Object.freeze(new Set([
+            'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'ledWallActive', 'ledMonochrome',
+            'strobesActive', 'smokeActive', 'spotStrobeActive'
+        ])));
+    }
+
+    /** Take the lights by hand: the automatic show stands down until AUTO SHOW, or until nobody touches them for VJ_TIMEOUT. */
+    takeLightControl() {
+        this.lastVJInteraction = performance.now() / 1000;
+        this.vjManualMode = true;
+    }
+
+    /** Hand the lights back to the automatic show. */
+    resumeAutoShow() {
+        this.vjManualMode = false;
+        this.lastVJInteraction = 0;
+    }
+
+    /** One movement speed (0.1..2) for every fixture, as the speed faders set it. */
+    setLightSpeed(value) {
+        const speed = Math.max(0.1, Math.min(2, Number(value) || 1));
+        this.spotlightSpeed = speed;
+        this.laserSpeed = speed;
+        this.mirrorBallSpeed = speed;
+        this.ledWallSpeed = speed;
+        this.strobeSpeed = speed;
+        return speed;
+    }
+
+    /**
+     * Flip or step one light control by name, for the in-world desk and the VR quick menu: the same allow-list, the
+     * same Safe Mode rule for strobes, the same one-aerial-idea rule, and the lights handed to whoever pressed it.
+     * @returns {boolean} true when something changed
+     */
+    toggleLightControl(control) {
+        if (!this.guardHostControl('lights')) return false;
+        switch (control) {
+            case 'changeColor': this.cycleSpotColor(); break;
+            case 'changeMirrorBallColor': this.cycleMirrorBallColor(); break;
+            case 'cycleSpotMode': this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_NAMES.length; break;
+            case 'cyclePattern': this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_NAMES.length; break;
+            case 'cycleGoboPattern': if (typeof this.nextGoboPattern === 'function') this.nextGoboPattern(); break;
+            case 'goboActive': if (typeof this.toggleGobo === 'function') this.toggleGobo(); break;
+            case 'cycleLedPattern': {
+                const count = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 20;
+                this.ledPattern = ((this.ledPattern || 0) + 1) % count;
+                break;
+            }
+            default: {
+                if (!VRClubUI.LIGHT_TOGGLES.has(control)) return false;
+                if (this.photosensitiveSafeMode && !this[control] && (control === 'strobesActive' || control === 'spotStrobeActive')) {
+                    this.showErrorMessage('Photosensitive Safe Mode blocks strobes.');
+                    return false;
+                }
+                this[control] = !this[control];
+                const note = this.applyFixtureExclusivity(control);
+                if (note) this.showErrorMessage(note);
+            }
+        }
+        this.takeLightControl();
+        return true;
+    }
+
     /** Per-mode / per-pattern confirmation colours for the in-world buttons.
      *  Static so they are allocated once, not per click. */
     static get SPOT_MODE_COLORS() {
@@ -535,10 +609,11 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'LIGHTING', action: 'page', target: 'lighting' },
                 { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
+                // Who is in the club gets its own page: it used to sit at the bottom of COMFORT, where nobody found it.
+                { label: 'CROWD', action: 'page', target: 'crowd' },
                 { label: 'ONLINE', action: 'page', target: 'online' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
-                { label: 'QUALITY', action: 'quality' },
                 common.close
             ],
             lighting: [
@@ -570,7 +645,11 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 { label: 'HAPTICS', control: 'bassHapticsEnabled' },
                 { label: 'QUALITY', action: 'quality' },
-                // Who is in the club: a personal choice, like Safe Mode, so it is never the host's.
+                common.back,
+                common.close
+            ],
+            // Who is in the club: a personal choice, like Safe Mode, so it is never the host's.
+            crowd: [
                 { label: 'DANCERS', action: 'people', people: 'dancers' },
                 { label: 'BYSTANDERS', action: 'people', people: 'bystanders' },
                 { label: 'DJ', action: 'people', people: 'dj' },
@@ -652,7 +731,7 @@ class VRClubUI extends VRClubAnimationFinish {
             context.font = 'bold 66px sans-serif';
             context.textAlign = 'left';
             context.textBaseline = 'middle';
-            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT' };
+            const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE' };
             context.fillText(titles[page] || page.toUpperCase(), 54, 72);
             context.fillStyle = '#a7afbf';
             context.font = '30px sans-serif';
@@ -664,7 +743,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 lighting: 'TURN THE CLUB\u2019S LIGHTS ON OR OFF, CHANGE THEIR COLOUR',
                 effects: 'STROBES, SMOKE AND THE MIRROR BALL',
                 show: 'THE AUTOMATIC LIGHT SHOW THAT FOLLOWS THE MUSIC',
-                comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL, AND WHO IS IN THE CLUB',
+                comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
+                crowd: 'SEND THE DANCERS, THE OTHER GUESTS OR THE DJ HOME',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
                 music: 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
             };
@@ -1186,8 +1266,7 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (button.action === 'autoShow') {
             if (!this.guardHostControl('lights')) return;
-            this.vjManualMode = false;
-            this.lastVJInteraction = 0;
+            this.resumeAutoShow();
             this.showErrorMessage('NOCTURNE auto show resumed');
             this._refreshVRQuickMenu();
             return;
@@ -1221,33 +1300,7 @@ class VRClubUI extends VRClubAnimationFinish {
         // The remaining show controls are host-owned in someone else's room (the legacy "lights" guard name is
         // retained for multiplayer protocol compatibility).
         if (!this.guardHostControl('lights')) return;
-
-        if (button.control === 'cycleLedPattern') {
-            const patternCount = this._ledPatternPlaylist ? this._ledPatternPlaylist.length : 18;
-            this.ledPattern = (this.ledPattern + 1) % patternCount;
-        } else if (button.control === 'changeColor') {
-            this.cycleSpotColor();
-        } else if (button.control === 'changeMirrorBallColor') {
-            this.cycleMirrorBallColor();
-        } else if (button.control === 'cycleSpotMode') {
-            this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_COLORS.length;
-        } else if (button.control === 'cyclePattern') {
-            this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_COLORS.length;
-        } else if (button.control === 'cycleGoboPattern') {
-            if (typeof this.nextGoboPattern === 'function') this.nextGoboPattern();
-        } else if (button.control) {
-            if (this.photosensitiveSafeMode && button.control === 'strobesActive') {
-                this.showErrorMessage('Photosensitive Safe Mode blocks strobes.');
-                return;
-            }
-            this[button.control] = !this[button.control];
-            const note = this.applyFixtureExclusivity(button.control);
-            if (note) this.showErrorMessage(note);
-        }
-
-        this.lastVJInteraction = performance.now() / 1000;
-        this.vjManualMode = true;
-        this.pulseHaptic(0.7, 35);
+        if (this.toggleLightControl(button.control)) this.pulseHaptic(0.7, 35);
         this._refreshVRQuickMenu();
     }
 
@@ -1405,374 +1458,35 @@ class VRClubUI extends VRClubAnimationFinish {
         root.computeWorldMatrix(true);
     }
 
+    /**
+     * Pointer routing for everything pickable in the world: the VR quick menu, its seek bar and the VJ desk at the
+     * DJ table (js/vjDesk.js), whose two touch panels and faders answer a mouse click and a controller ray alike.
+     */
     setupVJControlInteraction() {
-        // Setup click handling for VJ control buttons, speed slider, and audio stream in 3D scene
         this.scene.onPointerDown = (evt, pickResult) => {
-            if (pickResult.hit && pickResult.pickedMesh) {
-                // Check if speed slider handle was clicked
-                if (this.speedSlider && pickResult.pickedMesh === this.speedSlider.handle) {
-                    this.speedSlider.isDragging = true;
-                    this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 1, 1); // Brighter cyan when dragging
-                    this.pulseHaptic(0.6, 25);
-                    return;
-                }
-                
-                // Check if audio stream button was clicked
-                if (this.audioStreamButton && pickResult.pickedMesh === this.audioStreamButton.mesh) {
-                    this._pressButton3D(this.audioStreamButton.mesh);
-                    this.toggleAudioStream();
-                    return;
-                }
-
-                const vrMenuButton = this._vrQuickMenuButtons &&
-                    this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
-                if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {
-                    this._beginVRSeek(pickResult);
-                    return;
-                }
-                if (vrMenuButton) {
-                    this._activateVRQuickMenuButton(vrMenuButton);
-                    return;
-                }
-                
-                // Check if a VJ control button was clicked
-                const clickedButton = this.vjControlButtons.find(btn => btn.mesh === pickResult.pickedMesh);
-                
-                if (clickedButton && !this.guardHostControl('lights')) {
-                    this._pressButton3D(clickedButton.mesh);
-                    return;
-                }
-                if (clickedButton) {
-                    this._pressButton3D(clickedButton.mesh);
-                    log.info(`🎛️ VJ Control: ${clickedButton.label} clicked`);
-                    
-                    // Track VJ interaction - but DON'T pause patterns for pattern/mode cycling
-                    // Only pause for manual light toggles (ON/OFF controls)
-                    const isPatternControl = (clickedButton.control === "cyclePattern" || 
-                                             clickedButton.control === "cycleSpotMode" ||
-                                             clickedButton.control === "changeColor");
-                    
-                    if (!isPatternControl) {
-                        this.lastVJInteraction = performance.now() / 1000;
-                        this.vjManualMode = true;
-                        log.info("🎛️ VJ manual mode: Automated patterns paused for 60 minutes");
-                    }
-                    
-                    if (clickedButton.control === "changeColor") {
-                        this.cycleSpotColor();
-                        this._flashButton3D(clickedButton, clickedButton.onColor, 200);
-                        log.info(`🎨 Color changed to index ${this.spotColorIndex}`);
-
-                    } else if (clickedButton.control === "changeMirrorBallColor") {
-                        const colour = this.cycleMirrorBallColor();
-                        this._flashButton3D(clickedButton, colour, 300);
-                        log.info(`🪩 Mirror ball color index: ${this.mirrorBallColorIndex}`);
-
-                    } else if (clickedButton.control === "cycleSpotMode") {
-                        this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_COLORS.length;
-                        this._flashButton3D(clickedButton, VRClubUI.SPOT_MODE_COLORS[this.spotlightMode], 300);
-                        log.info(`💡 Spotlight mode: ${this.spotlightMode}`);
-
-                    } else if (clickedButton.control === "cyclePattern") {
-                        this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_COLORS.length;
-                        this._flashButton3D(clickedButton, VRClubUI.SPOT_PATTERN_COLORS[this.spotlightPattern], 300);
-                        log.info(`🎯 Spotlight pattern: ${this.spotlightPattern}`);
-
-                    } else {
-                        // Toggle on/off control
-                        this[clickedButton.control] = !this[clickedButton.control];
-
-                        // One aerial idea at a time - see applyFixtureExclusivity().
-                        // The rule used to live only here, so the DOM panel silently
-                        // behaved differently from the in-world desk.
-                        const note = this.applyFixtureExclusivity(clickedButton.control);
-                        if (note) this.showErrorMessage(note);
-                        
-                        // Update ALL affected button appearances (including lightsActive/gobos)
-                        this.vjControlButtons.forEach(btn => {
-                            if (btn.control === 'lasersActive' || btn.control === 'mirrorBallActive' || 
-                                btn.control === 'laserSheetActive' || btn.control === 'lightsActive') {
-                                btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
-                            }
-                        });
-                        
-                        // Update clicked button appearance (for non-exclusive controls)
-                        clickedButton.material.emissiveColor = this[clickedButton.control] ? 
-                            clickedButton.onColor : clickedButton.offColor;
-                        
-                        log.info(`${clickedButton.label}: ${this[clickedButton.control] ? 'ON' : 'OFF'}`);
-                    }
-                }
+            if (!pickResult || !pickResult.hit || !pickResult.pickedMesh) return;
+            const vrMenuButton = this._vrQuickMenuButtons &&
+                this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
+            if (this._vrSeek && pickResult.pickedMesh === this._vrSeek.mesh) {
+                this._beginVRSeek(pickResult);
+                return;
             }
+            if (vrMenuButton) {
+                this._activateVRQuickMenuButton(vrMenuButton);
+                return;
+            }
+            if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
         };
-        
-        // Handle pointer up (release slider)
+
         this.scene.onPointerUp = () => {
             this._endVRSeek();
-            if (this.speedSlider && this.speedSlider.isDragging) {
-                this.speedSlider.isDragging = false;
-                this.speedSlider.handleMat.emissiveColor = new BABYLON.Color3(0, 0.8, 1); // Normal cyan
-                log.info(`🎛️ Speed set to: ${this.spotlightSpeed.toFixed(2)}x`);
-            }
+            if (typeof this.releaseVJDesk === 'function') this.releaseVJDesk();
         };
-        
-        // Handle pointer move (drag slider)
+
         this.scene.onPointerMove = (evt, pickResult) => {
             this._moveVRSeek(pickResult);
-            if (this.speedSlider && this.speedSlider.isDragging && pickResult.hit) {
-                // Get world position of pointer
-                const pointerX = pickResult.pickedPoint.x;
-                
-                // Clamp to slider range
-                const clampedX = Math.max(this.speedSlider.minX, Math.min(this.speedSlider.maxX, pointerX));
-                
-                // Update handle position
-                this.speedSlider.handle.position.x = clampedX;
-                
-                // Calculate speed from position (0.1 to 2.0)
-                const normalizedPos = (clampedX - this.speedSlider.minX) / (this.speedSlider.maxX - this.speedSlider.minX);
-                const newSpeed = 0.1 + (normalizedPos * 1.9); // 0.1 to 2.0
-                
-                // Update ALL speed multipliers for unified control
-                this.spotlightSpeed = newSpeed;
-                this.laserSpeed = newSpeed;
-                this.mirrorBallSpeed = newSpeed;
-                this.ledWallSpeed = newSpeed;
-                this.strobeSpeed = newSpeed;
-            }
+            if (typeof this.dragVJDesk === 'function') this.dragVJDesk(pickResult);
         };
-        
-        log.info("✅ VJ Control interaction enabled - click buttons to control lights!");
-    }
-
-    toggleAudioStream() {
-        if (!this.audioStreamButton || !this.guardHostControl('music')) return;
-        
-        if (this.audioStreamButton.isPlaying) {
-            // Stop audio
-            if (this.audioElement) {
-                this.audioElement.pause();
-                this.audioElement.currentTime = 0;
-            }
-            this.audioStreamButton.isPlaying = false;
-            this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(0, 0.8, 0); // Green
-            log.info("🔇 Audio stream stopped");
-        } else {
-            // Show in-VR UI for stream URL input
-            this.showAudioStreamInputUI();
-        }
-    }
-
-    showAudioStreamInputUI() {
-        if (document.getElementById('vrAudioInput')) return;
-
-        // Pause pointer lock to allow input interaction
-        if (this.scene.activeCamera && this.scene.activeCamera.detachControl) {
-            this.scene.activeCamera.detachControl();
-        }
-        
-        // Create audio element NOW during user interaction to satisfy autoplay policy
-        if (!this.audioElement) {
-            this.audioElement = document.createElement('audio');
-            this.audioElement.crossOrigin = "anonymous";
-            this.audioElement.loop = true;
-            this.audioElement.autoplay = true;
-            this.audioElement.preload = "auto";
-            this.audioElement.style.display = 'none';
-            document.body.appendChild(this.audioElement);
-            log.info("🎵 Audio element created during user interaction");
-        }
-        
-        // Create HTML input overlay (NO 3D panel - was blocking view)
-        const inputDiv = document.createElement('div');
-        inputDiv.id = 'vrAudioInput';
-        inputDiv.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(20, 20, 30, 0.95);
-            border: 3px solid #00ff88;
-            border-radius: 15px;
-            padding: 30px;
-            z-index: 10000;
-            text-align: center;
-            box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
-        `;
-        
-        // Built with DOM APIs, not an HTML template: this was the app's only markup
-        // injection sink and the last reason CSP needed style-src 'unsafe-inline'.
-        // CSSOM writes (element.style / cssText) are not restricted by style-src.
-        const el = (tag, props = {}, css = '') => {
-            const node = document.createElement(tag);
-            Object.assign(node, props);
-            if (css) node.style.cssText = css;
-            return node;
-        };
-        const buttonCss = 'border: none; border-radius: 5px; cursor: pointer;';
-        const urlInputEl = el('input', {
-            type: 'text', id: 'audioUrlInput', placeholder: 'Paste URL or drop audio file here'
-        }, 'width: 400px; padding: 12px; font-size: 16px; border: 2px solid #00ff88; ' +
-            'background: rgba(0, 0, 0, 0.7); color: #00ff88; border-radius: 5px; margin-bottom: 10px;');
-        urlInputEl.setAttribute('aria-label', 'Audio stream URL');
-        const browseRow = el('div', {}, 'margin: 10px 0;');
-        browseRow.append(
-            el('button', { type: 'button', id: 'audioFileBrowseBtn', textContent: '📁 Browse File' },
-                `padding: 8px 20px; font-size: 14px; background: #0088ff; color: white; ${buttonCss}`),
-            el('input', { type: 'file', id: 'vrAudioFileInput', accept: 'audio/*' }, 'display: none;')
-        );
-        const actionRow = el('div', {}, 'margin-top: 15px;');
-        actionRow.append(
-            el('button', { type: 'button', id: 'audioPlayBtn', textContent: '▶️ PLAY' },
-                `padding: 12px 30px; font-size: 16px; margin: 0 10px; background: #00ff88; font-weight: bold; ${buttonCss}`),
-            el('button', { type: 'button', id: 'audioCancelBtn', textContent: '✖️ CANCEL' },
-                `padding: 12px 30px; font-size: 16px; margin: 0 10px; background: #ff4444; color: white; font-weight: bold; ${buttonCss}`)
-        );
-        inputDiv.append(
-            el('h2', { textContent: '🎵 Audio Stream' }, 'color: #00ff88; margin: 0 0 20px 0; font-size: 24px;'),
-            urlInputEl,
-            browseRow,
-            actionRow,
-            el('p', { textContent: 'Stream URL, local file, or drag & drop' }, 'color: #888; font-size: 14px; margin-top: 15px;')
-        );
-        
-        document.body.appendChild(inputDiv);
-        
-        // Store camera reference for cleanup
-        const camera = this.scene.activeCamera;
-        
-        // Variable to store selected file
-        let selectedFile = null;
-        
-        // Focus input after slight delay
-        setTimeout(() => {
-            const input = document.getElementById('audioUrlInput');
-            if (input) {
-                input.focus();
-                input.select(); // Select all text for easy replacement
-            }
-        }, 100);
-        
-        // File browse button handler
-        const overlayFileInput = inputDiv.querySelector('#vrAudioFileInput');
-
-        document.getElementById('audioFileBrowseBtn').onclick = (e) => {
-            e.preventDefault();
-            overlayFileInput.click();
-        };
-        
-        // File input handler
-        overlayFileInput.onchange = (e) => {
-            const file = e.target.files[0];
-            if (file && file.type.startsWith('audio/')) {
-                selectedFile = file;
-                document.getElementById('audioUrlInput').value = `📁 ${file.name}`;
-                log.info(`📁 File selected: ${file.name}`);
-            }
-        };
-        
-        // Drag and drop support
-        const urlInput = document.getElementById('audioUrlInput');
-        urlInput.ondragover = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            urlInput.style.borderColor = '#00ffff';
-            urlInput.style.background = 'rgba(0, 100, 100, 0.3)';
-        };
-        
-        urlInput.ondragleave = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            urlInput.style.borderColor = '#00ff88';
-            urlInput.style.background = 'rgba(0, 0, 0, 0.7)';
-        };
-        
-        urlInput.ondrop = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            urlInput.style.borderColor = '#00ff88';
-            urlInput.style.background = 'rgba(0, 0, 0, 0.7)';
-            
-            const file = e.dataTransfer.files[0];
-            if (file && file.type.startsWith('audio/')) {
-                selectedFile = file;
-                urlInput.value = `📁 ${file.name}`;
-                log.info(`📁 File dropped: ${file.name}`);
-            } else {
-                log.warn('⚠️ Please drop an audio file');
-            }
-        };
-        
-        // Paste support for files
-        urlInput.onpaste = (e) => {
-            const items = e.clipboardData.items;
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                if (item.kind === 'file' && item.type.startsWith('audio/')) {
-                    e.preventDefault();
-                    const file = item.getAsFile();
-                    selectedFile = file;
-                    urlInput.value = `📁 ${file.name}`;
-                    log.info(`📁 File pasted: ${file.name}`);
-                    break;
-                }
-            }
-        };
-        
-        // Global Escape handler — declared first so cleanup() can detach it.
-        // Without this removal, opening the dialog repeatedly accumulates listeners.
-        const escHandler = (e) => {
-            if (e.key === 'Escape') {
-                cleanup();
-            }
-        };
-
-        // Cleanup function
-        const cleanup = () => {
-            const div = document.getElementById('vrAudioInput');
-            if (div && div.parentNode) {
-                div.parentNode.removeChild(div);
-            }
-            // Re-attach camera control
-            if (camera && camera.attachControl) {
-                camera.attachControl(this.canvas, true);
-            }
-            document.removeEventListener('keydown', escHandler);
-        };
-        
-        // Handle play button
-        document.getElementById('audioPlayBtn').onclick = () => {
-            if (selectedFile) {
-                // Play local file
-                cleanup();
-                this.startAudioFromFile(selectedFile);
-            } else {
-                // Play URL
-                const url = document.getElementById('audioUrlInput').value.trim();
-                // Remove file indicator if present
-                const cleanUrl = url.startsWith('📁') ? '' : url;
-                cleanup();
-                this.startAudioStream(cleanUrl);
-            }
-        };
-        
-        // Handle cancel button
-        document.getElementById('audioCancelBtn').onclick = () => {
-            cleanup();
-        };
-        
-        // Handle Enter key
-        document.getElementById('audioUrlInput').onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                document.getElementById('audioPlayBtn').click();
-            } else if (e.key === 'Escape') {
-                e.preventDefault();
-                cleanup();
-            }
-        };
-
-        document.addEventListener('keydown', escHandler);
     }
 
     _ensureAudioElement() {
@@ -1876,10 +1590,6 @@ class VRClubUI extends VRClubAnimationFinish {
         audio.load();
 
         return audio.play().then(() => {
-            if (this.audioStreamButton) {
-                this.audioStreamButton.isPlaying = true;
-                this.audioStreamButton.material.emissiveColor = new BABYLON.Color3(1, 0, 0);
-            }
             log.info(`🔊 Playing ${kind}: ${label}`);
             return audio;
         }).catch(error => {

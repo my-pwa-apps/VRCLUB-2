@@ -27,6 +27,23 @@ class VRClubAudioCrowd extends VRClubUI {
                 this.kickAnalyser = null;
             }
 
+            // The rest of the rhythm: everything above the kick and the bass (snare, claps, hats, synth stabs and
+            // arpeggios), read the same way, so the crowd still has a pulse when the kick drops out (VJDirector
+            // ._detectRhythm). Another dead end nothing hears.
+            try {
+                this.rhythmFilter = this.audioContext.createBiquadFilter();
+                this.rhythmFilter.type = 'highpass';
+                this.rhythmFilter.frequency.value = 200;
+                this.rhythmFilter.Q.value = 0.7;
+                this.rhythmAnalyser = this.audioContext.createAnalyser();
+                this.rhythmAnalyser.fftSize = 8192;
+                this.rhythmSamples = new Float32Array(this.rhythmAnalyser.fftSize);
+                this.rhythmFilter.connect(this.rhythmAnalyser);
+            } catch (err) {
+                this.rhythmFilter = null;
+                this.rhythmAnalyser = null;
+            }
+
             // === 3D SPATIAL AUDIO & CLUB ACOUSTICS CHAIN ===
             // Real club acoustics feature high-power directional main PA arrays
             // flown from the truss, coupled with physical sub-bass in the room
@@ -291,6 +308,7 @@ class VRClubAudioCrowd extends VRClubUI {
             // Pre-spatial analyser tap ensures lighting and VJ reactivity remain 100% full-bandwidth
             this.audioSource.connect(this.audioAnalyser);
             if (this.kickFilter) this.audioSource.connect(this.kickFilter);
+            if (this.rhythmFilter) this.audioSource.connect(this.rhythmFilter);
 
             if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
                 // Directional Mains
@@ -600,6 +618,13 @@ class VRClubAudioCrowd extends VRClubUI {
         const samples = this.kickSamples;
         const length = samples.length;
         const win = Math.min(length, VRClubAudioCrowd.KICK_WINDOW);
+        // The rhythm band, read at exactly the same windows (both analysers follow the same source on the same clock).
+        let rhythm = null;
+        if (this.rhythmAnalyser && this.rhythmSamples && this.rhythmSamples.length === length) {
+            this.rhythmAnalyser.getFloatTimeDomainData(this.rhythmSamples);
+            rhythm = this.rhythmSamples;
+        }
+        steps.rhythm = rhythm ? (steps.rhythmLevels || (steps.rhythmLevels = new Float32Array(steps.times.length))) : null;
         const k = this._kickBand || (this._kickBand = {
             peak: 1e-3, short: 0, long: 0, at: nowMs, started: false, quietSince: 0, clock: null, carry: 0
         });
@@ -620,12 +645,11 @@ class VRClubAudioCrowd extends VRClubUI {
             for (let j = n - 1; j >= 0; j--) {
                 const back = rem + j * stride;           // samples between this step and the newest one
                 const end = length - Math.round(back);
-                const rms = VRClubAudioCrowd._windowRms(samples, end - win, end);
-                this._kickBandStep(k, rms, nowMs - back / rate * 1000, steps);
+                this._bandStep(k, samples, rhythm, end - win, end, nowMs - back / rate * 1000, steps);
             }
         } else {
             // First read, or no audio clock (an old browser, a test stub): the newest window, now.
-            this._kickBandStep(k, VRClubAudioCrowd._windowRms(samples, length - win, length), nowMs, steps);
+            this._bandStep(k, samples, rhythm, length - win, length, nowMs, steps);
         }
         k.clock = clock;
 
@@ -634,6 +658,12 @@ class VRClubAudioCrowd extends VRClubUI {
         frame.lowRms = rms;
         const ratio = k.long > 1e-5 ? k.short / k.long : 1;
         frame.energy = Math.max(0, Math.min(1, (ratio - 0.3) / 1.0));
+    }
+
+    /** One window of both bands: the rhythm band's level beside it, then the kick band's step. */
+    _bandStep(k, kick, rhythm, from, to, tMs, steps) {
+        if (rhythm && steps.count < steps.rhythm.length) steps.rhythm[steps.count] = VRClubAudioCrowd._windowRms(rhythm, from, to);
+        this._kickBandStep(k, VRClubAudioCrowd._windowRms(kick, from, to), tMs, steps);
     }
 
     /** One step of the kick band: track its levels and record it for the detector. */
@@ -2130,8 +2160,8 @@ class VRClubAudioCrowd extends VRClubUI {
         const nodes = npc.root.getChildTransformNodes(false);
         const bone = suffix => nodes.find(node => node.name.endsWith(suffix)) || null;
         const bones = {
-            index2: bone('Index2.R'), index3: bone('Index3.R'), middle2: bone('Middle2.R'), middle3: bone('Middle3.R'),
-            head: bone('_Head') || bone('Head')
+            index3: bone('Index3.R'), index4: bone('Index4.R'), middle3: bone('Middle3.R'), middle4: bone('Middle4.R'),
+            middle2: bone('Middle2.R'), head: bone('_Head') || bone('Head')
         };
         if (Object.values(bones).some(node => !node)) return;
 
@@ -2151,8 +2181,10 @@ class VRClubAudioCrowd extends VRClubUI {
         ], true);
         if (!cigarette) return;
         cigarette.name = 'minglerCigarette';
+        // Unlit: only the emissive colour reaches the screen (multiplied by the vertex colours), so a lit-looking
+        // diffuse colour here would render the paper black at night.
         cigarette.material = this.materialFactory.createStandardMaterial('minglerCigaretteMat', {
-            diffuseColor: [0.75, 0.75, 0.75], disableLighting: true
+            emissiveColor: [0.72, 0.72, 0.72], disableLighting: true
         });
         cigarette.isPickable = false;
         cigarette.rotationQuaternion = new BABYLON.Quaternion();
@@ -2185,22 +2217,25 @@ class VRClubAudioCrowd extends VRClubUI {
         // The wisp: a thin grey thread curling up from the tip.
         const wisp = smoke('minglerSmokeWisp', 60);
         if (wisp) {
-            wisp.color1 = new BABYLON.Color4(0.78, 0.78, 0.82, 0.22);
-            wisp.color2 = new BABYLON.Color4(0.7, 0.7, 0.76, 0.14);
-            wisp.minSize = 0.018; wisp.maxSize = 0.035;
-            wisp.addSizeGradient(0, 0.6); wisp.addSizeGradient(1, 3.2);
+            wisp.color1 = new BABYLON.Color4(0.9, 0.9, 0.94, 0.7);
+            wisp.color2 = new BABYLON.Color4(0.82, 0.82, 0.88, 0.5);
+            wisp.minSize = 0.018; wisp.maxSize = 0.03;
+            // Size gradients are absolute sizes in metres (not factors of minSize/maxSize): 2-3 cm out of the tip,
+            // a 10-14 cm curl by the time it fades.
+            wisp.addSizeGradient(0, 0.018, 0.03); wisp.addSizeGradient(1, 0.1, 0.14);
             wisp.minLifeTime = 2.0; wisp.maxLifeTime = 3.4;
             wisp.direction1.set(-0.025, 0.07, -0.025);
             wisp.direction2.set(0.025, 0.13, 0.025);
             wisp.gravity = new BABYLON.Vector3(0.01, 0.015, 0);
         }
         // The exhale: a soft cloud pushed out of the mouth, slowing and spreading as it rises.
-        const exhale = smoke('minglerSmokeExhale', 45);
+        const exhale = smoke('minglerSmokeExhale', 60);
         if (exhale) {
-            exhale.color1 = new BABYLON.Color4(0.8, 0.8, 0.84, 0.16);
-            exhale.color2 = new BABYLON.Color4(0.72, 0.72, 0.78, 0.1);
+            exhale.color1 = new BABYLON.Color4(0.92, 0.92, 0.96, 0.6);
+            exhale.color2 = new BABYLON.Color4(0.84, 0.84, 0.9, 0.42);
             exhale.minSize = 0.035; exhale.maxSize = 0.06;
-            exhale.addSizeGradient(0, 0.5); exhale.addSizeGradient(1, 3.5);
+            // Absolute metres, like the wisp: a mouthful at the lips that spreads to a 30-45 cm cloud.
+            exhale.addSizeGradient(0, 0.04, 0.07); exhale.addSizeGradient(1, 0.3, 0.45);
             exhale.minLifeTime = 1.4; exhale.maxLifeTime = 2.4;
             if (exhale.addLimitVelocityGradient) { exhale.addLimitVelocityGradient(0, 0.5); exhale.addLimitVelocityGradient(1, 0.04); exhale.limitVelocityDamping = 0.9; }
             exhale.gravity = new BABYLON.Vector3(0, 0.06, 0);
@@ -2217,30 +2252,31 @@ class VRClubAudioCrowd extends VRClubUI {
     }
 
     /**
-     * Put the cigarette between his index and middle fingers, through the palm: the filter on the palm side (his lips
-     * when the hand is up) and the burning end out past the back of the hand. Measured in the body's own (glTF) frame,
-     * because a spawned person is mirrored in the world (the root's handedness flip is replaced by a plain yaw), which
-     * would turn a world-space cross product inside out. Also marks his mouth on the Head bone. Once per smoke stop:
-     * the fingers' current curl is what it holds.
+     * Put the cigarette between his index and middle fingers, pinched near the fingertips, through the palm: the filter
+     * on the palm side (his lips when the hand is up) and the burning end out past the back of the hand. Measured in
+     * the body's own (glTF) frame, because a spawned person is mirrored in the world (the root's handedness flip is
+     * replaced by a plain yaw), which would turn a world-space cross product inside out. Also marks his mouth on the
+     * Head bone. Once per smoke stop: the fingers' current curl is what it holds. Parented to the middle finger's
+     * outer segment, so it moves with the fingers.
      */
     _attachCigarette(npc) {
         const s = npc.smoke;
         const root = npc.root.computeWorldMatrix(true);
         const toBody = root.clone().invert();
         const local = node => BABYLON.Vector3.TransformCoordinates(node.computeWorldMatrix(true).getTranslation(), toBody);
-        const i2 = local(s.bones.index2), i3 = local(s.bones.index3), m2 = local(s.bones.middle2), m3 = local(s.bones.middle3);
-        const hold = i2.add(i3).add(m2).add(m3).scaleInPlace(0.25);
-        const fingers = m3.subtract(m2).normalize();
-        const palm = BABYLON.Vector3.Cross(i2.subtract(m2), fingers).normalize();
+        const i3 = local(s.bones.index3), i4 = local(s.bones.index4), m3 = local(s.bones.middle3), m4 = local(s.bones.middle4);
+        const hold = i3.add(i4).add(m3).add(m4).scaleInPlace(0.25);
+        const fingers = m4.subtract(m3).normalize();
+        const palm = BABYLON.Vector3.Cross(i3.subtract(m3), fingers).normalize();
         const holdWorld = BABYLON.Vector3.TransformCoordinates(hold, root);
         const palmWorld = BABYLON.Vector3.TransformNormal(palm, root).normalize();
-        const filter = holdWorld.add(palmWorld.scale(0.03));
+        const filter = holdWorld.add(palmWorld.scale(0.045));
         const along = BABYLON.Quaternion.Identity();
         BABYLON.Quaternion.FromUnitVectorsToRef(BABYLON.Vector3.Up(), palmWorld.negate(), along);
         const world = BABYLON.Matrix.Compose(BABYLON.Vector3.One(), along, filter);
-        const parentWorld = s.bones.middle2.computeWorldMatrix(true);
+        const parentWorld = s.bones.middle3.computeWorldMatrix(true);
         const cigarette = s.cigarette;
-        cigarette.parent = s.bones.middle2;
+        cigarette.parent = s.bones.middle3;
         world.multiply(parentWorld.clone().invert()).decompose(cigarette.scaling, cigarette.rotationQuaternion, cigarette.position);
         s.baseScaleY = cigarette.scaling.y;
 
@@ -2307,7 +2343,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
         if (s.wisp) {
             s.ember.computeWorldMatrix(true).getTranslationToRef(s.wisp.emitter);
-            s.wisp.emitRate = near ? 2 : 7;
+            s.wisp.emitRate = near ? 3 : 10;
         }
         if (s.exhale) {
             s.exhale.emitter.copyFrom(s.mouthPos);
@@ -2317,7 +2353,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 s.exhale.direction1.copyFrom(s.direction).scaleInPlace(0.8).addInPlaceFromFloats(-0.06, -0.03, -0.06);
                 s.exhale.direction2.copyFrom(s.direction).scaleInPlace(1.25).addInPlaceFromFloats(0.06, 0.05, 0.06);
                 // Strongest at the start of the breath, trailing off.
-                s.exhale.emitRate = 26 * Math.min(1, s.exhaleLeft / 1.5 + 0.2);
+                s.exhale.emitRate = 34 * Math.min(1, s.exhaleLeft / 1.5 + 0.2);
             } else {
                 s.exhale.emitRate = 0;
             }
@@ -2619,7 +2655,7 @@ class VRClubAudioCrowd extends VRClubUI {
 
     /** The music as the choreographer sees it, in one reused object. */
     _crowdMusic(audioData) {
-        const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
+        const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, rhythm: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
         const vj = this.vjDirector, show = this.showDirector;
         m.bpm = (vj && vj.bpm) || 120;
         const now = performance.now();
@@ -2641,6 +2677,8 @@ class VRClubAudioCrowd extends VRClubUI {
         const recent = !!vj && vj.realOnsetCount > 0 &&
             now - vj.lastRealOnsetAt < Math.max(1600, 7 * beatMs);
         m.beatPresent = hasAudio && recent && (m.beatPresent || (vj.onsetStreak || 0) >= 2);
+        // No kick, but hats, a snare or a synth still keep time: the crowd keeps dancing on the grid (CrowdDance).
+        m.rhythm = !m.beatPresent && hasAudio && !!vj && vj.rhythmPresent === true;
         m.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
             : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
         // A build (the countdown, or the ascent movement) and the frame a drop lands (the release, or ignition starting).

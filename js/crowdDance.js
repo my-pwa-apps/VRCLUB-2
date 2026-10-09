@@ -10,8 +10,10 @@
 //
 // Choosing: each dancer has their own taste (some love the twist, some never clap), changes move only on bar lines
 // after 4-8 bars, follows the energy of the music, claps more through a build, throws their hands up on a drop, and
-// now and then takes a move at half time. When the kick goes (a breakdown, silence, between tracks) they leave the
-// absent grid and sway freely until it returns. Nobody on the dance floor becomes a motionless background prop.
+// now and then takes a move at half time. When the kick goes but the rest of the rhythm carries on (hats, a snare or
+// clap, a synth arpeggio: VJDirector._detectRhythm), they stay on the beat with the lighter moves, the sway among them.
+// Only when there is no pulse at all (silence, a pad that only swells) do they leave the grid and sway freely until
+// it returns. Nobody on the dance floor becomes a motionless background prop.
 
 class CrowdDance {
     /**
@@ -27,8 +29,19 @@ class CrowdDance {
         Groove_Pump: Object.freeze({ beats: 4, anchor: 0, weight: 0.7, energy: 0.6, build: 1.5, drop: 4 }),
         Groove_Twist: Object.freeze({ beats: 2, anchor: 0, weight: 1.0, energy: 0.4 }),
         Groove_HandsUp: Object.freeze({ beats: 4, anchor: 0, weight: 0.35, energy: 0.75, build: 1.5, drop: 6 }),
-        Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true })
+        Groove_Sway: Object.freeze({ beats: 4, anchor: 0, weight: 0.5, energy: 0, quiet: 4, free: true, rhythm: 2.5 })
     });
+
+    /**
+     * What the dancers do when the kick is gone but the music still has a pulse (hats, a snare, an arpeggio): stay on the
+     * beat with the lighter moves. The sway joins them, on the grid rather than free; the peak moves sit it out.
+     */
+    static get RHYTHM_WEIGHTS() {
+        return this._rhythmWeights || (this._rhythmWeights = Object.freeze({
+            Groove_Sway: 2.5, Groove_Bounce: 1.4, Groove_SideTap: 1.4, Groove_Clap: 1.3, Groove_Twist: 1.0,
+            Dance_Loop: 0.7, Groove_Pump: 0.15, Groove_HandsUp: 0
+        }));
+    }
 
     /** The tempo the clips are authored at. */
     static CLIP_BPM = 120;
@@ -52,17 +65,19 @@ class CrowdDance {
     }
 
     /**
-     * Per frame. `music`: { beatPresent, beat (continuous beat position on the club's grid), bpm, energy 0..1, build,
-     * drop (true on the frame a drop lands) }. `frac`: where the dancer's clip is now (0..1 of its loop), or null when
-     * it is not playing. Returns a reused decision: { move, switched, speed, frac (the target, set when switched or
-     * when the clip must jump), snap }.
+     * Per frame. `music`: { beatPresent (the kick), rhythm (no kick, but the rest of the rhythm has a pulse), beat
+     * (continuous beat position on the club's grid), bpm, energy 0..1, build, drop (true on the frame a drop lands) }.
+     * `frac`: where the dancer's clip is now (0..1 of its loop), or null when it is not playing. Returns a reused
+     * decision: { move, switched, speed, frac (the target, set when switched or when the clip must jump), snap }.
      */
     step(dancer, music, frac, out = {}) {
         out.switched = false;
         out.snap = false;
         const bar = Math.floor(music.beat / 4);
+        // What carries the dance: the kick (true), the rest of the rhythm ('rhythm'), or nothing (false).
+        const pulse = music.beatPresent ? true : music.rhythm ? 'rhythm' : false;
 
-        if (!music.beatPresent) {
+        if (!pulse) {
             const move = dancer.moves.includes('Groove_Sway') ? 'Groove_Sway' : dancer.moves[0];
             if (dancer.move !== move || dancer.hadBeat !== false) {
                 dancer.move = move;
@@ -77,21 +92,22 @@ class CrowdDance {
             return out;
         }
 
-        // The beat is here. Coming back from no beat, or a drop: change now (the phase lock lands it on the beat).
-        // Otherwise only on a bar line, once this move has had its bars.
+        // A pulse is here. When it changes (the kick goes and the hats carry on, or it comes back), or on a drop:
+        // change now (the phase lock lands it on the beat). Otherwise only on a bar line, once this move has had its bars.
         let pick = null;
-        if (dancer.hadBeat !== true || dancer.move === null) pick = 'any';
+        if (dancer.hadBeat !== pulse || dancer.move === null) pick = 'any';
         if (music.drop) pick = 'drop';
         if (dancer.lastBar !== null && bar !== dancer.lastBar) {
             dancer.barsLeft -= bar - dancer.lastBar;
             if (dancer.barsLeft <= 0 && !pick) pick = 'any';
         }
         dancer.lastBar = bar;
-        dancer.hadBeat = true;
+        dancer.hadBeat = pulse;
         if (pick) {
-            const move = this._pick(dancer, music, pick === 'drop');
+            const move = this._pick(dancer, music, pick === 'drop', pulse === 'rhythm');
             const meta = CrowdDance.MOVES[move];
-            dancer.half = move !== 'Groove_Sway' && this.rng() < (music.energy < 0.3 ? 0.35 : 0.15) && meta.beats <= 4;
+            const halfChance = pulse === 'rhythm' ? 0.4 : music.energy < 0.3 ? 0.35 : 0.15;
+            dancer.half = (pulse === 'rhythm' || move !== 'Groove_Sway') && this.rng() < halfChance && meta.beats <= 4;
             dancer.barsLeft = 4 + Math.floor(this.rng() * 5);
             out.switched = move !== dancer.move || pick === 'drop';
             dancer.move = move;
@@ -121,7 +137,7 @@ class CrowdDance {
         return out;
     }
 
-    _pick(dancer, music, drop) {
+    _pick(dancer, music, drop, rhythm = false) {
         const energy = Math.max(0, Math.min(1, music.energy == null ? 0.5 : music.energy));
         const table = this._table || (this._table = []);
         table.length = 0;
@@ -130,12 +146,13 @@ class CrowdDance {
             const meta = CrowdDance.MOVES[name];
             // Free grooves belong only to a genuinely kick-less passage. Once the beat is trusted, every pick must
             // visibly dance on that grid; otherwise a dancer can spend another 4-8 bars looking idle beside people
-            // who heard the same kick.
-            if (meta.free) continue;
+            // who heard the same kick. With only the rest of the rhythm, the sway is one of the on-the-beat moves.
+            if (meta.free && !rhythm) continue;
             let w = meta.weight * dancer.taste[name];
+            if (rhythm) w *= CrowdDance.RHYTHM_WEIGHTS[name] ?? 1;
             // Below the energy a move suits it is picked less; a quiet track favours the sway.
             w *= Math.max(0.1, 1 - 2.5 * Math.max(0, meta.energy - energy));
-            if (meta.quiet) w *= energy < 0.3 ? meta.quiet : 0.3;
+            if (meta.quiet && !rhythm) w *= energy < 0.3 ? meta.quiet : 0.3;
             if (music.build && meta.build) w *= meta.build;
             if (drop) w *= meta.drop || 0.3;
             if (name === dancer.move) w *= 0.3;       // prefer a change

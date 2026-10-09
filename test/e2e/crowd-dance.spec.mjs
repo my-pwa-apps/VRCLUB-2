@@ -184,6 +184,12 @@ test('a side guest walks the room and stops to talk to the people standing in it
                         out.smoke.exhale ||= !!(s.exhale && s.exhale.emitRate > 0);
                         out.smoke.wisp ||= !!(s.wisp && s.wisp.isStarted() && s.wisp.emitRate > 0);
                         out.smoke.burnt = Math.min(out.smoke.burnt, s.cigarette.scaling.y / s.baseScaleY);
+                        // Size gradients are absolute metres: anything this big is a fog bank, not cigarette smoke.
+                        for (const ps of [s.wisp, s.exhale]) {
+                            for (const g of ps.getSizeGradients() || []) {
+                                out.smoke.biggest = Math.max(out.smoke.biggest || 0, g.factor1, g.factor2 ?? g.factor1);
+                            }
+                        }
                     }
                 }
                 if (npc.mingle.activity === 'balcony') {
@@ -313,6 +319,7 @@ test('a side guest walks the room and stops to talk to the people standing in it
     expect(run.smoke.exhale, 'he never blew out smoke after a drag').toBe(true);
     expect(run.smoke.wisp, 'no smoke rose from the tip').toBe(true);
     expect(run.smoke.burnt, 'the cigarette never burned down').toBeLessThan(0.75);
+    expect(run.smoke.biggest, 'a smoke particle grows into a fog bank').toBeLessThan(0.5);
     expect(run.rail.seconds, 'he never leaned on the balcony rail').toBeGreaterThan(20);
     expect(run.rail.worst, 'his hands were not on the balcony rail').toBeLessThan(0.08);
     expect(run.rail.talkedHere && run.rail.partnerTalks, 'he never talked with the woman at the rail').toBe(true);

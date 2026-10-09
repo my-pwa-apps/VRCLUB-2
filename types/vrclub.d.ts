@@ -262,7 +262,11 @@ export declare class VRClub {
     getAudioData(): AudioFrameData;
     startAudioStream(url: string): Promise<void>;
     startAudioFromFile(file: File): Promise<void>;
-    toggleAudioStream(): void;
+    toggleAudioPlayback(): boolean;
+    toggleLightControl(control: string): boolean;
+    takeLightControl(): void;
+    resumeAutoShow(): void;
+    setLightSpeed(value: number): number;
     pulseHaptic(intensity?: number, duration?: number): void;
     updateSpatialAudioListener(): void;
     recordDiagnostic(category: string, message: string, data?: any): void;

@@ -485,9 +485,6 @@ class VRClubCore {
         this.spotColorIndex = 0;
         this.lastColorChange = 0;
         
-        // Initialize VJ control buttons array (populated in createDJBooth)
-        this.vjControlButtons = [];
-        
         // Initialize lighting control state
         this.lightsActive = true;
         this.lasersActive = false;

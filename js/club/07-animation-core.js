@@ -19,6 +19,7 @@ class VRClubAnimationCore extends VRClubEffects {
         this.updateCameraPresence(ctx);
         this.updateEyeAdaptation(ctx);
         this.updateNetworkPresence(ctx);
+        if (typeof this.updateVJDesk === 'function') this.updateVJDesk(ctx);
     }
 
     /**
@@ -1283,18 +1284,6 @@ class VRClubAnimationCore extends VRClubEffects {
                     this.phaseDurations.strobe_attack = 5 + Math.random() * 3;
                 } else if (phaseName === 'laser_tunnel') {
                     this.phaseDurations.laser_tunnel = 12 + Math.random() * 8;
-                }
-                
-                // Update VJ control button visuals to reflect state
-                if (this.vjControlButtons) {
-                    this.vjControlButtons.forEach(btn => {
-                        if (btn.control === 'lightsActive' || btn.control === 'lasersActive' || 
-                            btn.control === 'mirrorBallActive' || btn.control === 'strobesActive' || 
-                            btn.control === 'ledWallActive' ||
-                            btn.control === 'smokeActive') {
-                            btn.material.emissiveColor = this[btn.control] ? btn.onColor : btn.offColor;
-                        }
-                    });
                 }
             }
             

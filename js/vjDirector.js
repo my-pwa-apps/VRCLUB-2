@@ -59,6 +59,13 @@ class VJDirector {
         this.onsetStreak = 0;           // Consecutive kicks no more than ~1.5 beats apart
         this.realOnsetCount = 0;        // Monotonic count of detected kicks
 
+        // The rest of the rhythm (everything above the bass: snare, claps, hats, synth stabs and arps). When the kick
+        // drops out these say whether the music still has a pulse, and nudge the flywheel's phase. See _detectRhythm.
+        this.rhythmPresent = false;
+        this.rhythmStrength = 0;        // 0..1, how strongly the band repeats with the beat
+        this.rhythmBpm = 0;             // the band's own tempo, used only when no kick has given one
+        this.lastRhythmOnsetAt = 0;
+
         // Spectral flux state
         this._lastBassMag = 0;
         this._lastMidMag = 0;
@@ -140,24 +147,7 @@ class VJDirector {
         // 1. Onset detection on the bass + low-mid bands (kicks live there).
         if (audioData && audioData.hasAudio) {
             this._detectOnset(audioData, now);
-            // FLYWHEEL. Progressive sets drop the kick for 16-64 bars at a time. Beats
-            // came only from detected kicks, so the bar grid stopped dead for the whole
-            // breakdown and every cue froze mid-phrase. Once a beat and a half has
-            // passed without a kick, keep counting at the tracked BPM (soft pulses);
-            // the next real kick re-syncs the phase.
-            const flyDur = 60000 / this.bpm;
-            if (now - this.lastRealOnsetAt > flyDur * 1.5 && now - this.lastBeatAt >= flyDur) {
-                this._registerBeat(now, /*synthetic*/true);
-            }
-            // FLYWHEEL. Progressive sets drop the kick for 16-64 bars at a time. Beats
-            // came only from detected kicks, so the bar grid stopped dead for the whole
-            // breakdown and every cue froze mid-phrase. Once a beat and a half has
-            // passed without a kick, keep counting at the tracked BPM (soft pulses);
-            // the next real kick re-syncs the phase.
-            const beatDur = 60000 / this.bpm;
-            if (now - this.lastRealOnsetAt > beatDur * 1.5 && now - this.lastBeatAt >= beatDur) {
-                this._registerBeat(now, /*synthetic*/true);
-            }
+            this._flywheel(now);
         } else {
             // No audio: gentle pulse on a fixed BPM clock so the lights still
             // move (otherwise the room feels frozen between songs).
@@ -208,6 +198,23 @@ class VJDirector {
         this.club.vjBPM = this.bpm;
     }
 
+    /**
+     * FLYWHEEL. Progressive sets drop the kick for 16-64 bars at a time. Beats came only from detected kicks, so the
+     * bar grid stopped dead for the whole breakdown and every cue froze mid-phrase. Once a beat and a half has passed
+     * without a kick, keep counting at the tracked BPM (soft pulses); the next real kick re-syncs the phase, and in
+     * between the rest of the rhythm nudges it (_nudgeFlywheel).
+     *
+     * Each synthetic beat lands exactly one beat after the last, not on the frame that noticed it was due: stamping it
+     * with the frame time made every beat up to a frame late, which over a long breakdown walked the grid off the music
+     * by itself (about 8 ms a beat at 60 fps, more at lower rates: half a beat in 30 s at 30 fps).
+     */
+    _flywheel(now) {
+        const beat = 60000 / this.bpm;
+        if (now - this.lastRealOnsetAt <= beat * 1.5 || now - this.lastBeatAt < beat) return;
+        const due = this.lastBeatAt + beat;
+        this._registerBeat(now - due < beat ? due : now, /*synthetic*/true);
+    }
+
     // -------------------------------------------------------------------------
     // ONSET DETECTION — spectral flux on the bass band.
     //
@@ -222,7 +229,11 @@ class VJDirector {
         // since the last frame, each at the time it played, so the detector runs at the same rate at any frame rate.
         const steps = audioData.kickSteps;
         if (typeof audioData.low === 'number' && steps) {
-            for (let i = 0; i < steps.count; i++) this._detectKick(steps.lows[i], steps.raws[i], steps.times[i]);
+            for (let i = 0; i < steps.count; i++) {
+                this._detectKick(steps.lows[i], steps.raws[i], steps.times[i]);
+                this._pushKickEnvelope();
+                if (steps.rhythm) this._detectRhythm(steps.rhythm[i], steps.times[i]);
+            }
             return;
         }
         if (typeof audioData.low === 'number') { this._detectKick(audioData.low, audioData.lowRms || 0, now); return; }
@@ -306,6 +317,7 @@ class VJDirector {
         k.count = Math.min(k.count + 1, k.times.length);
         const rise = Math.max(0, low - floor);
         const rawRise = Math.max(0, raw - rawFloor);
+        k.lastRise = rise;
 
         k.history.push(rise);
         if (k.history.length > 60) k.history.shift();
@@ -318,17 +330,304 @@ class VJDirector {
         if (rise <= Math.max(0.12, median * 2.5) || low < 0.35) return;
         if (rawRise < k.ref * VJDirector.KICK_REF_SHARE) return;
 
+        // Once the tempo is known and the kick is running, a hit well off the beat (a syncopated bass note, an
+        // extra kick on the "and") is not itself the beat: counting it shortened the tempo and added a beat to the
+        // bar. Measuring against the LAST ACCEPTED kick's own time is not robust: if that one kick happened to be
+        // the syncopated hit (it only has to be close enough to the grid once), every real kick after it sits
+        // off-grid from it instead, and gets rejected in its place forever, because the syncopation recurs on its
+        // own fixed offset from the beat. A vote over several recent candidates — accepted or not — picks the
+        // phase the MAJORITY sit on (a circular median, immune to a minority of outliers) instead of trusting any
+        // one of them, so an unlucky first accept cannot lock the grid onto the wrong beat. The same vote also
+        // recovers a kick that has really moved (a mix landing late): once most recent candidates sit at the new
+        // offset, the median follows them.
+        const beat = 60000 / this.bpm;
+        const phase = (now / beat) % 1;
+        const buf = k.phaseBuf || (k.phaseBuf = new Float64Array(VJDirector.RHYTHM.phaseHistory));
+        const filled = Math.min(k.phaseCount || 0, buf.length);
+        if (this._tempoTrusted(now) && filled >= VJDirector.RHYTHM.phaseVotes) {
+            const gridPhase = VJDirector._circularMedianPhase(buf, filled);
+            if (VJDirector._circularDist(phase, gridPhase) > VJDirector.RHYTHM.offGridShare) {
+                buf[k.phaseHead || 0] = phase;
+                k.phaseHead = ((k.phaseHead || 0) + 1) % buf.length;
+                k.phaseCount = (k.phaseCount || 0) + 1;
+                this._refractoryUntil = now + 0.25 * beat;
+                return;
+            }
+        }
+        buf[k.phaseHead || 0] = phase;
+        k.phaseHead = ((k.phaseHead || 0) + 1) % buf.length;
+        k.phaseCount = (k.phaseCount || 0) + 1;
+
         k.ref = k.ref > 0 ? k.ref + (rawRise - k.ref) * 0.2 : rawRise;
         this._registerBeat(now, false);
         // With the tempo known, the next kick cannot come before ~55% of a beat (no doubles on the bassline's
         // eighths); before that, any two kicks are at least 180 ms apart.
-        const confident = this._iois.length >= 6;
+        const confident = this._tempoTrusted(now) || this._iois.length >= 6;
         this._refractoryUntil = now + (confident ? Math.max(180, 0.55 * 60000 / this.bpm) : 180);
     }
 
     /** A rise has to reach this share of the accepted kicks' to be a kick. */
     static get KICK_REF_SHARE() { return 0.45; }
 
+    // -------------------------------------------------------------------------
+    // WHAT REPEATS: onset envelopes of the kick band and of the rest of the rhythm (everything above the bass: snare,
+    // claps, hats, synth stabs and arpeggios), one value per 1/60 s of audio, and their autocorrelation.
+    //
+    //  - TEMPO comes from what repeats, not from the gaps between detected kicks. The old median of kick-to-kick
+    //    intervals read a 124 BPM progressive set as 140-167 BPM for minutes at a time whenever a syncopated bass note
+    //    or an extra kick slipped through (measured on Resident 801), and the crowd danced visibly too fast. The
+    //    envelopes' beat period (70-180 BPM, with its double and half, and a gentle preference for ~122 BPM to settle
+    //    half/double time) is stable; the kicks still set the PHASE.
+    //  - THE REST OF THE RHYTHM answers what the kick cannot: when the kick is gone (a breakdown, an intro), does the
+    //    music still have a pulse - hats on the eighths, a snare or clap on 2 and 4, an arpeggio - or is it a pad that
+    //    only swells? Onset strength there is the rise in dB over the last 60 ms (a hat counts as clearly as a loud
+    //    snare), and every envelope is measured against its own half-second mean, so a slow swell is not a series of
+    //    onsets. A pulse is a strong repeat at the grid's beat (or its half or double: eighth-note hats, a backbeat
+    //    snare), with hysteresis, and at least one real onset every other beat.
+    //  - While the kick is away, a rhythm onset within 15% of a beat pulls the flywheel a quarter of the way onto it,
+    //    so the grid the crowd dances on stays with the snare and the hats. Offbeats are left alone.
+    // No allocation: fixed rings, scratch arrays and plain loops.
+    // -------------------------------------------------------------------------
+
+    static _envelope() {
+        const R = VJDirector.RHYTHM;
+        return { ring: new Float32Array(R.window), raw: new Float32Array(R.window), head: 0, filled: 0, sum: 0, acf: new Float32Array(R.maxLag + 2) };
+    }
+
+    /** Add one onset-strength value, measured against the envelope's own running half-second mean. */
+    static _pushEnvelope(e, value) {
+        const R = VJDirector.RHYTHM, W = R.window;
+        e.raw[e.head] = value;
+        e.sum += value;
+        if (e.filled >= R.meanSteps) e.sum -= e.raw[(e.head - R.meanSteps + W) % W];
+        e.ring[e.head] = value - e.sum / Math.min(R.meanSteps, e.filled + 1);
+        e.head = (e.head + 1) % W;
+        e.filled = Math.min(e.filled + 1, W);
+    }
+
+    /** Normalised autocorrelation into e.acf. Returns false when the envelope is too short or flat to say anything. */
+    static _autocorrelate(e) {
+        const R = VJDirector.RHYTHM, W = R.window, n = e.filled, ring = e.ring;
+        e.acf.fill(0);
+        if (n < R.minFill) return false;
+        const start = (e.head - n + W) % W;
+        let energy = 0;
+        for (let i = 0; i < n; i++) { const v = ring[(start + i) % W]; energy += v * v; }
+        if (energy < 1e-9) return false;
+        for (let lag = R.minLag; lag <= R.maxLag; lag++) {
+            let s = 0;
+            for (let i = 0; i + lag < n; i++) s += ring[(start + i) % W] * ring[(start + i + lag) % W];
+            e.acf[lag] = (s / energy) * (n / (n - lag));
+        }
+        return true;
+    }
+
+    /** The autocorrelation at a fractional lag (0 outside the computed range). */
+    static _acfAt(e, lag) {
+        const R = VJDirector.RHYTHM;
+        if (lag < R.minLag || lag > R.maxLag) return 0;
+        const lo = Math.floor(lag), f = lag - lo;
+        return e.acf[lo] * (1 - f) + e.acf[Math.min(lo + 1, R.maxLag)] * f;
+    }
+
+    /** How strongly an envelope repeats with a beat of `lag` steps: the beat, two beats, or its eighths. */
+    static _pulseAt(e, lag) {
+        return Math.max(VJDirector._acfAt(e, lag), VJDirector._acfAt(e, lag * 2), VJDirector._acfAt(e, lag / 2));
+    }
+
+    /** An envelope's evidence for a beat of `lag` steps: the beat, two beats, and (less) its eighths. */
+    static _harmonic(e, lag) {
+        const at = VJDirector._acfAt;
+        return at(e, lag) + 0.5 * at(e, lag * 2) + 0.25 * at(e, lag / 2);
+    }
+
+    /** Tempo evidence at a beat of `lag` steps across both envelopes, weighted. */
+    _tempoScore(lag, kickWeight) {
+        return kickWeight * VJDirector._harmonic(this._kickEnv, lag) + (1 - kickWeight) * VJDirector._harmonic(this._rhythmEnv, lag);
+    }
+
+    static _tempoPrior(bpm) {
+        const octaves = Math.log2(bpm / VJDirector.RHYTHM.preferredBpm);
+        return Math.exp(-0.5 * (octaves / 0.45) * (octaves / 0.45));
+    }
+
+    /** One step of the kick band's onset strength (called from _detectOnset, after _detectKick). */
+    _pushKickEnvelope() {
+        const env = this._kickEnv || (this._kickEnv = VJDirector._envelope());
+        VJDirector._pushEnvelope(env, this._kick ? this._kick.lastRise : 0);
+    }
+
+    /** One step of the rest of the rhythm: `rms` is the band's level (VRClub._readKickBand reads it beside the kick). */
+    _detectRhythm(rms, t) {
+        const R = VJDirector.RHYTHM;
+        const r = this._rhythm || (this._rhythm = {
+            recent: new Float32Array(4), recentTimes: new Float64Array(4), rh: 0,
+            history: new Float32Array(60), hh: 0, hn: 0, sorted: [],
+            onsets: new Float64Array(64), oh: 0, on: 0, refractoryUntil: 0, steps: 0, stable: 0
+        });
+        const env = this._rhythmEnv || (this._rhythmEnv = VJDirector._envelope());
+        const level = 20 * Math.log10(Math.max(rms || 0, 1e-5));
+        let floor = level;
+        for (let i = 0; i < r.recent.length; i++) if (t - r.recentTimes[i] <= 60 && r.recent[i] < floor) floor = r.recent[i];
+        r.recent[r.rh] = level; r.recentTimes[r.rh] = t; r.rh = (r.rh + 1) % r.recent.length;
+        const rise = rms > R.silence ? Math.min(30, Math.max(0, level - floor)) : 0;
+        VJDirector._pushEnvelope(env, rise);
+
+        // Discrete onsets: well above the usual movement of the band, at most one every 90 ms.
+        r.history[r.hh] = rise; r.hh = (r.hh + 1) % r.history.length; r.hn = Math.min(r.hn + 1, r.history.length);
+        const sorted = r.sorted;
+        sorted.length = 0;
+        for (let i = 0; i < r.hn; i++) sorted.push(r.history[i]);
+        sorted.sort(VJDirector._ascending);
+        const median = sorted.length ? sorted[sorted.length >> 1] : 0;
+        if (rise > Math.max(R.onsetDb, median * 2.2) && t >= r.refractoryUntil) {
+            r.refractoryUntil = t + 90;
+            r.onsets[r.oh] = t; r.oh = (r.oh + 1) % r.onsets.length; r.on = Math.min(r.on + 1, r.onsets.length);
+            this.lastRhythmOnsetAt = t;
+            this._nudgeFlywheel(t);
+        }
+
+        r.steps++;
+        if (r.steps % R.every === 0) this._evaluateRhythm(t);
+    }
+
+    /**
+     * Several times a second: the tempo (from both envelopes) and whether the rest of the rhythm has a pulse.
+     * Writes bpm (while the kick is here), rhythmPresent / rhythmStrength and rhythmBpm.
+     */
+    _evaluateRhythm(t) {
+        const R = VJDirector.RHYTHM, S = VJDirector;
+        const r = this._rhythm;
+        const kickEnv = this._kickEnv || (this._kickEnv = S._envelope());
+        const kickOk = S._autocorrelate(kickEnv);
+        const rhythmOk = S._autocorrelate(this._rhythmEnv);
+        const kickHere = kickOk && this.realOnsetCount > 0 && t - this.lastRealOnsetAt < 2000;
+
+        // The tempo both envelopes agree on, refined between whole steps.
+        const kickWeight = kickHere ? (rhythmOk ? 0.65 : 1) : 0;
+        let bestLag = 0, best = -Infinity;
+        if (kickHere || rhythmOk) {
+            for (let lag = R.beatLagMin; lag <= R.beatLagMax; lag++) {
+                const s = this._tempoScore(lag, kickWeight) * S._tempoPrior(60 * R.stepsPerSecond / lag);
+                if (s > best) { best = s; bestLag = lag; }
+            }
+            if (bestLag > R.beatLagMin && bestLag < R.beatLagMax) {
+                const a = this._tempoScore(bestLag - 1, kickWeight) * S._tempoPrior(60 * R.stepsPerSecond / (bestLag - 1));
+                const c = this._tempoScore(bestLag + 1, kickWeight) * S._tempoPrior(60 * R.stepsPerSecond / (bestLag + 1));
+                const d = a - 2 * best + c;
+                if (d < 0) bestLag += Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / d));
+            }
+        }
+        const tempo = bestLag > 0 ? 60 * R.stepsPerSecond / bestLag : 0;
+        const confidence = bestLag > 0 ? this._tempoScore(bestLag, kickWeight) : 0;
+        if (kickHere && confidence > R.tempoConfidence) {
+            // The kick is here and the music agrees on a beat: that is the tempo, followed smoothly.
+            this.bpm += (tempo - this.bpm) * 0.25;
+            this._tempoTrustedAt = t;
+        }
+
+        // The rest of the rhythm: judged on the club's grid when the tempo is known, else on its own best period.
+        let onsets = 0;
+        for (let i = 0; i < r.on; i++) if (t - r.onsets[i] <= 4000) onsets++;
+        const known = this._tempoTrustedAt !== undefined && t - this._tempoTrustedAt < R.kickTempoMemoryMs;
+        const ownTempo = !kickHere && rhythmOk ? tempo : 0;
+        const lag = known ? 60 * R.stepsPerSecond / this.bpm : bestLag;
+        // Measured against the envelope's own noise floor (the median repeat over every beat period): a real pulse
+        // stands out at its beat and harmonics; random hits repeat a little at every period and nowhere in particular.
+        // Then the onsets must keep time: hats, snares and arpeggios land on a sixteenth (or triplet) grid of that beat.
+        let strength = rhythmOk && lag > 0 ? S._pulseAt(this._rhythmEnv, lag) - this._acfFloor(this._rhythmEnv) : 0;
+        if (strength > 0) strength *= Math.min(1, Math.max(0, (this._onsetCoherence(r, t, lag * 1000 / R.stepsPerSecond) - R.coherenceFrom) / R.coherenceSpan));
+        const enough = onsets >= 4 * ((known ? this.bpm : ownTempo || this.bpm) / 60) * R.minOnsetsPerBeat;
+        this._setRhythm(enough ? strength : 0);
+        if (!known && this.rhythmPresent && ownTempo >= 70 && ownTempo <= 180) {
+            // No kick has said what the tempo is: a steady pulse in the band does, once it has held for a few seconds.
+            r.stable = Math.abs(ownTempo - this.rhythmBpm) < 3 ? r.stable + 1 : 0;
+            this.rhythmBpm = ownTempo;
+            if (r.stable >= 10) this.bpm += (ownTempo - this.bpm) * 0.1;
+        } else if (known) {
+            this.rhythmBpm = this.bpm;
+        }
+    }
+
+    /** Is the tempo known well enough to judge whether a kick is on the beat? */
+    _tempoTrusted(now) {
+        return this._tempoTrustedAt !== undefined && now - this._tempoTrustedAt < 4000;
+    }
+
+    /** The median absolute repeat over every beat period: how much an envelope repeats at periods that mean nothing. */
+    _acfFloor(e) {
+        const R = VJDirector.RHYTHM;
+        const scratch = this._acfScratch || (this._acfScratch = []);
+        scratch.length = 0;
+        for (let lag = R.beatLagMin; lag <= R.beatLagMax; lag++) scratch.push(Math.abs(e.acf[lag]));
+        scratch.sort(VJDirector._ascending);
+        return scratch[scratch.length >> 1];
+    }
+
+    /**
+     * How well the last 4 s of rhythm onsets keep time with a beat of `beatMs`: the phase coherence (0 = none, 1 =
+     * every onset on the grid) on its sixteenths or its triplets, whichever fits better.
+     */
+    _onsetCoherence(r, t, beatMs) {
+        let best = 0;
+        for (let d = 3; d <= 4; d++) {
+            const period = beatMs / d;
+            let c = 0, s = 0, n = 0;
+            for (let i = 0; i < r.on; i++) {
+                const at = r.onsets[i];
+                if (t - at > 4000) continue;
+                const phase = 2 * Math.PI * (at % period) / period;
+                c += Math.cos(phase); s += Math.sin(phase); n++;
+            }
+            if (n > 0) best = Math.max(best, Math.sqrt(c * c + s * s) / n);
+        }
+        return best;
+    }
+
+    _setRhythm(strength) {
+        const R = VJDirector.RHYTHM;
+        // Smoothed, with hysteresis: a pulse that comes and goes from one evaluation to the next is not a pulse.
+        this.rhythmStrength += (Math.max(0, Math.min(1, strength)) - this.rhythmStrength) * 0.35;
+        if (this.rhythmPresent) this.rhythmPresent = this.rhythmStrength > R.off;
+        else this.rhythmPresent = this.rhythmStrength > R.on;
+    }
+
+    /** While the kick is away, let a rhythm onset near a beat pull the flywheel toward it. */
+    _nudgeFlywheel(t) {
+        if (!this.rhythmPresent) return;
+        const beat = 60000 / this.bpm;
+        if (t - this.lastRealOnsetAt < 2 * beat) return;   // the kick owns the phase
+        const k = Math.round((t - this.lastBeatAt) / beat);
+        const error = t - (this.lastBeatAt + k * beat);
+        if (Math.abs(error) < VJDirector.RHYTHM.nudgeWindow * beat) this.lastBeatAt += VJDirector.RHYTHM.nudgeGain * error;
+    }
+
+    static get RHYTHM() {
+        return this._rhythmConfig || (this._rhythmConfig = Object.freeze({
+            stepsPerSecond: 60,
+            window: 384,          // ~6.4 s of envelope
+            minFill: 240,         // 4 s before any verdict
+            meanSteps: 30,        // the half-second mean each envelope is measured against
+            every: 12,            // evaluate five times a second
+            minLag: 7,            // a sixteenth at ~128 BPM
+            maxLag: 104,          // a half note at ~70 BPM (double the slowest beat)
+            beatLagMin: 20,       // 180 BPM
+            beatLagMax: 51,       // ~70 BPM
+            preferredBpm: 122,    // where half/double time is settled toward
+            tempoConfidence: 0.3, // how strongly the envelopes must repeat before the kick tempo follows them
+            onsetDb: 4,           // a rise this many dB above the last 60 ms is an onset
+            coherenceFrom: 0.6,   // onsets this phase-coherent on the beat's sixteenths or triplets start to count (random: 0.3-0.68 over 4 s)
+            coherenceSpan: 0.25,  // and from 0.85 fully (hats, snares, an arpeggio: 0.96-0.98)
+            silence: 1e-4,
+            minOnsetsPerBeat: 0.6,
+            on: 0.3, off: 0.18,   // pulse strength hysteresis
+            kickTempoMemoryMs: 120000,
+            nudgeWindow: 0.15, nudgeGain: 0.25,
+            offGridShare: 0.25,   // with the tempo known and the kick running, a kick further than this from the grid is not the beat
+            phaseHistory: 7,      // recent kick candidates (accepted or not) a grid vote is taken over
+            phaseVotes: 4         // votes needed before the gate trusts the grid over a lone accepted kick
+        }));
+    }
     /** At most one punch of the beat envelope every 400 ms (2.5 a second), whatever the tempo. */
     static get MIN_PUNCH_GAP_MS() { return 400; }
 
@@ -363,7 +662,9 @@ class VJDirector {
                 if (ioi < 280) normalised = ioi * 2;
                 this._iois.push(normalised);
                 if (this._iois.length > this._maxIois) this._iois.shift();
-                this._recomputeBPM();
+                // While the onset envelopes know the tempo they own it; the interval median is the fallback for an
+                // analyser without the stepped kick band (an old browser, a stub).
+                if (!this._tempoTrusted(now)) this._recomputeBPM();
             }
         }
         if (!synthetic) this._lastOnsetForIoi = now;
@@ -715,6 +1016,29 @@ class VJDirector {
 }
 
 VJDirector._ascending = (a, b) => a - b;
+
+/** Circular distance between two phases in [0, 1), result in [0, 0.5]. */
+VJDirector._circularDist = (a, b) => {
+    const d = Math.abs(a - b) % 1;
+    return d > 0.5 ? 1 - d : d;
+};
+
+/**
+ * The phase (in beats, [0, 1)) that the recent kick candidates agree on, found as the candidate with the least
+ * total circular distance to the rest of the window (a circular median): robust to a minority of syncopated hits
+ * without needing to trust any single accepted kick as the anchor, which could itself have been one of them.
+ */
+VJDirector._circularMedianPhase = (buf, count) => {
+    let bestIdx = 0, bestSum = Infinity;
+    for (let i = 0; i < count; i++) {
+        let sum = 0;
+        for (let j = 0; j < count; j++) {
+            if (i !== j) sum += VJDirector._circularDist(buf[i], buf[j]);
+        }
+        if (sum < bestSum) { bestSum = sum; bestIdx = i; }
+    }
+    return buf[bestIdx];
+};
 
 // Expose globally — the script tag in index.html loads before club_hyperrealistic.js
 window.VJDirector = VJDirector;
