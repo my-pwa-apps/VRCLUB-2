@@ -252,9 +252,6 @@ class VRClubAnimationCore extends VRClubEffects {
         const kickDepth = (this.showDirector && this.showDirector.isDriving()) ? this.kickDepth : 0.3;
         this.kickPulse = (this.beatEnvelope || 0) * kickDepth * (this.photosensitiveSafeMode ? 0.5 : 1);
 
-        // Bass-driven controller rumble for VR users (no-op outside XR / when disabled)
-        this._updateBassHaptics(audioData);
-
         // The street outside: show it only near the entrance and ease the guest's "outdoors" amount (fog keys off it).
         if (this.updateCityDistrict) this.updateCityDistrict(dt);
 

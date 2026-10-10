@@ -1237,7 +1237,7 @@ the relay URL. Private rooms successfully joined on this device are also remembe
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.bassHaptics`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1285,7 +1285,7 @@ and refreshed on every comfort reapplication. XR entry preserves tracked eye hei
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
 The paged quick menu includes lighting, effects, show/reset, a CROWD page (who is in the club), comfort (locomotion,
-safe mode, haptics, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
+safe mode, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
 Play saved set and ADD LINKS / FILE. `_openQuestPanel()` exits XR for music entry or licences;
@@ -1297,8 +1297,8 @@ into a `DynamicTexture` (`_drawVRQuickMenuBack`, 632 px a metre, alpha from the 
 last button row, not an opaque slab with dead space; the second line of a button (ON/OFF, the current value) is 40 px
 and the page subtitle 36 px, shrinking to fit, because the old 30-32 px text was about one degree tall in a headset.
 Buttons that leave the immersive session (ADD MUSIC, CREDITS / LICENCES) say `LEAVES VR` before they are pressed.
-Haptics are opt-in for new visitors and
-the same preference gates both bass pulses and UI feedback. These preference and
+**There is no haptics feature:** the controllers never vibrate (no bass rumble, no menu or desk feedback pulse), and
+`vrclub.bassHaptics` is no longer read or written. These preference and
 travel actions must not force VJ manual mode.
 
 **Fast social wheel.** In a room, clicking the right thumbstick opens a world-locked wheel for Chat,

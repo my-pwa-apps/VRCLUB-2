@@ -233,7 +233,7 @@ class VRClubLifecycle extends VRClubCore {
             // would bypass all three.
             disableDefaultUI: true,
             inputOptions: {
-                // Input components, poses, haptics and pointer rays remain active;
+                // Input components, poses and pointer rays remain active;
                 // only the decorative controller GLB from Babylon's snippet server
                 // is skipped so XR remains entirely same-origin.
                 doNotLoadControllerMeshes: true

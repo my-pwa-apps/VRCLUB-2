@@ -54,7 +54,6 @@ export interface DiagnosticsReport {
     materials: number;
     audioState: string;
     safeMode: boolean;
-    bassHaptics: boolean;
     recentLogs: DiagnosticLogEntry[];
 }
 
@@ -241,7 +240,6 @@ export declare class VRClub {
     qualityTiers: Record<GraphicsTier, QualityTierSettings>;
     tierSettings: QualityTierSettings;
     photosensitiveSafeMode: boolean;
-    bassHapticsEnabled: boolean;
     isInVRMode: boolean;
     debugMode: boolean;
 
@@ -271,7 +269,6 @@ export declare class VRClub {
     // Methods
     setGraphicsTier(tier: GraphicsTier): void;
     setPhotosensitiveSafeMode(enabled: boolean): boolean;
-    setBassHapticsEnabled(enabled: boolean): boolean;
     getAudioData(): AudioFrameData;
     startAudioStream(url: string): Promise<void>;
     startAudioFromFile(file: File): Promise<void>;
@@ -280,7 +277,6 @@ export declare class VRClub {
     takeLightControl(): void;
     resumeAutoShow(): void;
     setLightSpeed(value: number): number;
-    pulseHaptic(intensity?: number, duration?: number): void;
     updateSpatialAudioListener(): void;
     recordDiagnostic(category: string, message: string, data?: any): void;
     getDiagnostics(): DiagnosticsReport;

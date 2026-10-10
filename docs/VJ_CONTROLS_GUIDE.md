@@ -12,8 +12,7 @@
 - **Entrance**, **Dance Floor**, and **DJ Booth** provide instant travel without
   walking, preserving tracked eye height and head orientation. The booth adds
   its 0.5 m platform elevation; travel back to the floor removes that elevation.
-- **Safe Mode** and **Haptics** are available in the headset menu. Vibration is
-  opt-in for new visitors; existing saved preferences are retained.
+- **Safe Mode** is available in the headset menu, and the controllers never vibrate.
 - Comfort and travel controls do not stop the automatic light show. Photosensitive
   Safe Mode reduces flashing but is not a medical guarantee of safety.
 

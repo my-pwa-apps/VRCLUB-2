@@ -701,9 +701,8 @@ function initVJMenu() {
         }, UI_TIMING.bpmPollMs);
     }
 
-    // === ACCESSIBILITY: Photosensitive Safe Mode + Bass Haptics ===
+    // === ACCESSIBILITY: Photosensitive Safe Mode + VR Comfort ===
     const safeModeBtn = document.getElementById('vjSafeModeBtn');
-    const bassHapticsBtn = document.getElementById('vjBassHapticsBtn');
     const vrComfortBtn = document.getElementById('vjVRComfortBtn');
     if (vrComfortBtn) {
         setToggleState(vrComfortBtn, vrClubInstance.vrComfortMode);
@@ -722,14 +721,6 @@ function initVJMenu() {
             // Keep the splash control in agreement in case the user reopens it.
             if (splashSafeBtn) splashSafeBtn.setAttribute('aria-pressed', String(next));
             if (splashSafeState) splashSafeState.textContent = next ? 'ON' : 'OFF';
-        });
-    }
-    if (bassHapticsBtn) {
-        setToggleState(bassHapticsBtn, vrClubInstance.bassHapticsEnabled);
-        bassHapticsBtn.addEventListener('click', () => {
-            const next = !vrClubInstance.bassHapticsEnabled;
-            vrClubInstance.setBassHapticsEnabled(next);
-            setToggleState(bassHapticsBtn, next);
         });
     }
 
@@ -1472,13 +1463,13 @@ function initAudioMenu() {
 /**
  * In someone else's room the host owns the music and the lights. Every control in the lighting and audio panels that
  * would change them is dimmed and swallowed (one capture-phase listener per panel, so a control added later is covered
- * too), and a note says whose they are. A guest's own comfort settings stay live: Safe Mode, VR comfort, haptics,
+ * too), and a note says whose they are. A guest's own comfort settings stay live: Safe Mode, VR comfort,
  * graphics quality, and the music and ambience volumes.
  */
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjBassHapticsBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people]' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people]' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #djStyle' }
     ];
     const renders = [];

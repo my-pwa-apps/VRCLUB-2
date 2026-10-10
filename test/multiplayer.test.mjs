@@ -341,7 +341,6 @@ test('the VR person page delegates host transfer, confirms a second press, hides
     ui._refreshVRQuickMenu = () => {};
     ui._showVRQuickMenuPage = () => {};
     ui.showErrorMessage = () => {};
-    ui.pulseHaptic = () => {};
     ui._vrPerson = 'p1';
     const common = { back: { action: 'back' }, close: { action: 'close' } };
     const button = ui._vrNetPageDefinitions('person', common).find(item => item.op === 'peerHost');

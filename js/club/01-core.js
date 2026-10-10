@@ -291,14 +291,7 @@ class VRClubCore {
         // cannot bring anyone back. Persisted as the list of HIDDEN groups, so a new visitor gets the full club.
         this.peopleVisibility = VRClubCore.resolvePeopleVisibility();
 
-        // === HAPTICS ===
-        // Bass-driven controller rumble. Off by default to respect battery /
-        // user preference; toggle in the VJ menu. Persists across sessions.
-        this.bassHapticsEnabled = (() => {
-            try { return localStorage.getItem('vrclub.bassHaptics') === '1'; } catch (_) { return false; }
-        })();
-        this._lastHapticPulseAt = 0;     // ms timestamp guard (prevents rumble spam)
-        this._xrControllers = [];        // Tracked controllers for haptic dispatch
+        this._xrControllers = [];        // Tracked controllers (body arms, pointer selection)
 
         // === EMBODIMENT ===
         // Desktop walking head-bob. A camera that glides at a fixed height reads as a
@@ -1133,7 +1126,6 @@ class VRClubCore {
             materials: this.scene ? this.scene.materials.length : 0,
             audioState: this.audioContext ? this.audioContext.state : 'none',
             safeMode: this.photosensitiveSafeMode,
-            bassHaptics: this.bassHapticsEnabled,
             recentLogs: this.diagnosticsBuffer ? this.diagnosticsBuffer.slice(-25) : []
         };
     }

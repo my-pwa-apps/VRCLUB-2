@@ -4400,7 +4400,6 @@ test('social wheel maps stick directions, paginates, and restores turning only a
         turning: [{ feature: movement, enabled: true }, { feature: teleport, enabled: false }]
     };
     club._drawVRSocialWheel = () => {};
-    club.pulseHaptic = () => {};
     club._moveVRSocialWheel(0, -1);
     assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'CHAT');
     club._moveVRSocialWheel(1, 0);
@@ -4663,20 +4662,20 @@ test('VR jump arc is identical at 72 and 120 Hz and lands at the player\'s own e
     assert.equal(at72.gravity, false, 'landing must not re-enable camera gravity (it fights the walking-surface follow)');
 });
 
-test('disabled haptics also suppress VR menu feedback pulses', () => {
+test('haptics are gone: no option, no preference, no controller vibration code', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
-    let pulses = 0;
-    const club = {
-        bassHapticsEnabled: false,
-        _xrControllers: [{ inputSource: { gamepad: {
-            hapticActuators: [{ pulse() { pulses++; } }]
-        } } }]
-    };
-    window.VRClubUI.prototype.pulseHaptic.call(club);
-    assert.equal(pulses, 0);
-    club.bassHapticsEnabled = true;
-    window.VRClubUI.prototype.pulseHaptic.call(club);
-    assert.equal(pulses, 1);
+    assert.equal(window.VRClubUI.prototype.pulseHaptic, undefined, 'menu feedback pulses were removed with the option');
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.doesNotMatch(html, /vjBassHapticsBtn|>\s*HAPTICS\s*</i, 'the VJ panel has no Haptics button');
+    for (const file of ['js/club/01-core.js', 'js/club/07-animation-core.js', 'js/club/10-ui.js', 'js/club/11-audio-crowd.js', 'js/ui-init.js', 'js/vjDesk.js']) {
+        assert.doesNotMatch(readFileSync(join(ROOT, file), 'utf8'), /bassHaptics|pulseHaptic|hapticActuators|vibrationActuator|vrclub\.bassHaptics/, file);
+    }
+    const club = Object.create(window.VRClubUI.prototype);
+    club.multiplayer = null;
+    club._multiplayer = () => null;
+    const comfort = club._vrQuickMenuPageDefinitions('comfort').filter(Boolean).map(item => item.label);
+    assert.ok(!comfort.includes('HAPTICS'), 'the VR COMFORT page has no HAPTICS button');
+    assert.ok(comfort.includes('SAFE MODE') && comfort.includes('LOCOMOTION'));
 });
 
 test('clear-air test suppresses fog and particles despite smoke cues in both modes', () => {
@@ -6873,7 +6872,6 @@ test('the VR seek bar maps a pointer position to a fraction, drags and commits o
     club.audioElement = fakeAudio({ duration: 3000, currentTime: 600 });
     club.nowPlayingLabel = 'Resident / Episode 803';
     club._vrSeek = { mesh, width: 1.48, drag: null, texture: { getContext: () => ctx, update() {} } };
-    club.pulseHaptic = () => {};
     let toast = '';
     club.showErrorMessage = text => { toast = text; };
 
@@ -6944,7 +6942,7 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     const toasts = [];
     Object.assign(club, {
         musicLibrary: player,
-        pulseHaptic() {}, _refreshVRQuickMenu() {},
+        _refreshVRQuickMenu() {},
         showErrorMessage: text => toasts.push(text),
         seekAudioBy: delta => { log.push(['seekBy', delta]); return true; },
         toggleAudioPlayback: () => { log.push(['toggle']); return true; }
@@ -7322,7 +7320,6 @@ test('VR menu: the room-code keypad types six digits, deletes, and the online pa
     const club = Object.create(proto);
     club.multiplayer = { joinRoom: code => { joined.push(code); return true; }, currentRoom: 'lobby', connected: false };
     club.showErrorMessage = () => {};
-    club.pulseHaptic = () => {};
     const shown = [];
     club._showVRQuickMenuPage = page => shown.push(page);
     window.ClubMultiplayer = class { static EMOJI = []; };
@@ -7361,7 +7358,7 @@ test('VR menu: lighting and music buttons read HOST ONLY for a guest, and travel
         assert.equal(proto._vrQuickMenuButtonValue.call(club, owned, true), 'HOST ONLY', JSON.stringify(owned));
     }
     for (const local of [{ action: 'travel', control: 'danceFloor' }, { control: 'photosensitiveSafeMode' }, { control: 'vrComfortMode' },
-        { control: 'bassHapticsEnabled' }, { action: 'quality' }]) {
+        { action: 'quality' }]) {
         assert.notEqual(proto._vrQuickMenuButtonValue.call(club, local, true), 'HOST ONLY', JSON.stringify(local));
     }
     club.multiplayer = { following: false };
@@ -7426,7 +7423,6 @@ function deskHarness() {
         spotlightMode: 0, spotlightPattern: 0, vjManualMode: false, lastVJInteraction: 0, VJ_TIMEOUT: 60,
         photosensitiveSafeMode: false, multiplayer: null,
         showErrorMessage: text => toasts.push(text),
-        pulseHaptic() {},
         isPeopleVisible: name => people[name] !== false,
         togglePeopleVisible: name => (people[name] = people[name] === false),
         getPlaybackInfo: () => ({ playing: false }),

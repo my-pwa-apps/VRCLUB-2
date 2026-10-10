@@ -173,7 +173,6 @@ const VJDesk = {
         if (!hit.button) return true;
         const button = hit.button;
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
-        this.pulseHaptic(0.7, 30);
         if (button.kind === 'fader') {
             if (this._vjDeskSetFader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
         } else {

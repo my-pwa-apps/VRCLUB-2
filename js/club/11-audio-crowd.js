@@ -749,50 +749,6 @@ class VRClubAudioCrowd extends VRClubUI {
     static get KICK_MAX_STEPS() { return 16; }
 
     /**
-     * Pulse VR controllers in time with bass hits.
-     * Massive immersion gain — gives the user a physical "thump" on each kick drum,
-     * substituting for the chest-rattling sub-bass of a real club PA.
-     *
-     * Throttled so we don't spam the haptic bus (which causes the actuator to
-     * desync from audio). Honors `bassHapticsEnabled` so the user can opt out.
-     */
-    _updateBassHaptics(audioData) {
-        if (!this.bassHapticsEnabled) return;
-        if (!this._xrControllers || this._xrControllers.length === 0) return;
-        if (!audioData || !audioData.hasAudio) return;
-
-        const bass = audioData.bass || 0;
-        if (bass < 0.55) return; // Only fire on real kicks, not ambient rumble
-
-        const now = performance.now();
-        // 4 Hz cap — matches typical kick-drum cadence (~140 BPM eighths)
-        if (now - this._lastHapticPulseAt < 140) return;
-        this._lastHapticPulseAt = now;
-
-        const intensity = Math.min(1.0, (bass - 0.55) * 2.2); // 0..1
-        const duration = 60 + Math.floor(intensity * 80);     // 60..140 ms
-
-        for (let i = 0; i < this._xrControllers.length; i++) {
-            const ctrl = this._xrControllers[i];
-            try {
-                const inputSource = ctrl && ctrl.inputSource;
-                const gp = inputSource && inputSource.gamepad;
-                if (!gp) continue;
-                // Standards-compliant path (Quest browser supports this on WebXR gamepads)
-                if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
-                    gp.hapticActuators[0].pulse(intensity, duration);
-                } else if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
-                    gp.vibrationActuator.playEffect('dual-rumble', {
-                        duration: duration,
-                        strongMagnitude: intensity,
-                        weakMagnitude: intensity * 0.6
-                    });
-                }
-            } catch (_) { /* Per-controller failures must never break the audio loop */ }
-        }
-    }
-
-    /**
      * Toggle photosensitive Safe Mode. Disables strobes and bloom flashes
      * for users with photosensitive epilepsy or migraine sensitivity.
      * Persists across sessions.
@@ -885,16 +841,6 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
         return level;
-    }
-
-    /**
-     * Toggle bass-driven controller haptics. Persists across sessions.
-     */
-    setBassHapticsEnabled(enabled) {
-        this.bassHapticsEnabled = !!enabled;
-        try { localStorage.setItem('vrclub.bassHaptics', this.bassHapticsEnabled ? '1' : '0'); } catch (_) {}
-        log.info(`📳 Bass haptics: ${this.bassHapticsEnabled ? 'ON' : 'OFF'}`);
-        return this.bassHapticsEnabled;
     }
 
     /**

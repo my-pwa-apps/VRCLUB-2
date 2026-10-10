@@ -453,7 +453,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     /**
-     * Animate in-world 3D button depression and trigger tactile haptic pulse.
+     * Animate in-world 3D button depression.
      * @param {BABYLON.AbstractMesh} mesh
      */
     _pressButton3D(mesh) {
@@ -461,40 +461,12 @@ class VRClubUI extends VRClubAnimationFinish {
         mesh._isPressed = true;
         const origY = mesh.position.y;
         mesh.position.y -= 0.015;
-        this.pulseHaptic(0.85, 35);
         setTimeout(() => {
             if (mesh) {
                 mesh.position.y = origY;
                 mesh._isPressed = false;
             }
         }, 120);
-    }
-
-    /**
-     * Dispatch a sharp tactile haptic pulse to all active VR controllers.
-     * @param {number} [intensity=0.8] 0.0 .. 1.0
-     * @param {number} [duration=30] ms
-     */
-    pulseHaptic(intensity = 0.8, duration = 30) {
-        if (!this.bassHapticsEnabled) return;
-        if (!this._xrControllers || this._xrControllers.length === 0) return;
-        for (let i = 0; i < this._xrControllers.length; i++) {
-            const ctrl = this._xrControllers[i];
-            try {
-                const inputSource = ctrl && ctrl.inputSource;
-                const gp = inputSource && inputSource.gamepad;
-                if (!gp) continue;
-                if (gp.hapticActuators && gp.hapticActuators[0] && gp.hapticActuators[0].pulse) {
-                    gp.hapticActuators[0].pulse(intensity, duration);
-                } else if (gp.vibrationActuator && gp.vibrationActuator.playEffect) {
-                    gp.vibrationActuator.playEffect('dual-rumble', {
-                        duration: duration,
-                        strongMagnitude: intensity,
-                        weakMagnitude: intensity * 0.5
-                    });
-                }
-            } catch (_) { /* ignore */ }
-        }
     }
 
     _drawVRQuickMenuButton(button) {
@@ -575,7 +547,7 @@ class VRClubUI extends VRClubAnimationFinish {
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
         if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
-        return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode', 'bassHapticsEnabled'].includes(button.control);
+        return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode'].includes(button.control);
     }
 
     _vrQuickMenuButtonValue(button, active) {
@@ -670,7 +642,6 @@ class VRClubUI extends VRClubAnimationFinish {
             comfort: [
                 { label: 'LOCOMOTION', control: 'vrComfortMode' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
-                { label: 'HAPTICS', control: 'bassHapticsEnabled' },
                 { label: 'QUALITY', action: 'quality' },
                 { label: 'CREDITS / LICENCES', action: 'credits' },
                 common.back,
@@ -936,7 +907,6 @@ class VRClubUI extends VRClubAnimationFinish {
         const fraction = this._vrSeekFractionAt(pickResult.pickedPoint);
         if (fraction === null) return;
         this._vrSeek.drag = { fraction };
-        this.pulseHaptic(0.5, 20);
         this._drawVRSeekBar();
     }
 
@@ -954,7 +924,6 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!drag) return;
         this._vrSeek.drag = null;
         this.seekAudioFraction(drag.fraction);
-        this.pulseHaptic(0.7, 30);
         this._drawVRSeekBar();
     }
 
@@ -990,7 +959,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 this.showErrorMessage(`Could not start the music: ${err && err.message ? err.message : 'unknown error'}`);
             }
         }
-        this.pulseHaptic(0.6, 30);
         this._refreshVRQuickMenu();
     }
 
@@ -1294,7 +1262,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 mp.joinRoom(code);
                 this.showErrorMessage(`Joining room ${code.slice(0, 3)} ${code.slice(3)}\u2026`);
                 this._showVRQuickMenuPage('online');
-                this.pulseHaptic(0.6, 30);
                 return;
             }
             case 'roomBack':
@@ -1318,7 +1285,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'select':
                 this._vrPerson = button.peer;
                 this._showVRQuickMenuPage('person');
-                this.pulseHaptic(0.45, 25);
                 return;
             case 'morePeople': {
                 const total = mp.people().length;
@@ -1331,7 +1297,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 if (mp.blockPeer(button.peer)) this.showErrorMessage(`Blocked ${person ? person.name : 'guest'}: you will not see or hear each other`);
                 this._vrPerson = null;
                 this._showVRQuickMenuPage('people');
-                this.pulseHaptic(0.7, 35);
                 return;
             }
             case 'peerKick':
@@ -1358,7 +1323,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 }
                 this._vrPerson = null;
                 this._showVRQuickMenuPage('people');
-                this.pulseHaptic(0.8, 40);
                 return;
             }
             case 'personalSpace': mp.setPersonalSpace(!mp.personalSpace); break;
@@ -1380,7 +1344,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 break;
             default: break;
         }
-        this.pulseHaptic(0.6, 30);
         this._refreshVRQuickMenu();
     }
 
@@ -1394,13 +1357,11 @@ class VRClubUI extends VRClubAnimationFinish {
             // Remember where this page was opened from, so its BACK returns there (REACT is reached from HOME and ONLINE).
             this._vrPageParent = { ...(this._vrPageParent || {}), [button.target]: this._vrQuickMenuPage || 'home' };
             this._showVRQuickMenuPage(button.target);
-            this.pulseHaptic(0.45, 25);
             return;
         }
         if (button.action === 'back') {
             const parent = this._vrPageParent && this._vrPageParent[this._vrQuickMenuPage];
             this._showVRQuickMenuPage(parent || button.target || 'home');
-            this.pulseHaptic(0.35, 20);
             return;
         }
         if (button.action === 'net' || button.action === 'person') {
@@ -1428,7 +1389,6 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'quality') {
             const tiers = ['balanced', 'high', 'ultra'];
             this.setGraphicsTier(tiers[(tiers.indexOf(this.graphicsTier) + 1) % tiers.length]);
-            this.pulseHaptic(0.7, 35);
             this._refreshVRQuickMenu();
             return;
         }
@@ -1455,11 +1415,6 @@ class VRClubUI extends VRClubAnimationFinish {
             this._refreshVRQuickMenu();
             return;
         }
-        if (button.control === 'bassHapticsEnabled') {
-            this.setBassHapticsEnabled(!this.bassHapticsEnabled);
-            this._refreshVRQuickMenu();
-            return;
-        }
         if (button.action === 'people') {
             // Who is in the club: personal and local, so it is never gated on the host.
             const here = this.togglePeopleVisible(button.people);
@@ -1467,7 +1422,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 : button.people === 'dj' ? 'The DJ'
                 : button.people === 'dancers' ? 'The dancers' : 'The bystanders';
             this.showErrorMessage(here ? `${who}: back in the club` : `${who}: sent home`);
-            this.pulseHaptic(0.6, 30);
             this._refreshVRQuickMenu();
             return;
         }
@@ -1475,7 +1429,7 @@ class VRClubUI extends VRClubAnimationFinish {
         // The remaining show controls are host-owned in someone else's room (the legacy "lights" guard name is
         // retained for multiplayer protocol compatibility).
         if (!this.guardHostControl('lights')) return;
-        if (this.toggleLightControl(button.control)) this.pulseHaptic(0.7, 35);
+        this.toggleLightControl(button.control);
         this._refreshVRQuickMenu();
     }
 
@@ -1618,7 +1572,6 @@ class VRClubUI extends VRClubAnimationFinish {
         if (next) this._refreshVRQuickMenu();
         if (!next) this._stopVRMusicTicker();
         this._vrQuickMenuRoot.setEnabled(next);
-        this.pulseHaptic(next ? 0.8 : 0.35, 35);
         return next;
     }
 
@@ -1686,7 +1639,6 @@ class VRClubUI extends VRClubAnimationFinish {
                     if (state.open) this._drawVRSocialWheel();
                 });
         }
-        this.pulseHaptic(0.45, 25);
         this._drawVRSocialWheel();
     }
 
@@ -1755,7 +1707,6 @@ class VRClubUI extends VRClubAnimationFinish {
         if (selected === state.selected) return;
         state.selected = selected;
         this._drawVRSocialWheel();
-        if (selected >= 0) this.pulseHaptic(0.2, 15);
     }
 
     _closeVRSocialWheel(restoreNow = false) {
