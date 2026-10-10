@@ -1064,18 +1064,25 @@ html, body {
 
 .audio-input-group {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 8px;
 }
 
+.audio-input-group .audio-input {
+    flex: 1 1 100%;
+}
+
 .audio-primary-button {
-    min-width: 112px;
+    min-width: 0;
+    flex: 1 1 0;
     justify-content: center;
     white-space: nowrap;
 }
 
 .audio-paste-button {
-    min-width: 82px;
+    min-width: 0;
+    flex: 1 1 0;
     justify-content: center;
     padding-inline: 12px;
     white-space: nowrap;
@@ -1098,6 +1105,7 @@ html, body {
     color: white;
     font-size: 13px;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 44px;
 }
 
 .audio-input::placeholder {
@@ -1119,6 +1127,7 @@ html, body {
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
+    min-height: 44px;
     transition: background var(--transition-fast), transform var(--transition-fast);
     display: flex;
     align-items: center;
