@@ -96,10 +96,11 @@ test('feed URLs and SoundCloud pages are classified for analysed playback', () =
     for (const url of [
         'https://podcast.hernancattaneo.com/feed.xml',
         'https://podcast.hernancattaneo.com/',
-        'https://feeds.example/show/feed',
-        'https://feeds.example/show.rss',
     ]) {
         assert.equal(kind(url), 'feed', url);
+    }
+    for (const url of ['https://feeds.example/show/feed', 'https://feeds.example/show.rss']) {
+        assert.equal(kind(url), 'direct', 'only hosts the CSP allows are read as feeds: ' + url);
     }
     assert.equal(kind('https://podcast.hernancattaneo.com/ep.mp3'), 'direct');
     const upgraded = libraryFixture().library.save('http://podcast.hernancattaneo.com/feed.xml');
@@ -231,7 +232,7 @@ test('a Hernan Cattaneo / RSS feed URL is saved and plays its newest episode', a
     assert.equal(f.fetches[0][1].headers.Range, 'bytes=0-65535', 'the big Resident feed is read by range first');
     assert.equal(f.library.matchesPlaybackUrl('https://podcast.hernancattaneo.com/feed.xml', 'https://mcdn.podbean.com/newest.mp3'), true);
     const empty = libraryFixture(null, '<rss/>');
-    empty.library.save('https://feeds.example/empty.rss');
+    empty.library.save('https://podcast.hernancattaneo.com/feed.xml');
     await assert.rejects(empty.library.play(), /No playable episode/);
 });
 
@@ -269,6 +270,15 @@ test('any Hernan Cattaneo episode can be listed, chosen, remembered and played (
     assert.equal(libraryFixture().library.save('https://audio.example/a.mp3').episode, undefined);
 });
 
+test('every host the Music code reads from the browser is allowed by the page CSP', () => {
+    const html = readFileSync(path.join(root, 'index.html'), 'utf8');
+    const connect = /connect-src([^;]*);/.exec(html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/s)[1])[1];
+    const feed = /RESIDENT_FEED = '(https:\/\/[^/']+)/.exec(source)[1];
+    assert.ok(connect.includes(feed), `connect-src must allow ${feed} (the Resident feed) or Hernan sets never load`);
+    assert.ok(connect.includes('https://vrclub-network.garfieldapp.workers.dev'), 'connect-src must allow the relay that resolves SoundCloud and Colourizon');
+    assert.ok(/ws:/.test(connect), 'a self-hosted relay address needs ws:/wss:');
+});
+
 const options = {
     url: 'https://club.example/nocturne/', packageId: 'com.example.nocturne', appId: '123456789',
     fingerprint: Array(32).fill('AB').join(':'), keystore: path.resolve(root, '..', 'private-signing', 'quest.keystore'),
@@ -304,7 +314,11 @@ test('Quest packaging rejects incomplete identity, insecure URLs and in-tree sig
 test('Quest entry references no catalogue, artist DJs or Mixamo model files', () => {
     const html = readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.match(html, /src="js\/musicLibrary\.js/);
-    assert.doesNotMatch(html, /src="js\/podcasts\.js|podcast\.hernancattaneo|feeds\.soundcloud/);
+    // No catalogue script or preselected feed: the only mention allowed is the CSP's connect-src host for the Resident
+    // feed, which the guest's own pasted link needs.
+    assert.doesNotMatch(html, /src="js\/podcasts\.js|feeds\.soundcloud/);
+    const withoutCsp = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/s, '').replace(/<!--[\s\S]*?-->/g, '');
+    assert.doesNotMatch(withoutCsp, /podcast\.hernancattaneo/);
     const crowd = readFileSync(path.join(root, 'js', 'club', '11-audio-crowd.js'), 'utf8');
     assert.doesNotMatch(crowd, /js\/models\/avatars\/(?:Hip Hop Dancing|house|rumba_dancing_female_character)\.glb/);
     assert.doesNotMatch(crowd, /['"][^'"]*(?:hip_hop|rumba_danc|house_danc|club-dj-hernan|club-dj-melera)[^'"]*\.glb['"]/i);

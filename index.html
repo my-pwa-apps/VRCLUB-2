@@ -24,9 +24,10 @@
          but blocking it also logs a CSP violation on every VR entry.
 
          No podcast or music catalogue is bundled. Music links are supplied by the guest;
-         media-src allows their audio. SoundCloud tracks, and Miss Melera's Colourizon feed, play through the club
-         relay's allow-listed podcast-stream endpoints (CORS-safe audio for the analyser); only tracks SoundCloud
-         itself serves to podcast players resolve.
+         media-src allows their audio. connect-src allows podcast.hernancattaneo.com so the Resident feed can be read
+         (its episode list and newest episode), as on main. SoundCloud tracks, and Miss Melera's Colourizon feed, play
+         through the club relay's allow-listed podcast-stream endpoints (CORS-safe audio for the analyser); only
+         tracks SoundCloud itself serves to podcast players resolve.
 
          connect-src also allows the ws:/wss: schemes (any origin) for the optional
          multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
@@ -55,7 +56,7 @@
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
         frame-src https://w.soundcloud.com;
-        connect-src 'self' blob: https://immersive-web.github.io https://api.mitwee.nl https://vrclub-network.garfieldapp.workers.dev ws: wss:;
+        connect-src 'self' blob: https://immersive-web.github.io https://podcast.hernancattaneo.com https://api.mitwee.nl https://vrclub-network.garfieldapp.workers.dev ws: wss:;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">

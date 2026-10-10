@@ -1199,8 +1199,10 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   `lastMode === 'player'`); then `_unanalysedDanceMusic()` supplies only crowd/DJ choreography on a shared
   120 BPM clock (no analyser samples, kicks or fabricated drops) and the lights run their own tempo clock.
   An unnamed SoundCloud set takes the track's title on first play.
-  An RSS feed URL (`podcast.hernancattaneo.com`, `*.rss`, `*.xml`, `/feed`; kind `feed`) is saved as
-  pasted. Its episode picker (`listEpisodes()` reads the whole feed, 10 min cache, at most 400) offers the newest
+  An RSS feed URL (kind `feed`) is supported ONLY for `podcast.hernancattaneo.com` (any non-audio path, plus the
+  `http://` upgrade): the page CSP's `connect-src` lists exactly the hosts the browser may read, and a test ties
+  `RESIDENT_FEED` and the relay origin to it (the Quest branch once dropped the Resident host, so Hernan sets
+  never loaded). Its episode picker (`listEpisodes()` reads the whole feed, 10 min cache, at most 400) offers the newest
   episode (default; the Resident feed is read by a 64 KB range first, like `main`), a random one, or any episode;
   `setEpisode()` saves the choice with the set (`item.episode`, kept when the URL is saved again). Only the
   Resident and Podbean hosts accept `http://`, upgraded to HTTPS on save.

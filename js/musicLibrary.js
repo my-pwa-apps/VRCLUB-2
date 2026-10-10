@@ -100,11 +100,12 @@ class MusicLibrary {
         return !!url && url.hostname.toLowerCase() === 'podcast.hernancattaneo.com';
     }
 
-    /** An RSS feed (or Hernan Cattaneo's podcast site, whose feed is the playable source): its newest episode plays. */
+    /**
+     * Hernan Cattaneo's podcast site (anything that is not an audio file): its RSS feed is the playable source. Only
+     * this host is supported because the page's CSP lists exactly the hosts the browser may read.
+     */
     static isFeedUrl(url) {
-        if (!url) return false;
-        if (MusicLibrary.isResidentUrl(url)) return !/\.(mp3|m4a|ogg|opus|wav|aac)$/i.test(url.pathname);
-        return /(\.(rss|xml)|\/feed\/?)$/i.test(url.pathname);
+        return !!url && MusicLibrary.isResidentUrl(url) && !/\.(mp3|m4a|ogg|opus|wav|aac)$/i.test(url.pathname);
     }
 
     _meleraSlug(url) {
