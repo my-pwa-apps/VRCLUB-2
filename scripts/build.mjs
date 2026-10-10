@@ -52,7 +52,12 @@ const jsName = `app-${digest(result.code)}.js`;
 await writeFile(path.join(dist, 'assets', jsName), `${result.code}\n//# sourceMappingURL=${jsName}.map\n`);
 await writeFile(path.join(dist, 'assets', `${jsName}.map`), result.map);
 
-const css = await readFile(path.join(root, 'css/styles.css'));
+const cssSource = await readFile(path.join(root, 'css/styles.css'), 'utf8');
+const css = (await transform(cssSource, {
+    loader: 'css',
+    minify: true,
+    target: ['es2020']
+})).code;
 const cssName = `styles-${digest(css)}.css`;
 await writeFile(path.join(dist, 'assets', cssName), css);
 

@@ -104,6 +104,13 @@ test('robots and sitemap expose only the canonical production URL', () => {
     assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the app shell is an indexable HTML page');
 });
 
+test('the production builder minifies the CSS asset', () => {
+    const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
+    assert.match(build, /loader:\s*'css'/, 'build must pass CSS through the minifier');
+    assert.match(build, /minify:\s*true/, 'build must minify CSS');
+    assert.match(build, /digest\(css\)/, 'the immutable CSS name must hash minified bytes');
+});
+
 test('script load order honours the dependency contract', () => {
     const order = scriptSrcs.map(srcPath);
     const idx = (f) => order.indexOf(f);

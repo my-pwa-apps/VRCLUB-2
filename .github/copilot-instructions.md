@@ -697,6 +697,10 @@ The 1200x630 preview is `icons/social-preview.png`, generated from the editable
 Keep development and `pages.dev` hostnames out of canonical metadata and the sitemap so they do
 not compete with production in search results.
 
+The production builder minifies the CSS with esbuild and hashes the minified bytes; JavaScript is
+already emitted as an IIFE minified by esbuild. Keep source styles readable in `css/styles.css`;
+never commit generated `dist/` output.
+
 `.gitattributes` pins LF line endings and marks `js/vendor/**` as `-text`. The vendored
 bundles are byte-pinned by sha384, and Windows `core.autocrlf` would otherwise rewrite them
 and fail `npm test`.
