@@ -353,14 +353,13 @@
 
             <!-- User-provided music only -->
             <div class="audio-section">
-                <div class="vj-section-title">Choose a file or paste a URL</div>
-                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, a podcast feed (such as Hernan Cattaneo's Resident, where you can pick any episode) or a SoundCloud track. SoundCloud tracks play through the club's own audio, so the crowd, DJ and lights follow the music, whenever the creator shares the track with podcast players. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
+                <div class="vj-section-title">Add music</div>
                 <div class="audio-input-group">
-                    <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
+                    <input type="url" class="audio-input" id="streamUrl" placeholder="Paste a music link (https://...)"
                               inputmode="url" autocomplete="off"
-                           aria-label="Audio stream URL">
+                           aria-label="Music link">
                     <button class="audio-button audio-paste-button" id="pasteStreamBtn" type="button"
-                            aria-label="Paste a music URL from the clipboard">Paste URL</button>
+                            aria-label="Paste a music link from the clipboard">Paste</button>
                     <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
                         <span aria-hidden="true">▶️</span>
                         <span id="playStreamBtnLabel">Save &amp; play</span>
@@ -371,13 +370,6 @@
                     <label for="feedEpisode">Episode</label>
                     <select class="audio-input" id="feedEpisode" aria-label="Podcast episode"></select>
                 </div>
-                <div class="audio-file-upload">
-                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
-                    <label for="audioFileInput" class="audio-file-label">
-                        Choose Audio File
-                    </label>
-                </div>
-                <div id="audioFileName" class="audio-file-name"></div>
                 <div id="soundCloudFallback" class="audio-fallback" role="alert" hidden>
                     <p class="network-help" id="soundCloudFallbackText"></p>
                     <button class="audio-button" id="soundCloudFallbackBtn" type="button">Open in SoundCloud player</button>
@@ -385,6 +377,23 @@
                 <div id="soundCloudPlayer" class="soundcloud-player" hidden>
                     <p class="network-help">SoundCloud's own player cannot be analysed: the crowd and DJ dance at an independent tempo and the lights run their own show. Use its controls for position and volume. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
                 </div>
+                <div class="audio-file-upload">
+                    <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
+                    <label for="audioFileInput" class="audio-file-label">
+                        Or choose an audio file
+                    </label>
+                </div>
+                <div id="audioFileName" class="audio-file-name"></div>
+                <details class="audio-help">
+                    <summary>What can I paste?</summary>
+                    <ul class="network-help">
+                        <li><strong>A direct audio link:</strong> an HTTPS MP3, M4A, OGG or stream. The host must allow CORS.</li>
+                        <li><strong>A SoundCloud track.</strong> It plays through the club's own audio, so the crowd, DJ and lights follow it, whenever the creator shares the track with podcast players.</li>
+                        <li><strong>Hernan Cattaneo's Resident feed:</strong> then pick any episode.</li>
+                        <li>YouTube and Spotify pages are not playable audio.</li>
+                        <li>No music is included: you bring your own.</li>
+                    </ul>
+                </details>
             </div>
 
             <div class="audio-section">

@@ -570,8 +570,12 @@
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose
     });
-    const toggle = element('button', 'Access', 'payment-toggle');
+    // Same pattern as the other corner buttons: an icon over one word.
+    const toggle = element('button', '', 'payment-toggle');
     toggle.type = 'button';
+    const toggleIcon = element('span', '\uD83D\uDD11');
+    toggleIcon.setAttribute('aria-hidden', 'true');
+    toggle.append(toggleIcon, element('span', 'Access', 'toggle-word'));
     toggle.addEventListener('click', showGate);
     document.body.append(toggle);
     window.addEventListener('pagehide', onPageHide);

@@ -22,6 +22,22 @@ function ensureMusicLibrary(club) {
 let entryNowPlaying = '';
 
 /**
+ * The three side panels share one screen area, so opening one closes the others: they used to open on top of each
+ * other (the wide VJ panel covered the Music panel's controls). Focus stays where the guest just acted.
+ */
+const SIDE_PANELS = Object.freeze([['vjMenu', 'vjToggle'], ['audioMenu', 'audioToggle'], ['networkMenu', 'networkToggle']]);
+function closeOtherSidePanels(openId) {
+    for (const [menuId, toggleId] of SIDE_PANELS) {
+        if (menuId === openId) continue;
+        const menu = document.getElementById(menuId);
+        if (!menu || menu.classList.contains('hidden')) continue;
+        menu.classList.add('hidden');
+        const toggle = document.getElementById(toggleId);
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    }
+}
+
+/**
  * Every UI timing constant in one place. These were previously six different
  * hard-coded setTimeout values with no rationale, one of which (the 1500 ms label
  * revert) raced the 2000 ms state poller.
@@ -362,6 +378,7 @@ function initVJMenu() {
         if (restoreFocus) vjToggle.focus();
     };
     const openVJMenu = () => {
+        closeOtherSidePanels('vjMenu');
         vjMenu.classList.remove('hidden', 'minimized');
         vjToggle.setAttribute('aria-expanded', 'true');
         updateButtonStates();
@@ -998,6 +1015,7 @@ function initAudioMenu() {
         if (restoreFocus) audioToggle.focus();
     };
     const openAudioMenu = () => {
+        closeOtherSidePanels('audioMenu');
         audioMenu.classList.remove('hidden', 'minimized');
         audioToggle.setAttribute('aria-expanded', 'true');
         audioToggle.classList.remove('needs-attention');
@@ -1777,6 +1795,7 @@ function initNetworkMenu() {
         if (restoreFocus) networkToggle.focus();
     };
     const openNetworkMenu = () => {
+        closeOtherSidePanels('networkMenu');
         networkMenu.classList.remove('hidden', 'minimized');
         networkToggle.setAttribute('aria-expanded', 'true');
         if (networkTitle) networkTitle.focus();

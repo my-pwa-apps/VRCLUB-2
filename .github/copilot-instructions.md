@@ -1292,7 +1292,12 @@ Play saved set and ADD LINKS / FILE. `_openQuestPanel()` exits XR for music entr
 the guest then presses Enter VR to return. CROWD → CHOOSE DJ offers male/female.
 Its clock redraws from a 500 ms ticker that runs only while that page is open;
 Y/B or the runtime menu component opens it, world-locked where the player is looking
-(`_placeVRQuickMenu()`); never parent it to the XR camera. Haptics are opt-in for new visitors and
+(`_placeVRQuickMenu()`); never parent it to the XR camera. **Its backing is a rounded, translucent glass sheet** drawn
+into a `DynamicTexture` (`_drawVRQuickMenuBack`, 632 px a metre, alpha from the same texture) only as tall as the page's
+last button row, not an opaque slab with dead space; the second line of a button (ON/OFF, the current value) is 40 px
+and the page subtitle 36 px, shrinking to fit, because the old 30-32 px text was about one degree tall in a headset.
+Buttons that leave the immersive session (ADD MUSIC, CREDITS / LICENCES) say `LEAVES VR` before they are pressed.
+Haptics are opt-in for new visitors and
 the same preference gates both bass pulses and UI feedback. These preference and
 travel actions must not force VJ manual mode.
 
@@ -1351,7 +1356,12 @@ close button; every panel has its own close. Each panel has a definite `width` (
 Multiplayer panel across the screen). Multi-line explanations use `.network-help` (and `.vj-help` under a VJ section
 title); `.audio-file-name` is single-line with an ellipsis and is only for short status lines.
 The Quest Music panel is height-bounded at every viewport width, with a fixed header and a scrollable
-`.audio-content`; focusing the URL must never move the close/Enter VR path offscreen.
+`.audio-content`; focusing the URL must never move the close/Enter VR path offscreen. It leads with the link field and
+its Paste / Save & play actions; the long "what can I paste" explanation is a `<details class="audio-help">`, so the
+controls are never pushed below the fold. **The VJ, Music and Multiplayer panels are mutually exclusive:** each
+`open*Menu()` calls `closeOtherSidePanels(id)` first (they used to open on top of each other, the wide VJ panel hiding
+the Music controls). The Access button (`.payment-toggle`) follows the corner-button pattern (icon over one word).
+`[hidden]` must beat any `display:` set on a component (`.audio-source-hint[hidden]`): a hidden hint once still drew its bullet.
 
 **Plain-language UI rule.** Every control must say what it does without a tooltip (touch screens and the headset never
 show one): the corner buttons carry a word under the icon (Lights, Music, People, Go to), every VJ section has a

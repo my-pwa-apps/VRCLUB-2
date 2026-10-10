@@ -529,11 +529,15 @@ class VRClubUI extends VRClubAnimationFinish {
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         const value = this._vrQuickMenuButtonValue(button, active);
-        context.fillText(button.label, 256, value ? 70 : 96, 480);
+        context.fillText(button.label, 256, value ? 66 : 96, 480);
         if (value) {
-            context.fillStyle = disabled ? '#8a919e' : active ? '#b9fff5' : '#c5cad4';
-            context.font = 'bold 32px sans-serif';
-            context.fillText(value, 256, 132, 480);
+            context.fillStyle = disabled ? '#8a919e' : active ? '#d2fff9' : '#d5dae3';
+            // The second line (ON / OFF, the current value, why a button is unavailable) is what a guest checks most: it was
+            // 32 px on a 192 px button, small enough to be unreadable at arm's length in a headset.
+            let size = 40;
+            context.font = `bold ${size}px sans-serif`;
+            while (size > 28 && context.measureText(value).width > 470) context.font = `bold ${--size}px sans-serif`;
+            context.fillText(value, 256, 136, 480);
         }
         button.texture.update();
     }
@@ -584,6 +588,8 @@ class VRClubUI extends VRClubAnimationFinish {
             return item ? item.name.slice(0, 22).toUpperCase() : 'ADD LINKS FIRST';
         }
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
+        // These two leave the immersive session for an on-screen page (a headset has no keyboard): say so before the press.
+        if (button.action === 'musicSetup' || button.action === 'credits') return 'LEAVES VR';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
         if (button.action === 'cycle' && button.control === 'cycleLedPattern') {
             return `PATTERN ${(this.ledPattern || 0) + 1}`;
@@ -759,6 +765,7 @@ class VRClubUI extends VRClubAnimationFinish {
             else this._stopVRMusicTicker();
             this._drawVRSeekBar();
         }
+        this._drawVRQuickMenuBack(definitions);
         if (this._vrQuickMenuHeaderTexture) {
             const context = this._vrQuickMenuHeaderTexture.getContext();
             context.clearRect(0, 0, 1024, 192);
@@ -769,26 +776,65 @@ class VRClubUI extends VRClubAnimationFinish {
             const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
                 voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS' };
             context.fillText(titles[page] || page.toUpperCase(), 54, 72);
-            context.fillStyle = '#a7afbf';
-            context.font = '30px sans-serif';
+            context.fillStyle = '#b4bccb';
             // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
             const hostOwned = ['home', 'lighting', 'effects', 'show', 'music'].includes(page) && this.isFollowingHost();
             const host = hostOwned ? (this.multiplayer.hostName() || 'THE HOST').toUpperCase().slice(0, 18) : '';
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
-                lighting: 'TURN THE CLUB\u2019S LIGHTS ON OR OFF, CHANGE THEIR COLOUR',
+                lighting: 'SWITCH LIGHTS ON OR OFF, CHANGE COLOURS',
                 effects: 'STROBES, SMOKE AND THE MIRROR BALL',
-                show: 'THE AUTOMATIC LIGHT SHOW THAT FOLLOWS THE MUSIC',
+                show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
-                crowd: 'SEND THE DANCERS, THE OTHER GUESTS OR THE DJ HOME',
+                crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
-                music: 'POINT + TRIGGER ON THE BAR TO GO ANYWHERE IN THE SET'
+                music: 'POINT AT THE BAR TO JUMP ANYWHERE IN THE SET'
             };
-            context.fillText(hostOwned
+            const subtitle = hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
-                : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`, 56, 142);
+                : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`;
+            // Large enough to read in a headset (it was 30 px, about 1 degree); long lines shrink to fit instead of overflowing.
+            let size = 36;
+            context.font = `${size}px sans-serif`;
+            while (size > 26 && context.measureText(subtitle).width > 920) context.font = `${--size}px sans-serif`;
+            context.fillText(subtitle, 56, 142);
             this._vrQuickMenuHeaderTexture.update();
         }
+    }
+
+    /**
+     * The glass behind the controls: a rounded, slightly translucent sheet as tall as this page's last button row.
+     * Row r's buttons are centred at y = 0.36 - r * 0.36 and are 0.27 m tall; the sheet's top edge is y = 0.86 (the
+     * panel mesh is 1.80 m tall and offset so its top stays there) and the texture is 632 px per metre.
+     */
+    _drawVRQuickMenuBack(definitions) {
+        const texture = this._vrQuickMenuBackTexture;
+        if (!texture) return;
+        let last = 0;
+        definitions.forEach((definition, index) => { if (definition) last = index; });
+        const rows = Math.floor(last / 3) + 1;
+        const PX = 632;
+        const bottom = Math.min(1.78, 0.86 - (0.36 - (rows - 1) * 0.36 - 0.135 - 0.07));
+        const w = 1024, top = 6, height = Math.round(bottom * PX) - top - 6, radius = 64;
+        const context = texture.getContext();
+        context.clearRect(0, 0, 1024, 1138);
+        const x = 6, width = w - 12;
+        context.beginPath();
+        context.moveTo(x + radius, top);
+        context.arcTo(x + width, top, x + width, top + height, radius);
+        context.arcTo(x + width, top + height, x, top + height, radius);
+        context.arcTo(x, top + height, x, top, radius);
+        context.arcTo(x, top, x + width, top, radius);
+        context.closePath();
+        const fill = context.createLinearGradient(0, top, 0, top + height);
+        fill.addColorStop(0, 'rgba(10, 20, 30, 0.90)');
+        fill.addColorStop(1, 'rgba(5, 9, 16, 0.84)');
+        context.fillStyle = fill;
+        context.fill();
+        context.lineWidth = 6;
+        context.strokeStyle = 'rgba(143, 255, 238, 0.45)';
+        context.stroke();
+        texture.update();
     }
 
     // ---- The seek bar -------------------------------------------------------------------------------------
@@ -848,7 +894,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ctx.fill();
         }
         ctx.fillStyle = '#c5cad4';
-        ctx.font = '30px sans-serif';
+        ctx.font = '34px sans-serif';
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
         const clock = window.AudioUtils ? window.AudioUtils.formatClock : (s => String(Math.floor(s)));
@@ -1438,18 +1484,25 @@ class VRClubUI extends VRClubAnimationFinish {
         const root = new BABYLON.TransformNode('vrQuickMenuRoot', this.scene);
         const panel = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuPanel', {
             width: 1.62,
-            height: 1.72,
+            height: 1.80,
             sideOrientation: BABYLON.Mesh.DOUBLESIDE
         }, this.scene);
         panel.parent = root;
+        panel.position.y = -0.04; // the plane's top edge stays at the header; the glass is drawn only as tall as the page needs
         panel.isPickable = false;
+        // A rounded, slightly translucent glass sheet drawn into this texture (see _drawVRQuickMenuBack) instead of a hard
+        // opaque slab: it keeps the room visible around the controls and has no dead space below short pages.
+        const backTexture = new BABYLON.DynamicTexture('vrQuickMenuBackTexture', { width: 1024, height: 1138 }, this.scene, true);
+        backTexture.hasAlpha = true;
         const panelMaterial = this.materialFactory.createStandardMaterial('vrQuickMenuPanelMat', {
-            diffuseColor: [0.015, 0.02, 0.03],
-            emissiveColor: [0.025, 0.04, 0.055],
+            emissiveColor: [0, 0, 0],
+            emissiveTexture: backTexture,
+            opacityTexture: backTexture,
             disableLighting: true
         });
-        panelMaterial.alpha = 0.96;
+        panelMaterial.backFaceCulling = false;
         panel.material = panelMaterial;
+        this._vrQuickMenuBackTexture = backTexture;
 
         const header = BABYLON.MeshBuilder.CreatePlane('vrQuickMenuHeader', {
             width: 1.48,

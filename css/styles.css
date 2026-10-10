@@ -1080,18 +1080,18 @@ html, body {
     white-space: nowrap;
 }
 
-.audio-paste-button {
+.audio-input-group .audio-paste-button {
     min-width: 0;
     flex: 1 1 0;
     justify-content: center;
     padding-inline: 12px;
     white-space: nowrap;
-    background: rgba(255, 255, 255, 0.16);
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
-.audio-paste-button:hover {
-    background: rgba(255, 255, 255, 0.24);
+.audio-input-group .audio-paste-button:hover {
+    background: rgba(255, 255, 255, 0.22);
 }
 
 .audio-input {
@@ -1278,13 +1278,65 @@ html, body {
 
 .audio-now-playing {
     font-size: 13px;
+    line-height: 1.35;
     padding: 8px 10px;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    text-overflow: ellipsis;
+    /* A status can be a full sentence ("No music included. Open Music to add your own set."): wrap it, do not clip it. */
+    overflow-wrap: anywhere;
+    max-height: 3.9em;
     overflow: hidden;
-    white-space: nowrap;
+}
+
+/* The long "what can I paste" explanation stays one tap away instead of pushing the controls down the panel. */
+/* The saved-sets form reads top to bottom: a small label above each full-width field (they used to run together
+   on one line, with 16 px labels beside half-width inputs). */
+#audioMenu .audio-section > label {
+    display: block;
+    margin: 10px 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+#audioMenu .audio-section > label:first-child {
+    margin-top: 0;
+}
+
+#audioMenu .audio-section > .audio-input {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.audio-help {
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.audio-help summary {
+    cursor: pointer;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    color: #9fb0ff;
+    font-weight: 600;
+}
+
+.audio-help summary:focus-visible {
+    outline: 3px solid #7aa2ff;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.audio-help ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.audio-help li {
+    margin: 4px 0;
 }
 
 .audio-source-hint {
@@ -1296,6 +1348,10 @@ html, body {
     color: rgba(255, 255, 255, 0.72);
     font-size: 11px;
     line-height: 1.35;
+}
+
+.audio-source-hint[hidden] {
+    display: none;
 }
 
 .audio-source-hint::before {
@@ -1420,7 +1476,7 @@ html, body {
         width: 100%;
     }
 
-    .audio-paste-button {
+    .audio-input-group .audio-paste-button {
         width: 100%;
     }
 }
@@ -2011,18 +2067,30 @@ button:active,
 .payment-devices button { display: block; width: 100%; margin-top: .35rem; }
 .payment-toggle {
     position: fixed;
-    top: 132px;
+    top: 144px;
     right: calc(20px + env(safe-area-inset-right, 0px));
     z-index: 101;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    line-height: 1;
+    min-width: 44px;
     min-height: 44px;
-    max-width: 130px;
     padding: 7px 12px;
-    border: 1px solid rgba(255, 255, 255, .2);
-    border-radius: 6px;
-    background: #23283b;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    -webkit-backdrop-filter: var(--blur-light);
+    backdrop-filter: var(--blur-light);
     color: white;
+    font-size: 16px;
     cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
 }
+.payment-toggle:hover { background: var(--accent); transform: scale(1.05); }
+.payment-toggle:focus-visible { outline: 3px solid #7aa2ff; outline-offset: 2px; }
 .payment-close {
     min-width: 64px;
     padding: .5rem .75rem;
