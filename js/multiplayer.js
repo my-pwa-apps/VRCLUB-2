@@ -76,7 +76,7 @@ class ClubMultiplayer {
         mirrorBallActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b', goboEnabled: 'b',
         spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
         goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
-        ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1]
+        ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31]
     });
     /** A dance ends when the guest walks this far from where it started. */
     static DANCE_BREAK_DISTANCE = 0.6;
@@ -1051,7 +1051,11 @@ class ClubMultiplayer {
         const out = {};
         for (const key of Object.keys(ClubMultiplayer.MANUAL_FIXTURES)) {
             const spec = ClubMultiplayer.MANUAL_FIXTURES[key];
-            const value = key === 'vjMaster' ? (club.vjDirector && club.vjDirector.targetMasterIntensity) : club[key];
+            const value = key === 'vjMaster' ? (club.vjDirector && club.vjDirector.targetMasterIntensity)
+                : key === 'strobePatternIndex'
+                    ? (typeof VRClubAnimationFinish !== 'undefined' ? VRClubAnimationFinish.STROBE_PATTERNS.indexOf(club.strobePattern) : -1)
+                    : club[key];
+            if (key === 'strobePatternIndex' && !(value >= 0)) continue;
             if (spec === 'b' ? typeof value === 'boolean' : (typeof value === 'number' && Number.isFinite(value))) out[key] = value;
         }
         return out;
@@ -1167,6 +1171,12 @@ class ClubMultiplayer {
                 case 'vjMaster':
                     if (club.vjDirector) club.vjDirector.targetMasterIntensity = value;
                     break;
+                case 'strobePatternIndex': {
+                    // The pattern travels as its index in the shared list; an index this build does not have is ignored.
+                    const list = typeof VRClubAnimationFinish !== 'undefined' ? VRClubAnimationFinish.STROBE_PATTERNS : null;
+                    if (list && value < list.length) club.strobePattern = list[value];
+                    break;
+                }
                 default:
                     if (key in club) club[key] = value;
             }

@@ -222,8 +222,9 @@
                     <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="mirrorBallActive">MIRROR BALL</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="laserSheetActive">LASER SHEET</button>
-                    <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive">SMOKE</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive" title="Smoke machines and haze. Off gives clear air: the beams, lasers and the room's fog fade to almost nothing.">SMOKE</button>
                 </div>
+                <button class="vj-button vj-button-wide" type="button" data-control="cycleStrobePattern" title="How the four truss strobes fire: all together, round in a circle, back and forth, left and right, front and back, crossing, building up or at random. Each flash still obeys the three-a-second safety limit.">STROBE PATTERN: ALL AT ONCE</button>
                 <button class="vj-button vj-button-wide" id="vjResetBtn" type="button" title="Restore every VJ control to its documented default.">↺ RESET TO DEFAULTS</button>
             </div>
             
@@ -285,16 +286,36 @@
             <!-- Show Director: the composed, beat-locked light show -->
             <div class="vj-section">
                 <div class="vj-section-title">🎭 Light Show</div>
-                <p class="vj-help">When on, the lights change by themselves with the music. Touching a light control above takes over by hand for a while.</p>
+                <p class="vj-help">When on, the lights change by themselves with the music. Pick a section to jump to it and keep it; what happens next is set under <em>After I change something</em>.</p>
                 <button class="vj-button vj-button-wide" type="button" aria-pressed="true" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
-                <div class="vj-button-grid">
-                    <button class="vj-button" type="button" data-control="nextMovement" title="Skip to the next movement of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT MOVEMENT</button>
-                    <button class="vj-button" type="button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
+                <div class="vj-button-grid" id="vjSections" role="group" aria-label="Show sections">
+                    <button class="vj-button" type="button" data-section="arrival" title="The opening: the room reveals itself.">ARRIVAL</button>
+                    <button class="vj-button" type="button" data-section="pulse" title="A steady groove.">PULSE</button>
+                    <button class="vj-button" type="button" data-section="ascent" title="The build: energy climbing.">ASCENT</button>
+                    <button class="vj-button" type="button" data-section="ignition" title="The peak: full rig, strobes and lasers.">IGNITION</button>
+                    <button class="vj-button" type="button" data-section="afterglow" title="The comedown: warm and slow.">AFTERGLOW</button>
+                    <button class="vj-button" type="button" data-control="nextMovement" title="Skip to the next section of the show (ARRIVAL / PULSE / ASCENT / IGNITION / AFTERGLOW).">NEXT SECTION</button>
                 </div>
+                <button class="vj-button vj-button-wide" type="button" data-control="showCountdown" title="Fire THE COUNTDOWN: four bars of escalating strobe into one beat of total blackout, then the drop.">COUNTDOWN</button>
                 <div class="vj-slider-label vj-slider-label-secondary">
                     <span>Now playing</span>
                     <span id="showMovementReadout">I · ARRIVAL</span>
                 </div>
+            </div>
+
+            <!-- What the lights do after a hand-made change: keep it, return to auto, or shuffle the colours. -->
+            <div class="vj-section">
+                <div class="vj-section-title">⏱ After I change something</div>
+                <p class="vj-help">When you pick a colour, a section or an effect by hand, choose what the lights do next. This choice is saved on this device.</p>
+                <div class="vj-button-grid" role="group" aria-label="After a change">
+                    <button class="vj-button" id="vjHoldKeep" type="button" aria-pressed="false" data-hold="keep" title="Keep exactly what I chose until I press Auto show.">KEEP IT</button>
+                    <button class="vj-button" id="vjHoldResume" type="button" aria-pressed="false" data-hold="resume" title="The automatic show takes over again after the time below.">RETURN TO AUTO</button>
+                    <button class="vj-button" id="vjHoldShuffle" type="button" aria-pressed="false" data-hold="shuffle" title="Keep everything but the colour, which changes to a new random one at the interval below.">SHUFFLE COLOURS</button>
+                </div>
+                <label for="vjHoldTiming" id="vjHoldTimingLabel">Return to auto after</label>
+                <select class="audio-input" id="vjHoldTiming" aria-describedby="vjHoldSummary"></select>
+                <p class="vj-help" id="vjHoldSummary" role="status"></p>
+                <button class="vj-button vj-button-wide" id="vjAutoShowBtn" type="button" title="Hand the lights back to the automatic show now.">AUTO SHOW NOW</button>
             </div>
 
             <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->

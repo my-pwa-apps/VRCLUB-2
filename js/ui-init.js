@@ -63,6 +63,12 @@ const TOGGLE_CONTROLS = Object.freeze(new Set([
     'smokeActive', 'spotStrobeActive'
 ]));
 
+/** The panel's step/cycle buttons that change a light: pressing one takes the lights by hand (see takeLightControl). */
+const HAND_CONTROLS = Object.freeze(new Set([
+    'changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern',
+    'reverseGoboSpin', 'cycleStrobePattern'
+]));
+
 // One list of names for every surface (this panel, the VR menu and the desk at the DJ table).
 const SPOT_MODE_NAMES = VRClubUI.SPOT_MODE_NAMES;
 const SPOT_PATTERN_NAMES = VRClubUI.SPOT_PATTERN_NAMES;
@@ -437,13 +443,89 @@ function initVJMenu() {
         const s = vrClubInstance.showDirector;
         if (!s.enabled) { showReadout.textContent = 'OFF'; return; }
         const st = s.getStatus();
-        showReadout.textContent = st.setPiece ? `⚡ ${st.setPiece}` : st.movement;
+        let text = st.setPiece ? `⚡ ${st.setPiece}` : st.movement;
+        // A section the guest asked to keep says so, and how long it will be kept when that has an end.
+        if (st.held) text += st.heldSecondsLeft === null ? ' (kept)' : ` (kept ${st.heldSecondsLeft} s)`;
+        showReadout.textContent = text;
     }
     const showToggleBtn = document.querySelector('.vj-button[data-control="toggleShow"]');
     if (showToggleBtn && vrClubInstance.showDirector) {
         setToggleState(showToggleBtn, vrClubInstance.showDirector.enabled);
     }
     updateShowReadout();
+
+    // ---- After I change something: the shared hold policy (keep it / return to auto / shuffle colours) ----
+    const holdButtons = [...document.querySelectorAll('.vj-button[data-hold]')];
+    const holdTiming = document.getElementById('vjHoldTiming');
+    const holdTimingLabel = document.getElementById('vjHoldTimingLabel');
+    const holdSummary = document.getElementById('vjHoldSummary');
+    const holdSecondsText = seconds => seconds < 60 ? `${seconds} seconds` : (seconds === 60 ? '1 minute' : `${seconds / 60} minutes`);
+    function renderHold() {
+        const hold = vrClubInstance.lightHold;
+        if (!hold) return;
+        for (const button of holdButtons) setToggleState(button, button.getAttribute('data-hold') === hold.mode);
+        const shuffle = hold.mode === 'shuffle';
+        if (holdTiming) {
+            const kind = shuffle ? 'shuffle' : 'resume';
+            // Rebuild the choices only when the mode changes the list, so an open dropdown is never reset by the poller.
+            if (holdTiming.dataset.kind !== kind) {
+                holdTiming.replaceChildren();
+                const list = shuffle ? VRClubCore.LIGHT_SHUFFLE_SECONDS : VRClubCore.LIGHT_HOLD_DELAYS;
+                for (const seconds of list) holdTiming.add(new Option(holdSecondsText(seconds), String(seconds)));
+                holdTiming.dataset.kind = kind;
+            }
+            holdTiming.value = String(shuffle ? hold.shuffle : hold.delay);
+            holdTiming.disabled = hold.mode === 'keep';
+        }
+        if (holdTimingLabel) {
+            holdTimingLabel.textContent = shuffle ? 'Change the colour every' : (hold.mode === 'keep' ? 'Time (not used while kept)' : 'Return to auto after');
+        }
+        if (holdSummary) {
+            holdSummary.textContent = hold.mode === 'keep'
+                ? 'Your lights stay exactly as you set them until you press Auto show.'
+                : shuffle
+                    ? `Your lights stay as you set them, but the colour changes to a new random one every ${holdSecondsText(hold.shuffle)}.`
+                    : `The automatic show returns after ${holdSecondsText(hold.delay)} without a change from you.`;
+        }
+    }
+    for (const button of holdButtons) {
+        button.addEventListener('click', () => {
+            vrClubInstance.setLightHold({ mode: button.getAttribute('data-hold') });
+            renderHold();
+        });
+    }
+    if (holdTiming) {
+        holdTiming.addEventListener('change', () => {
+            const hold = vrClubInstance.lightHold;
+            const seconds = Number(holdTiming.value);
+            vrClubInstance.setLightHold(hold.mode === 'shuffle' ? { shuffle: seconds } : { delay: seconds });
+            renderHold();
+        });
+    }
+    const autoShowNow = document.getElementById('vjAutoShowBtn');
+    if (autoShowNow) {
+        autoShowNow.addEventListener('click', () => {
+            if (!vrClubInstance.guardHostControl('lights')) return;
+            vrClubInstance.resumeAutoShow();
+            updateShowReadout();
+            if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage('NOCTURNE auto show resumed');
+        });
+    }
+    // Jump to a named section of the show and keep it as the policy says.
+    for (const button of document.querySelectorAll('.vj-button[data-section]')) {
+        button.addEventListener('click', () => {
+            const title = vrClubInstance.pickShowSection(button.getAttribute('data-section'));
+            if (!title) return;
+            flashButton(button);
+            updateShowReadout();
+            if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage(`Section: ${title}`);
+        });
+    }
+    renderHold();
+    const strobePatternBtn = document.querySelector('.vj-button[data-control="cycleStrobePattern"]');
+    if (strobePatternBtn && typeof vrClubInstance.strobePatternName === 'function') {
+        strobePatternBtn.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
+    }
 
     // Restore every VJ control to a known-good state. Without this the only way back
     // from an exploratory session was a full page reload.
@@ -459,6 +541,8 @@ function initVJMenu() {
             if (patBtn) patBtn.textContent = `AIM PATH: ${SPOT_PATTERN_NAMES[vrClubInstance.spotlightPattern]}`;
             const goboBtn = document.querySelector('.vj-button[data-control="cycleGoboPattern"]');
             if (goboBtn) goboBtn.textContent = `IMAGE: ${goboDisplayName(vrClubInstance.goboPatterns[vrClubInstance.goboPatternIndex])}`;
+            const strobeBtn = document.querySelector('.vj-button[data-control="cycleStrobePattern"]');
+            if (strobeBtn) strobeBtn.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
             updateButtonStates();
             if (vrClubInstance.showErrorMessage) vrClubInstance.showErrorMessage('VJ controls reset to defaults');
         });
@@ -517,11 +601,18 @@ function initVJMenu() {
                 }
 
             } else if (control === 'nextMovement') {
-                const show = vrClubInstance.showDirector;
-                if (show && show.isDriving()) {
-                    show.nextMovement();
+                // The next section of the show, kept as the guest's hold policy says. It also hands the lights back to the
+                // show first when they were being held by hand.
+                const title = vrClubInstance.nextShowSection();
+                if (title) {
+                    flashButton(button);
                     updateShowReadout();
                 }
+
+            } else if (control === 'cycleStrobePattern') {
+                vrClubInstance.cycleStrobePattern();
+                button.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
+                flashButton(button);
 
             } else if (control === 'showCountdown') {
                 // Fire THE COUNTDOWN: 4 bars of escalation into one beat of black.
@@ -593,6 +684,10 @@ function initVJMenu() {
             } else {
                 uiLog.warn(`Unhandled VJ control: ${control}`);
             }
+            // A light changed by hand is the guest's from now on, under their hold policy: without this the colour,
+            // aim and gobo buttons changed a light the automatic show then simply overwrote on its next bar.
+            if (HAND_CONTROLS.has(control)) vrClubInstance.takeLightControl();
+            renderHold();
         });
     });
     
@@ -754,6 +849,12 @@ function initVJMenu() {
     function updateButtonStates() {
         if (!vrClubInstance || vjMenu.classList.contains('hidden')) return;
         renderPeopleButtons();
+        // The VR menu and the desk change these too: keep the panel in step.
+        renderHold();
+        updateShowReadout();
+        if (strobePatternBtn && typeof vrClubInstance.strobePatternName === 'function') {
+            strobePatternBtn.textContent = `STROBE PATTERN: ${vrClubInstance.strobePatternName()}`;
+        }
         
         vjButtons.forEach(button => {
             const control = button.getAttribute('data-control');
@@ -1469,7 +1570,7 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people]' },
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming' },
         { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #djStyle' }
     ];
     const renders = [];

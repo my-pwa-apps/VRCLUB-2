@@ -126,6 +126,9 @@ class ShowDirector {
         this._flashHold = 0;           // Frames of white-out remaining
         this._intensity = 1.0;         // Smoothed master level
 
+        // --- Hold (a section the guest picked and asked to keep; see holdLook)
+        this._hold = null;
+
         // --- Structure reading (breakdown / release)
         this._hasAudio = false;
         this._silentSince = 0;
@@ -191,6 +194,16 @@ class ShowDirector {
         // --- Read the track's structure: kick gone (breakdown) / kick back (release).
         //     A follower is told by the host instead.
         if (!this.follower) this._watchKick(vj, audioData);
+
+        // --- A held look whose colour shuffles: a new random hue every few seconds, nothing else changes.
+        const hold = this._hold;
+        if (hold && hold.shuffleMs && !this.follower) {
+            const now = performance.now();
+            if (now >= hold.nextShuffle) {
+                hold.nextShuffle = now + hold.shuffleMs;
+                if (typeof vj.shufflePalette === 'function') vj.shufflePalette();
+            }
+        }
 
         // --- Continuous (per-frame) modulation on top of the discrete cue state
         this._applyContinuous(vj, audioData);
@@ -277,6 +290,13 @@ class ShowDirector {
         // A follower never decides: it keeps the grid for the ramps and waits for the host's next frame.
         if (this.follower) return;
 
+        // A look the guest picked and asked to keep stays exactly as it is: no cue advances and no breakdown is read.
+        // Under 'resume' the hold ends by itself after the chosen time, and the show carries on from here.
+        if (this._hold && !this._setPiece) {
+            if (performance.now() < this._hold.until) return;
+            this.releaseHold();
+        }
+
         // A set-piece owns the rig until it finishes; nothing interrupts it.
         if (this._setPiece) {
             this._setPieceBar = this._barCounter - this._setPieceStartBar;
@@ -361,6 +381,7 @@ class ShowDirector {
         const movement = this.movements[name];
         if (!movement) return;
 
+        this._hold = null;
         this._movement = movement;
         this._movementName = name;
         this._cueIndex = 0;
@@ -534,6 +555,7 @@ class ShowDirector {
         const piece = this.setPieces[name];
         if (!piece) { this._enterMovement(thenMovement); return; }
 
+        this._hold = null;
         this._setPiece = piece;
         this._setPieceStartBar = this._barCounter;
         this._setPieceBar = 0;
@@ -577,6 +599,58 @@ class ShowDirector {
         const next = names[(i + 1) % names.length];
         this.forceMovement(next);
         return this.movements[next].title;
+    }
+
+    /**
+     * Keep the look the show is on, as the guest's hold policy says (VRClub.lightHold):
+     *   'keep'    it stays until releaseHold() (AUTO SHOW);
+     *   'resume'  it stays for `delay` seconds, then the show carries on from there;
+     *   'shuffle' it stays, and its colour moves to a new random one every `shuffle` seconds.
+     * The colour is held with it (the hue is pinned), so the palette rotation cannot repaint a look the guest chose.
+     */
+    holdLook(policy) {
+        if (this.follower || !policy) return false;
+        const now = performance.now();
+        const shuffleMs = policy.mode === 'shuffle' ? policy.shuffle * 1000 : 0;
+        this._hold = {
+            until: policy.mode === 'resume' ? now + policy.delay * 1000 : Infinity,
+            shuffleMs,
+            nextShuffle: shuffleMs ? now + shuffleMs : Infinity
+        };
+        const vj = this.club.vjDirector;
+        if (vj && typeof vj.setMasterHue === 'function') vj.setMasterHue(vj.masterHue);
+        return true;
+    }
+
+    /** End a hold; the show resumes from the held cue on the next bar line. */
+    releaseHold() {
+        if (!this._hold) return false;
+        this._hold = null;
+        const vj = this.club.vjDirector;
+        if (vj && typeof vj.unlockHue === 'function') vj.unlockHue();
+        return true;
+    }
+
+    /** Jump to a named section (ARRIVAL, PULSE, ASCENT, IGNITION, AFTERGLOW) and keep it as the guest's policy says. */
+    pickSection(name, policy) {
+        if (!this.forceMovement(name)) return null;
+        this.holdLook(policy);
+        return this.movements[name].title;
+    }
+
+    /** The next section in the running order, kept as the guest's policy says. */
+    nextSection(policy) {
+        const names = Object.keys(this.movements);
+        const next = names[(names.indexOf(this._movementName) + 1) % names.length];
+        return this.pickSection(next, policy);
+    }
+
+    isHeld() { return !!this._hold; }
+
+    /** Seconds until a timed hold ends; null for a hold with no end, or no hold. */
+    holdSecondsLeft() {
+        if (!this._hold || !Number.isFinite(this._hold.until)) return null;
+        return Math.max(0, Math.ceil((this._hold.until - performance.now()) / 1000));
     }
 
     /** Hand the rig back to the legacy cycler / manual VJ control. */
@@ -697,7 +771,9 @@ class ShowDirector {
             cue: this._cue ? this._cue.look : '—',
             setPiece: this._setPiece ? this._setPiece.title : null,
             bar: this._barCounter,
-            energy: this._energy
+            energy: this._energy,
+            held: !!this._hold,
+            heldSecondsLeft: this.holdSecondsLeft()
         };
     }
 

@@ -304,16 +304,111 @@ class VRClubUI extends VRClubAnimationFinish {
         ])));
     }
 
-    /** Take the lights by hand: the automatic show stands down until AUTO SHOW, or until nobody touches them for VJ_TIMEOUT. */
+    /** Take the lights by hand: the automatic show stands down until AUTO SHOW, or as the hold policy (lightHold) says. */
     takeLightControl() {
         this.lastVJInteraction = performance.now() / 1000;
         this.vjManualMode = true;
+        // A section the show was holding is superseded by the hand-made look.
+        if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
     }
 
     /** Hand the lights back to the automatic show. */
     resumeAutoShow() {
         this.vjManualMode = false;
         this.lastVJInteraction = 0;
+        if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+    }
+
+    // ---- What happens after a hand-made change: keep it, return to the automatic show, or shuffle the colours ----
+
+    static get LIGHT_HOLD_NAMES() {
+        return this._lightHoldNames || (this._lightHoldNames = Object.freeze({
+            resume: 'RETURN TO AUTO', keep: 'KEEP IT', shuffle: 'SHUFFLE COLOURS'
+        }));
+    }
+
+    /** 15 -> "15 S", 60 -> "1 MIN": the same words on every surface. */
+    static lightHoldSecondsName(seconds) {
+        return seconds < 60 ? `${seconds} S` : `${Math.round(seconds / 60)} MIN`;
+    }
+
+    /** The current choice in words, for a button's second line or a panel readout. */
+    lightHoldSummary() {
+        const hold = this.lightHold;
+        if (hold.mode === 'keep') return 'KEPT UNTIL AUTO SHOW';
+        if (hold.mode === 'shuffle') return `NEW COLOURS EVERY ${VRClubUI.lightHoldSecondsName(hold.shuffle)}`;
+        return `AUTO AFTER ${VRClubUI.lightHoldSecondsName(hold.delay)}`;
+    }
+
+    /**
+     * Choose the hold policy: { mode, delay, shuffle }, any subset. Unknown values are ignored, the choice is saved on
+     * this device and a section the show is already holding follows it at once.
+     */
+    setLightHold(patch = {}) {
+        const next = Object.assign({}, this.lightHold);
+        if (VRClubCore.LIGHT_HOLD_MODES.includes(patch.mode)) next.mode = patch.mode;
+        if (VRClubCore.LIGHT_HOLD_DELAYS.includes(patch.delay)) next.delay = patch.delay;
+        if (VRClubCore.LIGHT_SHUFFLE_SECONDS.includes(patch.shuffle)) next.shuffle = patch.shuffle;
+        this.lightHold = next;
+        try { localStorage.setItem('vrclub.lightHold', JSON.stringify(next)); } catch (_) { /* private browsing */ }
+        // A fresh countdown from the moment the choice is made, not from the last touch.
+        if (this.vjManualMode) this.lastVJInteraction = performance.now() / 1000;
+        if (this.vjDirector) this.vjDirector._shuffleAt = 0;
+        if (this.showDirector && typeof this.showDirector.isHeld === 'function' && this.showDirector.isHeld()) {
+            this.showDirector.holdLook(next);
+        }
+        return next;
+    }
+
+    /** Step KEEP IT -> SHUFFLE COLOURS -> RETURN TO AUTO (the VR menu and the desk have one button for it). */
+    cycleLightHoldMode() {
+        const modes = VRClubCore.LIGHT_HOLD_MODES;
+        return this.setLightHold({ mode: modes[(modes.indexOf(this.lightHold.mode) + 1) % modes.length] });
+    }
+
+    /** Step the time that belongs to the current mode: how long until auto returns, or how often the colour changes. */
+    cycleLightHoldTiming() {
+        const hold = this.lightHold;
+        if (hold.mode === 'keep') return hold;
+        const key = hold.mode === 'shuffle' ? 'shuffle' : 'delay';
+        const list = hold.mode === 'shuffle' ? VRClubCore.LIGHT_SHUFFLE_SECONDS : VRClubCore.LIGHT_HOLD_DELAYS;
+        return this.setLightHold({ [key]: list[(list.indexOf(hold[key]) + 1) % list.length] });
+    }
+
+    /**
+     * Jump the automatic show to one of its sections (ARRIVAL, PULSE, ASCENT, IGNITION, AFTERGLOW) and keep it as the
+     * hold policy says. Taking a section after hand-made changes hands the lights back to the show first.
+     * @returns {string|null} the section's title, or null when it could not be picked
+     */
+    pickShowSection(name) {
+        if (!this.guardHostControl('lights')) return null;
+        const show = this.showDirector;
+        if (!show || show.follower) return null;
+        if (this.vjManualMode) this.resumeAutoShow();
+        return show.pickSection(name, this.lightHold);
+    }
+
+    /** The section after the current one, kept as the hold policy says. */
+    nextShowSection() {
+        if (!this.guardHostControl('lights')) return null;
+        const show = this.showDirector;
+        if (!show || show.follower) return null;
+        if (this.vjManualMode) this.resumeAutoShow();
+        return show.nextSection(this.lightHold);
+    }
+
+    /** Step the strobe pattern (all at once, circle, ping-pong ...). */
+    cycleStrobePattern() {
+        const list = VRClubAnimationFinish.STROBE_PATTERNS;
+        const next = list[(list.indexOf(this.strobePattern) + 1) % list.length];
+        this.strobePattern = next;
+        this._strobePatternStep = -1;
+        return next;
+    }
+
+    /** "CIRCLE" for a strobe pattern id. */
+    strobePatternName() {
+        return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
     }
 
     /** One movement speed (0.1..2) for every fixture, as the speed faders set it. */
@@ -339,6 +434,7 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'changeMirrorBallColor': this.cycleMirrorBallColor(); break;
             case 'cycleSpotMode': this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_NAMES.length; break;
             case 'cyclePattern': this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_NAMES.length; break;
+            case 'cycleStrobePattern': this.cycleStrobePattern(); break;
             case 'cycleGoboPattern': if (typeof this.nextGoboPattern === 'function') this.nextGoboPattern(); break;
             case 'goboActive': if (typeof this.toggleGobo === 'function') this.toggleGobo(); break;
             case 'cycleLedPattern': {
@@ -425,6 +521,7 @@ class VRClubUI extends VRClubAnimationFinish {
             laserSheetActive: false,
             smokeActive: false,
             spotStrobeActive: true,
+            strobePattern: 'all',
             spotlightMode: 0,
             spotlightPattern: 0,
             goboPatternIndex: 0,
@@ -517,6 +614,8 @@ class VRClubUI extends VRClubAnimationFinish {
     /** Can this button do nothing right now? (It still answers a press, with a message saying why.) */
     _isVRButtonDisabled(button) {
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return true;
+        // The time belongs to RETURN TO AUTO and SHUFFLE COLOURS; KEEP IT has none.
+        if (button.action === 'holdTiming') return this.lightHold.mode === 'keep';
         if (button.action !== 'net' && button.action !== 'person') return false;
         const mp = this._multiplayer();
         if (!mp) return true;
@@ -539,14 +638,15 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'autoShow') return !this.vjManualMode;
         if (button.action === 'dj') return this._initialDJId() === button.dj;
         if (button.action === 'playPause') return this.getPlaybackInfo().playing;
-        if (button.action === 'quality' || button.action === 'cycle') return true;
+        if (button.action === 'quality' || button.action === 'cycle' || button.action === 'nextSection' ||
+            button.action === 'holdMode' || button.action === 'holdTiming') return true;
         if (button.control) return !!this[button.control];
         return false;
     }
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
-        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle'].includes(button.action)) return true;
+        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode'].includes(button.control);
     }
 
@@ -582,6 +682,19 @@ class VRClubUI extends VRClubAnimationFinish {
             const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
             return name === 'circle' ? 'OPEN' : String(name).toUpperCase();
         }
+        if (button.action === 'cycle' && button.control === 'cycleStrobePattern') {
+            return VRClubAnimationFinish.STROBE_PATTERN_NAMES[this.strobePattern] || 'ALL AT ONCE';
+        }
+        if (button.action === 'holdMode') return VRClubUI.LIGHT_HOLD_NAMES[this.lightHold.mode];
+        if (button.action === 'holdTiming') {
+            const hold = this.lightHold;
+            if (hold.mode === 'keep') return 'NOT NEEDED';
+            return VRClubUI.lightHoldSecondsName(hold.mode === 'shuffle' ? hold.shuffle : hold.delay);
+        }
+        if (button.action === 'nextSection') {
+            const status = this.showDirector && this.showDirector.getStatus();
+            return status ? String(status.movement).slice(0, 22) : '';
+        }
         if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
         if (button.control) return active ? 'ON' : 'OFF';
         return '';
@@ -594,6 +707,7 @@ class VRClubUI extends VRClubAnimationFinish {
         };
         if (VRClubUI.VR_NET_PAGES.includes(page)) return this._vrNetPageDefinitions(page, common);
         const mp = this._multiplayer();
+        const holdMode = (this.lightHold && this.lightHold.mode) || 'resume';
         // In a room, talking and reacting come first: one press to the mic, the emoji or a quick message.
         const social = mp && mp.connected ? [
             { label: 'TALK', action: 'net', op: 'mic' },
@@ -629,6 +743,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             effects: [
                 { label: 'STROBES', control: 'strobesActive' },
+                { label: 'STROBE PATTERN', control: 'cycleStrobePattern', action: 'cycle' },
                 { label: 'SPOT STROBE', control: 'spotStrobeActive' },
                 { label: 'SMOKE', control: 'smokeActive' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
@@ -668,8 +783,12 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             show: [
                 { label: 'AUTO SHOW', action: 'autoShow' },
+                { label: 'NEXT SECTION', action: 'nextSection' },
                 { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                // What happens after a change of yours: keep it, return to auto after a time, or shuffle the colours.
+                { label: 'AFTER MY CHANGE', action: 'holdMode' },
+                { label: holdMode === 'shuffle' ? 'COLOUR EVERY' : (holdMode === 'resume' ? 'AUTO AFTER' : 'TIMING'), action: 'holdTiming' },
                 { label: 'RESET SHOW', action: 'reset' },
                 common.back,
                 common.close
@@ -1403,6 +1522,24 @@ class VRClubUI extends VRClubAnimationFinish {
             if (!this.guardHostControl('lights')) return;
             this.resumeAutoShow();
             this.showErrorMessage('NOCTURNE auto show resumed');
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'nextSection') {
+            const title = this.nextShowSection();
+            if (title) this.showErrorMessage(`Section: ${title}. ${this.lightHoldSummary().toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'holdMode') {
+            this.cycleLightHoldMode();
+            this.showErrorMessage(`After you change a light: ${VRClubUI.LIGHT_HOLD_NAMES[this.lightHold.mode].toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'holdTiming') {
+            this.cycleLightHoldTiming();
+            this.showErrorMessage(this.lightHoldSummary().toLowerCase());
             this._refreshVRQuickMenu();
             return;
         }

@@ -236,7 +236,7 @@ const VJDesk = {
             case 'blackout': if (vj) vj.blackout(800); return;
             case 'next':
                 if (!driving) { toast('Next section is part of the automatic show: press AUTO SHOW first'); return; }
-                toast(`Next section: ${show.nextMovement()}`);
+                toast(`Next section: ${this.nextShowSection()}`);
                 return;
             case 'tap': if (vj) vj.tapTempo(); return;
             case 'lock': if (vj) vj.lockToCenter(4000); return;
@@ -298,9 +298,15 @@ const VJDesk = {
             return { tone: 'host', title: `${host} HAS THE LIGHTS`, detail: 'THEIR ROOM, THEIR SHOW. THE DJ BUTTON IS STILL YOURS.' };
         }
         if (this.vjManualMode) {
+            const hold = this.lightHold || { mode: 'resume' };
             let detail = 'PRESS AUTO SHOW TO HAND THE LIGHTS BACK';
-            if (!this._operatorAtVJDesk()) {
-                const left = Math.max(0, Math.ceil(this.VJ_TIMEOUT - (performance.now() / 1000 - (this.lastVJInteraction || 0))));
+            if (hold.mode === 'keep') {
+                detail = 'KEPT AS YOU SET THEM. PRESS AUTO SHOW TO HAND THEM BACK';
+            } else if (hold.mode === 'shuffle') {
+                detail = `COLOURS SHUFFLE EVERY ${hold.shuffle} S. PRESS AUTO SHOW TO HAND BACK`;
+            } else if (!this._operatorAtVJDesk()) {
+                const handBack = typeof this.lightHandBackSeconds === 'function' ? this.lightHandBackSeconds() : this.VJ_TIMEOUT;
+                const left = Math.max(0, Math.ceil(handBack - (performance.now() / 1000 - (this.lastVJInteraction || 0))));
                 detail = `YOU LEFT THE DESK: THE AUTOMATIC SHOW TAKES OVER IN ${left} S`;
             }
             return { tone: 'manual', title: 'YOU ARE THE VJ', detail };
@@ -309,6 +315,10 @@ const VJDesk = {
         if (show && show.enabled) {
             const movement = show.movements && show.movements[show._movementName];
             const title = movement && movement.title ? movement.title.toUpperCase() : '';
+            if (typeof show.isHeld === 'function' && show.isHeld()) {
+                const left = show.holdSecondsLeft();
+                return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: `HOLDING ${title || 'THIS SECTION'}${left === null ? ' UNTIL YOU PRESS AUTO SHOW' : `: CARRIES ON IN ${left} S`}.` };
+            }
             return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: `NOCTURNE${title ? `: ${title}` : ''}. TOUCH ANY CONTROL TO TAKE OVER.` };
         }
         return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: 'CLASSIC LIGHT CYCLE. TOUCH ANY CONTROL TO TAKE OVER.' };

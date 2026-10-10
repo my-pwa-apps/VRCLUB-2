@@ -575,7 +575,10 @@ class VRClubCore {
         this.multiplayer = null;
         this.isMultiplayer = false;
         this.vjManualMode = false;
-        this.VJ_TIMEOUT = 60; // Seconds before resuming automated patterns (1 minute)
+        // Seconds before the automatic show returns after a hand-made change, while the hold mode is 'resume'
+        // (the default); see resolveLightHold() and lightHandBackSeconds().
+        this.VJ_TIMEOUT = 60;
+        this.lightHold = VRClubCore.resolveLightHold();
         
         // Animation phase tracking for smooth spotlight animations
         this.lastActivePhase = 0; // Initialize phase counter
@@ -1196,6 +1199,36 @@ class VRClubCore {
         }
         return visibility;
     }
+
+    /**
+     * What happens to the lights after a guest changes something by hand (a colour, a toggle, a show section):
+     *   'resume'  the automatic show takes over again after `delay` seconds without a touch (the old fixed 60 s);
+     *   'keep'    nothing is ever taken back, until AUTO SHOW is pressed;
+     *   'shuffle' everything is kept but the colour keeps changing, to a new random one every `shuffle` seconds.
+     * One resolver for the constructor and the control surfaces; anything unreadable or out of range falls back to
+     * the old behaviour, so a damaged value can never strand the lights in a mode nobody chose.
+     */
+    static resolveLightHold(storage) {
+        const hold = { mode: 'resume', delay: 60, shuffle: 15 };
+        let raw = null;
+        try {
+            raw = (storage || localStorage).getItem('vrclub.lightHold');
+        } catch (_) { return hold; }   // private browsing
+        if (!raw) return hold;
+        let data = null;
+        try { data = JSON.parse(raw); } catch (_) { return hold; }
+        if (!data || typeof data !== 'object') return hold;
+        if (VRClubCore.LIGHT_HOLD_MODES.includes(data.mode)) hold.mode = data.mode;
+        if (VRClubCore.LIGHT_HOLD_DELAYS.includes(data.delay)) hold.delay = data.delay;
+        if (VRClubCore.LIGHT_SHUFFLE_SECONDS.includes(data.shuffle)) hold.shuffle = data.shuffle;
+        return hold;
+    }
+
+    static get LIGHT_HOLD_MODES() { return ['resume', 'keep', 'shuffle']; }
+    /** Seconds without a touch before the automatic show returns (mode 'resume'). */
+    static get LIGHT_HOLD_DELAYS() { return [15, 30, 60, 120, 300, 600]; }
+    /** Seconds between random colours (mode 'shuffle'). */
+    static get LIGHT_SHUFFLE_SECONDS() { return [5, 10, 15, 30, 60]; }
 
     /**
      * One resolver for the splash and the constructor. Safe Mode is OFF unless the guest has

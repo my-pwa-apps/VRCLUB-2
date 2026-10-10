@@ -7437,7 +7437,9 @@ function deskHarness() {
             enabled: true, _movementName: 'pulse', movements: { pulse: { title: 'Pulse' } },
             isDriving: () => !club.vjManualMode,
             triggerShowDrop: () => calls.push('showDrop'),
-            nextMovement: () => { calls.push('next'); return 'Ascent'; }
+            nextMovement: () => { calls.push('next'); return 'Ascent'; },
+            nextSection: () => { calls.push('next'); return 'Ascent'; },
+            releaseHold() {}
         },
         camera: { position: { x: 0, y: 2.2, z: -19.4 } },
         _playerCamera() { return this.camera; }
@@ -8682,4 +8684,412 @@ test('a build brings out the claps, and a drop puts the hands up', () => {
     // A quiet track: little hands-up, but still a beat-driven dance rather than the free sway.
     assert.ok(share({ energy: 0.1 }, ['Groove_HandsUp']) < share({ energy: 0.9 }, ['Groove_HandsUp']));
     assert.equal(share({ energy: 0.1 }, ['Groove_Sway']), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Light hold policy, strobe patterns and smoke
+// ---------------------------------------------------------------------------
+
+test('strobe patterns pick the right corners: the ring is 0, 1, 3, 2 (a circle), not the Z of plain index order', () => {
+    const { window } = loadClassic('js/club/09-animation-finish.js', { VRClubAnimationFixtures: class {} });
+    const F = window.VRClubAnimationFinish;
+    const run = (pattern, steps, count = 4, rand) => Array.from({ length: steps }, (_, s) => [...F.strobeTargets(pattern, count, s, rand)]);
+    assert.deepEqual(run('all', 2), [[0, 1, 2, 3], [0, 1, 2, 3]]);
+    assert.deepEqual(run('circle', 5), [[0], [1], [3], [2], [0]], 'clockwise round the floor');
+    assert.deepEqual(run('reverse', 5), [[2], [3], [1], [0], [2]], 'and back the other way');
+    assert.deepEqual(run('pingpong', 7), [[0], [1], [3], [2], [3], [1], [0]], 'out and back without repeating the ends');
+    assert.deepEqual(run('sides', 3), [[0, 2], [1, 3], [0, 2]], 'left pair then right pair');
+    assert.deepEqual(run('frontback', 3), [[0, 1], [2, 3], [0, 1]]);
+    assert.deepEqual(run('cross', 3), [[0, 3], [1, 2], [0, 3]], 'the two diagonals');
+    assert.deepEqual(run('build', 5), [[0], [0, 1], [0, 1, 3], [0, 1, 3, 2], [0]], 'one more corner each burst');
+    assert.deepEqual(run('nonsense', 1), [[0, 1, 2, 3]], 'an unknown pattern fires everything');
+    // Random never repeats the previous single corner, never returns nothing and stays in range.
+    let last = -1;
+    for (let i = 0; i < 500; i++) {
+        const targets = F.strobeTargets('random', 4, i, Math.random, last);
+        assert.ok(targets.length >= 1 && targets.length <= 2 && targets.every(t => t >= 0 && t < 4) && new Set(targets).size === targets.length);
+        if (targets.length === 1) { assert.notEqual(targets[0], last, 'random repeated a corner'); last = targets[0]; } else last = -1;
+    }
+    // Any number of strobes still gets a non-empty answer.
+    for (const pattern of F.STROBE_PATTERNS) {
+        for (const count of [1, 2, 3, 4, 6]) for (let s = 0; s < 12; s++) {
+            if (pattern === 'chase') continue; // the show's own, handled in updateStrobes
+            assert.ok(F.strobeTargets(pattern, count, s).length >= 1, `${pattern} x${count} step ${s} fired nothing`);
+        }
+    }
+    for (const pattern of F.STROBE_PATTERNS) assert.ok(F.STROBE_PATTERN_NAMES[pattern], `${pattern} has no display name`);
+    assert.ok(F.STROBE_PATTERNS.includes('all') && F.STROBE_PATTERNS.includes('chase'), 'the original two patterns remain');
+});
+
+test('every strobe pattern fires its corners in turn, under the three-a-second room limit, and never in Safe Mode', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/09-animation-finish.js', { BABYLON, VRClubAnimationFixtures: class {} });
+    const F = window.VRClubAnimationFinish;
+    const makeClub = (pattern, safe = false) => ({
+        strobesActive: true, photosensitiveSafeMode: safe, strobePattern: pattern, strobeSpeed: 1, vjDropActive: false,
+        vjBuildIntensity: 0, masterIntensity: 1,
+        cachedColors: { ledMonoWhite: new BABYLON.Color3(1, 1, 1) },
+        strobes: Array.from({ length: 4 }, (_, i) => ({
+            mesh: { position: { x: i, copyFrom() {} } },
+            material: { emissiveColor: new BABYLON.Color3() }, light: null, flashDuration: 0, currentIntensity: 0
+        })),
+        strobeFlashLight: { intensity: 0, position: { copyFrom() {}, set() {} } }
+    });
+    for (const pattern of F.STROBE_PATTERNS) {
+        const club = makeClub(pattern);
+        const bursts = [];
+        let wasLit = false;
+        const dt = 1 / 60;
+        for (let frame = 0; frame < 60 * 30; frame++) {
+            F.prototype.updateStrobes.call(club, { time: 10 + frame * dt, dt, audio: { bass: 0, hasAudio: false } });
+            const lit = club.strobes.map((s, i) => (s.material.emissiveColor.r > 0 ? i : -1)).filter(i => i >= 0);
+            if (lit.length && !wasLit) bursts.push(lit);
+            wasLit = lit.length > 0;
+        }
+        assert.ok(bursts.length / 30 <= 3.0, `${pattern}: ${(bursts.length / 30).toFixed(2)} flashes a second`);
+        assert.ok(bursts.length >= 10, `${pattern}: barely flashed (${bursts.length} bursts in 30 s)`);
+        const corners = new Set(bursts.flat());
+        if (pattern === 'all') assert.deepEqual(bursts[0], [0, 1, 2, 3], 'ALL fires every corner together');
+        else assert.ok(corners.size >= 2, `${pattern} only ever used corner ${[...corners]}`);
+        if (pattern === 'circle') {
+            // Steady tempo and strictly round the ring.
+            const ring = [0, 1, 3, 2];
+            const first = ring.indexOf(bursts[0][0]);
+            bursts.slice(0, 8).forEach((burst, i) => assert.deepEqual(burst, [ring[(first + i) % 4]], `circle burst ${i}`));
+        }
+    }
+    const safe = makeClub('circle', true);
+    for (let frame = 0; frame < 600; frame++) {
+        F.prototype.updateStrobes.call(safe, { time: 10 + frame / 60, dt: 1 / 60, audio: { bass: 0, hasAudio: false } });
+        assert.ok(safe.strobes.every(s => !(s.material.emissiveColor.r > 0)), 'Safe Mode must never flash a pattern');
+    }
+});
+
+test('the hold policy is saved, validated and falls back to the old behaviour', () => {
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null) };
+    const { window } = loadClassic('js/club/01-core.js', { localStorage });
+    const resolve = window.VRClubCore.resolveLightHold;
+    assert.deepEqual({ ...resolve() }, { mode: 'resume', delay: 60, shuffle: 15 }, 'nothing stored: the old one-minute hand-back');
+    store.set('vrclub.lightHold', JSON.stringify({ mode: 'keep', delay: 300, shuffle: 30 }));
+    assert.deepEqual({ ...resolve() }, { mode: 'keep', delay: 300, shuffle: 30 });
+    store.set('vrclub.lightHold', JSON.stringify({ mode: 'shuffle', delay: 7, shuffle: 99999 }));
+    assert.deepEqual({ ...resolve() }, { mode: 'shuffle', delay: 60, shuffle: 15 }, 'out-of-range numbers fall back per field');
+    for (const bad of ['not json', 'null', '"keep"', '{"mode":"__proto__"}', '[]', '']) {
+        store.set('vrclub.lightHold', bad);
+        assert.deepEqual({ ...resolve() }, { mode: 'resume', delay: 60, shuffle: 15 }, `bad value ${bad}`);
+    }
+    assert.deepEqual({ ...window.VRClubCore.resolveLightHold({ getItem() { throw new Error('private'); } }) }, { mode: 'resume', delay: 60, shuffle: 15 });
+});
+
+test('the hold policy decides whether the automatic show comes back after a hand-made change', () => {
+    const { window } = loadClassic('js/club/08-animation-fixtures.js', { BABYLON: makeBabylonStub(), VRClubAnimationCore: class {}, log: { info() {} } });
+    const proto = window.VRClubAnimationFixtures.prototype;
+    const club = hold => ({
+        lightHold: hold, VJ_TIMEOUT: 60, vjManualMode: true, lastVJInteraction: 0, spotlightPattern: 2,
+        showDirector: { released: 0, isDriving: () => false, releaseHold() { this.released++; } },
+        colorTransitionProgress: 1, lastColorChange: 0, energyLevel: 0,
+        lightHandBackSeconds: proto.lightHandBackSeconds
+    });
+    assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'resume', delay: 120 })), 120);
+    assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'keep', delay: 120 })), Infinity);
+    assert.equal(proto.lightHandBackSeconds.call(club({ mode: 'shuffle', delay: 120 })), Infinity);
+    assert.equal(proto.lightHandBackSeconds.call({ VJ_TIMEOUT: 45 }), 45, 'no policy at all: the legacy timeout');
+    const after = (hold, seconds) => {
+        const c = club(hold);
+        proto.updateSpotColorCycle.call(c, { time: seconds, dt: 1 / 60 });
+        return c;
+    };
+    assert.equal(after({ mode: 'resume', delay: 30 }, 29).vjManualMode, true, 'handed back too early');
+    const back = after({ mode: 'resume', delay: 30 }, 31);
+    assert.equal(back.vjManualMode, false, 'RETURN TO AUTO did not return');
+    assert.equal(back.showDirector.released, 1, 'a held show section is released with it');
+    assert.equal(after({ mode: 'keep', delay: 30 }, 100000).vjManualMode, true, 'KEEP IT handed the lights back');
+    assert.equal(after({ mode: 'shuffle', delay: 30, shuffle: 10 }, 100000).vjManualMode, true, 'SHUFFLE COLOURS handed the lights back');
+});
+
+test('while the lights are held by hand the palette engine leaves the colours alone, or shuffles them as chosen', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/vjDirector.js', { BABYLON });
+    const colors = [new BABYLON.Color3(1, 0, 0), new BABYLON.Color3(0, 1, 0), new BABYLON.Color3(0, 0, 1)];
+    const make = (hold, manual = true) => {
+        const club = { vjBPM: 128, cachedColors: {}, spotColorList: colors, mirrorBallColors: colors, mirrorBallColorIndex: 0,
+            vjManualMode: manual, lightHold: hold };
+        club.currentSpotColor = new BABYLON.Color3(0.25, 0.5, 0.75);   // the colour the guest picked
+        return { club, vj: new window.VJDirector(club) };
+    };
+    // Held, not shuffling: sixteen beats and more pass and the guest's colour is exactly as they left it.
+    for (const mode of ['resume', 'keep']) {
+        const { club, vj } = make({ mode, delay: 60, shuffle: 5 });
+        const hue = vj.masterHue;
+        for (let beat = 16; beat <= 96; beat += 16) { vj.beatNumber = beat; vj._updatePalette(1000 + beat * 100); }
+        assert.deepEqual({ r: club.currentSpotColor.r, g: club.currentSpotColor.g, b: club.currentSpotColor.b }, { r: 0.25, g: 0.5, b: 0.75 }, `${mode}: the picked colour was repainted`);
+        assert.equal(vj.masterHue, hue, `${mode}: the hue rotated under the guest`);
+    }
+    // Not held: the phrase rotation still runs exactly as before.
+    const auto = make({ mode: 'keep', delay: 60, shuffle: 5 }, false);
+    auto.vj.beatNumber = 16;
+    auto.vj._updatePalette(1000);
+    assert.notEqual(auto.vj.masterHue, 0, 'the automatic show stopped rotating the palette');
+    // Shuffle: a new, different hue every interval and not before, written to the whole rig.
+    const { club, vj } = make({ mode: 'shuffle', delay: 60, shuffle: 5 });
+    vj._updatePalette(10000);                                   // arms the timer
+    const start = vj.masterHue;
+    vj._updatePalette(14000);
+    assert.equal(vj.masterHue, start, 'shuffled before the interval');
+    vj._updatePalette(15001);
+    const hue1 = vj.masterHue;
+    assert.notEqual(hue1, start);
+    assert.ok(Math.abs(((hue1 - start + 1.5) % 1) - 0.5) >= 0.19, 'a shuffle must be a clear change, not a nudge');
+    assert.ok(club.currentSpotColor.r !== 0.25 || club.currentSpotColor.g !== 0.5, 'the shuffled hue did not reach the beams');
+    vj._updatePalette(20002);
+    assert.notEqual(vj.masterHue, hue1, 'it stopped shuffling');
+    // A guest following a host never rotates by themselves.
+    const follower = make({ mode: 'shuffle', delay: 60, shuffle: 5 });
+    follower.vj.remoteDriven = true;
+    follower.vj._updatePalette(10000);
+    follower.vj._updatePalette(99999);
+    assert.equal(follower.vj.masterHue, 0);
+});
+
+test('a show section the guest picks is kept, resumed after a time, or kept with shuffling colours', () => {
+    let clock = 100000;
+    const { window } = loadClassic('js/showDirector.js', { performance: { now: () => clock } });
+    const make = () => {
+        const vj = {
+            paletteMode: 'analogous', bpm: 120, beatNumber: 0, beatEnvelope: 0, blackoutUntil: 0,
+            realOnsetCount: 0, lastRealOnsetAt: clock, onsetStreak: 0, hueLocked: false, masterHue: 0.3, shuffles: 0,
+            setMasterHue(h) { this.masterHue = h; this.hueLocked = true; }, unlockHue() { this.hueLocked = false; },
+            shufflePalette() { this.shuffles++; this.masterHue = (this.masterHue + 0.4) % 1; }
+        };
+        const club = { vjManualMode: false, photosensitiveSafeMode: false, vjDirector: vj };
+        return { vj, club, show: new window.ShowDirector(club) };
+    };
+    const bars = (ctx, n) => {
+        for (let i = 0; i < n * 4; i++) {
+            clock += 500;
+            ctx.vj.beatNumber++;
+            ctx.show.update(clock / 1000, { hasAudio: true, bass: 0.4, mid: 0.3, treble: 0.1 });
+        }
+    };
+    const keep = { mode: 'keep', delay: 60, shuffle: 15 };
+
+    // KEEP IT: the section stays on its first look through many bars; the colour is pinned with it.
+    const a = make();
+    assert.equal(a.show.pickSection('ignition', keep), 'IGNITION'.replace('IGNITION', a.show.movements.ignition.title));
+    const look = a.show._cue.look;
+    assert.equal(a.show.isHeld(), true);
+    assert.equal(a.vj.hueLocked, true, 'the hold must pin the colour too');
+    bars(a, 40);
+    assert.equal(a.show._movementName, 'ignition');
+    assert.equal(a.show._cue.look, look, 'a kept section moved on');
+    assert.equal(a.show.holdSecondsLeft(), null, 'a kept section has no end');
+    // AUTO SHOW releases it and the show moves on again from where it was.
+    assert.equal(a.show.releaseHold(), true);
+    assert.equal(a.vj.hueLocked, false);
+    bars(a, 40);
+    assert.equal(a.show.isHeld(), false);
+    assert.ok(a.show._movementName !== 'ignition' || a.show._cue.look !== look, 'the show never moved on after AUTO SHOW');
+
+    // RETURN TO AUTO: held for the chosen time, then carried on.
+    const b = make();
+    b.show.pickSection('ignition', { mode: 'resume', delay: 30, shuffle: 15 });
+    bars(b, 5);                                         // 10 s at 120 BPM (a bar is 2 s)
+    assert.equal(b.show.isHeld(), true);
+    assert.ok(b.show.holdSecondsLeft() > 10 && b.show.holdSecondsLeft() <= 20, `left: ${b.show.holdSecondsLeft()}`);
+    bars(b, 11);                                        // 32 s in: past the 30 s hold
+    assert.equal(b.show.isHeld(), false, 'the timed hold never ended');
+
+    // SHUFFLE COLOURS: held, and a new hue at the interval.
+    const c = make();
+    c.show.pickSection('pulse', { mode: 'shuffle', delay: 60, shuffle: 5 });
+    bars(c, 16);                                        // 32 s
+    assert.equal(c.show.isHeld(), true);
+    assert.ok(c.vj.shuffles >= 5 && c.vj.shuffles <= 7, `expected about 6 shuffles in 32 s, got ${c.vj.shuffles}`);
+
+    // A follower in someone else's room cannot pick or hold; a countdown or a new section cancels a hold.
+    const d = make();
+    d.show.setFollower(true);
+    assert.equal(d.show.pickSection('ignition', keep), null);
+    assert.equal(d.show.holdLook(keep), false);
+    const e = make();
+    e.show.pickSection('ignition', keep);
+    e.show.triggerShowDrop();
+    assert.equal(e.show.isHeld(), false, 'a countdown must not stay held');
+    assert.equal(e.show.nextSection(keep) !== null, true);
+    assert.equal(e.show.isHeld(), true);
+});
+
+test('the lights follow the hold policy from every surface: choices are saved, timing steps per mode, sections resume the show first', () => {
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, value) };
+    const core = loadClassic('js/club/01-core.js', { localStorage });
+    const { window } = loadClassic('js/club/10-ui.js', {
+        VRClubAnimationFinish: class { static get STROBE_PATTERNS() { return ['all', 'circle']; } },
+        VRClubCore: core.window.VRClubCore, localStorage
+    });
+    const proto = window.VRClubUI.prototype;
+    let held = false, picked = null, resumed = 0;
+    const club = Object.assign(Object.create(proto), {
+        lightHold: { mode: 'resume', delay: 60, shuffle: 15 }, vjManualMode: true, lastVJInteraction: 0,
+        guardHostControl: () => true, vjDirector: { _shuffleAt: 99 },
+        showDirector: {
+            follower: false, isHeld: () => held, holdLook(policy) { held = policy; }, releaseHold() { held = false; },
+            pickSection(name, policy) { picked = [name, policy.mode]; return name.toUpperCase(); },
+            nextSection(policy) { picked = ['next', policy.mode]; return 'NEXT'; }
+        }
+    });
+    performance.now = () => 5000;
+    // The summary says what will happen in words.
+    assert.equal(club.lightHoldSummary(), 'AUTO AFTER 1 MIN');
+    club.setLightHold({ mode: 'keep' });
+    assert.equal(club.lightHoldSummary(), 'KEPT UNTIL AUTO SHOW');
+    assert.deepEqual(JSON.parse(store.get('vrclub.lightHold')), { mode: 'keep', delay: 60, shuffle: 15 }, 'the choice is saved on this device');
+    club.setLightHold({ mode: 'bogus', delay: 7, shuffle: -1 });
+    assert.equal(club.lightHold.mode, 'keep', 'invalid values are ignored');
+    // The single VR/desk button steps the modes; its timing button steps the list that belongs to the mode.
+    club.setLightHold({ mode: 'resume' });
+    club.cycleLightHoldTiming();
+    assert.equal(club.lightHold.delay, 120);
+    assert.equal(club.lightHold.shuffle, 15, 'stepping auto-return timing leaves the shuffle interval alone');
+    club.setLightHold({ mode: 'shuffle' });
+    club.cycleLightHoldTiming();
+    assert.equal(club.lightHold.shuffle, 30);
+    assert.equal(club.lightHold.delay, 120);
+    club.setLightHold({ mode: 'keep' });
+    assert.equal(club.cycleLightHoldTiming().mode, 'keep', 'KEEP IT has no timing to step');
+    assert.equal(club.cycleLightHoldMode().mode, 'shuffle');
+    assert.equal(club.cycleLightHoldMode().mode, 'resume');
+    assert.equal(club.cycleLightHoldMode().mode, 'keep');
+    // Changing the policy while a section is held re-applies it to that hold.
+    held = true;
+    club.setLightHold({ mode: 'resume', delay: 30 });
+    assert.deepEqual({ ...held }, { mode: 'resume', delay: 30, shuffle: 30 });
+    held = false;
+    // Picking a section after hand-made changes hands the lights back to the show first, under the current policy.
+    club.resumeAutoShow = () => { resumed++; club.vjManualMode = false; };
+    assert.equal(club.pickShowSection('ignition'), 'IGNITION');
+    assert.equal(resumed, 1);
+    assert.deepEqual(picked, ['ignition', 'resume']);
+    club.vjManualMode = true;
+    assert.equal(club.nextShowSection(), 'NEXT');
+    assert.equal(resumed, 2);
+    // A guest cannot pick sections in someone else's room.
+    club.guardHostControl = () => false;
+    assert.equal(club.pickShowSection('pulse'), null);
+    club.guardHostControl = () => true;
+    club.showDirector.follower = true;
+    assert.equal(club.nextShowSection(), null);
+    // Taking the lights by hand cancels a held section; AUTO SHOW does too.
+    held = true;
+    proto.takeLightControl.call(club);
+    assert.equal(held, false);
+});
+
+test('smoke off is clear air and smoke on is haze: the level eases and scales fog, haze, lasers and beams', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/07-animation-core.js', { BABYLON, VRClubEffects: class {} });
+    const proto = window.VRClubAnimationCore.prototype;
+    const makeStops = () => [0, 1, 1, 0].map(() => ({ color1: { set(r, g, b, a) { this.a = a; }, a: 0 }, color2: { set(r, g, b, a) { this.a = a; }, a: 0 } }));
+    const club = (smokeActive) => ({
+        smokeActive, scene: { fogEnabled: false, fogDensity: 0.028, fogColor: { r: 0, g: 0, b: 0 }, activeCamera: null },
+        isInVRMode: false, vrSettings: { desktop: { fogDensity: 0.028 }, vr: { fogDensity: 0.022 } },
+        haze: { color1: { r: 0.5, g: 0.5, b: 0.5, a: 0.04 }, color2: { r: 0.5, g: 0.5, b: 0.5, a: 0.03 } },
+        _hazeGradients: makeStops(), _hazeFade: [0, 1, 1, 0], lightsActive: false, masterIntensity: 1
+    });
+    const settle = (c, seconds) => { for (let i = 0; i < seconds * 60; i++) proto._tintClubAir.call(c, 1 / 60); };
+
+    const on = club(true), off = club(false);
+    settle(on, 10); settle(off, 10);
+    assert.ok(Math.abs(on.scene.fogDensity - 0.028) < 1e-4, 'smoke on keeps the designed fog');
+    assert.ok(off.scene.fogDensity < 0.028 * 0.2, `smoke off still left ${(off.scene.fogDensity / 0.028 * 100).toFixed(0)}% of the fog`);
+    assert.ok(on._hazeGradients[1].color1.a > 0.039, 'full haze: the puffs keep their designed alpha');
+    const hazeOn = on._hazeGradients[1].color1.a;
+    assert.ok(off._hazeGradients[1].color1.a < hazeOn * 0.08, 'smoke off must clear the haze particles, not just stop the machines');
+    assert.equal(off._hazeGradients[0].color1.a, 0, 'the fade-in/out stops stay transparent');
+
+    // It eases: half a second after the switch the room is neither full nor empty, and it does not snap.
+    const toggled = club(true);
+    settle(toggled, 5);
+    toggled.smokeActive = false;
+    settle(toggled, 0.5);
+    assert.ok(toggled._smokeLevel > 0.4 && toggled._smokeLevel < 0.95, `snapped: ${toggled._smokeLevel}`);
+    settle(toggled, 10);
+    assert.equal(toggled._smokeLevel, 0);
+    toggled.smokeActive = true;
+    settle(toggled, 10);
+    assert.equal(toggled._smokeLevel, 1);
+});
+
+test('lasers, the laser sheet and the beams scatter less in clear air than in a hazy room', () => {
+    const src = ['js/club/07-animation-core.js', 'js/club/08-animation-fixtures.js']
+        .map(file => readFileSync(join(ROOT, file), 'utf8')).join('\n');
+    assert.doesNotMatch(src, /smokeActive === false\s*\n?\s*\? 0\.25/, 'a fixed 25% haze floor for smoke off is back');
+    assert.equal((src.match(/0\.2 \+ 0\.8 \* smokeNow/g) || []).length >= 3, true, 'laser, sheet and beam visibility must follow the smoke level');
+    assert.match(src, /_smokeLevel/);
+});
+
+test('the lights panel offers a strobe pattern, show sections and the hold choice, and every light button takes control', () => {
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /data-control="cycleStrobePattern"[^>]*>STROBE PATTERN: ALL AT ONCE</);
+    for (const section of ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']) assert.match(html, new RegExp(`data-section="${section}"`));
+    for (const hold of ['keep', 'resume', 'shuffle']) assert.match(html, new RegExp(`data-hold="${hold}"`));
+    assert.match(html, /id="vjHoldTiming"/);
+    const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const hand = /const HAND_CONTROLS = Object\.freeze\(new Set\(\[([^\]]*)\]\)\);/.exec(ui);
+    assert.ok(hand, 'HAND_CONTROLS is defined');
+    for (const control of ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern', 'reverseGoboSpin', 'cycleStrobePattern']) {
+        assert.ok(hand[1].includes(`'${control}'`), `${control} no longer takes the lights from the automatic show`);
+    }
+    assert.match(ui, /if \(HAND_CONTROLS\.has\(control\)\) vrClubInstance\.takeLightControl\(\);/);
+    // Guests keep their own hold choice live in someone else's room, like their comfort settings.
+    assert.match(ui, /\[data-hold\], #vjHoldTiming/);
+});
+
+test('the VR menu offers the strobe pattern, the next section and the hold choice, with the timing disabled while keeping', () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, VRClubCore: { peopleCategories: () => [] } });
+    const proto = window.VRClubUI.prototype;
+    const club = Object.create(proto);
+    club._multiplayer = () => null;
+    club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
+    const label = (page, text) => club._vrQuickMenuPageDefinitions(page).filter(Boolean).find(item => item.label === text);
+    assert.ok(label('effects', 'STROBE PATTERN'), 'EFFECTS has no strobe pattern button');
+    assert.equal(club._vrQuickMenuPageDefinitions('effects').filter(Boolean).length <= 12, true);
+    for (const text of ['NEXT SECTION', 'AFTER MY CHANGE', 'AUTO AFTER']) assert.ok(label('show', text), `SHOW is missing ${text}`);
+    club.lightHold.mode = 'shuffle';
+    assert.ok(label('show', 'COLOUR EVERY'));
+    club.lightHold.mode = 'keep';
+    assert.ok(label('show', 'TIMING'));
+    assert.equal(club._isVRButtonDisabled({ action: 'holdTiming' }), true, 'KEEP IT has no timing');
+    club.isFollowingHost = () => false;
+    club.lightHold.mode = 'resume';
+    assert.equal(club._isVRButtonDisabled({ action: 'holdTiming' }), false);
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdMode' }, true), 'RETURN TO AUTO');
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdTiming' }, true), '1 MIN');
+    club.lightHold = { mode: 'shuffle', delay: 60, shuffle: 30 };
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdTiming' }, true), '30 S');
+    club.lightHold = { mode: 'keep', delay: 60, shuffle: 30 };
+    assert.equal(club._vrQuickMenuButtonValue({ action: 'holdTiming' }, true), 'NOT NEEDED');
+    // The section button is the host's in a room; the personal hold choice never is.
+    club.isFollowingHost = () => true;
+    assert.equal(club._isHostOwnedVRButton({ action: 'nextSection' }), true);
+    assert.equal(club._isHostOwnedVRButton({ action: 'holdMode' }), false);
+    assert.equal(club._isHostOwnedVRButton({ action: 'holdTiming' }), false);
+});
+
+test('a host\u2019s strobe pattern reaches guests through the allow-listed fixture frame', () => {
+    const { window } = loadClassic('js/multiplayer.js', {
+        VRClubAnimationFinish: { STROBE_PATTERNS: ['all', 'chase', 'circle'] }, NetworkClient: class {}, AvatarManager: class {}
+    });
+    const spec = window.ClubMultiplayer.MANUAL_FIXTURES;
+    assert.deepEqual([...spec.strobePatternIndex], [0, 31]);
+    const mp = Object.create(window.ClubMultiplayer.prototype);
+    mp.club = { strobePattern: 'circle', photosensitiveSafeMode: false };
+    assert.equal(mp._captureFixtures().strobePatternIndex, 2);
+    mp.club.strobePattern = 'invented';
+    assert.equal('strobePatternIndex' in mp._captureFixtures(), false, 'an unknown pattern is not sent');
+    mp._applyFixtures({ strobePatternIndex: 1 });
+    assert.equal(mp.club.strobePattern, 'chase');
+    mp._applyFixtures({ strobePatternIndex: 30 });
+    assert.equal(mp.club.strobePattern, 'chase', 'an index this build does not have is ignored');
 });

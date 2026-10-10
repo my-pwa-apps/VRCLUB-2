@@ -376,17 +376,27 @@ class VRClubAnimationCore extends VRClubEffects {
      * Residual club air. Beams are scatter, so EXP2 fog stays on even when the
      * machines are idle. RGB is nudged toward the current look in place; the
      * asserted haze alphas are left alone.
+     *
+     * The SMOKE control is an eased `_smokeLevel` (0 clear air .. 1 full haze, about 1.6 s to fill or clear): it scales the
+     * fog density, the haze particles' alpha, the lasers' and the sheet's scatter and the beams' visibility. Smoke off
+     * used to trim the fog to 45% and keep the ambient hazer and the beam scatter running, so nothing seemed to change.
      */
     _tintClubAir(dt) {
         const scene = this.scene;
         if (!scene) return;
         scene.fogEnabled = true;
+        const step60 = dt > 0 ? dt : 1 / 60;
+        const goal = this.smokeActive === false ? 0 : 1;
+        if (!Number.isFinite(this._smokeLevel)) this._smokeLevel = goal;
+        this._smokeLevel += (goal - this._smokeLevel) * (1 - Math.exp(-step60 / 1.6));
+        if (Math.abs(goal - this._smokeLevel) < 0.002) this._smokeLevel = goal;
+        const smoke = this._smokeLevel;
         const settings = this.isInVRMode ? this.vrSettings?.vr : this.vrSettings?.desktop;
         const designed = settings && settings.fogDensity;
         // Outdoors the air is thin: the club's haze is a room effect, and the street needs to see down the block.
         const outdoors = this._exterior || 0;
         if (typeof designed === 'number') {
-            const target = (this.smokeActive === false ? designed * 0.45 : designed) * (1 - 0.62 * outdoors);
+            const target = designed * (0.1 + 0.9 * smoke) * (1 - 0.62 * outdoors);
             const current = scene.fogDensity;
             if (!(current > 0)) {
                 scene.fogDensity = target;
@@ -419,12 +429,13 @@ class VRClubAnimationCore extends VRClubEffects {
             }
         }
         // The live particles read the gradient stops, not color1/color2, so push the
-        // tint and the peak alpha through them, scaled by each stop's fade weight.
+        // tint and the peak alpha through them, scaled by each stop's fade weight and by how much smoke there is.
         const stops = this._hazeGradients;
         const fade = this._hazeFade;
         if (stops && fade && haze.color2) {
+            const amount = 0.04 + 0.96 * smoke;
             for (let k = 0; k < stops.length && k < fade.length; k++) {
-                const f = fade[k];
+                const f = fade[k] * amount;
                 const stop = stops[k];
                 stop.color1.set(haze.color1.r, haze.color1.g, haze.color1.b, haze.color1.a * f);
                 if (stop.color2) stop.color2.set(haze.color2.r, haze.color2.g, haze.color2.b, haze.color2.a * f);
@@ -542,11 +553,12 @@ class VRClubAnimationCore extends VRClubEffects {
         }
 
         if (!isDust) {
-            // The beam mesh reads how much medium actually sits in its cone.
+            // The beam mesh reads how much medium actually sits in its cone, and how much smoke there is to scatter it.
             const ref = Math.max(6, particles.length * 0.02);
+            const smoke = 0.15 + 0.85 * (Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1));
             for (let k = 0; k < nBeams; k++) {
                 const spot = beams[k].spot;
-                const target = Math.min(1, beams[k].acc / ref);
+                const target = Math.min(1, beams[k].acc / ref) * smoke;
                 const cur = spot._mediumDensity == null ? target : spot._mediumDensity;
                 spot._mediumDensity = cur + (target - cur) * 0.06;
             }
@@ -640,9 +652,9 @@ class VRClubAnimationCore extends VRClubEffects {
             
             // Scanned sheets read through the haze: thin air shows a faint veil, a full haze a solid plane.
             // The projector's output is steady; the music only nudges it (a real fan is not a strobe).
-            const haze = this.smokeActive === false
-                ? 0.25
-                : Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5));
+            const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
+            const haze = Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5)) *
+                (0.2 + 0.8 * smokeNow);
             const pulse = 0.75 + (audioData.average || 0) * 0.25 + (this.kickPulse || 0) * 0.35;
             const level = Math.min(1, 0.75 * pulse * (0.35 + 0.65 * haze)) * master;
             sheetMat.alpha = level;

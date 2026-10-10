@@ -361,6 +361,22 @@ strobe-free. Any strobe layered under another subject must be bar-synced (a unit
 only `detonation` and `releaseHit` to be faster), which also keeps it clear of the 3-a-second
 limit. A strobe-only solo may use the faster grid. The one-idea-at-a-time rule counts a
 bar-synced strobe as an accent, like a dimmed LED wall.
+**Strobe patterns.** `VRClubAnimationFinish.STROBE_PATTERNS` (`all`, `chase`, `circle`, `reverse`, `pingpong`, `sides`,
+`frontback`, `cross`, `build`, `random`) choose which of the four strobes fire; the pure `strobeTargets(pattern, count, step,
+rand, last)` answers it (ring order 0,1,3,2). A look's `strobePattern` still wins while the show applies looks; a hand-picked
+one (`cycleStrobePattern`, VR EFFECTS, VJ panel, host-synced as `strobePatternIndex`) holds in manual mode or a held section.
+Step patterns run on a steady interval and the flash light follows the brightest strobe. Every pattern still claims
+`_tryClubFlash` (<= 3 flashes a second) and Safe Mode still clears `strobesActive`.
+**Hand control and the hold policy.** `vrclub.lightHold` = `{mode: 'resume'|'keep'|'shuffle', delay, shuffle}`
+(`VRClubCore.resolveLightHold`; delays `LIGHT_HOLD_DELAYS`, shuffle `LIGHT_SHUFFLE_SECONDS`). Any hand change calls
+`takeLightControl()` (every DOM VJ button in `HAND_CONTROLS` too). `resume` hands back after `delay` s
+(`lightHandBackSeconds()` in `updateSpotColorCycle`), `keep` never does, `shuffle` keeps and jumps the palette hue every
+`shuffle` s (`VJDirector.shufflePalette()`). In manual mode `VJDirector._updatePalette()` no longer rotates the palette: it
+used to rewrite spot, laser and mirror colours every 16 beats under a hand-picked colour. Picking a section by hand
+(`ShowDirector.pickSection/nextSection`, `isHeld()`) holds that look under the same policy; `_onBar` skips structure while
+held, and `releaseHold()` (Auto show, resume) lets it go. Followers (`remoteDriven`) never hold.
+**Smoke.** `_tintClubAir` eases `_smokeLevel` (1.6 s) from `smokeActive` and scales fog density, haze alpha, laser-sheet haze
+and beam medium density, so switching it off visibly clears the beams. Reads tolerate a missing `_smokeLevel` (bare stubs).
 **Kick punch reaches the fixtures.** `club.kickDepth` (the look's `punch`, written by the
 director) × `beatEnvelope` gives `club.kickPulse` each frame, halved in Safe Mode. It lifts
 the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball spin, and —
@@ -1237,7 +1253,7 @@ the relay URL. Private rooms successfully joined on this device are also remembe
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1340,7 +1356,8 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY).
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
   (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,
-  the usual `VJ_TIMEOUT` (60 s, counted down in the header) hands them back; AUTO SHOW does it at once.
+  the guest's hold policy (`vrclub.lightHold`; default resume after 60 s, `VJ_TIMEOUT` is the legacy fallback, counted down
+  in the header) hands them back; AUTO SHOW does it at once. The desk shows status only, no hold steppers.
 - Tests: the layout (inside the panel, no overlaps, every control known), the hand-over and hand-back, the booth hold,
   host and Safe Mode gating (`test/unit.test.mjs`, `test/multiplayer.test.mjs`); in the real club a ray at the middle
   of every button lands on that button from the booth viewpoint, and presses redraw the panels

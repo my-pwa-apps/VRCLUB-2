@@ -164,10 +164,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const view = this._laserView();
         const camPos = view.cam;
         const pixelAngle = view.pixelAngle;
-        // The ambient hazer always holds a thin haze; the machines thicken it.
-        const haze = this.smokeActive === false
-            ? 0.25
-            : Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5));
+        // The ambient hazer always holds a thin haze; the machines thicken it. With smoke off the air is clear.
+        const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
+        const haze = Math.min(1, Math.max(0.25, (this.fogIntensity == null ? 1 : this.fogIntensity) / 1.5)) *
+            (0.2 + 0.8 * smokeNow);
         const kick = this.kickPulse || 0;
         const scatter = 0.35 + 0.65 * haze;
         const base = 0.6 * scatter * master * (1 + kick * 0.5) * (this.isInVRMode ? 1.15 : 1);
@@ -328,22 +328,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const colorChangeInterval = this.vjDropActive ? 2 : (12 - (this.energyLevel * 8));
         if (!this.vjManualMode && !showDriving && time - this.lastColorChange > colorChangeInterval) {
             this.spotColorIndex = (this.spotColorIndex + 1) % this.spotColorList.length;
-            
-            // SMOOTH COLOR TRANSITION: Store previous color for interpolation.
-            // copyFrom into our own buffer - cloning allocated a Color3 per switch and
-            // assigning would alias the shared palette.
-            this.previousSpotColor.copyFrom(this.currentSpotColor);
-            this.targetSpotColor = this.spotColorList[this.spotColorIndex];
-            this.colorTransitionProgress = 0; // Start transition
-            this.lastColorChange = time;
-            
-            // Update ALL lights to new color target
-            if (this.spotlights) {
-                this.spotlights.forEach((spot) => {
-                    // Update color reference - fixture materials updated in animation loop
-                    spot.color = this.targetSpotColor;
-                });
-            }
+            this._beginSpotColorTransition(time);
         }
         
         // SMOOTH COLOR INTERPOLATION: Fade between colors over 0.42-0.83 seconds
@@ -371,12 +356,40 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             }
         }
         
-        // Check if VJ manual mode should expire (60 seconds of no interaction)
-        if (this.vjManualMode && (time - this.lastVJInteraction) > this.VJ_TIMEOUT) {
+        // The automatic show returns once nobody has touched the lights for the guest's chosen time. Not at all when
+        // they chose to keep their lights or to shuffle the colours: those end with AUTO SHOW.
+        if (this.vjManualMode && (time - this.lastVJInteraction) > this.lightHandBackSeconds()) {
             this.vjManualMode = false;
             this.spotlightPattern = 0; // Switch to automated pattern
-            log.info("🤖 Automated patterns resumed - no VJ interaction for 60 seconds");
+            if (this.showDirector && typeof this.showDirector.releaseHold === 'function') this.showDirector.releaseHold();
+            log.info('🤖 Automated patterns resumed - no VJ interaction for the chosen time');
         }
+    }
+
+    /**
+     * Fade the heads to `spotColorList[spotColorIndex]`. copyFrom into our own buffer: cloning allocated a Color3 per
+     * switch and assigning would alias the shared palette.
+     */
+    _beginSpotColorTransition(time) {
+        this.previousSpotColor.copyFrom(this.currentSpotColor);
+        this.targetSpotColor = this.spotColorList[this.spotColorIndex];
+        this.colorTransitionProgress = 0; // Start transition
+        this.lastColorChange = time;
+
+        // Update ALL lights to new color target
+        if (this.spotlights) {
+            this.spotlights.forEach((spot) => {
+                // Update color reference - fixture materials updated in animation loop
+                spot.color = this.targetSpotColor;
+            });
+        }
+    }
+
+    /** Seconds of no touch after which the automatic show takes the lights back; Infinity when the guest keeps them. */
+    lightHandBackSeconds() {
+        const hold = this.lightHold;
+        if (hold && hold.mode !== 'resume') return Infinity;
+        return (hold && hold.delay) || this.VJ_TIMEOUT || 60;
     }
 
     /** Moving-head spotlights: pan/tilt, beams, floor pools, gobos and fixtures. */
@@ -1207,8 +1220,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // This ensures fixture uses EXACT same color as beam
         spot.currentBeamColor = spotColor;
         
+        const smokeNow = Number.isFinite(this._smokeLevel) ? this._smokeLevel : (this.smokeActive === false ? 0 : 1);
         const medium = Math.min(1, Math.max(0,
-            spot._mediumDensity == null ? 0.5 : spot._mediumDensity));
+            spot._mediumDensity == null ? 0.5 * (0.2 + 0.8 * smokeNow) : spot._mediumDensity));
         const hazeVisibility = 0.35 + 0.65 * medium;
         const coneAngle = spot.light && Number.isFinite(spot.light.angle)
             ? spot.light.angle
