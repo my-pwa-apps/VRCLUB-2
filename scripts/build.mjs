@@ -126,6 +126,7 @@ await Promise.all([
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
+    cp(path.join(root, 'googledd48f5e8f45ab4e2.html'), path.join(dist, 'googledd48f5e8f45ab4e2.html')),
     // Security headers for static hosts, which send no frame-ancestors of their own.
     cp(path.join(root, '_headers'), path.join(dist, '_headers')),
     ...[...modelReferences].map(rel =>

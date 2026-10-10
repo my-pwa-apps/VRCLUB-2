@@ -75,6 +75,15 @@ test('every stylesheet referenced by index.html exists on disk', () => {
     }
 });
 
+test('Google Search Console verification is deployed at the site root', () => {
+    const filename = 'googledd48f5e8f45ab4e2.html';
+    const verification = readFileSync(join(ROOT, filename), 'utf8').trim();
+    const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
+    assert.equal(verification, `google-site-verification: ${filename}`);
+    assert.match(build, new RegExp(`cp\\(path\\.join\\(root, '${filename}'\\), path\\.join\\(dist, '${filename}'\\)\\)`),
+        'production build must copy the Search Console verification file to the site root');
+});
+
 test('script load order honours the dependency contract', () => {
     const order = scriptSrcs.map(srcPath);
     const idx = (f) => order.indexOf(f);
