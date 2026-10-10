@@ -641,6 +641,10 @@ re-parents the lead fan; `this.laserSheetSource` always points at the lead proje
 rules are enforced by `test/unit.test.mjs`:
 - Colours are diode wavelengths (`cachedLaserColors`: 638 / 532 / 445 nm), not sRGB primaries;
   `_laserColor()` is the one source, honouring `colorLockActive`.
+- `cycleLaserColor()` steps those three diode colours for both ceiling beams and the laser sheet; there is no separate
+  sheet colour state. `matchAllLightColors()` steps the spot palette, sets `colorLockActive`, matches the LED harmony
+  and writes the same exact colour to the mirror ball. While locked, a later SPOT COLOUR step keeps the rig matched;
+  an individual LASER COLOUR step releases the lock.
 - Additive laser materials have `fogEnabled = false`: fog mixes toward its colour and greys a beam.
   Distance and haze attenuation go in vertex alpha instead.
 - No laser line is narrower than a few pixels (`_laserView()` gives the pixel angle), and widening
@@ -1354,7 +1358,8 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   one lights and says KEPT while held), plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
   path, projected gobo image, wall picture (n of 20) and mirror colour, and a last row: STROBE PATTERN, AFTER MY CHANGE
-  (keep / return to auto / shuffle colours) and TIMING. The two hold buttons are personal like RESIDENT DJ (never
+  (keep / return to auto / shuffle colours) and TIMING, followed by LASER COLOUR (lasers and sheet) and MATCH ALL
+  COLOURS. The two hold buttons are personal like RESIDENT DJ (never
   host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
   why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth

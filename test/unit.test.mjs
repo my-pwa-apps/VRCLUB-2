@@ -7480,7 +7480,8 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             }
         }
     }
-    const steps = ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern', 'cycleStrobePattern'];
+    const steps = ['changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
+        'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern', 'cycleStrobePattern'];
     for (const b of VJDeskLayout.buttons.lights.filter(item => item.kind === 'light')) {
         assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
     }
@@ -9135,4 +9136,63 @@ test('the VJ desk: section buttons, strobe pattern and the after-my-change hold 
     assert.equal(club._vjDeskButtonState(button('strobePattern')).value, 'ALL AT ONCE');
     press('strobePattern');
     assert.notEqual(club.strobePattern, 'all');
+});
+
+test('laser colour changes the lasers and sheet together, and match-all writes one colour across the rig', () => {
+    const BABYLON = makeBabylonStub();
+    const localStorage = { setItem() {} };
+    const { VRClubCore } = loadClassic('js/club/01-core.js', { localStorage }).window;
+    class Finish {
+        static get STROBE_PATTERNS() { return ['all']; }
+        static get STROBE_PATTERN_NAMES() { return { all: 'ALL AT ONCE' }; }
+    }
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', {
+        BABYLON, VRClubCore, VRClubAnimationFinish: Finish, localStorage,
+        performance: { now: () => 5000 }, log: { info() {} }
+    }).window;
+    const red = new BABYLON.Color3(1, 0, 0);
+    const green = new BABYLON.Color3(0, 1, 0);
+    const blue = new BABYLON.Color3(0, 0, 1);
+    let harmony = '';
+    const club = Object.assign(Object.create(VRClubUI.prototype), {
+        spotColorList: [red, green, blue],
+        spotColorIndex: 0,
+        currentSpotColor: red.clone(),
+        cachedLaserColors: { red, green, blue },
+        currentColorIndex: 0,
+        colorLockActive: true,
+        _laserColor() {
+            if (this.colorLockActive) return this.currentSpotColor;
+            return [red, green, blue][this.currentColorIndex];
+        },
+        vjDirector: { setLedHarmony(value) { harmony = value; } },
+        mirrorBallSpotlights: [{ diffuse: null }],
+        mirrorBallBeams: [{ material: { emissiveColor: null } }],
+        mirrorBallHousings: [],
+        mirrorReflectionBatch: {
+            spotMat: { emissiveColor: red.clone() },
+            rayMat: { emissiveColor: red.clone() }
+        }
+    });
+
+    const laser = club.cycleLaserColor();
+    assert.deepEqual([laser.r, laser.g, laser.b], [0, 1, 0]);
+    assert.equal(club.colorLockActive, false, 'an individual laser choice releases the all-colour lock');
+    assert.equal(club.currentColorIndex, 1);
+    assert.equal(club.colorSwitchTime, 5);
+
+    const matched = club.matchAllLightColors();
+    assert.deepEqual([matched.r, matched.g, matched.b], [0, 1, 0]);
+    assert.equal(club.colorLockActive, true);
+    assert.equal(club.ledMonochrome, false);
+    assert.equal(club.ledMulti, false);
+    assert.equal(harmony, 'match');
+    assert.deepEqual(
+        [club.currentSpotColor, club._laserColor(), club.mirrorBallSpotlightColor].map(c => [c.r, c.g, c.b]),
+        [[0, 1, 0], [0, 1, 0], [0, 1, 0]]
+    );
+
+    club.cycleSpotColor();
+    assert.deepEqual([club.mirrorBallSpotlightColor.r, club.mirrorBallSpotlightColor.g, club.mirrorBallSpotlightColor.b], [0, 0, 1],
+        'spot colour keeps the whole rig matched while the lock is active');
 });

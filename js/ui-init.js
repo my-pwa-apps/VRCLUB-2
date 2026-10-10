@@ -65,7 +65,8 @@ const TOGGLE_CONTROLS = Object.freeze(new Set([
 
 /** The panel's step/cycle buttons that change a light: pressing one takes the lights by hand (see takeLightControl). */
 const HAND_CONTROLS = Object.freeze(new Set([
-    'changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern',
+    'changeColor', 'changeLaserColor', 'matchAllColors', 'changeMirrorBallColor',
+    'cycleSpotMode', 'cyclePattern', 'goboActive', 'cycleGoboPattern',
     'reverseGoboSpin', 'cycleStrobePattern'
 ]));
 
@@ -580,6 +581,14 @@ function initVJMenu() {
             if (control === 'changeColor') {
                 const color = vrClubInstance.cycleSpotColor();
                 flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
+
+            } else if (control === 'changeLaserColor') {
+                const color = vrClubInstance.cycleLaserColor();
+                if (color) flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
+
+            } else if (control === 'matchAllColors') {
+                const color = vrClubInstance.matchAllLightColors();
+                if (color) flashButton(button, `rgba(${color.r * 255}, ${color.g * 255}, ${color.b * 255}, 0.8)`);
                 
             } else if (control === 'cycleGraphicsQuality') {
                 // Cycle render quality. Auto-detection is conservative, so this lets a

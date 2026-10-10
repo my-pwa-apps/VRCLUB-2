@@ -848,8 +848,10 @@ class VJDirector {
             club.currentColorIndex = this._hueToRGBIndex(laserHue);
         }
 
-        // Mirror ball: rotate one slot per phrase for variety
-        if (!this.remoteDriven && club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
+        // A colour-locked rig is one coherent colour, including the mirror ball.
+        if (club.colorLockActive && typeof club._setMirrorBallColor === 'function') {
+            club._setMirrorBallColor(A);
+        } else if (!this.remoteDriven && club.mirrorBallColors && club.mirrorBallColorIndex !== undefined) {
             club.mirrorBallColorIndex = (club.mirrorBallColorIndex + 1) % club.mirrorBallColors.length;
             club.mirrorBallSpotlightColor = club.mirrorBallColors[club.mirrorBallColorIndex];
         }

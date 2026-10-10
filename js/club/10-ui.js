@@ -217,15 +217,40 @@ class VRClubUI extends VRClubAnimationFinish {
                 }
             });
         }
+        if (this.colorLockActive) {
+            if (this.vjDirector && typeof this.vjDirector.setLedHarmony === 'function') this.vjDirector.setLedHarmony('match');
+            this._setMirrorBallColor(this.currentSpotColor);
+        }
         return this.currentSpotColor;
     }
 
-    /** Advance the mirror-ball palette and push it to every dependent surface. */
-    cycleMirrorBallColor() {
-        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
-        const colour = this.mirrorBallColors[this.mirrorBallColorIndex];
-        this.mirrorBallSpotlightColor = colour;
+    /** Advance the shared beam-laser colour. The laser sheet reads the same source. */
+    cycleLaserColor() {
+        this.colorLockActive = false;
+        this.currentColorIndex = ((this.currentColorIndex || 0) + 1) % 3;
+        this.colorSwitchTime = performance.now() / 1000;
+        return typeof this._laserColor === 'function' ? this._laserColor() : null;
+    }
 
+    /** Apply one palette colour to moving heads, lasers, laser sheet, mirror ball and the colour-following LED wall. */
+    matchAllLightColors(advance = true) {
+        const colour = advance ? this.cycleSpotColor() : this.currentSpotColor;
+        if (!colour) return null;
+        this.colorLockActive = true;
+        this.ledMonochrome = false;
+        this.ledMulti = false;
+        if (this.vjDirector && typeof this.vjDirector.setLedHarmony === 'function') {
+            this.vjDirector.setLedHarmony('match');
+        } else {
+            this.ledShowColor = colour;
+        }
+        this._setMirrorBallColor(colour);
+        return colour;
+    }
+
+    /** Write an exact mirror-ball colour without stepping its independent palette. */
+    _setMirrorBallColor(colour) {
+        this.mirrorBallSpotlightColor = colour;
         if (this.mirrorBallSpotlights) {
             this.mirrorBallSpotlights.forEach(light => { if (light) light.diffuse = colour.clone(); });
         }
@@ -245,6 +270,13 @@ class VRClubUI extends VRClubAnimationFinish {
             this.mirrorReflectionBatch.rayMat.emissiveColor.copyFrom(colour);
         }
         this.mirrorBallCachedColors = null;
+    }
+
+    /** Advance the mirror-ball palette and push it to every dependent surface. */
+    cycleMirrorBallColor() {
+        this.mirrorBallColorIndex = (this.mirrorBallColorIndex + 1) % this.mirrorBallColors.length;
+        const colour = this.mirrorBallColors[this.mirrorBallColorIndex];
+        this._setMirrorBallColor(colour);
         return colour;
     }
 
@@ -431,6 +463,8 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!this.guardHostControl('lights')) return false;
         switch (control) {
             case 'changeColor': this.cycleSpotColor(); break;
+            case 'changeLaserColor': this.cycleLaserColor(); break;
+            case 'matchAllColors': this.matchAllLightColors(); break;
             case 'changeMirrorBallColor': this.cycleMirrorBallColor(); break;
             case 'cycleSpotMode': this.spotlightMode = (this.spotlightMode + 1) % VRClubUI.SPOT_MODE_NAMES.length; break;
             case 'cyclePattern': this.spotlightPattern = (this.spotlightPattern + 1) % VRClubUI.SPOT_PATTERN_NAMES.length; break;
@@ -524,6 +558,7 @@ class VRClubUI extends VRClubAnimationFinish {
             strobePattern: 'all',
             spotlightMode: 0,
             spotlightPattern: 0,
+            colorLockActive: false,
             goboPatternIndex: 0,
             goboRotationSpeed: 1.0,
             spotlightSpeed: 1.0,
@@ -669,6 +704,12 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'cycle' && button.control === 'changeColor') {
             return `COLOUR ${(this.spotColorIndex || 0) + 1}`;
         }
+        if (button.action === 'cycle' && button.control === 'changeLaserColor') {
+            return ['RED', 'GREEN', 'BLUE'][this.currentColorIndex || 0];
+        }
+        if (button.action === 'cycle' && button.control === 'matchAllColors') {
+            return this.colorLockActive ? 'MATCHED' : 'TAP TO MATCH';
+        }
         if (button.action === 'cycle' && button.control === 'changeMirrorBallColor') {
             return `COLOUR ${(this.mirrorBallColorIndex || 0) + 1}`;
         }
@@ -736,6 +777,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'LED WALL', control: 'ledWallActive' },
                 { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                { label: 'LASER COLOUR', control: 'changeLaserColor', action: 'cycle' },
                 { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
                 { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
                 common.back,
@@ -748,6 +790,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SMOKE', control: 'smokeActive' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
                 { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
+                { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
                 { label: 'PROJECT GOBO', control: 'goboActive' },
                 { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },

@@ -76,7 +76,8 @@ class ClubMultiplayer {
         mirrorBallActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b', goboEnabled: 'b',
         spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
         goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
-        ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31]
+        ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
+        currentColorIndex: [0, 2], colorLockActive: 'b'
     });
     /** A dance ends when the guest walks this far from where it started. */
     static DANCE_BREAK_DISTANCE = 0.6;
@@ -1180,6 +1181,9 @@ class ClubMultiplayer {
                 default:
                     if (key in club) club[key] = value;
             }
+        }
+        if (club.colorLockActive && typeof club.matchAllLightColors === 'function') {
+            club.matchAllLightColors(false);
         }
     }
 

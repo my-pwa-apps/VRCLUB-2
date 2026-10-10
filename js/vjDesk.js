@@ -46,7 +46,7 @@ function vjDeskLayout() {
     const rowHeights = [92, 92, 92, 78, 70, 70];
     const show = grid(3, rowHeights);
     const sections = grid(5, rowHeights);   // row 3 holds one button per show section
-    const lights = grid(4, [100, 100, 100, 100, 100]);
+    const lights = grid(4, [82, 82, 82, 82, 82, 82]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
         ({ id, panel: 'lights', kind: 'light', label, control, colour, rect: lights(col, row), ...extra });
     const sectionButton = (id, label, col, colour) =>
@@ -89,7 +89,9 @@ function vjDeskLayout() {
             light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true }),
             { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4, 2), step: true },
             { id: 'holdMode', panel: 'lights', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(2, 4), colour: '#19c37d' },
-            { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' }
+            { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
+            { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5, 2), step: true },
+            { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
         ])
     });
 }
@@ -426,6 +428,8 @@ const VJDesk = {
             case 'light':
                 switch (button.control) {
                     case 'changeColor': out.value = 'NEXT COLOUR'; out.swatch = deskCss(this.currentSpotColor); break;
+                    case 'changeLaserColor': out.value = 'LASERS + SHEET'; out.swatch = typeof this._laserColor === 'function' ? deskCss(this._laserColor()) : null; break;
+                    case 'matchAllColors': out.value = 'ONE COLOUR'; out.swatch = deskCss(this.currentSpotColor); break;
                     case 'changeMirrorBallColor': out.value = 'NEXT COLOUR'; out.swatch = deskCss(this.mirrorBallSpotlightColor || (this.mirrorBallColors && this.mirrorBallColors[this.mirrorBallColorIndex || 0])); break;
                     case 'cycleSpotMode': out.value = VRClubUI.SPOT_MODE_NAMES[this.spotlightMode || 0] || ''; break;
                     case 'cyclePattern': out.value = VRClubUI.SPOT_PATTERN_NAMES[this.spotlightPattern || 0] || ''; break;
