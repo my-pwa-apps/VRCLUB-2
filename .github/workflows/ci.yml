@@ -175,8 +175,8 @@ jobs:
 
   deploy-cloudflare:
     # The Quest branch is published to Cloudflare Pages (project nocturne-vr, served at nocturne.mitwee.nl); `main`
-    # goes to GitHub Pages in the job above. The project's production branch is "main", so the deployment is always
-    # made with `--branch main` whatever git branch it is built from.
+    # goes to GitHub Pages in the job above. The Pages project's production branch is "Quest": a deployment made with
+    # any other `--branch` is only a Preview and never reaches the custom domain.
     # One-time setup: repository secrets CLOUDFLARE_API_TOKEN (Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID.
     # Without them the job only warns; `npm run deploy:cloudflare` does the same from a logged-in machine.
     if: github.event_name == 'push' && github.ref == 'refs/heads/Quest'
@@ -205,7 +205,7 @@ jobs:
 
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-        run: npx --yes wrangler@4 pages deploy dist --project-name nocturne-vr --branch main --commit-hash "$GITHUB_SHA" --commit-message "$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
+        run: npx --yes wrangler@4 pages deploy dist --project-name nocturne-vr --branch Quest --commit-hash "$GITHUB_SHA" --commit-message "$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
 
       - name: Cloudflare credentials missing
         if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''

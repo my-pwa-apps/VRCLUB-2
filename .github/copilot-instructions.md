@@ -684,10 +684,14 @@ the origin quota on a Quest.
 `npm run version:bump` rewrites `index.html`, `package.json`, `sw.js` and `serviceworker.js`
 together. A contract test fails if any of the four disagree.
 
-Production is the **built** `dist/`, published by the `deploy` job in
+Production is the **built** `dist/`. **The `main` branch is published to GitHub Pages** by the `deploy` job in
 `.github/workflows/ci.yml` only after `verify`, `e2e` and `audit` pass (GitHub Pages source
-must be set to "GitHub Actions"). GitHub Pages ignores `_headers`, so `frame-ancestors`
-and the immutable asset caching there only apply on Cloudflare Pages or Netlify.
+must be set to "GitHub Actions"). **The `Quest` branch is published to Cloudflare Pages** (project `nocturne-vr`,
+served at `nocturne.mitwee.nl`): `npm run deploy:cloudflare` from a logged-in machine, or the `deploy-cloudflare`
+CI job when the `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets exist. That project's production branch
+is `Quest`, so a deployment made with any other `--branch` is only a Preview and never reaches the custom domain.
+The relay Worker is deployed separately with `npm run deploy:worker`. GitHub Pages ignores `_headers`, so
+`frame-ancestors` and the immutable asset caching there only apply on Cloudflare Pages or Netlify.
 
 Search engines and link previews use `https://nocturne.mitwee.nl/` as the only canonical URL.
 `index.html` owns the title, description, Open Graph/Twitter metadata and the visible
