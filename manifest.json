@@ -1,12 +1,15 @@
 {
   "name": "NOCTURNE - Virtual Nightclub",
   "short_name": "NOCTURNE",
-  "description": "A virtual nightclub for Meta Quest. Bring your own music links or audio files. No music is included.",
+  "description": "An immersive WebXR virtual nightclub for Meta Quest and desktop with multiplayer, audio-reactive lighting, VJ controls, and your own music.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
+  "categories": ["entertainment", "games", "music", "social"],
+  "lang": "en",
+  "dir": "ltr",
   "background_color": "#030308",
   "theme_color": "#030308",
   "icons": [

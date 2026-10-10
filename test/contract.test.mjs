@@ -75,6 +75,35 @@ test('every stylesheet referenced by index.html exists on disk', () => {
     }
 });
 
+test('search and social metadata identify the canonical production experience', () => {
+    const title = html.match(/<title>([^<]+)<\/title>/)?.[1] || '';
+    const description = html.match(/<meta name="description" content="([^"]+)">/)?.[1] || '';
+    assert.match(title, /WebXR Virtual Nightclub/);
+    assert.ok(title.length >= 30 && title.length <= 65, `search title should be concise, found ${title.length} characters`);
+    assert.ok(description.length >= 120 && description.length <= 170,
+        `search description should be specific without truncating badly, found ${description.length} characters`);
+    assert.match(html, /<link rel="canonical" href="https:\/\/nocturne\.mitwee\.nl\/">/);
+    assert.match(html, /<meta name="robots" content="index, follow, max-image-preview:large,/);
+    assert.match(html, /<meta property="og:url" content="https:\/\/nocturne\.mitwee\.nl\/">/);
+    assert.match(html, /<meta property="og:image" content="https:\/\/nocturne\.mitwee\.nl\/icons\/social-preview\.png">/);
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
+    assert.equal([...html.matchAll(/<h1\b/g)].length, 1, 'the indexable page needs exactly one H1');
+    assert.match(html, /itemtype="https:\/\/schema\.org\/WebApplication"/);
+
+    const preview = readFileSync(join(ROOT, 'icons', 'social-preview.png'));
+    assert.equal(preview.readUInt32BE(16), 1200, 'social preview width must match its declared metadata');
+    assert.equal(preview.readUInt32BE(20), 630, 'social preview height must match its declared metadata');
+});
+
+test('robots and sitemap expose only the canonical production URL', () => {
+    const robots = readFileSync(join(ROOT, 'robots.txt'), 'utf8');
+    const sitemap = readFileSync(join(ROOT, 'sitemap.xml'), 'utf8');
+    assert.match(robots, /^User-agent: \*\r?\nAllow: \//);
+    assert.match(robots, /Sitemap: https:\/\/nocturne\.mitwee\.nl\/sitemap\.xml/);
+    assert.match(sitemap, /<loc>https:\/\/nocturne\.mitwee\.nl\/<\/loc>/);
+    assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the app shell is an indexable HTML page');
+});
+
 test('script load order honours the dependency contract', () => {
     const order = scriptSrcs.map(srcPath);
     const idx = (f) => order.indexOf(f);

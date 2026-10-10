@@ -58,7 +58,29 @@
     ">
     <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="description" content="Immersive VR nightclub for Meta Quest 3S with professional lighting, DJ booth, and audio-reactive visuals">
+    <meta name="description" content="Explore NOCTURNE, an immersive WebXR virtual nightclub for Meta Quest and desktop with multiplayer, audio-reactive lighting, a live VJ desk, and your own music.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="theme-color" content="#030308">
+
+    <link rel="canonical" href="https://nocturne.mitwee.nl/">
+    <link rel="sitemap" type="application/xml" href="https://nocturne.mitwee.nl/sitemap.xml">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="NOCTURNE">
+    <meta property="og:title" content="NOCTURNE — WebXR Virtual Nightclub">
+    <meta property="og:description" content="Enter an immersive virtual nightclub on Meta Quest or desktop. Meet friends online, control the light show, explore the venue, and bring your own music.">
+    <meta property="og:url" content="https://nocturne.mitwee.nl/">
+    <meta property="og:image" content="https://nocturne.mitwee.nl/icons/social-preview.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:alt" content="NOCTURNE WebXR virtual nightclub with neon lighting">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="NOCTURNE — WebXR Virtual Nightclub">
+    <meta name="twitter:description" content="Explore a social virtual nightclub on Meta Quest or desktop, control the show, and bring your own music.">
+    <meta name="twitter:image" content="https://nocturne.mitwee.nl/icons/social-preview.png">
+    <meta name="twitter:image:alt" content="NOCTURNE WebXR virtual nightclub with neon lighting">
     
     <!-- Quest 3S / WebXR Optimization -->
     <meta name="mobile-web-app-capable" content="yes">
@@ -68,10 +90,10 @@
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
     <link rel="preload" href="js/vendor/babylon.js?v=20261009-1" as="script">
     
-    <title>NOCTURNE - Virtual Nightclub Experience</title>
+    <title>WebXR Virtual Nightclub for Meta Quest &amp; Desktop | NOCTURNE</title>
     
     <link rel="manifest" href="manifest.json?v=20261009-1">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎧</text></svg>">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20261009-1">
     <link rel="apple-touch-icon" href="icons/icon-192.png?v=20261009-1">
     <link rel="stylesheet" href="css/styles.css?v=20261009-1">
 </head>
@@ -136,7 +158,6 @@
     </div>
     
     <main id="mainExperience" inert>
-    <h1 class="visually-hidden">NOCTURNE virtual nightclub</h1>
     <canvas id="canvas" class="hidden" tabindex="0"
             aria-label="Club scene. Use W, A, S, D or the arrow keys to move and drag with the mouse to look around."></canvas>
     
@@ -644,8 +665,29 @@
          the scene, and the splash names every CC BY creator before entry. Full provenance
          for every shipped binary is recorded in ASSETS.md. -->
     <details id="modelCredits">
-        <summary class="credits-title">ⓘ Credits &amp; licences</summary>
+        <summary class="credits-title">ⓘ About, Credits &amp; licences</summary>
         <div class="credits-body">
+        <section class="experience-overview" aria-labelledby="experienceOverviewTitle"
+                 itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://nocturne.mitwee.nl/">
+            <meta itemprop="applicationCategory" content="GameApplication">
+            <meta itemprop="operatingSystem" content="Web browser, Meta Quest">
+            <meta itemprop="browserRequirements" content="A modern WebGL 2 browser; WebXR support for immersive VR">
+            <meta itemprop="image" content="https://nocturne.mitwee.nl/icons/social-preview.png">
+            <h1 id="experienceOverviewTitle" itemprop="name">NOCTURNE WebXR Virtual Nightclub</h1>
+            <p itemprop="description">
+                NOCTURNE is an immersive social 3D nightclub for Meta Quest and desktop browsers.
+                Explore a basement club and its city street, join friends online, or take control of the
+                audio-reactive lighting from the VJ desk.
+            </p>
+            <ul>
+                <li>Enter in WebXR on Meta Quest or explore with keyboard and mouse on desktop.</li>
+                <li>Bring direct music links or local audio files; no music is bundled with the experience.</li>
+                <li>Meet friends in multiplayer rooms with avatars, spatial voice, chat, reactions, and shared music.</li>
+                <li>Control moving lights, lasers, LED visuals, effects, the resident DJ, and the automatic NOCTURNE show.</li>
+                <li>Use Photosensitive Safe Mode and optional VR comfort movement at any time.</li>
+            </ul>
+        </section>
         <div class="credits-heading"><strong>3D models and textures</strong></div>
         <div>
             • <a href="https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb" target="_blank" rel="noopener noreferrer" class="credit-link">"Pioneer DJ Console"</a>

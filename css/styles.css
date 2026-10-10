@@ -253,6 +253,29 @@ html, body {
     overflow-y: auto;
 }
 
+.experience-overview {
+    max-width: 52rem;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    line-height: 1.45;
+}
+
+.experience-overview h1 {
+    margin: 0 0 6px;
+    color: #ffffff;
+    font-size: 17px;
+}
+
+.experience-overview p {
+    margin: 0 0 6px;
+}
+
+.experience-overview ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
 #modelCredits .credits-heading {
     margin-bottom: 3px;
 }

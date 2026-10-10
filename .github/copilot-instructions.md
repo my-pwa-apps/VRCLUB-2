@@ -689,6 +689,14 @@ Production is the **built** `dist/`, published by the `deploy` job in
 must be set to "GitHub Actions"). GitHub Pages ignores `_headers`, so `frame-ancestors`
 and the immutable asset caching there only apply on Cloudflare Pages or Netlify.
 
+Search engines and link previews use `https://nocturne.mitwee.nl/` as the only canonical URL.
+`index.html` owns the title, description, Open Graph/Twitter metadata and the visible
+`WebApplication` microdata in `#modelCredits`; `robots.txt` points at the one-URL `sitemap.xml`.
+The 1200x630 preview is `icons/social-preview.png`, generated from the editable
+`icons/social-preview.svg`. `scripts/build.mjs` copies all four crawl/preview assets into `dist/`.
+Keep development and `pages.dev` hostnames out of canonical metadata and the sitemap so they do
+not compete with production in search results.
+
 `.gitattributes` pins LF line endings and marks `js/vendor/**` as `-text`. The vendored
 bundles are byte-pinned by sha384, and Windows `core.autocrlf` would otherwise rewrite them
 and fail `npm test`.
