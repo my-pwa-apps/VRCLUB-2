@@ -9,6 +9,7 @@
   Content-Security-Policy: frame-ancestors 'none'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
+  X-Robots-Tag: noindex, nofollow, noarchive
   Referrer-Policy: no-referrer
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 

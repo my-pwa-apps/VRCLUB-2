@@ -75,13 +75,17 @@ test('every stylesheet referenced by index.html exists on disk', () => {
     }
 });
 
-test('Google Search Console verification is deployed at the site root', () => {
-    const filename = 'googledd48f5e8f45ab4e2.html';
-    const verification = readFileSync(join(ROOT, filename), 'utf8').trim();
+test('non-production deployments are not indexable', () => {
+    const robots = readFileSync(join(ROOT, 'robots.txt'), 'utf8');
     const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
-    assert.equal(verification, `google-site-verification: ${filename}`);
-    assert.match(build, new RegExp(`cp\\(path\\.join\\(root, '${filename}'\\), path\\.join\\(dist, '${filename}'\\)\\)`),
-        'production build must copy the Search Console verification file to the site root');
+    const headers = readFileSync(join(ROOT, '_headers'), 'utf8');
+    assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive">/);
+    assert.match(robots.trim(), /^User-agent: \*\r?\nDisallow: \/$/);
+    assert.match(headers, /X-Robots-Tag: noindex, nofollow, noarchive/);
+    assert.match(build, /cp\(path\.join\(root, 'robots\.txt'\), path\.join\(dist, 'robots\.txt'\)\)/,
+        'production build must copy the crawler policy to the site root');
+    assert.ok(!existsSync(join(ROOT, 'googledd48f5e8f45ab4e2.html')),
+        'Google verification belongs only on the Quest production branch');
 });
 
 test('script load order honours the dependency contract', () => {
