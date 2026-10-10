@@ -89,6 +89,11 @@ test('search and social metadata identify the canonical production experience', 
     assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
     assert.equal([...html.matchAll(/<h1\b/g)].length, 1, 'the indexable page needs exactly one H1');
     assert.match(html, /itemtype="https:\/\/schema\.org\/WebApplication"/);
+    const seoHead = html.slice(0, html.indexOf('</head>'));
+    const overview = html.match(/<section class="experience-overview"[\s\S]*?<\/section>/)?.[0] || '';
+    assert.doesNotMatch(`${seoHead}\n${overview}`, /Meta Quest/,
+        'SEO should target WebXR-compatible headsets rather than one headset brand');
+    assert.match(`${seoHead}\n${overview}`, /compatible VR headset/i);
 
     const preview = readFileSync(join(ROOT, 'icons', 'social-preview.png'));
     assert.equal(preview.readUInt32BE(16), 1200, 'social preview width must match its declared metadata');

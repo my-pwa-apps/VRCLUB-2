@@ -1,6 +1,6 @@
 # VR Club
 
-Hyperrealistic WebXR nightclub built with Babylon.js for Meta Quest 3S and desktop browser preview. The experience includes a PBR club environment, DJ booth, LED wall, lasers, spotlights, mirror ball effects, audio-reactive lighting, local audio files, and stream URL playback.
+Hyperrealistic WebXR nightclub built with Babylon.js for compatible VR headsets and desktop browsers, with Meta Quest used as the primary tested headset. The experience includes a PBR club environment, DJ booth, LED wall, lasers, spotlights, mirror ball effects, audio-reactive lighting, local audio files, and stream URL playback.
 
 ## Quick Start
 

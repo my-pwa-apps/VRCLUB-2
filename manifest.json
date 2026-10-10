@@ -1,7 +1,7 @@
 {
   "name": "NOCTURNE - Virtual Nightclub",
   "short_name": "NOCTURNE",
-  "description": "An immersive WebXR virtual nightclub for Meta Quest and desktop with multiplayer, audio-reactive lighting, VJ controls, and your own music.",
+  "description": "An immersive WebXR virtual nightclub for compatible VR headsets and desktop browsers with multiplayer, audio-reactive lighting, VJ controls, and your own music.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
