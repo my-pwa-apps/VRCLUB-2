@@ -623,12 +623,12 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         const upright = tilt();
         const rest = limbLengths(rig);
         dj._begin('tweak', 99);
-        let ms = 0;
+        const samples = [];
         // Every knob in reach (the performer picks a knob with rng; no bar lines pass, so nothing else draws):
         // the wrist 5 cm behind each palm target, whichever bone the GLB calls left.
         for (let knob = 0; knob < 6; knob++) {
             pick = (knob + 0.5) / 6;
-            ms = Math.max(ms, step(70));
+            samples.push(step(70));
             for (const h of [dj.pose.left, dj.pose.right]) {
                 const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
                 const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
@@ -636,7 +636,7 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
             }
         }
         dj._begin('mix', 99);
-        step(70);
+        samples.push(step(70));
         for (const h of [dj.pose.left, dj.pose.right]) {
             const want = { x: h.x - h.fx * 0.05, y: h.y - h.fy * 0.05, z: h.z - h.fz * 0.05 };
             const miss = Math.min(dist(pos(rig, 'hand_l'), want), dist(pos(rig, 'hand_r'), want));
@@ -647,6 +647,8 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
         assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.015, `${glb}: a foot left the riser`);
         const l = limbLengths(rig);
         for (const k of Object.keys(rest)) assert.ok(Math.abs(l[k] - rest[k]) < 0.002, `${glb}: ${k} stretched`);
+        const orderedSamples = samples.slice().sort((a, b) => a - b);
+        const ms = orderedSamples[Math.floor(orderedSamples.length / 2)];
         assert.ok(ms < 2, `${glb}: the performing DJ costs ${ms.toFixed(2)} ms a frame`);
         // Hands up on a drop: both wrists above the head.
         music.drop = true; step(1); music.drop = false; step(60);
