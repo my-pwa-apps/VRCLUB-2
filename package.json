@@ -9,6 +9,8 @@
     "dev": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
     "build:quest": "node scripts/build.mjs",
+    "deploy:cloudflare": "npm run build && npx --yes wrangler@4 pages deploy dist --project-name nocturne-vr --branch main",
+    "deploy:worker": "npx --yes wrangler@4 deploy --config worker/wrangler.toml",
     "build:native-poc": "node scripts/build-native-poc.mjs",
     "quest:prepare": "node scripts/prepare-quest.mjs",
     "vr:codes": "node scripts/generate-vr-invitations.mjs",

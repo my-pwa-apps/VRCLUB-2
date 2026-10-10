@@ -965,18 +965,15 @@ function initAudioMenu() {
         try {
             const parsed = new URL(value);
             const ML = window.MusicLibrary;
-            const melera = !!ML && ML.isMeleraUrl(parsed);
-            const feed = !!ML && !/(^|\.)soundcloud\.com$/.test(parsed.hostname) && ML.isFeedUrl(parsed);
             const soundcloud = /(^|\.)soundcloud\.com$/.test(parsed.hostname);
+            const feed = !!ML && !soundcloud && ML.isFeedUrl(parsed);
             audioSourceHint.hidden = false;
-            audioSourceHint.dataset.source = (melera || feed) ? 'analysed' : (soundcloud ? 'player' : 'direct');
-            audioSourceHint.textContent = melera
-                ? 'Miss Melera: plays as analysed audio (beat-synced lights and dancing) when the club feed has it'
+            audioSourceHint.dataset.source = (soundcloud || feed) ? 'analysed' : 'direct';
+            audioSourceHint.textContent = soundcloud
+                ? 'SoundCloud: plays as analysed audio (lights and dancers follow it) when the creator shares the track with podcast players'
                 : feed
-                    ? 'Podcast feed: plays its newest episode as analysed audio'
-                    : soundcloud
-                        ? 'SoundCloud: opens the official player; beat analysis is unavailable'
-                        : 'Direct audio: requires a CORS-enabled audio host';
+                    ? 'Podcast feed: pick any episode below; the lights and dancers follow it'
+                    : 'Direct audio: requires a CORS-enabled audio host';
         } catch (_) {
             audioSourceHint.hidden = true;
             audioSourceHint.textContent = '';
@@ -1192,6 +1189,54 @@ function initAudioMenu() {
 
     const library = ensureMusicLibrary(vrClubInstance);
     const savedSets = document.getElementById('savedSets');
+    const feedEpisodeRow = document.getElementById('feedEpisodeRow');
+    const feedEpisode = document.getElementById('feedEpisode');
+    let episodeList = [];
+    let episodeToken = 0;
+    // A podcast feed set plays the newest episode unless the guest picks another (or random); the choice is saved.
+    const renderEpisodes = async () => {
+        if (!feedEpisodeRow || !feedEpisode) return;
+        const item = library.current();
+        const token = ++episodeToken;
+        if (!item || item.kind !== 'feed') {
+            feedEpisodeRow.hidden = true;
+            return;
+        }
+        feedEpisodeRow.hidden = false;
+        feedEpisode.disabled = true;
+        feedEpisode.replaceChildren(new Option('Loading episodes…', ''));
+        try {
+            const episodes = await library.listEpisodes();
+            if (token !== episodeToken) return;
+            episodeList = episodes.slice();
+            const chosen = item.episode;
+            if (chosen && chosen.url && !episodeList.some(episode => episode.url === chosen.url)) episodeList.push(chosen);
+            feedEpisode.replaceChildren();
+            feedEpisode.add(new Option('Newest episode', 'newest'));
+            feedEpisode.add(new Option('Random episode', 'random'));
+            episodeList.forEach((episode, index) => feedEpisode.add(new Option(episode.title, String(index))));
+            feedEpisode.value = !chosen ? 'newest' : (chosen.random ? 'random'
+                : String(episodeList.findIndex(episode => episode.url === chosen.url)));
+            feedEpisode.disabled = false;
+        } catch (error) {
+            if (token !== episodeToken) return;
+            uiLog.warn('Could not list episodes:', error);
+            feedEpisode.replaceChildren(new Option('Episodes unavailable', ''));
+            showStatus(`Could not load the episode list: ${error.message}`, 'error');
+        }
+    };
+    if (feedEpisode) {
+        feedEpisode.addEventListener('change', () => {
+            const value = feedEpisode.value;
+            if (!value) return;
+            try {
+                const item = library.setEpisode(value === 'newest' ? null : (value === 'random' ? 'random' : episodeList[Number(value)]));
+                playUrl(item.url, item.name);
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        });
+    }
     const renderSets = (playing) => {
         savedSets.replaceChildren();
         if (!library.items.length) savedSets.add(new Option('No saved sets yet', ''));
@@ -1200,6 +1245,8 @@ function initAudioMenu() {
         const item = library.current();
         streamUrl.value = item ? item.url : '';
         document.getElementById('setName').value = item ? item.name : '';
+        setSourceHint(streamUrl.value);
+        renderEpisodes();
         if (playing) announceNowPlaying(playing.name);
         if (vrClubInstance._vrQuickMenuVisible) vrClubInstance._refreshVRQuickMenu();
     };
@@ -1211,7 +1258,9 @@ function initAudioMenu() {
         catch (error) { showStatus(error.message, 'error'); }
     });
     document.getElementById('playSavedSetBtn').addEventListener('click', () => {
-        library.play().catch(error => showStatus(error.message, 'error'));
+        library.play()
+            .then(played => { if (played) hideSoundCloudFallback(); })
+            .catch(error => reportPlayError(error));
     });
     document.getElementById('removeSavedSetBtn').addEventListener('click', () => {
         try { library.remove(); }
@@ -1279,6 +1328,38 @@ function initAudioMenu() {
     audioToggle.addEventListener('click', renderSeek);
 
     /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
+    const soundCloudFallback = document.getElementById('soundCloudFallback');
+    const soundCloudFallbackText = document.getElementById('soundCloudFallbackText');
+    const soundCloudFallbackBtn = document.getElementById('soundCloudFallbackBtn');
+    const hideSoundCloudFallback = () => { if (soundCloudFallback) soundCloudFallback.hidden = true; };
+    // A SoundCloud track that is not shared as analysable audio is explained and stays on screen; SoundCloud's own
+    // player is offered only as the guest's explicit choice (it cannot drive the lights).
+    function reportPlayError(err) {
+        const current = library.current();
+        if (soundCloudFallback && soundCloudFallbackText && current && current.kind === 'soundcloud' &&
+            err && /^soundcloud-/.test(err.code || '')) {
+            soundCloudFallbackText.textContent = err.message;
+            if (soundCloudFallbackBtn) soundCloudFallbackBtn.hidden = err.code !== 'soundcloud-not-published';
+            soundCloudFallback.hidden = false;
+            showStatus('This SoundCloud track cannot be analysed', 'error');
+        } else {
+            showStatus(`Error: ${err.message}`, 'error');
+        }
+        setNowPlaying('No audio yet');
+    }
+    if (soundCloudFallbackBtn) {
+        soundCloudFallbackBtn.addEventListener('click', () => {
+            library.playInSoundCloudPlayer()
+                .then(() => {
+                    hideSoundCloudFallback();
+                    if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Player open';
+                    showStatus('SoundCloud player opened — no beat analysis, so lights run on their own tempo', 'success');
+                    setNowPlaying(`\u25B6 ${library.current().name}`);
+                })
+                .catch(error => showStatus(error.message, 'error'));
+        });
+    }
+
     function playUrl(url, label) {
         const previousLabel = playStreamBtnLabel ? playStreamBtnLabel.textContent : '';
         if (playStreamBtn) {
@@ -1298,23 +1379,14 @@ function initAudioMenu() {
         }
         return library.play()
             .then(() => {
-                const player = library.lastMode === 'player';
                 const current = library.current();
-                showStatus(player ? 'SoundCloud player opened (this set is not in the club feed, so no beat analysis)' :
-                    (current.kind === 'melera' ? 'Playing as analysed audio — lights and dancing are synced' :
-                        `Playing: ${current.name}`), 'success');
-                if (player) {
-                    playStreamBtnLabel.textContent = 'Player open';
-                    playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
-                } else {
-                    setPlayLabel(true);
-                }
+                hideSoundCloudFallback();
+                showStatus(current.kind === 'soundcloud' ? 'Playing as analysed audio — lights and dancing are synced' :
+                    `Playing: ${current.name}`, 'success');
+                setPlayLabel(true);
                 setNowPlaying(`\u25B6 ${vrClubInstance.nowPlayingLabel || current.name}`);
             })
-            .catch(err => {
-                showStatus(`Error: ${err.message}`, 'error');
-                setNowPlaying('No audio yet');
-            })
+            .catch(err => reportPlayError(err))
             .finally(() => {
                 if (playStreamBtn) {
                     playStreamBtn.disabled = false;

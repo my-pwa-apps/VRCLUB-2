@@ -414,6 +414,87 @@ test('the stream route refuses anything but one Miss Melera mp3 and one simple r
     });
 });
 
+test('SoundCloud track URLs are reduced to two permalinks; pages, tabs, playlists and other hosts are refused', () => {
+    assert.deepEqual({ ...podcast.parseSoundCloudTrackUrl('https://soundcloud.com/Some-DJ/Summer_Mix?si=x#t=1') },
+        { user: 'some-dj', slug: 'summer_mix', href: 'https://soundcloud.com/some-dj/summer_mix' });
+    assert.equal(podcast.parseSoundCloudTrackUrl('https://m.soundcloud.com/a/b').href, 'https://soundcloud.com/a/b');
+    for (const bad of ['http://soundcloud.com/a/b', 'https://soundcloud.com/a', 'https://soundcloud.com/a/b/c', 'https://soundcloud.com/a/sets/b',
+        'https://soundcloud.com/a/sets', 'https://soundcloud.com/discover/b', 'https://soundcloud.com.evil.example/a/b',
+        'https://evil.example/soundcloud.com/a/b', 'https://u:p@soundcloud.com/a/b', 'https://soundcloud.com/a%2F..%2Fb/c', 'not a url', '', null]) {
+        assert.equal(podcast.parseSoundCloudTrackUrl(bad), null, String(bad));
+    }
+    assert.equal(podcast.trackIdFromOembed({ html: '<iframe src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F2407530030&x=1">' }), '2407530030');
+    assert.equal(podcast.trackIdFromOembed({ html: '<iframe src="...api.soundcloud.com%2Fplaylists%2F55">' }), null);
+    assert.equal(podcast.trackIdFromOembed(null), null);
+    for (const ok of ['2407530030-missmelera-miss-melera-colourizon-168.mp3', '293-forss-flickermood.mp3']) {
+        assert.equal(podcast.isSoundCloudStreamName(ok), true, ok);
+    }
+    for (const bad of ['', '..%2Fx.mp3', '293-../x.mp3', '293-a-b.wav', 'x-a-b.mp3', '293-A.mp3', `1-${'a'.repeat(300)}.mp3`, null]) {
+        assert.equal(podcast.isSoundCloudStreamName(bad), false, String(bad).slice(0, 40));
+    }
+});
+
+test('the SoundCloud resolver offers a stream only when SoundCloud serves that track to podcast players', async () => {
+    const oembed = id => new Response(JSON.stringify({
+        title: 'Summer\u0007 Mix\n by Some DJ',
+        html: `<iframe src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F${id}"></iframe>`
+    }));
+    const requested = [];
+    const resolve = (page, status) => withFetch(async (url, init = {}) => {
+        requested.push({ url: String(url), range: init.headers && init.headers.Range });
+        if (String(url).startsWith(podcast.SOUNDCLOUD_OEMBED)) return oembed(42);
+        return new Response(null, { status });
+    }, () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(page)}`));
+
+    const ok = await resolve('https://soundcloud.com/some-dj/summer-mix', 206);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+    assert.deepEqual(await ok.json(), { name: '42-some-dj-summer-mix.mp3', title: 'Summer Mix by Some DJ', path: '/soundcloud/stream/42-some-dj-summer-mix.mp3' });
+    assert.ok(requested.some(r => r.url === `${podcast.SOUNDCLOUD_STREAM_BASE}42-some-dj-summer-mix.mp3` && r.range === 'bytes=0-0'));
+    assert.ok(requested.every(r => r.url.startsWith(podcast.SOUNDCLOUD_OEMBED) || r.url.startsWith(podcast.SOUNDCLOUD_STREAM_BASE)),
+        'only SoundCloud\'s oEmbed and podcast-stream endpoints are ever reached');
+
+    const unpublished = await resolve('https://soundcloud.com/some-dj/summer-mix', 404);
+    assert.equal(unpublished.status, 404);
+    assert.deepEqual(await unpublished.json(), { error: 'not-published' });
+
+    requested.length = 0;
+    for (const page of ['https://soundcloud.com/some-dj/sets/summer', 'https://evil.example/a/b', 'http://soundcloud.com/a/b', '']) {
+        assert.equal((await resolve(page, 200)).status, 400, page);
+    }
+    assert.equal(requested.length, 0, 'a refused URL never reaches SoundCloud');
+    assert.equal((await call(podcast.SOUNDCLOUD_RESOLVE_PATH)).status, 400);
+    assert.equal((await call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=x`, { origin: 'https://evil.example' })).status, 403);
+
+    const noTrack = await withFetch(async () => new Response(JSON.stringify({ html: '<iframe src="x%2Fplaylists%2F9">' })),
+        () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent('https://soundcloud.com/a/b')}`));
+    assert.equal(noTrack.status, 404);
+    const down = await withFetch(async () => { throw new Error('offline'); },
+        () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent('https://soundcloud.com/a/b')}`));
+    assert.equal(down.status, 502);
+});
+
+test('the SoundCloud stream route proxies only validated podcast-stream names from one fixed host', async () => {
+    const calls = [];
+    await withFetch(async (url, init) => {
+        calls.push({ url: String(url), range: init.headers.Range, redirect: init.redirect });
+        return new Response(new Uint8Array([9, 8, 7]), { status: 206, headers: { 'Content-Range': 'bytes 0-2/9', 'Content-Length': '3' } });
+    }, async () => {
+        const part = await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-some-dj-summer-mix.mp3`, { headers: { Range: 'bytes=0-2' } });
+        assert.equal(part.status, 206);
+        assert.equal(part.headers.get('Content-Range'), 'bytes 0-2/9');
+        assert.equal(part.headers.get('Access-Control-Allow-Origin'), ORIGIN);
+        for (const path of ['', '..%2Fx.mp3', '42-a.wav', 'https%3A%2F%2Fevil.example%2F42-a.mp3', '%E0%A4%A']) {
+            assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}${path}`)).status, 404, path);
+        }
+        assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-a-b.mp3`, { headers: { Range: 'bytes=0-1,4-5' } })).status, 416);
+        assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-a-b.mp3`, { method: 'POST' })).status, 405);
+        assert.equal((await call(`${podcast.SOUNDCLOUD_STREAM_PREFIX}42-a-b.mp3`, { origin: 'https://evil.example' })).status, 403);
+    });
+    assert.deepEqual(calls.map(c => c.url), [`${podcast.SOUNDCLOUD_STREAM_BASE}42-some-dj-summer-mix.mp3`]);
+    assert.equal(calls[0].redirect, 'follow');
+});
+
 test('the socket relay is unchanged: paths outside /podcast still need the room route', async () => {
     const env = { CLUB_ROOM: { idFromName: name => name, get: id => ({ fetch: async () => new Response(`room:${id}`) }) } };
     const response = await relay.default.fetch(new Request(`${RELAY}/?room=abc`, { headers: { Origin: ORIGIN, Upgrade: 'websocket' } }), env);

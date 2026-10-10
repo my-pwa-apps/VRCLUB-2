@@ -172,3 +172,41 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-cloudflare:
+    # The Quest branch is published to Cloudflare Pages (project nocturne-vr, served at nocturne.mitwee.nl); `main`
+    # goes to GitHub Pages in the job above. The project's production branch is "main", so the deployment is always
+    # made with `--branch main` whatever git branch it is built from.
+    # One-time setup: repository secrets CLOUDFLARE_API_TOKEN (Cloudflare Pages: Edit) and CLOUDFLARE_ACCOUNT_ID.
+    # Without them the job only warns; `npm run deploy:cloudflare` does the same from a logged-in machine.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/Quest'
+    needs: [verify, e2e, audit]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: cloudflare-pages
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production build
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: npx --yes wrangler@4 pages deploy dist --project-name nocturne-vr --branch main --commit-hash "$GITHUB_SHA" --commit-message "$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
+
+      - name: Cloudflare credentials missing
+        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
+        run: echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set, so nothing was deployed to Cloudflare Pages. Run 'npm run deploy:cloudflare' locally."

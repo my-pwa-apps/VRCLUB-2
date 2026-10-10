@@ -1326,6 +1326,28 @@ html, body {
     box-shadow: 0 0 8px rgba(193, 120, 255, 0.7);
 }
 
+.audio-episode-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 0 8px;
+}
+
+.audio-episode-row[hidden] {
+    display: none;
+}
+
+.audio-episode-row label {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.audio-episode-row select {
+    flex: none;
+    width: 100%;
+    text-overflow: ellipsis;
+}
+
 .audio-file-name {
     font-size: 12px;
     opacity: 0.9;
@@ -1333,6 +1355,22 @@ html, body {
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
+}
+
+.audio-fallback {
+    margin: 8px 0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: rgba(193, 120, 255, 0.12);
+    border: 1px solid rgba(193, 120, 255, 0.35);
+}
+
+.audio-fallback[hidden] {
+    display: none;
+}
+
+.audio-fallback .audio-button {
+    margin-top: 8px;
 }
 
 .soundcloud-player {

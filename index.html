@@ -15,8 +15,8 @@
          (Note: element.style.foo = ... writes are CSSOM, not blocked by style-src.)
          media-src is deliberately open to https:/blob: because the whole point of the
          app is that the user pastes an arbitrary internet radio URL or drops a local file.
-         frame-src allows only SoundCloud's official player. It is created after a guest
-         explicitly submits a SoundCloud page URL that the club relay cannot resolve.
+         frame-src allows only SoundCloud's official player. It is created only when a guest explicitly
+         chooses "Open in SoundCloud player" for a track the club cannot analyse; it is never the default.
 
          connect-src allows immersive-web.github.io because Babylon's WebXR controller
          layer fetches the input-profiles catalogue from there when a session starts. It
@@ -24,8 +24,9 @@
          but blocking it also logs a CSP violation on every VR entry.
 
          No podcast or music catalogue is bundled. Music links are supplied by the guest;
-         media-src allows their audio. Miss Melera Colourizon links resolve through the
-         club relay's allow-listed feed and CORS-safe stream endpoint.
+         media-src allows their audio. SoundCloud tracks, and Miss Melera's Colourizon feed, play through the club
+         relay's allow-listed podcast-stream endpoints (CORS-safe audio for the analyser); only tracks SoundCloud
+         itself serves to podcast players resolve.
 
          connect-src also allows the ws:/wss: schemes (any origin) for the optional
          multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
@@ -352,7 +353,7 @@
             <!-- User-provided music only -->
             <div class="audio-section">
                 <div class="vj-section-title">Choose a file or paste a URL</div>
-                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, a podcast feed (such as Hernan Cattaneo's Resident, which plays its newest episode) or a SoundCloud page. Miss Melera sets play as analysed audio, so the crowd, DJ and lights follow the music; other SoundCloud pages use its official player. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
+                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, a podcast feed (such as Hernan Cattaneo's Resident, where you can pick any episode) or a SoundCloud track. SoundCloud tracks play through the club's own audio, so the crowd, DJ and lights follow the music, whenever the creator shares the track with podcast players. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
                 <div class="audio-input-group">
                     <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
                               inputmode="url" autocomplete="off"
@@ -365,6 +366,10 @@
                     </button>
                 </div>
                 <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
+                <div id="feedEpisodeRow" class="audio-episode-row" hidden>
+                    <label for="feedEpisode">Episode</label>
+                    <select class="audio-input" id="feedEpisode" aria-label="Podcast episode"></select>
+                </div>
                 <div class="audio-file-upload">
                     <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
                     <label for="audioFileInput" class="audio-file-label">
@@ -372,8 +377,12 @@
                     </label>
                 </div>
                 <div id="audioFileName" class="audio-file-name"></div>
+                <div id="soundCloudFallback" class="audio-fallback" role="alert" hidden>
+                    <p class="network-help" id="soundCloudFallbackText"></p>
+                    <button class="audio-button" id="soundCloudFallbackBtn" type="button">Open in SoundCloud player</button>
+                </div>
                 <div id="soundCloudPlayer" class="soundcloud-player" hidden>
-                    <p class="network-help">Other SoundCloud pages play in its official player. Use its controls for position and volume. The crowd and DJ dance while it plays, at an independent tempo, not the track's detected beat. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
+                    <p class="network-help">SoundCloud's own player cannot be analysed: the crowd and DJ dance at an independent tempo and the lights run their own show. Use its controls for position and volume. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
                 </div>
             </div>
 

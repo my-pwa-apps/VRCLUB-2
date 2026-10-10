@@ -97,7 +97,8 @@ const AudioUtils = Object.freeze({
             const host = new URL(url).hostname;
             return host === 'podbean.com' || host.endsWith('.podbean.com')
                 // Colourizon episodes come through the relay: `<relay>/podcast/colourizon/stream/...`.
-                || new URL(url).pathname.startsWith('/podcast/colourizon/stream/');
+                || new URL(url).pathname.startsWith('/podcast/colourizon/stream/')
+                || new URL(url).pathname.startsWith('/soundcloud/stream/');
         } catch (_) {
             return false;
         }

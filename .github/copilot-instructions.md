@@ -1180,29 +1180,34 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   heuristic ("silent so far; may be a server CORS restriction"), not as proof.
 - **Quest music (`js/musicLibrary.js`).** `MusicLibrary` owns at most eight HTTPS audio or SoundCloud page links
   in `vrclub.questMusic`, with optional names and a selected index. Storage failures surface explicitly.
-  YouTube and Spotify webpage URLs are rejected. A pasted
-  `soundcloud.com/missmelera/<track>` page (kind `melera`; any permalink, reserved names such as `sets`
-  excluded) is matched by its slug, or its Colourizon number, against the allow-listed
-  `/podcast/colourizon/feed.xml` relay feed and played through its CORS-safe stream URL, the same
-  analysed audio path used on `main`. If the feed does not list it (or the relay is unreachable) it
-  falls back to the official player and `library.lastMode` is `'player'`, which the UI reports.
+  YouTube and Spotify webpage URLs are rejected.
+  **Every SoundCloud track URL (kind `soundcloud`) plays as analysed audio, never in SoundCloud's own player by
+  default**, so the crowd, DJ and lights react exactly as on `main`. `_resolveSoundCloud()` first tries the
+  allow-listed Colourizon feed for `soundcloud.com/missmelera/<track>` (matched by permalink or Colourizon
+  number), then asks the relay's `/soundcloud/resolve?url=` (`worker/src/podcast.js`), which takes the track id
+  from SoundCloud's public oEmbed and offers a `/soundcloud/stream/<id>-<user>-<slug>.mp3` stream only if
+  SoundCloud's podcast-stream endpoint serves that track (it 404s for tracks whose creator has not published
+  them to podcast players). Nothing scrapes or unlocks audio SoundCloud does not give podcast apps: such a
+  track fails with a persistent explanation (`error.code` `soundcloud-not-published`, `-not-a-track`,
+  `-relay`) and the saved set is kept. The embedded player (lazily loaded Widget API; the exact
+  `https://w.soundcloud.com/player/api.js` is the only remote script CSP exception, `frame-src` its player) is
+  reached ONLY through the explicit "Open in SoundCloud player" button (`playInSoundCloudPlayer()`,
+  `lastMode === 'player'`); then `_unanalysedDanceMusic()` supplies only crowd/DJ choreography on a shared
+  120 BPM clock (no analyser samples, kicks or fabricated drops) and the lights run their own tempo clock.
+  An unnamed SoundCloud set takes the track's title on first play.
   An RSS feed URL (`podcast.hernancattaneo.com`, `*.rss`, `*.xml`, `/feed`; kind `feed`) is saved as
-  pasted and plays its newest episode (Resident is read by a 64 KB range first, like `main`). Only the
+  pasted. Its episode picker (`listEpisodes()` reads the whole feed, 10 min cache, at most 400) offers the newest
+  episode (default; the Resident feed is read by a 64 KB range first, like `main`), a random one, or any episode;
+  `setEpisode()` saves the choice with the set (`item.episode`, kept when the URL is saved again). Only the
   Resident and Podbean hosts accept `http://`, upgraded to HTTPS on save.
   The Music panel's **Paste URL** button reads the clipboard only from its click gesture, fills
   the URL field without auto-playing, and gives press-and-hold paste guidance when clipboard
   access is unavailable or denied (as it may be in a Quest browser).
   The Audio panel, VR menu and VJ desk all call the same library. No built-in stream, feed or queue
-  is initialised. Historical `js/podcasts.js` remains source-only; its Worker podcast endpoints
-  are reused only when a guest supplies a matching Colourizon link.
-  Other SoundCloud sets use the official visible iframe and lazily loaded Widget API (the exact
-  `https://w.soundcloud.com/player/api.js` endpoint is the only remote script CSP exception).
-  PLAY / PLAY_PROGRESS and READY's paused-state query confirm playback; PAUSE / FINISH / ERROR
-  clear it. `_unanalysedDanceMusic()` supplies only crowd/DJ choreography with a shared 120 BPM
-  animation clock and moderate energy, never analyser samples, kick counts or fabricated drops.
-  CrowdDance's explicit `fallback` pulse selects varied moves without marking a detected beat.
-  Source changes/dispose unbind widget listeners; stale events/queries cannot revive an old player.
-  Direct audio and WebRTC remain on real analysis; silent audio never automatically triggers this fallback.
+  is initialised. Historical `js/podcasts.js` remains source-only. The Worker's podcast endpoints
+  are a live dependency of SoundCloud playback: a Worker change is not live until `wrangler deploy`
+  is run from `worker/`.
+  Direct audio and WebRTC remain on real analysis; silent audio never automatically triggers the fallback.
 - **Entry music.** ENTER creates the AudioContext in the user click and resumes only an explicitly
   saved set. Fresh profiles show guidance to open Music, with no third-party music request.
   Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. Sets use `{ onDemand: true }`
