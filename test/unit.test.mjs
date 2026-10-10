@@ -7412,7 +7412,14 @@ test('VR menu: the LOOK page picks a pool and rerolls, and the online page still
 function deskHarness() {
     let now = 1000;
     const performance = { now: () => now };
-    const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, performance }).window;
+    const store = new Map();
+    const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, value) };
+    const { VRClubCore } = loadClassic('js/club/01-core.js', { localStorage }).window;
+    const finish = class {
+        static get STROBE_PATTERNS() { return ['all', 'chase']; }
+        static get STROBE_PATTERN_NAMES() { return { all: 'ALL AT ONCE', chase: 'CHASE' }; }
+    };
+    const { VRClubUI } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: finish, VRClubCore, localStorage, BABYLON: {}, performance }).window;
     const { VJDesk, VJDeskLayout } = loadClassic('js/vjDesk.js', { BABYLON: {}, VRClubUI, performance }).window;
     const club = Object.create(VRClubUI.prototype);
     Object.assign(club, VJDesk);
@@ -7460,7 +7467,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             assert.ok(b.label && b.label === b.label.toUpperCase(), `${b.id} needs a plain upper-case label`);
             const r = b.rect;
             assert.ok(r.x >= 0 && r.y >= 130 && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            assert.ok(r.h >= 70 && r.w >= 300, `${b.id} is too small to hit with a controller ray`);
+            assert.ok(r.h >= 70 && r.w >= (b.kind === 'section' ? 270 : 300), `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
                 const o = other.rect;
@@ -7473,8 +7480,8 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             }
         }
     }
-    const steps = ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern'];
-    for (const b of VJDeskLayout.buttons.lights) {
+    const steps = ['changeColor', 'changeMirrorBallColor', 'cycleSpotMode', 'cyclePattern', 'cycleGoboPattern', 'goboActive', 'cycleLedPattern', 'cycleStrobePattern'];
+    for (const b of VJDeskLayout.buttons.lights.filter(item => item.kind === 'light')) {
         assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
     }
     const labels = VJDeskLayout.buttons.lights.map(button => button.label);
@@ -9092,4 +9099,40 @@ test('a host\u2019s strobe pattern reaches guests through the allow-listed fixtu
     assert.equal(mp.club.strobePattern, 'chase');
     mp._applyFixtures({ strobePatternIndex: 30 });
     assert.equal(mp.club.strobePattern, 'chase', 'an index this build does not have is ignored');
+});
+test('the VJ desk: section buttons, strobe pattern and the after-my-change hold are on the panels and work', () => {
+    const { club, press, button, calls, toasts, VJDeskLayout, VRClubUI } = deskHarness();
+    club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
+    club.showDirector.pickSection = name => { calls.push(`pick ${name}`); return name.toUpperCase(); };
+    club.showDirector.isHeld = () => false;
+    club.resumeAutoShow = () => { calls.push('resume'); club.vjManualMode = false; };
+    const sections = VJDeskLayout.buttons.show.filter(b => b.kind === 'section').map(b => b.section);
+    assert.deepEqual([...sections], ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']);
+
+    press('section-ignition');
+    assert.deepEqual(calls, ['pick ignition']);
+    assert.equal(club._vjDeskButtonState(button('section-pulse')).active, true, 'the playing section lights up');
+    assert.equal(club._vjDeskButtonState(button('section-ignition')).active, false);
+
+    // The hold policy is personal: it cycles and persists without the host.
+    club.multiplayer = { isHost: () => false, following: true };
+    club.isFollowingHost = () => true;
+    assert.equal(club._vjDeskButtonState(button('holdMode')).value, 'RETURN TO AUTO');
+    press('holdMode');
+    assert.equal(club.lightHold.mode, 'keep');
+    assert.equal(club._vjDeskButtonState(button('holdMode')).value, 'KEEP IT');
+    assert.equal(club._vjDeskButtonState(button('holdTiming')).disabled, true, 'a kept look has no timer');
+    press('holdMode');
+    assert.equal(club.lightHold.mode, 'shuffle');
+    const before = club.lightHold.shuffle;
+    press('holdTiming');
+    assert.notEqual(club.lightHold.shuffle, before, 'the timing steps the shuffle interval');
+    assert.match(toasts.at(-1), /After my change/);
+    assert.equal(club._vjDeskButtonState(button('section-pulse')).value, 'HOST ONLY', 'sections belong to the host');
+
+    club.isFollowingHost = () => false;
+    club.strobePattern = 'all';
+    assert.equal(club._vjDeskButtonState(button('strobePattern')).value, 'ALL AT ONCE');
+    press('strobePattern');
+    assert.notEqual(club.strobePattern, 'all');
 });

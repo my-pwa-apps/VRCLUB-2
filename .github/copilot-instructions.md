@@ -1350,14 +1350,17 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, RESIDENT DJ (`togglePeopleVisible('dj')`,
   personal so never host-gated), MUSIC (play/pause, or the selected user-saved set), DROP (the show's countdown
   while it drives, else the director's peak look), BLACKOUT, NEXT SECTION (automatic show only, and says so),
-  TAP TEMPO, BEAMS TO FLOOR, RESET LIGHTS, plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
+  TAP TEMPO, BEAMS TO FLOOR, RESET LIGHTS, a row of five section buttons (ARRIVAL..AFTERGLOW, `pickShowSection`; the playing
+  one lights and says KEPT while held), plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
-  path, projected gobo image, wall picture (n of 20) and mirror colour. Every button's second line is its live value; unavailable ones are grey and say
-  why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY).
+  path, projected gobo image, wall picture (n of 20) and mirror colour, and a last row: STROBE PATTERN, AFTER MY CHANGE
+  (keep / return to auto / shuffle colours) and TIMING. The two hold buttons are personal like RESIDENT DJ (never
+  host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
+  why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
   (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,
   the guest's hold policy (`vrclub.lightHold`; default resume after 60 s, `VJ_TIMEOUT` is the legacy fallback, counted down
-  in the header) hands them back; AUTO SHOW does it at once. The desk shows status only, no hold steppers.
+  in the header) hands them back; AUTO SHOW does it at once.
 - Tests: the layout (inside the panel, no overlaps, every control known), the hand-over and hand-back, the booth hold,
   host and Safe Mode gating (`test/unit.test.mjs`, `test/multiplayer.test.mjs`); in the real club a ray at the middle
   of every button lands on that button from the booth viewpoint, and presses redraw the panels

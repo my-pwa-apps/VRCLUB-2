@@ -32,7 +32,7 @@ const VJ_DESK = Object.freeze({
 
 /** The buttons, in canvas pixels. Pure data: tests read it to check the layout and the wiring. */
 function vjDeskLayout() {
-    const W = VJ_DESK.canvas.width, margin = 28, gap = 14, top = 140;
+    const W = VJ_DESK.canvas.width, margin = 28, gap = 12, top = 136;
     const grid = (cols, rowHeights) => {
         const width = (W - margin * 2 - gap * (cols - 1)) / cols;
         const rows = [];
@@ -43,10 +43,14 @@ function vjDeskLayout() {
             w: Math.round(width * span + gap * (span - 1)), h: rows[row].height
         });
     };
-    const show = grid(3, [112, 112, 112, 78, 78]);
-    const lights = grid(4, [125, 125, 125, 125]);
+    const rowHeights = [92, 92, 92, 78, 70, 70];
+    const show = grid(3, rowHeights);
+    const sections = grid(5, rowHeights);   // row 3 holds one button per show section
+    const lights = grid(4, [100, 100, 100, 100, 100]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
         ({ id, panel: 'lights', kind: 'light', label, control, colour, rect: lights(col, row), ...extra });
+    const sectionButton = (id, label, col, colour) =>
+        ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
     return Object.freeze({
         show: Object.freeze([
             { id: 'auto', panel: 'show', kind: 'auto', label: 'AUTO SHOW', rect: show(0, 0), colour: '#19c37d' },
@@ -58,8 +62,13 @@ function vjDeskLayout() {
             { id: 'tap', panel: 'show', kind: 'tap', label: 'TAP TEMPO', rect: show(0, 2), colour: '#ffc247' },
             { id: 'lock', panel: 'show', kind: 'lock', label: 'BEAMS TO FLOOR', rect: show(1, 2), colour: '#ffc247' },
             { id: 'reset', panel: 'show', kind: 'reset', label: 'RESET LIGHTS', rect: show(2, 2), colour: '#9aa3b5' },
-            { id: 'brightness', panel: 'show', kind: 'fader', fader: 'brightness', label: 'BRIGHTNESS', rect: show(0, 3, 3), colour: '#ffffff' },
-            { id: 'speed', panel: 'show', kind: 'fader', fader: 'speed', label: 'MOVEMENT SPEED', rect: show(0, 4, 3), colour: '#39d0ff' }
+            sectionButton('arrival', 'ARRIVAL', 0, '#7aa7ff'),
+            sectionButton('pulse', 'PULSE', 1, '#39d0ff'),
+            sectionButton('ascent', 'ASCENT', 2, '#b48cff'),
+            sectionButton('ignition', 'IGNITION', 3, '#ff5d7a'),
+            sectionButton('afterglow', 'AFTERGLOW', 4, '#ffc247'),
+            { id: 'brightness', panel: 'show', kind: 'fader', fader: 'brightness', label: 'BRIGHTNESS', rect: show(0, 4, 3), colour: '#ffffff' },
+            { id: 'speed', panel: 'show', kind: 'fader', fader: 'speed', label: 'MOVEMENT SPEED', rect: show(0, 5, 3), colour: '#39d0ff' }
         ]),
         lights: Object.freeze([
             light('spots', 'SPOTS', 'lightsActive', 0, 0, '#ff8a1f'),
@@ -77,7 +86,10 @@ function vjDeskLayout() {
             light('picture', 'WALL PICTURE', 'cycleLedPattern', 0, 3, '#3aa0ff', { step: true }),
             light('mono', 'WALL B&W', 'ledMonochrome', 1, 3, '#d0d0d0'),
             light('mirrorColour', 'MIRROR COLOUR', 'changeMirrorBallColor', 2, 3, '#ffd23a', { step: true }),
-            light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true })
+            light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true }),
+            { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4, 2), step: true },
+            { id: 'holdMode', panel: 'lights', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(2, 4), colour: '#19c37d' },
+            { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' }
         ])
     });
 }
@@ -220,6 +232,14 @@ const VJDesk = {
             return;
         }
         if (button.kind === 'music') { this._vjDeskMusic(); return; }
+        // What happens after YOUR change is a personal setting, like the DJ: it never needs the host.
+        if (button.kind === 'holdMode') { this.cycleLightHoldMode(); toast(`After my change: ${this.lightHoldSummary()}`); return; }
+        if (button.kind === 'holdTiming') {
+            if (this.lightHold.mode === 'keep') { toast('Kept lights have no timer: choose RETURN TO AUTO or SHUFFLE first'); return; }
+            this.cycleLightHoldTiming();
+            toast(`After my change: ${this.lightHoldSummary()}`);
+            return;
+        }
         if (!this.guardHostControl('lights')) return;
         const vj = this.vjDirector, show = this.showDirector;
         const driving = !!(show && show.isDriving());
@@ -238,6 +258,11 @@ const VJDesk = {
                 if (!driving) { toast('Next section is part of the automatic show: press AUTO SHOW first'); return; }
                 toast(`Next section: ${this.nextShowSection()}`);
                 return;
+            case 'section': {
+                const title = this.pickShowSection(button.section);
+                if (title) toast(`Section: ${title}`);
+                return;
+            }
             case 'tap': if (vj) vj.tapTempo(); return;
             case 'lock': if (vj) vj.lockToCenter(4000); return;
             case 'reset':
@@ -326,10 +351,12 @@ const VJDesk = {
 
     /** Why a button cannot do anything right now, or '' when it can. */
     _vjDeskDisabledReason(button) {
-        if (button.kind === 'dj') return '';
+        if (button.kind === 'dj' || button.kind === 'holdMode') return '';
+        if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
         if (this.isFollowingHost()) return 'HOST ONLY';
         if (this.photosensitiveSafeMode && (button.control === 'strobesActive' || button.control === 'spotStrobeActive')) return 'SAFE MODE';
         if (button.kind === 'next' && !(this.showDirector && this.showDirector.isDriving())) return 'AUTO SHOW ONLY';
+        if (button.kind === 'section' && !(this.showDirector && this.showDirector.enabled)) return 'AUTO SHOW ONLY';
         return '';
     },
 
@@ -366,6 +393,23 @@ const VJDesk = {
                 break;
             }
             case 'tap': out.value = `TAP ON THE BEAT: ${Math.round((vj && vj.bpm) || this.vjBPM || 120)} BPM`; break;
+            case 'section': {
+                const show = this.showDirector;
+                const playing = !!(show && show.isDriving() && show._movementName === button.section);
+                out.active = playing;
+                out.value = playing ? (typeof show.isHeld === 'function' && show.isHeld() ? 'KEPT' : 'PLAYING') : 'TAP TO JUMP';
+                break;
+            }
+            case 'holdMode': {
+                const hold = this.lightHold || { mode: 'resume' };
+                out.value = hold.mode === 'keep' ? 'KEEP IT' : hold.mode === 'shuffle' ? 'SHUFFLE COLOURS' : 'RETURN TO AUTO';
+                break;
+            }
+            case 'holdTiming': {
+                const hold = this.lightHold || { mode: 'resume', delay: 60, shuffle: 15 };
+                out.value = hold.mode === 'keep' ? '' : VRClubUI.lightHoldSecondsName(hold.mode === 'shuffle' ? hold.shuffle : hold.delay);
+                break;
+            }
             case 'lock': out.value = 'ALL HEADS DOWN, 4 S'; break;
             case 'reset': out.value = 'DEFAULTS + AUTO SHOW'; break;
             case 'fader':
@@ -385,6 +429,7 @@ const VJDesk = {
                     case 'changeMirrorBallColor': out.value = 'NEXT COLOUR'; out.swatch = deskCss(this.mirrorBallSpotlightColor || (this.mirrorBallColors && this.mirrorBallColors[this.mirrorBallColorIndex || 0])); break;
                     case 'cycleSpotMode': out.value = VRClubUI.SPOT_MODE_NAMES[this.spotlightMode || 0] || ''; break;
                     case 'cyclePattern': out.value = VRClubUI.SPOT_PATTERN_NAMES[this.spotlightPattern || 0] || ''; break;
+                    case 'cycleStrobePattern': out.value = typeof this.strobePatternName === 'function' ? this.strobePatternName() : 'ALL AT ONCE'; break;
                     case 'cycleGoboPattern': {
                         const name = (this.goboPatterns && this.goboPatterns[this.goboPatternIndex || 0]) || 'circle';
                         out.value = name === 'circle' ? 'OPEN' : String(name).toUpperCase();
@@ -489,11 +534,12 @@ const VJDesk = {
         const textWidth = w - (swatch ? 92 : 36);
         ctx.textAlign = 'left';
         ctx.fillStyle = ink;
-        ctx.font = 'bold 40px sans-serif';
-        ctx.fillText(button.label, x + 20, y + h * 0.36, textWidth);
+        const small = h < 90;
+        ctx.font = `bold ${small ? 34 : 40}px sans-serif`;
+        ctx.fillText(button.label, x + 20, y + h * (small ? 0.32 : 0.36), textWidth);
         ctx.fillStyle = sub;
-        ctx.font = 'bold 27px sans-serif';
-        ctx.fillText(state.value, x + 20, y + h * 0.74, textWidth);
+        ctx.font = `bold ${small ? 24 : 27}px sans-serif`;
+        ctx.fillText(state.value, x + 20, y + h * (small ? 0.72 : 0.74), textWidth);
         if (swatch) {
             deskRoundRect(ctx, x + w - 66, y + h / 2 - 24, 48, 48, 10);
             ctx.fillStyle = state.swatch;
