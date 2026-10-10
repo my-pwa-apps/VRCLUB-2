@@ -309,7 +309,7 @@ test('no model code reads a texture file that does not exist or is not shipped',
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
     const bases = new Set([...source.matchAll(/textureBasePath: '([^']+)'/g)].map(m => m[1]));
     assert.ok(bases.size > 0, 'speaker texture paths must be discoverable');
-    for (const file of source.matchAll(/textureBasePath \+ '([^']+)'/g).map(m => m[1])) {
+    for (const file of [...source.matchAll(/textureBasePath \+ '([^']+)'/g)].map(m => m[1])) {
         for (const base of bases) {
             assert.ok(existsSync(join(ROOT, base, file)), `modelLoader reads ${base}${file}, which is missing`);
         }
