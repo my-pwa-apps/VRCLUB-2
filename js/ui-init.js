@@ -327,6 +327,67 @@ let menusInitialised = false;
 let buttonStateInterval = null;
 let bpmInterval = null;
 let vjMacros = { drop: null, blackout: null };
+let openFloatingPanel = null;
+
+function bindFloatingPanel({ toggle, panel, minimize, close, title, name, onOpen }) {
+    if (!toggle || !panel) return null;
+
+    const controller = {
+        panel,
+        close(restoreFocus = true) {
+            panel.classList.add('hidden');
+            toggle.setAttribute('aria-expanded', 'false');
+            if (openFloatingPanel === controller) openFloatingPanel = null;
+            if (restoreFocus) toggle.focus();
+        },
+        open() {
+            if (openFloatingPanel && openFloatingPanel !== controller) {
+                openFloatingPanel.close(false);
+            }
+            panel.classList.remove('hidden', 'minimized');
+            toggle.setAttribute('aria-expanded', 'true');
+            openFloatingPanel = controller;
+            if (onOpen) onOpen();
+            if (title) title.focus();
+        }
+    };
+
+    const onToggle = () => {
+        if (panel.classList.contains('hidden')) controller.open();
+        else controller.close();
+    };
+    toggle.addEventListener('click', onToggle);
+
+    let onMinimize = null;
+    if (minimize) {
+        onMinimize = () => {
+            const minimized = panel.classList.toggle('minimized');
+            const glyph = minimize.querySelector('span') || minimize;
+            glyph.textContent = minimized ? '+' : '\u2212';
+            minimize.setAttribute('aria-label', minimized ? `Expand ${name} panel` : `Minimize ${name} panel`);
+            minimize.setAttribute('aria-expanded', String(!minimized));
+        };
+        minimize.addEventListener('click', onMinimize);
+    }
+
+    const onClose = () => controller.close();
+    if (close) close.addEventListener('click', onClose);
+
+    const onKeyDown = event => {
+        if (event.key !== 'Escape' || panel.classList.contains('hidden')) return;
+        event.preventDefault();
+        controller.close();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    uiTeardowns.push(() => {
+        toggle.removeEventListener('click', onToggle);
+        if (minimize) minimize.removeEventListener('click', onMinimize);
+        if (close) close.removeEventListener('click', onClose);
+        document.removeEventListener('keydown', onKeyDown);
+        if (openFloatingPanel === controller) openFloatingPanel = null;
+    });
+    return controller;
+}
 
 /**
  * Wire the VJ and audio panels to the club instance. Guarded against re-entry:
@@ -354,51 +415,17 @@ function initVJMenu() {
     const vjTitle = document.getElementById('vjMenuTitle');
     
     if (!vjToggle || !vjMenu) return;
-    
+
     const teardowns = uiTeardowns;
-    const closeVJMenu = (restoreFocus = true) => {
-        vjMenu.classList.add('hidden');
-        vjToggle.setAttribute('aria-expanded', 'false');
-        if (restoreFocus) vjToggle.focus();
-    };
-    const openVJMenu = () => {
-        vjMenu.classList.remove('hidden', 'minimized');
-        vjToggle.setAttribute('aria-expanded', 'true');
-        updateButtonStates();
-        if (vjTitle) vjTitle.focus();
-    };
-
-    vjToggle.addEventListener('click', () => {
-        if (vjMenu.classList.contains('hidden')) openVJMenu();
-        else closeVJMenu();
+    const vjPanel = bindFloatingPanel({
+        toggle: vjToggle,
+        panel: vjMenu,
+        minimize: vjMinimize,
+        close: vjClose,
+        title: vjTitle,
+        name: 'VJ',
+        onOpen: updateButtonStates
     });
-    
-    // Minimize/maximize VJ menu.
-    // Writes to the inner <span>, never to the button's textContent: the latter
-    // destroys the aria-hidden wrapper and exposes a bare "−" glyph to screen readers.
-    if (vjMinimize) {
-        vjMinimize.addEventListener('click', () => {
-            const minimized = vjMenu.classList.toggle('minimized');
-            const glyph = vjMinimize.querySelector('span') || vjMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            vjMinimize.setAttribute('aria-label', minimized ? 'Expand VJ panel' : 'Minimize VJ panel');
-            vjMinimize.setAttribute('aria-expanded', String(!minimized));
-        });
-    }
-    
-    // Close VJ menu
-    if (vjClose) {
-        vjClose.addEventListener('click', () => closeVJMenu());
-    }
-
-    const onVJKeyDown = e => {
-        if (e.key === 'Escape' && !vjMenu.classList.contains('hidden')) {
-            e.preventDefault();
-            closeVJMenu();
-        }
-    };
-    document.addEventListener('keydown', onVJKeyDown);
-    teardowns.push(() => document.removeEventListener('keydown', onVJKeyDown));
     
     // Handle VJ control buttons
     const vjButtons = document.querySelectorAll('.vj-button[data-control]');
@@ -805,7 +832,7 @@ function initVJMenu() {
     if (vrClubInstance && vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
         const scene = vrClubInstance.scene;
         const onInit = scene.onXRSessionInit.add(() => {
-            closeVJMenu(false);
+            vjPanel.close(false);
             vjToggle.style.display = 'none';
         });
         
@@ -963,19 +990,17 @@ function initAudioMenu() {
     }
     
     const teardowns = uiTeardowns;
-    const closeAudioMenu = (restoreFocus = true) => {
-        audioMenu.classList.add('hidden');
-        audioToggle.setAttribute('aria-expanded', 'false');
-        if (restoreFocus) audioToggle.focus();
-    };
-    const openAudioMenu = () => {
-        audioMenu.classList.remove('hidden', 'minimized');
-        audioToggle.setAttribute('aria-expanded', 'true');
-        audioToggle.classList.remove('needs-attention');
-        if (audioTitle) audioTitle.focus();
-    };
+    const audioPanel = bindFloatingPanel({
+        toggle: audioToggle,
+        panel: audioMenu,
+        minimize: audioMinimize,
+        close: audioClose,
+        title: audioTitle,
+        name: 'audio',
+        onOpen: () => audioToggle.classList.remove('needs-attention')
+    });
     window.openMusicSetup = () => {
-        openAudioMenu();
+        audioPanel.open();
         document.getElementById('djStyle').value = vrClubInstance._djWanted || vrClubInstance._djId || vrClubInstance._initialDJId();
         if (streamUrl) streamUrl.focus();
     };
@@ -990,37 +1015,6 @@ function initAudioMenu() {
         delete window.openClubCredits;
     });
 
-    audioToggle.addEventListener('click', () => {
-        if (audioMenu.classList.contains('hidden')) openAudioMenu();
-        else closeAudioMenu();
-    });
-    
-    // Minimize/maximize. See the note on the VJ panel: writing to textContent would
-    // delete the aria-hidden <span> and leave the label describing the wrong action.
-    if (audioMinimize) {
-        audioMinimize.addEventListener('click', () => {
-            const minimized = audioMenu.classList.toggle('minimized');
-            const glyph = audioMinimize.querySelector('span') || audioMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            audioMinimize.setAttribute('aria-label', minimized ? 'Expand audio panel' : 'Minimize audio panel');
-            audioMinimize.setAttribute('aria-expanded', String(!minimized));
-        });
-    }
-    
-    // Close
-    if (audioClose) {
-        audioClose.addEventListener('click', () => closeAudioMenu());
-    }
-
-    const onAudioKeyDown = e => {
-        if (e.key === 'Escape' && !audioMenu.classList.contains('hidden')) {
-            e.preventDefault();
-            closeAudioMenu();
-        }
-    };
-    document.addEventListener('keydown', onAudioKeyDown);
-    teardowns.push(() => document.removeEventListener('keydown', onAudioKeyDown));
-    
     // Show status message.
     // The handle is stored and cleared: an untracked timer per call meant an earlier
     // message's 3 s timer would blank a later message after a few hundred ms, and
@@ -1272,7 +1266,7 @@ function initAudioMenu() {
     if (vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
         const scene = vrClubInstance.scene;
         const onInit = scene.onXRSessionInit.add(() => {
-            closeAudioMenu(false);
+            audioPanel.close(false);
             audioToggle.style.display = 'none';
         });
         const onEnded = scene.onXRSessionEnded.add(() => {
@@ -1611,41 +1605,14 @@ function initNetworkMenu() {
     if (roomInput) roomInput.value = mp.room;
     if (nameInput) nameInput.value = mp.name;
 
-    const closeNetworkMenu = (restoreFocus = true) => {
-        networkMenu.classList.add('hidden');
-        networkToggle.setAttribute('aria-expanded', 'false');
-        if (restoreFocus) networkToggle.focus();
-    };
-    const openNetworkMenu = () => {
-        networkMenu.classList.remove('hidden', 'minimized');
-        networkToggle.setAttribute('aria-expanded', 'true');
-        if (networkTitle) networkTitle.focus();
-    };
-
-    networkToggle.addEventListener('click', () => {
-        if (networkMenu.classList.contains('hidden')) openNetworkMenu();
-        else closeNetworkMenu();
+    const networkPanel = bindFloatingPanel({
+        toggle: networkToggle,
+        panel: networkMenu,
+        minimize: networkMinimize,
+        close: networkClose,
+        title: networkTitle,
+        name: 'multiplayer'
     });
-
-    if (networkMinimize) {
-        networkMinimize.addEventListener('click', () => {
-            const minimized = networkMenu.classList.toggle('minimized');
-            const glyph = networkMinimize.querySelector('span') || networkMinimize;
-            glyph.textContent = minimized ? '+' : '\u2212';
-            networkMinimize.setAttribute('aria-label', minimized ? 'Expand multiplayer panel' : 'Minimize multiplayer panel');
-            networkMinimize.setAttribute('aria-expanded', String(!minimized));
-        });
-    }
-    if (networkClose) networkClose.addEventListener('click', () => closeNetworkMenu());
-
-    const onNetworkKeyDown = (e) => {
-        if (e.key === 'Escape' && !networkMenu.classList.contains('hidden')) {
-            e.preventDefault();
-            closeNetworkMenu();
-        }
-    };
-    document.addEventListener('keydown', onNetworkKeyDown);
-    teardowns.push(() => document.removeEventListener('keydown', onNetworkKeyDown));
 
     // ---- rendering: one function redraws the panel from the controller's state ------------------------------------
     const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
@@ -1867,7 +1834,7 @@ function initNetworkMenu() {
     }
     if (leaveBtn) leaveBtn.addEventListener('click', () => mp.disconnect());
     if (duckBtn) duckBtn.addEventListener('click', () => mp.setDuckForVoice(!mp.duckForVoice));
-    if (openChatBtn) openChatBtn.addEventListener('click', () => { closeNetworkMenu(false); openSocialChat(); });
+    if (openChatBtn) openChatBtn.addEventListener('click', () => { networkPanel.close(false); openSocialChat(); });
 
     if (micBtn) micBtn.addEventListener('click', () => mp.toggleMic());
     for (const btn of emojiButtons) btn.addEventListener('click', () => mp.sendEmoji(btn.dataset.emoji));
@@ -1903,7 +1870,7 @@ function initNetworkMenu() {
     if (vrClubInstance.scene && vrClubInstance.scene.onXRSessionInit) {
         const scene = vrClubInstance.scene;
         const onInit = scene.onXRSessionInit.add(() => {
-            closeNetworkMenu(false);
+            networkPanel.close(false);
             networkToggle.style.display = 'none';
         });
         const onEnded = scene.onXRSessionEnded.add(() => {

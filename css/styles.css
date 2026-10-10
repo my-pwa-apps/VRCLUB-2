@@ -9,6 +9,9 @@
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
     --accent: #667eea;
     --accent-hover: #764ba2;
+    --focus-ring: #8bb0ff;
+    --panel-bg: rgba(7, 8, 14, 0.94);
+    --panel-border: rgba(255, 255, 255, 0.16);
     --transition-fast: 0.15s ease;
     --transition-normal: 0.25s ease;
 }
@@ -290,7 +293,7 @@ html, body {
    These were previously two byte-identical rule sets under .vj-* / .audio-* names,
    which is how the two panels silently drifted apart. */
 .panel {
-    background: rgba(0, 0, 0, 0.9);
+    background: var(--panel-bg);
     padding: 15px;
     border-radius: 12px;
     -webkit-backdrop-filter: var(--blur-light);
@@ -301,20 +304,27 @@ html, body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     color: white;
     box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--panel-border);
     transition: opacity var(--transition-normal);
+    scrollbar-color: rgba(139, 176, 255, 0.75) rgba(255, 255, 255, 0.06);
+    scrollbar-width: thin;
 }
 
 .panel-header {
+    position: sticky;
+    top: -15px;
+    z-index: 2;
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
     padding-bottom: 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--panel-bg);
 }
 
 .panel.minimized .panel-header {
+    position: static;
     margin-bottom: 0;
     padding-bottom: 0;
     border-bottom: none;
@@ -1665,9 +1675,15 @@ html, body {
    with no visible focus indicator at all. This restores a high-contrast ring on
    keyboard focus only, so mouse/touch interaction stays visually unchanged. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-    outline: 3px solid #7aa2ff;
+    outline: 3px solid var(--focus-ring);
     outline-offset: 2px;
     border-radius: 4px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    :where(button, .audio-file-label, summary):hover {
+        filter: brightness(1.08);
+    }
 }
 
 .sw-update-prompt {

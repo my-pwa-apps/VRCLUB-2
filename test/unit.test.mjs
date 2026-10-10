@@ -148,6 +148,69 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
     assert.equal(audio.pauseCalls, 0, 'a default-prevented Space should not pause audio');
 });
 
+test('floating desktop panels are mutually exclusive and restore focus on close', () => {
+    const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    const start = source.indexOf('let openFloatingPanel = null;');
+    const end = source.indexOf('/**\n * Wire the VJ and audio panels', start);
+    const documentListeners = {};
+    const makeEl = (classes = []) => {
+        const classNames = new Set(classes);
+        return {
+            attributes: {},
+            listeners: {},
+            focused: false,
+            classList: {
+                add(...names) { names.forEach(name => classNames.add(name)); },
+                remove(...names) { names.forEach(name => classNames.delete(name)); },
+                contains(name) { return classNames.has(name); },
+                toggle(name) {
+                    if (classNames.has(name)) { classNames.delete(name); return false; }
+                    classNames.add(name);
+                    return true;
+                }
+            },
+            addEventListener(type, handler) { this.listeners[type] = handler; },
+            removeEventListener(type) { delete this.listeners[type]; },
+            setAttribute(name, value) { this.attributes[name] = String(value); },
+            focus() { this.focused = true; },
+            querySelector() { return null; }
+        };
+    };
+    const context = vm.createContext({
+        uiTeardowns: [],
+        document: {
+            addEventListener(type, handler) { (documentListeners[type] ||= []).push(handler); },
+            removeEventListener() {}
+        }
+    });
+    vm.runInContext(source.slice(start, end), context);
+
+    const first = { toggle: makeEl(), panel: makeEl(['hidden']), title: makeEl() };
+    const second = { toggle: makeEl(), panel: makeEl(['hidden']), title: makeEl() };
+    context.first = first;
+    context.second = second;
+    vm.runInContext(`
+        firstController = bindFloatingPanel({ ...first, name: 'first' });
+        secondController = bindFloatingPanel({ ...second, name: 'second' });
+        firstController.open();
+        secondController.open();
+    `, context);
+
+    assert.equal(first.panel.classList.contains('hidden'), true, 'opening a panel should close the previous panel');
+    assert.equal(first.toggle.attributes['aria-expanded'], 'false');
+    assert.equal(second.panel.classList.contains('hidden'), false);
+    assert.equal(second.toggle.attributes['aria-expanded'], 'true');
+    assert.equal(second.title.focused, true, 'opening a panel should focus its heading');
+
+    let prevented = false;
+    for (const handler of documentListeners.keydown) {
+        handler({ key: 'Escape', preventDefault() { prevented = true; } });
+    }
+    assert.equal(prevented, true);
+    assert.equal(second.panel.classList.contains('hidden'), true);
+    assert.equal(second.toggle.focused, true, 'Escape should return focus to the panel trigger');
+});
+
 test('the audio menu exposes a separate ambience slider and labels both ranges by scope', () => {
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = source.indexOf('function initAudioMenu()');
@@ -209,6 +272,7 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         Podcasts: { get: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }) },
         // The podcast player and its choice buttons are exercised by their own tests (podcasts.js).
         ensureMusicLibrary: () => ({ current: () => null, items: [], selected: 0 }),
+        bindFloatingPanel: () => ({ open() {}, close() {} }),
         refreshPodcastChoices() {},
         setInterval() { return 1; },
         clearInterval() {},
