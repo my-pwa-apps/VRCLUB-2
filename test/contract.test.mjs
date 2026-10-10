@@ -109,6 +109,15 @@ test('robots and sitemap expose only the canonical production URL', () => {
     assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the app shell is an indexable HTML page');
 });
 
+test('Google Search Console verification is deployed at the site root', () => {
+    const filename = 'googledd48f5e8f45ab4e2.html';
+    const verification = readFileSync(join(ROOT, filename), 'utf8').trim();
+    const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
+    assert.equal(verification, `google-site-verification: ${filename}`);
+    assert.match(build, new RegExp(`cp\\(path\\.join\\(root, '${filename}'\\), path\\.join\\(dist, '${filename}'\\)\\)`),
+        'production build must copy the Search Console verification file to the site root');
+});
+
 test('the production builder minifies the CSS asset', () => {
     const build = readFileSync(join(ROOT, 'scripts', 'build.mjs'), 'utf8');
     assert.match(build, /loader:\s*'css'/, 'build must pass CSS through the minifier');

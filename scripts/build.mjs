@@ -141,6 +141,7 @@ await Promise.all([
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
     cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
     cp(path.join(root, 'sitemap.xml'), path.join(dist, 'sitemap.xml')),
+    cp(path.join(root, 'googledd48f5e8f45ab4e2.html'), path.join(dist, 'googledd48f5e8f45ab4e2.html')),
     cp(path.join(root, 'licenses'), path.join(dist, 'licenses'), { recursive: true }),
     cp(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE')),
     cp(path.join(root, 'ASSETS.md'), path.join(dist, 'ASSETS.md')),
