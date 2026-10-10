@@ -127,6 +127,7 @@ const server = createServer(async (req, res) => {
             'ETag': `W/"${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`,
             'Last-Modified': info.mtime.toUTCString(),
             'X-Content-Type-Options': 'nosniff',
+            'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex',
             'Referrer-Policy': 'no-referrer',
             // frame-ancestors is header-only per spec - browsers ignore it in the <meta>
             // CSP in index.html. X-Frame-Options is the legacy equivalent.

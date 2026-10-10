@@ -134,6 +134,7 @@ await Promise.all([
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
+    cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
     cp(path.join(root, 'licenses'), path.join(dist, 'licenses'), { recursive: true }),
     cp(path.join(root, 'LICENSE'), path.join(dist, 'LICENSE')),
     cp(path.join(root, 'ASSETS.md'), path.join(dist, 'ASSETS.md')),

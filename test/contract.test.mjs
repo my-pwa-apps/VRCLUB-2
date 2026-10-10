@@ -75,6 +75,24 @@ test('every stylesheet referenced by index.html exists on disk', () => {
     }
 });
 
+test('the development deployment cannot be indexed by search engines', () => {
+    const robots = readFileSync(join(ROOT, 'robots.txt'), 'utf8');
+    const headers = readFileSync(join(ROOT, '_headers'), 'utf8');
+    const server = readFileSync(join(ROOT, 'scripts/serve.mjs'), 'utf8');
+    const build = readFileSync(join(ROOT, 'scripts/build.mjs'), 'utf8');
+
+    assert.match(html, /<meta\s+name="robots"\s+content="[^"]*\bnoindex\b[^"]*">/i,
+        'index.html must tell crawlers not to index this development deployment');
+    assert.match(robots, /User-agent:\s*\*[\s\S]*Disallow:\s*\/(?:\s|$)/i,
+        'robots.txt must disallow crawling the entire deployment');
+    assert.match(headers, /X-Robots-Tag:\s*[^\r\n]*\bnoindex\b/i,
+        '_headers must prevent indexing on static hosts that support custom headers');
+    assert.match(server, /'X-Robots-Tag':\s*'[^\r\n']*\bnoindex\b/i,
+        'the local/production Node server must send X-Robots-Tag: noindex');
+    assert.match(build, /cp\(path\.join\(root, 'robots\.txt'\), path\.join\(dist, 'robots\.txt'\)\)/,
+        'the production build must publish robots.txt');
+});
+
 test('script load order honours the dependency contract', () => {
     const order = scriptSrcs.map(srcPath);
     const idx = (f) => order.indexOf(f);
