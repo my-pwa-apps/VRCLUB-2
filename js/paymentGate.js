@@ -2,6 +2,16 @@
 
 // All access credentials stay in HttpOnly cookies; only this tab's lease id lives in memory.
 (function installPaymentGate() {
+    const development = ['nocturnedev.mitwee.nl', 'nocturne-dev.pages.dev'].includes(window.location.hostname);
+    if (development) {
+        window.VRPayment = Object.freeze({
+            apiOrigin: null, hasEntitlement: () => true, canEnterVR: () => true,
+            refreshEntitlement: async () => ({ entitled: true }),
+            showGate: () => window.vrClub?.showErrorMessage?.('Development site: VR access is free. Purchases and production access are disabled.'),
+            onXRStateChange() {}, setXRHandlers() {}, releaseLease: async () => {}, dispose() {}
+        });
+        return;
+    }
     const apiOrigin = (window.NOCTURNE_PAYMENT_API || 'https://api.mitwee.nl').replace(/\/$/, '');
     const tab = crypto.randomUUID();
     let access = { entitled: false, verified: false, deviceRegistered: false, devices: [] };

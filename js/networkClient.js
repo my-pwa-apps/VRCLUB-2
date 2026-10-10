@@ -9,6 +9,9 @@
  * negotiates a direct WebRTC connection between their browsers (mesh - every
  * mic-enabled guest connects to their selected recipients) and the Worker only relays
  * the SDP/ICE signaling needed to set that connection up.
+ * Explicit SFU welcomes instead delegate media to SFUClient: a single upstream
+ * per source and aggregated, individually mapped receiving tracks. Failure in that
+ * mode never starts mesh connections.
  *
  * Deliberately has no Babylon.js dependency: `js/avatarManager.js` (and
  * `js/club/07-animation-core.js`) turn these events into scene visuals and
@@ -29,7 +32,7 @@ class NetworkClient {
 
     /** What the user is told when the relay ends the session for a reason that retrying would not fix. */
     static CLOSE_MESSAGES = Object.freeze({
-        4003: 'That room is full (8 guests at most). Try another room code.',
+        4003: 'That room is full. Try another room code.',
         4008: 'Disconnected by the relay for sending too many messages.',
         4010: 'The host removed you from the room. You can join again.',
         4011: 'The host banned you from this room.',
@@ -104,6 +107,9 @@ class NetworkClient {
         this.musicStream = null;
         this.musicState = null;
         this.musicListening = false;
+        this.mediaTransport = 'mesh';
+        this.sfu = null;
+        this.capacity = 8;
 
         this.ws = null;
         this._closedByUser = false;
@@ -149,6 +155,8 @@ class NetworkClient {
         this._closedByUser = true;
         clearTimeout(this._reconnectTimer);
         this._reconnectTimer = null;
+        if (this.sfu) this.sfu.dispose();
+        this.sfu = null;
         this.disableVoice();
         this.resetMusic();
         this._dropAllPeers();
@@ -180,6 +188,8 @@ class NetworkClient {
         url.searchParams.set('name', this.name);
         if (this.uid) url.searchParams.set('uid', this.uid);
         if (this.avatarPool !== 'any') url.searchParams.set('avatars', this.avatarPool);
+        url.searchParams.set('poseBatch', '1');
+        url.searchParams.set('sfu', '1');
 
         let ws;
         try {
@@ -211,6 +221,8 @@ class NetworkClient {
 
     _onSocketClosed(evt) {
         this.ws = null;
+        if (this.sfu) this.sfu.dispose();
+        this.sfu = null;
         this.resetMusic();
         // The relay assigns a fresh id per connection, so peers from this socket can
         // never be matched again after a reconnect - without this their avatars and
@@ -271,6 +283,16 @@ class NetworkClient {
                 this.selfPid = NetworkClient.PID.test(msg.pid) ? msg.pid : null;
                 this.avatar = typeof msg.avatar === 'string' ? msg.avatar : null;
                 this.hostId = msg.hostId;
+                this.capacity = Number.isInteger(msg.capacity) && msg.capacity >= 8 && msg.capacity <= 32 ? msg.capacity : 8;
+                this.mediaTransport = msg.mediaTransport === 'sfu' ? 'sfu' : 'mesh';
+                if (this.mediaTransport === 'sfu') {
+                    if (typeof window.SFUClient !== 'function') {
+                        this.disconnect();
+                        this.onError(new Error('This room requires the SFU media client. Reload the app.'));
+                        break;
+                    }
+                    this.sfu = new window.SFUClient(this);
+                }
                 this.targetedChat = msg.targetedChat === true;
                 this.hostTransferSupported = msg.hostTransfer === true;
                 this.locked = !!msg.locked;
@@ -291,6 +313,10 @@ class NetworkClient {
                 if (msg.show) this.onShow(msg.show);
                 this.onHostChange(this.hostId);
                 this.onRoom(this.locked);
+                if (this.sfu) {
+                    this.sfu.control();
+                    if (this.micEnabled) void this.sfu.publish('voice', this.micStream);
+                }
                 break;
 
             case 'pong': {
@@ -325,6 +351,23 @@ class NetworkClient {
                 this.onPeerState(msg.id, msg.state);
                 break;
             }
+
+            case 'states':
+                if (Array.isArray(msg.states) && msg.states.length <= 32) {
+                    for (const entry of msg.states) {
+                        const peer = this.peers.get(entry.id);
+                        if (!peer || !entry.state) continue;
+                        peer.state = entry.state;
+                        this.onPeerState(entry.id, entry.state);
+                    }
+                }
+                break;
+
+            case 'sfu-result':
+            case 'media-catalog':
+            case 'media-reset':
+                if (this.sfu) this.sfu.message(msg);
+                break;
 
             case 'emoji':
                 if (this.peers.has(msg.id)) this.onEmoji(msg.id, msg.emoji);
@@ -369,7 +412,7 @@ class NetworkClient {
                 break;
 
             case 'rtc-signal':
-                this._onSignal(msg.from, msg.signal);
+                if (this.mediaTransport === 'mesh') this._onSignal(msg.from, msg.signal);
                 break;
 
             default:
@@ -386,6 +429,7 @@ class NetworkClient {
         this.onPeerJoin(peer.id, peer.name, { pid, avatar: this.peers.get(peer.id).avatar });
         if (peer.state) this.onPeerState(peer.id, peer.state);
         this._maybeInitiateVoice(peer.id);
+        if (this.sfu) this.sfu.sync();
     }
 
     /** A heartbeat: the relay closes a client that has pinged and then goes silent, so a vanished host is replaced. */
@@ -465,6 +509,10 @@ class NetworkClient {
         this.musicStream = stream;
         this.musicState = { available: !!stream, playing: !!stream && !!state.playing,
             title: String(state.title || '').slice(0, 200) };
+        if (this.sfu) {
+            void this.sfu.publish('music', stream);
+            return;
+        }
         for (const [id, peer] of this.peers) {
             this._sendMusicSignal(id, { kind: 'state', ...this.musicState });
             if (!stream) this._closeMusic(id);
@@ -474,6 +522,11 @@ class NetworkClient {
 
     setMusicListening(enabled) {
         this.musicListening = !!enabled;
+        if (this.sfu) {
+            this.sfu.control();
+            this.sfu.sync();
+            return;
+        }
         if (this.isHost() || !this.peers.has(this.hostId)) return;
         this._sendMusicSignal(this.hostId, { kind: 'listen', enabled: this.musicListening });
         if (!enabled) this._closeMusic(this.hostId);
@@ -487,6 +540,7 @@ class NetworkClient {
         this.musicStream = null;
         this.musicState = null;
         this.musicListening = false;
+        if (this.sfu) this.sfu.resetMusic();
     }
 
     _sendMusicSignal(id, signal) {
@@ -627,6 +681,7 @@ class NetworkClient {
                 }
                 this.micStream = stream;
                 this.micEnabled = true;
+                if (this.sfu) return this.sfu.publish('voice', stream);
                 for (const id of this.peers.keys()) this._attachLocalTracks(id);
             })
             .finally(() => { this._micPending = null; });
@@ -639,6 +694,7 @@ class NetworkClient {
         this.micEnabled = false;
         const stream = this.micStream;
         this.micStream = null;
+        if (this.sfu) void this.sfu.closeSlot('voicePub');
         for (const [id, peer] of this.peers) {
             if (!peer.pc) continue;
             for (const sender of peer.pc.getSenders()) {
@@ -650,10 +706,12 @@ class NetworkClient {
 
     /** Called for every known peer on welcome/join: connect only if there is something to send. */
     _maybeInitiateVoice(peerId) {
+        if (this.mediaTransport === 'sfu') return;
         if (this.micEnabled) this._attachLocalTracks(peerId);
     }
 
     _attachLocalTracks(peerId) {
+        if (this.mediaTransport === 'sfu') return;
         if (!this.micStream || !this.selfId || !peerId) return;
         if (this.voiceAudience !== null && !this.voiceAudience.has(peerId)) return;
         const peer = this.peers.get(peerId);
@@ -765,11 +823,16 @@ class NetworkClient {
             peer.pc = null;
         }
         if (!keepEntry) this.peers.delete(peerId);
+        if (!keepEntry && this.sfu) this.sfu.removePeer(peerId);
     }
 
     /** null sends to everyone; an empty set sends nowhere while keeping incoming streams. */
     setVoiceAudience(ids) {
         this.voiceAudience = ids === null ? null : new Set(ids.filter(id => this.peers.has(id)));
+        if (this.sfu) {
+            this.sfu.control();
+            return;
+        }
         for (const [id, peer] of this.peers) {
             if (this.voiceAudience === null || this.voiceAudience.has(id)) {
                 if (this.micEnabled) this._attachLocalTracks(id);

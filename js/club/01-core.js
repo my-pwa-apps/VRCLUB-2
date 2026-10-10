@@ -1134,6 +1134,7 @@ class VRClubCore {
             audioState: this.audioContext ? this.audioContext.state : 'none',
             safeMode: this.photosensitiveSafeMode,
             bassHaptics: this.bassHapticsEnabled,
+            multiplayer: this.avatarManager?.getDiagnostics() || null,
             recentLogs: this.diagnosticsBuffer ? this.diagnosticsBuffer.slice(-25) : []
         };
     }

@@ -1367,6 +1367,28 @@ back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.S
 
 ## Multiplayer
 
+### QuestDev isolated scaling variant
+
+The development deployment uses `worker/wrangler.dev.jsonc` and `src/dev-index.js`,
+not the production configuration: separate relay, room database, SFU application
+and Pages project. The exact development hosts `nocturnedev.mitwee.nl` and
+`nocturne-dev.pages.dev` have free development VR entry and do not install the
+payment dialog; the development Worker refuses payments/admin routes. Never
+copy production Stripe secrets, entitlements or invitations into this environment.
+Legacy descriptions below describe the default eight-person mesh mode.
+
+For a relay advertising a capacity above eight, `AvatarManager` selects nearest
+full bodies every 0.5 s with one-metre priority hysteresis and a 15 m radius
+(17 m retention for an existing body). Tier budgets are Balanced 6, High 10,
+Ultra 14. Distant people retain membership, labels, collision and lightweight
+capsule/head geometry; demoted full bodies are disposed. Hidden groups pause
+animations; proximity visibility remains independent of voice. Do not clone
+shared materials or reduce privacy to client-side subscription choices.
+`updateNetworkPresence()` suppresses unchanged poses until a 0.5 s heartbeat
+on larger rooms, without suppressing actual controller movement. Runtime
+`getDiagnostics().multiplayer` exposes avatar budgets and voice stream counts.
+See `docs/SCALING.md` for SFU negotiation, authorization and revocation details.
+
 **Room browser.** `worker/src/roomDirectory.js` exposes opt-in `GET /rooms` (50 public rooms
 per page) and `POST /rooms/status` (up to twelve explicitly supplied names), using D1
 migration `0006_room_directory.sql`. Every case-insensitive `private-` prefix is unlisted:

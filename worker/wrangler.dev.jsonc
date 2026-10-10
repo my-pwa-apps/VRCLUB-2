@@ -1,0 +1,24 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "vrclub-network-dev",
+  "main": "src/dev-index.js",
+  "compatibility_date": "2026-10-10",
+  "workers_dev": true,
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "nocturne-dev-rooms",
+    "database_id": "c9daa987-721e-47c5-beb8-54b3e1e2b0aa"
+  }],
+  "durable_objects": {
+    "bindings": [{ "name": "CLUB_ROOM", "class_name": "ClubRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClubRoom"] }],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://nocturnedev.mitwee.nl,https://nocturne-dev.pages.dev",
+    "APP_ORIGIN": "https://nocturnedev.mitwee.nl",
+    "ROOM_CAPACITY": "32",
+    "MEDIA_TRANSPORT": "sfu",
+    "SFU_APP_ID": "59da19e9bdf99111a7a1a6a3ee0d5dae"
+  },
+  "observability": { "enabled": true }
+}

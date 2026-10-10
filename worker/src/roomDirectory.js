@@ -10,8 +10,14 @@ export function privateRoomName(room) {
     return /^private-/i.test(room);
 }
 
-export function roomStatus(room, people, locked) {
-    return { room, people, capacity: 8, locked: !!locked, active: people > 0 };
+export function roomCapacity(env = {}) {
+    const capacity = Number(env.ROOM_CAPACITY ?? 8);
+    if (!Number.isInteger(capacity) || capacity < 8 || capacity > 32) throw new Error('ROOM_CAPACITY must be an integer from 8 to 32.');
+    return capacity;
+}
+
+export function roomStatus(room, people, locked, capacity = 8) {
+    return { room, people, capacity, locked: !!locked, active: people > 0 };
 }
 
 export async function publishRoom(db, room, people, locked) {
@@ -77,7 +83,7 @@ export async function handleRoomDirectory(request, env, origin) {
             const rows = await env.DB.prepare(`SELECT room, people, locked FROM public_rooms
                 WHERE expires_at > ? AND people > 0 AND room NOT LIKE 'private-%' AND (? IS NULL OR room > ?)
                 ORDER BY room LIMIT 51`).bind(now, after, after).all();
-            return json({ rooms: rows.results.slice(0, 50).map(row => roomStatus(row.room, row.people, row.locked)),
+            return json({ rooms: rows.results.slice(0, 50).map(row => roomStatus(row.room, row.people, row.locked, roomCapacity(env))),
                 next: rows.results.length > 50 ? rows.results[49].room : null });
         }
         let body;

@@ -144,6 +144,37 @@ All shortcuts are ignored while a text field has focus.
 
 ## Multiplayer (optional)
 
+### QuestDev scaling deployment
+
+`QuestDev` uses a separate Pages project (`nocturne-dev`), relay
+(`vrclub-network-dev`), room-directory database and Realtime SFU application.
+The intended development URL is https://nocturnedev.mitwee.nl. On that exact
+hostname and `nocturne-dev.pages.dev`, VR needs no payment or production
+entitlement, and the Access/purchase dialog is not installed. The development
+Worker rejects payment and administration routes. Production resources are not
+used by this deployment.
+
+Larger rooms separate participant capacity from rendering detail: nearby guests
+get full animated bodies (Balanced 6, High 10, Ultra 14), while others retain
+lightweight capsule/head representations and their social identity. Detail
+selection runs twice per second with distance hysteresis; bodies outside the
+15 m detail radius release their skeleton resources. Hidden bodies pause their
+clips. These are experimental budgets, not measured Quest frame-time guarantees.
+
+Scaled clients suppress stationary pose sends to about 2 Hz while movement and
+tracked hands still send at up to 20 Hz. Runtime `getDiagnostics().multiplayer`
+reports detailed/fallback avatar counts and voice streams. The default legacy
+eight-person relay policy and cadence remain available for compatibility.
+See [scaling architecture](docs/SCALING.md) for the SFU transport, authorization
+and development validation requirements.
+
+`js/sfuClient.js` loads before `js/networkClient.js`. The relay's welcome
+selects SFU mode for the development deployment; legacy mode retains the mesh.
+The SFU app ID is a Worker variable and its app secret is stored only as a
+Worker secret. Each microphone or host music publication is uploaded once,
+and the backend authorizes and revokes subscriptions for room membership,
+two-way blocks, selected microphone audiences and music Listen along.
+
 The **👥 People** button (top-right) opens the Multiplayer panel, which lets several guests share one club: each
 other as characters, voice, typed chat, emoji and gestures, and one shared "now playing" stream and light show. It is
 entirely opt-in: nobody connects until a guest presses **Join room**. In a room, a bar at the bottom of the screen has

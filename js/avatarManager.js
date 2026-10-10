@@ -25,6 +25,9 @@ class AvatarManager {
     static EMOJI_MIN_INTERVAL = 0.5; // seconds between reactions rendered per guest
     static GESTURE_MIN_INTERVAL = 0.4;
     static MAX_PEOPLE = 8;           // skinned bodies for remote guests (each is a 62-bone skeleton and one draw)
+    static DETAIL_BUDGETS = Object.freeze({ balanced: 6, high: 10, ultra: 14 });
+    static DETAIL_RADIUS = 15;
+    static DETAIL_INTERVAL = 0.5;
     static PERSON_HEIGHT = { f: 1.68, m: 1.8 };
     static WALK_SPEED = 0.25;        // m/s above which a guest is walking
     static RUN_SPEED = 2.6;
@@ -62,6 +65,8 @@ class AvatarManager {
         this.muteAll = false;
         this._frame = 0;
         this._poseTime = 0;
+        this._detailAt = -Infinity;
+        this._detailCandidates = [];
         this._armObserver = this.scene.onAfterAnimationsObservable.add(() => {
             for (const peer of this.remotes.values()) {
                 if (peer.person?.arms && peer.root.isEnabled() && this._hasTrackedHands(peer)) {
@@ -108,7 +113,7 @@ class AvatarManager {
 
         peer = {
             id, name: name || 'Guest', pid: info.pid || null, avatarId: null,
-            root, body, head, nameplate: null, person: null,
+            root, body, head, nameplate: null, person: null, detailWanted: false, detailLoading: false,
             muted: false, speaking: false, isHost: false, hidden: false,
             pose: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
@@ -137,7 +142,8 @@ class AvatarManager {
         if (!peer || peer.avatarId === avatarId) return;
         peer.avatarId = avatarId;
         this._disposePerson(peer);
-        await this._buildPerson(peer);
+        if (!this._scaledRoom()) await this._buildPerson(peer);
+        else this._detailAt = -Infinity;
     }
 
     _peopleCount() {
@@ -146,17 +152,73 @@ class AvatarManager {
         return live;
     }
 
+    _scaledRoom() {
+        return (this.club.networkManager?.capacity || 8) > 8;
+    }
+
+    _detailLimit() {
+        return this._scaledRoom()
+            ? AvatarManager.DETAIL_BUDGETS[this.club.graphicsTier] || AvatarManager.DETAIL_BUDGETS.balanced
+            : AvatarManager.MAX_PEOPLE;
+    }
+
+    _updateDetailBudget() {
+        if (!this._scaledRoom() || this._poseTime < this._detailAt) return;
+        this._detailAt = this._poseTime + AvatarManager.DETAIL_INTERVAL;
+        const camera = this.club._playerCamera ? this.club._playerCamera() : this.scene.activeCamera;
+        const eye = camera && (camera.globalPosition || camera.position);
+        if (!eye) return;
+        const candidates = this._detailCandidates;
+        candidates.length = 0;
+        for (const peer of this.remotes.values()) {
+            peer.detailWanted = false;
+            if (!peer.hasState || peer.hidden) continue;
+            const p = peer.root.position;
+            const distance = Math.hypot(p.x - eye.x, p.y + AvatarManager.EYE_HEIGHT - eye.y, p.z - eye.z);
+            if (distance > AvatarManager.DETAIL_RADIUS + (peer.person ? 2 : 0)) continue;
+            peer.detailScore = distance - (peer.person ? 1 : 0);
+            candidates.push(peer);
+        }
+        candidates.sort((a, b) => a.detailScore - b.detailScore || a.id.localeCompare(b.id));
+        const limit = Math.min(this._detailLimit(), candidates.length);
+        for (let i = 0; i < limit; i++) candidates[i].detailWanted = true;
+        for (const peer of this.remotes.values()) {
+            if (peer.person && !peer.detailWanted) this._disposePerson(peer);
+        }
+        for (let i = 0; i < limit; i++) {
+            const peer = candidates[i];
+            if (!peer.person && !peer.detailLoading && peer.avatarId) {
+                peer.detailLoading = true;
+                void this._buildPerson(peer).catch(error => {
+                    console.error(`Remote avatar ${peer.id} failed to load`, error);
+                }).finally(() => { peer.detailLoading = false; });
+            }
+        }
+    }
+
+    getDiagnostics() {
+        return {
+            participants: this.remotes.size + 1,
+            detailedAvatars: this._peopleCount(),
+            detailBudget: this._detailLimit(),
+            fallbackAvatars: this.remotes.size - this._peopleCount(),
+            voiceStreams: Array.from(this.remotes.values()).filter(peer => peer.audio).length
+        };
+    }
+
     async _buildPerson(peer) {
         const club = this.club;
         const Crowd = window.VRClubAudioCrowd;
         const avatarId = peer.avatarId;
         if (!avatarId || !Crowd || !club._loadCrowdSource || !club._crowdSourceContainers) return false;
-        if (peer.person || this._peopleCount() >= AvatarManager.MAX_PEOPLE) return false;
+        if (peer.person || this._peopleCount() >= this._detailLimit() ||
+            (this._scaledRoom() && !peer.detailWanted)) return false;
         const index = Crowd.sourceIndex(avatarId);
         if (index < 0) return false;
         const container = await club._loadCrowdSource(index);
         // The guest may have left, changed avatar or been given a body by a faster call while the file loaded.
-        if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person || this._peopleCount() >= AvatarManager.MAX_PEOPLE) return false;
+        if (!container || this.remotes.get(peer.id) !== peer || peer.avatarId !== avatarId || peer.person ||
+            this._peopleCount() >= this._detailLimit() || (this._scaledRoom() && !peer.detailWanted)) return false;
 
         const prefix = `peer${peer.id}_`;
         const entry = container.instantiateModelsToScene(name => `${prefix}${name}`, false, { doNotInstantiate: true });
@@ -513,6 +575,11 @@ class AvatarManager {
     _applyHidden(peer) {
         // Everything of theirs except the voice: the tag, the body, the emoji and the collision capsule.
         peer.root.setEnabled(!peer.hidden);
+        const group = peer.person?.groups[peer.person.current];
+        if (group) {
+            if (peer.hidden && group.isPlaying) group.pause();
+            else if (!peer.hidden && !group.isPlaying) group.restart();
+        }
     }
 
     _updateBubble(peer) {
@@ -550,6 +617,7 @@ class AvatarManager {
         this.remotes.delete(id);
         // A capsule that was waiting for a body gets the place this guest freed.
         for (const other of this.remotes.values()) {
+            if (this._scaledRoom()) { this._detailAt = -Infinity; break; }
             if (!other.person && other.avatarId) { this._buildPerson(other); break; }
         }
         if (this.club._refreshContactShadows) this.club._refreshContactShadows();
@@ -570,6 +638,7 @@ class AvatarManager {
         // .github/copilot-instructions.md - "never scale a bare retention rate").
         const step = dt;
         this._poseTime += step;
+        this._updateDetailBudget();
         const lerpK = 1 - (1 - 0.15) ** (step * 60);
         this._frame++;
 
@@ -591,7 +660,7 @@ class AvatarManager {
                     peer.speed += (Math.min(instant, 8) - peer.speed) * (1 - (1 - 0.2) ** (step * 60));
                 }
                 peer.prevX = root.position.x; peer.prevZ = root.position.z;
-                if (peer.person) this._updateClip(peer);
+                if (peer.person && !peer.hidden) this._updateClip(peer);
             }
             this._updateBubble(peer);
 

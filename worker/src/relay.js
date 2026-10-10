@@ -16,6 +16,8 @@
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
  *     { type: 'rtc-signal', target, signal }          - relayed 1:1 to `target`
+ *     { type: 'media-control', voice:null|[ids], listen?, music? } - SFU audience/consent, music state host-only
+ *     { type: 'sfu', request, slot, action, ... }     - room-authorized SFU operation (see sfu.js)
  *     { type: 'blocklist', pids: [...] }              - replace this guest's block list (on connect; at most 64)
  *     { type: 'block', pid } / { type: 'unblock', pid } - two-way invisibility: neither sees, hears or signals the other
  *     { type: 'kick', target } / { type: 'ban', target } - host only; `target` is a session id
@@ -23,11 +25,15 @@
  *     { type: 'host-transfer', target }              - host only; give another visible guest control without disconnecting
  *     { type: 'ping', time? }                         - heartbeat every 10 s; optional monotonic timestamp for clock compensation; silence for 30 s closes a pinger (4013)
  *   server -> client
- *     { type: 'welcome', id, pid, avatar, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, peers:[{id,pid,name,avatar,state}], music, show }
+ *     { type: 'welcome', id, pid, avatar, hostId, locked, serverTime, world:{v:1,startedAt,seed}, targetedChat:true, hostTransfer:true, capacity, mediaTransport, poseBatch:true, peers:[{id,pid,name,avatar,state}], music, show }
  *     { type: 'pong', time, serverTime }              - a timestamped ping reply to its sender only
  *     { type: 'join', id, pid, name, avatar }
  *     { type: 'leave', id }
  *     { type: 'state', id, state }
+ *     { type: 'states', states:[{id,state}] }        - coalesced, distance-tiered poses for capable clients
+ *     { type: 'media-catalog', tracks:[{owner,kind,version}], music }
+ *     { type: 'sfu-result', request, result?|error? }
+ *     { type: 'media-reset', slot, error? }          - retired SFU connection, rebuild allowed subscriptions
  *     { type: 'emoji', id, emoji }
  *     { type: 'gesture', id, gesture }
  *     { type: 'chat', id, text, restricted? }
@@ -44,19 +50,18 @@
  * Close codes: 4003 room full, 4008 flooding, 4010 removed by the host, 4011 banned, 4012 room locked.
  * Bans and the lock last while anyone is in the room: once it is empty it starts over (see _onClose).
  *
- * Every guest is handed a random avatar from AVATARS that no one else in the room has (a room holds at most 8 guests
- * and the pool has 17), and may ask for another. The pool must match the crowd people in js/club/11-audio-crowd.js.
- * Eight is deliberate: voice is a full mesh (every guest sends audio to every other), and eight is also how many
- * guests the client draws as people.
+ * Every guest is handed a random avatar from AVATARS, unique while the pool has unused people, and may ask for
+ * another. The pool must match js/club/11-audio-crowd.js. Baseline mesh rooms hold eight guests; explicitly configured
+ * development rooms may admit up to 32. Admission does not claim that a headset can render 32 full characters.
  *
  * The host owns the room's music and lights. `music` carries the track and where it is; `show` carries the light show
  * (which cue the Show Director is on, the master colour, or, under manual control, the fixture settings). The relay
  * keeps the latest of each so a guest who joins mid-set is brought to the same place, and checks only their shape;
  * what a key may do is the client's allow-list. Only the host's frames are accepted.
  *
- * Voice and any future media never touch this Worker - `rtc-signal` only carries
- * SDP offers/answers and ICE candidates so two browsers can negotiate a direct
- * peer-to-peer WebRTC audio connection.
+ * Audio never travels through this Worker. Baseline `rtc-signal` relays direct mesh
+ * SDP/ICE. SFU mode uses room-authorized signaling through sfu.js and the dedicated
+ * Cloudflare audio transport; mesh signaling is disabled in those rooms.
  *
  * Abuse controls. The hosted relay URL is public (README), so the relay assumes
  * any client may be hostile:
@@ -73,7 +78,8 @@
  */
 
 import { handlePodcast } from './podcast.js';
-import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRESH } from './roomDirectory.js';
+import { handleRoomDirectory, publishRoom, privateRoomName, ROOM_DIRECTORY_REFRESH, roomCapacity, roomStatus } from './roomDirectory.js';
+import { RoomMedia, mediaTransport } from './sfu.js';
 
 export const MAX_NAME_LENGTH = 32;
 export const MAX_ROOM_NAME_LENGTH = 64;
@@ -136,6 +142,10 @@ export const RATE_LIMITS = Object.freeze({
     music: { rate: 2, burst: 4 },
     show: { rate: 5, burst: 10 },
     'rtc-signal': { rate: 50, burst: 120 },
+    // A 31-source receiver may need 31 offer/answer pairs during simultaneous
+    // joins. RoomMedia separately bounds queued operations and session creation.
+    sfu: { rate: 20, burst: 80 },
+    'media-control': { rate: 4, burst: 12 },
     blocklist: { rate: 0.5, burst: 3 },
     block: { rate: 2, burst: 8 },
     unblock: { rate: 2, burst: 8 },
@@ -303,6 +313,10 @@ export class ClubRoom {
     constructor(state, env = {}) {
         this.state = state;
         this.env = env;
+        this.capacity = roomCapacity(env);
+        this.mediaTransport = mediaTransport(env);
+        this.media = this.mediaTransport === 'sfu' ? new RoomMedia(this, env) : null;
+        this._poseTimer = null;
         this._roomName = null;
         this._directoryWrite = Promise.resolve();
         this._directoryUpdatedAt = 0;
@@ -317,9 +331,14 @@ export class ClubRoom {
         this._sweeper = null;
     }
 
+    async alarm() {
+        if (this.media) await this.media._enqueue(() => this.media.retryCleanup());
+    }
+
     async fetch(request) {
         if (new URL(request.url).pathname === '/directory-status') {
-            return Response.json({ people: this.sessions.size, locked: this.locked });
+            return Response.json(this.capacity === 8 ? { people: this.sessions.size, locked: this.locked } :
+                roomStatus(this._roomName, this.sessions.size, this.locked, this.capacity));
         }
         if (request.headers.get('Upgrade') !== 'websocket') {
             return new Response('expected a websocket upgrade', { status: 426 });
@@ -335,7 +354,7 @@ export class ClubRoom {
 
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
-        this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')));
+        this._acceptSession(server, name, pid, sanitizePool(url.searchParams.get('avatars')), url.searchParams.get('poseBatch') === '1');
         return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -369,14 +388,14 @@ export class ClubRoom {
         }
     }
 
-    _acceptSession(ws, name, pid = null, avatarPool = 'any') {
+    _acceptSession(ws, name, pid = null, avatarPool = 'any', poseBatch = false) {
         ws.accept();
         pid = PID_PATTERN.test(pid || '') ? pid : Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
         if (this.banned.has(pid)) {
             try { ws.close(CLOSE_BANNED, 'banned from this room'); } catch { /* already closed */ }
             return null;
         }
-        if (this.sessions.size >= MAX_ROOM_SIZE) {
+        if (this.sessions.size >= this.capacity) {
             try { ws.close(CLOSE_ROOM_FULL, 'room full'); } catch { /* already closed */ }
             return null;
         }
@@ -392,7 +411,8 @@ export class ClubRoom {
         }
         const buckets = {};
         for (const [type, limit] of Object.entries(RATE_LIMITS)) buckets[type] = new TokenBucket(limit, now);
-        const session = { id, pid, name, avatar: this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false };
+        const session = { id, pid, name, avatar: this._pickAvatar(null, avatarPool), avatarPool, blocked: new Set(), lastState: null, buckets, dropped: 0, lastSeen: now, pinger: false,
+            poseBatch, poseSent: new Map() };
         this._startSweeper();
         this.sessions.set(ws, session);
         if (!this.hostId) this.hostId = id;
@@ -416,11 +436,19 @@ export class ClubRoom {
             world: this.world,
             targetedChat: true,
             hostTransfer: true,
+            capacity: this.capacity,
+            poseBatch: true,
+            mediaTransport: this.mediaTransport,
             peers,
             music: this.musicState,
             show: this.showState
         });
         this._relay(session, { type: 'join', id, pid, name, avatar: session.avatar }, ws);
+        if (this.media) this.media.add(session);
+        if (poseBatch && !this._poseTimer) {
+            this._poseTimer = setInterval(() => this._flushPoses(), 50);
+            this._poseTimer.unref?.();
+        }
         this._publishDirectory();
 
         ws.addEventListener('message', (evt) => this._onMessage(ws, session, evt));
@@ -445,10 +473,11 @@ export class ClubRoom {
         // queued on the socket can still arrive; never relay for a departed id.
         if (!this.sessions.has(ws)) return;
         session.lastSeen = Date.now();
-        if (typeof evt.data !== 'string' || evt.data.length > MAX_FRAME_BYTES) return;
+        if (typeof evt.data !== 'string' || evt.data.length > 64 * 1024) return;
         let msg;
         try { msg = JSON.parse(evt.data); } catch { return; }
         if (!msg || typeof msg.type !== 'string' || !RATE_LIMITS[msg.type]) return;
+        if (evt.data.length > MAX_FRAME_BYTES && (msg.type !== 'sfu' || !this.media)) return;
         if (this._throttle(ws, session, msg.type)) return;
 
         switch (msg.type) {
@@ -456,7 +485,11 @@ export class ClubRoom {
                 const state = sanitizeState(msg.state);
                 if (!state) return;
                 session.lastState = state;
-                this._relay(session, { type: 'state', id: session.id, state }, ws);
+                for (const [targetWs, target] of this.sessions) {
+                    if (target !== session && !target.poseBatch && this._visible(session, target)) {
+                        this._send(targetWs, { type: 'state', id: session.id, state });
+                    }
+                }
                 break;
             }
 
@@ -532,6 +565,7 @@ export class ClubRoom {
             }
 
             case 'rtc-signal': {
+                if (this.media) return;
                 if (typeof msg.target !== 'string' || msg.target === session.id) return;
                 const targetWs = this._findSocketById(msg.target);
                 const target = targetWs && this.sessions.get(targetWs);
@@ -540,6 +574,14 @@ export class ClubRoom {
                 }
                 break;
             }
+
+            case 'sfu':
+                if (this.media) this.media.request(session, msg);
+                break;
+
+            case 'media-control':
+                if (this.media) this.media.control(session, msg);
+                break;
 
             case 'blocklist': {
                 const pids = Array.isArray(msg.pids) ? msg.pids.filter(pid => PID_PATTERN.test(pid) && pid !== session.pid) : [];
@@ -594,6 +636,10 @@ export class ClubRoom {
                 const target = targetWs && this.sessions.get(targetWs);
                 if (!target || !this._visible(session, target)) return;
                 this.hostId = target.id;
+                if (this.media) {
+                    for (const member of this.media.members.values()) member.listen = false;
+                    this.media.reconcile();
+                }
                 this._broadcast({ type: 'host', id: target.id });
                 break;
             }
@@ -612,6 +658,7 @@ export class ClubRoom {
 
     /** After `session`'s block list changed: tell both sides whoever became invisible has left, and whoever reappeared has joined. */
     _applyBlockChanges(session, before) {
+        if (this.media) { this.media.refresh(); this.media.reconcile(); }
         const sessionWs = this._findSocketById(session.id);
         for (const [ws, other] of this.sessions) {
             if (other === session) continue;
@@ -626,9 +673,33 @@ export class ClubRoom {
                     if (other.lastState) this._send(sessionWs, { type: 'state', id: other.id, state: other.lastState });
                 }
             } else {
+                session.poseSent.delete(other.id);
+                other.poseSent.delete(session.id);
                 this._send(ws, { type: 'leave', id: session.id });
                 if (sessionWs) this._send(sessionWs, { type: 'leave', id: other.id });
             }
+        }
+
+    }
+
+    /** Latest-state coalescing with per-recipient distance, never a queued stale frame. */
+    _flushPoses(now = Date.now()) {
+        for (const [ws, target] of this.sessions) {
+            if (!target.poseBatch) continue;
+            const states = [];
+            for (const source of this.sessions.values()) {
+                if (source === target || !source.lastState || !this._visible(source, target)) continue;
+                const pose = source.lastState, eye = target.lastState;
+                const near = !eye || Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z) < 12;
+                const previous = target.poseSent.get(source.id);
+                if (previous && (previous.state === pose && previous.near === near ||
+                    now - previous.at < (near ? 50 : 500))) continue;
+                const state = near ? pose : { ...pose };
+                if (!near) delete state.hands;
+                states.push({ id: source.id, state });
+                target.poseSent.set(source.id, { state: pose, near, at: now });
+            }
+            if (states.length) this._send(ws, { type: 'states', states });
         }
     }
 
@@ -656,16 +727,26 @@ export class ClubRoom {
     _onClose(ws, session) {
         if (!this.sessions.has(ws)) return;
         this.sessions.delete(ws);
+        if (this.media) this.media.remove(session);
+        for (const other of this.sessions.values()) other.poseSent.delete(session.id);
 
         if (this.hostId === session.id) {
             const next = this.sessions.values().next();
             this.hostId = next.done ? null : next.value.id;
+            if (this.media) {
+                for (const member of this.media.members.values()) member.listen = false;
+                this.media.reconcile();
+            }
             if (this.hostId) this._broadcast({ type: 'host', id: this.hostId });
         }
         // An empty room starts over. The lock in particular must go: with nobody left to unlock it, every newcomer
         // (the host who locked it included, reconnecting after a dropped connection) would be refused with 4012 until
         // the Durable Object happened to be evicted, and each refused attempt keeps it alive.
         if (!this.sessions.size) {
+            if (this._poseTimer) clearInterval(this._poseTimer);
+            this._poseTimer = null;
+            if (this._sweeper) clearInterval(this._sweeper);
+            this._sweeper = null;
             this.hostId = null;
             this.musicState = null;
             this.showState = null;

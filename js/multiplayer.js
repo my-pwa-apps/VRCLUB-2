@@ -35,7 +35,10 @@ class ClubMultiplayer {
         privateRooms: 'vrclub.privateRooms'
     });
 
-    static HOSTED_RELAY = 'wss://vrclub-network.garfieldapp.workers.dev';
+    static HOSTED_RELAY = window.location.hostname === 'nocturnedev.mitwee.nl' ||
+        window.location.hostname === 'nocturne-dev.pages.dev'
+        ? 'wss://vrclub-network-dev.garfieldapp.workers.dev'
+        : 'wss://vrclub-network.garfieldapp.workers.dev';
     static EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     /** What each reaction means, for buttons and screen readers. */
     static EMOJI_NAMES = Object.freeze({ '🎉': 'Party', '🔥': 'Fire', '❤️': 'Love', '😂': 'Laugh', '👋': 'Hi', '🙌': 'Hands up', '💃': 'Dance', '🕺': 'Dance' });
@@ -458,8 +461,9 @@ class ClubMultiplayer {
                 if (!response.ok) throw new Error(data.message || 'Room lookup failed (' + response.status + ').');
                 if (!Array.isArray(data.rooms) || data.rooms.some(item => !item || typeof item.room !== 'string' ||
                     !item.room.length || item.room.length > 64 || item.room !== item.room.trim() || /[\u0000-\u001f\u007f]/.test(item.room) ||
-                    !Number.isInteger(item.people) || item.people < 0 || item.people > 8 ||
-                    item.capacity !== 8 || typeof item.locked !== 'boolean' || typeof item.active !== 'boolean')) {
+                    !Number.isInteger(item.capacity) || item.capacity < 8 || item.capacity > 32 ||
+                    !Number.isInteger(item.people) || item.people < 0 || item.people > item.capacity ||
+                    typeof item.locked !== 'boolean' || typeof item.active !== 'boolean')) {
                     throw new Error('The relay returned invalid room information.');
                 }
                 return data;
@@ -582,7 +586,7 @@ class ClubMultiplayer {
         };
         client.onShow = (frame) => this._applyShow(frame);
         client.musicDecorator = (music) => this._decorateMusic(music);
-        client.onRemoteStream = (id, stream) => manager.attachVoice(id, stream);
+        client.onRemoteStream = (id, stream) => stream ? manager.attachVoice(id, stream) : manager.detachVoice(id);
         client.onError = (err) => {
             this.lastError = `Error: ${err.message}`;
             if (err.code) this.notice = err.message;

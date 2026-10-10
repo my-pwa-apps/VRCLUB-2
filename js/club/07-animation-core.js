@@ -1,5 +1,6 @@
 'use strict';
 class VRClubAnimationCore extends VRClubEffects {
+    static NETWORK_HAND_KEYS = Object.freeze(['x', 'y', 'z', 'fx', 'fy', 'fz', 'ux', 'uy', 'uz']);
     updateAnimations() {
         const ctx = this._beginFrame();
 
@@ -59,6 +60,33 @@ class VRClubAnimationCore extends VRClubEffects {
                 hands[side] = hand;
             }
             state.hands = hands;
+        }
+        if (net.capacity > 8) {
+            const previous = this._lastNetworkPose;
+            let changed = !previous || Math.hypot(state.x - previous.x, state.y - previous.y, state.z - previous.z) > 0.01 ||
+                Math.abs(state.rotY - previous.rotY) > 0.01;
+            if (!changed) {
+                for (let i = 0; i < 2; i++) {
+                    const side = i === 0 ? 'left' : 'right';
+                    const hand = state.hands?.[side], old = previous.hands?.[side];
+                    if (!!hand !== !!old) { changed = true; break; }
+                    if (hand) for (const key of VRClubAnimationCore.NETWORK_HAND_KEYS) {
+                        if (Math.abs(hand[key] - old[key]) > 0.01) { changed = true; break; }
+                    }
+                }
+            }
+            if (!changed && ctx.time - (this._lastNetworkPoseAt || 0) < 0.5) return;
+            const saved = previous || (this._lastNetworkPose = {
+                x: 0, y: 0, z: 0, rotY: 0, hands: { left: null, right: null },
+                left: {}, right: {}
+            });
+            saved.x = state.x; saved.y = state.y; saved.z = state.z; saved.rotY = state.rotY;
+            for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? 'left' : 'right';
+                const hand = state.hands?.[side];
+                saved.hands[side] = hand ? Object.assign(saved[side], hand) : null;
+            }
+            this._lastNetworkPoseAt = ctx.time;
         }
         net.sendState(state);
     }
