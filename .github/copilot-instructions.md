@@ -1261,6 +1261,14 @@ Y/B or the runtime menu component opens it, world-locked where the player is loo
 the same preference gates both bass pulses and UI feedback. These preference and
 travel actions must not force VJ manual mode.
 
+**Fast social wheel.** In a room, clicking the right thumbstick opens a world-locked wheel for Chat,
+Reactions and Microphone. Tilt to highlight, click to choose, then center before the next choice.
+Its paged actions and recipient choices come from the existing network-menu definitions; it never
+reimplements a social action. Left-stick click and either grip retain sprint. While open, the wheel
+suspends smooth/snap rotation and restores the exact prior flags only after the stick centers, or
+immediately on XR exit, right-controller removal, comfort-mode changes or disposal. Its texture and
+multiplayer subscription are disposed with the scene.
+
 ## UI
 
 The DOM panel (`js/ui-init.js`), the VR quick menu (`js/club/10-ui.js`) and the VJ desk at the DJ table

@@ -144,6 +144,12 @@ class VRClubLifecycle extends VRClubCore {
         // Store VR helper for later use
         this.vrHelper = vrHelper;
         this.setVRComfortMode(this.vrComfortMode);
+        if (vrHelper?.input && !this._xrSocialRemovalObserver) {
+            this._xrSocialRemovalObserver = vrHelper.input.onControllerRemovedObservable.add(controller => {
+                if (controller.inputSource.handedness !== 'right') return;
+                this._closeVRSocialWheel(true);
+            });
+        }
 
         this._setupXRSession(vrHelper);
         
@@ -536,7 +542,8 @@ class VRClubLifecycle extends VRClubCore {
                             if (this._xrControllers.indexOf(controller) === -1) {
                                 this._xrControllers.push(controller);
                             }
-                            const bindMotionController = (motionController) => this._bindXRMotionController(motionController, xrCamera);
+                            const bindMotionController = (motionController) => this._bindXRMotionController(
+                                motionController, xrCamera, controller.inputSource.handedness);
                             controller.onMotionControllerInitObservable.add(bindMotionController);
                             if (controller.motionController) bindMotionController(controller.motionController);
                         };
@@ -583,6 +590,7 @@ class VRClubLifecycle extends VRClubCore {
                         log.info('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                    this._closeVRSocialWheel(true);
                     // CRITICAL: Re-enable frame-skip optimizations on desktop
                     this.isInVRMode = false;
 
@@ -612,13 +620,29 @@ class VRClubLifecycle extends VRClubCore {
     }
 
     /** Sprint (thumbstick/grip), jump (A/X) and quick-menu (Y/B/menu) bindings for one controller. */
-    _bindXRMotionController(motionController, xrCamera) {
+    _bindXRMotionController(motionController, xrCamera, handedness = motionController.handedness) {
         if (motionController._vrclubControlsBound) return;
         motionController._vrclubControlsBound = true;
         // 1. Thumbstick Press (Click)
         const thumbstick = motionController.getComponent("xr-standard-thumbstick");
         if (thumbstick) {
+            if (handedness === 'right') {
+                const axisObserver = thumbstick.onAxisValueChangedObservable.add((axes, eventState) => {
+                    const wheelOpen = !!this._vrSocialWheel?.open;
+                    this._moveVRSocialWheel(axes.x, axes.y);
+                    if (wheelOpen) eventState.skipNextObservers = true;
+                });
+                // Babylon's movement/teleport features also observe this component. Run
+                // the wheel first so a selection tilt cannot turn the guest underneath it.
+                thumbstick.onAxisValueChangedObservable.makeObserverTopPriority(axisObserver);
+            }
             thumbstick.onButtonStateChangedObservable.add((component) => {
+                if (handedness === 'right') {
+                    if (component.changes.pressed && component.pressed) {
+                        this._pressVRSocialWheel(thumbstick.axes?.x || 0, thumbstick.axes?.y || 0);
+                    }
+                    return;
+                }
                 if (this.vrComfortMode) return;
                 if (component.pressed) {
                     if (this.movementFeature) {
@@ -920,6 +944,11 @@ class VRClubLifecycle extends VRClubCore {
             try { this.vrHelper.input.onControllerAddedObservable.remove(this._xrButtonBindingObserver); } catch (_) { /* ignore */ }
             this._xrButtonBindingObserver = null;
         }
+        if (this._xrSocialRemovalObserver && this.vrHelper?.input?.onControllerRemovedObservable) {
+            try { this.vrHelper.input.onControllerRemovedObservable.remove(this._xrSocialRemovalObserver); } catch (_) { /* ignore */ }
+            this._xrSocialRemovalObserver = null;
+        }
+        if (typeof this._closeVRSocialWheel === 'function') this._closeVRSocialWheel(true);
         // The default experience owns input, pointer selection and teleportation as
         // well as the base experience; disposing only the latter left their observers
         // holding closures over this instance.

@@ -4338,6 +4338,11 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
         .axisChangedHandler({ x: 0.5, y: 0 }, axes, options);
     assert.equal(axes.rotateX, 0.5);
+    club._vrSocialWheel = { open: true };
+    options.customRegistrationConfigurations.find(r => r.forceHandedness === 'right')
+        .axisChangedHandler({ x: -0.8, y: 0 }, axes, options);
+    assert.equal(axes.rotateX, 0, 'the social wheel consumes right-stick rotation at the input handler');
+    club._vrSocialWheel = null;
     assert.equal(club.vrHelper.baseExperience.camera.applyGravity, false, 'the walking-surface follow owns VR height, not camera gravity');
     assert.equal(saved.get('vrclub.vrComfort'), '0');
 
@@ -4364,6 +4369,50 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     club.setVRComfortMode(false);
     assert.equal(club.movementFeature, null);
     assert.equal(club.vrHelper.teleportation.teleportationEnabled, false);
+});
+
+test('social wheel maps stick directions, paginates, and restores turning only after centering', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const movement = { rotationEnabled: false };
+    const teleport = { rotationEnabled: false };
+    club._vrSocialWheel = {
+        page: 'home', offset: 0, selected: -1, open: true, x: 0, y: 0,
+        mesh: { setEnabled(on) { this.enabled = on; } },
+        armed: true, busy: false,
+        turning: [{ feature: movement, enabled: true }, { feature: teleport, enabled: false }]
+    };
+    club._drawVRSocialWheel = () => {};
+    club.pulseHaptic = () => {};
+    club._moveVRSocialWheel(0, -1);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'CHAT');
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'REACTIONS');
+    club._moveVRSocialWheel(0, 1);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'MICROPHONE');
+    club._closeVRSocialWheel();
+    assert.equal(movement.rotationEnabled, false, 'closing on a deflected stick must not turn the guest');
+    club._moveVRSocialWheel(0, 0);
+    assert.equal(movement.rotationEnabled, true);
+    assert.equal(teleport.rotationEnabled, false, 'restore the actual previous setting');
+    club._vrSocialWheel.open = true;
+    club._vrSocialWheel.armed = false;
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._vrSocialWheel.selected, -1, 'a held stick cannot select twice');
+    club._moveVRSocialWheel(0, 0);
+    club._moveVRSocialWheel(1, 0);
+    assert.equal(club._socialWheelItems()[club._vrSocialWheel.selected].label, 'REACTIONS');
+    club._closeVRSocialWheel(true);
+    assert.equal(movement.rotationEnabled, true, 'forced lifecycle cleanup restores turning without waiting for center');
+    club._vrQuickMenuPageDefinitions = () => Array.from({ length: 12 }, (_, n) => ({ label: `Item ${n}` }));
+    club._vrSocialWheel.page = 'gestures';
+    club._vrSocialWheel.offset = 1;
+    assert.equal(club._socialWheelItems()[0].label, 'Item 5');
+    assert.ok(club._socialWheelItems().some(item => item.more));
+    assert.equal(club._socialWheelItems().length, 8);
+    club._vrSocialWheel.page = 'chatAudience';
+    club._vrSocialWheel.offset = 0;
+    assert.equal(club._socialWheelItems().at(-2).target, 'chat', 'recipient selection returns to the chat phrases');
 });
 
 test('Enter VR waits for background model loading, with a ceiling', async () => {

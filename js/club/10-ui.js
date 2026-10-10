@@ -1555,6 +1555,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     toggleVRQuickMenu(force) {
+        if (force !== false) this._closeVRSocialWheel();
         this._createVRQuickMenu();
         const camera = this.isInVRMode
             ? this.vrHelper?.baseExperience?.camera : this.scene.activeCamera;
@@ -1566,6 +1567,209 @@ class VRClubUI extends VRClubAnimationFinish {
         this._vrQuickMenuRoot.setEnabled(next);
         this.pulseHaptic(next ? 0.8 : 0.35, 35);
         return next;
+    }
+
+    _socialWheelItems() {
+        const state = this._vrSocialWheel;
+        if (state.page === 'home') return [
+            { label: 'CHAT', target: 'chat' }, { label: 'REACTIONS', target: 'gestures' },
+            { label: 'MICROPHONE', target: 'voiceAudience' }, { label: 'CLOSE', close: true }
+        ];
+        const items = this._vrQuickMenuPageDefinitions(state.page)
+            .filter(item => item && item.action !== 'back' && item.action !== 'close');
+        const start = state.offset * 5;
+        return [...items.slice(start, start + 5),
+            ...(items.length > 5 ? [{ label: 'MORE', more: true }] : []),
+            { label: 'BACK', target: state.page === 'chatAudience' ? 'chat' : 'home' },
+            { label: 'CLOSE', close: true }];
+    }
+
+    _pressVRSocialWheel(x = 0, y = 0) {
+        if (!this.isInVRMode) return;
+        if (!this._multiplayer()?.connected) {
+            this.showErrorMessage('Join a room in People to use chat, reactions and your microphone.');
+            return;
+        }
+        if (!this._vrSocialWheel?.open) {
+            this._createVRSocialWheel();
+            const state = this._vrSocialWheel;
+            this.toggleVRQuickMenu(false);
+            state.page = 'home'; state.offset = 0; state.selected = -1; state.open = true;
+            state.x = x; state.y = y; state.armed = Math.hypot(x, y) < 0.25; state.busy = false;
+            this._vrQuickMenuRoot.setEnabled(false);
+            this._placeVRQuickMenu(this.vrHelper.baseExperience.camera);
+            state.mesh.position.copyFrom(this._vrQuickMenuRoot.position);
+            state.mesh.rotation.copyFrom(this._vrQuickMenuRoot.rotation);
+            state.mesh.setEnabled(true);
+            this._restoreVRSocialTurning();
+            state.turning = [];
+            for (const feature of [this.movementFeature, this.vrHelper.teleportation]) {
+                if (!feature) continue;
+                state.turning.push({ feature, enabled: feature.rotationEnabled });
+                feature.rotationEnabled = false;
+            }
+            this._drawVRSocialWheel();
+            return;
+        }
+        const state = this._vrSocialWheel;
+        if (state.busy || !state.armed) return;
+        const item = this._socialWheelItems()[state.selected];
+        if (!item) return;
+        if (item.close) { this._closeVRSocialWheel(); return; }
+        state.selected = -1;
+        state.armed = false;
+        if (item.more) {
+            const count = this._vrQuickMenuPageDefinitions(state.page).filter(item =>
+                item && item.action !== 'back' && item.action !== 'close').length;
+            state.offset = (state.offset + 1) % Math.ceil(count / 5);
+        } else if (item.target) {
+            state.page = item.target; state.offset = 0;
+        } else {
+            state.busy = true;
+            void this._runVRNetworkAction(item)
+                .catch(error => this.showErrorMessage(`Social action failed: ${error.message}`))
+                .finally(() => {
+                    state.busy = false;
+                    if (state.open) this._drawVRSocialWheel();
+                });
+        }
+        this.pulseHaptic(0.45, 25);
+        this._drawVRSocialWheel();
+    }
+
+    _createVRSocialWheel() {
+        if (this._vrSocialWheel) return;
+        this._createVRQuickMenu();
+        const texture = new BABYLON.DynamicTexture('vrSocialWheelTexture', { width: 1024, height: 1024 }, this.scene, false);
+        texture.hasAlpha = true;
+        const material = this.materialFactory.createStandardMaterial('vrSocialWheelMaterial', {
+            emissiveTexture: texture, disableLighting: true
+        });
+        material.diffuseTexture = texture;
+        material.useAlphaFromDiffuseTexture = true;
+        material.disableDepthWrite = true;
+        material.backFaceCulling = false;
+        const mesh = BABYLON.MeshBuilder.CreatePlane('vrSocialWheel', { size: 1.35 }, this.scene);
+        mesh.material = material;
+        mesh.renderingGroupId = 2;
+        mesh.isPickable = false;
+        mesh.setEnabled(false);
+        this._vrSocialWheel = {
+            mesh, texture, open: false, selected: -1, x: 0, y: 0,
+            armed: true, busy: false, turning: []
+        };
+        const unsubscribe = this._multiplayer().onChange(() => {
+            if (!this._multiplayer().connected) this._closeVRSocialWheel(true);
+            else if (this._vrSocialWheel.open) {
+                this._vrSocialWheel.selected = -1;
+                this._drawVRSocialWheel();
+            }
+        });
+        this.scene.onDisposeObservable.add(() => {
+            this._closeVRSocialWheel(true);
+            unsubscribe();
+            texture.dispose();
+        });
+    }
+
+    _moveVRSocialWheel(x, y) {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        state.x = x; state.y = y;
+        if (!state.open) {
+            if (Math.hypot(x, y) < 0.25) this._restoreVRSocialTurning();
+            return;
+        }
+        // Babylon's movement feature registers its axis observer before the UI bindings,
+        // so it may have already copied this event into its private turn state. Clear that
+        // cached value as well as gating future events in _xrMovementOptions().
+        if (this.movementFeature?._movementState) {
+            this.movementFeature._movementState.rotateX = 0;
+            this.movementFeature._movementState.rotateY = 0;
+        }
+        const magnitude = Math.hypot(x, y);
+        if (magnitude < 0.25) {
+            const changed = !state.armed || state.selected !== -1;
+            state.armed = true;
+            state.selected = -1;
+            if (changed) this._drawVRSocialWheel();
+            return;
+        }
+        if (!state.armed || state.busy) return;
+        const items = this._socialWheelItems();
+        const angle = (Math.atan2(x, -y) + Math.PI * 2) % (Math.PI * 2);
+        const selected = magnitude < 0.5 ? -1 : Math.round(angle / (Math.PI * 2 / items.length)) % items.length;
+        if (selected === state.selected) return;
+        state.selected = selected;
+        this._drawVRSocialWheel();
+        if (selected >= 0) this.pulseHaptic(0.2, 15);
+    }
+
+    _closeVRSocialWheel(restoreNow = false) {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        state.open = false;
+        state.busy = false;
+        state.selected = -1;
+        state.mesh.setEnabled(false);
+        if (restoreNow || Math.hypot(state.x, state.y) < 0.25) this._restoreVRSocialTurning();
+    }
+
+    _restoreVRSocialTurning() {
+        const state = this._vrSocialWheel;
+        if (!state) return;
+        for (const { feature, enabled } of state.turning) feature.rotationEnabled = enabled;
+        state.turning = [];
+    }
+
+    _drawVRSocialWheel() {
+        const state = this._vrSocialWheel, items = this._socialWheelItems();
+        const ctx = state.texture.getContext();
+        ctx.clearRect(0, 0, 1024, 1024);
+        const step = Math.PI * 2 / items.length;
+        items.forEach((item, index) => {
+            const angle = index * step - Math.PI / 2;
+            ctx.beginPath(); ctx.moveTo(512, 512);
+            ctx.arc(512, 512, 490, angle - step / 2, angle + step / 2);
+            ctx.closePath();
+            const active = item.op && this._vrNetActive(item);
+            ctx.fillStyle = index === state.selected ? '#16818a' : active ? '#164653' : '#141e30';
+            ctx.fill(); ctx.strokeStyle = '#708899'; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = item.danger ? '#ffb4b4' : '#ffffff';
+            ctx.textAlign = 'center'; ctx.font = 'bold 25px sans-serif';
+            const x = 512 + Math.cos(angle) * 330, y = 512 + Math.sin(angle) * 330;
+            const words = String(item.label).split(/\s+/);
+            let top = '', bottom = '';
+            for (const word of words) {
+                if (!bottom && `${top} ${word}`.trim().length <= 14) top = `${top} ${word}`.trim();
+                else bottom = `${bottom} ${word}`.trim();
+            }
+            if (bottom.length > 14) bottom = `${bottom.slice(0, 13)}\u2026`;
+            ctx.fillText(top, x, y - (bottom ? 13 : 0));
+            if (bottom) ctx.fillText(bottom, x, y + 16);
+            if (item.op) {
+                ctx.font = '20px sans-serif'; ctx.fillStyle = '#a7eff1';
+                ctx.fillText(this._vrNetValue(item, active), x, y + (bottom ? 44 : 30));
+            }
+        });
+        ctx.beginPath(); ctx.arc(512, 512, 165, 0, Math.PI * 2);
+        ctx.fillStyle = '#080f1a'; ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px sans-serif';
+        const titles = {
+            home: 'SOCIAL', gestures: 'REACTIONS', chat: 'CHAT',
+            voiceAudience: 'MICROPHONE', chatAudience: 'CHAT AUDIENCE'
+        };
+        ctx.fillText(titles[state.page] || state.page.toUpperCase(), 512, 485);
+        ctx.font = '22px sans-serif';
+        if (state.busy) {
+            ctx.fillText('WORKING...', 512, 535);
+        } else if (!state.armed) {
+            ctx.fillText('CENTER STICK', 512, 535);
+        } else {
+            ctx.fillText('TILT TO CHOOSE', 512, 525);
+            ctx.fillText('CLICK TO SELECT', 512, 555);
+        }
+        state.texture.update();
     }
 
     /**
@@ -1990,6 +2194,7 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     setVRComfortMode(enabled) {
+        this._closeVRSocialWheel(true);
         this.vrComfortMode = !!enabled;
         try { localStorage.setItem('vrclub.vrComfort', this.vrComfortMode ? '1' : '0'); } catch (_) {}
         this._applyXRLocomotionMode();
@@ -2029,6 +2234,22 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     _xrMovementOptions() {
+        const registrations = BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => {
+            const forceHandedness = registration.forceHandedness === 'left' ? 'right' : 'left';
+            if (forceHandedness !== 'right') return { ...registration, forceHandedness };
+            return {
+                ...registration,
+                forceHandedness,
+                axisChangedHandler: (axes, movementState, featureContext) => {
+                    if (this._vrSocialWheel?.open) {
+                        movementState.rotateX = 0;
+                        movementState.rotateY = 0;
+                        return;
+                    }
+                    registration.axisChangedHandler(axes, movementState, featureContext);
+                }
+            };
+        });
         return {
             xrInput: this.vrHelper.input,
             movementEnabled: true,
@@ -2040,10 +2261,7 @@ class VRClubUI extends VRClubAnimationFinish {
             movementOrientationFollowsViewerPose: true,
             movementOrientationFollowsController: false,
             // Reuse Babylon's dead-zone handlers, swapping its default right-walk/left-turn layout.
-            customRegistrationConfigurations: BABYLON.WebXRControllerMovement.REGISTRATIONS.default.map(registration => ({
-                ...registration,
-                forceHandedness: registration.forceHandedness === 'left' ? 'right' : 'left'
-            }))
+            customRegistrationConfigurations: registrations
         };
     }
 
