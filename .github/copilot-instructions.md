@@ -1202,7 +1202,7 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   An RSS feed URL (kind `feed`) is supported ONLY for `podcast.hernancattaneo.com` (any non-audio path, plus the
   `http://` upgrade): the page CSP's `connect-src` lists exactly the hosts the browser may read, and a test ties
   `RESIDENT_FEED` and the relay origin to it (the Quest branch once dropped the Resident host, so Hernan sets
-  never loaded). Its episode picker (`listEpisodes()` reads the whole feed, 10 min cache, at most 400) offers the newest
+  never loaded). Its episode picker (`listEpisodes()` reads the whole feed, 10 min cache, at most 2000) offers the newest
   episode (default; the Resident feed is read by a 64 KB range first, like `main`), a random one, or any episode;
   `setEpisode()` saves the choice with the set (`item.episode`, kept when the URL is saved again). Only the
   Resident and Podbean hosts accept `http://`, upgraded to HTTPS on save.

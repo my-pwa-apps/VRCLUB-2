@@ -8,7 +8,7 @@ class MusicLibrary {
     static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo']);
     static RESIDENT_FEED = 'https://podcast.hernancattaneo.com/feed.xml';
     static EPISODE_TTL_MS = 10 * 60 * 1000;
-    static MAX_EPISODES = 400;
+    static MAX_EPISODES = 2000;
     static SOUNDCLOUD_RESERVED = new Set(['sets', 'tracks', 'albums', 'reposts', 'likes', 'following', 'followers', 'popular-tracks', 'comments']);
 
     constructor(club, storage, options = {}) {
