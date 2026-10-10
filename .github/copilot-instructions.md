@@ -22,7 +22,7 @@ emits one minified, content-hashed production bundle with esbuild.
 2. `js/vendor/babylonjs.proceduralTextures.min.js`
 3. `js/vendor/babylonjs.loaders.min.js` — **required** for `.glb`
 4. `js/assetCache.js` — `IndexedDBAssetCache`, `InFlightRegistry`, `fetchWithTimeout`
-5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio and official SoundCloud-player saved sets)
+5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio, relay-resolved Miss Melera Colourizon links and official-player fallback for other SoundCloud saved sets)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
@@ -1178,12 +1178,19 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
 - A stream served without `Access-Control-Allow-Origin` can produce an all-zero analyser.
   `getAudioData()` warns only after a sustained, unmuted silent window and phrases it as a
   heuristic ("silent so far; may be a server CORS restriction"), not as proof.
-- **Quest music (`js/musicLibrary.js`).** `MusicLibrary` owns at most eight direct HTTPS audio links
+- **Quest music (`js/musicLibrary.js`).** `MusicLibrary` owns at most eight HTTPS audio or SoundCloud page links
   in `vrclub.questMusic`, with optional names and a selected index. Storage failures surface explicitly.
-  Music webpage URLs are rejected; CORS is required and no relay/extraction is offered.
+  YouTube and Spotify webpage URLs are rejected. A pasted
+  `soundcloud.com/missmelera/colourizon-*` page is matched against the existing allow-listed
+  `/podcast/colourizon/feed.xml` relay feed and played through its CORS-safe stream URL, the same
+  analysed audio path used on `main`; a missing feed entry fails explicitly.
+  The Music panel's **Paste URL** button reads the clipboard only from its click gesture, fills
+  the URL field without auto-playing, and gives press-and-hold paste guidance when clipboard
+  access is unavailable or denied (as it may be in a Quest browser).
   The Audio panel, VR menu and VJ desk all call the same library. No built-in stream, feed or queue
-  is initialised. Historical `js/podcasts.js` and Worker podcast endpoints remain source-only.
-  SoundCloud sets use the official visible iframe and lazily loaded Widget API (the exact
+  is initialised. Historical `js/podcasts.js` remains source-only; its Worker podcast endpoints
+  are reused only when a guest supplies a matching Colourizon link.
+  Other SoundCloud sets use the official visible iframe and lazily loaded Widget API (the exact
   `https://w.soundcloud.com/player/api.js` endpoint is the only remote script CSP exception).
   PLAY / PLAY_PROGRESS and READY's paused-state query confirm playback; PAUSE / FINISH / ERROR
   clear it. `_unanalysedDanceMusic()` supplies only crowd/DJ choreography with a shared 120 BPM

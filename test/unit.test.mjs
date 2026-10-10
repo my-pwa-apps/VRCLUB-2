@@ -148,7 +148,7 @@ test('keyboard shortcuts leave focused buttons to native Space activation but st
     assert.equal(audio.pauseCalls, 0, 'a default-prevented Space should not pause audio');
 });
 
-test('the audio menu exposes a separate ambience slider and labels both ranges by scope', () => {
+test('the audio menu exposes labelled levels and a clipboard paste action', async () => {
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const start = source.indexOf('function initAudioMenu()');
     const end = source.indexOf('// =============================================================================\n// MULTIPLAYER', start);
@@ -173,13 +173,14 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
         focus() {},
         querySelector() { return null; },
         setCustomValidity() {},
+        setSelectionRange(start, end) { this.selection = [start, end]; },
         reportValidity() { return true; },
         replaceChildren() {},
         add() {}
     });
     const elements = Object.fromEntries([
         'audioToggle', 'audioMenu', 'audioMinimize', 'audioClose', 'streamUrl',
-        'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
+        'pasteStreamBtn', 'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
         'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
         'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue', 'savedSets',
         'setName', 'playSavedSetBtn', 'removeSavedSetBtn', 'djStyle'
@@ -199,7 +200,10 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
             removeEventListener() {}
         },
         window: { addEventListener() {}, removeEventListener() {} },
-        navigator: { onLine: true },
+        navigator: {
+            onLine: true,
+            clipboard: { readText: async () => '  https://soundcloud.com/missmelera/colourizon-168  ' }
+        },
         uiTeardowns: [],
         entryNowPlaying: '',
         uiLog: { info() {}, warn() {} },
@@ -243,6 +247,19 @@ test('the audio menu exposes a separate ambience slider and labels both ranges b
     assert.deepEqual(calls.slice(-2), [['music', 0.4], ['ambience', 0.1]]);
     assert.equal(elements.audioVolumeValue.textContent, '40%');
     assert.equal(elements.crowdAmbienceValue.textContent, '10%');
+
+    await elements.pasteStreamBtn.listeners.click();
+    assert.equal(elements.streamUrl.value, 'https://soundcloud.com/missmelera/colourizon-168');
+    assert.deepEqual(elements.streamUrl.selection, [elements.streamUrl.value.length, elements.streamUrl.value.length]);
+    assert.match(elements.audioStatus.textContent, /URL pasted/);
+
+    context.navigator.clipboard.readText = async () => { throw new Error('denied'); };
+    await elements.pasteStreamBtn.listeners.click();
+    assert.match(elements.audioStatus.textContent, /Clipboard access was blocked/);
+
+    delete context.navigator.clipboard.readText;
+    await elements.pasteStreamBtn.listeners.click();
+    assert.match(elements.audioStatus.textContent, /Press and hold/);
 });
 
 test('multiplayer stops initial failures and bounds cancellable reconnects', () => {

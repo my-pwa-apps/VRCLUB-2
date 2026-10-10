@@ -3,12 +3,23 @@
 class MusicLibrary {
     static KEY = 'vrclub.questMusic';
     static MAX_SETS = 8;
+    static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
 
-    constructor(club, storage) {
+    constructor(club, storage, options = {}) {
         this.club = club;
         this.storage = storage;
+        this.fetchBuffer = options.fetchBuffer || window.fetchBufferWithTimeout;
+        this.getRelay = options.getRelay || (() => {
+            const configured = this.club.multiplayer && this.club.multiplayer.serverUrl;
+            if (configured) return configured;
+            if (typeof ClubMultiplayer !== 'undefined') {
+                return ClubMultiplayer.defaultServerUrl(this.storage);
+            }
+            return null;
+        });
         this.items = [];
         this.selected = 0;
+        this.resolvedUrls = new Map();
         this.onChange = null;
         try {
             this.storage = storage || window.localStorage;
@@ -40,14 +51,76 @@ class MusicLibrary {
         if (soundcloud) {
             for (const key of ['si', 'utm_source', 'utm_medium', 'utm_campaign']) parsed.searchParams.delete(key);
         }
+        const colourizon = MusicLibrary.isColourizonUrl(parsed);
         return {
             url: parsed.href,
-            name: String(name || (soundcloud ? 'SoundCloud set' : parsed.hostname)).trim().slice(0, 60) || parsed.hostname,
-            kind: soundcloud ? 'soundcloud' : 'direct'
+            name: String(name || (colourizon ? 'Miss Melera - Colourizon' : (soundcloud ? 'SoundCloud set' : parsed.hostname))).trim().slice(0, 60) || parsed.hostname,
+            kind: colourizon ? 'colourizon' : (soundcloud ? 'soundcloud' : 'direct')
         };
     }
 
+    static isColourizonUrl(url) {
+        if (!url || !/(^|\.)soundcloud\.com$/.test(url.hostname)) return false;
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts.length !== 2 || parts[0].toLowerCase() !== 'missmelera') return false;
+        const slug = parts[1].toLowerCase();
+        return /^colourizon-\d+[a-z0-9-]*$/.test(slug);
+    }
+
+    _colourizonSlug(url) {
+        if (!MusicLibrary.isColourizonUrl(url)) return null;
+        return url.pathname.split('/').filter(Boolean)[1].toLowerCase();
+    }
+
+    _relayBase() {
+        const configured = this.getRelay();
+        if (!configured) throw new Error('The club relay is unavailable, so this Colourizon set cannot be resolved.');
+        const relay = new URL(configured);
+        if (relay.protocol === 'wss:') relay.protocol = 'https:';
+        else if (relay.protocol === 'ws:') relay.protocol = 'http:';
+        else if (relay.protocol !== 'https:' && relay.protocol !== 'http:') {
+            throw new Error('The club relay address is invalid.');
+        }
+        relay.pathname = '';
+        relay.search = '';
+        relay.hash = '';
+        return relay.href.replace(/\/$/, '');
+    }
+
+    async _resolveColourizon(item) {
+        const slug = this._colourizonSlug(new URL(item.url));
+        if (!slug) throw new Error('Use a Miss Melera Colourizon SoundCloud track URL.');
+        if (typeof this.fetchBuffer !== 'function' || !window.AudioUtils) {
+            throw new Error('The Colourizon resolver is unavailable.');
+        }
+        const feedUrl = `${this._relayBase()}${MusicLibrary.COLOURIZON_FEED_PATH}`;
+        const xml = new TextDecoder('utf-8').decode(await this.fetchBuffer(feedUrl, {
+            timeoutMs: 30000,
+            cache: 'no-cache'
+        }));
+        const episode = window.AudioUtils.parsePodcastEpisodes(xml).find(candidate => {
+            try {
+                const file = decodeURIComponent(new URL(candidate.url).pathname).split('/').pop().toLowerCase();
+                return file.endsWith(`-${slug}.mp3`);
+            } catch (_) {
+                return false;
+            }
+        });
+        if (!episode) throw new Error(`Colourizon set "${slug}" was not found in the club relay feed.`);
+        return episode;
+    }
+
     current() { return this.items[this.selected] || null; }
+
+    matchesPlaybackUrl(savedUrl, playbackUrl) {
+        try {
+            const saved = new URL(savedUrl).href;
+            const playing = new URL(playbackUrl).href;
+            return saved === playing || this.resolvedUrls.get(saved) === playing;
+        } catch (_) {
+            return false;
+        }
+    }
 
     _persist(items, selected) {
         try {
@@ -99,8 +172,15 @@ class MusicLibrary {
         if (!this.club.guardHostControl('music')) return false;
         const item = this.current();
         if (!item) throw new Error('No saved sets. Add a music link in Music first.');
-        if (item.kind === 'soundcloud') await this.club.startSoundCloud(item.url, item.name);
-        else await this.club.startAudioStream(item.url, { onDemand: true });
+        if (item.kind === 'colourizon') {
+            const episode = await this._resolveColourizon(item);
+            this.resolvedUrls.set(item.url, episode.url);
+            await this.club.startAudioStream(episode.url, { onDemand: true });
+        } else if (item.kind === 'soundcloud') {
+            await this.club.startSoundCloud(item.url, item.name);
+        } else {
+            await this.club.startAudioStream(item.url, { onDemand: true });
+        }
         this.club.nowPlayingLabel = item.name;
         if (this.onChange) this.onChange(item);
         return true;

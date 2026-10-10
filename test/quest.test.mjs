@@ -8,12 +8,20 @@ import { questConfiguration } from '../scripts/prepare-quest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(path.join(root, 'js', 'musicLibrary.js'), 'utf8');
+const audioUtilsSource = readFileSync(path.join(root, 'js', 'audioUtils.js'), 'utf8');
 
-function libraryFixture(raw = null) {
+function libraryFixture(raw = null, feed = '') {
     const messages = [], plays = [];
     const store = new Map(raw ? [['vrclub.questMusic', raw]] : []);
     const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) };
-    const context = vm.createContext({ URL, window: {}, console: { warn: (...args) => messages.push(args) } });
+    const fetches = [];
+    const context = vm.createContext({
+        URL,
+        TextDecoder,
+        window: { location: { href: 'https://club.example/' } },
+        console: { warn: (...args) => messages.push(args) }
+    });
+    vm.runInContext(audioUtilsSource, context);
     vm.runInContext(source, context);
     const club = {
         showErrorMessage: message => messages.push(message),
@@ -21,7 +29,15 @@ function libraryFixture(raw = null) {
         startAudioStream: async (...args) => plays.push(['direct', ...args]),
         startSoundCloud: async (...args) => plays.push(['soundcloud', ...args])
     };
-    return { library: new context.window.MusicLibrary(club, storage), club, storage, store, messages, plays };
+    const fetchBuffer = async (url, options) => {
+        fetches.push([url, options]);
+        return new TextEncoder().encode(feed).buffer;
+    };
+    const library = new context.window.MusicLibrary(club, storage, {
+        fetchBuffer,
+        getRelay: () => 'wss://vrclub-network.garfieldapp.workers.dev/custom/path'
+    });
+    return { library, club, storage, store, messages, plays, fetches };
 }
 
 test('Quest music starts empty, persists user sets and wraps selection without auto-playing', () => {
@@ -65,6 +81,23 @@ test('Quest music rejects unsafe and website links, invalid selection and capaci
     assert.throws(() => library.step(0.5), /previous or next/);
 });
 
+test('only strict Miss Melera Colourizon URLs use analysed playback', () => {
+    const { library } = libraryFixture();
+    for (const url of [
+        'https://soundcloud.com/missmelera/colourizon-168',
+        'https://soundcloud.com/missmelera/colourizon-168-extra',
+    ]) {
+        assert.equal(library.save(url).kind, 'colourizon');
+    }
+    for (const url of [
+        'https://soundcloud.com/missmelera/colourizon-168/extra',
+        'https://soundcloud.com/other/colourizon-168',
+        'https://soundcloud.com/missmelera/colourizon-final',
+    ]) {
+        assert.equal(library.save(url).kind, 'soundcloud');
+    }
+});
+
 test('storage failures are explicit and never mutate the saved selection', () => {
     const f = libraryFixture();
     f.library.save('https://audio.example/one.mp3', 'First');
@@ -96,14 +129,43 @@ test('saved playback uses the shared audio API, plays once and respects host own
     await assert.rejects(f.library.play(), /CORS unavailable/);
 });
 
-test('SoundCloud page links use its official player instead of the direct audio graph', async () => {
-    const f = libraryFixture();
+test('Miss Melera SoundCloud links resolve to the main-branch relay audio stream', async () => {
+    const feed = `<?xml version="1.0"?><rss><channel><item>
+        <title>Colourizon 168</title>
+        <enclosure type="audio/mpeg" url="https://vrclub-network.garfieldapp.workers.dev/podcast/colourizon/stream/2407530030-missmelera-miss-melera-colourizon-168.mp3"/>
+    </item></channel></rss>`;
+    const f = libraryFixture(null, feed);
     f.library.save('https://soundcloud.com/missmelera/colourizon-168?si=tracking', 'Colourizon 168');
     assert.equal(await f.library.play(), true);
-    assert.deepEqual(f.plays[0].slice(0, 3), [
-        'soundcloud', 'https://soundcloud.com/missmelera/colourizon-168', 'Colourizon 168'
-    ]);
+    assert.equal(f.plays[0][0], 'direct');
+    assert.equal(
+        f.plays[0][1],
+        'https://vrclub-network.garfieldapp.workers.dev/podcast/colourizon/stream/2407530030-missmelera-miss-melera-colourizon-168.mp3'
+    );
+    assert.equal(f.plays[0][2].onDemand, true);
+    assert.equal(f.fetches[0][0], 'https://vrclub-network.garfieldapp.workers.dev/podcast/colourizon/feed.xml');
+    assert.equal(f.library.matchesPlaybackUrl(
+        'https://soundcloud.com/missmelera/colourizon-168',
+        f.plays[0][1]
+    ), true);
     assert.equal(f.club.nowPlayingLabel, 'Colourizon 168');
+});
+
+test('other SoundCloud links keep using the official player', async () => {
+    const f = libraryFixture();
+    f.library.save('https://soundcloud.com/example/guest-set?si=tracking', 'Guest set');
+    assert.equal(await f.library.play(), true);
+    assert.deepEqual(f.plays[0].slice(0, 3), [
+        'soundcloud', 'https://soundcloud.com/example/guest-set', 'Guest set'
+    ]);
+    assert.equal(f.fetches.length, 0);
+});
+
+test('a missing Colourizon feed entry fails explicitly instead of opening an unanalysed player', async () => {
+    const f = libraryFixture(null, '<rss><channel></channel></rss>');
+    f.library.save('https://soundcloud.com/missmelera/colourizon-999');
+    await assert.rejects(f.library.play(), /colourizon-999.*not found/i);
+    assert.equal(f.plays.length, 0);
 });
 
 const options = {

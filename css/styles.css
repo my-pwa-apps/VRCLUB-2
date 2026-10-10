@@ -1068,6 +1068,25 @@ html, body {
     margin-bottom: 8px;
 }
 
+.audio-primary-button {
+    min-width: 112px;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.audio-paste-button {
+    min-width: 82px;
+    justify-content: center;
+    padding-inline: 12px;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.audio-paste-button:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+
 .audio-input {
     flex: 1;
     /* An input's default minimum width comes from its size attribute; two in a row overflowed a 380 px panel. */
@@ -1259,6 +1278,45 @@ html, body {
     white-space: nowrap;
 }
 
+.audio-source-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 18px;
+    margin: -2px 2px 8px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.audio-source-hint::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border-radius: 50%;
+    background: #8b93a8;
+    box-shadow: 0 0 8px rgba(139, 147, 168, 0.45);
+}
+
+.audio-source-hint[data-source="analysed"] {
+    color: #8fffe7;
+}
+
+.audio-source-hint[data-source="analysed"]::before {
+    background: #00e6bd;
+    box-shadow: 0 0 8px rgba(0, 230, 189, 0.7);
+}
+
+.audio-source-hint[data-source="player"] {
+    color: #d8b8ff;
+}
+
+.audio-source-hint[data-source="player"]::before {
+    background: #c178ff;
+    box-shadow: 0 0 8px rgba(193, 120, 255, 0.7);
+}
+
 .audio-file-name {
     font-size: 12px;
     opacity: 0.9;
@@ -1298,6 +1356,26 @@ html, body {
 .audio-status.error {
     background: rgba(255, 0, 0, 0.25);
     color: #ff9d9d;
+}
+
+.audio-button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+    transform: none;
+}
+
+@media (max-width: 430px) {
+    .audio-input-group {
+        flex-direction: column;
+    }
+
+    .audio-primary-button {
+        width: 100%;
+    }
+
+    .audio-paste-button {
+        width: 100%;
+    }
 }
 
 /* The audio toggle used to share `bottom:20px; left:50%` with #cameraControls and

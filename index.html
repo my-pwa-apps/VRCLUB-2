@@ -16,7 +16,7 @@
          media-src is deliberately open to https:/blob: because the whole point of the
          app is that the user pastes an arbitrary internet radio URL or drops a local file.
          frame-src allows only SoundCloud's official player. It is created after a guest
-         explicitly submits a SoundCloud page URL; VR Club never extracts its audio.
+         explicitly submits a SoundCloud page URL that the club relay cannot resolve.
 
          connect-src allows immersive-web.github.io because Babylon's WebXR controller
          layer fetches the input-profiles catalogue from there when a session starts. It
@@ -24,7 +24,8 @@
          but blocking it also logs a CSP violation on every VR entry.
 
          No podcast or music catalogue is bundled. Music links are supplied by the guest;
-         media-src allows their audio. No audio proxy is used.
+         media-src allows their audio. Miss Melera Colourizon links resolve through the
+         club relay's allow-listed feed and CORS-safe stream endpoint.
 
          connect-src also allows the ws:/wss: schemes (any origin) for the optional
          multiplayer relay: the Cloudflare Worker URL is a user-supplied setting (see
@@ -351,16 +352,19 @@
             <!-- User-provided music only -->
             <div class="audio-section">
                 <div class="vj-section-title">Choose a file or paste a URL</div>
-                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, or paste a SoundCloud track/set page to use its official player. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
+                <p class="network-help">Use a local audio file, paste a direct HTTPS MP3, M4A, OGG or audio-stream link, or paste a SoundCloud track/set page. Miss Melera Colourizon links use the club's analysed audio stream so the crowd, DJ and lights follow the set; other SoundCloud pages use its official player. YouTube and Spotify page URLs are not playable audio. Direct audio hosts must allow CORS. No music is included.</p>
                 <div class="audio-input-group">
                     <input type="url" class="audio-input" id="streamUrl" placeholder="Paste stream URL (https://...)"
                               inputmode="url" autocomplete="off"
                            aria-label="Audio stream URL">
-                    <button class="audio-button" id="playStreamBtn" type="button">
+                    <button class="audio-button audio-paste-button" id="pasteStreamBtn" type="button"
+                            aria-label="Paste a music URL from the clipboard">Paste URL</button>
+                    <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
                         <span aria-hidden="true">▶️</span>
                         <span id="playStreamBtnLabel">Save &amp; play</span>
                     </button>
                 </div>
+                <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
                 <div class="audio-file-upload">
                     <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
                     <label for="audioFileInput" class="audio-file-label">
@@ -369,7 +373,7 @@
                 </div>
                 <div id="audioFileName" class="audio-file-name"></div>
                 <div id="soundCloudPlayer" class="soundcloud-player" hidden>
-                    <p class="network-help">SoundCloud plays in its official player. Use its controls for position and volume. The crowd and DJ dance while it plays, at an independent tempo, not the track's detected beat. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
+                    <p class="network-help">Other SoundCloud pages play in its official player. Use its controls for position and volume. The crowd and DJ dance while it plays, at an independent tempo, not the track's detected beat. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
                 </div>
             </div>
 
@@ -786,7 +790,7 @@
          MUST load before textureLoader.js and modelLoader.js, which depend on it. -->
     <script src="js/assetCache.js?v=20261009-1"></script>
     <script src="js/audioUtils.js?v=20261009-1"></script>
-    <!-- Podcast catalogue, choice, random pick and queue behind both the Audio menu and the VR menu (needs audioUtils + assetCache). -->
+    <!-- Saved music links and Colourizon relay resolution (needs audioUtils + assetCache). -->
     <script src="js/musicLibrary.js?v=20261009-1"></script>
 
     <!-- Texture Loader (loads before club script) -->

@@ -926,8 +926,10 @@ function initAudioMenu() {
     const audioMinimize = document.getElementById('audioMinimize');
     const audioClose = document.getElementById('audioClose');
     const streamUrl = document.getElementById('streamUrl');
+    const pasteStreamBtn = document.getElementById('pasteStreamBtn');
     const playStreamBtn = document.getElementById('playStreamBtn');
     const playStreamBtnLabel = document.getElementById('playStreamBtnLabel');
+    const audioSourceHint = document.getElementById('audioSourceHint');
     const audioFileInput = document.getElementById('audioFileInput');
     const audioFileName = document.getElementById('audioFileName');
     const audioStatus = document.getElementById('audioStatus');
@@ -951,6 +953,33 @@ function initAudioMenu() {
         if (playStreamBtn) playStreamBtn.setAttribute('aria-label', playing ? 'Pause audio' : 'Play audio');
     };
     const setNowPlaying = (text) => { if (nowPlaying) nowPlaying.textContent = text; };
+    const setSourceHint = (url) => {
+        if (!audioSourceHint) return;
+        const value = String(url || '').trim();
+        if (!value) {
+            audioSourceHint.hidden = true;
+            audioSourceHint.textContent = '';
+            audioSourceHint.removeAttribute('data-source');
+            return;
+        }
+        try {
+            const parsed = new URL(value);
+            const missMelera = window.MusicLibrary &&
+                window.MusicLibrary.isColourizonUrl(parsed);
+            audioSourceHint.hidden = false;
+            audioSourceHint.dataset.source = missMelera ? 'analysed' :
+                ((/^(\.|.*\.)?soundcloud\.com$/.test(parsed.hostname)) ? 'player' : 'direct');
+            audioSourceHint.textContent = missMelera
+                ? 'Miss Melera Colourizon: analysed audio for beat-synced lights and dancing'
+                : audioSourceHint.dataset.source === 'player'
+                    ? 'SoundCloud: opens the official player; beat analysis is unavailable'
+                    : 'Direct audio: requires a CORS-enabled audio host';
+        } catch (_) {
+            audioSourceHint.hidden = true;
+            audioSourceHint.textContent = '';
+            audioSourceHint.removeAttribute('data-source');
+        }
+    };
     const setSliderText = (slider, valueEl, value) => {
         const text = `${Math.round(value * 100)}%`;
         if (valueEl) valueEl.textContent = text;
@@ -1088,6 +1117,34 @@ function initAudioMenu() {
 
     // Play stream URL
     if (playStreamBtn && streamUrl) {
+        streamUrl.addEventListener('input', () => setSourceHint(streamUrl.value));
+        if (pasteStreamBtn) {
+            pasteStreamBtn.addEventListener('click', async () => {
+                if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+                    streamUrl.focus();
+                    showStatus('Press and hold the URL box, then choose Paste.', 'error');
+                    return;
+                }
+                try {
+                    const pasted = (await navigator.clipboard.readText()).trim();
+                    if (!pasted) {
+                        streamUrl.focus();
+                        showStatus('The clipboard does not contain a URL.', 'error');
+                        return;
+                    }
+                    streamUrl.value = pasted;
+                    streamUrl.setCustomValidity('');
+                    setSourceHint(pasted);
+                    streamUrl.focus();
+                    streamUrl.setSelectionRange(pasted.length, pasted.length);
+                    showStatus('URL pasted. Choose Save & play when ready.', 'success');
+                } catch (error) {
+                    uiLog.warn('Clipboard read was blocked:', error);
+                    streamUrl.focus();
+                    showStatus('Clipboard access was blocked. Press and hold the URL box, then choose Paste.', 'error');
+                }
+            });
+        }
         playStreamBtn.addEventListener('click', () => {
             const url = streamUrl.value.trim();
             if (!vrClubInstance.guardHostControl('music')) return;
@@ -1107,7 +1164,8 @@ function initAudioMenu() {
 
             const activeAudio = vrClubInstance.audioElement;
             const requestedUrl = new URL(url, window.location.href).href;
-            if (activeAudio && !activeAudio.paused && activeAudio.src === requestedUrl) {
+            const matchesActiveUrl = activeAudio && library.matchesPlaybackUrl(requestedUrl, activeAudio.src);
+            if (matchesActiveUrl && !activeAudio.paused) {
                 activeAudio.pause();
                 setPlayLabel(false);
                 showStatus('Stream paused', 'success');
@@ -1118,7 +1176,7 @@ function initAudioMenu() {
                 return;
             }
             // Paused on this very source part-way through: resume it, do not start it over.
-            if (activeAudio && activeAudio.paused && !activeAudio.ended && activeAudio.src === requestedUrl && activeAudio.currentTime > 0) {
+            if (matchesActiveUrl && activeAudio.paused && !activeAudio.ended && activeAudio.currentTime > 0) {
                 vrClubInstance.toggleAudioPlayback();
                 setPlayLabel(true);
                 showStatus('Resumed', 'success');
@@ -1144,6 +1202,7 @@ function initAudioMenu() {
     };
     library.onChange = renderSets;
     renderSets();
+    setSourceHint(streamUrl.value);
     savedSets.addEventListener('change', () => {
         try { library.select(Number(savedSets.value)); }
         catch (error) { showStatus(error.message, 'error'); }
@@ -1218,12 +1277,28 @@ function initAudioMenu() {
 
     /** Start an http(s) URL and publish it as the room's music if this guest hosts. */
     function playUrl(url, label) {
+        const previousLabel = playStreamBtnLabel ? playStreamBtnLabel.textContent : '';
+        if (playStreamBtn) {
+            playStreamBtn.disabled = true;
+            playStreamBtn.setAttribute('aria-busy', 'true');
+        }
+        if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Starting…';
         try { library.save(url, label); }
-        catch (error) { showStatus(error.message, 'error'); return Promise.resolve(false); }
+        catch (error) {
+            if (playStreamBtn) {
+                playStreamBtn.disabled = false;
+                playStreamBtn.removeAttribute('aria-busy');
+            }
+            if (playStreamBtnLabel) playStreamBtnLabel.textContent = previousLabel || 'Save & play';
+            showStatus(error.message, 'error');
+            return Promise.resolve(false);
+        }
         return library.play()
             .then(() => {
                 const soundcloud = library.current().kind === 'soundcloud';
-                showStatus(soundcloud ? 'SoundCloud player opened' : `Playing: ${library.current().name}`, 'success');
+                const analysed = library.current().kind === 'colourizon';
+                showStatus(analysed ? 'Colourizon resolved — lights and dancing are synced' :
+                    (soundcloud ? 'SoundCloud player opened' : `Playing: ${library.current().name}`), 'success');
                 if (soundcloud) {
                     playStreamBtnLabel.textContent = 'Player open';
                     playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
@@ -1235,6 +1310,15 @@ function initAudioMenu() {
             .catch(err => {
                 showStatus(`Error: ${err.message}`, 'error');
                 setNowPlaying('No audio yet');
+            })
+            .finally(() => {
+                if (playStreamBtn) {
+                    playStreamBtn.disabled = false;
+                    playStreamBtn.removeAttribute('aria-busy');
+                }
+                if (playStreamBtnLabel && playStreamBtnLabel.textContent === 'Starting…') {
+                    playStreamBtnLabel.textContent = previousLabel || 'Save & play';
+                }
             });
     }
     
