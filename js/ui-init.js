@@ -964,16 +964,19 @@ function initAudioMenu() {
         }
         try {
             const parsed = new URL(value);
-            const missMelera = window.MusicLibrary &&
-                window.MusicLibrary.isColourizonUrl(parsed);
+            const ML = window.MusicLibrary;
+            const melera = !!ML && ML.isMeleraUrl(parsed);
+            const feed = !!ML && !/(^|\.)soundcloud\.com$/.test(parsed.hostname) && ML.isFeedUrl(parsed);
+            const soundcloud = /(^|\.)soundcloud\.com$/.test(parsed.hostname);
             audioSourceHint.hidden = false;
-            audioSourceHint.dataset.source = missMelera ? 'analysed' :
-                ((/^(\.|.*\.)?soundcloud\.com$/.test(parsed.hostname)) ? 'player' : 'direct');
-            audioSourceHint.textContent = missMelera
-                ? 'Miss Melera Colourizon: analysed audio for beat-synced lights and dancing'
-                : audioSourceHint.dataset.source === 'player'
-                    ? 'SoundCloud: opens the official player; beat analysis is unavailable'
-                    : 'Direct audio: requires a CORS-enabled audio host';
+            audioSourceHint.dataset.source = (melera || feed) ? 'analysed' : (soundcloud ? 'player' : 'direct');
+            audioSourceHint.textContent = melera
+                ? 'Miss Melera: plays as analysed audio (beat-synced lights and dancing) when the club feed has it'
+                : feed
+                    ? 'Podcast feed: plays its newest episode as analysed audio'
+                    : soundcloud
+                        ? 'SoundCloud: opens the official player; beat analysis is unavailable'
+                        : 'Direct audio: requires a CORS-enabled audio host';
         } catch (_) {
             audioSourceHint.hidden = true;
             audioSourceHint.textContent = '';
@@ -1295,17 +1298,18 @@ function initAudioMenu() {
         }
         return library.play()
             .then(() => {
-                const soundcloud = library.current().kind === 'soundcloud';
-                const analysed = library.current().kind === 'colourizon';
-                showStatus(analysed ? 'Colourizon resolved — lights and dancing are synced' :
-                    (soundcloud ? 'SoundCloud player opened' : `Playing: ${library.current().name}`), 'success');
-                if (soundcloud) {
+                const player = library.lastMode === 'player';
+                const current = library.current();
+                showStatus(player ? 'SoundCloud player opened (this set is not in the club feed, so no beat analysis)' :
+                    (current.kind === 'melera' ? 'Playing as analysed audio — lights and dancing are synced' :
+                        `Playing: ${current.name}`), 'success');
+                if (player) {
                     playStreamBtnLabel.textContent = 'Player open';
                     playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
                 } else {
                     setPlayLabel(true);
                 }
-                setNowPlaying(`\u25B6 ${library.current().name}`);
+                setNowPlaying(`\u25B6 ${vrClubInstance.nowPlayingLabel || current.name}`);
             })
             .catch(err => {
                 showStatus(`Error: ${err.message}`, 'error');

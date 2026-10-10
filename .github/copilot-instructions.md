@@ -1181,9 +1181,14 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
 - **Quest music (`js/musicLibrary.js`).** `MusicLibrary` owns at most eight HTTPS audio or SoundCloud page links
   in `vrclub.questMusic`, with optional names and a selected index. Storage failures surface explicitly.
   YouTube and Spotify webpage URLs are rejected. A pasted
-  `soundcloud.com/missmelera/colourizon-*` page is matched against the existing allow-listed
+  `soundcloud.com/missmelera/<track>` page (kind `melera`; any permalink, reserved names such as `sets`
+  excluded) is matched by its slug, or its Colourizon number, against the allow-listed
   `/podcast/colourizon/feed.xml` relay feed and played through its CORS-safe stream URL, the same
-  analysed audio path used on `main`; a missing feed entry fails explicitly.
+  analysed audio path used on `main`. If the feed does not list it (or the relay is unreachable) it
+  falls back to the official player and `library.lastMode` is `'player'`, which the UI reports.
+  An RSS feed URL (`podcast.hernancattaneo.com`, `*.rss`, `*.xml`, `/feed`; kind `feed`) is saved as
+  pasted and plays its newest episode (Resident is read by a 64 KB range first, like `main`). Only the
+  Resident and Podbean hosts accept `http://`, upgraded to HTTPS on save.
   The Music panel's **Paste URL** button reads the clipboard only from its click gesture, fills
   the URL field without auto-playing, and gives press-and-hold paste guidance when clipboard
   access is unavailable or denied (as it may be in a Quest browser).

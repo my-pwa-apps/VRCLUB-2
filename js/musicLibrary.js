@@ -4,6 +4,8 @@ class MusicLibrary {
     static KEY = 'vrclub.questMusic';
     static MAX_SETS = 8;
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
+    static RESIDENT_FEED = 'https://podcast.hernancattaneo.com/feed.xml';
+    static SOUNDCLOUD_RESERVED = new Set(['sets', 'tracks', 'albums', 'reposts', 'likes', 'following', 'followers', 'popular-tracks', 'comments']);
 
     constructor(club, storage, options = {}) {
         this.club = club;
@@ -41,6 +43,10 @@ class MusicLibrary {
 
     _item(url, name) {
         const parsed = new URL(String(url).trim());
+        // These two hosts serve the same files over HTTPS, so a pasted http:// link is upgraded instead of refused.
+        if (parsed.protocol === 'http:' && /(^|\.)(hernancattaneo\.com|podbean\.com)$/.test(parsed.hostname)) {
+            parsed.protocol = 'https:';
+        }
         if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
             throw new Error('Use a direct HTTPS audio link without a username or password.');
         }
@@ -51,25 +57,64 @@ class MusicLibrary {
         if (soundcloud) {
             for (const key of ['si', 'utm_source', 'utm_medium', 'utm_campaign']) parsed.searchParams.delete(key);
         }
-        const colourizon = MusicLibrary.isColourizonUrl(parsed);
+        const melera = MusicLibrary.isMeleraUrl(parsed);
+        const feed = !soundcloud && MusicLibrary.isFeedUrl(parsed);
+        const fallbackName = melera ? 'Miss Melera set'
+            : (feed && MusicLibrary.isResidentUrl(parsed) ? 'Resident by Hernan Cattaneo'
+                : (soundcloud ? 'SoundCloud set' : parsed.hostname));
         return {
             url: parsed.href,
-            name: String(name || (colourizon ? 'Miss Melera - Colourizon' : (soundcloud ? 'SoundCloud set' : parsed.hostname))).trim().slice(0, 60) || parsed.hostname,
-            kind: colourizon ? 'colourizon' : (soundcloud ? 'soundcloud' : 'direct')
+            name: String(name || fallbackName).trim().slice(0, 60) || parsed.hostname,
+            kind: melera ? 'melera' : (feed ? 'feed' : (soundcloud ? 'soundcloud' : 'direct'))
         };
     }
 
-    static isColourizonUrl(url) {
+    /** A Miss Melera upload page: soundcloud.com/missmelera/<track>. Playable through the club relay when its feed lists it. */
+    static isMeleraUrl(url) {
         if (!url || !/(^|\.)soundcloud\.com$/.test(url.hostname)) return false;
         const parts = url.pathname.split('/').filter(Boolean);
         if (parts.length !== 2 || parts[0].toLowerCase() !== 'missmelera') return false;
-        const slug = parts[1].toLowerCase();
-        return /^colourizon-\d+[a-z0-9-]*$/.test(slug);
+        return !MusicLibrary.SOUNDCLOUD_RESERVED.has(parts[1].toLowerCase());
     }
 
-    _colourizonSlug(url) {
-        if (!MusicLibrary.isColourizonUrl(url)) return null;
+    static isResidentUrl(url) {
+        return !!url && url.hostname.toLowerCase() === 'podcast.hernancattaneo.com';
+    }
+
+    /** An RSS feed (or Hernan Cattaneo's podcast site, whose feed is the playable source): its newest episode plays. */
+    static isFeedUrl(url) {
+        if (!url) return false;
+        if (MusicLibrary.isResidentUrl(url)) return !/\.(mp3|m4a|ogg|opus|wav|aac)$/i.test(url.pathname);
+        return /(\.(rss|xml)|\/feed\/?)$/i.test(url.pathname);
+    }
+
+    _meleraSlug(url) {
+        if (!MusicLibrary.isMeleraUrl(url)) return null;
         return url.pathname.split('/').filter(Boolean)[1].toLowerCase();
+    }
+
+    /** The playable episodes of a feed (newest first). Hernan's feed is ~2.6 MB, so only its head is read first. */
+    async _feedEpisodes(item) {
+        if (typeof this.fetchBuffer !== 'function' || !window.AudioUtils) throw new Error('The feed reader is unavailable.');
+        const parsed = new URL(item.url);
+        const resident = MusicLibrary.isResidentUrl(parsed);
+        const url = resident ? MusicLibrary.RESIDENT_FEED : parsed.href;
+        const decode = buffer => new TextDecoder('utf-8').decode(buffer);
+        let episodes = [];
+        if (resident) {
+            try {
+                episodes = window.AudioUtils.parsePodcastEpisodes(decode(await this.fetchBuffer(url, {
+                    timeoutMs: 15000, cache: 'no-cache', headers: { Range: 'bytes=0-65535' }
+                })));
+            } catch (_) { /* fall through to the whole feed */ }
+        }
+        if (!episodes.length) {
+            episodes = window.AudioUtils.parsePodcastEpisodes(decode(await this.fetchBuffer(url, {
+                timeoutMs: 30000, cache: 'no-cache'
+            })));
+        }
+        if (!episodes.length) throw new Error('No playable episode was found in that feed. Feeds need to allow CORS.');
+        return episodes;
     }
 
     _relayBase() {
@@ -87,27 +132,29 @@ class MusicLibrary {
         return relay.href.replace(/\/$/, '');
     }
 
-    async _resolveColourizon(item) {
-        const slug = this._colourizonSlug(new URL(item.url));
-        if (!slug) throw new Error('Use a Miss Melera Colourizon SoundCloud track URL.');
-        if (typeof this.fetchBuffer !== 'function' || !window.AudioUtils) {
-            throw new Error('The Colourizon resolver is unavailable.');
-        }
+    /** The relay feed's episode for a Miss Melera page, or null when the feed does not list it. */
+    async _resolveMelera(item) {
+        const slug = this._meleraSlug(new URL(item.url));
+        if (!slug) return null;
+        if (typeof this.fetchBuffer !== 'function' || !window.AudioUtils) return null;
         const feedUrl = `${this._relayBase()}${MusicLibrary.COLOURIZON_FEED_PATH}`;
         const xml = new TextDecoder('utf-8').decode(await this.fetchBuffer(feedUrl, {
             timeoutMs: 30000,
             cache: 'no-cache'
         }));
-        const episode = window.AudioUtils.parsePodcastEpisodes(xml).find(candidate => {
+        // The feed's files are `<id>-missmelera-<permalink>.mp3`. A page may use the full permalink or just
+        // `colourizon-168`, so the Colourizon number is also accepted.
+        const number = /colourizon-(\d+)/.exec(slug);
+        const wanted = [`-${slug}.mp3`];
+        if (number) wanted.push(`-colourizon-${number[1]}.mp3`);
+        return window.AudioUtils.parsePodcastEpisodes(xml).find(candidate => {
             try {
                 const file = decodeURIComponent(new URL(candidate.url).pathname).split('/').pop().toLowerCase();
-                return file.endsWith(`-${slug}.mp3`);
+                return wanted.some(suffix => file.endsWith(suffix));
             } catch (_) {
                 return false;
             }
-        });
-        if (!episode) throw new Error(`Colourizon set "${slug}" was not found in the club relay feed.`);
-        return episode;
+        }) || null;
     }
 
     current() { return this.items[this.selected] || null; }
@@ -172,16 +219,32 @@ class MusicLibrary {
         if (!this.club.guardHostControl('music')) return false;
         const item = this.current();
         if (!item) throw new Error('No saved sets. Add a music link in Music first.');
-        if (item.kind === 'colourizon') {
-            const episode = await this._resolveColourizon(item);
+        // How the set actually plays: 'analysed' (the audio graph drives the lights), 'player' (SoundCloud's own player).
+        this.lastMode = 'analysed';
+        let label = item.name;
+        if (item.kind === 'melera') {
+            let episode = null;
+            try { episode = await this._resolveMelera(item); }
+            catch (error) { console.warn('[Music] Miss Melera feed unavailable:', error); }
+            if (episode) {
+                this.resolvedUrls.set(item.url, episode.url);
+                await this.club.startAudioStream(episode.url, { onDemand: true });
+            } else {
+                this.lastMode = 'player';
+                await this.club.startSoundCloud(item.url, item.name);
+            }
+        } else if (item.kind === 'feed') {
+            const episode = (await this._feedEpisodes(item))[0];
             this.resolvedUrls.set(item.url, episode.url);
             await this.club.startAudioStream(episode.url, { onDemand: true });
+            label = episode.title || item.name;
         } else if (item.kind === 'soundcloud') {
+            this.lastMode = 'player';
             await this.club.startSoundCloud(item.url, item.name);
         } else {
             await this.club.startAudioStream(item.url, { onDemand: true });
         }
-        this.club.nowPlayingLabel = item.name;
+        this.club.nowPlayingLabel = label;
         if (this.onChange) this.onChange(item);
         return true;
     }

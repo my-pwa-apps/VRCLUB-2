@@ -81,21 +81,34 @@ test('Quest music rejects unsafe and website links, invalid selection and capaci
     assert.throws(() => library.step(0.5), /previous or next/);
 });
 
-test('only strict Miss Melera Colourizon URLs use analysed playback', () => {
-    const { library } = libraryFixture();
+test('Miss Melera uploads (any permalink) and feed URLs are classified for analysed playback', () => {
+    const kind = url => libraryFixture().library.save(url).kind;
     for (const url of [
         'https://soundcloud.com/missmelera/colourizon-168',
-        'https://soundcloud.com/missmelera/colourizon-168-extra',
+        'https://soundcloud.com/missmelera/miss-melera-colourizon-168',
+        'https://soundcloud.com/missmelera/miss-melera-coral',
     ]) {
-        assert.equal(library.save(url).kind, 'colourizon');
+        assert.equal(kind(url), 'melera', url);
     }
     for (const url of [
         'https://soundcloud.com/missmelera/colourizon-168/extra',
         'https://soundcloud.com/other/colourizon-168',
-        'https://soundcloud.com/missmelera/colourizon-final',
+        'https://soundcloud.com/missmelera/sets',
+        'https://soundcloud.com/missmelera',
     ]) {
-        assert.equal(library.save(url).kind, 'soundcloud');
+        assert.equal(kind(url), 'soundcloud', url);
     }
+    for (const url of [
+        'https://podcast.hernancattaneo.com/feed.xml',
+        'https://podcast.hernancattaneo.com/',
+        'https://feeds.example/show/feed',
+        'https://feeds.example/show.rss',
+    ]) {
+        assert.equal(kind(url), 'feed', url);
+    }
+    assert.equal(kind('https://podcast.hernancattaneo.com/ep.mp3'), 'direct');
+    const upgraded = libraryFixture().library.save('http://podcast.hernancattaneo.com/feed.xml');
+    assert.equal(upgraded.url, 'https://podcast.hernancattaneo.com/feed.xml', 'a pasted http:// Resident link is saved over https');
 });
 
 test('storage failures are explicit and never mutate the saved selection', () => {
@@ -161,11 +174,49 @@ test('other SoundCloud links keep using the official player', async () => {
     assert.equal(f.fetches.length, 0);
 });
 
-test('a missing Colourizon feed entry fails explicitly instead of opening an unanalysed player', async () => {
+test('a Miss Melera page the club feed does not list falls back to the official player', async () => {
     const f = libraryFixture(null, '<rss><channel></channel></rss>');
     f.library.save('https://soundcloud.com/missmelera/colourizon-999');
-    await assert.rejects(f.library.play(), /colourizon-999.*not found/i);
-    assert.equal(f.plays.length, 0);
+    assert.equal(await f.library.play(), true);
+    assert.equal(f.plays[0][0], 'soundcloud');
+    assert.equal(f.library.lastMode, 'player');
+});
+
+test('a real permalink (miss-melera-colourizon-168) resolves, and an unreachable feed also falls back to the player', async () => {
+    const feed = `<rss><channel><item><title>Colourizon 168</title>
+        <enclosure type="audio/mpeg" url="https://relay.example/podcast/colourizon/stream/2407530030-missmelera-miss-melera-colourizon-168.mp3"/></item></channel></rss>`;
+    const f = libraryFixture(null, feed);
+    f.library.save('https://soundcloud.com/missmelera/miss-melera-colourizon-168-sept-2026');
+    assert.equal(await f.library.play(), true, 'the colourizon number alone is enough to find the episode');
+    assert.equal(f.plays[0][0], 'direct');
+    assert.equal(f.library.lastMode, 'analysed');
+
+    const down = libraryFixture(null, feed);
+    down.library.fetchBuffer = async () => { throw new Error('offline'); };
+    down.library.save('https://soundcloud.com/missmelera/colourizon-168');
+    assert.equal(await down.library.play(), true);
+    assert.equal(down.plays[0][0], 'soundcloud');
+    assert.equal(down.library.lastMode, 'player');
+});
+
+test('a Hernan Cattaneo / RSS feed URL is saved and plays its newest episode', async () => {
+    const feed = `<rss><channel>
+        <item><title>Resident 999</title><enclosure type="audio/mpeg" url="https://mcdn.podbean.com/newest.mp3"/></item>
+        <item><title>Resident 998</title><enclosure type="audio/mpeg" url="https://mcdn.podbean.com/older.mp3"/></item>
+    </channel></rss>`;
+    const f = libraryFixture(null, feed);
+    f.library.save('https://podcast.hernancattaneo.com/feed.xml');
+    assert.equal(f.library.items.length, 1, 'the URL is kept in the saved sets');
+    assert.equal(f.library.current().name, 'Resident by Hernan Cattaneo');
+    assert.equal(await f.library.play(), true);
+    assert.equal(f.plays[0][1], 'https://mcdn.podbean.com/newest.mp3');
+    assert.equal(f.club.nowPlayingLabel, 'Resident 999');
+    assert.equal(f.fetches[0][0], 'https://podcast.hernancattaneo.com/feed.xml');
+    assert.equal(f.fetches[0][1].headers.Range, 'bytes=0-65535', 'the big Resident feed is read by range first');
+    assert.equal(f.library.matchesPlaybackUrl('https://podcast.hernancattaneo.com/feed.xml', 'https://mcdn.podbean.com/newest.mp3'), true);
+    const empty = libraryFixture(null, '<rss/>');
+    empty.library.save('https://feeds.example/empty.rss');
+    await assert.rejects(empty.library.play(), /No playable episode/);
 });
 
 const options = {
