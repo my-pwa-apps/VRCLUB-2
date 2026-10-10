@@ -172,7 +172,15 @@ export declare class ShowDirector {
 }
 
 /** Remote-guest state on the wire. `y` is the sender's EYE height. */
-export interface PeerState { x: number; y: number; z: number; rotY: number; }
+export interface TrackedHandPose {
+    x: number; y: number; z: number;
+    fx: number; fy: number; fz: number;
+    ux: number; uy: number; uz: number;
+}
+export interface PeerState {
+    x: number; y: number; z: number; rotY: number;
+    hands?: { left: TrackedHandPose | null; right: TrackedHandPose | null } | null;
+}
 
 export interface SharedMusicState { url: string | null; playing: boolean; position: number; updatedAt?: number; }
 
@@ -185,12 +193,16 @@ export declare class NetworkClient {
     readonly peerCount: number;
     status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
     micEnabled: boolean;
+    targetedChat: boolean;
+    voiceAudience: Set<string> | null;
     isHost(): boolean;
     connect(): void;
     disconnect(): void;
     dispose(): void;
     sendState(state: PeerState): void;
     sendEmoji(emoji: string): void;
+    sendChat(text: string, targets?: string[] | null): boolean;
+    setVoiceAudience(ids: string[] | null): void;
     /** Returns false (and sends nothing) unless host and the URL is http(s). */
     sendMusic(music: SharedMusicState): boolean;
     enableVoice(): Promise<void>;
@@ -200,6 +212,7 @@ export declare class NetworkClient {
     onPeerState: (id: string, state: PeerState) => void;
     onPeerLeave: (id: string) => void;
     onEmoji: (id: string, emoji: string) => void;
+    onChat: (id: string, text: string, restricted: boolean) => void;
     onMusic: (music: SharedMusicState) => void;
     onHostChange: (hostId: string | null) => void;
     onRemoteStream: (id: string, stream: MediaStream) => void;
@@ -272,6 +285,7 @@ export declare class VRClub {
     recordDiagnostic(category: string, message: string, data?: any): void;
     getDiagnostics(): DiagnosticsReport;
     moveCameraToPreset(preset: string): void;
+    jumpDesktop(): boolean;
     dispose(): void;
 }
 

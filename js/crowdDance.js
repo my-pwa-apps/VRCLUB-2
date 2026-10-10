@@ -66,7 +66,8 @@ class CrowdDance {
 
     /**
      * Per frame. `music`: { beatPresent (the kick), rhythm (no kick, but the rest of the rhythm has a pulse), beat
-     * (continuous beat position on the club's grid), bpm, energy 0..1, build, drop (true on the frame a drop lands) }.
+     * (continuous beat position on the club's grid), bpm, energy 0..1, build, drop (true on the frame a drop lands),
+     * fallback (confirmed unanalysable playback, using an independent animation clock rather than detected beats) }.
      * `frac`: where the dancer's clip is now (0..1 of its loop), or null when it is not playing. Returns a reused
      * decision: { move, switched, speed, frac (the target, set when switched or when the clip must jump), snap }.
      */
@@ -74,8 +75,8 @@ class CrowdDance {
         out.switched = false;
         out.snap = false;
         const bar = Math.floor(music.beat / 4);
-        // What carries the dance: the kick (true), the rest of the rhythm ('rhythm'), or nothing (false).
-        const pulse = music.beatPresent ? true : music.rhythm ? 'rhythm' : false;
+        // Keep confirmed unanalysable playback distinct from a detected musical pulse.
+        const pulse = music.beatPresent ? true : music.rhythm ? 'rhythm' : music.fallback ? 'fallback' : false;
 
         if (!pulse) {
             const move = dancer.moves.includes('Groove_Sway') ? 'Groove_Sway' : dancer.moves[0];

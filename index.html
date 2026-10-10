@@ -33,7 +33,9 @@
          signaling (SDP/ICE) is negotiated through that same relay; the resulting
          peer-to-peer audio connection is exempt from connect-src by the Fetch spec.
 
-         script-src is 'self' only: the Babylon.js runtime is vendored under js/vendor/
+         script-src allows self and the exact official SoundCloud Widget API endpoint,
+         loaded only after choosing a SoundCloud set to track play/pause for dance animation.
+         The Babylon.js runtime is vendored under js/vendor/
          (see scripts/vendor.manifest.json) rather than loaded from a CDN, so there is no
          third-party origin left in the critical path.
 
@@ -45,13 +47,13 @@
         base-uri 'none';
         object-src 'none';
         form-action 'none';
-        script-src 'self';
+        script-src 'self' https://w.soundcloud.com/player/api.js;
         style-src 'self' 'unsafe-inline';
         img-src 'self' data: blob:;
         font-src 'self' data:;
         media-src 'self' blob: https: http:;
         frame-src https://w.soundcloud.com;
-        connect-src 'self' blob: https://immersive-web.github.io ws: wss:;
+        connect-src 'self' blob: https://immersive-web.github.io https://api.mitwee.nl https://vrclub-network.garfieldapp.workers.dev ws: wss:;
         worker-src 'self' blob:;
     ">
     <meta name="referrer" content="no-referrer">
@@ -301,7 +303,7 @@
     
     <!-- Enter VR. Promoted to a top-level control: burying the headline action of a
          WebXR app behind an unlabelled gear icon meant nobody on a Quest found it. -->
-    <button id="vrButton" type="button" title="Enter immersive VR">🥽 Enter VR</button>
+    <button id="vrButton" type="button" title="Enter immersive VR" hidden>🥽 Enter VR</button>
     
     <!-- Audio Toggle Button -->
     <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span><span class="toggle-word" aria-hidden="true">Music</span></button>
@@ -346,7 +348,7 @@
                 </div>
                 <div id="audioFileName" class="audio-file-name"></div>
                 <div id="soundCloudPlayer" class="soundcloud-player" hidden>
-                    <p class="network-help">SoundCloud plays in its official player. Use its controls for position and volume. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
+                    <p class="network-help">SoundCloud plays in its official player. Use its controls for position and volume. The crowd and DJ dance while it plays, at an independent tempo, not the track's detected beat. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
                 </div>
             </div>
 
@@ -451,6 +453,18 @@
                 </details>
             </div>
 
+            <div class="audio-section">
+                <div class="vj-section-title">Browse rooms</div>
+                <p class="network-help">Public rooms are visible to everyone. Private rooms stay unlisted: only codes you save or rooms you have joined appear here. Counts are approximate; joining checks again.</p>
+                <button class="audio-button" id="networkBrowseRooms" type="button">Refresh available rooms</button>
+                <p class="network-help" id="networkRoomsStatus" role="status" aria-live="polite">Press Refresh to look for rooms.</p>
+                <ul class="network-people" id="networkRoomsList" aria-label="Available rooms"></ul>
+                <button class="audio-button" id="networkMoreRooms" type="button" hidden>Load more public rooms</button>
+                <label class="network-field" for="networkSavedRoom">Private room code to save</label>
+                <input class="audio-input" id="networkSavedRoom" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off" placeholder="6 digits">
+                <button class="audio-button" id="networkSaveRoom" type="button">Save private code and check room</button>
+            </div>
+
             <!-- In a room: everything below is only shown while connected. -->
             <div class="audio-section" id="networkRoomActions" hidden>
                 <p class="network-help" id="networkRoomInfo"></p>
@@ -478,6 +492,7 @@
 
             <div class="audio-section" id="networkTalk" hidden>
                 <div class="vj-section-title">🎤 Talk</div>
+                <div id="networkVoiceAudience"></div>
                 <button class="audio-button network-primary" id="networkMicBtn" type="button" aria-pressed="false">
                     <span aria-hidden="true">🎤</span>
                     <span id="networkMicBtnLabel">Turn my microphone on</span>
@@ -511,6 +526,7 @@
 
             <div class="audio-section" id="networkPeople" hidden>
                 <div class="vj-section-title">👥 People here</div>
+                <p class="network-help">The host can choose Make host beside another person to hand over music and lights without leaving. Press again to confirm.</p>
                 <div id="networkPeerCount" class="network-help">Nobody else yet</div>
                 <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
             </div>
@@ -599,6 +615,7 @@
             </div>
         </div>
         <div id="socialChatBox" class="social-pop" hidden>
+            <div id="socialChatAudience"></div>
             <div class="social-pop-title">Chat with the room</div>
             <ol id="socialChatLog" class="social-chat-log" aria-label="Messages" aria-live="polite"></ol>
             <form id="socialChatForm" class="social-chat-form">
@@ -778,6 +795,7 @@
     <script src="js/avatarRig.js?v=20261009-1"></script>
     <script src="js/djPerformer.js?v=20261009-1"></script>
     <script src="js/crowdDance.js?v=20261009-1"></script>
+    <script src="js/minglerClock.js?v=20261009-1"></script>
 
     <!-- Multiplayer: WebSocket/WebRTC client (no Babylon dependency) and the
          Babylon-side remote-avatar/voice/emoji renderer it drives. Both are opt-in -
@@ -801,6 +819,7 @@
 
     <!-- VR Club Main Application -->
     <script src="js/club_hyperrealistic.js?v=20261009-1"></script>
+    <script src="js/paymentGate.js?v=20261009-1"></script>
     
     <!-- UI Initialization (splash screen, VJ controls, audio, multiplayer) -->
     <script src="js/ui-init.js?v=20261009-1"></script>

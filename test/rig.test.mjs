@@ -29,10 +29,12 @@ function sandbox() {
         btoa: s => Buffer.from(s, 'binary').toString('base64')
     };
     box.window = box; box.self = box; box.globalThis = box;
-    box.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {} };
+    box.addEventListener = () => {};
+    box.removeEventListener = () => {};
+    box.document = { createElement: () => ({ getContext: () => null, style: {} }), addEventListener() {}, removeEventListener() {} };
     box.navigator = { userAgent: 'node' };
     vm.createContext(box);
-    for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js', 'js/djPerformer.js']) {
+    for (const file of ['js/vendor/babylon.js', 'js/vendor/babylonjs.loaders.min.js', 'js/avatarRig.js', 'js/djPerformer.js', 'js/avatarManager.js']) {
         vm.runInContext(readFileSync(join(ROOT, file), 'utf8'), box, { filename: file });
     }
     box.BABYLON.Logger.LogLevels = box.BABYLON.Logger.WarningLogLevel | box.BABYLON.Logger.ErrorLogLevel;
@@ -67,6 +69,103 @@ const limbLengths = rig => ({
     calf: dist(pos(rig, 'calf_l'), pos(rig, 'foot_l')),
     upper: dist(pos(rig, 'upperarm_l'), pos(rig, 'lowerarm_l')),
     lower: dist(pos(rig, 'lowerarm_l'), pos(rig, 'hand_l'))
+});
+
+test('every network avatar follows real left/right dance and wave targets after animation without stretching limbs', async () => {
+    const files = readdirSync(join(ROOT, 'js/models/avatars')).filter(file => /^club-crowd-[fm]\d+\.glb$/.test(file));
+    assert.equal(files.length, 17);
+    let totalMs = 0, frames = 0;
+    for (const file of files) {
+        const { B, scene, engine, container, box } = await loadContainer(file);
+        box.VRClubAudioCrowd = { sourceIndex: () => 0 };
+        const manager = new box.AvatarManager({ scene, _loadCrowdSource: async () => container, _crowdSourceContainers: [] });
+        manager._createLabel = () => {
+            const mesh = new B.Mesh('testLabel', scene);
+            mesh.material = new B.StandardMaterial('testLabelMaterial', scene);
+            mesh.material.diffuseTexture = { dispose() {} };
+            return mesh;
+        };
+        manager._drawNameplate = () => {};
+        manager.setPersonalSpace(false);
+        manager.ensurePeer('p', 'Pat');
+        await manager.setAvatar('p', file.slice('club-crowd-'.length, -4));
+        const peer = manager.remotes.get('p');
+        assert.ok(peer.person?.arms, `${file}: tracking helper missing`);
+        const arms = peer.person.arms;
+        const updateArms = arms.updateTrackedArms;
+        arms.updateTrackedArms = function (...args) {
+            const start = performance.now();
+            updateArms.apply(this, args);
+            totalMs += performance.now() - start;
+            frames++;
+        };
+        new B.FreeCamera('camera', new B.Vector3(0, 2, -4), scene);
+        const at = name => {
+            const node = peer.person.node.getChildTransformNodes(false).find(n => n.name === `peerp_${name}`);
+            node.computeWorldMatrix(true);
+            return node.getAbsolutePosition().clone();
+        };
+        // Physical left is -X when facing +Z; imported bone names can be mirrored.
+        const leftSuffix = at('UpperArm.L').x < at('UpperArm.R').x ? 'L' : 'R';
+        const rightSuffix = leftSuffix === 'L' ? 'R' : 'L';
+        for (const yaw of [-2.4, 0.7, Math.PI]) {
+            peer.root.rotation.y = yaw;
+            peer.root.computeWorldMatrix(true);
+            const rotated = box.AvatarRig.createTrackedArms(peer.person.node, 'peerp_');
+            assert.equal(rotated.arms.find(arm => arm.side === 'left').suffix, leftSuffix.toLowerCase(),
+                `${file}: construction while turned swaps physical sides`);
+        }
+        peer.root.rotation.y = 0;
+        peer.root.computeWorldMatrix(true);
+        const leftShoulder = at(`UpperArm.${leftSuffix}`), rightShoulder = at(`UpperArm.${rightSuffix}`);
+        const reach = dist(leftShoulder, at(`LowerArm.${leftSuffix}`)) + dist(at(`LowerArm.${leftSuffix}`), at(`Wrist.${leftSuffix}`));
+        for (let frame = 0; frame < 50; frame++) {
+            const yaw = frame * 0.14;
+            const root = { x: 4, y: 4.7, z: -8, rotY: yaw };
+            const hand = (shoulder, side) => {
+                const dx = shoulder.x + side * 0.15, dz = shoulder.z + 0.25;
+                return { x: dx * Math.cos(yaw) + dz * Math.sin(yaw),
+                    y: shoulder.y - 1.7 + 0.18 + 0.12 * Math.sin(frame * 0.3),
+                    z: dz * Math.cos(yaw) - dx * Math.sin(yaw),
+                    fx: Math.sin(yaw), fy: 0, fz: Math.cos(yaw), ux: 0, uy: 1, uz: 0 };
+            };
+            const hands = { left: hand(leftShoulder, -1), right: hand(rightShoulder, 1) };
+            manager.updatePeerState('p', null, { ...root, hands });
+            manager.update(1 / 60);
+            scene.render();
+            for (const [side, suffix] of [['left', leftSuffix], ['right', rightSuffix]]) {
+                const target = peer.hands[side];
+                const wrist = at(`Wrist.${suffix}`);
+                const expected = { x: peer.root.position.x + target.x, y: peer.root.position.y + 1.7 + target.y,
+                    z: peer.root.position.z + target.z };
+                assert.ok(dist(wrist, expected) < 0.035, `${file} ${side} frame ${frame}: wrist misses by ${dist(wrist, expected).toFixed(3)} m`);
+                const shoulder = at(`UpperArm.${suffix}`), elbow = at(`LowerArm.${suffix}`);
+                const length = dist(shoulder, elbow) + dist(elbow, wrist);
+                assert.ok(Math.abs(length - reach) < 0.025, `${file}: limb stretched`);
+                const finger = at(`Index1.${suffix}`).add(at(`Pinky1.${suffix}`)).scale(0.5).subtract(wrist).normalize();
+                const forward = new B.Vector3(target.fx, target.fy, target.fz).normalize();
+                assert.ok(B.Vector3.Dot(finger, forward) > 0.97, `${file}: hand orientation does not follow the controller`);
+            }
+        }
+        const onlyLeft = { x: leftShoulder.x - 0.1, y: leftShoulder.y - 1.7 + 0.2, z: leftShoulder.z + 0.25,
+            fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
+        manager.updatePeerState('p', null, { x: 4, y: 4.7, z: -8, rotY: 0, hands: { left: onlyLeft } });
+        for (let frame = 0; frame < 30; frame++) { manager.update(DT); scene.render(); }
+        assert.equal(peer.hands.right, null, 'missing right controller must not receive the left pose');
+        const target = peer.hands.left;
+        assert.ok(dist(at(`Wrist.${leftSuffix}`), {
+            x: peer.root.position.x + target.x, y: peer.root.position.y + 1.7 + target.y,
+            z: peer.root.position.z + target.z
+        }) < 0.035, `${file}: left-only tracking drives the wrong arm`);
+        manager.updatePeerState('p', null, { x: 4, y: 4.7, z: -8, rotY: 1.2 });
+        manager.update(1 / 60);
+        scene.render();
+        assert.equal(peer.hands.left, null, 'tracking loss returns to clip animation');
+        manager.dispose();
+        scene.dispose();
+        engine.dispose();
+    }
+    assert.ok(totalMs / frames < 2, `remote arm IK averaged ${(totalMs / frames).toFixed(2)} ms`);
 });
 
 test('the rig builds on every UE-skeleton body and stands at the requested eye height', async () => {

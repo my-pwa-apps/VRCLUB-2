@@ -11,6 +11,7 @@
     "build:quest": "node scripts/build.mjs",
     "build:native-poc": "node scripts/build-native-poc.mjs",
     "quest:prepare": "node scripts/prepare-quest.mjs",
+    "vr:codes": "node scripts/generate-vr-invitations.mjs",
     "check": "node scripts/check-syntax.mjs",
     "lint": "eslint .",
     "test": "node --test test/*.test.mjs",
@@ -48,6 +49,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.11.0",
     "iwer": "^2.5.0",
+    "jose": "^6.2.12",
     "meshoptimizer": "^1.3.0",
     "sharp": "^0.35.5"
   },

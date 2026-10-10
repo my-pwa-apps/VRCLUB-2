@@ -203,6 +203,8 @@ export default [
                 structuredClone: 'readonly',
                 TextEncoder: 'readonly',
                 TextDecoder: 'readonly',
+                URLSearchParams: 'readonly',
+                crypto: 'readonly',
                 __dirname: 'readonly'
             }
         },
@@ -229,6 +231,12 @@ export default [
                 fetch: 'readonly',
                 TextDecoder: 'readonly',
                 TextEncoder: 'readonly',
+                URLSearchParams: 'readonly',
+                AbortController: 'readonly',
+                setTimeout: 'readonly',
+                clearTimeout: 'readonly',
+                btoa: 'readonly',
+                atob: 'readonly',
                 crypto: 'readonly',
                 setInterval: 'readonly',
                 clearInterval: 'readonly',

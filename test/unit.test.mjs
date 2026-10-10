@@ -313,7 +313,12 @@ function createMultiplayerHarness() {
         addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
         fire(type, event = {}) { for (const fn of this.listeners[type] || []) fn(event); }
         getSenders() { return this.senders; }
-        addTrack(track) { this.senders.push({ track }); queueMicrotask(() => this.fire('negotiationneeded')); }
+        addTrack(track) {
+            const sender = { track, replaceTrack: async next => { sender.track = next; } };
+            this.senders.push(sender);
+            queueMicrotask(() => this.fire('negotiationneeded'));
+            return sender;
+        }
         removeTrack(sender) { sender.track = null; queueMicrotask(() => this.fire('negotiationneeded')); }
         async setLocalDescription() {
             const type = this.signalingState === 'have-remote-offer' ? 'answer' : 'offer';
@@ -387,6 +392,11 @@ test('voice negotiates whichever guest enables the mic first, and renegotiates a
     await settle();
     assert.equal(b.peers.get('a').pc, bPc);
     assert.equal(bPc.closed, undefined);
+    assert.equal(bPc.getSenders()[0].track, null);
+    await b.enableVoice();
+    await settle();
+    assert.equal(bPc.getSenders().length, 1, 'unmuting reuses the same sender');
+    assert.equal(bPc.getSenders()[0].track.stopped, undefined, 'the fresh capture is attached');
 });
 
 test('a dropped relay socket reports every peer as gone and shared music never carries local URLs', () => {
@@ -503,8 +513,12 @@ function loadAvatarManager() {
         BABYLON, performance: { now: () => now },
         AudioUtils: loadClassic('js/audioUtils.js').window.AudioUtils
     });
-    const manager = new window.AvatarManager({ scene: {}, materialFactory: null });
-    return { manager, AvatarManager: window.AvatarManager, created, advance: ms => { now += ms; } };
+    const observers = new Set();
+    const scene = { onAfterAnimationsObservable: {
+        add: fn => { observers.add(fn); return fn; }, remove: fn => observers.delete(fn)
+    } };
+    const manager = new window.AvatarManager({ scene, materialFactory: null });
+    return { manager, AvatarManager: window.AvatarManager, created, observers, advance: ms => { now += ms; } };
 }
 
 test('remote avatars stand on the floor under the sender eye and snap on their first sample', () => {
@@ -537,6 +551,63 @@ test('remote avatar turns follow the shortest arc', () => {
     manager.update(0);
     manager.update(undefined);
     assert.equal(peer.root.rotation.y, before, 'no frame step means no motion');
+});
+
+test('network presence sends both eye-relative controllers only in VR and retains desktop cadence', () => {
+    const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
+    const club = Object.create(window.VRClubAnimationCore.prototype);
+    const samples = [];
+    club.networkManager = { connected: true, sendState: state => samples.push(JSON.parse(JSON.stringify(state))) };
+    club.camera = { position: { x: 1, y: 1.7, z: 2 }, rotation: { y: 0.2 } };
+    const camera = { position: { x: 0, y: 0, z: 0 }, globalPosition: { x: 5, y: 4.7, z: -10 },
+        rotationQuaternion: { toEulerAngles: () => ({ y: 0.8 }) } };
+    club.vrHelper = { baseExperience: { camera } };
+    club.isInVRMode = true;
+    const left = { x: 4.6, y: 4.9, z: -9.6, fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
+    const right = { ...left, x: 5.4, y: 4.3 };
+    club._handPose = side => side === 'left' ? left : right;
+    club.updateNetworkPresence({ time: 1, dt: 1 / 60 });
+    assert.ok(Math.abs(samples[0].hands.left.x + 0.4) < 1e-8);
+    assert.ok(Math.abs(samples[0].hands.right.y + 0.4) < 1e-8);
+    assert.equal(samples[0].hands.left.fz, 1);
+    assert.equal(samples[0].y, 4.7);
+    club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
+    assert.equal(samples.length, 1);
+    club._handPose = side => side === 'left' ? left : null;
+    club.updateNetworkPresence({ time: 1.06, dt: 1 / 60 });
+    assert.equal(samples[1].hands.right, null);
+    club.isInVRMode = false;
+    club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
+    assert.equal(samples.length, 2, 'desktop cadence is slower');
+    club.updateNetworkPresence({ time: 1.17, dt: 1 / 60 });
+    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null });
+});
+
+test('remote hands interpolate, expire, override gesture clips only while tracked, and unregister on disposal', () => {
+    const { manager, observers } = loadAvatarManager();
+    const hand = { x: -0.3, y: 0.1, z: 0.4, fx: 0, fy: 0, fz: 1, ux: 0, uy: 1, uz: 0 };
+    const state = { x: 5, y: 1.7, z: -8, rotY: 0, hands: { left: hand, right: null } };
+    manager.updatePeerState('p', 'Pat', state);
+    const peer = manager.remotes.get('p');
+    manager.update(1 / 60);
+    assert.equal(peer.hands.left.x, -0.3);
+    const calls = [];
+    peer.person = { arms: { updateTrackedArms: (...args) => calls.push(args) }, groups: { Idle: {} }, current: 'Wave' };
+    manager._play = (_, clip) => calls.push(clip);
+    manager._updateClip(peer);
+    assert.equal(calls.at(-1), 'Idle', 'a real hand pose wins over a canned wave');
+    for (const observer of observers) observer();
+    assert.equal(calls.at(-1)[0], peer.hands, 'IK runs in the after-animation phase');
+    manager.updatePeerState('p', null, { ...state, hands: { left: { ...hand, x: 0.3 }, right: null } });
+    manager.update(1 / 60);
+    assert.ok(peer.hands.left.x > -0.3 && peer.hands.left.x < 0.3, 'a new sample is smoothed');
+    manager.update(0.51);
+    assert.equal(peer.hands.left, null, 'a missing tracking feed releases the arm');
+    manager.updatePeerState('p', null, { ...state, hands: undefined });
+    assert.equal(peer.handTargets.left, null, 'a desktop or old-client packet clears the targets');
+    manager.removePeer('p');
+    manager.dispose();
+    assert.equal(observers.size, 0);
 });
 
 test('name tags and emoji never write depth, so desktop SSR cannot turn them black; tags are small and can be switched off', () => {
@@ -1753,7 +1824,7 @@ test('the listener tilts with the head instead of staying upright', () => {
     assert.ok(Math.abs(ctx.listener.upY.value - Math.cos(roll)) < 1e-9);
 });
 
-test('disposing the club stops every audio source and closes the AudioContext', () => {
+test('disposing the club releases VR access, stops every audio source and closes the AudioContext', () => {
     const { club, started } = createAudioHarness();
     club.audioElement = { src: 'blob:x', pause() { this.paused = true; }, removeAttribute() {}, load() {} };
     let vrClickRemoved = false;
@@ -1771,7 +1842,11 @@ test('disposing the club stops every audio source and closes the AudioContext', 
         VRClubCore: class {}, log: { info() {}, warn() {} }, URL: { revokeObjectURL() {} },
         document: { removeEventListener() {} }
     });
+    const xrStates = [];
+    window.VRPayment = { onXRStateChange: active => xrStates.push(active) };
     window.VRClubLifecycle.prototype.dispose.call(club);
+    window.VRClubLifecycle.prototype.dispose.call(club);
+    assert.deepEqual(xrStates, [false], 'teardown must stop lease renewal exactly once');
     assert.equal(started.size, 0, 'the crowd ambience source is still running after dispose');
     assert.equal(ctx.state, 'closed');
     assert.equal(club.audioContext, null);
@@ -4292,7 +4367,7 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
 });
 
 test('Enter VR waits for background model loading, with a ceiling', async () => {
-    const run = async ({ settleModels }) => {
+    const run = async ({ settleModels, supported = true }) => {
         const timers = [];
         const button = {
             disabled: false, textContent: '', title: '',
@@ -4303,7 +4378,7 @@ test('Enter VR waits for background model loading, with a ceiling', async () => 
         const { window } = loadClassic('js/club/10-ui.js', {
             VRClubAnimationFinish: class {},
             document: { getElementById: id => (id === 'vrButton' ? button : null) },
-            navigator: { xr: { isSessionSupported: async () => true } },
+            navigator: { xr: { isSessionSupported: async () => supported } },
             setTimeout: (fn) => { timers.push(fn); return timers.length; },
             clearTimeout() {},
             BABYLON: { WebXRState: { IN_XR: 2, NOT_IN_XR: 3 } }
@@ -4317,7 +4392,7 @@ test('Enter VR waits for background model loading, with a ceiling', async () => 
         const whileLoading = { disabled: button.disabled, label: button.textContent };
         if (settleModels) resolveModels(); else timers.forEach(fn => fn());
         await flush(); await flush();
-        return { whileLoading, after: { disabled: button.disabled, label: button.textContent } };
+        return { whileLoading, after: { disabled: button.disabled, label: button.textContent }, hidden: button.hidden };
     };
 
     const loaded = await run({ settleModels: true });
@@ -4327,6 +4402,9 @@ test('Enter VR waits for background model loading, with a ceiling', async () => 
     const stalled = await run({ settleModels: false });
     assert.equal(stalled.whileLoading.disabled, true);
     assert.equal(stalled.after.disabled, false, 'a stalled load must not lock VR out');
+    assert.equal(loaded.hidden, false);
+    assert.equal((await run({ settleModels: true, supported: false })).hidden, true,
+        'incompatible devices must not show a VR entry option');
 });
 
 test('a dropped live stream reconnects with bounded backoff; files and bad URLs do not', async () => {
@@ -7548,6 +7626,7 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     club.multiplayer = {
         connected: false, following: false, chat: [], chatUnread: 0, duckForVoice: true,
         isHost: () => false, pendingMusicInfo: () => null, blockedList: () => [],
+        audienceLabel: () => 'Everyone',
         sendChat: text => { sent.push(text); return true; }, setDuckForVoice(v) { this.duckForVoice = v; }
     };
     const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
@@ -7565,16 +7644,45 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     assert.equal(proto._isVRButtonDisabled.call(club, { control: 'photosensitiveSafeMode' }), false, 'Safe Mode is always the guest\'s own');
 
     const chat = proto._vrNetPageDefinitions.call(club, 'chat', common);
-    assert.deepEqual([...chat.slice(0, 2).map(b => b.phrase)], ['Hi!', 'Great track!']);
+    assert.equal(chat[0].target, 'chatAudience');
+    assert.deepEqual([...chat.filter(b => b.op === 'phrase').map(b => b.phrase)], ['Hi!', 'Great track!']);
     assert.ok(chat.length <= 12);
-    proto._runVRNetworkAction.call(club, chat[1]);
+    proto._runVRNetworkAction.call(club, chat[2]);
     assert.deepEqual([...sent], ['Great track!']);
     const duck = proto._vrNetPageDefinitions.call(club, 'safety', common).find(b => b.op === 'duck');
     assert.ok(duck, 'LOWER MUSIC is on the safety page');
     proto._runVRNetworkAction.call(club, duck);
     assert.equal(club.multiplayer.duckForVoice, false);
     club.multiplayer.chat = [{ name: 'Bo', text: 'hello', self: false }];
-    assert.equal(proto._vrNetSubtitle.call(club, 'chat'), 'BO: HELLO', 'the chat page shows the last message received');
+    assert.equal(proto._vrNetSubtitle.call(club, 'chat'), 'TO: EVERYONE | BO: HELLO', 'the chat page shows the audience and last message');
+});
+
+test('VR recipient pages fit all seven peers and delegate separate chat and voice selections', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {},
+        log: { info() {}, warn() {}, error() {} }, document: {}, ClubMultiplayer: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const calls = [];
+    club.showErrorMessage = () => {};
+    club.multiplayer = {
+        connected: true, chatAudience: ['p1'], voiceAudience: [],
+        people: () => Array.from({ length: 7 }, (_, i) => ({ id: `p${i + 1}`, name: `Guest ${i + 1}` })),
+        setAudience: (scope, ids) => calls.push([scope, ids]),
+        toggleAudiencePeer: (scope, id) => calls.push([scope, id]),
+        audienceLabel: scope => scope === 'voice' ? 'Nobody selected' : 'Guest 1'
+    };
+    const common = { back: { action: 'back' }, close: { action: 'close' } };
+    for (const scope of ['voice', 'chat']) {
+        const buttons = club._vrNetPageDefinitions(`${scope}Audience`, common);
+        assert.ok(buttons.length <= 12);
+        assert.equal(buttons.filter(b => b.op === 'audiencePeer').length, 7);
+        await club._runVRNetworkAction(buttons.find(b => b.op === 'audiencePeer'));
+        await club._runVRNetworkAction(buttons.find(b => b.op === 'audienceClear'));
+        await club._runVRNetworkAction(buttons.find(b => b.op === 'audienceAll'));
+        assert.match(club._vrNetSubtitle(`${scope}Audience`), /^TO: /);
+    }
+    assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['voice', 'p1'], ['voice', []], ['voice', null],
+        ['chat', 'p1'], ['chat', []], ['chat', null]]);
+    assert.ok(club._vrNetPageDefinitions('online', common).length <= 12);
 });
 
 // ---------------------------------------------------------------------------

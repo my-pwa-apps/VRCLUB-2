@@ -868,6 +868,9 @@ function initKeyboardShortcuts() {
         if (!club) return;
 
         switch (e.key) {
+            case 'e': case 'E':
+                if (!e.repeat && club.jumpDesktop()) e.preventDefault();
+                break;
             case ' ': {
                 const el = club.audioElement;
                 if (!el) return;
@@ -1351,6 +1354,60 @@ function initRoomGuestLock(mp) {
 /** Opens the chat box of the social bar (set by initSocialBar; a no-op until then). */
 let openSocialChat = () => {};
 
+/** The DOM surfaces share the controller's chat/microphone audience, just like the VR menu. */
+function initAudienceSelector(mp, root, scope) {
+    if (!root) return;
+    const fieldset = document.createElement('fieldset');
+    fieldset.className = 'network-audience';
+    const legend = document.createElement('legend');
+    legend.textContent = scope === 'voice' ? 'Who hears my microphone' : 'Send chat to';
+    const status = document.createElement('p');
+    status.className = 'network-help';
+    const everyone = document.createElement('button');
+    everyone.type = 'button';
+    everyone.className = 'vj-button';
+    everyone.textContent = 'Everyone';
+    everyone.addEventListener('click', () => mp.setAudience(scope, null));
+    const selected = document.createElement('button');
+    selected.type = 'button';
+    selected.className = 'vj-button';
+    selected.textContent = 'Selected guests';
+    selected.addEventListener('click', () => mp.setAudience(scope, []));
+    const list = document.createElement('div');
+    list.className = 'network-audience-list';
+    fieldset.append(legend, everyone, selected, status, list);
+    root.appendChild(fieldset);
+    let key = '';
+    const render = () => {
+        const audience = mp[`${scope}Audience`];
+        const people = mp.people();
+        const next = JSON.stringify([mp.connected, audience, people.map(p => [p.id, p.name])]);
+        if (key === next) return;
+        key = next;
+        everyone.setAttribute('aria-pressed', String(audience === null));
+        selected.setAttribute('aria-pressed', String(audience !== null));
+        everyone.disabled = selected.disabled = !mp.connected;
+        status.textContent = `${scope === 'voice' ? 'Microphone audience' : 'Chat audience'}: ${mp.audienceLabel(scope)}.`;
+        const focused = list.contains(document.activeElement) ? document.activeElement.dataset.peer : null;
+        list.replaceChildren();
+        list.hidden = audience === null;
+        for (const person of people) {
+            const label = document.createElement('label');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.dataset.peer = person.id;
+            checkbox.checked = !!audience?.includes(person.id);
+            checkbox.addEventListener('change', () => mp.toggleAudiencePeer(scope, person.id));
+            label.append(checkbox, document.createTextNode(person.name));
+            list.appendChild(label);
+            if (focused === person.id) checkbox.focus();
+        }
+        if (audience !== null && !people.length) list.textContent = 'No guests available. Nothing will be sent.';
+    };
+    uiTeardowns.push(mp.onChange(render));
+    render();
+}
+
 /**
  * The social bar: the three things you do in a room - talk, react, type - one press away at the bottom of the screen,
  * shown only while in a room and never in VR (the quick menu's TALK / REACT / CHAT row is the headset's version).
@@ -1360,6 +1417,7 @@ function initSocialBar(mp) {
     const club = vrClubInstance;
     const bar = document.getElementById('socialBar');
     if (!bar) return;
+    initAudienceSelector(mp, document.getElementById('socialChatAudience'), 'chat');
     const micBtn = document.getElementById('socialMic');
     const micLabel = document.getElementById('socialMicLabel');
     const reactBtn = document.getElementById('socialReact');
@@ -1397,7 +1455,7 @@ function initSocialBar(mp) {
             const item = document.createElement('li');
             item.className = entry.self ? 'social-chat-self' : '';
             const who = document.createElement('strong');
-            who.textContent = entry.self ? 'You' : entry.name;
+            who.textContent = `${entry.self ? 'You' : entry.name}${entry.restricted ? ` (to ${entry.self ? entry.audience : 'selected recipients'})` : ' (everyone)'}`;
             item.append(who, document.createTextNode(`: ${entry.text}`));
             log.appendChild(item);
         }
@@ -1406,7 +1464,7 @@ function initSocialBar(mp) {
 
     const showPeek = (entry) => {
         if (!peek) return;
-        peek.textContent = `${entry.name}: ${entry.text}`;
+        peek.textContent = `${entry.name}${entry.restricted ? ' (selected recipients)' : ''}: ${entry.text}`;
         peek.hidden = false;
         clearTimeout(peekTimer);
         peekTimer = setTimeout(() => { peek.hidden = true; }, 6000);
@@ -1419,7 +1477,8 @@ function initSocialBar(mp) {
         if (micBtn) {
             micBtn.setAttribute('aria-pressed', String(mp.micEnabled));
             micBtn.classList.toggle('active', mp.micEnabled);
-            if (micLabel) micLabel.textContent = mp.micEnabled ? 'Mic on' : 'Mic off';
+            if (micLabel) micLabel.textContent = mp.micEnabled ? (mp.voiceAudience === null ? 'Mic: everyone' : 'Mic: selected') : 'Mic off';
+            micBtn.setAttribute('aria-label', `Microphone ${mp.micEnabled ? 'on' : 'off'}. Audience: ${mp.audienceLabel('voice')}. Change recipients in People, Talk.`);
         }
         for (const button of tray ? tray.querySelectorAll('[data-gesture="dance"]') : []) {
             button.setAttribute('aria-pressed', String(mp.dancing));
@@ -1534,12 +1593,19 @@ function initNetworkMenu() {
     const duckBtn = document.getElementById('networkDuck');
     const openChatBtn = document.getElementById('networkOpenChat');
     const hostTools = document.getElementById('networkHostTools');
+    const browseRooms = document.getElementById('networkBrowseRooms');
+    const moreRooms = document.getElementById('networkMoreRooms');
+    const roomsStatus = document.getElementById('networkRoomsStatus');
+    const roomsList = document.getElementById('networkRoomsList');
+    const savedRoomInput = document.getElementById('networkSavedRoom');
+    const saveRoom = document.getElementById('networkSaveRoom');
 
     if (!networkToggle || !networkMenu) return;
 
     const teardowns = uiTeardowns;
     // One session for the whole club: the VR quick menu's ONLINE pages drive the very same object.
     const mp = vrClubInstance.multiplayer || new ClubMultiplayer(vrClubInstance);
+    initAudienceSelector(mp, document.getElementById('networkVoiceAudience'), 'voice');
 
     if (serverUrlInput) serverUrlInput.value = mp.serverUrl;
     if (roomInput) roomInput.value = mp.room;
@@ -1600,7 +1666,7 @@ function initNetworkMenu() {
         button.addEventListener('click', onClick);
         return button;
     };
-    /** Kick and ban cannot be undone by the host, so a first press only arms the button; a second one within 4 s acts. */
+    /** Consequential host actions require a second press within four seconds. */
     const armed = new Map();
     const confirmed = (key) => {
         const until = armed.get(key) || 0;
@@ -1627,7 +1693,14 @@ function initNetworkMenu() {
                 () => mp.togglePeerMute(person.id)));
             item.appendChild(rowButton('Block', `Block ${person.name}: you will not see or hear each other`, () => mp.blockPeer(person.id)));
             if (host) {
-                const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`;
+                const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`, hostKey = `host:${person.id}`;
+                const supported = mp.client.hostTransferSupported;
+                const makeHost = rowButton(!supported ? 'Make host (relay update needed)' :
+                    armed.has(hostKey) && armed.get(hostKey) > Date.now() ? 'Confirm make host' : 'Make host',
+                    `Make ${person.name} host: they control music and lights; you stay in the room`,
+                    () => { if (confirmed(hostKey)) mp.transferHost(person.id); });
+                makeHost.disabled = !supported;
+                item.appendChild(makeHost);
                 item.appendChild(rowButton(armed.has(kickKey) && armed.get(kickKey) > Date.now() ? 'Sure?' : 'Kick',
                     `Remove ${person.name} from the room (they can come back)`, () => { if (confirmed(kickKey)) mp.kickPeer(person.id); }, true));
                 item.appendChild(rowButton(armed.has(banKey) && armed.get(banKey) > Date.now() ? 'Sure?' : 'Ban',
@@ -1716,18 +1789,66 @@ function initNetworkMenu() {
         const pending = mp.pendingMusicInfo();
         if (listenAlongSection) listenAlongSection.hidden = !pending;
         if (pending && musicInfoEl) {
-            musicInfoEl.textContent = pending.playing
+            musicInfoEl.textContent = mp.pendingMusic.broadcast
+                ? `The host ${pending.playing ? 'is broadcasting' : 'paused'} a local audio file. Press Listen along to receive it over WebRTC (your IP address is shared with the host).`
+                : pending.playing
                 ? `The host is playing music from ${pending.origin}. Press Listen along to hear it too (that site will see your IP address).`
                 : `The host paused music from ${pending.origin}.`;
         }
         renderPeople();
         renderBlocked();
+        const directory = mp.roomDirectory;
+        if (browseRooms) browseRooms.disabled = directory.loading;
+        if (saveRoom) saveRoom.disabled = directory.loading;
+        if (moreRooms) { moreRooms.hidden = !directory.next; moreRooms.disabled = directory.loading; }
+        if (roomsStatus) roomsStatus.textContent = directory.loading ? 'Checking rooms...' : directory.error ||
+            (directory.loaded ? 'Public rooms and your saved private codes. Refresh to update availability.' : 'Press Refresh to look for rooms.');
+        if (roomsList) {
+            roomsList.replaceChildren();
+            for (const room of mp.directoryRooms()) {
+                const item = document.createElement('li');
+                item.className = 'network-person';
+                const text = document.createElement('span');
+                text.className = 'network-person-name';
+                text.textContent = `${room.private ? 'Private' : 'Public'}: ${room.room.replace(/^private-/i, '')} — ${
+                    room.locked ? 'Locked' : room.people >= room.capacity ? 'Full' : !room.active ? 'Not active; joining starts it' : `${room.people}/${room.capacity} people`}`;
+                item.appendChild(text);
+                const join = rowButton(connected ? 'Switch room' : 'Join', `Join ${room.room}`, () => mp.joinListedRoom(room.room, { name: nameInput.value }));
+                join.disabled = directory.loading || room.locked || room.people >= room.capacity || connecting;
+                item.appendChild(join);
+                if (room.private) item.appendChild(rowButton('Forget', `Forget ${room.room}`, () => mp.forgetPrivateRoom(room.room)));
+                roomsList.appendChild(item);
+            }
+            if (directory.loaded && !mp.directoryRooms().length) {
+                const item = document.createElement('li');
+                item.textContent = 'No active public rooms or saved private codes. Join lobby or start a private room above.';
+                roomsList.appendChild(item);
+            }
+        }
     }
     const unsubscribe = mp.onChange(render);
     teardowns.push(unsubscribe);
     render();
 
     // ---- actions: every one is a call into the controller ----------------------------------------------------------
+    if (browseRooms) browseRooms.addEventListener('click', () => {
+        void mp.refreshRooms({ serverUrl: serverUrlInput ? serverUrlInput.value : mp.serverUrl });
+    });
+    if (moreRooms) moreRooms.addEventListener('click', () => {
+        void mp.refreshRooms({ serverUrl: serverUrlInput ? serverUrlInput.value : mp.serverUrl, more: true });
+    });
+    if (saveRoom) saveRoom.addEventListener('click', () => {
+        const code = savedRoomInput.value.trim();
+        if (!/^\d{6}$/.test(code)) {
+            vrClubInstance.showErrorMessage('Enter all six digits of the private room code.');
+            return;
+        }
+        const serverUrl = serverUrlInput ? serverUrlInput.value : mp.serverUrl;
+        if (mp.savePrivateRoom(code, serverUrl)) {
+            savedRoomInput.value = '';
+            void mp.refreshRooms({ serverUrl });
+        }
+    });
     if (listenAlongBtn) listenAlongBtn.addEventListener('click', () => mp.acceptListenAlong());
 
     if (connectBtn) {

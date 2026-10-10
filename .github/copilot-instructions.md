@@ -8,8 +8,9 @@
 ## What this is
 
 A **client-side WebXR nightclub** built with **Babylon.js 9.28.0**, targeting Meta Quest 3S
-and desktop browsers. There is **no application backend**; the only server-side code is the
-optional multiplayer relay in `worker/` (see Multiplayer). Development sources are classic `<script>`
+and desktop browsers. Server-side code in `worker/` comprises the optional multiplayer
+relay and Stripe/invitation VR entitlements (D1); desktop preview stays client-side and free.
+Development sources are classic `<script>`
 files that publish classes onto `window`; `npm run build` preserves their tested order and
 emits one minified, content-hashed production bundle with esbuild.
 
@@ -25,10 +26,11 @@ emits one minified, content-hashed production bundle with esbuild.
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
 8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
-9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
+9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
-12. `js/ui-init.js` — instantiates `new VRClub()`
+12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
+13. `js/ui-init.js` — instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
@@ -96,6 +98,8 @@ Key lifecycle members:
   that (`this.modelLoadPromise`); `#vrButton` reads "Preparing VR…" until they settle and
   `scene.whenReadyAsync()` resolves (30 s ceiling), because their main-thread parsing stalls
   frames. It is the only XR entry point (`disableDefaultUI: true`).
+  It is hidden until immersive-VR support is confirmed. Unsupported devices keep the
+  **Access** menu for account/device management but cannot prepare VR.
 - `dispose()` — stops the render loop, removes listeners, closes the `AudioContext`,
   revokes blob URLs, tears down the UI timers and disposes scene + engine.
 - `visibilitychange` stops the render loop when the tab is hidden and not in VR.
@@ -137,7 +141,10 @@ second flash source, or make a program change on every beat of a fast track with
 dance or DJ-idle clip, so there is nothing to play for walking, turning or reaching: the rig
 poses the skeleton every frame from where the player is, where they look and (in VR) where
 their hands are. `VRClub._updateLocalPlayerBody()` builds the local pose from the camera and
-the XR controllers; `AvatarManager` builds remote guests' from the interpolated state.
+the XR controllers. Remote guests keep their assigned modular skeleton: `AvatarManager` plays
+its clips and uses `AvatarRig.createTrackedArms()` for an arm-only view of that existing body.
+The helper reuses the world-matrix cache, two-bone IK and hand orientation methods without
+creating a second avatar, disposing clips, cloning materials or changing the lower body.
 
 What it does: planted gait (stance feet slide back at exactly the player's speed, swing feet
 lift and step, two-bone IK to the ankles), hips that follow the eyes with a dead-zone and a
@@ -779,6 +786,14 @@ and fail `npm test`.
   `_updateBouncer`. **He lingers**: a conversation is 22-38 s, watching the floor 25-40 s, the bar is two sips with a
   chat between them (~25 s), a cigarette 75-105 s and the balcony 25-40 s at the rail plus 25-40 s talking. He walks
   about a quarter of the time (the real-club test fails above 45%); before 2026-10-08 he walked most of it.
+  - **In a networked room**, `MinglerClock` samples a deterministic round from the relay's `world` welcome
+    (`v`, `startedAt`, `seed`), not local startup, random frame updates or host snapshots. The client advances it
+    with `performance.now()` and corrects it using timestamped heartbeat replies (half-round-trip compensation).
+    Late joiners, hidden bystanders, missing-tier partners and a hidden host's mingler cannot change the round;
+    conversations retain their canonical dwell even without a visible partner. Host handover preserves it, and an
+    empty room starts a new clock. Positions, height hints, yaw, clip phase, bar stages and cigarette burn follow that
+    timeline; existing physical hand/glass, mouth/smoke, collider and shadow paths remain in use. Offline and older
+    relays retain the local round. Network latency can leave a small clock difference; this is not headset timing evidence.
   - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain walked up and
     back down (`state.node` / `state.dir` ping-pong), with `home` (index 1) his own placed spot. `guest` on a node is
     the guest slot he stops at; `bartender` marks the one customer-side bar stop; `activity` marks the intentional
@@ -1037,6 +1052,61 @@ Procedural meshes are found by name for cleanup, so names are load-bearing:
 When a real `.glb` loads, hide the conflicting procedural geometry with `setEnabled(false)`
 to avoid z-fighting.
 
+## VR access invitations
+
+`js/paymentGate.js` preflights server access before immersive entry and offers Stripe Checkout,
+verified-email recovery, invitations and device management. Asynchronous requests must NEVER
+auto-enter XR (user activation): prepare a VR lease first, then enter on the next user click.
+`worker/src/payments.js` owns `/payments/redeem` and `/payments/entitlement`, exact-origin credentialed
+requests, and the HttpOnly API-host cookie. `worker/migrations/0002_vr_invitations.sql` stores only
+domain-separated SHA-256 code hashes, redemption subject/time and optional revocation time.
+The single conditional `UPDATE … RETURNING` both consumes the code and grants access atomically; never
+replace it with a read-then-write check. Legacy invitations used signed `invite:<UUID>` subjects;
+new redemption requires a verified server session and links `vr_invitations.user_id` atomically
+with consumption and an audit event. Only a redeemed, unrevoked row grants access.
+Owner issuance (`scripts/generate-vr-invitations.mjs`, `npm run vr:codes`) produces eight-digit numeric codes
+using shared rejection-sampled Web Crypto randomness (the email verifier uses the same helper)
+in a new private directory outside the repository (including symlink checks), never console output,
+and a hash-only SQL import. Imports fail on collisions: do not distribute until the import succeeds,
+and regenerate a colliding batch. A reimport cannot reset consumed codes. Dashboard issuance retries
+existing hashes and within-batch duplicates, then uses an atomic insert/audit transaction.
+Old 32-character hexadecimal invitations retain their original normalization and hash.
+Numeric redemption uses D1 `access_rate_limits`: 30/IP per 10 minutes, 10/verified account per
+10 minutes and 300 globally per hour, before the conditional redemption update.
+The gate stages the invitation only in memory, guides code → email → verification, then redeems
+and registers this browser if a slot is free. Both eight-digit fields have read-only numeric displays,
+physical-key/paste support and a 3×4 on-screen keypad. The UI accepts numeric invitations only;
+there is no legacy entry option or explanation comparing new and old formats.
+Existing entitlements are restored without consuming a staged invitation. It never auto-enters XR.
+`worker/src/invitationAdmin.js` and `invitationDashboard.js` serve the Access-protected dashboard
+at `https://api.mitwee.nl/admin/invitations`. Every `/admin` route verifies a signed RS256 Access JWT
+with `jose` (root dev dependency bundled into the Worker), configured issuer/audience/expiry and the
+`INVITATION_ADMINS` signed-email allow-list; a mere email header is NEVER trusted. `workers.dev` admin
+requests are denied. Mutations require same-origin JSON, and all responses are no-store.
+Cloudflare Access application `NOCTURNE invitation administration` protects `api.mitwee.nl/admin`
+and its subpaths; exact email `garfieldapp@outlook.com`, existing one-time-PIN IdP, six-hour session.
+`0003_invitation_admin.sql` adds private labels/actor fields and `invitation_audit`. Issuance
+(1–20 codes) and revocation each use D1 batch transactions with their audit event. Codes are
+returned once on issuance, never stored or recoverable from the list. Revocation needs confirmation.
+Change administrators in BOTH the Access policy and the Worker allow-list. This is an admin
+control only: the public client-side VR gate remains bypassable by deliberate frontend modification,
+a product risk accepted by the owner. Tests use real signed JWTs, real SQLite, and browser dashboard flows.
+No unauthenticated generation endpoint exists. First verified-email redemption wins (codes can be
+forwarded BEFORE redemption). Cookies last one year; loss/new device restores the same grant by
+email verification, not by reusing an invitation.
+`worker/src/accessRecovery.js` owns recovery, named device slots (two per account) and account-wide
+VR leases (one active device/tab, 90 s expiry, 20 s renewal in XR). Migration 0005 adds hashed
+server sessions, one-use eight-digit email challenges (10 min, five attempts), persisted request
+rate limits, device/session revocation and `access_audit`. `EMAIL` sends transactional codes
+through Cloudflare Email Sending from `access@mitwee.nl`; never log codes or full email bodies.
+`ACCESS_RECOVERY_ENABLED = "1"` is the staged rollout switch; production must keep it on.
+Legacy paid access must verify the receipt email. Legacy anonymous invitation cookies can bind
+once to a verified email; old cookies stop granting access afterward. Lost legacy cookies require
+independent support identification and the Access dashboard's confirmed `link-legacy` action,
+which only transfers an existing unlinked grant to an already email-verified user and audits
+the signed admin. Recovery history is available only behind Access. See `docs/QUEST.md`.
+Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 runs the remaining unit tests.
+
 ## Audio
 
 `<audio crossOrigin="anonymous">` → `MediaElementSource` → `AnalyserNode(fftSize=256)` →
@@ -1101,6 +1171,14 @@ to avoid z-fighting.
   Music webpage URLs are rejected; CORS is required and no relay/extraction is offered.
   The Audio panel, VR menu and VJ desk all call the same library. No built-in stream, feed or queue
   is initialised. Historical `js/podcasts.js` and Worker podcast endpoints remain source-only.
+  SoundCloud sets use the official visible iframe and lazily loaded Widget API (the exact
+  `https://w.soundcloud.com/player/api.js` endpoint is the only remote script CSP exception).
+  PLAY / PLAY_PROGRESS and READY's paused-state query confirm playback; PAUSE / FINISH / ERROR
+  clear it. `_unanalysedDanceMusic()` supplies only crowd/DJ choreography with a shared 120 BPM
+  animation clock and moderate energy, never analyser samples, kick counts or fabricated drops.
+  CrowdDance's explicit `fallback` pulse selects varied moves without marking a detected beat.
+  Source changes/dispose unbind widget listeners; stale events/queries cannot revive an old player.
+  Direct audio and WebRTC remain on real analysis; silent audio never automatically triggers this fallback.
 - **Entry music.** ENTER creates the AudioContext in the user click and resumes only an explicitly
   saved set. Fresh profiles show guidance to open Music, with no third-party music request.
   Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. Sets use `{ onDemand: true }`
@@ -1116,6 +1194,9 @@ to avoid z-fighting.
   overwrites that user setting.
 
 ## Persistence
+
+`vrclub.privateRooms` stores up to twelve locally saved private-room bookmarks, scoped to
+the relay URL. Private rooms successfully joined on this device are also remembered.
 
 | Store | Key |
 |-------|-----|
@@ -1147,6 +1228,13 @@ collider is an invisible wall.
 Height in the headset belongs to `_updateVRWalkSurface()`, and `_guardVRCameraSteps()` wraps the XR
 camera's own `_updatePosition` so a smooth-locomotion step is level, at most 25 cm (frame hitches), and
 collisions cannot slide it upward.
+Desktop `_guardDesktopCameraSteps()` projects FreeCamera motion onto the floor, preserving
+horizontal speed while removing pitch-driven vertical travel. Q/E fly bindings are empty;
+the text-field-aware global shortcut maps one E press to `jumpDesktop()` (no repeat).
+`_updateWalkSurface()` holds the eye 1.7 m above the authoritative surface, including the
+DJ riser, and integrates a 0.45 m jump arc under 9.81 m/s² gravity instead of free flight.
+The desktop collision ellipsoid spans 0.3–1.3 m above the feet (radius y 0.5,
+offset y -0.4); foot clearance prevents solid stair risers blocking the surface follower.
 Babylon defers XR movement: both the guard and surface follower must also write
 `_deferredPositionUpdate.y` when `_deferOnly && _deferredUpdated`, or the next XR frame restores
 the collision lift / discards the surface correction.
@@ -1279,6 +1367,35 @@ back to a font, or if the splash's `stroke-width` stops matching `NocturneLogo.S
 
 ## Multiplayer
 
+**Room browser.** `worker/src/roomDirectory.js` exposes opt-in `GET /rooms` (50 public rooms
+per page) and `POST /rooms/status` (up to twelve explicitly supplied names), using D1
+migration `0006_room_directory.sql`. Every case-insensitive `private-` prefix is unlisted:
+private codes and participant identities never enter the public presence table.
+`ClubRoom` publishes ordered join/leave/lock updates and refreshes every thirty seconds
+through its existing sweeper; rows expire after ninety seconds. Its `/directory-status`
+endpoint is internal: the public relay rejects it even with a WebSocket upgrade.
+`ClubMultiplayer.refreshRooms`, `directoryRooms`, `joinListedRoom`, `savePrivateRoom` and
+`forgetPrivateRoom` own the shared state for the DOM People panel and VR ONLINE → BROWSE
+ROOMS. Only saved/previously joined private rooms are queried; no startup room request.
+The VR browser uses five rooms per page to keep navigation within its twelve meshes.
+Counts are advisory, and existing capacity, lock, kick and ban enforcement remains authoritative.
+The final public departure deletes its directory entry; private bookmarks survive locally
+until forgotten, but empty rooms of either kind reset live lock/bans/music/show state.
+`host-transfer` is a rate-limited, host-only request targeting another connected,
+mutually visible guest. It changes only `hostId` and broadcasts the existing `host` frame;
+neither socket leaves and cached room state remains. `welcome.hostTransfer` advertises
+support so old relays cannot silently ignore the new control. Both DOM Make host and
+VR MAKE HOST delegate to `ClubMultiplayer.transferHost` and require a second press within
+four seconds. Role/voice/music handling uses the existing host-change path; WebRTC local
+music cannot migrate a file and requires the new host's selection and renewed listener consent.
+
+The optional payment API (`worker/src/payments.js`) uses `STRIPE_MODE` (`test` or `live`),
+dashboard-managed Checkout payment methods and mode-checked claims/webhooks.
+`purchases.livemode` separates test grants from real purchases; migration 0004 marks
+the historical rollout as test. Invitation subjects and `SESSION_SECRET` do not change
+when switching Stripe modes. Live rollout requires a matching live price, API key and
+webhook secret; never treat a test Checkout as a real paid entitlement.
+
 Optional and opt-in: nothing connects until a guest clicks **Connect** in the Multiplayer panel or **ONLINE → NETWORK**
 in the VR quick menu. The relay stays the same Cloudflare Worker (`vrclub-network.garfieldapp.workers.dev`); the
 protocol only grew, so older clients keep working.
@@ -1295,8 +1412,8 @@ protocol only grew, so older clients keep working.
   closes it (swept every 10 s), so a host who vanished without closing the socket is replaced in under a minute
   instead of whenever the network gives up. Clients that never ping (older builds) are never swept. Emoji and gestures (`wave`, `nod`, `dance`, `stop`) are allow-listed, typed `chat` is cleaned and capped (see below), and names
   are sanitised. Tests: `test/worker.test.mjs`, `test/multiplayer.test.mjs`.
-  `worker/src/podcast.js` is a historical relay utility, unused by Quest. This branch changes no Worker
-  endpoints and needs no Worker redeployment. A future Worker change is not live until deployment.
+  `worker/src/podcast.js` is a historical relay utility, unused by Quest. Selected-recipient chat changes the
+  room protocol and requires Worker deployment. Worker changes are not live until deployed.
 - **Identity and safety.** The browser keeps a secret `uid` (`vrclub.networkUid`), sent as a query parameter; the relay
   shows everyone else only `pid = SHA-256("vrclub-pid-v1:" + uid)` truncated to 16 hex. Blocks and bans are keyed by
   `pid`, so they survive reconnects (session ids change every time) and copying a `pid` cannot get anyone banned.
@@ -1318,6 +1435,16 @@ protocol only grew, so older clients keep working.
   ids per connection. `sendMusic()` refuses non-http(s) URLs, since a host's `blob:` is
   meaningless to guests. Kick, ban and lock close codes are terminal (no reconnect), carry `error.code`
   and release the mic.
+  Local files instead use a separate `musicPc` per consenting listener, signaled through the existing
+  block-aware `rtc-signal` relay with `channel: 'music'` (`state`, `listen`, SDP and ICE).
+  Only the current visible host may send music; no music connection or tracks are accepted before
+  Listen along. Voice muting never touches these connections. `ClubMultiplayer.shareLocalMusic()`
+  captures the local MediaElementSource into a MediaStreamDestination before PA acoustics/ducking;
+  host element volume still affects the broadcast. `startNetworkMusic()` routes a received stream
+  through the existing PA, analyser and kick/rhythm taps, with a separate guest volume gain and
+  muted audio element to keep Chromium delivering WebRTC samples. No file upload or Worker
+  redeployment is needed. Disconnect, blocks, host changes and URL-track switches release the
+  connections and audio nodes. STUN-only connectivity, latency and Quest costs remain unmeasured.
 - `js/avatarManager.js` — remote guests as people built from `club._loadCrowdSource(index)` (the same containers the
   crowd uses; one draw each). A clip state machine plays Idle/Walk/Run from the interpolated speed, plus Wave, Yes
   (nod) and a Dance_Loop toggle. `MAX_PEOPLE` (8) are people; the rest, and any guest still loading, are a capsule +
@@ -1327,7 +1454,27 @@ protocol only grew, so older clients keep working.
   analyser-driven speaking frame, per-guest mute and mute-all through the gain node, and a **personal-space bubble**
   (a guest hides within 0.7 m and returns beyond 0.95 m). Each remote voice is also attached to
   a muted `<audio>` element, because Chromium delivers no samples from a remote WebRTC
-  stream into Web Audio otherwise. `AvatarRig` is now only the local player's body.
+  stream into Web Audio otherwise. The full `AvatarRig` remains the local player's body.
+  **Live VR arms.** `updateNetworkPresence()` sends optional `state.hands.left/right` at up to
+  20 Hz in VR (desktop stays 10 Hz): each has position relative to the eye, plus world forward/up
+  vectors from the same `_handPose()` used by the local body. Missing tracking is null.
+  `sanitizeState()` validates finite numbers, a 1.5 m reach envelope, unit-ish orthogonal orientation,
+  strips extra fields and normalises directions; position-only older clients still work.
+  `AvatarManager` interpolates hand targets, times out stale samples after 0.5 s of update time,
+  and runs the arm-only helper in one `onAfterAnimationsObservable` observer, removed in `dispose()`.
+  Never put the arm override before animation evaluation: clips would erase it in `scene.render()`.
+  The helper reads the animated torso, overrides only the tracked upper/lower arm and wrist,
+  and preserves rigid limb lengths; reachable hands follow the controllers, unreachable ones clamp.
+  It measures physical arm sides from shoulder positions in the guest's facing frame at construction.
+  Never map `hands.left` straight to `.L`: removing the glTF root conversion mirrors these bone names.
+  Rig and browser tests identify physical sides independently, not from the helper's mapping.
+  Live hands take priority over canned Wave/Yes/Dance clips; the usual Idle/Walk/Run lower-body
+  animation continues. An absent hand retains clip animation. No per-frame vector/matrix allocation,
+  no added mesh/light/material. Tests cover protocol/blocks/late join (worker), interpolation/fallback
+  (unit), all 17 real GLBs' wrist positions and orientation after render (rig, 2 ms mean IK ceiling)
+  and real IWER controller movement through the club's network-state/render path
+  (`test/e2e/network-arms.spec.mjs`). Physical-controller roll and Quest 3S frame time are unmeasured.
+  Both the relay and frontend must be deployed; an older relay strips the optional hand poses.
   **Labels must not write depth** (`_labelMaterial()`: `disableDepthWrite = true`). A `StandardMaterial` is pre-pass
   capable exactly while it writes depth, and on the desktop tiers with SSR the SSR composition drew pre-pass
   alpha-blended labels as black shapes (mobile and Quest have no SSR, so it only showed on desktop). Any new
@@ -1354,6 +1501,18 @@ protocol only grew, so older clients keep working.
   `ClubMultiplayer.sendChat()` / `chat` (the session's log, last 50, cleared per room) / `chatUnread` /
   `markChatRead()`. A received message shows in a speech bubble over the sender (`AvatarManager.showChat`, one plane per
   guest, `wrapText` to three lines, 5-12 s), which is how a headset user reads it.
+- **Outgoing audiences are independent.** `ClubMultiplayer.chatAudience` / `voiceAudience` are null (Everyone)
+  or explicit session-ID arrays. `setAudience()` / `toggleAudiencePeer()` own both DOM and VR selectors.
+  Restricted selections stay restricted when emptied, on departure, reconnect and new rooms; they are never persisted.
+  The chat box and People/Talk contain the desktop selectors; VR CHAT/CHAT RECIPIENTS and ONLINE/MIC / WHO HEARS ME
+  use the same setters. Quick phrases respect the chat audience. Relay `chat.targets` is validated and routed only
+  to the selected visible peers (empty/malformed lists fail closed); `restricted` marks the log and bubble.
+  Welcome `targetedChat: true` advertises support; clients refuse restricted chat on old relays so an ignored
+  targets field cannot leak a message. `NetworkClient.setVoiceAudience()` stops excluded microphone senders
+  with `replaceTrack(null)` and reuses the same senders when re-selected, avoiding renegotiation races. Every
+  track-attachment path is gated, including late joins; muting stops capture and also clears sender tracks.
+  Incoming voice and `musicPc` are untouched. These are outgoing recipients, not private group membership, and
+  recipients can still record or forward what they receive. Deploy the changed relay before using targeted chat.
 - **Lowering the music for voice** (`vrclub.duckForVoice`, on by default): while my mic is on or anyone is audibly
   speaking (`AvatarManager.anyoneSpeaking()`), `VRClub.setVoiceDuck(true)` fades a dedicated `voiceDuckGain` (after the
   compressor, before the master gain) to 0.25 in 80 ms, and it comes back over 0.5 s, 1.5 s after the last word

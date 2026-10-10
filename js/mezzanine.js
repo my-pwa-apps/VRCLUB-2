@@ -215,7 +215,36 @@ const Mezzanine = {
     _walkSurfaceLevel(x, z, level) {
         const layout = typeof window !== 'undefined' && window.VenueLayout && window.VenueLayout.vestibule;
         const entrance = layout && layout.walkLevel ? layout.walkLevel(x, z) : null;
-        return entrance === null ? MEZZANINE.walkLevel(x, z, level) : entrance;
+        if (entrance !== null) return entrance;
+        const R = DJ_RISER;
+        if (x >= R.x0 && x <= R.x1 && z >= R.z0 && z <= R.z1 &&
+            (!this.isInVRMode || Math.abs(level - R.top) < 0.3)) return R.top;
+        return MEZZANINE.walkLevel(x, z, level);
+    },
+
+    _guardDesktopCameraSteps(camera) {
+        const updatePosition = camera._updatePosition;
+        camera._updatePosition = function () {
+            const direction = this.cameraDirection;
+            const speed = Math.hypot(direction.x, direction.y, direction.z);
+            const horizontal = Math.hypot(direction.x, direction.z);
+            direction.y = 0;
+            if (horizontal > 1e-6) {
+                const scale = speed / horizontal;
+                direction.x *= scale;
+                direction.z *= scale;
+            }
+            updatePosition.call(this);
+        };
+    },
+
+    jumpDesktop() {
+        if (!this.ready || this.isInVRMode || !this.camera || this._desktopJump?.active) return false;
+        this._desktopJump = this._desktopJump || { active: false, velocity: 0, height: 0 };
+        this._desktopJump.active = true;
+        this._desktopJump.velocity = Math.sqrt(2 * 9.81 * 0.45);
+        this._desktopJump.height = 0;
+        return true;
     },
 
     _updateWalkSurface() {
@@ -223,17 +252,21 @@ const Mezzanine = {
             ? this.vrHelper.baseExperience.camera : this.camera;
         if (!camera) return;
         if (this.isInVRMode) {
+            if (this._desktopJump) this._desktopJump.active = false;
             this._updateVRWalkSurface(camera);
             return;
         }
         const level = this._walkLevel || 0;
         const next = this._walkSurfaceLevel(camera.position.x, camera.position.z, level);
-        if (next === level) return;
-        // Desktop has no gravity. Climbing, the collision system already slides the camera up the stair, so only the
-        // level is recorded; descending, nothing pulls the eye down, so it follows the surface.
-        if (next < level) camera.position.y += next - level;
-        else if (camera.position.y < next + 1.0) camera.position.y = next + 1.7;
         this._walkLevel = next;
+        const jump = this._desktopJump;
+        if (jump?.active) {
+            const dt = Math.min(0.1, Math.max(0, this.engine.getDeltaTime() / 1000));
+            jump.height += jump.velocity * dt - 0.5 * 9.81 * dt * dt;
+            jump.velocity -= 9.81 * dt;
+            if (jump.height <= 0) { jump.height = 0; jump.active = false; }
+        }
+        camera.position.y = next + 1.7 + (jump?.active ? jump.height : 0);
     },
 
     /**

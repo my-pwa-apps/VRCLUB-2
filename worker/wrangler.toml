@@ -1,6 +1,23 @@
 name = "vrclub-network"
 main = "src/index.js"
 compatibility_date = "2024-09-23"
+workers_dev = true
+
+# The payment API shares the mitwee.nl site with the Pages app so its
+# HttpOnly entitlement cookie is not treated as a third-party cookie.
+[[routes]]
+pattern = "api.mitwee.nl"
+custom_domain = true
+
+# Stripe secrets are set with `wrangler secret put`; never commit them.
+[[d1_databases]]
+binding = "DB"
+database_name = "nocturne-vr-entitlements"
+database_id = "7a2d7b25-4f80-4df3-bba5-8895b11e4877"
+
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["access@mitwee.nl"]
 
 # One Durable Object instance per room name (see `idFromName` in src/index.js).
 # It holds the room's connected WebSocket sessions, the current host id and the
@@ -17,4 +34,13 @@ new_classes = ["ClubRoom"]
 # Comma-separated browser origins allowed to open a relay socket. Loopback and
 # private-LAN origins are always accepted (Quest over LAN IP during development).
 [vars]
-ALLOWED_ORIGINS = "https://my-pwa-apps.github.io"
+ALLOWED_ORIGINS = "https://nocturne-vr.pages.dev,https://nocturne.mitwee.nl"
+APP_ORIGIN = "https://nocturne.mitwee.nl"
+STRIPE_PRICE_ID = "price_1UOj8FCkpTfs2ShnPDe3r1Tq"
+STRIPE_MODE = "live"
+ACCESS_RECOVERY_ENABLED = "1"
+RECOVERY_FROM = "access@mitwee.nl"
+INVITATION_ADMIN_ORIGIN = "https://api.mitwee.nl"
+INVITATION_ADMINS = "garfieldapp@outlook.com"
+ACCESS_TEAM_DOMAIN = "https://bartm.cloudflareaccess.com"
+ACCESS_AUD = "e03618ca04fdea22171878a1d4cbc6a00a3b0e97df0e936298233b65cff7347e"

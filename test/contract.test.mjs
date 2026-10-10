@@ -336,11 +336,12 @@ test('no first-party code fetches from a third-party origin', () => {
         `vendor these instead of loading them from a third-party origin:\n${filtered.join('\n')}`);
 });
 
-test('the CSP does not grant script-src to any third-party origin', () => {
+test('the CSP permits only self and the opt-in official SoundCloud Widget API script', () => {
     const csp = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/s)?.[1];
     assert.ok(csp, 'no meta CSP found');
     const scriptSrc = csp.match(/script-src([^;]*);/)?.[1] ?? '';
-    assert.ok(!/https?:\/\//.test(scriptSrc), `script-src allows a remote origin: ${scriptSrc.trim()}`);
+    assert.equal(scriptSrc.trim(), "'self' https://w.soundcloud.com/player/api.js",
+        'do not grant an entire third-party origin script access');
     assert.ok(!/unsafe-inline|unsafe-eval/.test(scriptSrc), `script-src is not strict: ${scriptSrc.trim()}`);
     assert.ok(!/frame-ancestors/.test(csp), 'frame-ancestors is ignored in a meta CSP - send it as an HTTP header');
     const frameSrc = csp.match(/frame-src([^;]*);/)?.[1]?.trim();
@@ -512,12 +513,16 @@ test('types/vrclub.d.ts declares only classes and methods that exist', () => {
     const dts = readFileSync(join(ROOT, 'types/vrclub.d.ts'), 'utf8');
     const sources = Object.fromEntries(jsFiles.map(f => [f, readFileSync(join(ROOT, f), 'utf8')]));
     const allSource = Object.values(sources).join('\n');
+    const bridge = sources['js/club_hyperrealistic.js'];
+    const mixinNames = [...bridge.matchAll(/Object\.assign\(VRClub\.prototype,([^;]+)\);/g)]
+        .flatMap(match => [...match[1].matchAll(/window\.(\w+)/g)].map(item => item[1]));
     const problems = [];
     for (const [, name, body] of dts.matchAll(/export declare class (\w+)[^{]*\{([\s\S]*?)\n\}/g)) {
         if (!new RegExp(`window\\.${name}\\s*=`).test(allSource)) problems.push(`${name} is not exported on window`);
-        // VRClub is assembled from js/club/* plus the LED pattern mixin.
+        // Include the actual public mixins as well as the inherited source layers.
         const owner = name === 'VRClub'
-            ? Object.entries(sources).filter(([f]) => f.startsWith('js/club') || f === 'js/ledPatterns.js').map(([, s]) => s).join('\n')
+            ? Object.entries(sources).filter(([f, s]) => f.startsWith('js/club') ||
+                mixinNames.some(mixin => new RegExp(`window\\.${mixin}\\s*=`).test(s))).map(([, s]) => s).join('\n')
             : Object.values(sources).find(s => new RegExp(`(class|const) ${name}\\b`).test(s)) || '';
         for (const [, method] of body.matchAll(/^\s+(?:static\s+)?(\w+)\s*(?:<[^>]*>)?\(/gm)) {
             if (method === 'constructor') continue;

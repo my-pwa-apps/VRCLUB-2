@@ -625,6 +625,20 @@ html, body {
     gap: 6px;
 }
 
+.network-audience {
+    border: 1px solid #40505d;
+    border-radius: 8px;
+    margin: 8px 0;
+    padding: 8px;
+    min-width: 0;
+}
+.network-audience legend { font-weight: 600; }
+.network-audience .vj-button { margin: 2px 4px 2px 0; }
+.network-audience .vj-button[aria-pressed="true"] { border-color: #8fffee; color: #8fffee; }
+.network-audience-list { display: grid; gap: 8px; max-height: 160px; overflow-y: auto; }
+.network-audience-list[hidden] { display: none; }
+.network-audience-list label { display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+
 .network-person {
     display: flex;
     flex-wrap: wrap;
@@ -643,6 +657,8 @@ html, body {
     min-height: 36px;
     padding: 6px 10px;
 }
+
+#networkMoreRooms[hidden] { display: none; }
 
 /* Kick and ban cannot be undone by the host, so they read differently to the everyday buttons (not by colour alone: the
    label changes to "Sure?" once armed). */
@@ -904,6 +920,11 @@ html, body {
 .social-gesture-row button.active {
     background: rgba(102, 126, 234, 0.85);
     border-color: #ffffff;
+}
+
+#socialChatBox {
+    max-height: calc(100dvh - 110px);
+    overflow-y: auto;
 }
 
 .social-chat-log {
@@ -1793,3 +1814,77 @@ button:active,
         display: none;
     }
 }
+/* Payment gate: desktop remains usable while immersive VR access is verified server-side. */
+.payment-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 10030;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, .82);
+}
+.payment-dialog[hidden] { display: none; }
+.payment-card {
+    width: min(28rem, 100%);
+    display: grid;
+    gap: .85rem;
+    box-sizing: border-box;
+    max-height: calc(100dvh - 2rem);
+    overflow: hidden;
+    padding: 1.5rem;
+    border: 1px solid rgba(0, 255, 255, .45);
+    border-radius: .75rem;
+    background: #10131b;
+    color: #f4f7ff;
+    box-shadow: 0 1rem 4rem rgba(0, 0, 0, .55);
+}
+.payment-card h2, .payment-card p { margin: 0; }
+.payment-card label { display: grid; gap: .5rem; }
+.payment-card { grid-template-rows: auto auto minmax(0, 1fr); }
+.payment-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .75rem; }
+.payment-content { overflow-y: auto; display: grid; gap: .85rem; }
+.payment-content [hidden] { display: none; }
+.payment-primary {
+    border: 1px solid #00ffff;
+    background: #007777;
+    color: #ffffff;
+    font-weight: 700;
+}
+.payment-primary:hover { background: #009090; }
+.payment-content > *, .payment-content input { min-width: 0; }
+.payment-keypad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
+.payment-keypad button { min-height: 48px; padding: .5rem; font-size: 1.05rem; }
+.payment-content input[readonly] { text-align: center; font-size: 1.4rem; letter-spacing: .15em; }
+.payment-card button { min-height: 44px; white-space: normal; }
+.payment-devices { margin: 0; padding-left: 1.25rem; display: grid; gap: .75rem; }
+.payment-devices li { overflow-wrap: anywhere; }
+.payment-devices button { display: block; width: 100%; margin-top: .35rem; }
+.payment-toggle {
+    position: fixed;
+    top: 132px;
+    right: calc(20px + env(safe-area-inset-right, 0px));
+    z-index: 101;
+    min-height: 44px;
+    max-width: 130px;
+    padding: 7px 12px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    border-radius: 6px;
+    background: #23283b;
+    color: white;
+    cursor: pointer;
+}
+.payment-close {
+    min-width: 64px;
+    padding: .5rem .75rem;
+    border: 1px solid #8094b0;
+    border-radius: .4rem;
+    background: #23283b;
+    color: #f4f7ff;
+    cursor: pointer;
+}
+.payment-close:hover { background: #34415b; }
+.payment-close:focus-visible { outline: 2px solid #00ffff; outline-offset: 3px; }
+.payment-status { min-height: 1.25em; color: #9fe9d0; }
+.payment-status.error { color: #ff9e9e; }

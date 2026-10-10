@@ -335,8 +335,9 @@ class VRClubLifecycle extends VRClubCore {
         this.camera.keysDown = [83, 40]; // S + Down Arrow
         this.camera.keysLeft = [65, 37]; // A + Left Arrow
         this.camera.keysRight = [68, 39]; // D + Right Arrow
-        this.camera.keysUpward = [69]; // E
-        this.camera.keysDownward = [81]; // Q
+        this.camera.keysUpward = [];
+        this.camera.keysDownward = [];
+        this._guardDesktopCameraSteps(this.camera);
         
         // ENHANCED Mouse rotation settings (must be set BEFORE attachControl)
         this.camera.angularSensibility = 900; // Enhanced sensitivity for responsive look controls
@@ -347,9 +348,11 @@ class VRClubLifecycle extends VRClubCore {
         
         // ENHANCED Camera properties for immersive experience
         this.camera.speed = 0.5; // Faster movement speed for responsive controls
-        this.camera.applyGravity = false; // No gravity for easier navigation
+        this.camera.applyGravity = false; // Walking surfaces and the jump arc own vertical motion.
         this.camera.checkCollisions = true; // Enable collision detection with invisible walls
-        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.9, 0.5); // Human-sized collision bounding box
+        // Leave foot clearance: the surface follower owns height, and a floor-touching body catches stair risers.
+        this.camera.ellipsoid = new BABYLON.Vector3(0.5, 0.5, 0.5);
+        this.camera.ellipsoidOffset.y = -0.4;
         this.camera.fov = 1.2; // Enhanced FOV for more immersive peripheral vision
         this.camera.minZ = 0.1; // Near plane
         this.camera.maxZ = 100; // Reduced far plane for better performance
@@ -750,6 +753,7 @@ class VRClubLifecycle extends VRClubCore {
     dispose() {
         if (this._disposed) return;
         this._disposed = true;
+        window.VRPayment?.onXRStateChange?.(false);
 
         try {
             if (this._renderLoop) this.engine.stopRenderLoop(this._renderLoop);

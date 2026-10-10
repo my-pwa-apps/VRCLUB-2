@@ -34,15 +34,33 @@ class VRClubAnimationCore extends VRClubEffects {
         const net = this.networkManager;
         if (!net || !net.connected) return;
 
-        // 10 Hz is plenty for a walking-speed avatar and keeps the relay's
-        // bandwidth trivial even with a room full of guests.
-        if (ctx.time - (this._lastNetworkSendTime || 0) < 0.1) return;
+        const interval = this.isInVRMode ? 0.05 : 0.1;
+        if (ctx.time - (this._lastNetworkSendTime || 0) < interval) return;
         this._lastNetworkSendTime = ctx.time;
 
         const cam = (this.isInVRMode && this.vrHelper?.baseExperience?.camera) || this.camera;
         if (!cam) return;
         const rotY = cam.rotationQuaternion ? cam.rotationQuaternion.toEulerAngles().y : (cam.rotation ? cam.rotation.y : 0);
-        net.sendState({ x: cam.position.x, y: cam.position.y, z: cam.position.z, rotY });
+        const position = cam.globalPosition || cam.position;
+        const state = this._networkPose || (this._networkPose = { x: 0, y: 0, z: 0, rotY: 0, hands: null });
+        state.x = position.x; state.y = position.y; state.z = position.z; state.rotY = rotY;
+        state.hands = null;
+        if (this.isInVRMode) {
+            const hands = this._networkHands || (this._networkHands = { left: null, right: null });
+            for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? 'left' : 'right';
+                const tracked = this._handPose(side, position);
+                if (!tracked) { hands[side] = null; continue; }
+                const key = side === 'left' ? '_networkHandL' : '_networkHandR';
+                const hand = this[key] || (this[key] = {});
+                hand.x = tracked.x - position.x; hand.y = tracked.y - position.y; hand.z = tracked.z - position.z;
+                hand.fx = tracked.fx; hand.fy = tracked.fy; hand.fz = tracked.fz;
+                hand.ux = tracked.ux; hand.uy = tracked.uy; hand.uz = tracked.uz;
+                hands[side] = hand;
+            }
+            state.hands = hands;
+        }
+        net.sendState(state);
     }
 
     /**

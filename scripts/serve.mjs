@@ -48,7 +48,7 @@ const MIME = {
  * flag would otherwise expose `.git/config` (remote URLs, sometimes credentials),
  * `.env`, `node_modules/` and the whole source tree.
  */
-const DENY = /(^|[\\/])(\.git|\.env|\.github|node_modules|scripts|test|quest-package|package(-lock)?\.json|backup_aframe)([\\/]|$)|\.(keystore|jks|apk|aab)$/i;
+const DENY = /(^|[\\/])(\.git|\.env|\.github|node_modules|scripts|test|quest-package|invitations\.(json|sql)|package(-lock)?\.json|backup_aframe)([\\/]|$)|\.(keystore|jks|apk|aab)$/i;
 
 /** Content types worth compressing. Images, GLB and audio are already compressed. */
 const COMPRESSIBLE = /^(text\/|application\/(json|javascript|xml)|image\/svg)/;

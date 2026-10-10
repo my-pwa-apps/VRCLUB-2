@@ -61,7 +61,7 @@ function load() {
     window.window = window;
     const context = vm.createContext({
         window, console, URL, URLSearchParams, Map, Set, Promise, Math, JSON, Object, Array, Number, String, Date,
-        Uint8Array, Error, performance, WebSocket: FakeSocket, setTimeout: () => 1, clearTimeout: () => {}, setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; }, clearInterval: id => { intervals[id - 1] = null; },
+        Uint8Array, Error, AbortController, performance, WebSocket: FakeSocket, setTimeout: () => 1, clearTimeout: () => {}, setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; }, clearInterval: id => { intervals[id - 1] = null; },
         BABYLON: { Axis: { Z: {} }, Vector3: class { constructor(x = 0, y = 0, z = 0) { Object.assign(this, { x, y, z }); } } }
     });
     for (const file of ['js/networkClient.js', 'js/multiplayer.js']) {
@@ -77,6 +77,32 @@ function welcomed(client, extra = {}) {
     socket.receive({ type: 'welcome', id: 'me', pid: PID_A, avatar: 'f3', hostId: 'me', locked: false, peers: [], ...extra });
     return socket;
 }
+
+test('shared world time uses a monotonic clock, validates the relay shape and corrects authenticated ping replies', () => {
+    const { NetworkClient, context } = load();
+    let time = 1000;
+    context.performance = { now: () => time };
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
+    const socket = welcomed(client, { serverTime: 20000, world: { v: 1, startedAt: 10000, seed: 55 } });
+    assert.equal(client.worldTime(), 10);
+    time += 2000;
+    assert.equal(client.worldTime(), 12);
+    client.sendPing();
+    const ping = socket.sent.at(-1);
+    time += 100;
+    socket.receive({ type: 'pong', time: ping.time, serverTime: 22050 });
+    assert.equal(client.worldTime(), 12.1);
+    socket.receive({ type: 'pong', time: ping.time, serverTime: 999999 });
+    assert.equal(client.worldTime(), 12.1, 'duplicate/unsolicited replies cannot change the clock');
+    client.disconnect();
+    assert.equal(client.worldTime(), null);
+    for (const world of [undefined, { v: 2, startedAt: 10000, seed: 55 },
+        { v: 1, startedAt: 30000, seed: 55 }, { v: 1, startedAt: 10000, seed: -1 }]) {
+        welcomed(client, { serverTime: 20000, world });
+        assert.equal(client.worldTime(), null);
+        client.disconnect();
+    }
+});
 
 test('the client carries its secret uid in the URL and reports the avatar and room lock from the welcome', () => {
     const { NetworkClient } = load();
@@ -287,6 +313,53 @@ test('only the host can kick, ban or lock, and only a person in the room can be 
     assert.ok(!guest.socket.sent.some(m => ['kick', 'ban', 'lock'].includes(m.type)));
 });
 
+test('host transfer is advertised, host-only, targets a visible person and waits for the relay to change roles', () => {
+    const host = connectedController(undefined, { hostTransfer: true });
+    assert.equal(host.mp.transferHost('ghost'), false);
+    assert.equal(host.mp.transferHost('me'), false);
+    assert.equal(host.mp.transferHost('p1'), true);
+    assert.deepEqual(host.socket.last('host-transfer'), { type: 'host-transfer', target: 'p1' });
+    assert.equal(host.mp.isHost(), true, 'a request alone cannot change authority');
+    host.socket.receive({ type: 'host', id: 'p1' });
+    assert.equal(host.mp.connected, true);
+    assert.equal(host.mp.following, true);
+    assert.equal(host.mp.isHost(), false);
+    assert.equal(host.mp.transferHost('p1'), false);
+    const oldRelay = connectedController();
+    assert.equal(oldRelay.mp.transferHost('p1'), false);
+    assert.match(oldRelay.mp.lastError, /relay needs an update/);
+    assert.ok(!oldRelay.socket.sent.some(message => message.type === 'host-transfer'));
+});
+
+test('the VR person page delegates host transfer, confirms a second press, hides it for guests and disables old relays', async () => {
+    const { mp, context, window, socket } = connectedController(undefined, { hostTransfer: true });
+    context.VRClubAnimationFinish = class {};
+    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    const ui = Object.create(window.VRClubUI.prototype);
+    ui._multiplayer = () => mp;
+    ui.isFollowingHost = () => mp.following;
+    ui._refreshVRQuickMenu = () => {};
+    ui._showVRQuickMenuPage = () => {};
+    ui.showErrorMessage = () => {};
+    ui.pulseHaptic = () => {};
+    ui._vrPerson = 'p1';
+    const common = { back: { action: 'back' }, close: { action: 'close' } };
+    const button = ui._vrNetPageDefinitions('person', common).find(item => item.op === 'peerHost');
+    assert.ok(button);
+    assert.equal(ui._isVRButtonDisabled(button), false);
+    await ui._runVRNetworkAction(button);
+    assert.ok(!socket.last('host-transfer'), 'one accidental press must not hand over control');
+    assert.equal(ui._vrNetPageDefinitions('person', common).find(item => item.op === 'peerHost').label, 'SURE? MAKE HOST');
+    await ui._runVRNetworkAction(button);
+    assert.equal(socket.last('host-transfer').target, 'p1');
+    mp.client.hostTransferSupported = false;
+    assert.equal(ui._isVRButtonDisabled(button), true);
+    assert.equal(ui._vrNetValue(button), 'UPDATE RELAY');
+    socket.receive({ type: 'host', id: 'p1' });
+    ui._vrPerson = 'p1';
+    assert.ok(!ui._vrNetPageDefinitions('person', common).some(item => item.op === 'peerHost'));
+});
+
 test('a kick closes the session with a reason and the panel and VR menu are told', () => {
     const { mp, socket } = connectedController();
     let changes = 0;
@@ -376,6 +449,157 @@ test('shared music needs consent: nothing loads until Listen along, and the host
     host.club.startAudioStream = url => { started.push(url); return Promise.resolve(); };
     host.mp._applyMusic({ url: 'https://stream.example/b.mp3', playing: true });
     assert.equal(started.length, 1);
+});
+
+class MusicConnection {
+    constructor() { this.events = {}; this.senders = []; }
+    addEventListener(name, handler) { this.events[name] = handler; }
+    addTrack(track, stream) { this.senders.push({ track, stream }); }
+    getSenders() { return this.senders; }
+    removeTrack(sender) { this.senders = this.senders.filter(item => item !== sender); }
+    close() { this.closed = true; }
+    async setRemoteDescription(description) { this.remoteDescription = description; }
+    async setLocalDescription() { this.localDescription = { type: this.remoteDescription ? 'answer' : 'offer', sdp: 'test' }; }
+    async addIceCandidate(candidate) { (this.ice ||= []).push(candidate); }
+}
+
+test('local music is host-only, consent-gated and independent of microphone muting', async () => {
+    const { client, context, socket } = (() => {
+        const env = load();
+        const client = new env.NetworkClient({ serverUrl: 'wss://relay.example' });
+        const socket = welcomed(client, { peers: [{ id: 'p1', pid: PID_B, name: 'Bo' }] });
+        return { ...env, client, socket };
+    })();
+    context.RTCPeerConnection = MusicConnection;
+    const track = { id: 'music' };
+    const stream = { getAudioTracks: () => [track] };
+    client.setLocalMusic(stream, { playing: true, title: 'Local file' });
+    assert.equal(client.peers.get('p1').musicPc, undefined);
+    assert.equal(socket.last('rtc-signal').signal.channel, 'music');
+    await client._onSignal('p1', { channel: 'music', kind: 'listen', enabled: true });
+    const pc = client.peers.get('p1').musicPc;
+    assert.equal(pc.senders[0].track, track);
+    client.disableVoice();
+    assert.equal(pc.closed, undefined);
+    assert.equal(pc.senders.length, 1, 'muting cannot remove the music sender');
+    await pc.events.negotiationneeded();
+    assert.equal(socket.last('rtc-signal').signal.kind, 'offer');
+    client.setLocalMusic(null, { playing: false });
+    assert.equal(pc.closed, true);
+    assert.equal(socket.last('rtc-signal').signal.available, false);
+    client.disconnect();
+    assert.equal(client.musicStream, null);
+});
+
+test('broadcast offers and ICE require consent and the current visible host; ICE before SDP is queued', async () => {
+    const env = load();
+    env.context.RTCPeerConnection = MusicConnection;
+    const client = new env.NetworkClient({ serverUrl: 'wss://relay.example' });
+    const socket = welcomed(client, { hostId: 'host', peers: [
+        { id: 'host', pid: PID_B }, { id: 'other', pid: 'c'.repeat(16) }
+    ] });
+    const offer = { channel: 'music', kind: 'offer', sdp: { type: 'offer', sdp: 'test' } };
+    await client._onSignal('host', offer);
+    assert.equal(client.peers.get('host').musicPc, undefined);
+    client.setMusicListening(true);
+    await client._onSignal('other', offer);
+    assert.equal(client.peers.get('other').musicPc, undefined);
+    await client._onSignal('host', { channel: 'music', kind: 'ice', candidate: { candidate: 'early' } });
+    const pc = client.peers.get('host').musicPc;
+    assert.equal(pc.ice, undefined);
+    await client._onSignal('host', offer);
+    assert.equal(pc.ice.length, 1);
+    assert.equal(socket.last('rtc-signal').signal.kind, 'answer');
+    socket.receive({ type: 'host', id: 'other' });
+    assert.equal(pc.closed, true);
+    assert.equal(client.musicListening, false);
+    await client._onSignal('host', offer);
+    assert.equal(client.peers.get('host').musicPc, null);
+});
+
+test('broadcast metadata uses the existing Listen along surfaces, stops on block and does not enter voice audio', async () => {
+    const { mp, club, socket } = connectedController(undefined, { hostId: 'p1' });
+    club._ensureAudioContext = () => {};
+    club._stopSoundCloudPlayer = () => {};
+    const played = [];
+    club.startNetworkMusic = stream => { played.push(stream); return { gain: { gain: { value: 1 } } }; };
+    club.stopNetworkMusic = remote => { remote.stopped = true; };
+    mp.client.onRemoteStream = () => assert.fail('music must not be attached as voice');
+    await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true, title: 'A.wav' });
+    assert.match(mp.pendingMusicInfo().origin, /WebRTC.*IP/);
+    mp.client.onRemoteMusic('p1', {});
+    assert.equal(played.length, 0);
+    mp.acceptListenAlong();
+    assert.equal(socket.last('rtc-signal').signal.kind, 'listen');
+    mp.client.onRemoteMusic('p1', {});
+    assert.equal(played.length, 1);
+    const remote = mp._remoteMusic;
+    await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: false });
+    assert.equal(remote.gain.gain.value, 0);
+    mp.blockPeer('p1');
+    assert.equal(remote.stopped, true);
+    assert.equal(mp._remoteMusic, null);
+});
+
+test('host audio capture reuses one raw-source destination, keeps pauses available and releases on source switch', () => {
+    const { mp, club } = connectedController();
+    let captures = 0, stopped = 0, disconnected = 0;
+    const stream = { getAudioTracks: () => [], getTracks: () => [{ stop: () => stopped++ }] };
+    club.audioContext = { createMediaStreamDestination: () => { captures++; return { stream, disconnect() {} }; } };
+    club.audioSource = { connect() {}, disconnect: () => disconnected++ };
+    club.audioElement = { paused: false, ended: false };
+    club._audioKind = 'file';
+    mp.shareLocalMusic();
+    club.audioElement.paused = true;
+    mp.shareLocalMusic();
+    assert.equal(captures, 1);
+    assert.equal(mp.client.musicState.available, true);
+    assert.equal(mp.client.musicState.playing, false);
+    club._audioKind = 'stream';
+    mp.shareLocalMusic();
+    assert.equal(stopped, 1);
+    assert.equal(disconnected, 1);
+    assert.equal(mp.client.musicState.available, false);
+});
+
+test('host handover clears the old broadcast and requires new consent even when the guest still follows a host', async () => {
+    const { mp, club, socket } = connectedController([
+        { id: 'p1', pid: PID_B }, { id: 'p2', pid: 'c'.repeat(16) }
+    ], { hostId: 'p1' });
+    club._ensureAudioContext = () => {};
+    club._stopSoundCloudPlayer = () => {};
+    club.startNetworkMusic = () => ({ gain: { gain: { value: 1 } } });
+    club.stopNetworkMusic = remote => { remote.stopped = true; };
+    await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true });
+    mp.acceptListenAlong();
+    mp.client.onRemoteMusic('p1', {});
+    const remote = mp._remoteMusic;
+    socket.receive({ type: 'host', id: 'p2' });
+    assert.equal(mp.following, true);
+    assert.equal(remote.stopped, true);
+    assert.equal(mp.listenAlong, false);
+    assert.equal(mp._broadcastState, null);
+    await mp.client._onSignal('p1', { channel: 'music', kind: 'state', available: true, playing: true });
+    assert.equal(mp.pendingMusic, null, 'old host cannot announce a broadcast');
+    await mp.client._onSignal('p2', { channel: 'music', kind: 'state', available: true, playing: true });
+    assert.equal(mp.pendingMusic.broadcast, true);
+});
+
+test('a late joiner is offered the paused local file immediately, without starting a music connection', () => {
+    const { mp, club, socket } = connectedController([]);
+    const stream = { getAudioTracks: () => [], getTracks: () => [] };
+    club.audioContext = { createMediaStreamDestination: () => ({ stream, disconnect() {} }) };
+    club.audioSource = { connect() {}, disconnect() {} };
+    club.audioElement = { paused: true, ended: false };
+    club._audioKind = 'file';
+    club.nowPlayingLabel = 'Paused local file';
+    socket.receive({ type: 'join', id: 'p1', pid: PID_B });
+    const message = socket.last('rtc-signal');
+    assert.equal(message.target, 'p1');
+    assert.equal(message.signal.available, true);
+    assert.equal(message.signal.playing, false);
+    assert.equal(message.signal.title, 'Paused local file');
+    assert.equal(mp.client.peers.get('p1').musicPc, undefined);
 });
 
 test('dispose releases the session and detaches from the club', () => {
@@ -615,7 +839,7 @@ test('the host\'s player controls announce themselves however they were used (pl
     club._shareAudioPosition = () => {};
     fakeRig(club);
     mp._syncShared(1000);
-    assert.deepEqual(Object.keys(listeners).sort(), ['pause', 'play', 'seeked']);
+    assert.deepEqual(Object.keys(listeners).sort(), ['emptied', 'ended', 'loadeddata', 'pause', 'play', 'seeked']);
     mp.dispose();
     assert.deepEqual(Object.keys(listeners), []);
 });
@@ -642,6 +866,118 @@ test('the host is named in the status, and a guest is told whose room it is', ()
     const host = connectedController();
     assert.equal(host.mp.hostName(), host.mp.name);
     assert.match(host.mp.statusText(), /you are the host/);
+});
+
+test('room browser is opt-in, queries only saved private codes on this relay, and filters private public results', async () => {
+    const { mp, context } = makeController();
+    const relay = 'wss://relay.example';
+    assert.equal(mp.roomDirectory.loaded, false);
+    assert.equal(mp.savePrivateRoom('123456', relay), true);
+    assert.equal(mp.savePrivateRoom('654321', 'wss://another.example'), true);
+    const requests = [];
+    context.fetch = async (url, options) => {
+        requests.push({ url, options });
+        return Response.json(url.includes('/status') ? {
+            rooms: [{ room: 'private-123456', people: 3, capacity: 8, active: true, locked: false },
+                { room: 'private-unrequested', people: 1, capacity: 8, active: true, locked: false }]
+        } : { rooms: [
+            { room: 'lobby', people: 2, capacity: 8, active: true, locked: false },
+            { room: 'private-leaked', people: 2, capacity: 8, active: true, locked: false }
+        ], next: null });
+    };
+    await mp.refreshRooms({ serverUrl: relay });
+    assert.deepEqual(JSON.parse(requests[1].options.body), { rooms: ['private-123456'] });
+    assert.equal(requests[0].url, 'https://relay.example/rooms');
+    assert.ok(requests.every(entry => entry.options.credentials === 'omit'));
+    assert.deepEqual(Array.from(mp.directoryRooms(), item => item.room), ['lobby', 'private-123456']);
+    mp.forgetPrivateRoom('private-123456');
+    assert.equal(mp.savedPrivateRooms(relay).length, 0);
+    assert.equal(mp.savedPrivateRooms('wss://another.example').length, 1);
+    assert.equal(mp.roomDirectory.privateRooms.length, 0);
+});
+
+test('listed joins respect capacity and locks, retain the selected relay/name and remember private connections', async () => {
+    const { mp, context } = makeController();
+    context.fetch = async () => Response.json({ rooms: [
+        { room: 'lobby', people: 2, capacity: 8, active: true, locked: false },
+        { room: 'full', people: 8, capacity: 8, active: true, locked: false },
+        { room: 'locked', people: 1, capacity: 8, active: true, locked: true }
+    ], next: null });
+    await mp.refreshRooms({ serverUrl: 'wss://relay.example' });
+    for (const name of ['full', 'locked', 'not-listed']) assert.equal(mp.joinListedRoom(name), false);
+    assert.equal(mp.joinListedRoom('lobby', { name: 'New name' }), true);
+    const url = new URL(FakeSocket.instances.at(-1).url);
+    assert.equal(url.host, 'relay.example');
+    assert.equal(url.searchParams.get('name'), 'New name');
+    mp.disconnect();
+    assert.equal(mp.joinRoom('123456'), true);
+    FakeSocket.instances.at(-1).receive({ type: 'welcome', id: 'me', hostId: 'me', peers: [] });
+    assert.equal(mp.savedPrivateRooms('wss://relay.example')[0].room, 'private-123456');
+    mp.disconnect();
+    assert.equal(mp.savedPrivateRooms('wss://relay.example')[0].room, 'private-123456', 'an empty private room remains bookmarked');
+});
+
+test('room browser pagination merges results, validates responses and surfaces offline/storage errors', async () => {
+    const { mp, context, storage } = makeController();
+    const entry = room => ({ room, people: 1, capacity: 8, active: true, locked: false });
+    const requests = [];
+    context.fetch = async url => {
+        requests.push(url);
+        return Response.json(url.includes('after=') ? { rooms: [entry('alpha'), entry('beta')], next: null }
+            : { rooms: [entry('alpha')], next: 'alpha' });
+    };
+    await mp.refreshRooms({ serverUrl: 'wss://relay.example' });
+    await mp.refreshRooms({ serverUrl: 'wss://relay.example', more: true });
+    assert.match(requests[1], /after=alpha/);
+    assert.deepEqual(Array.from(mp.directoryRooms(), item => item.room), ['alpha', 'beta']);
+    context.fetch = async () => Response.json({ rooms: [entry('bad\nname')] });
+    await mp.refreshRooms({ serverUrl: 'wss://relay.example' });
+    assert.match(mp.roomDirectory.error, /invalid room/);
+    context.fetch = async () => { throw new Error('Offline fixture'); };
+    await mp.refreshRooms({ serverUrl: 'wss://relay.example' });
+    assert.match(mp.roomDirectory.error, /Offline/);
+    storage.setItem('vrclub.privateRooms', 'bad json');
+    context.fetch = async () => Response.json({ rooms: [], next: null });
+    await mp.refreshRooms({ serverUrl: 'wss://relay.example' });
+    assert.match(mp.roomDirectory.error, /could not be read/);
+    assert.equal(mp.savePrivateRoom('private-bad\ncode', 'wss://relay.example'), false);
+    assert.equal(mp.savePrivateRoom('123456', 'wss://user:password@relay.example'), false);
+});
+
+test('disposing the multiplayer controller aborts an outstanding room lookup', async () => {
+    const { mp, context } = makeController();
+    let signal;
+    context.fetch = (_url, options) => new Promise((_resolve, reject) => {
+        signal = options.signal;
+        signal.addEventListener('abort', () => reject(new Error('Aborted fixture')));
+    });
+    const lookup = mp.refreshRooms({ serverUrl: 'wss://relay.example' });
+    mp.dispose();
+    await lookup;
+    assert.equal(signal.aborted, true);
+    assert.equal(mp.roomDirectory.loading, false);
+});
+
+test('every room-browser page fits all twelve VR slots including navigation and close', () => {
+    const { mp, context, window } = makeController();
+    context.VRClubAnimationFinish = class {};
+    vm.runInContext(readFileSync(join(ROOT, 'js/club/10-ui.js'), 'utf8'), context);
+    const ui = Object.create(window.VRClubUI.prototype);
+    ui._multiplayer = () => mp;
+    const common = { back: { action: 'back' }, close: { action: 'close' } };
+    for (let count = 0; count < 64; count++) {
+        mp.roomDirectory.publicRooms = Array.from({ length: count }, (_, i) => ({
+            room: 'room-' + i, people: 1, capacity: 8, active: true, locked: false
+        }));
+        mp.roomDirectory.next = 'next';
+        for (let page = 0; page <= Math.ceil(count / 5); page++) {
+            ui._vrRoomsPage = page;
+            const buttons = ui._vrNetPageDefinitions('rooms', common);
+            assert.ok(buttons.length <= 12, `count=${count}, page=${page}`);
+            assert.equal(buttons.at(-1).action, 'close');
+            assert.equal(buttons.at(-2).action, 'back');
+        }
+    }
 });
 
 test('every control that changes the room\'s music or lights is gated for a guest, on every surface', () => {
@@ -752,7 +1088,7 @@ test('a guest promoted because the host left is told, and asked for music when n
     quiet.mp._roleApplied = null;
     quiet.mp._syncRole();
     quiet.socket.receive({ type: 'host', id: 'me' });
-    assert.match(told.at(-1), /you are now the host\. Pick some music/);
+    assert.match(told.at(-1), /You are now the host\. Pick some music/);
 
     const playing = connectedController(undefined, { hostId: 'p1' });
     const toasts = [];
@@ -850,6 +1186,120 @@ test('typed chat: sent cleaned, logged for both sides, counted as unread only wh
     assert.equal(mp.chatUnread, 0);
     for (let i = 0; i < 80; i++) socket.receive({ type: 'chat', id: 'p1', text: `m${i}` });
     assert.equal(mp.chat.length, mp.constructor.MAX_CHAT_LOG, 'the log is bounded');
+});
+
+test('chat and microphone audiences are independent and restricted chat fails closed on old relays', () => {
+    const { mp, socket, club } = connectedController([
+        { id: 'p1', pid: PID_B, name: 'Bo' }, { id: 'p2', pid: 'c'.repeat(16), name: 'Cy' }
+    ], { targetedChat: true });
+    const errors = [];
+    club.showErrorMessage = message => errors.push(message);
+    mp.setAudience('chat', ['p1', 'p1', 'missing']);
+    mp.setAudience('voice', ['p2']);
+    assert.equal(mp.audienceLabel('chat'), 'Bo');
+    assert.equal(mp.audienceLabel('voice'), 'Cy');
+    assert.equal(mp.sendChat('hi'), true);
+    assert.deepEqual(socket.last('chat'), { type: 'chat', text: 'hi', targets: ['p1'] });
+    assert.equal(mp.chat.at(-1).restricted, true);
+    assert.equal(mp.chat.at(-1).audience, 'Bo');
+    socket.receive({ type: 'chat', id: 'p2', text: 'reply', restricted: true });
+    assert.equal(mp.chat.at(-1).restricted, true);
+    assert.deepEqual(mp.manager.calls.at(-1), ['chat', 'p2', '[Selected recipients] reply']);
+    mp.setAudience('chat', []);
+    assert.equal(mp.sendChat('empty'), false);
+    assert.equal(socket.last('chat').text, 'hi');
+    mp.toggleAudiencePeer('chat', 'p2');
+    mp.client.targetedChat = false;
+    assert.equal(mp.sendChat('old relay'), false);
+    assert.match(errors.at(-1), /relay needs an update/);
+    assert.equal(socket.last('chat').text, 'hi');
+    mp.setAudience('chat', null);
+    assert.equal(mp.sendChat('public'), true);
+    assert.deepEqual(socket.last('chat'), { type: 'chat', text: 'public' });
+    assert.deepEqual(plain(mp.voiceAudience), ['p2']);
+});
+
+test('departure, reconnect and room changes never broaden a restricted audience', () => {
+    const { mp, socket, club } = connectedController(undefined, { targetedChat: true });
+    club.showErrorMessage = () => {};
+    mp.setAudience('chat', ['p1']);
+    mp.setAudience('voice', ['p1']);
+    socket.receive({ type: 'leave', id: 'p1' });
+    assert.deepEqual(plain(mp.chatAudience), []);
+    assert.deepEqual(plain(mp.voiceAudience), []);
+    assert.equal(mp.sendChat('nobody'), false);
+    socket.receive({ type: 'join', id: 'new', name: 'Bo', pid: PID_B });
+    assert.equal(mp.client.voiceAudience.has('new'), false);
+    mp.setAudience('chat', ['new']);
+    mp.setAudience('voice', ['new']);
+    socket.close(1006);
+    assert.equal(mp.chatAudience.length, 0);
+    assert.equal(mp.voiceAudience.length, 0);
+    mp.disconnect();
+    mp.connect({ room: 'another' });
+    assert.equal(mp.chatAudience.length, 0);
+    assert.equal(mp.client.voiceAudience.size, 0);
+});
+
+test('a failed microphone restriction closes that voice connection and reports the error without touching music', async () => {
+    const { NetworkClient } = load();
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
+    welcomed(client, { peers: [{ id: 'p1', name: 'Bo' }] });
+    const sender = { track: {}, replaceTrack: async () => { throw new Error('replacement failed'); } };
+    const pc = { getSenders: () => [sender], close() { this.closed = true; } };
+    const musicPc = {};
+    Object.assign(client.peers.get('p1'), { pc, musicPc });
+    const errors = [];
+    client.onError = error => errors.push(error.message);
+    client.setVoiceAudience([]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pc.closed, true);
+    assert.equal(client.peers.get('p1').pc, null);
+    assert.equal(client.peers.get('p1').musicPc, musicPc);
+    assert.match(errors[0], /Could not update microphone recipients: replacement failed/);
+});
+
+test('microphone tracks follow recipients before capture, through late joins and changes without closing incoming voice or music', async () => {
+    const { NetworkClient, context } = load();
+    class VoiceConnection {
+        constructor() { this.senders = []; this.closed = false; }
+        addEventListener() {}
+        addTrack(track) {
+            const sender = { track, replaceTrack: async next => { sender.track = next; } };
+            this.senders.push(sender);
+            return sender;
+        }
+        getSenders() { return this.senders; }
+        removeTrack(sender) { sender.track = null; }
+        close() { this.closed = true; }
+    }
+    context.RTCPeerConnection = VoiceConnection;
+    const track = { stop() {} };
+    context.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } };
+    const client = new NetworkClient({ serverUrl: 'wss://relay.example' });
+    const socket = welcomed(client, { peers: [{ id: 'p1', name: 'Bo' }, { id: 'p2', name: 'Cy' }] });
+    client.setVoiceAudience(['p1']);
+    await client.enableVoice();
+    const sending = id => !!client.peers.get(id).pc?.getSenders().some(s => s.track);
+    assert.equal(sending('p1'), true);
+    assert.equal(sending('p2'), false);
+    socket.receive({ type: 'join', id: 'p3', name: 'Dee' });
+    assert.equal(sending('p3'), false);
+    const incoming = client._createPeerConnection('p2');
+    const music = { sentinel: true };
+    client.peers.get('p1').musicPc = music;
+    const first = client.peers.get('p1').pc;
+    client.setVoiceAudience(['p2']);
+    assert.equal(sending('p1'), false);
+    assert.equal(first.closed, false);
+    assert.equal(sending('p2'), true);
+    assert.equal(client.peers.get('p2').pc, incoming);
+    assert.equal(client.peers.get('p1').musicPc, music);
+    client.setVoiceAudience([]);
+    for (const id of client.peers.keys()) assert.equal(sending(id), false);
+    assert.equal(client.micEnabled, true, 'capture remains available for a later recipient');
+    client.setVoiceAudience(null);
+    for (const id of client.peers.keys()) assert.equal(sending(id), true);
 });
 
 test('a new room starts a new conversation, and chat needs a room', () => {

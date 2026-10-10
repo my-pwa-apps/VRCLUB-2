@@ -35,7 +35,8 @@ const silentWav = Buffer.from(
 export const browserFailures = new WeakMap();
 
 /** Registers the per-test Quest 3 emulation, failure capture and local silent stream. */
-export function useQuestHarness({ comfort = true, music = false } = {}) {
+export function useQuestHarness({ comfort = true, music = false, access = true } = {}) {
+    test.use({ serviceWorkers: 'block' });
     test.beforeEach(async ({ page }) => {
         const failures = [];
         browserFailures.set(page, failures);
@@ -45,6 +46,22 @@ export function useQuestHarness({ comfort = true, music = false } = {}) {
         });
 
         await page.addInitScript({ content: installQuestRuntime });
+        await page.addInitScript(() => { window.NOCTURNE_PAYMENT_API = window.location.origin; });
+        if (access) await page.route('**/payments/**', async route => {
+            const path = new URL(route.request().url()).pathname;
+            let json;
+            if (path === '/payments/entitlement') {
+                json = { configured: true, entitled: true, verified: true, recoveryRequired: false,
+                    deviceRegistered: true, email: 'quest-test@example.com', devices: [] };
+            } else if (path === '/payments/vr/acquire' || path === '/payments/vr/renew') {
+                json = { active: true, expiresAt: Date.now() + 90_000, expiresInMs: 90_000 };
+            } else if (path === '/payments/vr/release') {
+                json = { released: true };
+            } else {
+                return route.fallback();
+            }
+            await route.fulfill({ json });
+        });
         await page.addInitScript(({ comfort }) => {
             localStorage.setItem('vrclub.graphicsTier', 'balanced');
             localStorage.setItem('vrclub.safeMode', '1');
@@ -91,6 +108,17 @@ export async function enterVR(page) {
     const vrButton = page.locator('#vrButton');
     // Entry waits for the background GLB load and shader compile (30 s ceiling).
     await expect(vrButton).toBeEnabled({ timeout: 60_000 });
+    if (!await page.evaluate(() => window.VRPayment.canEnterVR())) {
+        await page.evaluate(async () => {
+            await window.VRPayment.refreshEntitlement();
+            window.VRPayment.showGate();
+        });
+        await page.getByRole('button', { name: 'Prepare VR', exact: true }).click();
+        await expect(page.locator('.payment-status')).toContainText('VR prepared');
+        await page.waitForFunction(() => window.VRPayment.canEnterVR());
+        await page.locator('.payment-close').getByText('Close', { exact: true }).click();
+        await expect(page.locator('.payment-dialog')).toBeHidden();
+    }
     await vrButton.click();
     await page.waitForFunction(() => window.vrClub?.isInVRMode === true);
     await page.waitForFunction(() => window.vrClub?._xrControllers?.length === 2);

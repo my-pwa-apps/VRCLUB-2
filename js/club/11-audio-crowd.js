@@ -306,13 +306,8 @@ class VRClubAudioCrowd extends VRClubUI {
             this.audioSource = this.audioContext.createMediaElementSource(this.audioElement);
             
             // Pre-spatial analyser tap ensures lighting and VJ reactivity remain 100% full-bandwidth
-            this.audioSource.connect(this.audioAnalyser);
-            if (this.kickFilter) this.audioSource.connect(this.kickFilter);
-            if (this.rhythmFilter) this.audioSource.connect(this.rhythmFilter);
-
             if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
                 // Directional Mains
-                this.audioSource.connect(this.airAbsorptionFilter);
                 this.airAbsorptionFilter.connect(this.pannerLeft);
                 this.airAbsorptionFilter.connect(this.pannerRight);
 
@@ -329,7 +324,6 @@ class VRClubAudioCrowd extends VRClubUI {
 
                 // Sub-bass Channel
                 if (this.subFilter && this.subGain) {
-                    this.audioSource.connect(this.subFilter);
                     this.subFilter.connect(this.subGain);
                     this.subGain.connect(this.audioCompressor);
                 }
@@ -348,9 +342,59 @@ class VRClubAudioCrowd extends VRClubUI {
             } else if (this.audioCompressor) {
                 this.audioAnalyser.connect(this.audioCompressor);
             }
+            this._connectMusicInput(this.audioSource);
             log.info('🎚️ Audio analyser and 3D spatial acoustics connected');
         } catch (err) {
             log.warn('🎚️ Could not connect audio source:', err);
+        }
+    }
+
+    _connectMusicInput(source) {
+        source.connect(this.audioAnalyser);
+        if (this.kickFilter) source.connect(this.kickFilter);
+        if (this.rhythmFilter) source.connect(this.rhythmFilter);
+        if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
+            source.connect(this.airAbsorptionFilter);
+            if (this.subFilter && this.subGain) source.connect(this.subFilter);
+        }
+    }
+
+    /** Remote music drives the same PA, room acoustics and detectors as a local track. */
+    startNetworkMusic(stream, state) {
+        this._ensureAudioElement();
+        this._connectAudioSourceOnce();
+        if (!this.audioSource || !this.audioContext) throw new Error('The club audio graph is unavailable.');
+        this.audioElement.pause();
+        this._stopSoundCloudPlayer();
+        const source = this.audioContext.createMediaStreamSource(stream);
+        const gain = this.audioContext.createGain();
+        gain.gain.value = state?.playing ? (this._audioVolume ?? 1) : 0;
+        const element = document.createElement('audio');
+        element.muted = true;
+        element.srcObject = stream;
+        source.connect(gain);
+        this._connectMusicInput(gain);
+        const remote = { source, gain, element, previousKind: this._audioKind, previousTitle: this.nowPlayingLabel };
+        this._networkMusic = remote;
+        this._audioKind = 'network';
+        this.nowPlayingLabel = state?.title || 'Host broadcast';
+        element.play().catch(error => {
+            if (this._networkMusic === remote) this.showErrorMessage(`Broadcast playback was blocked: ${error.message}. Press Listen along again.`);
+        });
+        return remote;
+    }
+
+    stopNetworkMusic(remote) {
+        remote.source.disconnect();
+        remote.gain.disconnect();
+        remote.element.pause();
+        remote.element.srcObject = null;
+        if (this._networkMusic === remote) {
+            this._networkMusic = null;
+            if (this._audioKind === 'network') {
+                this._audioKind = remote.previousKind;
+                this.nowPlayingLabel = remote.previousTitle;
+            }
         }
     }
 
@@ -786,6 +830,7 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!Number.isFinite(v)) return this._audioVolume ?? 1;
         this._audioVolume = v;
         if (this.audioElement) this.audioElement.volume = v;
+        if (this._networkMusic && this.multiplayer?._broadcastState?.playing) this._networkMusic.gain.gain.value = v;
         return v;
     }
 
@@ -1322,7 +1367,8 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!rig || !rig.ok || !performer || !rig.root || !rig.root.isEnabled()) return;
         const music = this._djMusic;
         const vj = this.vjDirector, show = this.showDirector;
-        music.hasAudio = !!(audioData && audioData.hasAudio);
+        const fallback = this._unanalysedDanceMusic();
+        music.hasAudio = this._audioKind === 'soundcloud' ? !!fallback : !!(audioData && audioData.hasAudio);
         music.bpm = (vj && vj.bpm) || 120;
         // Beat phase inside the beat, from the bar phase (0..1 over four beats).
         const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
@@ -1344,6 +1390,15 @@ class VRClubAudioCrowd extends VRClubUI {
             }
         }
         music.drop = drop;
+        if (this._audioKind === 'soundcloud') {
+            music.drop = false;
+            if (fallback) {
+                music.bpm = fallback.bpm;
+                music.beatPhase = fallback.beat % 1;
+                music.bar = Math.floor(fallback.beat / 4);
+                music.energy = fallback.energy;
+            }
+        }
         // Who might walk up to the booth: this guest, and the other people in the room.
         const visitors = this._djVisitors;
         visitors.length = 0;
@@ -2491,6 +2546,11 @@ class VRClubAudioCrowd extends VRClubUI {
             return;
         }
         if (!npc.root.isEnabled()) {
+            this._releaseMinglerPartner(state);
+            if (state.returning && state.returning.root) {
+                state.returning.root.rotation.y = state.returning.slotYaw || 0;
+                state.returning = null;
+            }
             this._updateBartender(step, null);
             this._updateMinglerDrink(npc, 'wash');
             this._updateMinglerSmoke(npc, false);
@@ -2499,7 +2559,11 @@ class VRClubAudioCrowd extends VRClubUI {
         const route = this._mingleRoute || (this._mingleRoute = this._minglerRoute());
         const pos = npc.root.position;
 
-        if (state.phase === 'walk') {
+        const client = this.multiplayer && this.multiplayer.client;
+        const roomTime = client && typeof client.worldTime === 'function' ? client.worldTime() : null;
+        if (Number.isFinite(roomTime)) {
+            this._sampleSharedMingler(npc, route, client.worldClock, roomTime);
+        } else if (state.phase === 'walk') {
             const node = route.nodes[state.node];
             const dx = node.x - pos.x, dz = node.z - pos.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
@@ -2541,7 +2605,8 @@ class VRClubAudioCrowd extends VRClubUI {
 
         this._updateBartender(step, state.partner && state.partner.name === 'bartender' ? state : null);
         this._syncMinglerDrinkPose(npc);
-        VRClubAudioCrowd._easeYaw(npc.root, state.yaw, step, 4.0);
+        if (Number.isFinite(roomTime)) npc.root.rotation.y = state.yaw;
+        else VRClubAudioCrowd._easeYaw(npc.root, state.yaw, step, 4.0);
         // The people he stops at look at him while he is there, and go back to the way they were placed afterwards.
         if (state.partner && state.partner.root) {
             const px = state.partner.root.position;
@@ -2561,8 +2626,63 @@ class VRClubAudioCrowd extends VRClubUI {
                             : state.activity === 'clear' ? 'clear' : 'wash';
         this._updateMinglerDrink(npc, drinkMode, progress);
         this._updateMinglerSmoke(npc, state.activity === 'smoke', step, state.duration);
+        if (Number.isFinite(roomTime) && state.activity === 'smoke' && npc.smoke) {
+            const smoke = npc.smoke;
+            smoke.smoked = state.attentionTime;
+            smoke.cigarette.scaling.y = smoke.baseScaleY * (1 - 0.45 * Math.min(1, smoke.smoked / state.duration));
+            smoke.ember.scaling.y = smoke.baseScaleY / smoke.cigarette.scaling.y;
+        }
         if (npc.collider) npc.collider.position.set(pos.x, pos.y + 0.85, pos.z);
         this._moveContactShadow(npc);
+    }
+
+    _sampleSharedMingler(npc, route, clock, seconds) {
+        if (!this._sharedMingleClock || this._sharedMingleSeed !== clock.seed || this._sharedMingleStart !== clock.startedAt) {
+            const slots = this._guestSlots();
+            this._sharedMingleClock = new window.MinglerClock(route, clock.seed,
+                (x, z, level) => this._minglerSurfaceLevel(x, z, level),
+                node => node.bartender ? window.VenueLayout.bar.bartender : slots[node.guest]);
+            this._sharedMingleSeed = clock.seed;
+            this._sharedMingleStart = clock.startedAt;
+        }
+        const sample = this._sharedMingleClock.sample(seconds), state = npc.mingle;
+        const node = route.nodes[sample.node];
+        const partner = sample.phase === 'dwell' && sample.activity !== 'balcony' && sample.activity !== 'watch' &&
+            sample.activity !== 'smoke'
+            ? node.bartender ? this._mingleNamed('bartender') : this._mingleGuest(node.guest) : null;
+        if (state.partner !== partner) {
+            this._releaseMinglerPartner(state);
+            state.partner = partner;
+            if (partner) VRClubAudioCrowd._playClip(partner, 'Idle_Talking_Loop', partner.baseSpeed);
+        }
+        state.phase = sample.phase;
+        state.node = sample.node;
+        state.dir = sample.dir;
+        state.activity = sample.activity;
+        state.duration = sample.duration;
+        state.timer = sample.timer;
+        state.attentionTime = sample.elapsed;
+        state.yaw = state.baseYaw = sample.yaw;
+        state.sips = sample.sips;
+        state.drinkStop = !!node.drink && sample.phase === 'dwell';
+        state.talkGuest = sample.activity === 'balcony' ? node.guest : null;
+        npc.root.position.set(sample.x, this._minglerSurfaceLevel(sample.x, sample.z, sample.level), sample.z);
+        const drinking = sample.clip === 'Drink_Loop';
+        const speed = sample.phase === 'walk' ? route.speed / route.walkClipSpeed : drinking ? 1 : npc.baseSpeed;
+        VRClubAudioCrowd._playClip(npc, sample.clip, speed, !drinking);
+        const group = npc.animations[0];
+        if (!drinking && group && group.targetedAnimations.length && group.to > group.from) {
+            const fps = group.targetedAnimations[0].animation.framePerSecond;
+            group.goToFrame(group.from + (sample.elapsed * speed * fps) % (group.to - group.from));
+        }
+    }
+
+    _releaseMinglerPartner(state) {
+        if (!state.partner) return;
+        VRClubAudioCrowd._playClip(state.partner, state.partner.slotClip, state.partner.baseSpeed);
+        if (state.returning && state.returning.root) state.returning.root.rotation.y = state.returning.slotYaw || 0;
+        state.returning = state.partner;
+        state.partner = null;
     }
 
     _minglerArrive(npc, route, node) {
@@ -2636,15 +2756,7 @@ class VRClubAudioCrowd extends VRClubUI {
         state.attentionTime = 0;
         state.drinkStop = false;
         state.talkGuest = null;
-        if (state.partner) {
-            VRClubAudioCrowd._playClip(state.partner, state.partner.slotClip, state.partner.baseSpeed);
-            // Only one person eases back at a time; anyone still turning is simply put back where they stood.
-            if (state.returning && state.returning.root) {
-                state.returning.root.rotation.y = state.returning.slotYaw || 0;
-            }
-            state.returning = state.partner;
-            state.partner = null;
-        }
+        this._releaseMinglerPartner(state);
         state.node += state.dir;
         if (state.node >= route.nodes.length) { state.node = route.nodes.length - 2; state.dir = -1; }
         else if (state.node < 0) { state.node = 1; state.dir = 1; }
@@ -2730,9 +2842,29 @@ class VRClubAudioCrowd extends VRClubUI {
         return typeof CrowdDance !== 'undefined' ? Object.keys(CrowdDance.MOVES) : ['Dance_Loop'];
     }
 
+    /** An animation clock, not an inferred musical beat. Only confirmed embedded playback enables it. */
+    _unanalysedDanceMusic() {
+        if (this._audioKind !== 'soundcloud' || !this._soundCloudFrame || !this._soundCloudPlaying) return null;
+        const music = this._unanalysedDanceState || (this._unanalysedDanceState = {
+            fallback: true, beatPresent: false, rhythm: false, beat: 0, bpm: 120,
+            energy: 0.55, build: false, drop: false
+        });
+        music.beat = (this._soundCloudDanceBeat || 0) +
+            Math.max(0, performance.now() - this._soundCloudDanceStartedAt) / 500;
+        return music;
+    }
+
     /** The music as the choreographer sees it, in one reused object. */
     _crowdMusic(audioData) {
         const m = this._crowdMusicState || (this._crowdMusicState = { beatPresent: false, rhythm: false, beat: 0, bpm: 120, energy: 0.5, build: false, drop: false });
+        if (this._audioKind === 'soundcloud') {
+            this._crowdAudioUntil = 0;
+            m.beatPresent = false;
+            m.rhythm = false;
+            m.build = false;
+            m.drop = false;
+            return this._unanalysedDanceMusic() || m;
+        }
         const vj = this.vjDirector, show = this.showDirector;
         m.bpm = (vj && vj.bpm) || 120;
         const now = performance.now();

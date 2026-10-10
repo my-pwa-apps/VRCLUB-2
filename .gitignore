@@ -26,6 +26,8 @@ yarn-error.log*
 # Build outputs
 dist/
 quest-package/
+invitations.json
+invitations.sql
 native-poc/app/src/main/assets/web/
 *.keystore
 *.jks

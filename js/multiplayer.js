@@ -31,7 +31,8 @@ class ClubMultiplayer {
         nameTags: 'vrclub.nameTags',
         duckForVoice: 'vrclub.duckForVoice',
         autoNod: 'vrclub.autoNod',
-        avatarPool: 'vrclub.avatarPool'
+        avatarPool: 'vrclub.avatarPool',
+        privateRooms: 'vrclub.privateRooms'
     });
 
     static HOSTED_RELAY = 'wss://vrclub-network.garfieldapp.workers.dev';
@@ -144,9 +145,16 @@ class ClubMultiplayer {
         /** Typed messages this session, oldest first: {id, name, text, at, self}. */
         this.chat = [];
         this.chatUnread = 0;
+        this.chatAudience = null;
+        this.voiceAudience = null;
         this._duckHoldUntil = 0;
         // Shared music: a guest's browser fetches the host's stream only after an explicit "Listen along".
         this.listenAlong = false;
+        this._localMusicDestination = null;
+        this._localMusicSource = null;
+        this._remoteMusic = null;
+        this._broadcastState = null;
+        this._musicHostId = null;
         this.pendingMusic = null;
         this._nod = { baseline: null, down: false, downAt: 0, cooldownUntil: 0 };
         // Shared lights and music (see the header).
@@ -158,6 +166,9 @@ class ClubMultiplayer {
         this._roleApplied = null;
         this._pingTimer = null;
         this._disposed = false;
+        this.roomDirectory = { publicRooms: [], privateRooms: [], next: null, loading: false, loaded: false, error: '' };
+        this._directoryController = null;
+        this._directoryServer = '';
         club.multiplayer = this;
     }
 
@@ -310,6 +321,8 @@ class ClubMultiplayer {
         // A new room starts a new conversation.
         this.chat = [];
         this.chatUnread = 0;
+        this.chatAudience = this.chatAudience === null ? null : [];
+        this.voiceAudience = this.voiceAudience === null ? null : [];
 
         const club = this.club;
         const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool, blocked: this.blockedList().map(item => item.pid) });
@@ -320,6 +333,7 @@ class ClubMultiplayer {
         this.manager.setMuteAll(this.muteAll);
         this.manager.onSpeakingChange = () => this._emit();
         this.client = client;
+        client.setVoiceAudience(this.voiceAudience);
         club.networkManager = client;
         this._wire(client);
         client.connect();
@@ -373,12 +387,135 @@ class ClubMultiplayer {
         return this.connect({ room });
     }
 
+    savedPrivateRooms(serverUrl = this.serverUrl) {
+        try {
+            const saved = JSON.parse(this.storage?.getItem(ClubMultiplayer.PREFS.privateRooms) || '[]');
+            if (!Array.isArray(saved)) throw new Error('Saved room data is invalid.');
+            return saved.filter(item => item && item.serverUrl === serverUrl &&
+                typeof item.room === 'string' && /^private-/i.test(item.room) && item.room.length <= 64 &&
+                item.room === item.room.trim() && !/[\u0000-\u001f\u007f]/.test(item.room)).slice(0, 12);
+        } catch (error) {
+            throw new Error('Saved private rooms could not be read: ' + error.message);
+        }
+    }
+
+    savePrivateRoom(code, serverUrl = this.serverUrl) {
+        const room = ClubMultiplayer.roomFromCode(code);
+        if (!/^private-/i.test(room) || String(code).trim().length > 64 || /[\u0000-\u001f\u007f]/.test(room)) {
+            this.roomDirectory.error = 'Enter a six-digit private room code.';
+            this._emit();
+            return false;
+        }
+        try {
+            const url = new URL(serverUrl);
+            if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('Enter a valid WebSocket relay address.');
+            const previous = JSON.parse(this._read(ClubMultiplayer.PREFS.privateRooms) || '[]');
+            if (!Array.isArray(previous)) throw new Error('Saved room data is invalid.');
+            const saved = [{ room, serverUrl }, ...previous.filter(item => item &&
+                !(item.room === room && item.serverUrl === serverUrl))].slice(0, 12);
+            if (!this.storage) throw new Error('Browser storage is unavailable.');
+            this.storage.setItem(ClubMultiplayer.PREFS.privateRooms, JSON.stringify(saved));
+            this._emit();
+            return true;
+        } catch (error) {
+            this.roomDirectory.error = 'Could not save the private room: ' + error.message;
+            this._emit();
+            return false;
+        }
+    }
+
+    forgetPrivateRoom(room) {
+        try {
+            const previous = JSON.parse(this._read(ClubMultiplayer.PREFS.privateRooms) || '[]');
+            if (!Array.isArray(previous) || !this.storage) throw new Error('Browser storage is unavailable.');
+            this.storage.setItem(ClubMultiplayer.PREFS.privateRooms, JSON.stringify(previous.filter(item =>
+                item && !(item.room === room && item.serverUrl === this._directoryServer))));
+            this.roomDirectory.privateRooms = this.roomDirectory.privateRooms.filter(item => item.room !== room);
+            this._emit();
+        } catch (error) {
+            this.roomDirectory.error = 'Could not forget the private room: ' + error.message;
+            this._emit();
+        }
+    }
+
+    async refreshRooms({ serverUrl = this.serverUrl, more = false } = {}) {
+        if (this._disposed || this.roomDirectory.loading) return;
+        const state = this.roomDirectory;
+        const controller = new AbortController();
+        this._directoryController = controller;
+        state.loading = true; state.error = '';
+        this._emit();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
+        try {
+            const base = new URL(serverUrl);
+            if (!['ws:', 'wss:'].includes(base.protocol) || base.username || base.password) throw new Error('Enter a valid WebSocket relay address.');
+            base.protocol = base.protocol === 'wss:' ? 'https:' : 'http:';
+            base.pathname = '/rooms'; base.search = ''; base.hash = '';
+            if (more && this._directoryServer === serverUrl && state.next) base.searchParams.set('after', state.next);
+            const request = async (url, options = {}) => {
+                const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store', credentials: 'omit' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message || 'Room lookup failed (' + response.status + ').');
+                if (!Array.isArray(data.rooms) || data.rooms.some(item => !item || typeof item.room !== 'string' ||
+                    !item.room.length || item.room.length > 64 || item.room !== item.room.trim() || /[\u0000-\u001f\u007f]/.test(item.room) ||
+                    !Number.isInteger(item.people) || item.people < 0 || item.people > 8 ||
+                    item.capacity !== 8 || typeof item.locked !== 'boolean' || typeof item.active !== 'boolean')) {
+                    throw new Error('The relay returned invalid room information.');
+                }
+                return data;
+            };
+            const publicData = await request(base.href);
+            const saved = this.savedPrivateRooms(serverUrl);
+            base.pathname = '/rooms/status'; base.search = '';
+            const privateData = saved.length ? await request(base.href, { method: 'POST',
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms: saved.map(item => item.room) }) }) : { rooms: [] };
+            if (this._disposed) return;
+            const publicRooms = publicData.rooms.filter(item => !/^private-/i.test(item.room));
+            state.publicRooms = more && this._directoryServer === serverUrl
+                ? [...new Map([...state.publicRooms, ...publicRooms].map(item => [item.room, item])).values()] : publicRooms;
+            state.privateRooms = privateData.rooms.filter(item => saved.some(entry => entry.room === item.room));
+            state.next = typeof publicData.next === 'string' ? publicData.next : null;
+            state.loaded = true;
+            this._directoryServer = serverUrl;
+        } catch (error) {
+            if (!this._disposed) state.error = error.name === 'AbortError' ? 'Room lookup timed out. Please retry.' : error.message;
+        } finally {
+            clearTimeout(timeout);
+            this._directoryController = null;
+            state.loading = false;
+            if (!this._disposed) this._emit();
+        }
+    }
+
+    directoryRooms() {
+        return [...this.roomDirectory.publicRooms.map(item => ({ ...item, private: false })),
+            ...this.roomDirectory.privateRooms.map(item => ({ ...item, private: true }))];
+    }
+
+    joinListedRoom(room, { name = this.name } = {}) {
+        const entry = this.directoryRooms().find(item => item.room === room);
+        if (!entry || entry.locked || entry.people >= entry.capacity) {
+            this.roomDirectory.error = 'That room is locked, full or no longer listed. Refresh the rooms.';
+            this._emit();
+            return false;
+        }
+        if (this.connected || this.connecting) this.disconnect();
+        return this.connect({ room, serverUrl: this._directoryServer, name });
+    }
+
     _wire(client) {
         const club = this.club;
         const manager = this.manager;
         client.onStatusChange = (status) => {
             club.isMultiplayer = status === 'connected';
+            if (status === 'connected' && /^private-/i.test(client.room)) this.savePrivateRoom(client.room, client.serverUrl);
             if (status !== 'connected') {
+                this.chatAudience = this.chatAudience === null ? null : [];
+                this.voiceAudience = this.voiceAudience === null ? null : [];
+                client.setVoiceAudience(this.voiceAudience);
+                this._stopMusicBroadcast();
+                this._stopRemoteMusic();
+                this._broadcastState = null;
                 this.pendingMusic = null;
                 this.dancing = false;
                 this.locked = false;
@@ -395,17 +532,27 @@ class ClubMultiplayer {
             this._show.dirty = true; // a newcomer needs the lights now, not at the next heartbeat
             this._musicBeatAt = 0;
             this._syncRole();
+            if (client.isHost()) this.shareLocalMusic();
             this._emit();
         };
         client.onPeerState = (id, state) => manager.updatePeerState(id, null, state);
-        client.onPeerLeave = (id) => { manager.removePeer(id); this._syncRole(); this._emit(); };
+        client.onPeerLeave = (id) => {
+            manager.removePeer(id);
+            for (const scope of ['chat', 'voice']) {
+                const key = `${scope}Audience`;
+                if (this[key] !== null) this[key] = this[key].filter(peerId => peerId !== id);
+            }
+            client.setVoiceAudience(this.voiceAudience);
+            this._syncRole();
+            this._emit();
+        };
         client.onPeerAvatar = (id, avatar) => { manager.setAvatar(id, avatar); this._emit(); };
         client.onSelfAvatar = (avatar) => { this.selfAvatar = avatar; this._emit(); };
         client.onEmoji = (id, emoji) => manager.showEmoji(id, emoji);
-        client.onChat = (id, text) => {
+        client.onChat = (id, text, restricted) => {
             const peer = client.peers.get(id);
-            this._logChat({ id, name: peer ? peer.name : 'Guest', text, self: false });
-            manager.showChat(id, text);
+            this._logChat({ id, name: peer ? peer.name : 'Guest', text, self: false, restricted });
+            manager.showChat(id, restricted ? `[Selected recipients] ${text}` : text);
         };
         client.onGesture = (id, gesture) => manager.playGesture(id, gesture);
         client.onHostChange = (hostId) => {
@@ -413,10 +560,26 @@ class ClubMultiplayer {
             this._show.dirty = true;
             this._musicBeatAt = 0;
             this._syncRole();
+            if (client.isHost()) this.shareLocalMusic();
             this._emit();
         };
         client.onRoom = (locked) => { this.locked = !!locked; this._emit(); };
         client.onMusic = (music) => this._applyMusic(music);
+        client.onMusicBroadcast = state => this._applyMusicBroadcast(state);
+        client.onRemoteMusic = (id, stream) => {
+            if (!stream) { this._stopRemoteMusic(); return; }
+            if (id !== client.hostId || !this.listenAlong || !this.following) return;
+            try {
+                this._stopRemoteMusic();
+                this._remoteMusic = this.club.startNetworkMusic(stream, this._broadcastState);
+                if (typeof window.announceNowPlaying === 'function') window.announceNowPlaying(this.club.nowPlayingLabel);
+            } catch (error) {
+                this.listenAlong = false;
+                client.setMusicListening(false);
+                if (this._broadcastState) this.pendingMusic = { broadcast: true, ...this._broadcastState };
+                club.showErrorMessage(`The host's broadcast could not play: ${error.message}`);
+            }
+        };
         client.onShow = (frame) => this._applyShow(frame);
         client.musicDecorator = (music) => this._decorateMusic(music);
         client.onRemoteStream = (id, stream) => manager.attachVoice(id, stream);
@@ -454,12 +617,45 @@ class ClubMultiplayer {
         return client.micEnabled;
     }
 
-    /** Send a typed message to everyone in the room. Returns false when not connected or there is nothing to send. */
+    audienceLabel(scope) {
+        const ids = this[`${scope}Audience`];
+        if (ids === null) return 'Everyone';
+        if (!ids.length) return 'Nobody selected';
+        return ids.map(id => this.client?.peers.get(id)?.name || 'Departed guest').join(', ');
+    }
+
+    setAudience(scope, ids) {
+        if (!['chat', 'voice'].includes(scope) || (ids !== null && !Array.isArray(ids))) {
+            this.club.showErrorMessage('Choose a chat or microphone audience.');
+            return false;
+        }
+        this[`${scope}Audience`] = ids === null ? null : [...new Set(ids)].filter(id => this.client?.peers.has(id));
+        if (scope === 'voice' && this.client) this.client.setVoiceAudience(this.voiceAudience);
+        this._emit();
+        return true;
+    }
+
+    toggleAudiencePeer(scope, id) {
+        if (!this.client?.peers.has(id)) return false;
+        const current = this[`${scope}Audience`] || [];
+        return this.setAudience(scope, current.includes(id) ? current.filter(peer => peer !== id) : [...current, id]);
+    }
+
+    /** Chat and quick phrases use the same selected audience; empty selections fail closed. */
     sendChat(text) {
         if (!this.connected) return false;
         const clean = NetworkClient.cleanChat(text);
-        if (!clean || !this.client.sendChat(clean)) return false;
-        this._logChat({ id: this.client.selfId, name: this.name, text: clean, self: true });
+        if (!clean) return false;
+        if (this.chatAudience !== null && !this.client.targetedChat) {
+            this.club.showErrorMessage('This relay needs an update before it can deliver selected-recipient chat. Nothing was sent.');
+            return false;
+        }
+        if (!this.client.sendChat(clean, this.chatAudience)) {
+            this.club.showErrorMessage('Nobody selected for chat. Choose recipients or Everyone; nothing was sent.');
+            return false;
+        }
+        this._logChat({ id: this.client.selfId, name: this.name, text: clean, self: true,
+            restricted: this.chatAudience !== null, audience: this.audienceLabel('chat') });
         return true;
     }
 
@@ -643,6 +839,20 @@ class ClubMultiplayer {
         return true;
     }
 
+    transferHost(id) {
+        let error = '';
+        if (!this.connected || !this.isHost()) error = 'Only the current host can give someone else host control.';
+        else if (!this.client.hostTransferSupported) error = 'This relay needs an update before host control can be transferred.';
+        else if (!this.client.peers.has(id)) error = 'That person is no longer in this room.';
+        if (error) {
+            this.lastError = error;
+            this.club.showErrorMessage?.(error);
+            this._emit();
+            return false;
+        }
+        return this.client.transferHost(id);
+    }
+
     // ───────────────────────── shared music (the host drives it) ─────────────────────────
 
     /** Share the user's set name, never a provider-selected DJ. */
@@ -658,6 +868,9 @@ class ClubMultiplayer {
         const client = this.client, club = this.club;
         if (!music || !client || client.isHost()) return;
         if (!music.url || !NetworkClient.isShareableMusicUrl(music.url)) return;
+        this._broadcastState = null;
+        this._stopRemoteMusic();
+        client.setMusicListening(false);
         if (!this.listenAlong) {
             this.pendingMusic = music;
             this._emit();
@@ -703,6 +916,7 @@ class ClubMultiplayer {
     pendingMusicInfo() {
         const music = this.pendingMusic;
         if (!music) return null;
+        if (music.broadcast) return { origin: 'the host via WebRTC (your IP is shared with the host)', playing: !!music.playing };
         let origin = music.url;
         try { origin = new URL(music.url).host; } catch (_) { /* keep the raw URL */ }
         return { origin, playing: !!music.playing };
@@ -713,14 +927,99 @@ class ClubMultiplayer {
         this.listenAlong = true;
         this.pendingMusic = null;
         // The click that calls this is also the user gesture autoplay policies require.
-        if (music) this._applyMusic(music);
+        if (music && music.broadcast) {
+            try {
+                this.club._ensureAudioContext();
+                if (this.club.audioElement) this.club.audioElement.pause();
+                this.club._stopSoundCloudPlayer();
+                this.client.setMusicListening(true);
+            } catch (error) {
+                this.listenAlong = false;
+                this.pendingMusic = music;
+                this.club.showErrorMessage(`Could not listen to the broadcast: ${error.message}`);
+            }
+        } else if (music) this._applyMusic(music);
         this._emit();
+    }
+
+    _applyMusicBroadcast(state) {
+        if (!this.following) return;
+        this._broadcastState = state.available ? state : null;
+        if (!state.available) {
+            if (this.pendingMusic?.broadcast) this.pendingMusic = null;
+            this._stopRemoteMusic();
+        } else if (!this.listenAlong) {
+            this.pendingMusic = { broadcast: true, ...state };
+        } else {
+            if (!this.client.musicListening) this.client.setMusicListening(true);
+            if (this.club.audioElement) this.club.audioElement.pause();
+            this.club._stopSoundCloudPlayer();
+            if (this._remoteMusic) {
+                this._remoteMusic.gain.gain.value = state.playing ? (this.club._audioVolume ?? 1) : 0;
+                this.club.nowPlayingLabel = state.title;
+            }
+        }
+        this._emit();
+    }
+
+    _stopRemoteMusic() {
+        if (!this._remoteMusic) return;
+        this.club.stopNetworkMusic(this._remoteMusic);
+        this._remoteMusic = null;
+    }
+
+    _stopMusicBroadcast() {
+        if (!this._localMusicDestination) return;
+        this._localMusicSource.disconnect(this._localMusicDestination);
+        for (const track of this._localMusicDestination.stream.getTracks()) track.stop();
+        this._localMusicDestination.disconnect();
+        this._localMusicDestination = null;
+        this._localMusicSource = null;
+    }
+
+    /** Called on playback changes and the existing music heartbeat, not per render frame. */
+    shareLocalMusic() {
+        const club = this.club, client = this.client;
+        if (!client || !client.connected || !client.isHost()) return;
+        const local = club._audioKind === 'file' && club.audioElement && club.audioSource;
+        if (!local) {
+            if (this._localMusicDestination || client.musicState?.available) {
+                this._stopMusicBroadcast();
+                client.setLocalMusic(null, { playing: false });
+            }
+            return;
+        }
+        try {
+            if (!this._localMusicDestination) {
+                this._localMusicDestination = club.audioContext.createMediaStreamDestination();
+                this._localMusicSource = club.audioSource;
+                this._localMusicSource.connect(this._localMusicDestination);
+            }
+            client.setLocalMusic(this._localMusicDestination.stream, {
+                playing: !club.audioElement.paused && !club.audioElement.ended,
+                title: club.nowPlayingLabel
+            });
+        } catch (error) {
+            this._stopMusicBroadcast();
+            club.showErrorMessage(`Local music could not be broadcast: ${error.message}`);
+        }
     }
 
     // ───────────────────────── shared lights (the host drives them) ─────────────────────────
 
     /** Follow the host or run alone, as the connection and the host change. */
     _syncRole() {
+        const hostId = this.client && this.client.hostId;
+        if (hostId !== this._musicHostId) {
+            this._musicHostId = hostId;
+            this._stopRemoteMusic();
+            this._stopMusicBroadcast();
+            this._broadcastState = null;
+            this.pendingMusic = null;
+            this.listenAlong = false;
+            if (this.client) this.client.resetMusic();
+        }
+        if (!this.following) this._stopRemoteMusic();
         const following = this.following;
         if (following === this._roleApplied) return;
         const was = this._roleApplied;
@@ -736,13 +1035,13 @@ class ClubMultiplayer {
         if (typeof document !== 'undefined' && document.documentElement) document.documentElement.classList.toggle('room-guest', following);
         // Leaving a host's show: the rig carries on, and a console left in manual does not expire the instant it is handed back.
         if (was && !following) club.lastVJInteraction = performance.now() / 1000;
-        // Promoted because the host left: say so, and ask for music if nothing is playing that guests could follow.
+        // A promotion can follow a departure or an explicit handover.
         if (was === true && !following && this.connected && !this.isHost() && typeof club.showErrorMessage === 'function') {
             club.showErrorMessage('You can no longer see the host, so your music and lights are your own again.');
         } else if (was === true && !following && this.connected && typeof club.showErrorMessage === 'function') {
             const playing = club.audioElement && !club.audioElement.paused && club._audioKind === 'stream';
-            club.showErrorMessage(playing ? 'The host left: you are now the host. You control the music and the lights.'
-                : 'The host left: you are now the host. Pick some music for the room.');
+            club.showErrorMessage(playing ? 'You are now the host. You control the music and the lights.'
+                : 'You are now the host. Pick some music for the room.');
         }
     }
 
@@ -879,14 +1178,14 @@ class ClubMultiplayer {
         const el = this.club.audioElement;
         if (!el || el === this._audioWatched) return;
         if (this._audioWatched && this._audioShareListener) {
-            for (const type of ['play', 'pause', 'seeked']) this._audioWatched.removeEventListener(type, this._audioShareListener);
+            for (const type of ['play', 'pause', 'seeked', 'ended', 'loadeddata', 'emptied']) this._audioWatched.removeEventListener(type, this._audioShareListener);
         }
         this._audioWatched = el;
         this._audioShareListener = () => {
             clearTimeout(this._shareTimer);
             this._shareTimer = setTimeout(() => { if (this.isHost()) this.club._shareAudioPosition(); }, 250);
         };
-        for (const type of ['play', 'pause', 'seeked']) el.addEventListener(type, this._audioShareListener);
+        for (const type of ['play', 'pause', 'seeked', 'ended', 'loadeddata', 'emptied']) el.addEventListener(type, this._audioShareListener);
     }
 
     /** Per frame, host side: keep the room's music and lights current. Guest side: keep the lights on the host's frame. */
@@ -899,7 +1198,7 @@ class ClubMultiplayer {
                 if (now - this._musicBeatAt >= ClubMultiplayer.MUSIC_HEARTBEAT_MS) {
                     this._musicBeatAt = now;
                     const audio = this.club.audioElement;
-                    if (audio && !audio.paused) this.club._shareAudioPosition();
+                    if (audio) this.club._shareAudioPosition();
                 }
             }
             return;
@@ -967,11 +1266,12 @@ class ClubMultiplayer {
 
     dispose() {
         this._disposed = true;
+        if (this._directoryController) this._directoryController.abort();
         this._stopPing();
         if (typeof this.club.setVoiceDuck === 'function') this.club.setVoiceDuck(false);
         clearTimeout(this._shareTimer);
         if (this._audioWatched && this._audioShareListener) {
-            for (const type of ['play', 'pause', 'seeked']) this._audioWatched.removeEventListener(type, this._audioShareListener);
+            for (const type of ['play', 'pause', 'seeked', 'ended', 'loadeddata', 'emptied']) this._audioWatched.removeEventListener(type, this._audioShareListener);
         }
         this._audioWatched = null;
         if (this.club.showDirector) this.club.showDirector.setFollower(false);

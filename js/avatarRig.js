@@ -99,13 +99,8 @@ class AvatarRig {
         for (const name of AvatarRig.BONES) this.ix[name] = this.index.get(nodes[name]);
 
         // --- scratch (no per-frame allocation) -------------------------------------
-        const V = BABYLON.Vector3, M = BABYLON.Matrix, Q = BABYLON.Quaternion;
-        this._v = Array.from({ length: 10 }, () => new V());
-        this._m = Array.from({ length: 6 }, () => new M());
-        this._q = new Q();
-        this._q2 = new Q();
-        this._scaleOut = new V();
-        this._tOut = new V();
+        this._initPoseScratch();
+        const V = BABYLON.Vector3;
         this.F = new V(0, 0, 1);
         this.R = new V(1, 0, 0);
         this.U = new V(0, 1, 0);
@@ -139,6 +134,90 @@ class AvatarRig {
 
         this._measure(options.eyeHeight || 1.7);
         this.ok = true;
+    }
+
+    _initPoseScratch() {
+        const V = BABYLON.Vector3, M = BABYLON.Matrix, Q = BABYLON.Quaternion;
+        this._v = Array.from({ length: 10 }, () => new V());
+        this._m = Array.from({ length: 6 }, () => new M());
+        this._q = new Q(); this._q2 = new Q();
+        this._scaleOut = new V(); this._tOut = new V();
+    }
+
+    /** An arm-only view of an existing modular character; it owns no meshes, materials or animations. */
+    static createTrackedArms(root, prefix) {
+        const rig = Object.create(AvatarRig.prototype);
+        const nodes = {};
+        root.getChildTransformNodes(false).forEach(node => {
+            if (node.name.startsWith(prefix)) nodes[node.name.slice(prefix.length)] = node;
+        });
+        const names = {};
+        for (const [suffix, side] of [['l', 'L'], ['r', 'R']]) {
+            names[`upperarm_${suffix}`] = `UpperArm.${side}`;
+            names[`lowerarm_${suffix}`] = `LowerArm.${side}`;
+            names[`hand_${suffix}`] = `Wrist.${side}`;
+            names[`index_01_${suffix}`] = `Index1.${side}`;
+            names[`pinky_01_${suffix}`] = `Pinky1.${side}`;
+        }
+        const needed = new Set();
+        for (const name of Object.values(names)) {
+            if (!nodes[name]) return null;
+            for (let node = nodes[name]; node && node !== root; node = node.parent) needed.add(node);
+        }
+        const depth = node => { let d = 0; for (let p = node.parent; p && p !== root; p = p.parent) d++; return d; };
+        rig.order = [...needed].sort((a, b) => depth(a) - depth(b));
+        rig.index = new Map(rig.order.map((node, i) => [node, i]));
+        rig.ix = {};
+        for (const [key, name] of Object.entries(names)) rig.ix[key] = rig.index.get(nodes[name]);
+        rig.order.forEach(node => {
+            if (!node.rotationQuaternion) node.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(node.rotation.x, node.rotation.y, node.rotation.z);
+        });
+        rig.root = root;
+        rig._initPoseScratch();
+        rig._buildCache();
+        const yaw = root.parent.rotation.y;
+        const left = rig.pos[rig.ix.upperarm_l], right = rig.pos[rig.ix.upperarm_r];
+        // Removing the glTF root conversion mirrors bone names; choose physical sides in the guest's facing frame.
+        const namedLeftIsLeft = (left.x - right.x) * Math.cos(yaw) - (left.z - right.z) * Math.sin(yaw) < 0;
+        rig.arms = ['l', 'r'].map(suffix => ({
+            suffix, side: (suffix === 'l') === namedLeftIsLeft ? 'left' : 'right',
+            upper: rig.ix[`upperarm_${suffix}`], lower: rig.ix[`lowerarm_${suffix}`], hand: rig.ix[`hand_${suffix}`],
+            otherUpper: rig.ix[`upperarm_${suffix === 'l' ? 'r' : 'l'}`],
+            indices: [rig.ix[`upperarm_${suffix}`], rig.ix[`lowerarm_${suffix}`], rig.ix[`hand_${suffix}`]]
+        }));
+        rig._handWorld = {};
+        return rig;
+    }
+
+    /** Run after clip evaluation, reading the animated torso before overriding only tracked arms. */
+    updateTrackedArms(hands, yaw, eyeHeight) {
+        for (const node of this._extNodes) node.computeWorldMatrix(true);
+        for (let i = 0; i < this.order.length; i++) {
+            const node = this.order[i];
+            this.Lt[i].copyFrom(node.position);
+            this.Ls[i].copyFrom(node.scaling);
+            this.Lq[i].copyFrom(node.rotationQuaternion);
+        }
+        this._refreshCache();
+        const fx = Math.sin(yaw), fz = Math.cos(yaw);
+        for (const arm of this.arms) {
+            const relative = hands[arm.side];
+            if (!relative) continue;
+            const hand = this._handWorld;
+            hand.fx = relative.fx; hand.fy = relative.fy; hand.fz = relative.fz;
+            hand.ux = relative.ux; hand.uy = relative.uy; hand.uz = relative.uz;
+            const rootPosition = this.root.parent.position;
+            hand.x = rootPosition.x + relative.x;
+            hand.y = rootPosition.y + eyeHeight + relative.y;
+            hand.z = rootPosition.z + relative.z;
+            const shoulder = this.pos[arm.upper], other = this.pos[arm.otherUpper];
+            const dx = shoulder.x - other.x, dz = shoulder.z - other.z;
+            const width = Math.hypot(dx, dz) || 1;
+            this._limb(arm.upper, arm.lower, arm.hand, this._v[4].set(hand.x, hand.y, hand.z),
+                -fx * 0.7 + dx / width * 0.7, -0.35, -fz * 0.7 + dz / width * 0.7);
+            this._poseHand(arm.hand, arm.suffix, hand);
+            for (const index of arm.indices) this.order[index].rotationQuaternion.copyFrom(this.Lq[index]);
+        }
     }
 
     // ───────────────────────── measurement (once) ─────────────────────────
