@@ -172,6 +172,16 @@ class ModelLoader {
                 scale: new BABYLON.Vector3(1, 1, 1),
                 placement: { fitAxis: 'y', fitSize: 1.12, centerX: 9.2, centerZ: -12.9, bottomY: 0 },
                 attribution: 'Metal Stool 03 by Flo Tasser, Poly Haven (CC0)'
+            },
+            // Quaternius "L Couch" (CC0). The two standard cushions are interactive; the chaise is visual.
+            lounge_couch: {
+                name: 'Lounge Couch',
+                url: './js/models/lounge/source/l_couch.glb',
+                rotation: new BABYLON.Vector3(0, 0, 0),
+                scale: new BABYLON.Vector3(1, 1, 1),
+                placement: { fitAxis: 'x', fitSize: 3.0, centerX: 8.7, centerZ: -18.75, bottomY: 0 },
+                emissiveFloor: 0.025,
+                attribution: 'L Couch by Quaternius (CC0)'
             }
         };
     }
@@ -1116,8 +1126,9 @@ class ModelLoader {
             // Bass bins hang from the speakers' real undersides, so they load once those have been placed.
             await Promise.allSettled(modelKeys.filter(k => k.startsWith('bass_bin')).map(key => this.loadModel(key)));
 
-            // Set dressing (bar stools) is last: nothing waits on it
-            await Promise.allSettled(modelKeys.filter(k => k.startsWith('bar_')).map(key => this.loadModel(key)));
+            // Set dressing is last: nothing waits on it.
+            await Promise.allSettled(modelKeys.filter(k => k.startsWith('bar_') || k.startsWith('lounge_'))
+                .map(key => this.loadModel(key)));
             
             const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
             this.log.info(`✅ All models loaded in ${loadTime}s`);

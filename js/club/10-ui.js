@@ -1127,7 +1127,10 @@ class VRClubUI extends VRClubAnimationFinish {
     async _openQuestPanel(kind) {
         this.toggleVRQuickMenu(false);
         try {
-            if (this.isInVRMode && this.vrHelper) await this.vrHelper.baseExperience.exitXRAsync();
+            if (this.isInVRMode && this.vrHelper) {
+                window.VRPayment?.holdLeaseForSetup?.();
+                await this.vrHelper.baseExperience.exitXRAsync();
+            }
             const open = kind === 'credits' ? window.openClubCredits : window.openMusicSetup;
             if (!open) throw new Error('The setup panel is not ready.');
             open();

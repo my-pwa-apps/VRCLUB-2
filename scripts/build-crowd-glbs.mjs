@@ -589,12 +589,12 @@ const SEATED_BAR_IDLE_POSE = {
                 const breath = Math.sin(TAU * b / 6);
                 const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
                 return {
-                    hip: [0, -0.15, 0.10], hipRot: [-0.08, 0.025 * look, 0],
+                    hip: [0, -0.09, 0.14], hipRot: [-0.08, 0.025 * look, 0],
                     spine: [0.08 + 0.012 * breath, 0.04 * look, -0.015 * look],
                     head: [-0.035 + 0.012 * breath, 0.32 * look, 0.025 * Math.sin(TAU * b / 13)],
                     hands: {
-                        R: { at: [0.12, -0.27, 0.48], pole: [0.65, -0.3, -0.4], fingers: [0, -0.2, 1] },
-                        L: { at: [-0.12, -0.28, 0.46], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
+                        R: { at: [0.12, -0.10, 0.70], pole: [0.65, -0.3, -0.4], fingers: [0, -0.2, 1] },
+                        L: { at: [-0.12, -0.11, 0.68], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
                     },
                     feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] },
                     shrug: { R: 0.015 * breath, L: -0.01 * breath }
@@ -616,18 +616,17 @@ const SEATED_BAR_DRINK_POSE = {
                         : phase < 0.72 ? 1
                             : phase < 0.94 ? 1 - (phase - 0.72) / 0.22 : 0;
                 const eased = lift * lift * (3 - 2 * lift);
-                const counter = [0.11, -0.27, 0.49];
                 const lips = [-0.12, 0.13, 0.01];
                 return {
-                    hip: [0, -0.15, 0.10], hipRot: [-0.08, 0, 0],
+                    hip: [0, -0.09, 0.14], hipRot: [-0.08, 0, 0],
                     spine: [0.08 + 0.035 * eased, 0, -0.03 * eased],
                     head: [-0.035 - 0.1 * eased, 0.02, 0],
                     hands: {
                         R: {
-                            at: counter.map((value, i) => value + (lips[i] - value) * eased),
+                            at: [0.11, -0.10, 0.70].map((value, i) => value + (lips[i] - value) * eased),
                             pole: [0.65, -0.28, -0.38], fingers: [0, 0.25 + 0.7 * eased, 1]
                         },
-                        L: { at: [-0.12, -0.28, 0.46], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
+                        L: { at: [-0.12, -0.11, 0.68], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
                     },
                     feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] },
                     shrug: { R: 0.06 * eased, L: 0 }

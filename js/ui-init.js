@@ -1266,11 +1266,15 @@ function initAudioMenu() {
                         showStatus('The clipboard does not contain a URL.', 'error');
                         return;
                     }
-                    streamUrl.value = pasted;
+                    const canonical = (typeof window !== 'undefined' && window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function')
+                        ? window.MusicLibrary.normalizeSoundCloudUrl(pasted)
+                        : pasted;
+                    const nextValue = canonical || pasted;
+                    streamUrl.value = nextValue;
                     streamUrl.setCustomValidity('');
-                    setSourceHint(pasted);
+                    setSourceHint(nextValue);
                     streamUrl.focus();
-                    streamUrl.setSelectionRange(pasted.length, pasted.length);
+                    streamUrl.setSelectionRange(nextValue.length, nextValue.length);
                     showStatus('URL pasted. Choose Save & play when ready.', 'success');
                 } catch (error) {
                     uiLog.warn('Clipboard read was blocked:', error);
@@ -1520,12 +1524,15 @@ function initAudioMenu() {
 
     function playUrl(url, label) {
         const previousLabel = playStreamBtnLabel ? playStreamBtnLabel.textContent : '';
+        const nextUrl = (typeof window !== 'undefined' && window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function')
+            ? window.MusicLibrary.normalizeSoundCloudUrl(url)
+            : url;
         if (playStreamBtn) {
             playStreamBtn.disabled = true;
             playStreamBtn.setAttribute('aria-busy', 'true');
         }
         if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Starting…';
-        try { library.save(url, label); }
+        try { library.save(nextUrl, label); }
         catch (error) {
             if (playStreamBtn) {
                 playStreamBtn.disabled = false;

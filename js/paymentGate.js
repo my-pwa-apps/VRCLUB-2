@@ -8,8 +8,9 @@
     let dialog, content, status, close, opener, checkPromise, checkError, challenge, nextFocus;
     let accessRevision = 0, recoveryEmail = '', recoveryCode = '';
     let invitationCode = '', invitationStep = null;
-    let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0;
-    let renewTimer, expiryTimer, exiting = false;
+    const SETUP_LEASE_HOLD_MS = 10 * 60 * 1000;
+    let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0, setupHoldUntil = 0;
+    let renewTimer, expiryTimer, setupHoldTimer, exiting = false;
     let exitXR = () => window.vrClub?.vrHelper?.baseExperience?.exitXRAsync();
     let notify = message => window.vrClub?.showErrorMessage?.(message);
 
@@ -53,7 +54,9 @@
         if (!access.deviceRegistered) return 'Access restored. Register this browser as one of your two devices.';
         if (window.vrClub?._vrAvailable === false) return 'Your access is saved. Open NOCTURNE on a VR-compatible device to enter VR.';
         return leaseExpires > performance.now()
-            ? 'VR prepared. Close this dialog, then press Enter VR before the preparation expires.'
+            ? setupHoldUntil > performance.now()
+                ? 'VR remains prepared while you set up music or review credits. Press Enter VR when you are ready.'
+                : 'VR prepared. Close this dialog, then press Enter VR before the preparation expires.'
             : 'Access ready. Prepare VR here, then close and press Enter VR. Only one immersive session can run per account.';
     }
     function element(tag, text, className) {
@@ -479,11 +482,13 @@
     function stopTimers() {
         clearInterval(renewTimer);
         clearTimeout(expiryTimer);
-        renewTimer = expiryTimer = null;
+        clearTimeout(setupHoldTimer);
+        renewTimer = expiryTimer = setupHoldTimer = null;
     }
     async function releaseLease(keepalive = false) {
         const held = leaseExpires > 0;
         leaseExpires = 0;
+        setupHoldUntil = 0;
         leaseGeneration++;
         stopTimers();
         if (held) await post('/vr/release', { tab }, { keepalive }).catch(() => {});
@@ -522,7 +527,7 @@
         const startedAt = performance.now();
         try {
             const result = await post('/vr/renew', { tab });
-            if (generation !== leaseGeneration || !inXR) return;
+            if (generation !== leaseGeneration || (!inXR && setupHoldUntil <= performance.now())) return;
             const deadline = leaseDeadline(result, startedAt);
             if (deadline <= performance.now()) throw new Error('VR session expired.');
             leaseExpires = deadline;
@@ -538,16 +543,39 @@
             }
         }
     }
+    function holdLeaseForSetup(durationMs = SETUP_LEASE_HOLD_MS) {
+        if (!ready() || leaseExpires <= performance.now()) return false;
+        const holdMs = Math.min(SETUP_LEASE_HOLD_MS, Math.max(0, Number(durationMs) || 0));
+        if (!holdMs) return false;
+        setupHoldUntil = performance.now() + holdMs;
+        clearTimeout(setupHoldTimer);
+        setupHoldTimer = setTimeout(() => {
+            setupHoldUntil = 0;
+            if (!inXR) void releaseLease();
+        }, holdMs);
+        if (!renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
+        return true;
+    }
     function onXRStateChange(active) {
         if (active === inXR) return;
         inXR = active;
-        if (!active) { void releaseLease(); return; }
+        if (!active) {
+            if (setupHoldUntil > performance.now() && leaseExpires > performance.now()) {
+                scheduleExpiry();
+                return;
+            }
+            void releaseLease();
+            return;
+        }
         if (!ready() || leaseExpires <= performance.now()) {
             void endXR('VR access is not prepared. Open Access to prepare it.');
             void releaseLease();
             return;
         }
-        renewTimer = setInterval(() => { void renewLease(); }, 20000);
+        setupHoldUntil = 0;
+        clearTimeout(setupHoldTimer);
+        setupHoldTimer = null;
+        if (!renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
         scheduleExpiry();
     }
     function dispose() {
@@ -566,7 +594,7 @@
     window.VRPayment = Object.freeze({
         apiOrigin, hasEntitlement: () => access.entitled,
         canEnterVR: () => !!ready() && leaseExpires > performance.now(),
-        refreshEntitlement, showGate, onXRStateChange,
+        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup,
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose
     });

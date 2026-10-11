@@ -402,6 +402,9 @@ the moving-head intensity and beams, laser beams, laser-sheet glow, mirror-ball 
 via `_ledLift` in `updateLEDPanel()` — the whole LED wall. Unit tests drive these methods on
 bare stubs, so every read is `(this.kickPulse || 0)`. The moving heads also dip toward the floor on the kick
 (`kickTilt` in `updateSpotlights`, up to 20% of their horizontal reach: motion, not light).
+**Mirror-ball rays are composed, not inherited.** Every automatic look that enables the mirror ball explicitly sets
+`mirrorBallRaysActive`: full architectural rays and reflected-spots-only looks both recur. `_applyLook()` resets the
+property for every cue, so a manual ray toggle can never leak into NOCTURNE.
 **The rig breathes with the kick.** In `_applyContinuous()` the look's `punch` scales a dip between kicks to an
 envelope floor of 0.3 when the kick band is trusted, 0.65 for the legacy path or under Photosensitive Safe Mode, 0.75
 with no audio; the master's smoothing compounds with `dtScale`. The show's energy EMA is weighted by the kick band's
@@ -848,6 +851,9 @@ and fail `npm test`.
   guest files and every `guest: true` modular crowd file carry the ambient clips. f7 and the mingler (m6, a taller
   variant fitted to his 1.84 m frame) carry the procedural rail clip. `_streetSlots()` and `_guestSlots()` are the
   assignment authority, and unit/rig tests verify the clip exists and the wrist/knuckle/fingertip grip fits the real rail.
+  A fixed guest never starts in `Idle_Talking_Loop` without a visible partner, and one-shot gestures such as `Yes`
+  are never looped as an idle. The seated f6 bar regular's pelvis is aligned to the real 0.76 m stool seat and both
+  wrists rest on the 1.1 m counter; the rig test measures those contacts on the shipped GLB.
   A slot's `ambient` map adds a slow, bounded attention yaw and small playback-rate variation over the authored breathing
   and hand motion. It never moves a rail grip, dancer, rig-driven character, mingler, or somebody currently talking to
   the mingler. The absolute-time wave plus elapsed-time yaw easing is refresh-rate independent and allocates nothing.
@@ -991,7 +997,7 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
 
 ### Entrance, bar and lounge (`js/venueDressing.js`, `js/barProps.js`)
 `VenueDressing` is a mixin like `LEDPatterns`: `createEntranceArea()`, `createBar()` and
-`createLoungeBench()` run at the end of
+`createLoungeCouch()` run at the end of
 `_buildVenue()`, after `createLights()`. Rules:
 - **One draw per material.** Boxes and cylinders are collected per material by `_dressingBuilder()` and merged.
   Do not add per-bottle or per-prop meshes. The 130+ bottles are ONE vertex-coloured mesh (`barBottles`): glass tint is
@@ -1022,17 +1028,20 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   the lintel (`createSignage()` reads `streetLevel`). Tests: the stair's geometry, rails and walking surface (unit, real Babylon);
   walking up and down on the desktop under real collisions and with the VR thumbstick (`test/e2e/street.spec.mjs`).
 - **Bartender**: the Quaternius female guest in her own container (black outfit), named `bartender` (not `guest*` or
-  `dancer*`, so no tier removes her). `AvatarRig` poses both hands for her washing loop and measured counter reaches;
+  `dancer*`, so no tier removes her). `AvatarRig` poses both hands for rotating wash, counter-wipe, room-survey and
+  bottle-arranging activities, plus measured counter reaches during conversations and service;
   the source file's idle clip is only the fallback when the rig refuses the skeleton. The guest slots keep out of the
   bar footprint (tested).
 - **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
   times by `_furnishBarStools()`; its emissive floor is lowered there because the loader's generic 0.12 reads as pale paint.
   Every empty stool is tagged as a seat; f6's occupied stool is deliberately not.
 - **Player seating.** Clicking or ray-selecting tagged furniture calls `sitAtSeat()`. The bar's empty stools, both balcony
-  stools and the three cushions of the Chesterfield-style bench are available. Selecting the same seat or moving 0.75 m
-  stands up. XR keeps the real tracked eye height; desktop uses a seated camera height. The lounge bench is procedural,
-  two merged materials and one collider at `VenueLayout.lounge` in the back-right corner. The linked Meshy model was not
-  shipped: although CC BY, its ~454k faces and authenticated download are inappropriate for the Quest budget.
+  stools and the two standard cushions of the lounge couch are available. Selecting the same seat or moving 0.75 m
+  stands up. XR keeps the real tracked eye height; desktop uses a seated camera height. The lounge is the local CC0
+  Quaternius *L Couch* (`ModelLoader` key `lounge_couch`): 30 KB, 1,423 triangles, two opaque materials, no textures.
+  `_furnishLoungeCouch()` tags exactly the two standard cushions, leaves the chaise visual, and derives a main-body and
+  chaise collider from the placed model bounds, avoiding an invisible box across the L-shaped footwell. The linked Meshy
+  model was not shipped: its ~454k faces were inappropriate for Quest.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.
@@ -1145,7 +1154,10 @@ to avoid z-fighting.
 
 `js/paymentGate.js` preflights server access before immersive entry and offers Stripe Checkout,
 verified-email recovery, invitations and device management. Asynchronous requests must NEVER
-auto-enter XR (user activation): prepare a VR lease first, then enter on the next user click.
+auto-enter XR (user activation): prepare a VR lease first, then enter on the next user click. An app-initiated exit from
+XR to Music or Credits calls `VRPayment.holdLeaseForSetup()` first; it renews the existing per-tab lease for at most ten
+minutes so Enter VR works directly on return. A normal headset/system-menu exit, pagehide, revocation, expiry or dispose
+still releases immediately. Never use the hold for an ordinary XR exit.
 `worker/src/payments.js` owns `/payments/redeem` and `/payments/entitlement`, exact-origin credentialed
 requests, and the HttpOnly API-host cookie. `worker/migrations/0002_vr_invitations.sql` stores only
 domain-separated SHA-256 code hashes, redemption subject/time and optional revocation time.
@@ -1184,7 +1196,7 @@ No unauthenticated generation endpoint exists. First verified-email redemption w
 forwarded BEFORE redemption). Cookies last one year; loss/new device restores the same grant by
 email verification, not by reusing an invitation.
 `worker/src/accessRecovery.js` owns recovery, named device slots (two per account) and account-wide
-VR leases (one active device/tab, 90 s expiry, 20 s renewal in XR). Migration 0005 adds hashed
+VR leases (one active device/tab, 90 s expiry, 20 s renewal in XR or during the bounded setup-panel hold). Migration 0005 adds hashed
 server sessions, one-use eight-digit email challenges (10 min, five attempts), persisted request
 rate limits, device/session revocation and `access_audit`. `EMAIL` sends transactional codes
 through Cloudflare Email Sending from `access@mitwee.nl`; never log codes or full email bodies.

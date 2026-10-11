@@ -57,8 +57,34 @@ class MusicLibrary {
         }
     }
 
+    static normalizeSoundCloudUrl(url) {
+        if (typeof url !== 'string') return url;
+        const trimmed = url.trim();
+        if (!trimmed) return trimmed;
+        try {
+            const parsed = new URL(trimmed);
+            if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return trimmed;
+            if (!/^(?:www\.|m\.)?soundcloud\.com$/i.test(parsed.hostname)) return trimmed;
+            const parts = parsed.pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part));
+            if (parts.length !== 2 || !parts[0] || !parts[1]) return trimmed;
+            if (MusicLibrary.SOUNDCLOUD_RESERVED.has(parts[0].toLowerCase()) || MusicLibrary.SOUNDCLOUD_RESERVED.has(parts[1].toLowerCase())) {
+                return trimmed;
+            }
+            for (const key of ['si', 'in', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']) {
+                parsed.searchParams.delete(key);
+            }
+            parsed.hostname = 'soundcloud.com';
+            parsed.protocol = 'https:';
+            parsed.hash = '';
+            return `https://soundcloud.com/${parts[0]}/${parts[1]}`;
+        } catch (_) {
+            return trimmed;
+        }
+    }
+
     _item(url, name, episode) {
-        const parsed = new URL(String(url).trim());
+        const normalisedUrl = MusicLibrary.normalizeSoundCloudUrl(String(url).trim());
+        const parsed = new URL(normalisedUrl);
         // These two hosts serve the same files over HTTPS, so a pasted http:// link is upgraded instead of refused.
         if (parsed.protocol === 'http:' && /(^|\.)(hernancattaneo\.com|podbean\.com)$/.test(parsed.hostname)) {
             parsed.protocol = 'https:';

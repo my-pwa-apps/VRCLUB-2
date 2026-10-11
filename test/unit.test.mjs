@@ -199,7 +199,24 @@ test('the audio menu exposes labelled levels and a clipboard paste action', asyn
             addEventListener() {},
             removeEventListener() {}
         },
-        window: { addEventListener() {}, removeEventListener() {} },
+        window: {
+            addEventListener() {},
+            removeEventListener() {},
+            MusicLibrary: {
+                normalizeSoundCloudUrl(value) {
+                    const raw = String(value || '').trim();
+                    try {
+                        const parsed = new URL(raw);
+                        if (!/^(?:www\.|m\.)?soundcloud\.com$/i.test(parsed.hostname)) return raw;
+                        const parts = parsed.pathname.split('/').filter(Boolean);
+                        if (parts.length !== 2) return raw;
+                        return `https://soundcloud.com/${parts[0]}/${parts[1]}`;
+                    } catch (_) {
+                        return raw;
+                    }
+                }
+            }
+        },
         navigator: {
             onLine: true,
             clipboard: { readText: async () => '  https://soundcloud.com/missmelera/colourizon-168  ' }
@@ -252,6 +269,10 @@ test('the audio menu exposes labelled levels and a clipboard paste action', asyn
     assert.equal(elements.streamUrl.value, 'https://soundcloud.com/missmelera/colourizon-168');
     assert.deepEqual(elements.streamUrl.selection, [elements.streamUrl.value.length, elements.streamUrl.value.length]);
     assert.match(elements.audioStatus.textContent, /URL pasted/);
+
+    context.navigator.clipboard.readText = async () => ' https://m.soundcloud.com/missmelera/colourizon-168?si=x&utm_source=demo&in=someone/sets/demo#t=45 ';
+    await elements.pasteStreamBtn.listeners.click();
+    assert.equal(elements.streamUrl.value, 'https://soundcloud.com/missmelera/colourizon-168');
 
     context.navigator.clipboard.readText = async () => { throw new Error('denied'); };
     await elements.pasteStreamBtn.listeners.click();
@@ -2269,6 +2290,31 @@ test('the Show Director resolves ledLevel per look and never leaks the dimmed le
     assert.equal('ledLevel' in club, false, 'the look key must not be written onto the club');
 });
 
+test('the automatic show deliberately composes mirror-ball rays and spots-only looks', () => {
+    const { window } = loadClassic('js/showDirector.js');
+    const club = {
+        vjManualMode: false,
+        photosensitiveSafeMode: false,
+        mirrorBallRaysActive: false,
+        vjDirector: { paletteMode: 'analogous', setLedHarmony() {}, unlockHue() {} }
+    };
+    const director = new window.ShowDirector(club);
+    const mirrorLooks = Object.entries(director.looks).filter(([, look]) => look.mirrorBallActive);
+    assert.ok(mirrorLooks.length > 0);
+    for (const [name, look] of mirrorLooks) {
+        assert.equal(typeof look.mirrorBallRaysActive, 'boolean', `${name} does not choose a mirror-ray mode`);
+    }
+    assert.ok(mirrorLooks.some(([, look]) => look.mirrorBallRaysActive), 'no automatic look uses the full mirror rays');
+    assert.ok(mirrorLooks.some(([, look]) => !look.mirrorBallRaysActive), 'no automatic look keeps only reflected spots');
+
+    director._applyLook(director.looks.deepBlue);
+    assert.equal(club.mirrorBallRaysActive, true, 'a manual spots-only choice leaked into the full-ray look');
+    director._applyLook(director.looks.eclipse);
+    assert.equal(club.mirrorBallRaysActive, false);
+    director._applyLook(director.looks.firstLight);
+    assert.equal(club.mirrorBallRaysActive, true, 'a non-mirror look did not clear specialist ray state');
+});
+
 test('photosensitive safe mode force-clears strobes in every look', () => {
     const { window } = loadClassic('js/showDirector.js');
     const club = {
@@ -2797,6 +2843,9 @@ test('every guest slot asks for a clip its character file carries, inside the ro
     });
     assert.equal(slots[3].clip, 'Idle_Railing_Loop', 'the balcony guest must put her hands on the railing');
     assert.equal(slots[3].ambient.yawRange || 0, 0, 'ambient attention must not turn the balcony guest away from the rail');
+    assert.equal(slots[0].clip, 'Idle_Loop', 'a fixed guest must not talk before a visible partner arrives');
+    assert.ok(slots[0].clips.includes('Idle_Talking_Loop'), 'the first guest cannot answer the mingler');
+    assert.equal(slots[5].clip, 'Idle_Loop', 'a one-shot Yes gesture must not be used as a permanent idle');
     for (let a = 0; a < slots.length; a++) {
         for (let b = a + 1; b < slots.length; b++) {
             const apart = Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z);
@@ -2809,6 +2858,60 @@ test('every guest slot asks for a clip its character file carries, inside the ro
     assert.equal(sizes.length, 3, 'every graphics tier must set guestSize');
     assert.ok(sizes.every(size => size <= slots.length) && sizes[0] >= sizes[1] && sizes[1] >= sizes[2],
         'guestSize must not exceed the slots and must fall with the tier');
+});
+
+test('the bartender rotates through distinct work activities and rests her hands while talking', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const Crowd = window.VRClubAudioCrowd;
+    window.VenueLayout = {
+        bar: {
+            counter: { xFront: 9.7, xBack: 10.5, top: 1.1 },
+            backBar: { xFront: 11.55, shelves: [1.42, 1.86, 2.3] },
+            bartender: { x: 10.85, z: -9.9 }
+        }
+    };
+    const snapshots = [];
+    const pose = {
+        x: 10.85, z: -9.9, lean: 0.12, headYaw: -Math.PI / 2,
+        left: { x: 0, y: 0, z: 0 }, right: { x: 0, y: 0, z: 0 }
+    };
+    const club = Object.assign(Object.create(Crowd.prototype), {
+        _bartenderRig: {
+            root: { isEnabled: () => true },
+            update() {
+                snapshots.push({
+                    activity: club._bartenderActivity,
+                    left: { ...pose.left },
+                    right: { ...pose.right },
+                    headYaw: pose.headYaw
+                });
+            }
+        },
+        _bartenderPose: pose,
+        _bartenderWashTime: 0,
+        _bartenderActivity: 'wash',
+        _bartenderActivityTime: 0,
+        _bartenderActivityIndex: 0,
+        _barGlass: null
+    });
+    const sequence = [];
+    for (let i = 0; i < 4; i++) {
+        club._bartenderActivityTime = 0;
+        club._updateBartender(1 / 60, null);
+        sequence.push(club._bartenderActivity);
+    }
+    assert.deepEqual(sequence, ['survey', 'arrange', 'wash', 'wipe']);
+    assert.notDeepEqual(snapshots[0].right, snapshots[1].right, 'surveying and arranging use the same hand pose');
+    const timer = club._bartenderActivityTime;
+    club._updateBartender(1 / 60, {
+        activity: 'talk', timer: 5, duration: 10,
+        barPatron: { root: { position: { x: 9.2, z: -11.6 } } }
+    });
+    assert.equal(club._bartenderActivityTime, timer, 'a conversation consumed the background activity timer');
+    assert.ok(Math.abs(pose.left.y - window.VenueLayout.bar.counter.top) < 0.12
+        && Math.abs(pose.right.y - window.VenueLayout.bar.counter.top) < 0.12,
+    'the bartender does not rest her hands near the counter while talking');
 });
 
 /** The mingling guest, the people on his round, and a club stub that can be stepped a frame at a time. */
@@ -4957,8 +5060,8 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON });
     const proto = window.VRClubUI.prototype;
     const seats = [
-        { id: 'lounge-0', label: 'the Chesterfield bench', x: 7.85, z: -18.96, viewX: 7.85, viewZ: -18.38, floorY: 0, seatY: 0.6, facing: 0 },
-        { id: 'lounge-1', label: 'the Chesterfield bench', x: 8.7, z: -18.96, viewX: 8.7, viewZ: -18.38, floorY: 0, seatY: 0.6, facing: 0 }
+        { id: 'lounge-0', label: 'the lounge couch', x: 8.95, z: -19.22, viewX: 8.95, viewZ: -18.47, floorY: 0, seatY: 0.58, facing: 0 },
+        { id: 'lounge-1', label: 'the lounge couch', x: 9.7, z: -19.22, viewX: 9.7, viewZ: -18.47, floorY: 0, seatY: 0.58, facing: 0 }
     ];
     const camera = { position: { x: 0, y: 1.05, z: 0, copyFrom() {} }, _deferOnly: false };
     const notes = [];
@@ -4972,7 +5075,7 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
         standFromSeat: proto.standFromSeat
     };
     const mesh = { metadata: { vrclubSeats: seats } };
-    const picked = proto._seatFromPick.call(club, { pickedMesh: mesh, pickedPoint: { x: 8.62, z: -19 } });
+    const picked = proto._seatFromPick.call(club, { pickedMesh: mesh, pickedPoint: { x: 9.6, z: -19.1 } });
     assert.equal(picked.id, 'lounge-1');
     assert.equal(proto.sitAtSeat.call(club, picked), true);
     assert.equal(camera.position.y, 1.05, 'sitting must not replace the tracked headset height');
@@ -6121,7 +6224,10 @@ test('the bar layout leaves room for guests, stools and the bartender', () => {
     const lounge = loadClassic('js/venueDressing.js').window.VenueLayout.lounge;
     assert.ok(lounge.x - lounge.width / 2 > 6.5 && lounge.z < -18,
         'the lounge bench must stay in the free back-right corner, behind the bar and clear of the DJ riser');
-    assert.equal(lounge.seats.length, 3, 'the Chesterfield must offer three seats');
+    assert.equal(lounge.seats.length, 2, 'the sectional must expose exactly its two standard cushions');
+    assert.ok(lounge.seats[1] - lounge.seats[0] >= 0.7, 'the two couch seats overlap');
+    assert.ok(lounge.seats.every(offset => offset > 0 && offset < lounge.width / 2),
+        'a seat anchor drifted onto the mirrored chaise or arm');
 });
 
 // ---------------------------------------------------------------------------

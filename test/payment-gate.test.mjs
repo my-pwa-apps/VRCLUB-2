@@ -361,6 +361,62 @@ test('network errors cannot continue past expiry; XR exit and pagehide release w
     }
 });
 
+test('an intentional setup-panel exit retains and renews the lease, while the next normal exit releases it', async () => {
+    const gate = loadPaymentGate(path => {
+        if (path === '/entitlement') return registered;
+        if (path === '/vr/acquire' || path === '/vr/renew') return { active: true, expiresInMs: 60000 };
+        if (path === '/vr/release') return { released: true };
+        return registered;
+    });
+    await gate.open();
+    await gate.click('Prepare VR');
+    gate.window.VRPayment.onXRStateChange(true);
+
+    assert.equal(gate.window.VRPayment.holdLeaseForSetup(), true);
+    gate.window.VRPayment.onXRStateChange(false);
+    assert.equal(gate.window.VRPayment.canEnterVR(), true);
+    assert.equal(gate.requests.some(request => request.path === '/vr/release'), false);
+
+    await gate.tick(true);
+    assert.ok(gate.requests.some(request => request.path === '/vr/renew'));
+    assert.equal(gate.window.VRPayment.canEnterVR(), true);
+
+    gate.window.VRPayment.onXRStateChange(true);
+    gate.window.VRPayment.onXRStateChange(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(gate.window.VRPayment.canEnterVR(), false);
+    assert.ok(gate.requests.some(request => request.path === '/vr/release'));
+});
+
+test('setup-panel lease retention is bounded and pagehide still releases immediately', async () => {
+    for (const ending of ['timeout', 'pagehide']) {
+        const gate = loadPaymentGate(path => {
+            if (path === '/entitlement') return registered;
+            if (path === '/vr/acquire') return { active: true, expiresInMs: 60000 };
+            if (path === '/vr/release') return { released: true };
+            return registered;
+        });
+        await gate.open();
+        await gate.click('Prepare VR');
+        gate.window.VRPayment.onXRStateChange(true);
+        assert.equal(gate.window.VRPayment.holdLeaseForSetup(1000), true);
+        gate.window.VRPayment.onXRStateChange(false);
+
+        if (ending === 'pagehide') {
+            gate.events.pagehide();
+        } else {
+            const timeout = [...gate.timers.values()].find(timer => !timer.interval && timer.delay === 1000);
+            assert.ok(timeout, 'bounded setup hold timer was not scheduled');
+            timeout.fn();
+        }
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(gate.window.VRPayment.canEnterVR(), false);
+        const release = gate.requests.find(request => request.path === '/vr/release');
+        assert.ok(release);
+        assert.equal(release.options.keepalive, ending === 'pagehide');
+    }
+});
+
 test('an entitlement refresh revoking the device exits XR instead of only stopping renewals', async () => {
     let deviceRegistered = true, exits = 0;
     const gate = loadPaymentGate(path => path === '/entitlement'

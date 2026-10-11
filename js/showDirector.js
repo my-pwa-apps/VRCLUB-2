@@ -53,7 +53,7 @@
  * --------------
  * Only pre-existing state vars on the VRClub instance (the same ones the VJ
  * buttons drive), so no subsystem needs to know this file exists:
- *   lightsActive, lasersActive, strobesActive, mirrorBallActive,
+ *   lightsActive, lasersActive, strobesActive, mirrorBallActive, mirrorBallRaysActive,
  *   smokeActive, ledWallActive, spotlightPattern, spotlightMode, spotlightSpeed,
  *   goboEnabled, goboPatternIndex, goboRotationSpeed, laserSpeed, ledPattern,
  *   ledWallSpeed, mirrorBallSpeed, strobeSpeed, fogIntensity,
@@ -432,6 +432,7 @@ class ShowDirector {
         club.strobePattern = look.strobePattern || 'all';
         club.strobeSync = look.strobeSync || 'free';
         club.colorLockActive = !!look.colorLock;
+        club.mirrorBallRaysActive = look.mirrorBallRaysActive !== false;
         club.ledMulti = false;          // a look that wants a multi-colour wall says so
         // How bright the wall runs (0..1). Reset for every look: a look that omits it is a full-strength
         // wall, it does not inherit the previous cue's dimmed accompaniment.
@@ -869,7 +870,7 @@ class ShowDirector {
             deepBlue: {
                 intensity: 0.42, punch: 0.10, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 5, ledWallSpeed: 0.35,
                 mirrorBallSpeed: 0.30, fogIntensity: 1.5,
                 goboEnabled: false
@@ -892,7 +893,7 @@ class ShowDirector {
             eclipse: {
                 intensity: 0.38, punch: 0.12, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 spotlightPattern: 1, spotlightMode: 3, spotlightSpeed: 0.25,
                 goboEnabled: false, goboPatternIndex: 0, goboRotationSpeed: 0.10,
@@ -1129,7 +1130,7 @@ class ShowDirector {
             theVoid: {
                 intensity: 0.30, punch: 0.08, palette: 'analogous',
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: false, smokeActive: true,
                 ledWallActive: false, ledMonochrome: true, ledPattern: 16, ledWallSpeed: 0.4,
                 mirrorBallSpeed: 0.25, fogIntensity: 1.6, goboEnabled: false
             },
@@ -1158,7 +1159,7 @@ class ShowDirector {
             bdFall: {
                 intensity: 0.40, punch: 0.10, palette: 'analogous', colorLock: true, hue: 0.64,
                 lightsActive: false, lasersActive: false, strobesActive: false,
-                mirrorBallActive: true, smokeActive: true,
+                mirrorBallActive: true, mirrorBallRaysActive: true, smokeActive: true,
                 ledWallActive: false, ledMonochrome: false,
                 mirrorBallSpeed: 0.28, fogIntensity: 1.8, goboEnabled: false
             },
@@ -1424,6 +1425,7 @@ class ShowDirector {
                     // room re-forms out of the dark rather than snapping back.
                     if (bar === 1) {
                         show.club.mirrorBallActive = true;
+                        show.club.mirrorBallRaysActive = false;
                         show.club.mirrorBallSpeed = 0.22;
                         show.club.ledWallActive = true;
                         show.club.ledPattern = 16;   // aurora

@@ -18,8 +18,9 @@ const VENUE_BAR = {
 };
 
 const VENUE_LOUNGE = {
-    x: 8.7, z: -19.0, width: 3.2, depth: 1.0, seatY: 0.5, facing: 0,
-    seats: [-0.85, 0, 0.85]
+    x: 8.7, z: -18.75, width: 3.0, depth: 2.35, seatY: 0.58, seatZ: -19.22, facing: 0,
+    // Babylon mirrors the source model's X axis. These are the two standard cushions; the chaise stays visual.
+    seats: [0.25, 1.0]
 };
 
 const VENUE_VESTIBULE = {
@@ -611,34 +612,27 @@ const VenueDressing = {
         this._barStools = placed;
     },
 
-    createLoungeBench() {
+    createLoungeCouch() {
+        this.modelLoadPromise.then(() => { if (!this._disposed) this._furnishLoungeCouch(); });
+    },
+
+    _furnishLoungeCouch() {
+        const record = this.modelLoader?.loadedModels?.lounge_couch;
+        if (!record?.rootMesh || !record.placed) return;
         const L = VENUE_LOUNGE;
-        const b = this._dressingBuilder('chesterfield');
-        const leather = b.group('Leather', this.materialFactory.createPBRMaterial('chesterfieldLeather', {
-            baseColor: [0.075, 0.018, 0.022], metallic: 0.08, roughness: 0.34
-        }));
-        const wood = b.group('Feet', this.materialFactory.getPreset('table'));
-        b.box(leather, L.width, 0.24, L.depth, L.x, 0.23, L.z);
-        b.box(leather, L.width - 0.55, 0.18, 0.66, L.x, L.seatY, L.z + 0.08);
-        b.box(leather, L.width, 1.02, 0.24, L.x, 0.98, L.z - 0.38);
-        b.cylinder(leather, 0.46, 0.94, L.x - L.width / 2 + 0.22, 0.68, L.z, 'z', 18);
-        b.cylinder(leather, 0.46, 0.94, L.x + L.width / 2 - 0.22, 0.68, L.z, 'z', 18);
-        for (const ox of L.seats) {
-            b.box(leather, 0.76, 0.1, 0.58, L.x + ox, L.seatY + 0.1, L.z + 0.1);
-            for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
-                b.cylinder(leather, 0.055, 0.035, L.x + ox + (col - 1) * 0.2,
-                    0.78 + row * 0.22, L.z - 0.245, 'z', 10);
-            }
-        }
-        for (const ox of [-1.3, 1.3]) for (const oz of [-0.32, 0.32]) {
-            b.box(wood, 0.12, 0.2, 0.12, L.x + ox, 0.1, L.z + oz);
-        }
-        const built = b.finish();
-        const seats = L.seats.map((ox, index) => this._seat('the Chesterfield bench', `lounge-${index}`,
-            L.x + ox, L.z + 0.04, 0, L.seatY + 0.1, L.facing, L.x + ox, L.z + 0.62));
-        this._tagSeatMeshes(Object.values(built), seats);
-        this._collisionBlock('chesterfieldBlock', L.width, 1.35, L.depth, L.x, 0.675, L.z);
-        this._loungeBench = Object.values(built);
+        const meshes = record.container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+        const seats = L.seats.map((offset, index) => this._seat('the lounge couch', `lounge-${index}`,
+            L.x + offset, L.seatZ, 0, L.seatY, L.facing, L.x + offset, L.seatZ + 0.75));
+        this._tagSeatMeshes(meshes, seats);
+
+        const { min, max, center } = record.placed;
+        const mainFront = L.seatZ + 0.55;
+        this._collisionBlock('loungeCouchMainBlock', max.x - min.x, max.y - min.y, mainFront - min.z,
+            center.x, center.y, (min.z + mainFront) / 2);
+        const chaiseMaxX = L.x - 0.12;
+        this._collisionBlock('loungeCouchChaiseBlock', chaiseMaxX - min.x, max.y - min.y, max.z - min.z,
+            (min.x + chaiseMaxX) / 2, center.y, center.z);
+        this._loungeCouch = meshes;
     }
 };
 window.VenueLayout = { bar: VENUE_BAR, lounge: VENUE_LOUNGE, vestibule: VENUE_VESTIBULE };

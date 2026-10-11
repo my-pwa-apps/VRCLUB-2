@@ -511,7 +511,12 @@ test('the bar regular stays seated on the stool, plants both feet and raises the
         root.computeWorldMatrix(true);
         feet.push([at('Foot.L'), at('Foot.R')]);
         const hips = at('Body');
-        assert.ok(hips.y > 0.62 && hips.y < 0.92, `her hips miss the stool seat at ${hips.y.toFixed(3)} m`);
+        assert.ok(Math.abs(hips.y - 0.80) < 0.045, `her hips miss the stool cushion at ${hips.y.toFixed(3)} m`);
+        const leftWrist = at('Wrist.L'), rightWrist = at('Wrist.R');
+        for (const wrist of [leftWrist, rightWrist]) {
+            assert.ok(Math.abs(wrist.x - 9.7) < 0.09, `her hand stops ${Math.abs(wrist.x - 9.7).toFixed(3)} m from the counter edge`);
+            assert.ok(Math.abs(wrist.y - 1.1) < 0.10, `her hand misses the counter top by ${Math.abs(wrist.y - 1.1).toFixed(3)} m`);
+        }
     }
     for (const side of [0, 1]) {
         const travel = Math.max(...feet.map(pair => B.Vector3.Distance(pair[side], feet[0][side])));

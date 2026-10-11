@@ -37,6 +37,7 @@ in `index.html`).
 | `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
+| `js/models/lounge/source/l_couch.glb` | [L Couch](https://poly.pizza/u/Quaternius) | [Quaternius](https://quaternius.com) | CC0 1.0 | Credited as courtesy |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
@@ -64,6 +65,12 @@ A steel balcony along the left wall (deck 2.7 x 8.6 m at y 3) with a 16-step sta
 two stools. Textures are the two Poly Haven sets above; the rails use the project's own `steelGirder` preset; the stools are
 the bar's *Metal Stool 03* instances (no extra download). Everything else is procedural. `node scripts/build-mezzanine-assets.mjs`
 regenerates both texture sets.
+
+### The lounge couch
+
+The back-right lounge uses Quaternius's CC0 *L Couch*, downloaded as a direct GLB from Poly Pizza. The shipped file is
+30 KB, 1,423 triangles, two opaque materials and no textures. Runtime placement scales it to 3 m wide; the two standard
+cushions are interactive seats while the chaise remains visual. No geometry or materials were added to the source file.
 
 ### The street
 
