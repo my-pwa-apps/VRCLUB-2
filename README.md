@@ -285,7 +285,8 @@ never a private room code or a participant's name.
 
 The relay accepts browser connections only from origins listed in `ALLOWED_ORIGINS`
 (`worker/wrangler.toml`); loopback and private-LAN origins always pass. Add your own site's
-origin before deploying a relay for it. Rooms hold up to 8 guests (voice is a full mesh, and eight is how many are drawn as characters), and per-connection
+origin before deploying a relay for it. The shipped list includes both production and the
+QuestProtect test site. Rooms hold up to 8 guests (voice is a full mesh, and eight is how many are drawn as characters), and per-connection
 rate limits disconnect clients that flood the room.
 For a custom relay's room browser, also add its HTTP(S) origin to `connect-src` in
 `index.html`; the shipped policy permits the hosted relay and API without allowing

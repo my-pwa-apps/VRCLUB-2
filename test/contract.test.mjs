@@ -90,6 +90,18 @@ test('robots blocks crawlers in the test build', () => {
     assert.match(robots, /^User-agent: \*\r?\nDisallow: \/\s*$/);
 });
 
+test('multiplayer relay permits the production and QuestProtect origins', () => {
+    const config = readFileSync(join(ROOT, 'worker', 'wrangler.toml'), 'utf8');
+    for (const origin of [
+        'https://nocturne-vr.pages.dev',
+        'https://nocturne.mitwee.nl',
+        'https://nocturne-protected.pages.dev',
+        'https://nocturne-protected.mitwee.nl'
+    ]) {
+        assert.match(config, new RegExp(origin.replaceAll('.', '\\.')));
+    }
+});
+
 test('Google Search Console verification is deployed at the site root', () => {
     const filename = 'googledd48f5e8f45ab4e2.html';
     const verification = readFileSync(join(ROOT, filename), 'utf8').trim();

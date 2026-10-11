@@ -34,7 +34,7 @@ new_classes = ["ClubRoom"]
 # Comma-separated browser origins allowed to open a relay socket. Loopback and
 # private-LAN origins are always accepted (Quest over LAN IP during development).
 [vars]
-ALLOWED_ORIGINS = "https://nocturne-vr.pages.dev,https://nocturne.mitwee.nl"
+ALLOWED_ORIGINS = "https://nocturne-vr.pages.dev,https://nocturne.mitwee.nl,https://nocturne-protected.pages.dev,https://nocturne-protected.mitwee.nl"
 APP_ORIGIN = "https://nocturne.mitwee.nl"
 STRIPE_PRICE_ID = "price_1UOj8FCkpTfs2ShnPDe3r1Tq"
 STRIPE_MODE = "live"
