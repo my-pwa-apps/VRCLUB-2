@@ -42,6 +42,15 @@ class ClubMultiplayer {
     /** One-tap messages for the headset, where there is no keyboard. */
     static QUICK_PHRASES = Object.freeze(['Hi!', 'Great track!', 'Let\'s dance', 'Come over here', 'Can you hear me?', 'Brb', 'Thanks!', 'Bye!']);
     static MAX_CHAT_LOG = 50;
+    static REPORT_REASONS = Object.freeze({
+        harassment: 'Harassment',
+        grooming: 'Grooming or pressure for private contact',
+        'sexual-content': 'Sexual content',
+        hate: 'Hate or abusive language',
+        'unwanted-contact': 'Repeated unwanted contact',
+        impersonation: 'Impersonation',
+        other: 'Something else'
+    });
     /** The music stays down this long after the last word, so it does not pump between sentences. */
     static DUCK_HOLD_MS = 1500;
     /** What each random character looks like, for the "you appear as" line (the ids are the relay's AVATARS). */
@@ -132,6 +141,7 @@ class ClubMultiplayer {
         this.listeners = new Set();
         this.lastError = '';
         this.notice = '';
+        this.moderationReports = [];
         this.selfAvatar = null;
         this.locked = false;
         this.dancing = false;
@@ -251,7 +261,8 @@ class ClubMultiplayer {
         if (this.connected) {
             const n = this.client.peerCount;
             const others = n === 0 ? 'nobody else yet' : `${n} other ${n === 1 ? 'person' : 'people'}`;
-            return `In ${this.roomLabel(room)} \u00B7 ${others}${this.isHost() ? ' \u00B7 you are the host' : (this.hostName() ? ` \u00B7 host: ${this.hostName()}` : '')}${this.locked ? ' \u00B7 locked' : ''}`;
+            const notice = this.notice ? ` \u00B7 ${this.notice}` : '';
+            return `In ${this.roomLabel(room)} \u00B7 ${others}${this.isHost() ? ' \u00B7 you are the host' : (this.hostName() ? ` \u00B7 host: ${this.hostName()}` : '')}${this.locked ? ' \u00B7 locked' : ''}${notice}`;
         }
         if (this.connecting) return `Joining ${this.roomLabel(room)}\u2026`;
         if (this.status === 'error') return this.lastError || 'Could not join the room';
@@ -549,6 +560,14 @@ class ClubMultiplayer {
             this._logChat({ id, name: peer ? peer.name : 'Guest', text, self: false, restricted });
             manager.showChat(id, restricted ? `[Selected recipients] ${text}` : text);
         };
+        client.onModerationReport = report => {
+            const reporter = report.reporter?.name || 'Guest';
+            const target = report.target?.name || 'guest';
+            this.moderationReports.unshift({ ...report, at: Date.now() });
+            this.moderationReports.splice(12);
+            this.notice = `Safety report from ${reporter} about ${target}: ${ClubMultiplayer.REPORT_REASONS[report.reason] || 'Review needed'}.`;
+            this._emit();
+        };
         client.onGesture = (id, gesture) => manager.playGesture(id, gesture);
         client.onHostChange = (hostId) => {
             for (const id of client.peers.keys()) manager.setHost(id, id === hostId);
@@ -793,6 +812,15 @@ class ClubMultiplayer {
         const done = client.blockPeer(peer.pid);
         this._emit();
         return done;
+    }
+
+    reportPeer(id, reason) {
+        if (!this.client || !this.connected || !this.client.peers.has(id) ||
+            !Object.prototype.hasOwnProperty.call(ClubMultiplayer.REPORT_REASONS, reason)) return false;
+        if (!this.client.sendReport(id, reason)) return false;
+        this.notice = 'Report sent to the room host.';
+        this._emit();
+        return true;
     }
 
     unblock(pid) {

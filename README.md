@@ -272,6 +272,13 @@ When the last person leaves a public room, its listing is deleted immediately. P
 bookmarks stay until forgotten; reusing an empty private room starts a fresh session,
 with no old lock, ban list, music or lights carried over.
 
+**Safety controls (QuestProtect).** Every guest can mute or block another person locally; blocking is two-way and
+persists across reconnects. The People list and VR person page also provide **REPORT**, with reasons for harassment,
+grooming or pressure for private contact, sexual content, hate, unwanted contact, impersonation or other concerns.
+Reports are validated and rate-limited by the relay and delivered only to the current host; they are not broadcast to
+the room or stored by the relay. The host can act immediately with **KICK**, **BAN** and **LOCK ROOM**. A report is
+not emergency support: leave the room and contact local emergency services if someone is in immediate danger.
+
 Relay deployment requires D1 migration `0006_room_directory.sql` before the new Worker.
 It stores only public room names/counts/locks/expiry and hashed-IP lookup rate limits,
 never a private room code or a participant's name.

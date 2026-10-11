@@ -18,6 +18,7 @@
  *     { type: 'rtc-signal', target, signal }          - relayed 1:1 to `target`
  *     { type: 'blocklist', pids: [...] }              - replace this guest's block list (on connect; at most 64)
  *     { type: 'block', pid } / { type: 'unblock', pid } - two-way invisibility: neither sees, hears or signals the other
+ *     { type: 'report', target, reason }          - report a visible guest to the host (not broadcast)
  *     { type: 'kick', target } / { type: 'ban', target } - host only; `target` is a session id
  *     { type: 'lock', locked: true|false }            - host only; a locked room refuses new guests
  *     { type: 'host-transfer', target }              - host only; give another visible guest control without disconnecting
@@ -37,6 +38,7 @@
  *     { type: 'host', id }
  *     { type: 'room', locked }
  *     { type: 'rtc-signal', from, signal }
+ *     { type: 'moderation-report', reporter, target, reason } - host-only moderation notification
  *
  * Identity and safety. The client sends a secret random `uid` in the query string; the relay never repeats it, it
  * shows other guests only `pid`, a hash of it. Blocks and bans are keyed by `pid`, so they survive a reconnect (the
@@ -139,6 +141,7 @@ export const RATE_LIMITS = Object.freeze({
     blocklist: { rate: 0.5, burst: 3 },
     block: { rate: 2, burst: 8 },
     unblock: { rate: 2, burst: 8 },
+    report: { rate: 0.05, burst: 2 },
     kick: { rate: 1, burst: 3 },
     ban: { rate: 1, burst: 3 },
     lock: { rate: 1, burst: 3 },
@@ -146,6 +149,21 @@ export const RATE_LIMITS = Object.freeze({
     chat: { rate: 0.5, burst: 4 },
     ping: { rate: 1, burst: 3 }
 });
+
+export const REPORT_REASONS = Object.freeze([
+    'harassment',
+    'grooming',
+    'sexual-content',
+    'hate',
+    'unwanted-contact',
+    'impersonation',
+    'other'
+]);
+
+export function sanitizeReportReason(value) {
+    if (typeof value !== 'string' || !REPORT_REASONS.includes(value)) return null;
+    return value;
+}
 
 export class TokenBucket {
     constructor({ rate, burst }, now = Date.now()) {
@@ -491,6 +509,23 @@ export class ClubRoom {
                         }
                     }
                 }
+                break;
+            }
+
+            case 'report': {
+                const reason = sanitizeReportReason(msg.reason);
+                if (!reason || typeof msg.target !== 'string' || msg.target === session.id) return;
+                const targetWs = this._findSocketById(msg.target);
+                const target = targetWs && this.sessions.get(targetWs);
+                const hostWs = this._findSocketById(this.hostId);
+                const host = hostWs && this.sessions.get(hostWs);
+                if (!target || !host || target === session || !this._visible(session, target)) return;
+                this._send(hostWs, {
+                    type: 'moderation-report',
+                    reporter: { id: session.id, name: session.name, pid: session.pid },
+                    target: { id: target.id, name: target.name, pid: target.pid },
+                    reason
+                });
                 break;
             }
 

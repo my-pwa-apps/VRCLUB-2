@@ -2016,6 +2016,26 @@ function initNetworkMenu() {
             item.appendChild(rowButton(person.muted ? 'Unmute' : 'Mute', `${person.muted ? 'Unmute' : 'Mute'} ${person.name}`,
                 () => mp.togglePeerMute(person.id)));
             item.appendChild(rowButton('Block', `Block ${person.name}: you will not see or hear each other`, () => mp.blockPeer(person.id)));
+            const reportButton = rowButton('Report', `Report ${person.name} to the room host`, () => {
+                reportButton.disabled = true;
+                const picker = document.createElement('select');
+                picker.className = 'network-report-reason';
+                picker.setAttribute('aria-label', `Reason for reporting ${person.name}`);
+                for (const [reason, text] of Object.entries(ClubMultiplayer.REPORT_REASONS)) {
+                    const option = document.createElement('option');
+                    option.value = reason;
+                    option.textContent = text;
+                    picker.appendChild(option);
+                }
+                const send = rowButton('Send', `Send report about ${person.name}`, () => {
+                    if (!mp.reportPeer(person.id, picker.value)) vrClubInstance.showErrorMessage('Report was not sent. Please try again while connected.');
+                    picker.remove();
+                    send.remove();
+                    reportButton.disabled = false;
+                }, true);
+                item.append(picker, send);
+            }, true);
+            item.appendChild(reportButton);
             if (host) {
                 const kickKey = `kick:${person.id}`, banKey = `ban:${person.id}`, hostKey = `host:${person.id}`;
                 const supported = mp.client.hostTransferSupported;

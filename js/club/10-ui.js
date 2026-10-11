@@ -1290,13 +1290,21 @@ class VRClubUI extends VRClubAnimationFinish {
             if (people.length > per) rows.push({ label: 'MORE \u25B8', action: 'net', op: 'morePeople' });
             return [...rows, back('online'), common.close];
         }
+        if (page === 'report') {
+            const person = mp.people().find(item => item.id === this._vrReportPeer);
+            if (!person) return [back('people'), common.close];
+            const reasons = Object.entries(ClubMultiplayer.REPORT_REASONS).map(([reason, label]) =>
+                net(label.toUpperCase(), 'reportReason', { reason }));
+            return [...reasons, back('person'), common.close];
+        }
         // person: one guest, chosen from the list
         const person = mp.people().find(item => item.id === this._vrPerson);
         if (!person) return [back('people'), common.close];
         const armedFor = (op) => this._vrArmed && this._vrArmed.key === `${op}:${person.id}` && this._vrArmed.until > Date.now();
         const rows = [
             net(person.muted ? 'UNMUTE' : 'MUTE', 'peerMute', { peer: person.id }),
-            net('BLOCK', 'peerBlock', { peer: person.id })
+            net('BLOCK', 'peerBlock', { peer: person.id }),
+            net('REPORT', 'peerReport', { peer: person.id, danger: true })
         ];
         if (mp.isHost()) {
             rows.push(net(armedFor('host') ? 'SURE? MAKE HOST' : 'MAKE HOST', 'peerHost', { peer: person.id }));
@@ -1501,6 +1509,18 @@ class VRClubUI extends VRClubAnimationFinish {
                 const person = mp.people().find(item => item.id === button.peer);
                 if (mp.blockPeer(button.peer)) this.showErrorMessage(`Blocked ${person ? person.name : 'guest'}: you will not see or hear each other`);
                 this._vrPerson = null;
+                this._showVRQuickMenuPage('people');
+                return;
+            }
+            case 'peerReport':
+                this._vrReportPeer = button.peer;
+                this._showVRQuickMenuPage('report');
+                return;
+            case 'reportReason': {
+                const person = mp.people().find(item => item.id === this._vrReportPeer);
+                const reason = button.reason;
+                if (person && mp.reportPeer(person.id, reason)) this.showErrorMessage('Report sent to the room host.');
+                this._vrReportPeer = null;
                 this._showVRQuickMenuPage('people');
                 return;
             }

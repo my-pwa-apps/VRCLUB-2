@@ -59,6 +59,7 @@ class NetworkClient {
     static GESTURES = Object.freeze(['wave', 'nod', 'dance', 'stop']);
     static PID = /^[0-9a-f]{16}$/;
     static MAX_BLOCKED = 64;
+    static REPORT_REASONS = Object.freeze(['harassment', 'grooming', 'sexual-content', 'hate', 'unwanted-contact', 'impersonation', 'other']);
 
     /**
      * @param {object} options
@@ -126,6 +127,7 @@ class NetworkClient {
         this.onRoom = () => {};
         this.onShow = () => {};
         this.onChat = () => {};
+        this.onModerationReport = () => {};
         this.onRemoteStream = () => {};
         this.onMusicBroadcast = () => {};
         this.onRemoteMusic = () => {};
@@ -334,6 +336,14 @@ class NetworkClient {
                 if (this.peers.has(msg.id) && typeof msg.text === 'string' && msg.text) this.onChat(msg.id, msg.text.slice(0, NetworkClient.MAX_CHAT_LENGTH), msg.restricted === true);
                 break;
 
+            case 'moderation-report':
+                if (this.isHost() && msg.reporter && msg.target &&
+                    typeof msg.reporter.name === 'string' && typeof msg.target.name === 'string' &&
+                    NetworkClient.REPORT_REASONS.includes(msg.reason)) {
+                    this.onModerationReport(msg);
+                }
+                break;
+
             case 'gesture':
                 if (this.peers.has(msg.id) && NetworkClient.GESTURES.includes(msg.gesture)) this.onGesture(msg.id, msg.gesture);
                 break;
@@ -409,6 +419,12 @@ class NetworkClient {
         const selected = targets === null ? null : [...new Set(targets)].filter(id => this.peers.has(id));
         if (selected && !selected.length) return false;
         this._send({ type: 'chat', text: clean, ...(selected ? { targets: selected } : {}) });
+        return true;
+    }
+    /** Report a visible guest to the host without exposing the report to the room. */
+    sendReport(id, reason) {
+        if (!this.connected || !this.peers.has(id) || !NetworkClient.REPORT_REASONS.includes(reason)) return false;
+        this._send({ type: 'report', target: id, reason });
         return true;
     }
     sendGesture(gesture) {

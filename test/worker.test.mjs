@@ -87,6 +87,25 @@ test('empty and malformed chat target lists never broadcast', () => {
     assert.equal(b.ws.last('chat'), undefined);
 });
 
+test('reports are validated, private to the host, and never broadcast to the room', () => {
+    const room = new ClubRoom({});
+    const host = join(room, 'Host'), reporter = join(room, 'Reporter'), target = join(room, 'Target');
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'harassment' });
+    assert.deepEqual(host.ws.last('moderation-report'), {
+        type: 'moderation-report',
+        reporter: { id: reporter.session.id, name: 'Reporter', pid: reporter.session.pid },
+        target: { id: target.session.id, name: 'Target', pid: target.session.pid },
+        reason: 'harassment'
+    });
+    assert.equal(reporter.ws.last('moderation-report'), undefined);
+    assert.equal(target.ws.last('moderation-report'), undefined);
+
+    const before = host.ws.sent.filter(message => message.type === 'moderation-report').length;
+    reporter.ws.message({ type: 'report', target: target.session.id, reason: 'not-a-reason' });
+    reporter.ws.message({ type: 'report', target: 'missing', reason: 'grooming' });
+    assert.equal(host.ws.sent.filter(message => message.type === 'moderation-report').length, before);
+});
+
 test('relay welcomes, announces joins, and hands host to the next guest on leave', () => {
     const room = new ClubRoom({});
     const a = join(room, 'A');
