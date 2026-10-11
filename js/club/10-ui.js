@@ -342,7 +342,8 @@ class VRClubUI extends VRClubAnimationFinish {
     /** The on/off light controls a person may flip by name (never `this[anything]`). */
     static get LIGHT_TOGGLES() {
         return this._lightToggles || (this._lightToggles = Object.freeze(new Set([
-            'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'ledWallActive', 'ledMonochrome',
+            'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'mirrorBallRaysActive',
+            'ledWallActive', 'ledMonochrome',
             'strobesActive', 'smokeActive', 'spotStrobeActive'
         ])));
     }
@@ -563,6 +564,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ledMonochrome: false,
             strobesActive: true,
             mirrorBallActive: false,
+            mirrorBallRaysActive: true,
             laserSheetActive: false,
             smokeActive: false,
             spotStrobeActive: true,
@@ -667,11 +669,10 @@ class VRClubUI extends VRClubAnimationFinish {
         if (!mp) return true;
         if (button.op === 'joinListedRoom') return !!(button.locked || button.full || mp.roomDirectory.loading || mp.connecting);
         if (button.op === 'browseRooms' || button.op === 'moreRooms') return mp.roomDirectory.loading;
-        const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave', 'listenAlong'];
+        const needsRoom = ['mic', 'avatar', 'gesture', 'emoji', 'phrase', 'muteAll', 'leave'];
         if (needsRoom.includes(button.op) && !mp.connected) return true;
         if (button.op === 'lock' && !mp.isHost()) return true;
         if (button.op === 'peerHost' && (!mp.connected || !mp.isHost() || !mp.client.hostTransferSupported || !mp.client.peers.has(button.peer))) return true;
-        if (button.op === 'listenAlong' && !mp.pendingMusicInfo()) return true;
         if (button.op === 'unblockAll' && !mp.blockedList().length) return true;
         return false;
     }
@@ -813,11 +814,11 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SPOT STROBE', control: 'spotStrobeActive' },
                 { label: 'SMOKE', control: 'smokeActive' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
+                { label: 'MIRROR BEAMS', control: 'mirrorBallRaysActive' },
                 { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
                 { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
                 { label: 'PROJECT GOBO', control: 'goboActive' },
                 { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
-                { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 common.back,
                 common.close
             ],
@@ -1207,7 +1208,6 @@ class VRClubUI extends VRClubAnimationFinish {
                 net('NEW PRIVATE ROOM', 'privateRoom'),
                 { label: 'JOIN ROOM', action: 'page', target: 'room' },
                 net('BROWSE ROOMS', 'browseRooms'),
-                net('LISTEN ALONG', 'listenAlong'),
                 common.back,
                 common.close
             ];
@@ -1359,7 +1359,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'autoNod': return mp.autoNod;
             case 'pool': return mp.avatarPool === button.pool;
             case 'gesture': return button.gesture === 'dance' && mp.dancing;
-            case 'listenAlong': return !!mp.pendingMusicInfo();
             case 'peerMute': {
                 const person = mp.people().find(item => item.id === button.peer);
                 return !!(person && person.muted);
@@ -1389,7 +1388,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'personalSpace': case 'muteAll': case 'autoNod': case 'nameTags': return active ? 'ON' : 'OFF';
             case 'lock': return !mp.isHost() ? 'HOST ONLY' : active ? 'LOCKED' : 'OPEN';
             case 'unblockAll': return `${mp.blockedList().length} BLOCKED`;
-            case 'listenAlong': return active ? 'TAP TO JOIN' : '';
             case 'pool': return active ? 'SELECTED' : '';
             case 'gesture': return button.gesture === 'dance' ? (active ? 'DANCING' : '') : '';
             case 'select': {
@@ -1482,10 +1480,6 @@ class VRClubUI extends VRClubAnimationFinish {
             case 'lobby':
                 mp.joinLobby();
                 this.showErrorMessage('Joining the public lobby\u2026');
-                break;
-            case 'listenAlong':
-                if (mp.pendingMusicInfo()) mp.acceptListenAlong();
-                else this.showErrorMessage('Nothing to listen along to right now');
                 break;
             case 'gesture':
                 if (!needConnection()) mp.sendGesture(button.gesture);

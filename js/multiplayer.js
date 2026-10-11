@@ -73,7 +73,8 @@ class ClubMultiplayer {
      */
     static MANUAL_FIXTURES = Object.freeze({
         lightsActive: 'b', lasersActive: 'b', ledWallActive: 'b', ledMonochrome: 'b', strobesActive: 'b',
-        mirrorBallActive: 'b', laserSheetActive: 'b', smokeActive: 'b', spotStrobeActive: 'b', goboEnabled: 'b',
+        mirrorBallActive: 'b', mirrorBallRaysActive: 'b', laserSheetActive: 'b', smokeActive: 'b',
+        spotStrobeActive: 'b', goboEnabled: 'b',
         spotlightMode: [0, 7], spotlightPattern: [0, 7], goboPatternIndex: [0, 31], ledPattern: [0, 63], spotColorIndex: [0, 63],
         goboRotationSpeed: [-10, 10], spotlightSpeed: [0, 10], laserSpeed: [0, 10], mirrorBallSpeed: [0, 10],
         ledWallSpeed: [0, 10], strobeSpeed: [0, 10], vjMaster: [0, 1], strobePatternIndex: [0, 31],
@@ -149,14 +150,12 @@ class ClubMultiplayer {
         this.chatAudience = null;
         this.voiceAudience = null;
         this._duckHoldUntil = 0;
-        // Shared music: a guest's browser fetches the host's stream only after an explicit "Listen along".
-        this.listenAlong = false;
+        // Guests automatically follow the visible room host's URL or peer-to-peer local-file broadcast.
         this._localMusicDestination = null;
         this._localMusicSource = null;
         this._remoteMusic = null;
         this._broadcastState = null;
         this._musicHostId = null;
-        this.pendingMusic = null;
         this._nod = { baseline: null, down: false, downAt: 0, cooldownUntil: 0 };
         // Shared lights and music (see the header).
         this._show = { key: '', sentAt: 0, checkedAt: 0, dirty: true, mode: null, lastFrameAt: 0, stale: false, force: true };
@@ -312,8 +311,6 @@ class ClubMultiplayer {
         this._write(ClubMultiplayer.PREFS.name, name);
 
         if (this.client) this.client.dispose();
-        this.listenAlong = false;
-        this.pendingMusic = null;
         this.lastError = '';
         this.notice = '';
         this.selfAvatar = null;
@@ -358,8 +355,6 @@ class ClubMultiplayer {
         if (!this.client) return;
         // disconnect() reports every peer through onPeerLeave, which removes their avatars.
         this.client.disconnect();
-        this.listenAlong = false;
-        this.pendingMusic = null;
         this.dancing = false;
         this._emit();
     }
@@ -517,7 +512,6 @@ class ClubMultiplayer {
                 this._stopMusicBroadcast();
                 this._stopRemoteMusic();
                 this._broadcastState = null;
-                this.pendingMusic = null;
                 this.dancing = false;
                 this.locked = false;
             }
@@ -569,15 +563,13 @@ class ClubMultiplayer {
         client.onMusicBroadcast = state => this._applyMusicBroadcast(state);
         client.onRemoteMusic = (id, stream) => {
             if (!stream) { this._stopRemoteMusic(); return; }
-            if (id !== client.hostId || !this.listenAlong || !this.following) return;
+            if (id !== client.hostId || !this.following) return;
             try {
                 this._stopRemoteMusic();
                 this._remoteMusic = this.club.startNetworkMusic(stream, this._broadcastState);
                 if (typeof window.announceNowPlaying === 'function') window.announceNowPlaying(this.club.nowPlayingLabel);
             } catch (error) {
-                this.listenAlong = false;
                 client.setMusicListening(false);
-                if (this._broadcastState) this.pendingMusic = { broadcast: true, ...this._broadcastState };
                 club.showErrorMessage(`The host's broadcast could not play: ${error.message}`);
             }
         };
@@ -862,9 +854,7 @@ class ClubMultiplayer {
         return { ...music, podcast: null, title: String(club.nowPlayingLabel || '') };
     }
 
-    /**
-     * Follow the host's track only after Listen along consents to contacting the audio server.
-     */
+    /** Follow the visible host's network-reachable track automatically. */
     _applyMusic(music) {
         const client = this.client, club = this.club;
         if (!music || !client || client.isHost()) return;
@@ -872,12 +862,6 @@ class ClubMultiplayer {
         this._broadcastState = null;
         this._stopRemoteMusic();
         client.setMusicListening(false);
-        if (!this.listenAlong) {
-            this.pendingMusic = music;
-            this._emit();
-            return;
-        }
-        this.pendingMusic = null;
         // The relay stamps the track with its own clock; read it through the offset measured at the welcome.
         const targetTime = () => {
             const elapsed = music.playing && music.updatedAt ? Math.max(0, (client.serverNow() - music.updatedAt) / 1000) : 0;
@@ -913,51 +897,24 @@ class ClubMultiplayer {
         }
     }
 
-    /** Host and state of the stream waiting for the guest's consent, or null. */
-    pendingMusicInfo() {
-        const music = this.pendingMusic;
-        if (!music) return null;
-        if (music.broadcast) return { origin: 'the host via WebRTC (your IP is shared with the host)', playing: !!music.playing };
-        let origin = music.url;
-        try { origin = new URL(music.url).host; } catch (_) { /* keep the raw URL */ }
-        return { origin, playing: !!music.playing };
-    }
-
-    acceptListenAlong() {
-        const music = this.pendingMusic;
-        this.listenAlong = true;
-        this.pendingMusic = null;
-        // The click that calls this is also the user gesture autoplay policies require.
-        if (music && music.broadcast) {
-            try {
-                this.club._ensureAudioContext();
-                if (this.club.audioElement) this.club.audioElement.pause();
-                this.club._stopSoundCloudPlayer();
-                this.client.setMusicListening(true);
-            } catch (error) {
-                this.listenAlong = false;
-                this.pendingMusic = music;
-                this.club.showErrorMessage(`Could not listen to the broadcast: ${error.message}`);
-            }
-        } else if (music) this._applyMusic(music);
-        this._emit();
-    }
-
     _applyMusicBroadcast(state) {
         if (!this.following) return;
         this._broadcastState = state.available ? state : null;
         if (!state.available) {
-            if (this.pendingMusic?.broadcast) this.pendingMusic = null;
             this._stopRemoteMusic();
-        } else if (!this.listenAlong) {
-            this.pendingMusic = { broadcast: true, ...state };
         } else {
-            if (!this.client.musicListening) this.client.setMusicListening(true);
-            if (this.club.audioElement) this.club.audioElement.pause();
-            this.club._stopSoundCloudPlayer();
-            if (this._remoteMusic) {
-                this._remoteMusic.gain.gain.value = state.playing ? (this.club._audioVolume ?? 1) : 0;
-                this.club.nowPlayingLabel = state.title;
+            try {
+                this.club._ensureAudioContext();
+                if (!this.client.musicListening) this.client.setMusicListening(true);
+                if (this.club.audioElement) this.club.audioElement.pause();
+                this.club._stopSoundCloudPlayer();
+                if (this._remoteMusic) {
+                    this._remoteMusic.gain.gain.value = state.playing ? (this.club._audioVolume ?? 1) : 0;
+                    this.club.nowPlayingLabel = state.title;
+                }
+            } catch (error) {
+                this.client.setMusicListening(false);
+                this.club.showErrorMessage(`The host's broadcast could not start: ${error.message}`);
             }
         }
         this._emit();
@@ -1016,8 +973,6 @@ class ClubMultiplayer {
             this._stopRemoteMusic();
             this._stopMusicBroadcast();
             this._broadcastState = null;
-            this.pendingMusic = null;
-            this.listenAlong = false;
             if (this.client) this.client.resetMusic();
         }
         if (!this.following) this._stopRemoteMusic();

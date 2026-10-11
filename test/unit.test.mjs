@@ -5418,6 +5418,7 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     }
     const club = {
         mirrorBallActive: true,
+        mirrorBallRaysActive: true,
         vjManualMode: true,
         mirrorBallRotation: 0,
         mirrorBallSpeed: 1,
@@ -5451,6 +5452,13 @@ test('mirror reflections use analytic room hits and thin-instance tier counts', 
     assert.deepEqual(updates, { spots: 1, rays: 1 });
     assert.ok([...spotMatrices.slice(0, 180 * 16)].every(Number.isFinite));
     assert.ok([...rayMatrices.slice(0, 52 * 16)].every(Number.isFinite));
+
+    club.mirrorBallRaysActive = false;
+    update.call(club, { time: 1.5, dtScale: 1 });
+    assert.equal(club.mirrorReflectionBatch.spots.thinInstanceCount, 180, 'turning off beams removed the room spots');
+    assert.equal(club.mirrorReflectionBatch.rays.thinInstanceCount, 0, 'outgoing mirror beams still render');
+    assert.deepEqual(enabled, { spots: true, rays: false });
+    club.mirrorBallRaysActive = true;
 
     club.tierSettings = { mirrorSpots: 96, mirrorRays: 32 };
     update.call(club, { time: 2, dtScale: 1 });
@@ -7700,7 +7708,8 @@ function deskHarness() {
     Object.assign(club, VJDesk);
     const toasts = [], calls = [], people = { dj: true };
     Object.assign(club, {
-        lightsActive: true, lasersActive: false, laserSheetActive: false, mirrorBallActive: false, ledWallActive: true,
+        lightsActive: true, lasersActive: false, laserSheetActive: false, mirrorBallActive: false,
+        mirrorBallRaysActive: true, ledWallActive: true,
         ledMonochrome: false, strobesActive: true, smokeActive: false, spotStrobeActive: true,
         spotlightMode: 0, spotlightPattern: 0, vjManualMode: false, lastVJInteraction: 0, VJ_TIMEOUT: 60,
         photosensitiveSafeMode: false, multiplayer: null,
@@ -7761,6 +7770,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
         assert.ok(VRClubUI.LIGHT_TOGGLES.has(b.control) || steps.includes(b.control), `${b.id} -> ${b.control} is not a light control`);
     }
     const labels = VJDeskLayout.buttons.lights.map(button => button.label);
+    assert.ok(labels.includes('MIRROR BEAMS'), 'the desk cannot hide reflected shafts independently');
     assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');
     assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
     assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
@@ -7790,6 +7800,9 @@ test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them b
     press('mirror');
     assert.equal(club.mirrorBallActive, true);
     assert.equal(club.lasersActive, false, 'the one-aerial-idea rule applies at the desk too');
+    press('mirrorRays');
+    assert.equal(club.mirrorBallRaysActive, false, 'the desk cannot leave only the reflected room spots');
+    assert.equal(club.mirrorBallActive, true, 'hiding reflected beams turned off the whole mirror ball');
 
     calls.length = 0;
     press('drop');
@@ -7972,7 +7985,7 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     club.showErrorMessage = m => toasts.push(m);
     club.multiplayer = {
         connected: false, following: false, chat: [], chatUnread: 0, duckForVoice: true,
-        isHost: () => false, pendingMusicInfo: () => null, blockedList: () => [],
+        isHost: () => false, blockedList: () => [],
         audienceLabel: () => 'Everyone',
         sendChat: text => { sent.push(text); return true; }, setDuckForVoice(v) { this.duckForVoice = v; }
     };
@@ -9440,6 +9453,7 @@ test('the VR menu offers the strobe pattern, the next section and the hold choic
     club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
     const label = (page, text) => club._vrQuickMenuPageDefinitions(page).filter(Boolean).find(item => item.label === text);
     assert.ok(label('effects', 'STROBE PATTERN'), 'EFFECTS has no strobe pattern button');
+    assert.ok(label('effects', 'MIRROR BEAMS'), 'EFFECTS cannot hide mirror rays while keeping the room spots');
     assert.equal(club._vrQuickMenuPageDefinitions('effects').filter(Boolean).length <= 12, true);
     for (const text of ['NEXT SECTION', 'AFTER MY CHANGE', 'AUTO AFTER']) assert.ok(label('show', text), `SHOW is missing ${text}`);
     club.lightHold.mode = 'shuffle';

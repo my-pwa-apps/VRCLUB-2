@@ -59,7 +59,7 @@ const UI_TIMING = Object.freeze({
  */
 const TOGGLE_CONTROLS = Object.freeze(new Set([
     'lightsActive', 'lasersActive', 'ledWallActive', 'ledMonochrome',
-    'strobesActive', 'mirrorBallActive', 'laserSheetActive',
+    'strobesActive', 'mirrorBallActive', 'mirrorBallRaysActive', 'laserSheetActive',
     'smokeActive', 'spotStrobeActive'
 ]));
 
@@ -1895,9 +1895,6 @@ function initNetworkMenu() {
     const peerCountEl = document.getElementById('networkPeerCount');
     const emojiButtons = [...document.querySelectorAll('#networkEmojiGrid [data-emoji]')];
     const gestureButtons = [...document.querySelectorAll('#networkGestureGrid [data-gesture]')];
-    const listenAlongSection = document.getElementById('networkListenAlong');
-    const listenAlongBtn = document.getElementById('networkListenAlongBtn');
-    const musicInfoEl = document.getElementById('networkMusicInfo');
     const avatarSection = document.getElementById('networkAvatarSection');
     const poolButtons = [...document.querySelectorAll('#networkAvatarPool [data-avatar-pool]')];
     const avatarEl = document.getElementById('networkAvatar');
@@ -2113,15 +2110,6 @@ function initNetworkMenu() {
             lockBtn.textContent = `Lock room: ${mp.locked ? 'ON (nobody new can join)' : 'OFF'}`;
             setPressed(lockBtn, mp.locked);
         }
-        const pending = mp.pendingMusicInfo();
-        if (listenAlongSection) listenAlongSection.hidden = !pending;
-        if (pending && musicInfoEl) {
-            musicInfoEl.textContent = mp.pendingMusic.broadcast
-                ? `The host ${pending.playing ? 'is broadcasting' : 'paused'} a local audio file. Press Listen along to receive it over WebRTC (your IP address is shared with the host).`
-                : pending.playing
-                ? `The host is playing music from ${pending.origin}. Press Listen along to hear it too (that site will see your IP address).`
-                : `The host paused music from ${pending.origin}.`;
-        }
         renderPeople();
         renderBlocked();
         const directory = mp.roomDirectory;
@@ -2176,8 +2164,6 @@ function initNetworkMenu() {
             void mp.refreshRooms({ serverUrl });
         }
     });
-    if (listenAlongBtn) listenAlongBtn.addEventListener('click', () => mp.acceptListenAlong());
-
     if (connectBtn) {
         connectBtn.addEventListener('click', () => {
             if (mp.connected || mp.connecting) { mp.disconnect(); return; }

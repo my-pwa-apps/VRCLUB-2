@@ -7,7 +7,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 async function prepare(page, id, hostId, peerIds = null) {
     await page.route('**/broadcast-test', route => route.fulfill({
-        contentType: 'text/html', body: '<button id="listen">Listen along</button><button id="play">Play local file</button>'
+        contentType: 'text/html', body: '<button id="enable">Enable test audio</button><button id="play">Play local file</button>'
     }));
     await page.goto('http://localhost:4173/broadcast-test');
     await page.evaluate(() => {
@@ -42,7 +42,6 @@ async function prepare(page, id, hostId, peerIds = null) {
         mp._wire(client);
         mp._syncRole();
         client._send = message => window.forwardSignal(message).catch(error => club.errors.push(error.message));
-        document.getElementById('listen').onclick = () => mp.acceptListenAlong();
         document.getElementById('play').onclick = async () => {
             const samples = 48000 * 30;
             const wav = new ArrayBuffer(44 + samples * 2);
@@ -66,7 +65,7 @@ async function prepare(page, id, hostId, peerIds = null) {
     }, { id, hostId, peerIds });
 }
 
-test('a real local file reaches a consenting guest through WebRTC and the club PA graph', async ({ browser }) => {
+test('a real local file automatically reaches a guest through WebRTC and the club PA graph', async ({ browser }) => {
     const hostContext = await browser.newContext();
     const guestContext = await browser.newContext();
     const host = await hostContext.newPage();
@@ -84,10 +83,6 @@ test('a real local file reaches a consenting guest through WebRTC and the club P
 
         }
         await host.click('#play');
-        await expect.poll(() => guest.evaluate(() => !!window.club.multiplayer.pendingMusic?.broadcast)).toBe(true);
-        expect(await guest.evaluate(() => window.club.multiplayer.client.peers.get('host').musicPc == null)).toBe(true);
-        expect(await guest.evaluate(() => window.level())).toBe(0);
-        await guest.click('#listen');
         await expect.poll(() => guest.evaluate(() => window.level()), { timeout: 20000 }).toBeGreaterThan(0.03);
         const routing = await guest.evaluate(() => ({
             source: window.club._audioKind,
@@ -153,7 +148,7 @@ test('real microphone audio reaches only selected guests and changing recipients
                 }, { from: ids[i], signal: message.signal });
             });
             await page.evaluate(() => {
-                document.getElementById('listen').onclick = async () => {
+                document.getElementById('enable').onclick = async () => {
                     const ctx = window.voiceContext = new AudioContext();
                     await ctx.resume();
                     window.voiceInputs = new Map();
@@ -189,7 +184,7 @@ test('real microphone audio reaches only selected guests and changing recipients
                     };
                 };
             });
-            await page.click('#listen');
+            await page.click('#enable');
         }
         const [a, b, c] = pages;
         await a.evaluate(() => { window.club.multiplayer.setAudience('voice', ['b']); window.sendTone(); });

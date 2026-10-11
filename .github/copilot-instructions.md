@@ -450,7 +450,9 @@ Set `material.maxSimultaneousLights = this.maxLights` on **every** material, inc
 materials that arrive inside loaded `.glb` files.
 
 Mirror-ball fixtures are deliberately visual-only. Their emissive incident beams, reflected
-surface spots/rays and ambient bounce provide the effect; do not add or dynamically enable a
+surface spots/rays and ambient bounce provide the effect. `mirrorBallRaysActive` controls only the
+outgoing reflected ray batch, so turning MIRROR BEAMS off leaves the moving surface spots visible.
+Do not add or dynamically enable a
 real mirror-ball light. Doing so changes the light UBO layout after static PBR materials are
 frozen and can invalidate DJ, avatar and truss draws on WebGL.
 
@@ -1565,10 +1567,10 @@ protocol only grew, so older clients keep working.
   ids per connection. `sendMusic()` refuses non-http(s) URLs, since a host's `blob:` is
   meaningless to guests. Kick, ban and lock close codes are terminal (no reconnect), carry `error.code`
   and release the mic.
-  Local files instead use a separate `musicPc` per consenting listener, signaled through the existing
+  Local files instead use a separate `musicPc` per guest, signaled through the existing
   block-aware `rtc-signal` relay with `channel: 'music'` (`state`, `listen`, SDP and ICE).
-  Only the current visible host may send music; no music connection or tracks are accepted before
-  Listen along. Voice muting never touches these connections. `ClubMultiplayer.shareLocalMusic()`
+  Only the current visible host may send music; guests automatically request the current host's
+  broadcast while they follow that host. Voice muting never touches these connections. `ClubMultiplayer.shareLocalMusic()`
   captures the local MediaElementSource into a MediaStreamDestination before PA acoustics/ducking;
   host element volume still affects the broadcast. `startNetworkMusic()` routes a received stream
   through the existing PA, analyser and kick/rhythm taps, with a separate guest volume gain and
@@ -1621,7 +1623,8 @@ protocol only grew, so older clients keep working.
   new look) / **GESTURES** (wave, nod, dance, 7 emoji) /
   **PEOPLE** (9 per page, then a person page: MUTE, BLOCK, KICK, BAN; kick and ban need a second tap within 4 s) /
   **SAFETY** (personal space, lower music, name tags, mute all, lock room, nod to nod, unblock all, leave room) / NEW
-  PRIVATE ROOM / JOIN ROOM / PUBLIC LOBBY / LISTEN ALONG. A page's BACK returns to where it was opened from
+  PRIVATE ROOM / JOIN ROOM / PUBLIC LOBBY. Music follows the visible host automatically, so ONLINE has no separate
+  listen button. A page's BACK returns to where it was opened from
   (`_vrPageParent`: REACT is reached from HOME and from ONLINE). The menu redraws on a session change while HOME or a
   net page is open. **Unavailable buttons are drawn disabled** (`_isVRButtonDisabled`: flat grey face, grey text, a
   second line saying why: HOST ONLY, JOIN A ROOM FIRST); a press still answers with a message. Every page header has a
@@ -1656,7 +1659,9 @@ protocol only grew, so older clients keep working.
     `NetworkClient.serverOffset` (measured from the welcome's `serverTime`), never `Date.now()` directly. The host
     re-announces every 3 s and on play, pause and seek (`ClubMultiplayer._watchAudio`, so every control is covered);
     a guest seeks only when it drifts more than 0.75 s and never on a live stream.
-    Every source waits for **Listen along**, because it discloses the guest's IP.
+    Guests automatically follow the visible host's source. For an HTTP(S) source their browser contacts
+    that audio host; local files use the direct WebRTC music connection instead. Both expose the guest's
+    IP address as disclosed in the Music credits.
     The host's title is followed but never its historical artist/DJ metadata.
   - *Lights.* The host sends a `show` frame at most every 250 ms, on each bar line, on any change and every 2 s
     (a lone host sends nothing; a newcomer triggers one at once; the relay keeps the latest for late joiners). Building a

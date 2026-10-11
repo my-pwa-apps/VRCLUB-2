@@ -87,9 +87,10 @@ function vjDeskLayout() {
             light('mono', 'WALL B&W', 'ledMonochrome', 1, 3, '#d0d0d0'),
             light('mirrorColour', 'MIRROR COLOUR', 'changeMirrorBallColor', 2, 3, '#ffd23a', { step: true }),
             light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true }),
-            { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4, 2), step: true },
-            { id: 'holdMode', panel: 'lights', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(2, 4), colour: '#19c37d' },
-            { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
+            { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4), step: true },
+            { id: 'holdMode', panel: 'lights', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(1, 4), colour: '#19c37d' },
+            { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(2, 4), colour: '#19c37d' },
+            light('mirrorRays', 'MIRROR BEAMS', 'mirrorBallRaysActive', 3, 4, '#ffd23a'),
             { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5, 2), step: true },
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
         ])

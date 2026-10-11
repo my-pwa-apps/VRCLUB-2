@@ -414,7 +414,7 @@ class VRClubAudioCrowd extends VRClubUI {
         this._audioKind = 'network';
         this.nowPlayingLabel = state?.title || 'Host broadcast';
         element.play().catch(error => {
-            if (this._networkMusic === remote) this.showErrorMessage(`Broadcast playback was blocked: ${error.message}. Press Listen along again.`);
+            if (this._networkMusic === remote) this.showErrorMessage(`Broadcast playback was blocked: ${error.message}. Interact with the app once, then ask the host to pause and play.`);
         });
         return remote;
     }

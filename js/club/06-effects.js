@@ -1141,7 +1141,7 @@ class VRClubEffects extends VRClubFixtures {
         const batch = this.mirrorReflectionBatch;
         if (!batch || !this.mirrorBall) return;
         const spotCount = this.tierSettings.mirrorSpots;
-        const rayCount = this.tierSettings.mirrorRays;
+        const rayCount = this.mirrorBallRaysActive === false ? 0 : this.tierSettings.mirrorRays;
         const ox = this.mirrorBall.position.x;
         const oy = this.mirrorBall.position.y;
         const oz = this.mirrorBall.position.z;

@@ -221,6 +221,7 @@
                     <button class="vj-button" type="button" aria-pressed="false" data-control="ledMonochrome">B&amp;W WALL</button>
                     <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="mirrorBallActive">MIRROR BALL</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="mirrorBallRaysActive" title="Show the reflected light shafts radiating from the mirror ball. Turn this off to keep only the moving spots on the room surfaces.">MIRROR BEAMS</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="laserSheetActive">LASER SHEET</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive" title="Smoke machines and haze. Off gives clear air: the beams, lasers and the room's fog fade to almost nothing.">SMOKE</button>
                 </div>
@@ -571,16 +572,6 @@
                 </div>
             </div>
 
-            <!-- Shared music consent: a guest's browser only fetches the host's stream
-                 after the guest opts in, because it discloses their IP to that server. -->
-            <div class="audio-section" id="networkListenAlong" hidden>
-                <div id="networkMusicInfo" class="network-help" role="status" aria-live="polite"></div>
-                <button class="audio-button network-primary" id="networkListenAlongBtn" type="button">
-                    <span aria-hidden="true">🎧</span>
-                    <span>Listen along</span>
-                </button>
-            </div>
-
             <div class="audio-section" id="networkTalk" hidden>
                 <div class="vj-section-title">🎤 Talk</div>
                 <div id="networkVoiceAudience"></div>
@@ -826,8 +817,9 @@
         </div>
         <div class="credits-note">
             Links you choose are fetched directly from the audio host, which receives your IP address.
-            Local files stay on your device. In a multiplayer room, the host's music URL and playback position
-            are shared through the relay; guests must choose Listen along before contacting that audio host.
+            Local files stay on your device unless you host a multiplayer room, where they are streamed directly
+            to guests over WebRTC without being uploaded. Guests automatically follow the room host's music;
+            their browser contacts the selected audio host or the host's WebRTC connection, which exposes their IP address.
         </div>
         <div class="credits-heading"><strong>Software</strong></div>
         <div>Babylon.js and its loaders/procedural textures — Apache License 2.0.
