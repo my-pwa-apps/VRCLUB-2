@@ -3685,6 +3685,12 @@ test('per-frame exposure never dirties every material, and a strobe spike surviv
     assert.equal(notifications, 0, 'eye adaptation notified image-processing observers per frame');
     assert.ok(config.exposure < 1.2, 'a bright rig did not stop the iris down');
     assert.equal(config.exposure, club._adaptedExposure, 'adapted exposure never reached the post-process');
+    const beforeEffects = config.exposure;
+    club.lasersActive = true;
+    club.laserSheetActive = true;
+    club.mirrorBallActive = true;
+    for (let i = 0; i < 60; i++) proto.updateEyeAdaptation.call(club, { dtScale: 1, beat: 0 });
+    assert.ok(config.exposure < beforeEffects, 'laser, sheet and mirror output did not contribute to headset adaptation');
 
     // A value of exactly 1 toggles the EXPOSURE shader define, so it must notify.
     proto._writeExposure.call(club, 1);
@@ -3697,6 +3703,85 @@ test('per-frame exposure never dirties every material, and a strobe spike surviv
     proto._writeExposure.call(club, 2.1);
     proto.updateEyeAdaptation.call(club, { dtScale: 1, beat: 0 });
     assert.equal(config.exposure, 2.1, 'eye adaptation overwrote the strobe exposure spike');
+});
+
+test('Quest effect cadence and fog output follow the graphics tier without changing fixture state', () => {
+    const coreWindow = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} }).window;
+    const core = coreWindow.VRClubAnimationCore.prototype;
+
+    const loadClub = {
+        isInVRMode: true,
+        tierSettings: { vrPeakEffectFloor: 0.58 },
+        lightsActive: true, lasersActive: true, laserSheetActive: true,
+        mirrorBallActive: true, ledWallActive: true, strobesActive: true,
+        photosensitiveSafeMode: false
+    };
+    assert.equal(core._effectLoadScale.call({ ...loadClub, lasersActive: false, laserSheetActive: false,
+        mirrorBallActive: false, strobesActive: false }), 1, 'two effects fit without peak scaling');
+    assert.ok(Math.abs(core._effectLoadScale.call(loadClub) - 0.58) < 1e-9, 'a full peak cue reaches the tier floor');
+
+    const machine = {
+        emitter: { emitRate: 0 },
+        ledMat: {},
+        isBursting: false,
+        burstTimer: 0
+    };
+    const fogClub = {
+        ...loadClub,
+        tierSettings: { vrPeakEffectFloor: 0.58, vrFogOutputScale: 0.55 },
+        atmosphereTestDisabled: false,
+        smokeActive: true,
+        fogBurstMode: 'auto',
+        fogBurstInterval: 1,
+        fogIntensity: 1,
+        lastFogBurst: 0,
+        fogMachines: [machine],
+        cachedColors: { fogActive: {}, fogReady: {}, fogContinuous: {}, fogStandby: {}, fogOff: {} },
+        _tintClubAir() {}
+    };
+    core.updateFogMachines.call(fogClub, { time: 10, dt: 1 / 90 });
+    assert.ok(Math.abs(machine.emitter.emitRate - 150 * 0.55 * 0.58) < 1e-9,
+        'Quest fog bursts ignore tier and simultaneous-effect load');
+
+    const fixtures = loadClassic('js/club/08-animation-fixtures.js', {
+        VRClubAnimationCore: class {}
+    }).window.VRClubAnimationFixtures.prototype;
+    let wallFrames = 0, uploads = 0;
+    const ledClub = {
+        isInVRMode: true,
+        tierSettings: { vrLedUpdateHz: 45 },
+        ledWallActive: true,
+        useModularSystems: false,
+        updateLEDWall() { wallFrames++; },
+        _flushLedWall() { uploads++; }
+    };
+    for (let i = 0; i < 90; i++) fixtures.updateLEDWallPass.call(ledClub, {
+        time: i / 90, dt: 1 / 90, dtScale: 2 / 3, audio: {}
+    });
+    assert.ok(wallFrames >= 45 && wallFrames <= 46, `balanced LED wall updated ${wallFrames} times at 90 Hz`);
+    assert.equal(uploads, wallFrames, 'a skipped LED frame still uploaded the texture');
+    const beforeLedBlackout = wallFrames;
+    ledClub.masterIntensity = 0;
+    fixtures.updateLEDWallPass.call(ledClub, { time: 1.001, dt: 0.001, dtScale: 0.25, audio: {} });
+    assert.equal(wallFrames, beforeLedBlackout + 1, 'LED cadence delayed a hard blackout');
+
+    let reflections = 0;
+    const enabled = { setEnabled() {} };
+    const mirrorClub = {
+        isInVRMode: true,
+        tierSettings: { vrMirrorUpdateHz: 45 },
+        mirrorBallActive: true,
+        mirrorReflectionBatch: { spots: enabled, rays: enabled },
+        _updateMirrorReflectionBatch() { reflections++; }
+    };
+    for (let i = 0; i < 90; i++) core.updateMirrorBall.call(mirrorClub, {
+        time: i / 90, dt: 1 / 90, dtScale: 2 / 3
+    });
+    assert.ok(reflections >= 45 && reflections <= 46, `balanced mirror reflections updated ${reflections} times at 90 Hz`);
+    const beforeMirrorBlackout = reflections;
+    mirrorClub.masterIntensity = 0;
+    core.updateMirrorBall.call(mirrorClub, { time: 1.001, dt: 0.001, dtScale: 0.25 });
+    assert.equal(reflections, beforeMirrorBlackout + 1, 'mirror cadence delayed a hard blackout');
 });
 
 test('safe mode keeps the dance-floor strip from strobing in the legacy strobe phase', () => {
@@ -6865,7 +6950,9 @@ function fakeAudio({ duration = 3600, currentTime = 0, paused = false, seekable 
         duration, currentTime, paused, ended: false, src: 'https://x/e.mp3',
         seekable: { length: seekable ? 1 : 0 },
         play() { this.paused = false; return Promise.resolve(); },
-        pause() { this.paused = true; }
+        pause() { this.paused = true; },
+        removeAttribute(name) { if (name === 'src') this.src = ''; },
+        load() {}
     };
 }
 
@@ -7024,15 +7111,18 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
 
     const home = club._vrQuickMenuPageDefinitions('home');
     assert.ok(home.some(item => item && item.target === 'music'), 'the home page must reach the Music page');
-    for (const page of ['home', 'lighting', 'effects', 'comfort', 'crowd', 'travel', 'show', 'music']) {
+    for (const page of ['home', 'lighting', 'effects', 'comfort', 'crowd', 'travel', 'show', 'music', 'musicSources']) {
         assert.ok(club._vrQuickMenuPageDefinitions(page).length <= 12, `${page} has more buttons than the menu has slots`);
     }
     const music = club._vrQuickMenuPageDefinitions('music');
     assert.deepEqual([...music.slice(0, 3)], [null, null, null], 'the first row belongs to the seek bar');
     assert.deepEqual([...music.slice(3).map(item => item.action)],
-        ['seek', 'playPause', 'seek', 'setStep', 'savedSet', 'setStep', 'musicSetup', 'back', 'close']);
+        ['seek', 'playPause', 'seek', 'sourceStep', 'stop', 'sourceStep', 'page', 'back', 'close']);
     assert.deepEqual([...music.filter(item => item && item.action === 'seek').map(item => item.delta)], [-60, 60]);
-    assert.deepEqual([...music.filter(item => item && item.action === 'setStep').map(item => item.delta)], [-1, 1]);
+    assert.deepEqual([...music.filter(item => item && item.action === 'sourceStep').map(item => item.delta)], [-1, 1]);
+    const sources = club._vrQuickMenuPageDefinitions('musicSources');
+    assert.ok(sources.some(item => item && item.action === 'folderMode'), 'folder order/shuffle is available in VR');
+    assert.ok(sources.some(item => item && item.action === 'musicSetup'), 'VR can exit to the system URL/file/folder picker');
 
     // Actions.
     const log = [];
@@ -7047,13 +7137,18 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
         _refreshVRQuickMenu() {},
         showErrorMessage: text => toasts.push(text),
         seekAudioBy: delta => { log.push(['seekBy', delta]); return true; },
-        toggleAudioPlayback: () => { log.push(['toggle']); return true; }
+        toggleAudioPlayback: () => { log.push(['toggle']); return true; },
+        stopAudioPlayback: () => { log.push(['stop']); return true; },
+        stepAudioSource: async delta => { log.push(['sourceStep', delta]); return true; },
+        setLocalPlaylistShuffle: value => { log.push(['shuffle', value]); return true; }
     });
     await club._runVRMusicAction({ action: 'seek', delta: -60 });
     await club._runVRMusicAction({ action: 'playPause' });
-    await club._runVRMusicAction({ action: 'setStep', delta: 1 });
+    await club._runVRMusicAction({ action: 'stop' });
+    await club._runVRMusicAction({ action: 'sourceStep', delta: 1 });
+    await club._runVRMusicAction({ action: 'folderMode' });
     await club._runVRMusicAction({ action: 'savedSet' });
-    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['step', 1], ['play']]);
+    assert.deepEqual(log, [['seekBy', -60], ['toggle'], ['stop'], ['sourceStep', 1], ['shuffle', true], ['play']]);
 
     // Failures are reported, never thrown; a missing player is explained.
     player.play = async () => { throw new Error('feed down'); };
@@ -7073,6 +7168,84 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PAUSED');
     club.audioElement.paused = false;
     assert.equal(club._vrQuickMenuButtonValue({ action: 'playPause' }, club._isVRQuickMenuButtonActive({ action: 'playPause' })), 'PLAYING');
+});
+
+test('a local folder filters audio, plays in natural filename order, wraps, and can shuffle without losing the current track', async () => {
+    const randomMath = Object.create(Math);
+    randomMath.random = () => 0;
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, Math: randomMath });
+    const club = Object.create(window.VRClubUI.prototype);
+    const played = [];
+    const listeners = {};
+    club.guardHostControl = () => true;
+    club.showErrorMessage = assert.fail;
+    club.startAudioFromFile = async (file, options) => {
+        assert.equal(options.fromPlaylist, true);
+        played.push(file.name);
+        club._audioKind = 'file';
+        club.audioElement = {
+            addEventListener(type, listener) { listeners[type] = listener; }
+        };
+        return club.audioElement;
+    };
+    const files = [
+        { name: 'track10.mp3', type: 'audio/mpeg', webkitRelativePath: 'Set/track10.mp3' },
+        { name: 'cover.jpg', type: 'image/jpeg', webkitRelativePath: 'Set/cover.jpg' },
+        { name: 'track2.mp3', type: '', webkitRelativePath: 'Set/track2.mp3' },
+        { name: 'notes.txt', type: '', webkitRelativePath: 'Set/notes.txt' },
+        { name: 'intro.flac', type: '', webkitRelativePath: 'Set/intro.flac' }
+    ];
+
+    const first = await club.startAudioFolder(files, { shuffle: false });
+    assert.equal(first.name, 'intro.flac');
+    assert.deepEqual(played, ['intro.flac']);
+    assert.equal(club._localPlaylist.files.length, 3, 'non-audio folder files are ignored');
+    await club.stepAudioSource(1);
+    await club.stepAudioSource(1);
+    await club.stepAudioSource(1);
+    assert.deepEqual(played, ['intro.flac', 'track2.mp3', 'track10.mp3', 'intro.flac'], 'next wraps in natural order');
+    await club.stepAudioSource(-1);
+    assert.equal(played.at(-1), 'track10.mp3', 'previous wraps backwards');
+    assert.equal(typeof listeners.ended, 'function', 'folder completion advances automatically');
+
+    const current = club._localPlaylist.order[club._localPlaylist.position];
+    assert.equal(club.setLocalPlaylistShuffle(true), true);
+    assert.equal(club._localPlaylist.order[club._localPlaylist.position], current, 'changing mode does not interrupt the current track');
+    assert.equal(new Set(club._localPlaylist.order).size, 3, 'shuffle keeps every track exactly once');
+});
+
+test('stop pauses media, returns finite audio to the start, and source stepping selects then plays a saved URL', async () => {
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {} });
+    const club = Object.create(window.VRClubUI.prototype);
+    const sent = [];
+    club.guardHostControl = () => true;
+    club.audioElement = fakeAudio({ duration: 600, currentTime: 241, paused: false });
+    club._audioKind = 'stream';
+    club._shareAudioPosition = playing => sent.push(playing);
+    assert.equal(club.stopAudioPlayback(), true);
+    assert.equal(club.audioElement.paused, true);
+    assert.equal(club.audioElement.currentTime, 0);
+    assert.deepEqual(sent, [false]);
+
+    club.audioElement = fakeAudio({ duration: Infinity, paused: false });
+    club._audioStreamUrl = 'https://x/live';
+    assert.equal(club.stopAudioPlayback(), true);
+    assert.equal(club.audioElement.src, '', 'stopping a live stream disconnects its media request');
+    assert.equal(club._stoppedAudioSource.src, 'https://x/live');
+    club._setAudioSrc = src => { club.audioElement.src = src; };
+    club.audioContext = null;
+    club.setAudioPlayback(true);
+    assert.equal(club.audioElement.src, 'https://x/live', 'Play reconnects a stopped live stream');
+    assert.equal(club.audioElement.paused, false);
+
+    const actions = [];
+    club._localPlaylist = null;
+    club.musicLibrary = {
+        step: delta => actions.push(['select', delta]),
+        play: async () => { actions.push(['play']); return true; }
+    };
+    assert.equal(await club.stepAudioSource(-1), true);
+    assert.deepEqual(actions, [['select', -1], ['play']], 'changing a saved source starts it immediately');
 });
 
 test('clock labels read h:mm:ss and survive garbage', () => {

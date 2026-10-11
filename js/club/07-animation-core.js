@@ -23,6 +23,24 @@ class VRClubAnimationCore extends VRClubEffects {
     }
 
     /**
+     * Keep peak cues from multiplying every transparent effect to full cost in XR. Geometry and fixture state stay
+     * identical; only fog-particle output is reduced because the scene fog already provides the beam medium.
+     */
+    _effectLoadScale() {
+        if (!this.isInVRMode) return 1;
+        let active = 0;
+        if (this.lightsActive) active++;
+        if (this.lasersActive) active++;
+        if (this.laserSheetActive) active++;
+        if (this.mirrorBallActive) active++;
+        if (this.ledWallActive) active++;
+        if (this.strobesActive && !this.photosensitiveSafeMode) active++;
+        const load = Math.min(1, Math.max(0, (active - 2) / 3));
+        const floor = Math.min(1, Math.max(0.4, this.tierSettings?.vrPeakEffectFloor || 0.7));
+        return 1 - load * (1 - floor);
+    }
+
+    /**
      * Multiplayer: advance remote-avatar interpolation/spatial-audio positions
      * and throttle-broadcast this guest's own position/facing. Both halves are
      * no-ops until a guest connects from the Multiplayer panel (ui-init.js).
@@ -120,7 +138,10 @@ class VRClubAnimationCore extends VRClubEffects {
         const master = this.masterIntensity != null ? this.masterIntensity : 1;
         let brightness = 0.12;
         if (this.lightsActive) brightness += 0.32 * master;
-        if (this.ledWallActive) brightness += 0.28 * master;
+        if (this.ledWallActive) brightness += 0.28 * master * Math.min(1, Math.max(0, this.ledWallLevel ?? 1));
+        if (this.lasersActive) brightness += 0.10 * master;
+        if (this.laserSheetActive) brightness += 0.12 * master;
+        if (this.mirrorBallActive) brightness += 0.08 * master;
         if (this.strobesActive && !this.photosensitiveSafeMode) brightness += 0.12 * master;
         brightness += (ctx.beat || 0) * 0.10;
 
@@ -129,8 +150,9 @@ class VRClubAnimationCore extends VRClubEffects {
         const open = this.isInVRMode ? 1.0 : 1.22;
         const target = base * Math.max(0.78, Math.min(open, 1.22 - brightness * 0.42));
         // Fast constrict, slow dilate - the real asymmetry of the pupil reflex.
-        const rate = target < this._adaptedExposure ? 0.10 : 0.012;
-        this._adaptedExposure += (target - this._adaptedExposure) * Math.min(1, rate * ctx.dtScale);
+        const rate60 = target < this._adaptedExposure ? 0.10 : 0.012;
+        const rate = 1 - Math.pow(1 - rate60, ctx.dtScale);
+        this._adaptedExposure += (target - this._adaptedExposure) * rate;
         // A strobe burst owns exposure for its flash frame; overwriting it here
         // (this runs after updateStrobes) silently cancelled the designed spike.
         if (this._preStrobeExposure !== undefined) return;
@@ -300,6 +322,10 @@ class VRClubAnimationCore extends VRClubEffects {
 
         const { time, dt } = ctx;
         this._tintClubAir(dt);
+        const tierScale = this.isInVRMode ? (this.tierSettings?.vrFogOutputScale || 1) : 1;
+        const outputScale = tierScale * VRClubAnimationCore.prototype._effectLoadScale.call(this);
+        const burstRate = 150 * outputScale;
+        const continuousRate = 80 * outputScale;
 
         // === FOG MACHINE SYSTEM CONTROL ===
         if (this.fogMachines && this.fogMachines.length > 0) {
@@ -324,7 +350,7 @@ class VRClubAnimationCore extends VRClubEffects {
                             // Start a burst
                             machine.isBursting = true;
                             machine.burstTimer = 2.5; // 2.5 second burst
-                            emitter.emitRate = 150 * this.fogIntensity;
+                            emitter.emitRate = burstRate * this.fogIntensity;
                             
                             // Update LED to red (active) — cached, no allocation
                             ledMat.emissiveColor = this.cachedColors.fogActive;
@@ -337,7 +363,10 @@ class VRClubAnimationCore extends VRClubEffects {
                             
                             // Fade out burst over last 0.5 seconds
                             if (machine.burstTimer < 0.5) {
-                                emitter.emitRate = 150 * this.fogIntensity * (machine.burstTimer / 0.5);
+                                emitter.emitRate = burstRate * this.fogIntensity * (machine.burstTimer / 0.5);
+                            } else {
+                                // A cue may add or remove several transparent effects during this burst.
+                                emitter.emitRate = burstRate * this.fogIntensity;
                             }
                             
                             if (machine.burstTimer <= 0) {
@@ -349,7 +378,7 @@ class VRClubAnimationCore extends VRClubEffects {
                         
                     } else if (this.fogBurstMode === 'continuous') {
                         // Continuous low output
-                        emitter.emitRate = 80 * this.fogIntensity;
+                        emitter.emitRate = continuousRate * this.fogIntensity;
                         ledMat.emissiveColor = this.cachedColors.fogContinuous; // Orange (continuous)
                         machine.isBursting = false;
                         
@@ -840,7 +869,17 @@ class VRClubAnimationCore extends VRClubEffects {
             if (this.mirrorReflectionBatch) {
                 this.mirrorReflectionBatch.spots.setEnabled(true);
                 this.mirrorReflectionBatch.rays.setEnabled(true);
-                this._updateMirrorReflectionBatch();
+                const hz = this.isInVRMode ? (this.tierSettings?.vrMirrorUpdateHz || 0) : 0;
+                const black = (this.masterIntensity ?? 1) <= 0.001;
+                const blackChanged = this._mirrorCadenceBlack !== black;
+                this._mirrorCadenceBlack = black;
+                this._mirrorReflectionClock = (this._mirrorReflectionClock || 0) + (ctx.dt || ctx.dtScale / 60 || 1 / 60);
+                if (blackChanged || !this._mirrorReflectionReady || hz <= 0 || this._mirrorReflectionClock >= 1 / hz) {
+                    if (hz > 0) this._mirrorReflectionClock %= 1 / hz;
+                    else this._mirrorReflectionClock = 0;
+                    this._updateMirrorReflectionBatch();
+                    this._mirrorReflectionReady = true;
+                }
             }
         } else {
             // Mirror ball inactive - disable all mirror ball elements
@@ -856,6 +895,9 @@ class VRClubAnimationCore extends VRClubEffects {
                 this.mirrorReflectionBatch.spots.setEnabled(false);
                 this.mirrorReflectionBatch.rays.setEnabled(false);
             }
+            this._mirrorReflectionReady = false;
+            this._mirrorReflectionClock = 0;
+            this._mirrorCadenceBlack = false;
             if (this.mirrorBallHousings) {
                 // PERFORMANCE: Use cached black color instead of creating new Color3 objects
                 this.mirrorBallHousings.forEach(housing => {

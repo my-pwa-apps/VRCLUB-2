@@ -1231,6 +1231,23 @@ html, body {
     gap: 8px;
 }
 
+.audio-folder-options {
+    display: grid;
+    gap: 6px;
+    margin: 10px 0 8px;
+}
+
+.audio-transport {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.audio-transport .audio-button {
+    justify-content: center;
+    min-width: 0;
+}
+
 .audio-file-label {
     background: rgba(102, 126, 234, 0.3);
     border: 1px solid rgba(102, 126, 234, 0.5);

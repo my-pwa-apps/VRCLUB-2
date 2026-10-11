@@ -1,5 +1,12 @@
 'use strict';
 class VRClubUI extends VRClubAnimationFinish {
+    static isLocalAudioFile(file) {
+        return !!file && (
+            String(file.type || '').toLowerCase().startsWith('audio/') ||
+            /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|webm)$/i.test(String(file.name || ''))
+        );
+    }
+
     setupUI(vrHelper) {
         this._setupVRButton(vrHelper);
 
@@ -676,7 +683,10 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (button.action === 'autoShow') return !this.vjManualMode;
         if (button.action === 'dj') return this._initialDJId() === button.dj;
-        if (button.action === 'playPause') return this.getPlaybackInfo().playing;
+        if (button.action === 'playPause' || button.action === 'play') return this.getPlaybackInfo().playing;
+        if (button.action === 'folderMode') {
+            return this._localPlaylist ? !!this._localPlaylist.shuffle : !!this._localPlaylistShuffle;
+        }
         if (button.action === 'quality' || button.action === 'cycle' || button.action === 'nextSection' ||
             button.action === 'holdMode' || button.action === 'holdTiming') return true;
         if (button.control) return !!this[button.control];
@@ -685,7 +695,8 @@ class VRClubUI extends VRClubAnimationFinish {
 
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
-        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection'].includes(button.action)) return true;
+        if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
+            'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode'].includes(button.control);
     }
 
@@ -699,6 +710,15 @@ class VRClubUI extends VRClubAnimationFinish {
             return item ? item.name.slice(0, 22).toUpperCase() : 'ADD LINKS FIRST';
         }
         if (button.action === 'playPause') return active ? 'PLAYING' : 'PAUSED';
+        if (button.action === 'play') return active ? 'PLAYING' : 'READY';
+        if (button.action === 'pause') return this.getPlaybackInfo().playing ? 'TAP TO PAUSE' : 'PAUSED';
+        if (button.action === 'stop') return this._audioKind ? 'RETURN TO START' : 'NOTHING LOADED';
+        if (button.action === 'folderMode') {
+            const playlist = this._localPlaylist;
+            const shuffle = playlist ? playlist.shuffle : !!this._localPlaylistShuffle;
+            if (!playlist) return `${shuffle ? 'SHUFFLE' : 'IN ORDER'} \u2022 NEXT FOLDER`;
+            return `${shuffle ? 'SHUFFLE' : 'IN ORDER'} \u2022 ${playlist.files.length} TRACKS`;
+        }
         // These two leave the immersive session for an on-screen page (a headset has no keyboard): say so before the press.
         if (button.action === 'musicSetup' || button.action === 'credits') return 'LEAVES VR';
         if (button.action === 'quality') return this.graphicsTier.toUpperCase();
@@ -846,10 +866,19 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: '\u2212 1 MIN', action: 'seek', delta: -60 },
                 { label: 'PLAY / PAUSE', action: 'playPause' },
                 { label: '+ 1 MIN', action: 'seek', delta: 60 },
-                { label: 'PREVIOUS SET', action: 'setStep', delta: -1 },
-                { label: 'PLAY SAVED SET', action: 'savedSet' },
-                { label: 'NEXT SET', action: 'setStep', delta: 1 },
-                { label: 'ADD MUSIC', action: 'musicSetup' },
+                { label: 'PREVIOUS SOURCE', action: 'sourceStep', delta: -1 },
+                { label: 'STOP', action: 'stop' },
+                { label: 'NEXT SOURCE', action: 'sourceStep', delta: 1 },
+                { label: 'SOURCES', action: 'page', target: 'musicSources' },
+                common.back,
+                common.close
+            ],
+            musicSources: [
+                { label: 'PREVIOUS SOURCE', action: 'sourceStep', delta: -1 },
+                { label: 'PLAY SOURCE', action: 'savedSet' },
+                { label: 'NEXT SOURCE', action: 'sourceStep', delta: 1 },
+                { label: 'FOLDER PLAY MODE', action: 'folderMode' },
+                { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
                 common.back,
                 common.close
             ],
@@ -925,7 +954,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
-                music: 'POINT AT THE BAR TO JUMP ANYWHERE IN THE SET'
+                music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
+                musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER'
             };
             const subtitle = hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
@@ -1112,6 +1142,21 @@ class VRClubUI extends VRClubAnimationFinish {
             if (!this.seekAudioBy(button.delta)) this.showErrorMessage('Nothing to seek in.');
         } else if (button.action === 'playPause') {
             this.toggleAudioPlayback();
+        } else if (button.action === 'play') {
+            this.setAudioPlayback(true);
+        } else if (button.action === 'pause') {
+            this.setAudioPlayback(false);
+        } else if (button.action === 'stop') {
+            this.stopAudioPlayback();
+        } else if (button.action === 'sourceStep') {
+            try {
+                await this.stepAudioSource(button.delta);
+            } catch (err) {
+                this.showErrorMessage(`Could not change source: ${err && err.message ? err.message : 'unknown error'}`);
+            }
+        } else if (button.action === 'folderMode') {
+            const shuffle = this._localPlaylist ? this._localPlaylist.shuffle : !!this._localPlaylistShuffle;
+            this.setLocalPlaylistShuffle(!shuffle);
         } else if (button.action === 'musicSetup') {
             await this._openQuestPanel('music');
             return;
@@ -1543,7 +1588,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 .catch(error => this.showErrorMessage(error.message));
             return;
         }
-        if (['seek', 'playPause', 'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
+        if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode',
+            'savedSet', 'setStep', 'musicSetup'].includes(button.action)) {
             this._runVRMusicAction(button);
             return;
         }
@@ -2098,6 +2144,7 @@ class VRClubUI extends VRClubAnimationFinish {
     _playAudio(src, kind, label, options = {}) {
         this._stopSoundCloudPlayer();
         const audio = this._ensureAudioElement();
+        this._stoppedAudioSource = null;
         audio.loop = options.loop !== false;
         this._audioKind = kind;
         this._audioStreamUrl = kind === 'stream' ? src : null;
@@ -2129,6 +2176,7 @@ class VRClubUI extends VRClubAnimationFinish {
             this.showErrorMessage('Invalid audio URL. Use http://, https:// or blob: only.');
             return Promise.reject(new TypeError('Unsafe audio URL'));
         }
+        this._localPlaylist = null;
         this.nowPlayingLabel = url; // a podcast episode replaces this with its title once it has started
         return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
     }
@@ -2166,6 +2214,7 @@ class VRClubUI extends VRClubAnimationFinish {
             parsed.username || parsed.password) {
             return Promise.reject(new TypeError('Use a SoundCloud track or set page URL.'));
         }
+        this._localPlaylist = null;
         if (this.audioElement) this.audioElement.pause();
         this._stopSoundCloudPlayer();
         const holder = document.getElementById('soundCloudPlayer');
@@ -2252,11 +2301,93 @@ class VRClubUI extends VRClubAnimationFinish {
         this._soundCloudUrl = null;
     }
 
-    startAudioFromFile(file) {
+    startAudioFromFile(file, options = {}) {
+        if (!VRClubUI.isLocalAudioFile(file)) {
+            return Promise.reject(new TypeError('Choose an MP3, M4A, OGG, FLAC, WAV, AAC, Opus or WebM audio file.'));
+        }
+        if (!options.fromPlaylist) this._localPlaylist = null;
         log.info(`🎵 Loading audio file: ${file.name}`);
         const fileUrl = URL.createObjectURL(file);
         this.nowPlayingLabel = file.name;
-        return this._playAudio(fileUrl, 'file', file.name);
+        return this._playAudio(fileUrl, 'file', file.name, { loop: !options.fromPlaylist });
+    }
+
+    /**
+     * Play audio files selected through a folder picker. Browser File objects cannot be persisted safely, so the
+     * playlist lasts for this page session; links in MusicLibrary remain the persistent source list.
+     */
+    async startAudioFolder(fileList, options = {}) {
+        if (!this.guardHostControl('music')) return false;
+        const files = Array.from(fileList || []).filter(VRClubUI.isLocalAudioFile);
+        if (!files.length) throw new Error('That folder contains no supported audio files.');
+        files.sort((a, b) => String(a.webkitRelativePath || a.name).localeCompare(
+            String(b.webkitRelativePath || b.name), undefined, { numeric: true, sensitivity: 'base' }
+        ));
+        this._localPlaylist = {
+            files,
+            order: files.map((_, index) => index),
+            position: 0,
+            shuffle: !!options.shuffle
+        };
+        this._localPlaylistShuffle = !!options.shuffle;
+        if (options.shuffle) {
+            for (let i = this._localPlaylist.order.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [this._localPlaylist.order[i], this._localPlaylist.order[j]] =
+                    [this._localPlaylist.order[j], this._localPlaylist.order[i]];
+            }
+        }
+        return this._playLocalPlaylistPosition(0);
+    }
+
+    setLocalPlaylistShuffle(shuffle) {
+        const playlist = this._localPlaylist;
+        if (!playlist) {
+            this._localPlaylistShuffle = !!shuffle;
+            return false;
+        }
+        const current = playlist.order[playlist.position] ?? 0;
+        const rest = playlist.files.map((_, index) => index).filter(index => index !== current);
+        if (shuffle) {
+            for (let i = rest.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [rest[i], rest[j]] = [rest[j], rest[i]];
+            }
+        }
+        playlist.shuffle = !!shuffle;
+        playlist.order = shuffle
+            ? [current, ...rest]
+            : playlist.files.map((_, index) => index);
+        playlist.position = shuffle ? 0 : current;
+        return true;
+    }
+
+    async _playLocalPlaylistPosition(position) {
+        const playlist = this._localPlaylist;
+        if (!playlist || !playlist.files.length) throw new Error('No local folder is loaded.');
+        playlist.position = (position + playlist.order.length) % playlist.order.length;
+        const file = playlist.files[playlist.order[playlist.position]];
+        await this.startAudioFromFile(file, { fromPlaylist: true });
+        const audio = this.audioElement;
+        if (audio && !this._onLocalPlaylistEnded) {
+            this._onLocalPlaylistEnded = () => {
+                if (!this._localPlaylist || this._audioKind !== 'file') return;
+                this._playLocalPlaylistPosition(this._localPlaylist.position + 1)
+                    .catch(error => this.showErrorMessage(`Could not play the next folder track: ${error.message}`));
+            };
+            audio.addEventListener('ended', this._onLocalPlaylistEnded);
+        }
+        return file;
+    }
+
+    /** Previous/next means a track in the active folder, otherwise the previous/next saved URL source. */
+    async stepAudioSource(delta) {
+        if (!this.guardHostControl('music')) return false;
+        if (delta !== -1 && delta !== 1) throw new Error('Choose the previous or next source.');
+        if (this._localPlaylist) return this._playLocalPlaylistPosition(this._localPlaylist.position + delta);
+        if (!this.musicLibrary) throw new Error('The music player is not ready yet.');
+        this.musicLibrary.step(delta);
+        return this.musicLibrary.play();
     }
 
     // =========================================================================
@@ -2313,26 +2444,66 @@ class VRClubUI extends VRClubAnimationFinish {
         return info.seekable ? this.seekAudioTo(info.position + delta) : false;
     }
 
-    /** Play or pause what is loaded. Returns true when it is now playing. */
-    toggleAudioPlayback() {
+    /** Explicit play/pause used by the VR transport and the desktop panel. */
+    setAudioPlayback(playing) {
         if (!this.guardHostControl('music')) return false;
         if (this._audioKind === 'soundcloud') {
             this.showErrorMessage('Use the official SoundCloud player in Music to play or pause this set.');
             return false;
         }
         const audio = this.audioElement;
+        if (playing && audio && !audio.src && this._stoppedAudioSource) {
+            this._setAudioSrc(this._stoppedAudioSource.src);
+            audio.load();
+            this._stoppedAudioSource = null;
+        }
         if (!audio || !audio.src) {
             this.showErrorMessage('No music yet. Open Music and add your own audio link or file.');
             return false;
         }
-        if (audio.paused) {
+        if (playing && audio.paused) {
             if (this.audioContext && this.audioContext.state === 'suspended') this.audioContext.resume().catch(() => {});
             audio.play().catch(() => this.showErrorMessage('Playback was blocked. Press Play again.'));
-        } else {
+        } else if (!playing && !audio.paused) {
             audio.pause();
         }
-        this._shareAudioPosition(!audio.paused);
+        this._shareAudioPosition(!!playing);
         return !audio.paused;
+    }
+
+    /** Play or pause what is loaded. Returns true when it is now playing. */
+    toggleAudioPlayback() {
+        if (!this.guardHostControl('music')) return false;
+        const audio = this.audioElement;
+        return this.setAudioPlayback(!!audio?.paused);
+    }
+
+    /** Stop finite media at its beginning; disconnect a live stream so it no longer downloads until Play is pressed. */
+    stopAudioPlayback() {
+        if (!this.guardHostControl('music')) return false;
+        if (this._audioKind === 'soundcloud') {
+            if (this._soundCloudWidget) {
+                this._soundCloudWidget.pause();
+                this._soundCloudWidget.seekTo(0);
+                return true;
+            }
+            return false;
+        }
+        const audio = this.audioElement;
+        if (!audio || !audio.src) {
+            this.showErrorMessage('No music is loaded.');
+            return false;
+        }
+        audio.pause();
+        if (Number.isFinite(audio.duration)) {
+            try { audio.currentTime = 0; } catch (_) { /* media metadata may still be loading */ }
+        } else if (this._audioKind === 'stream' && this._audioStreamUrl) {
+            this._stoppedAudioSource = { src: this._audioStreamUrl };
+            audio.removeAttribute('src');
+            audio.load();
+        }
+        this._shareAudioPosition(false);
+        return true;
     }
 
     /** The room's host publishes the position after a seek or a pause, so listeners follow (guests cannot publish). */

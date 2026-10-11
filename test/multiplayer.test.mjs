@@ -988,7 +988,9 @@ test('every control that changes the room\'s music or lights is gated for a gues
         assert.ok(start >= 0, `${signature} not found`);
         return source.slice(start, source.indexOf('\n    }\n', start));
     };
-    for (const [name, what] of [['seekAudioTo(seconds) {', 'music'], ['toggleAudioPlayback() {', 'music'], ['_beginVRSeek(pickResult) {', 'music'],
+    for (const [name, what] of [['seekAudioTo(seconds) {', 'music'], ['setAudioPlayback(playing) {', 'music'],
+        ['toggleAudioPlayback() {', 'music'], ['stopAudioPlayback() {', 'music'], ['async stepAudioSource(delta) {', 'music'],
+        ['async startAudioFolder(fileList, options = {}) {', 'music'], ['_beginVRSeek(pickResult) {', 'music'],
         ['async _runVRMusicAction(button) {', 'music']]) {
         assert.match(body(ui, name), new RegExp(`guardHostControl\\('${what}'\\)`), `${name} is not gated`);
     }

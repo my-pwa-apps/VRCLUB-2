@@ -583,6 +583,9 @@ SSAO, motion blur or shadows in XR:
 | Pipeline MSAA default | 4 | 4 | 4 |
 | Anisotropic filtering | 12× | 8× | 4× |
 | Haze / dust rates | 90 / 50 | 78 / 40 | 65 / 30 |
+| Fog-machine output | 85% | 70% | 55% |
+| LED texture / mirror reflection update | 72 / 72 Hz | 60 / 60 Hz | 45 / 45 Hz |
+| Peak transparent-effect floor | 78% | 68% | 58% |
 | Fixed foveation | 0.2 | 0.3 | 0.4 |
 | Crowd / guests | 14 / 8 | 10 / 4 | 6 / 2 |
 | Mirror spots / rays | 280 / 64 | 180 / 52 | 96 / 32 |
@@ -591,6 +594,11 @@ Quest browsers auto-detect `ultra` (the owner's Quest 3 runs it; the Quest 3S is
 selection always wins, and the VR menu steps down to `high` or `balanced`. Because the flat (pre-XR) page on a Quest also runs the
 desktop tier path, ultra's SSR, SSAO and motion blur render there until the headset session starts, and are detached on entry.
 High and Ultra remain unmeasured on a Quest 3S.
+
+The fixed XR effect cadences are CPU/upload budgets, not animation clocks: LED patterns, mirror rotation and laser motion still
+derive from elapsed time, so skipped uploads never slow the show or make it refresh-rate dependent. When three or more transparent
+headline effects overlap, `_effectLoadScale()` reduces only fog-machine particle output toward the tier's floor; scene fog remains
+the beam medium, and fixture geometry, colour, timing and master intensity stay identical.
 
 Rules when touching this:
 - Mirror reflection spots and outgoing rays are two thin-instanced meshes backed by
@@ -1267,10 +1275,16 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   saved set. Fresh profiles show guidance to open Music, with no third-party music request.
   Historical `vrclub.lastStreamUrl` / `vrclub.podcast` are ignored. Sets use `{ onDemand: true }`
   (no loop or automatic next track). Blocked playback retries on the next click/key.
-- **Seeking.** `getPlaybackInfo()`, `seekAudioTo/Fraction/By()` and `toggleAudioPlayback()` in
-  `js/club/10-ui.js` are the one API (Audio menu slider `#audioSeek` and ±30 s, VR Music page). Seeks
+- **Music transport and local folders.** `getPlaybackInfo()`, `seekAudioTo/Fraction/By()`,
+  `setAudioPlayback()` / `toggleAudioPlayback()`, `stopAudioPlayback()` and `stepAudioSource()` in
+  `js/club/10-ui.js` are the one API for the Audio panel and VR Music page. Previous/next immediately
+  plays the adjacent track in an active local folder, otherwise the adjacent saved URL source. Seeks
   clamp to `duration − 1` (seeking to the very end fires `ended` and advances the queue); live streams
   (infinite duration) are not seekable; only the host publishes the position (`_shareAudioPosition`).
+  `startAudioFolder()` accepts the browser folder picker's audio files and plays them continuously in
+  natural filename order or a per-session shuffle; File objects and folder permission are deliberately
+  not persisted. In VR, ADD URL / FILE / FOLDER exits XR before opening the DOM Music panel because the
+  system keyboard and file picker cannot be embedded safely in the immersive WebXR layer.
 - A reconnect of a finite-duration source resumes at its position (`_recoverAudioStream()`).
 - The Audio menu separates **Music** (the chosen stream/file only) from **Ambience** (the
   generated crowd bed). `setAudioVolume()` writes only the media element; the crowd bed has

@@ -1049,6 +1049,8 @@ function initAudioMenu() {
     const playStreamBtnLabel = document.getElementById('playStreamBtnLabel');
     const audioSourceHint = document.getElementById('audioSourceHint');
     const audioFileInput = document.getElementById('audioFileInput');
+    const audioFolderInput = document.getElementById('audioFolderInput');
+    const folderPlaybackMode = document.getElementById('folderPlaybackMode');
     const audioFileName = document.getElementById('audioFileName');
     const audioStatus = document.getElementById('audioStatus');
     const audioTitle = document.getElementById('audioMenuTitle');
@@ -1372,6 +1374,16 @@ function initAudioMenu() {
     library.onChange = renderSets;
     renderSets();
     setSourceHint(streamUrl.value);
+    if (folderPlaybackMode) {
+        folderPlaybackMode.value = vrClubInstance._localPlaylistShuffle ? 'shuffle' : 'order';
+        folderPlaybackMode.addEventListener('change', () => {
+            const shuffle = folderPlaybackMode.value === 'shuffle';
+            vrClubInstance.setLocalPlaylistShuffle(shuffle);
+            vrClubInstance._localPlaylistShuffle = shuffle;
+            showStatus(`Folder playback: ${shuffle ? 'shuffle' : 'filename order'}`, 'success');
+            if (vrClubInstance._vrQuickMenuVisible) vrClubInstance._refreshVRQuickMenu();
+        });
+    }
     savedSets.addEventListener('change', () => {
         try { library.select(Number(savedSets.value)); }
         catch (error) { showStatus(error.message, 'error'); }
@@ -1416,12 +1428,15 @@ function initAudioMenu() {
                 volume.disabled = true;
                 volume.title = 'Use the SoundCloud player volume control';
             }
-        } else if (streamUrl && streamUrl.value && vrClubInstance.audioElement && vrClubInstance.audioElement.src) {
+        } else if (vrClubInstance.audioElement && vrClubInstance.audioElement.src) {
             setPlayLabel(info.playing);
             if (volume) {
                 volume.disabled = false;
                 volume.title = 'Music playback volume';
             }
+        }
+        if (vrClubInstance._audioKind && vrClubInstance.nowPlayingLabel) {
+            setNowPlaying(`${info.playing ? '\u25B6' : '\u23F8'} ${vrClubInstance.nowPlayingLabel}`);
         }
         seekSection.hidden = !info.seekable;
         if (!info.seekable) return;
@@ -1442,6 +1457,17 @@ function initAudioMenu() {
     }
     if (seekBack) seekBack.addEventListener('click', () => { vrClubInstance.seekAudioBy(-30); renderSeek(); });
     if (seekForward) seekForward.addEventListener('click', () => { vrClubInstance.seekAudioBy(30); renderSeek(); });
+    const runTransport = action => Promise.resolve(action()).then(() => renderSeek()).catch(error => {
+        showStatus(error.message, 'error');
+    });
+    const previousSource = document.getElementById('audioPreviousSource');
+    const playbackToggle = document.getElementById('audioPlaybackToggle');
+    const stopPlayback = document.getElementById('audioStop');
+    const nextSource = document.getElementById('audioNextSource');
+    if (previousSource) previousSource.addEventListener('click', () => runTransport(() => vrClubInstance.stepAudioSource(-1)));
+    if (playbackToggle) playbackToggle.addEventListener('click', () => runTransport(() => vrClubInstance.toggleAudioPlayback()));
+    if (stopPlayback) stopPlayback.addEventListener('click', () => runTransport(() => vrClubInstance.stopAudioPlayback()));
+    if (nextSource) nextSource.addEventListener('click', () => runTransport(() => vrClubInstance.stepAudioSource(1)));
     const seekTimer = setInterval(() => { if (!audioMenu.classList.contains('hidden')) renderSeek(); }, 250);
     teardowns.push(() => clearInterval(seekTimer));
     audioToggle.addEventListener('click', renderSeek);
@@ -1524,7 +1550,7 @@ function initAudioMenu() {
             if (!file) return;
             // `accept="audio/*"` is a picker hint, not a constraint. Without this the
             // user gets a raw MediaError string from the decoder instead of an answer.
-            if (file.type && !file.type.startsWith('audio/')) {
+            if (!VRClubUI.isLocalAudioFile(file)) {
                 showStatus(`That doesn't look like an audio file (${file.type})`, 'error');
                 return;
             }
@@ -1542,6 +1568,27 @@ function initAudioMenu() {
                     }
                 })
                 .catch(err => showStatus(`Error: ${err.message}`, 'error'));
+        });
+    }
+
+    if (audioFolderInput && audioFileName) {
+        audioFolderInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            if (!files.length) return;
+            const shuffle = folderPlaybackMode && folderPlaybackMode.value === 'shuffle';
+            vrClubInstance._localPlaylistShuffle = !!shuffle;
+            vrClubInstance.startAudioFolder(files, { shuffle })
+                .then(file => {
+                    const count = vrClubInstance._localPlaylist.files.length;
+                    const path = file.webkitRelativePath || file.name;
+                    const folder = path.includes('/') ? path.split('/')[0] : 'Selected folder';
+                    audioFileName.textContent = `${folder}: ${count} audio track${count === 1 ? '' : 's'}`;
+                    showStatus(`Playing ${folder} ${shuffle ? 'shuffled' : 'in filename order'}`, 'success');
+                    setNowPlaying(`\u25B6 ${file.name}`);
+                    setPlayLabel(true);
+                })
+                .catch(err => showStatus(`Could not play folder: ${err.message}`, 'error'))
+                .finally(() => { audioFolderInput.value = ''; });
         });
     }
     

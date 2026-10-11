@@ -402,10 +402,25 @@
                 <div class="audio-file-upload">
                     <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
                     <label for="audioFileInput" class="audio-file-label">
-                        Or choose an audio file
+                        Choose one audio file
+                    </label>
+                </div>
+                <div class="audio-folder-options">
+                    <label for="folderPlaybackMode">Folder play mode</label>
+                    <select class="audio-input" id="folderPlaybackMode">
+                        <option value="order">Play in filename order</option>
+                        <option value="shuffle">Shuffle</option>
+                    </select>
+                </div>
+                <div class="audio-file-upload">
+                    <input type="file" id="audioFolderInput" class="audio-file-input" accept="audio/*"
+                           webkitdirectory directory multiple>
+                    <label for="audioFolderInput" class="audio-file-label">
+                        Choose a music folder
                     </label>
                 </div>
                 <div id="audioFileName" class="audio-file-name"></div>
+                <p class="network-help">A folder plays continuously in order or shuffled for this session. Browsers cannot remember access to local folders after the page closes. In VR, ADD URL / FILE / FOLDER briefly exits the headset session so the system keyboard or file picker can open; choose Enter VR when finished.</p>
                 <details class="audio-help">
                     <summary>What can I paste?</summary>
                     <ul class="network-help">
@@ -433,6 +448,16 @@
                     <option value="male">Male DJ</option>
                     <option value="female">Female DJ</option>
                 </select>
+            </div>
+
+            <div class="audio-section">
+                <div class="vj-section-title">Transport</div>
+                <div class="audio-transport" role="group" aria-label="Music transport">
+                    <button class="audio-button" id="audioPreviousSource" type="button">Previous source</button>
+                    <button class="audio-button" id="audioPlaybackToggle" type="button">Play / pause</button>
+                    <button class="audio-button" id="audioStop" type="button">Stop</button>
+                    <button class="audio-button" id="audioNextSource" type="button">Next source</button>
+                </div>
             </div>
 
             <!-- Position in the episode: only for something with a length (an episode or a file), not a live stream -->

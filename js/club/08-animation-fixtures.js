@@ -7,6 +7,17 @@ const LASER_DOT_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 class VRClubAnimationFixtures extends VRClubAnimationCore {
     updateLEDWallPass(ctx) {
         const { time, audio: audioData } = ctx;
+        const hz = this.isInVRMode ? (this.tierSettings?.vrLedUpdateHz || 0) : 0;
+        const activeChanged = this._ledCadenceActive !== !!this.ledWallActive;
+        const black = (this.masterIntensity ?? 1) <= 0.001;
+        const blackChanged = this._ledCadenceBlack !== black;
+        this._ledCadenceActive = !!this.ledWallActive;
+        this._ledCadenceBlack = black;
+        this._ledCadenceClock = (this._ledCadenceClock || 0) + (ctx.dt || ctx.dtScale / 60 || 1 / 60);
+        if (!activeChanged && !blackChanged && this._ledCadenceReady && hz > 0 && this._ledCadenceClock < 1 / hz) return;
+        if (hz > 0) this._ledCadenceClock %= 1 / hz;
+        else this._ledCadenceClock = 0;
+        this._ledCadenceReady = true;
 
         // Update LED wall animations
         // CRITICAL FIX: Handle both modular and legacy systems
