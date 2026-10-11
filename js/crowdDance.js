@@ -60,7 +60,11 @@ class CrowdDance {
         return {
             moves, taste,
             move: null, half: false, barsLeft: 0, lastBar: null,
-            hadBeat: null, dropSeen: false
+            hadBeat: null, dropSeen: false,
+            // Stable personality knobs: authored moves still own the body, but not
+            // everybody answers a beat or a drop with the same size reaction.
+            response: this.rng(),
+            dropResponse: this.rng()
         };
     }
 
@@ -107,7 +111,9 @@ class CrowdDance {
         if (pick) {
             const move = this._pick(dancer, music, pick === 'drop', pulse === 'rhythm');
             const meta = CrowdDance.MOVES[move];
-            const halfChance = pulse === 'rhythm' ? 0.4 : music.energy < 0.3 ? 0.35 : 0.15;
+            const halfChance = pulse === 'rhythm' ? 0.4
+                : music.energy < 0.3 ? 0.28 + 0.14 * (1 - dancer.response)
+                    : 0.08 + 0.14 * (1 - dancer.response);
             dancer.half = (pulse === 'rhythm' || move !== 'Groove_Sway') && this.rng() < halfChance && meta.beats <= 4;
             dancer.barsLeft = 4 + Math.floor(this.rng() * 5);
             out.switched = move !== dancer.move || pick === 'drop';
@@ -151,11 +157,22 @@ class CrowdDance {
             if (meta.free && !rhythm) continue;
             let w = meta.weight * dancer.taste[name];
             if (rhythm) w *= CrowdDance.RHYTHM_WEIGHTS[name] ?? 1;
+            if (!rhythm) {
+                const response = dancer.response == null ? 0.5 : dancer.response;
+                if (name === 'Groove_Bounce' || name === 'Groove_SideTap') w *= 1.35 - 0.55 * response;
+                if (name === 'Groove_Pump' || name === 'Groove_Twist') w *= 0.65 + 0.9 * response;
+            }
             // Below the energy a move suits it is picked less; a quiet track favours the sway.
             w *= Math.max(0.1, 1 - 2.5 * Math.max(0, meta.energy - energy));
             if (meta.quiet && !rhythm) w *= energy < 0.3 ? meta.quiet : 0.3;
             if (music.build && meta.build) w *= meta.build;
-            if (drop) w *= meta.drop || 0.3;
+            if (drop) {
+                const response = dancer.dropResponse == null ? 0.5 : dancer.dropResponse;
+                w *= meta.drop || 0.3;
+                if (name === 'Groove_HandsUp') w *= 0.25 + 3.5 * response;
+                else if (name === 'Groove_Pump') w *= 1.8 - 0.8 * response;
+                else if (name === 'Groove_Clap' || name === 'Groove_Bounce') w *= 1.7 - response;
+            }
             if (name === dancer.move) w *= 0.3;       // prefer a change
             if (w <= 0) continue;
             total += w;

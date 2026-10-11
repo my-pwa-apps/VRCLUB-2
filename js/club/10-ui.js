@@ -232,13 +232,17 @@ class VRClubUI extends VRClubAnimationFinish {
         return typeof this._laserColor === 'function' ? this._laserColor() : null;
     }
 
-    /** Apply one palette colour to moving heads, lasers, laser sheet, mirror ball and the colour-following LED wall. */
+    /** Apply one palette colour to every light and a single-colour LED-wall show. */
     matchAllLightColors(advance = true) {
         const colour = advance ? this.cycleSpotColor() : this.currentSpotColor;
         if (!colour) return null;
         this.colorLockActive = true;
         this.ledMonochrome = false;
         this.ledMulti = false;
+        // Breathing is the playlist's full-wall, handed-colour look. Holding this
+        // index prevents hue-synthesising rainbow patterns from defeating MATCH ALL.
+        this.ledPattern = 5;
+        this.ledPatternSwitchTime = performance.now() / 1000;
         if (this.vjDirector && typeof this.vjDirector.setLedHarmony === 'function') {
             this.vjDirector.setLedHarmony('match');
         } else {
@@ -269,7 +273,7 @@ class VRClubUI extends VRClubAnimationFinish {
             this.mirrorReflectionBatch.spotMat.emissiveColor.copyFrom(colour);
             this.mirrorReflectionBatch.rayMat.emissiveColor.copyFrom(colour);
         }
-        this.mirrorBallCachedColors = null;
+        this.mirrorBallCachedColorSource = null;
     }
 
     /** Advance the mirror-ball palette and push it to every dependent surface. */

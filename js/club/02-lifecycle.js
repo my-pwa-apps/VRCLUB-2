@@ -185,6 +185,12 @@ class VRClubLifecycle extends VRClubCore {
         
         this._finalizeRenderQuality();
 
+        // Compile the base scene behind the splash instead of letting the first visible
+        // frames pay the shader cost. Background GLBs still have their own hidden,
+        // deduplicated pre-warm in ModelLoader.
+        this._reportInitProgress(0.94, 'Compiling the first view...');
+        await this._waitForBaseSceneReady();
+
         // Verify scene is ready
         log.info('🎬 Scene initialization complete:');
         log.info(`  📷 Camera: ${this.camera.position.toString()}`);
@@ -202,6 +208,10 @@ class VRClubLifecycle extends VRClubCore {
         // Quest, on top of the compositor's own) and a guaranteed phase error between
         // the camera matrix and the head-bob written into it.
         this._renderLoop = () => {
+            // Babylon briefly exposes zero-sized XR attachments while swapping render targets.
+            // Rendering during ENTERING/EXITING_XR produced hundreds of incomplete-framebuffer
+            // warnings and no useful frame, so skip only that transition window.
+            if (this._xrTransitioning) return;
             this.updateAnimations();
             this.scene.render();
             this.updatePerformanceMonitor();
@@ -212,6 +222,25 @@ class VRClubLifecycle extends VRClubCore {
 
         this.ready = true;
         this._reportInitProgress(1, 'Ready');
+    }
+
+    async _waitForBaseSceneReady(timeoutMs = 20000) {
+        if (!this.scene || typeof this.scene.whenReadyAsync !== 'function') return;
+        let timeoutId;
+        try {
+            await Promise.race([
+                this.scene.whenReadyAsync(),
+                new Promise((_, reject) => {
+                    timeoutId = setTimeout(() => reject(new Error(`Base scene compile exceeded ${timeoutMs} ms`)), timeoutMs);
+                })
+            ]);
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            log.warn('Base scene did not finish compiling behind the splash:', message);
+            this.recordDiagnostic('render', 'Base scene compile wait ended early', { error: message });
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
     }
 
     /** WebXR default experience for Quest; resolves to null (desktop mode) when XR is unavailable. */
@@ -501,6 +530,15 @@ class VRClubLifecycle extends VRClubCore {
      */
     _setupXRSession(vrHelper) {
         if (vrHelper?.baseExperience) this._xrHeadHeight();
+        if (vrHelper?.baseExperience) {
+            vrHelper.baseExperience.onStateChangedObservable.add(state => {
+                if (state === BABYLON.WebXRState.ENTERING_XR || state === BABYLON.WebXRState.EXITING_XR) {
+                    this._xrTransitioning = true;
+                } else if (state === BABYLON.WebXRState.NOT_IN_XR) {
+                    this._xrTransitioning = false;
+                }
+            });
+        }
         // Subscribe before session entry. Some runtimes publish controller identities
         // between session creation and the IN_XR state callback below.
         if (vrHelper?.input) {
@@ -587,6 +625,7 @@ class VRClubLifecycle extends VRClubCore {
                         
                         // Apply VR-optimized settings
                         this.applyVRSettings(xrCamera);
+                        this._xrTransitioning = false;
                         log.info('🥽 VR mode activated with optimized settings');
                     }
                 } else if (state === BABYLON.WebXRState.NOT_IN_XR) {

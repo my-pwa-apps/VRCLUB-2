@@ -205,7 +205,7 @@ jobs:
 
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-        run: npx --yes wrangler@4 pages deploy dist --project-name nocturne-vr --branch Quest --commit-hash "$GITHUB_SHA" --commit-message "$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
+        run: npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-vr --branch Quest --commit-hash "$GITHUB_SHA" --commit-message "$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
 
       - name: Cloudflare credentials missing
         if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''

@@ -657,6 +657,51 @@ test('the performing DJ reaches the controller, leans in, keeps the feet on the 
     }
 });
 
+test('crowd animation reuses interpolation results without changing the real skeleton pose', async () => {
+    const { scene, container, B, box } = await loadContainer('club-crowd-f1.glb');
+    if (typeof box.VRClubAudioCrowd?._reuseAnimationInterpolation !== 'function') {
+        box.VRClubUI = class {};
+        vm.runInContext(readFileSync(join(ROOT, 'js/club/11-audio-crowd.js'), 'utf8'), box, {
+            filename: 'js/club/11-audio-crowd.js'
+        });
+    }
+    const Crowd = box.VRClubAudioCrowd;
+    const entry = container.instantiateModelsToScene(name => `reuse_${name}`, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    const group = entry.animationGroups.find(g => g.name.endsWith('Groove_Bounce'));
+    assert.ok(group && group.targetedAnimations.length >= 23);
+    const nodes = root.getChildTransformNodes(false).filter(node => node.rotationQuaternion).slice(0, 20);
+    group.start(false);
+    group.pause();
+    const sample = fraction => {
+        group.goToFrame(group.from + (group.to - group.from) * fraction);
+        root.computeWorldMatrix(true);
+        return nodes.flatMap(node => {
+            node.computeWorldMatrix(true);
+            const p = node.getAbsolutePosition(), q = node.rotationQuaternion;
+            return [p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+        });
+    };
+    const before = sample(0.373);
+    const animation = group.targetedAnimations.map(target => target.animation)
+        .find(a => a.dataType === B.Animation.ANIMATIONTYPE_QUATERNION);
+    const keys = animation.getKeys();
+    assert.notEqual(animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4),
+        animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4),
+        'the stock Babylon path unexpectedly reused its interpolation result');
+    const optimized = Crowd._reuseAnimationInterpolation(group);
+    assert.ok(optimized >= 23, `only ${optimized} animated channels received reusable interpolation storage`);
+    const first = animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4);
+    const second = animation.quaternionInterpolateFunction(keys[0].value, keys[1].value, 0.4);
+    assert.equal(first, second, 'an animated joint still allocates a result every evaluation');
+    const after = sample(0.373);
+    assert.equal(after.length, before.length);
+    for (let i = 0; i < after.length; i++) {
+        assert.ok(Math.abs(after[i] - before[i]) < 1e-6, `reused interpolation changed pose component ${i}`);
+    }
+    scene.dispose();
+});
+
 // The grooves are authored procedurally onto the modular rig (scripts/build-crowd-glbs.mjs) at 120 BPM with a beat on
 // every 0.5 s: measure them on the real skeleton, at the frames where the beats fall.
 test('the crowd grooves: on the beat where it matters, feet planted, hands where they should be, seamless loops', async () => {

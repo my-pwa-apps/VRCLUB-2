@@ -1,5 +1,40 @@
 'use strict';
 class VRClubAudioCrowd extends VRClubUI {
+    static _vector3Interpolation(start, end, gradient) {
+        BABYLON.Vector3.LerpToRef(start, end, gradient, this._vrclubInterpolationValue);
+        return this._vrclubInterpolationValue;
+    }
+
+    static _quaternionInterpolation(start, end, gradient) {
+        BABYLON.Quaternion.SlerpToRef(start, end, gradient, this._vrclubInterpolationValue);
+        return this._vrclubInterpolationValue;
+    }
+
+    /**
+     * Babylon's linear Vector3/Quaternion interpolators return a new object for every
+     * animated joint, every frame. Give this crowd clone's Animation objects a private
+     * reusable result instead; RuntimeAnimation immediately copies the value into its own
+     * stable target, so no result escapes an evaluation.
+     */
+    static _reuseAnimationInterpolation(group) {
+        if (!group || !group.targetedAnimations || !BABYLON.Animation) return 0;
+        let count = 0;
+        for (let i = 0; i < group.targetedAnimations.length; i++) {
+            const animation = group.targetedAnimations[i].animation;
+            if (!animation || animation._vrclubInterpolationValue) continue;
+            if (animation.dataType === BABYLON.Animation.ANIMATIONTYPE_VECTOR3) {
+                animation._vrclubInterpolationValue = new BABYLON.Vector3();
+                animation.vector3InterpolateFunction = VRClubAudioCrowd._vector3Interpolation;
+                count++;
+            } else if (animation.dataType === BABYLON.Animation.ANIMATIONTYPE_QUATERNION) {
+                animation._vrclubInterpolationValue = new BABYLON.Quaternion();
+                animation.quaternionInterpolateFunction = VRClubAudioCrowd._quaternionInterpolation;
+                count++;
+            }
+        }
+        return count;
+    }
+
     _ensureAudioContext() {
         if (!this.audioContext) {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -466,6 +501,11 @@ class VRClubAudioCrowd extends VRClubUI {
         // — follows this one curve, so walking down the stair opens the club up gradually instead of all at once.
         const venue = typeof window !== 'undefined' ? window.VenueLayout : null;
         const enclosure = venue && venue.vestibule ? venue.vestibule.enclosure(pos.z) : 1;
+
+        // Listener-local PA presence for character performance only. Beat/BPM/show analysis remains on the
+        // unattenuated analyser tap; this scalar merely lets the crowd and DJ calm as this guest leaves the room.
+        const distancePresence = Math.max(0.65, Math.min(1, 1 - Math.max(0, distToStage - 4) / 34));
+        this._localPaPresence = distancePresence * enclosure * (1 - exterior);
         
         // Sub-bass intensity: peak punch on dance floor (0-8m from stage), rolling off gently near entrance
         if (this.subGain && this.subGain.gain) {
@@ -975,8 +1015,22 @@ class VRClubAudioCrowd extends VRClubUI {
                 else group.dispose();
             });
             const first = moves.get(options.clip || 'Dance_Loop') || moves.values().next().value;
-            moves.forEach(group => { group.enableBlending = true; group.blendingSpeed = 0.08; });
-            dance = { groups: moves, current: first, state: null };
+            moves.forEach(group => {
+                group.enableBlending = true;
+                group.blendingSpeed = 0.08;
+                VRClubAudioCrowd._reuseAnimationInterpolation(group);
+            });
+            let attentionSeed = 2166136261;
+            for (let i = 0; i < name.length; i++) {
+                attentionSeed ^= name.charCodeAt(i);
+                attentionSeed = Math.imul(attentionSeed, 16777619);
+            }
+            dance = {
+                groups: moves, current: first, state: null,
+                attentionSeed: attentionSeed >>> 0,
+                attentionYaw: 0, attentionTargetYaw: 0,
+                attentionUntil: 0, nextAttention: 0, attending: false
+            };
             groups = [first];
         } else if (options.clips && groups.length > 1) {
             // A guest who changes pose at runtime: keep the poses it can strike, drop the rest. Only the started
@@ -1320,8 +1374,9 @@ class VRClubAudioCrowd extends VRClubUI {
         const barPhase = Number.isFinite(this.barPhase) ? this.barPhase : 0;
         music.beatPhase = (barPhase * 4) % 1;
         music.bar = vj ? Math.floor(vj.beatNumber / 4) : 0;
-        music.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
-            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
+        const localPresence = Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1;
+        music.energy = (audioData && typeof audioData.energy === 'number' ? audioData.energy
+            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5)) * localPresence;
         // A drop: the show's release set-piece starting, or it entering IGNITION.
         let drop = false;
         if (show) {
@@ -1342,7 +1397,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 music.bpm = fallback.bpm;
                 music.beatPhase = fallback.beat % 1;
                 music.bar = Math.floor(fallback.beat / 4);
-                music.energy = fallback.energy;
+                music.energy = 0.55 * localPresence;
             }
         }
         // Who might walk up to the booth: this guest, and the other people in the room.
@@ -2809,7 +2864,12 @@ class VRClubAudioCrowd extends VRClubUI {
             m.rhythm = false;
             m.build = false;
             m.drop = false;
-            return this._unanalysedDanceMusic() || m;
+            const fallback = this._unanalysedDanceMusic();
+            if (fallback) {
+                fallback.energy = 0.55 * (Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1);
+                return fallback;
+            }
+            return m;
         }
         const vj = this.vjDirector, show = this.showDirector;
         m.bpm = (vj && vj.bpm) || 120;
@@ -2834,8 +2894,9 @@ class VRClubAudioCrowd extends VRClubUI {
         m.beatPresent = hasAudio && recent && (m.beatPresent || (vj.onsetStreak || 0) >= 2);
         // No kick, but hats, a snare or a synth still keep time: the crowd keeps dancing on the grid (CrowdDance).
         m.rhythm = !m.beatPresent && hasAudio && !!vj && vj.rhythmPresent === true;
-        m.energy = audioData && typeof audioData.energy === 'number' ? audioData.energy
-            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5);
+        const localPresence = Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1;
+        m.energy = (audioData && typeof audioData.energy === 'number' ? audioData.energy
+            : (show && Number.isFinite(show._energy) ? Math.min(1, show._energy / 0.45) : 0.5)) * localPresence;
         // A build (the countdown, or the ascent movement) and the frame a drop lands (the release, or ignition starting).
         m.build = false;
         m.drop = false;
@@ -2892,6 +2953,64 @@ class VRClubAudioCrowd extends VRClubUI {
         }
     }
 
+    static _attentionRandom(dance) {
+        dance.attentionSeed = (Math.imul(dance.attentionSeed, 1664525) + 1013904223) >>> 0;
+        return dance.attentionSeed / 4294967296;
+    }
+
+    /** Reconsider one dancer's gaze at 7.5 Hz; authored clips continue to own every joint. */
+    _sampleCrowdAttention(npc, time, camPos) {
+        const dance = npc.dance;
+        dance.nextAttention = time + 0.14;
+        if (time >= dance.attentionUntil) {
+            const active = VRClubAudioCrowd._attentionRandom(dance) < 0.58;
+            dance.attending = active;
+            dance.attentionUntil = time + (active
+                ? 1.2 + VRClubAudioCrowd._attentionRandom(dance) * 2.0
+                : 0.8 + VRClubAudioCrowd._attentionRandom(dance) * 1.4);
+        }
+        if (!dance.attending) {
+            dance.attentionTargetYaw = 0;
+            return;
+        }
+
+        const here = npc.root.position;
+        let bestX = 0, bestZ = 0, best = 36;
+        if (camPos) {
+            const dx = camPos.x - here.x, dz = camPos.z - here.z;
+            const d2 = dx * dx + dz * dz, score = d2 * 0.55;
+            if (d2 >= 0.36 && d2 <= 36 && score < best) {
+                best = score; bestX = camPos.x; bestZ = camPos.z;
+            }
+        }
+        const dj = this._djPerformer;
+        if (dj && dj.home) {
+            const dx = dj.home.x - here.x, dz = dj.home.z - here.z;
+            const d2 = dx * dx + dz * dz, score = d2 * 0.72;
+            if (d2 >= 0.36 && d2 <= 36 && score < best) {
+                best = score; bestX = dj.home.x; bestZ = dj.home.z;
+            }
+        }
+        for (let i = 0; i < this.npcAvatars.length; i++) {
+            const other = this.npcAvatars[i];
+            if (other === npc || !other.root || !other.root.isEnabled()) continue;
+            const x = other.root.position.x, z = other.root.position.z;
+            const dx = x - here.x, dz = z - here.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 >= 0.36 && d2 <= 36 && d2 < best) {
+                best = d2; bestX = x; bestZ = z;
+            }
+        }
+        if (best >= 36) {
+            dance.attentionTargetYaw = 0;
+            return;
+        }
+        const toward = Math.atan2(bestX - here.x, bestZ - here.z);
+        const delta = Math.atan2(Math.sin(toward - npc.homeYaw), Math.cos(toward - npc.homeYaw));
+        // At a 15 cm foot radius this moves a planted foot by at most 1.5 cm.
+        dance.attentionTargetYaw = Math.max(-0.1, Math.min(0.1, delta));
+    }
+
     /**
      * @param {number} time
      * @param {object} [audioData] Analyser output for THIS frame, supplied by
@@ -2905,8 +3024,9 @@ class VRClubAudioCrowd extends VRClubUI {
         if (!audioData) audioData = this.getAudioData();
         // The three Mixamo dancers have one authored clip each. Keep its intended pace when the kick drops out;
         // slowing it to 45% reads as broken slow motion rather than the deliberate free grooves used by CrowdDance.
-        const beatBoost = (audioData.hasAudio && audioData.bass > 0.3)
-            ? 1.0 + (audioData.bass - 0.3) * 0.3
+        const localBass = audioData.bass * (Number.isFinite(this._localPaPresence) ? this._localPaPresence : 1);
+        const beatBoost = (audioData.hasAudio && localBass > 0.3)
+            ? 1.0 + (localBass - 0.3) * 0.3
             : 1.0;
 
         const tempoChanged = Math.abs(beatBoost - this._npcBeatBoost) >= 0.01;
@@ -2924,6 +3044,11 @@ class VRClubAudioCrowd extends VRClubUI {
             const npc = this.npcAvatars[i];
             if (!npc.animations || !npc.root || !npc.root.isEnabled()) continue;
             this._updateAmbientNPC(npc, time, dt);
+            if (npc.dance) {
+                if (time >= npc.dance.nextAttention) this._sampleCrowdAttention(npc, time, camPos);
+                const k = 1 - Math.exp(-4 * Math.max(0, Math.min(0.1, dt)));
+                npc.dance.attentionYaw += (npc.dance.attentionTargetYaw - npc.dance.attentionYaw) * k;
+            }
 
             // A dancer with a repertoire takes its tempo from the choreographer, on the beat.
             if (tempoChanged && npc.reactsToBeat !== false && !npc.dance) {
@@ -2946,8 +3071,11 @@ class VRClubAudioCrowd extends VRClubUI {
                         npc.avoidYaw *= 0.75;
                         if (Math.abs(npc.avoidYaw) < 0.01) npc.avoidYaw = 0;
                     }
-                    npc.root.rotation.y = npc.homeYaw + (npc.avoidYaw || 0);
                 }
+            }
+            if (npc.homeYaw != null) {
+                npc.root.rotation.y = npc.homeYaw + (npc.avoidYaw || 0)
+                    + (npc.dance ? npc.dance.attentionYaw : 0);
             }
         }
     }

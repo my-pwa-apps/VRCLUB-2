@@ -486,7 +486,8 @@ class VRClubEffects extends VRClubFixtures {
         
         // Haze density drifting through the plane. The noise texture writes alpha 1, so its brightness
         // must be read as the opacity or the smoke never shows.
-        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", 256, this.scene); // OPTIMIZED: Reduced from 512
+        const noiseSize = this.tierSettings.laserSheetNoiseSize;
+        const noiseTexture = new BABYLON.NoiseProceduralTexture("laserSheetNoise", noiseSize, this.scene);
         noiseTexture.octaves = 4;
         noiseTexture.persistence = 0.5;
         noiseTexture.animationSpeedFactor = 0.5;
@@ -508,7 +509,8 @@ class VRClubEffects extends VRClubFixtures {
         hazeSheet.scaling.set(0.985, 1, 0.985);
 
         const hazeMat = sheetMat.clone("laserSheetHazeMat");
-        const hazeNoise = new BABYLON.NoiseProceduralTexture("laserSheetHazeNoise", 128, this.scene);
+        const hazeNoise = new BABYLON.NoiseProceduralTexture(
+            "laserSheetHazeNoise", Math.max(64, noiseSize >> 1), this.scene);
         hazeNoise.octaves = 6;
         hazeNoise.persistence = 0.48;
         hazeNoise.animationSpeedFactor = 0.16;
@@ -1005,6 +1007,13 @@ class VRClubEffects extends VRClubFixtures {
         // Store references for animation and color updates
         this.mirrorBall = mirrorBall;
         this.mirrorBallRotation = 0; // Track rotation for animation
+        this.mirrorBallCachedColors = {
+            housingGlow: new BABYLON.Color3(),
+            lensBright: new BABYLON.Color3(),
+            sourceVeryBright: new BABYLON.Color3(),
+            flareMedium: new BABYLON.Color3()
+        };
+        this.mirrorBallCachedColorSource = null;
         log.info(`✨ Mirror ball reflections batched into two draws (${maxSpots} spots, ${maxRays} rays)`);
     }
 

@@ -592,8 +592,6 @@ class ModelLoader {
                     // Set rendering group to ensure DJ gear renders BEFORE beams (renderingGroupId 0 vs 1)
                     mesh.renderingGroupId = 0; // Default group, renders first
                     
-                    // Force material to be ready
-                    mesh.material.forceCompilation(mesh);
                 }
             });
             
@@ -681,6 +679,27 @@ class ModelLoader {
                     result.meshes.forEach(mesh => mesh._resyncLightSources && mesh._resyncLightSources());
                 }
             }
+
+            // Compile each material variant once, while its model is hidden, and yield between
+            // variants. The old synchronous call compiled once per mesh in the live scene,
+            // causing multi-second start hitches when several primitives shared one material.
+            const compileTargets = new Map();
+            for (const mesh of result.meshes) {
+                if (mesh.material && !compileTargets.has(mesh.material)) compileTargets.set(mesh.material, mesh);
+            }
+            if (rootMesh && typeof rootMesh.setEnabled === 'function') rootMesh.setEnabled(false);
+            for (const [material, mesh] of compileTargets) {
+                if (typeof material.forceCompilationAsync === 'function') {
+                    await material.forceCompilationAsync(mesh);
+                } else if (typeof material.forceCompilation === 'function') {
+                    material.forceCompilation(mesh);
+                }
+                await new Promise(resolve => {
+                    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+                    else resolve();
+                });
+            }
+            if (rootMesh && typeof rootMesh.setEnabled === 'function') rootMesh.setEnabled(true);
 
             this.loadedModels[modelKey] = {
                 container: result,

@@ -1,11 +1,12 @@
 import { transform } from 'esbuild';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
+const emitSourceMap = process.env.VRCLUB_SOURCEMAP === '1';
 
 const digest = content => createHash('sha256').update(content).digest('hex').slice(0, 12);
 
@@ -38,19 +39,18 @@ const result = await transform(combined, {
     loader: 'js',
     format: 'iife',
     minify: true,
-    // 'external' plus an explicit comment below: transform() (unlike build()) does
-    // NOT append a //# sourceMappingURL, so the 1.2 MB map was previously deployed
-    // and unusable. sourcesContent is off so the map does not publish the full
-    // unminified first-party source at a guessable URL.
-    sourcemap: 'external',
+    // Production deploys no source map. Set VRCLUB_SOURCEMAP=1 for a local,
+    // explicitly requested external map without embedding source content.
+    sourcemap: emitSourceMap ? 'external' : false,
     sourcesContent: false,
     sourcefile: 'vrclub.js',
     target: ['es2020'],
 });
 
 const jsName = `app-${digest(result.code)}.js`;
-await writeFile(path.join(dist, 'assets', jsName), `${result.code}\n//# sourceMappingURL=${jsName}.map\n`);
-await writeFile(path.join(dist, 'assets', `${jsName}.map`), result.map);
+await writeFile(path.join(dist, 'assets', jsName),
+    emitSourceMap ? `${result.code}\n//# sourceMappingURL=${jsName}.map\n` : result.code);
+if (emitSourceMap) await writeFile(path.join(dist, 'assets', `${jsName}.map`), result.map);
 
 const cssSource = await readFile(path.join(root, 'css/styles.css'), 'utf8');
 const css = (await transform(cssSource, {
@@ -92,10 +92,7 @@ const distPrecache = [
     './icons/icon-192.png',
     './icons/icon-512.png',
     `./assets/${jsName}`,
-    `./assets/${cssName}`,
-    './js/vendor/babylon.js',
-    './js/vendor/babylonjs.proceduralTextures.min.js',
-    './js/vendor/babylonjs.loaders.min.js'
+    `./assets/${cssName}`
 ];
 const swBuilt = swSource
     .replace(/const VERSION = '[^']+';/, `const VERSION = '${swVersion}';`)
@@ -165,6 +162,23 @@ try {
 if (association) {
     await mkdir(path.join(dist, '.well-known'), { recursive: true });
     await writeFile(path.join(dist, '.well-known', 'assetlinks.json'), association);
+}
+
+const distFiles = [];
+const collectDistFiles = async directory => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+        const absolute = path.join(directory, entry.name);
+        if (entry.isDirectory()) await collectDistFiles(absolute);
+        else distFiles.push(path.relative(dist, absolute).split(path.sep).join('/'));
+    }
+};
+await collectDistFiles(dist);
+if (!emitSourceMap && distFiles.some(file => file.endsWith('.map'))) {
+    throw new Error('build: production dist must not contain source maps');
+}
+for (const sourceOnly of ['js/podcasts.js', 'worker/src/podcast.js']) {
+    if (distFiles.includes(sourceOnly)) throw new Error(`build: source-only file was copied to dist: ${sourceOnly}`);
 }
 
 console.log(`Built dist/ with assets/${jsName} and assets/${cssName}`);

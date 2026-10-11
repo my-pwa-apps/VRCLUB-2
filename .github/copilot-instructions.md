@@ -160,7 +160,10 @@ Rules when editing it:
   "left" are measured from the skeleton at construction (`yaw0`, `yawDir`, `sideL`).
 - **It owns a world-matrix cache** (`W`, `pos`, `Lq`). Calling Babylon's `computeWorldMatrix`
   per rotation cost ~3,400 calls and 5 ms a frame; the cache costs ~0.25 ms. Only the final
-  quaternions are written back to the nodes, once per frame.
+  quaternions are written back to the nodes, once per frame. Setup filters Babylon's single
+  parent-first hierarchy walk and records direct children; do not restore depth sorting or
+  the old O(nodes² × depth) descendant scan. Limb segment lengths are cached per upper joint
+  (and invalidated on `setEyeHeight()`), never measured with `Vector3.Distance` per frame.
 - **Share the crowd's materials.** Do not clone them: a cloned PBR material clones its
   textures, which never become ready for an embedded GLB image, so the mesh silently never
   draws (`Mesh.render` is still called, which is misleading). A per-guest tinted copy was
@@ -183,7 +186,9 @@ set-piece starting or the movement entering `ignition`) and the visitors (this g
 - Activities: `mix` (jog wheel + a mixer knob), `cue` (a headphone cup held to the ear), `tweak` (both hands on knobs),
   `crowd` (looking out, a fist pumped when energy > 0.6), `handsUp` (on a drop) and `wave` (at a visitor who walks into
   the zone in front of the booth, once per `WAVE_COOLDOWN` = 45 s each). Activities change ONLY on bar lines, except the
-  drop and the wave, which cut in. With no music it keeps its own 118 BPM and never throws its hands up.
+  drop and the wave, which cut in. Simultaneous arrivals are ranked by distance with a small centre-line salience
+  tie-break, not array order; a wave locks attention to that visitor and tracks them until the gesture ends. With no
+  music it keeps its own 118 BPM and never throws its hands up.
 - On every beat a nod and a knee bounce, both deeper with energy. Everything is eased; the pose object and its hands are
   reused (no per-frame allocation).
 - **Placement is measured, not guessed.** The desk is `console_final`'s world bounds (`_djDesk()`, with a fallback);
@@ -209,8 +214,9 @@ the grooves too.
   (halved at half time) corrected by the phase error in beats (x0.8, clamped +-40%; over 0.6 beats it jumps), so knees
   bend and hands clap ON the club's beat grid (`vjDirector.beatNumber` plus the bar-phase fraction). A half-time clap
   lands on 2 and 4 (`halfAnchor`).
-- Choosing: per-dancer taste, a change only on a bar line after 4-8 bars, less of a move below its energy, claps x5 in a
-  build (the countdown or the ascent movement), hands up and fist pumps on a drop (the release or ignition starting,
+- Choosing: per-dancer taste and stable response/drop-response personalities, a change only on a bar line after 4-8
+  bars, less of a move below its energy, claps x5 in a build (the countdown or the ascent movement), varied authored
+  hands-up, pump, clap and bounce reactions on a drop (the release or ignition starting,
   which cut in at once). The kick is present while real onsets keep coming (`lastRealOnsetAt` within ~2.5 beats) and
   returns   after two in a row (`onsetStreak`). A trusted beat remains present for seven kick-less beats (the same threshold at
   which the Show Director declares a breakdown), so a missed onset or render hitch cannot send the floor idle early;
@@ -229,10 +235,17 @@ the grooves too.
 - The club side (`11-audio-crowd.js`): `_crowdMusic()` computes `m.rhythm = !m.beatPresent && hasAudio && vj.rhythmPresent`
   (see the rhythm band in `js/vjDirector.js`) alongside the existing `m.beatPresent`, so `'rhythm'` only ever applies
   when the kick is genuinely absent. `_spawnAvatar(..., { repertoire })` keeps the eight live groups (others disposed),
-  `npc.dance = { groups, current, state }`, `npc.animations` is always `[current]` (so `_setAnimating` pauses and
+  `npc.dance` holds `groups`, `current`, choreographer `state` and the scalar attention state; `npc.animations` is
+  always `[current]` (so `_setAnimating` pauses and
   restarts the right one when a tier or district hides it), and `_updateCrowdDance()` (from `updateDancers`, before `updateDancingNPCs`,
   which leaves these dancers' speed alone) starts a new move with `enableBlending` (it blends from the old pose) and
-  stops the old one: one group evaluates per dancer.
+  stops the old one: one group evaluates per dancer. Babylon's stock linear Vector3/Quaternion interpolators allocate
+  one result per animated joint per frame; `_reuseAnimationInterpolation()` installs per-Animation result storage on
+  these crowd clones only (never patches Babylon globally), and `RuntimeAnimation` copies it immediately. The real-rig
+  test proves identical poses and reuse across all 23 channels of a live groove (322 avoided result objects per frame
+  for 14 dancers). At 7.1 Hz, `_sampleCrowdAttention()` chooses a
+  nearby player, DJ or person by distance/salience; a deterministic hold and a ±0.1 rad eased root glance keep it from
+  flickering. The root never translates and the cap moves a planted foot by at most 1.5 cm.
 - Tests: the choreography in `test/unit.test.mjs` (phase lock at several tempos, bar lines, variety, beat loss, build,
   drop, and the `'rhythm'` state keeping the lighter moves rather than `Groove_HandsUp`); the grooves on the real skeleton in `test/rig.test.mjs` (feet planted, the tap lands on the beat, hands meet
   on the beat, fists and hands up, the bounce lowest on the beat, seamless loops); and the whole thing in the real club
@@ -361,6 +374,9 @@ strobe-free. Any strobe layered under another subject must be bar-synced (a unit
 only `detonation` and `releaseHit` to be faster), which also keeps it clear of the 3-a-second
 limit. A strobe-only solo may use the faster grid. The one-idea-at-a-time rule counts a
 bar-synced strobe as an accent, like a dimmed LED wall.
+The manual `IRREGULAR FLASH` pattern is intentionally non-metronomic: it mixes 0.34-0.54 s
+stabs with 0.85-1.6 s pauses while still claiming `_tryClubFlash()` for every burst. Other
+geometric patterns keep an even cadence so their spatial sequence remains legible.
 **Strobe patterns.** `VRClubAnimationFinish.STROBE_PATTERNS` (`all`, `chase`, `circle`, `reverse`, `pingpong`, `sides`,
 `frontback`, `cross`, `build`, `random`) choose which of the four strobes fire; the pure `strobeTargets(pattern, count, step,
 rand, last)` answers it (ring order 0,1,3,2). A look's `strobePattern` still wins while the show applies looks; a hand-picked
@@ -696,10 +712,19 @@ Keep keystores, credentials and packaging outputs out of source and the web serv
 hand-maintained list. The build also **generates** `dist/sw.js`: its `PRECACHE` array and
 `VERSION` come from the content hashes of the emitted bundle, because `caches.match()`
 compares the full URL including the query string and a hand-written list cannot track them.
+Production emits no JavaScript source map; `VRCLUB_SOURCEMAP=1 npm run build` is the explicit
+local-only opt-in. The build enumerates its output and fails if a default build contains a
+`.map` or a documented source-only file.
 
 The service worker owns the **app shell only**. Models, textures and `.env` files are owned
 by `IndexedDBAssetCache`; caching them in both places doubles ~60 MB of storage and exhausts
-the origin quota on a Quest.
+the origin quota on a Quest. The three Babylon vendor scripts (~9.5 MB) are not installation
+precache entries: a bounded, same-origin cache-first cache stores only those allow-listed
+scripts. Activation warms them (normally from the browser HTTP cache) because the first page
+loaded them before the new worker controlled it; later misses return the network response
+immediately and finish the cache write through `event.waitUntil()`. This preserves subsequent
+offline starts without putting the vendor payload on the install-critical path or blocking
+script execution on Cache Storage.
 
 `npm run version:bump` rewrites `index.html`, `package.json`, `sw.js` and `serviceworker.js`
 together. A contract test fails if any of the four disagree.
@@ -1197,6 +1222,10 @@ Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 ru
   taps the source BEFORE all of this, so the light show stays full-band outside. `test/e2e/street.spec.mjs` measures the real
   spectrum: more than 90% of the energy below 250 Hz on the street, under 40% in the room. A unit test walks the stair
   in 10 cm steps and fails if the cutoff ever falls back or jumps more than a third of an octave in one step.
+  The same already-computed distance/enclosure/exterior model writes `_localPaPresence`
+  without allocating. It scales only crowd and DJ reaction energy (including the legacy bass
+  animation boost): beat presence, BPM, the analyser and the Show/VJ Directors remain on the
+  unattenuated source, so people calm on the stair/street without changing musical detection.
 - URLs are validated by `_isSafeAudioUrl()`: `blob:`/`https:` always allowed; `http:` only
   when the page itself is not HTTPS or the host is loopback; embedded credentials rejected.
 - A stream served without `Access-Control-Allow-Origin` can produce an all-zero analyser.
@@ -1374,6 +1403,10 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
 `data-control` toggles are dispatched through the `TOGGLE_CONTROLS` allow-list, never by
 writing `instance[attributeValue]` directly.
 
+`MATCH ALL COLOURS` also selects the LED wall's handed-colour breathing look (playlist index
+5) and holds its private pattern timer while `colorLockActive`; otherwise a rainbow pattern
+could synthesize its own hues and visibly break the one-colour rig.
+
 Panel layout (`css/styles.css`): the panels (`.panel`, z-index 102) sit above the corner toggle buttons (101) and the
 credits link (100), because on a phone a full-width panel otherwise sat under the Multiplayer toggle, which covered its
 close button; every panel has its own close. Each panel has a definite `width` (VJ 480, Audio 340, Multiplayer 380 px,
@@ -1490,8 +1523,13 @@ protocol only grew, so older clients keep working.
   closes it (swept every 10 s), so a host who vanished without closing the socket is replaced in under a minute
   instead of whenever the network gives up. Clients that never ping (older builds) are never swept. Emoji and gestures (`wave`, `nod`, `dance`, `stop`) are allow-listed, typed `chat` is cleaned and capped (see below), and names
   are sanitised. Tests: `test/worker.test.mjs`, `test/multiplayer.test.mjs`.
-  `worker/src/podcast.js` is a historical relay utility, unused by Quest. Selected-recipient chat changes the
-  room protocol and requires Worker deployment. Worker changes are not live until deployed.
+  `worker/src/podcast.js` serves the allow-listed Colourizon feed and SoundCloud resolver/stream
+  routes used by saved SoundCloud links. Successful feed/resolver metadata has a bounded Cache
+  API TTL; every upstream has an abortable header/body deadline, while audio bodies remain
+  streamed and are never buffered or cached. A bounded per-IP/per-Origin token bucket protects
+  these HTTP routes only as a **best-effort per-isolate** limit: isolates neither share nor
+  persist it, and no global guarantee is claimed. The direct Hernan feed remains browser-to-origin
+  and is therefore outside these Worker routes. Worker changes are not live until deployed.
 - **Identity and safety.** The browser keeps a secret `uid` (`vrclub.networkUid`), sent as a query parameter; the relay
   shows everyone else only `pid = SHA-256("vrclub-pid-v1:" + uid)` truncated to 16 hex. Blocks and bans are keyed by
   `pid`, so they survive reconnects (session ids change every time) and copying a `pid` cannot get anyone banned.

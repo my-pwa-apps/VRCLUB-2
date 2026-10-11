@@ -52,7 +52,7 @@ class DJPerformer {
         this._clockBeats = 0;          // the internal tempo when there is no music
         this._knob = { left: 0, right: 0, at: -1 };
         this._waved = new Map();       // visitor id -> time of the last wave
-        this._visitor = null;          // { x, z, id } while waving
+        this._visitor = { x: 0, z: 0, id: null }; // locked target while waving
         this._wasInZone = new Map();
         // Eased state: hand positions (and their facing), head angles, lean, bounce.
         const hand = () => ({ x: 0, y: 0, z: 0, fx: 0, fy: -0.5, fz: 0.86, ux: 1, uy: 0, uz: 0 });
@@ -96,20 +96,41 @@ class DJPerformer {
         this.barsLeft = bars || DJPerformer.ACTIVITIES[name].bars;
     }
 
-    /** Someone has just walked up to the front of the booth: wave at them (once per WAVE_COOLDOWN). */
+    _inVisitorZone(v) {
+        return Math.abs(v.x - this.home.x) < 5 && v.z > this.home.z + 1.4 && v.z < this.home.z + 8;
+    }
+
+    /** Someone has just walked up to the front of the booth: wave at the nearest eligible arrival. */
     _noticeVisitors(visitors) {
         if (!visitors) return null;
+        let best = null, bestScore = Infinity;
         for (let i = 0; i < visitors.length; i++) {
             const v = visitors[i];
-            const inZone = Math.abs(v.x - this.home.x) < 5 && v.z > this.home.z + 1.4 && v.z < this.home.z + 8;
+            const inZone = this._inVisitorZone(v);
             const was = this._wasInZone.get(v.id) || false;
             this._wasInZone.set(v.id, inZone);
             if (!inZone || was) continue;
             const last = this._waved.get(v.id);
             if (last !== undefined && this.time - last < DJPerformer.WAVE_COOLDOWN) continue;
-            return v;
+            const dx = v.x - this.home.x, dz = v.z - this.home.z;
+            // Distance is primary; the slight centre-line preference breaks near-ties
+            // in favour of the person most visibly addressing the booth.
+            const score = dx * dx + dz * dz + Math.abs(dx) * 0.15;
+            if (score < bestScore) { best = v; bestScore = score; }
         }
-        return null;
+        return best;
+    }
+
+    /** Keep looking at the chosen visitor for the whole wave instead of flicking to a later arrival. */
+    _trackVisitor(visitors) {
+        if (!visitors || this._visitor.id === null) return;
+        for (let i = 0; i < visitors.length; i++) {
+            const v = visitors[i];
+            if (v.id !== this._visitor.id) continue;
+            this._visitor.x = v.x;
+            this._visitor.z = v.z;
+            return;
+        }
     }
 
     // ───────────────────────── per frame ─────────────────────────
@@ -142,9 +163,15 @@ class DJPerformer {
 
         // Events that cut in: a drop puts the hands up; a new visitor gets a wave.
         if (audio && music.drop) this._begin('handsUp', 2);
-        const visitor = this.activity !== 'handsUp' ? this._noticeVisitors(visitors) : null;
+        this._trackVisitor(visitors);
+        // A wave is attention-locked. New arrivals are still recorded as being in the
+        // zone, but cannot steal the DJ's gaze halfway through the gesture.
+        const noticed = this._noticeVisitors(visitors);
+        const visitor = this.activity !== 'handsUp' && this.activity !== 'wave' ? noticed : null;
         if (visitor) {
-            this._visitor = { x: visitor.x, z: visitor.z, id: visitor.id };
+            this._visitor.x = visitor.x;
+            this._visitor.z = visitor.z;
+            this._visitor.id = visitor.id;
             this._waved.set(visitor.id, this.time);
             this._begin('wave', 2);
         }
@@ -154,7 +181,7 @@ class DJPerformer {
             if (this._lastBar !== null) this.barsLeft--;
             this._lastBar = bar;
             if (this.barsLeft <= 0) {
-                if (this.activity === 'wave') this._visitor = null;
+                if (this.activity === 'wave') this._visitor.id = null;
                 // Very loud music now and then gets a short hands-up of its own.
                 if (audio && energy > 0.85 && this.activity !== 'handsUp' && this.rng() < 0.15) this._begin('handsUp', 1);
                 else this._begin(this._pick({ hasAudio: audio, energy }));

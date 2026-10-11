@@ -443,6 +443,17 @@ test('the service worker precaches the versioned URLs the page actually requests
     // Binary assets are owned by IndexedDBAssetCache; caching them in the SW too
     // doubles ~100 MB of storage and exhausts the origin quota on a Quest.
     assert.match(sw, /IDB_OWNED/, 'sw.js must exclude IndexedDB-owned binary assets');
+    const appShell = sw.match(/const APP_SHELL_SOURCES = \[([\s\S]*?)\n\];/)?.[1] || '';
+    assert.doesNotMatch(appShell, /js\/vendor\/babylon/,
+        'installation must not precache the 9.5 MB Babylon vendor payload');
+    assert.match(sw, /VENDOR_SCRIPTS/);
+    assert.match(sw, /warmVendorCache\(\)/,
+        'first activation must warm vendors missed before the worker controlled the page');
+    assert.match(sw, /handleVendor\(event, request\)/);
+    assert.match(sw, /event\.waitUntil\(/,
+        'runtime vendor writes must not block script delivery');
+    assert.match(sw, /keys\.length > VENDOR_SCRIPTS\.size/,
+        'the runtime vendor cache must have an explicit entry bound');
     assert.ok(!/skipWaiting\(\)\s*\)/.test(sw.split('addEventListener(\'install\'')[1]?.split('addEventListener(\'message\'')[0] ?? ''),
         'install must not call skipWaiting() unconditionally');
 });
@@ -458,6 +469,15 @@ test('the production build bundles exactly the scripts index.html loads', () => 
         'build.mjs must assert that no first-party script tag survives into dist/index.html');
     assert.match(build, /const VERSION = '\[\^'\]\+';/,
         'build.mjs must rewrite the service worker VERSION for the dist build');
+    assert.match(build, /process\.env\.VRCLUB_SOURCEMAP === '1'/,
+        'source maps may only be emitted through an explicit local opt-in');
+    assert.match(build, /production dist must not contain source maps/,
+        'the build must assert that default deploy output contains no source maps');
+    const productionPrecache = build.match(/const distPrecache = \[([\s\S]*?)\n\];/)?.[1] || '';
+    assert.doesNotMatch(productionPrecache, /js\/vendor\/babylon/,
+        'production install must leave large vendor scripts to bounded runtime caching');
+    assert.match(build, /source-only file was copied to dist/,
+        'the production build must assert documented source-only files stay out of dist');
 });
 
 test('no blocking native dialogs are used for user feedback', () => {

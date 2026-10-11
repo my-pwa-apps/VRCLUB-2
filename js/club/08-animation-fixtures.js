@@ -130,6 +130,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
      */
     updateLasers(ctx) {
         const { time, dtScale } = ctx;
+        const dt = Number.isFinite(ctx.dt) ? ctx.dt : dtScale / 60;
         const master = this.masterIntensity == null ? 1 : Math.min(1, Math.max(0, this.masterIntensity));
 
         // ALWAYS SYNCHRONIZED MODE - no random mode
@@ -153,6 +154,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const color = this._laserColor();
 
         if (!this.lasersActive || master <= 0.001) {
+            this._laserGeometryReady = false;
             if (batch.mesh.isEnabled()) batch.mesh.setEnabled(false);
             if (batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(false);
             for (const laser of this.lasers) {
@@ -173,18 +175,42 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const base = 0.6 * scatter * master * (1 + kick * 0.5) * (this.isInVRMode ? 1.15 : 1);
         const dotBase = 0.95 * master * (1 + kick * 0.3);
 
+        const angularSpeed = this.laserSpeed || 1.0;
+        for (const laser of this.lasers) {
+            laser.rotation += 0.225 * angularSpeed * dt;
+            laser.tiltPhase += 0.3 * angularSpeed * dt;
+        }
+
+        // Balanced headset tiers update the dynamic ribbon less often than the display.
+        // Rotation still advances from elapsed seconds every frame; only the CPU intersections
+        // and four buffer uploads are throttled. Ultra keeps native headset cadence.
+        const updateHz = this.isInVRMode ? (this.tierSettings.vrLaserUpdateHz || 0) : 0;
+        if (updateHz > 0 && this._laserGeometryReady) {
+            this._laserGeometryClock = (this._laserGeometryClock || 0) + dt;
+            if (this._laserGeometryClock < 1 / updateHz) {
+                batch.material.emissiveColor.copyFrom(color);
+                batch.hitMaterial.emissiveColor.copyFrom(color);
+                for (const laser of this.lasers) {
+                    if (laser.emitterMat) {
+                        if (!laser._emitterEmissiveBuf) laser._emitterEmissiveBuf = new BABYLON.Color3(0, 0, 0);
+                        color.scaleToRef(3 * master, laser._emitterEmissiveBuf);
+                        laser.emitterMat.emissiveColor = laser._emitterEmissiveBuf;
+                    }
+                }
+                return;
+            }
+            this._laserGeometryClock %= 1 / updateHz;
+        } else {
+            this._laserGeometryClock = 0;
+        }
+
         const dir = this.vecPool.laserDir;
         const hit = batch.hit;
         let slot = 0;
         for (let i = 0; i < this.lasers.length; i++) {
             const laser = this.lasers[i];
-            if (laser.emitter) {
-                if (!laser.originPos) laser.originPos = new BABYLON.Vector3(0, 0, 0);
-                laser.originPos.copyFrom(laser.emitter.getAbsolutePosition());
-            }
-            const speed = (this.laserSpeed || 1.0) * dtScale;
-            laser.rotation += 0.00375 * speed;
-            laser.tiltPhase += 0.005 * speed;
+            // The projector hardware and its parent truss are frozen at construction;
+            // createLasers() already measured this world position once.
             const o = laser.originPos;
 
             for (const beam of laser.beams) {
@@ -209,6 +235,7 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         batch.hitMesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, batch.hitColors);
         batch.material.emissiveColor.copyFrom(color);
         batch.hitMaterial.emissiveColor.copyFrom(color);
+        this._laserGeometryReady = true;
         if (!batch.mesh.isEnabled()) batch.mesh.setEnabled(true);
         if (!batch.hitMesh.isEnabled()) batch.hitMesh.setEnabled(true);
     }
@@ -239,6 +266,13 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         const g = 0.45, g2 = g * g;
         const phase = Math.pow(1 + g2, 1.5) / Math.pow(1 + g2 - 2 * g * cosToViewer, 1.5);
         return Math.min(2.4, Math.max(0.6, 0.45 + 0.55 * phase));
+    }
+
+    /** Shared moving-head photometry: surface cosine times bounded inverse-square falloff. */
+    _fixturePhotometricGain(distance, cosIncident, referenceDistance = 7.3) {
+        const lambert = Math.max(0.2, Math.abs(cosIncident));
+        const inverseSquare = Math.pow(referenceDistance / Math.max(2, distance), 2);
+        return lambert * Math.min(2, Math.max(0.25, inverseSquare));
     }
 
     /** Write one beam ribbon and its surface dot into the batch buffers. Allocates nothing. */
@@ -698,7 +732,10 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             
             // SYNCHRONIZED SWEEPING: All lights sweep together continuously
             // SMOOTH pattern transitions - patterns blend into each other naturally
-            const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier;
+            // RANDOM is really an automatic sequence of flowing paths. Real yokes take
+            // several seconds to cross the room; the previous phase rate made them dart
+            // between targets and read as weightless, especially at high show energy.
+            const sweepPhase = globalPhase * audioSpeedMultiplier * speedMultiplier * 0.45;
             
             // Slow pattern selector that cycles through patterns smoothly
             // Each pattern lasts ~10 seconds with smooth transitions
@@ -1175,7 +1212,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
         // Physics-based surface brightness (Lambert x inverse-square). Starts at 1.0
         // here and is refined by _updateSpotLightPool() (st.physicsIntensity), which
         // the gobo pass reads. Stays 1.0 on frames where the beam misses a surface.
-        const physicsIntensity = 1.0;
+        const physicsIntensity = typeof this._fixturePhotometricGain === 'function'
+            ? this._fixturePhotometricGain(beamLength, g.cosTheta) : 1;
 
         spot.beam.visibility = beamVisible ? 1.0 : 0;
         
@@ -1199,7 +1237,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             spot.beamGlow.visibility = beamVisible ? 1.0 : 0;
             // Use global color for perfect sync
             if (!spot._beamGlowEmisBuf) spot._beamGlowEmisBuf = new BABYLON.Color3();
-            this.currentSpotColor.scaleToRef(0.15 * master, spot._beamGlowEmisBuf);
+            this.currentSpotColor.scaleToRef(
+                0.15 * master * Math.sqrt(physicsIntensity), spot._beamGlowEmisBuf);
             spot.beamGlowMat.emissiveColor = spot._beamGlowEmisBuf;
         }
         // Remember whether the beam is currently lit. The authoritative
@@ -1229,7 +1268,8 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
             : Math.PI / 6;
         const narrowGain = Math.min(1.5, Math.max(0.75, 1.6 - coneAngle * 1.6));
         spot.beamMat.alpha = beamVisible
-            ? Math.min(0.99, hazeVisibility * 0.55 * narrowGain * (1 + (this.kickPulse || 0) * 0.25))
+            ? Math.min(0.99, hazeVisibility * 0.55 * narrowGain * Math.sqrt(physicsIntensity) *
+                (1 + (this.kickPulse || 0) * 0.25))
             : 0;
         
         const st = spot._beamState || (spot._beamState = {});
@@ -1290,16 +1330,9 @@ class VRClubAnimationFixtures extends VRClubAnimationCore {
                 // === LAMBERT'S COSINE LAW ===
                 // Irradiance on surface = I₀ * cos(θ)
                 // Light spreads over larger area at steeper angles → dimmer
-                const lambertFactor = Math.max(0.2, cosIncident);
-                
-                // === INVERSE SQUARE FALLOFF ===
-                // I = I₀ / d², normalized to reference distance
-                const refDist = 7.3; // Fixture height in meters
-                const invSqFalloff = Math.pow(refDist / Math.max(2, centerBeamLength), 2);
-                const clampedInvSq = Math.min(2.0, Math.max(0.25, invSqFalloff));
-                
-                // Combined physics-based intensity
-                physicsIntensity = lambertFactor * clampedInvSq * master;
+                // The cone, pool, gobo and real SpotLight share this one photometric model.
+                physicsIntensity = (typeof this._fixturePhotometricGain === 'function'
+                    ? this._fixturePhotometricGain(centerBeamLength, cosIncident) : 1) * master;
                 
                 // Subtle atmospheric shimmer (dust particles in beam)
                 const shimmer = 1.0 + Math.sin(time * 1.8 + i * 0.9) * 0.05;

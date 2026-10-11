@@ -495,6 +495,85 @@ test('the SoundCloud stream route proxies only validated podcast-stream names fr
     assert.equal(calls[0].redirect, 'follow');
 });
 
+test('podcast metadata uses the Cache API while audio remains a fresh streamed request', async () => {
+    podcast.resetPodcastStateForTests();
+    const originalCaches = globalThis.caches;
+    const entries = new Map();
+    globalThis.caches = {
+        default: {
+            async match(key) {
+                const response = entries.get(typeof key === 'string' ? key : key.url);
+                return response ? response.clone() : undefined;
+            },
+            async put(key, response) {
+                entries.set(typeof key === 'string' ? key : key.url, response.clone());
+            }
+        }
+    };
+    let feedFetches = 0;
+    try {
+        await withFetch(async (_url, init) => {
+            feedFetches++;
+            assert.ok(init.signal instanceof AbortSignal, 'metadata upstream lacks an abort signal');
+            return new Response(feedXml);
+        }, async () => {
+            assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 200);
+            assert.equal((await call(podcast.PODCAST_FEED_PATH)).status, 200);
+        });
+        assert.equal(feedFetches, 1, 'successful feed metadata was not reused from Cache API');
+
+        let resolverFetches = 0;
+        await withFetch(async (url, init) => {
+            resolverFetches++;
+            assert.ok(init.signal instanceof AbortSignal, 'resolver upstream lacks an abort signal');
+            if (String(url).startsWith(podcast.SOUNDCLOUD_OEMBED)) {
+                return new Response(JSON.stringify({
+                    title: 'Cached Mix',
+                    html: 'https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F42'
+                }));
+            }
+            return new Response(null, { status: 206 });
+        }, async () => {
+            const path = `${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent('https://soundcloud.com/some-dj/cached-mix')}`;
+            assert.equal((await call(path)).status, 200);
+            assert.equal((await call(path)).status, 200);
+        });
+        assert.equal(resolverFetches, 2, 'a cached resolver result should avoid both oEmbed and probe upstreams');
+
+        let streams = 0;
+        await withFetch(async (_url, init) => {
+            streams++;
+            assert.ok(init.signal instanceof AbortSignal, 'stream header request lacks an abort signal');
+            return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+        }, async () => {
+            const name = '2407530030-missmelera-miss-melera-colourizon-168.mp3';
+            assert.deepEqual([...new Uint8Array(await (await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`)).arrayBuffer())], [1, 2, 3]);
+            assert.deepEqual([...new Uint8Array(await (await call(`${podcast.PODCAST_STREAM_PREFIX}${name}`)).arrayBuffer())], [1, 2, 3]);
+        });
+        assert.equal(streams, 2, 'audio must be streamed from a fresh signed upstream on every request');
+    } finally {
+        if (originalCaches === undefined) delete globalThis.caches;
+        else globalThis.caches = originalCaches;
+        podcast.resetPodcastStateForTests();
+    }
+});
+
+test('podcast HTTP throttling is bounded and explicitly best effort per isolate', async () => {
+    podcast.resetPodcastStateForTests();
+    await withFetch(async () => new Response('missing', { status: 404 }), async () => {
+        const page = encodeURIComponent('https://soundcloud.com/some-dj/mix');
+        for (let i = 0; i < podcast.HTTP_LIMIT_CAPACITY / 4; i++) {
+            assert.equal((await call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${page}`,
+                { headers: { 'CF-Connecting-IP': '203.0.113.9' } })).status, 404);
+        }
+        const limited = await call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${page}`,
+            { headers: { 'CF-Connecting-IP': '203.0.113.9' } });
+        assert.equal(limited.status, 429);
+        assert.equal(limited.headers.get('Retry-After'), '1');
+    });
+    podcast.resetPodcastStateForTests();
+});
+
 test('the socket relay is unchanged: paths outside /podcast still need the room route', async () => {
     const env = { CLUB_ROOM: { idFromName: name => name, get: id => ({ fetch: async () => new Response(`room:${id}`) }) } };
     const response = await relay.default.fetch(new Request(`${RELAY}/?room=abc`, { headers: { Origin: ORIGIN, Upgrade: 'websocket' } }), env);

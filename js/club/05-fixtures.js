@@ -433,7 +433,8 @@ class VRClubFixtures extends VRClubEnvironment {
             
             // === FOG PARTICLE EMITTER ===
             // Directional burst from nozzle position
-            const fogEmitter = new BABYLON.ParticleSystem(`fogEmitter${i}`, 800, this.scene);
+            const fogEmitter = new BABYLON.ParticleSystem(
+                `fogEmitter${i}`, this.tierSettings.fogParticleCapacity, this.scene);
             fogEmitter.particleTexture = particleTexture;
             
             // Get world position of nozzle for emitter
@@ -513,7 +514,7 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // === AMBIENT HAZE (residual fog in air) ===
         // Light dispersed particles from accumulated fog - makes beams visible
-        this.haze = new BABYLON.ParticleSystem("haze", 1500, this.scene);
+        this.haze = new BABYLON.ParticleSystem("haze", this.tierSettings.hazeCapacity, this.scene);
         this.haze.particleTexture = particleTexture;
         
         // Emitter covers dance floor area

@@ -277,16 +277,21 @@ class VRClubAnimationCore extends VRClubEffects {
         if (this.atmosphereTestDisabled) {
             this.scene.fogEnabled = false;
             if (!this._atmosphereTestCleared) {
-                const particles = [this.haze, this.dustMotes];
+                if (this.haze) {
+                    this.haze.stop();
+                    this.haze.reset();
+                }
+                if (this.dustMotes) {
+                    this.dustMotes.stop();
+                    this.dustMotes.reset();
+                }
                 for (const machine of this.fogMachines || []) {
-                    particles.push(machine.emitter);
                     machine.isBursting = false;
                     machine.burstTimer = 0;
-                }
-                for (const system of particles) {
-                    if (!system) continue;
-                    system.stop();
-                    system.reset();
+                    if (machine.emitter) {
+                        machine.emitter.stop();
+                        machine.emitter.reset();
+                    }
                 }
                 this._atmosphereTestCleared = true;
             }
@@ -731,6 +736,18 @@ class VRClubAnimationCore extends VRClubEffects {
         if (typeof this._updateMingler === 'function') this._updateMingler(ctx.dt);
     }
 
+    /** Refresh preallocated mirror-fixture colour buffers after the source colour changes. */
+    _refreshMirrorBallColorCache() {
+        const source = this.mirrorBallSpotlightColor;
+        const cache = this.mirrorBallCachedColors;
+        if (!source || !cache || this.mirrorBallCachedColorSource === source) return;
+        source.scaleToRef(0.2, cache.housingGlow);
+        source.scaleToRef(8, cache.lensBright);
+        source.scaleToRef(16, cache.sourceVeryBright);
+        cache.flareMedium.set(3 + source.r * 10, 3 + source.g * 10, 3 + source.b * 10);
+        this.mirrorBallCachedColorSource = source;
+    }
+
     /** Mirror ball: rotation, fixture glow, outgoing rays and reflection spots. */
     updateMirrorBall(ctx) {
         const { time, dtScale } = ctx;
@@ -765,20 +782,7 @@ class VRClubAnimationCore extends VRClubEffects {
                 }
             }
             if (this.mirrorBallHousings) {
-                // PERFORMANCE: Cache scaled colors for mirror ball housings (avoid creating Color3 objects every frame)
-                if (!this.mirrorBallCachedColors || this.mirrorBallCachedColorSource !== this.mirrorBallSpotlightColor) {
-                    this.mirrorBallCachedColors = {
-                        housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                        lensBright: this.mirrorBallSpotlightColor.scale(8.0),
-                        sourceVeryBright: this.mirrorBallSpotlightColor.scale(16.0),
-                        flareMedium: new BABYLON.Color3(
-                            3 + this.mirrorBallSpotlightColor.r * 10,
-                            3 + this.mirrorBallSpotlightColor.g * 10,
-                            3 + this.mirrorBallSpotlightColor.b * 10
-                        )
-                    };
-                    this.mirrorBallCachedColorSource = this.mirrorBallSpotlightColor;
-                }
+                this._refreshMirrorBallColorCache();
                 
                 this.mirrorBallHousings.forEach(housing => {
                     // Make all fixture components glow with current color (professional moving head)
@@ -808,30 +812,20 @@ class VRClubAnimationCore extends VRClubEffects {
                     // Update spotlight diffuse colors (the actual lights pointing at the ball)
                     if (this.mirrorBallSpotlights) {
                         this.mirrorBallSpotlights.forEach(light => {
-                            if (light) light.diffuse = this.mirrorBallSpotlightColor.clone();
+                            if (light) light.diffuse.copyFrom(this.mirrorBallSpotlightColor);
                         });
                     }
                     
                     // Update beam colors (visual beams from fixtures to ball)
                     if (this.mirrorBallBeams) {
                         this.mirrorBallBeams.forEach(beam => {
-                            beam.material.emissiveColor = this.mirrorBallSpotlightColor.clone();
+                            beam.material.emissiveColor.copyFrom(this.mirrorBallSpotlightColor);
                         });
                     }
                     
                     // Update housing colors immediately
                     if (this.mirrorBallHousings) {
-                        // Update cached colors
-                        this.mirrorBallCachedColors = {
-                            housingGlow: this.mirrorBallSpotlightColor.scale(0.2),
-                            lensBright: this.mirrorBallSpotlightColor.scale(8.0),
-                            sourceVeryBright: this.mirrorBallSpotlightColor.scale(16.0),
-                            flareMedium: new BABYLON.Color3(
-                                3 + this.mirrorBallSpotlightColor.r * 10,
-                                3 + this.mirrorBallSpotlightColor.g * 10,
-                                3 + this.mirrorBallSpotlightColor.b * 10
-                            )
-                        };
+                        this._refreshMirrorBallColorCache();
                         
                         this.mirrorBallHousings.forEach(housing => {
                             housing.material.emissiveColor = this.mirrorBallCachedColors.housingGlow;

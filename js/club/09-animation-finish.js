@@ -4,6 +4,8 @@ const STROBE_FLASH_S = 0.040;       // one burst at strobeSpeed 1
 const STROBE_DROP_FLASH_S = 0.032;  // during a drop
 const STROBE_MIN_FLASH_S = 0.022;   // however fast the strobe runs
 const STROBE_MIN_INTERVAL_S = 0.34; // free-running timer floor: under three flashes a second
+const STROBE_RING_4 = Object.freeze([0, 1, 3, 2]);
+const strobeRingIndex = (count, index) => count === 4 ? STROBE_RING_4[index] : index;
 
 class VRClubAnimationFinish extends VRClubAnimationFixtures {
     /**
@@ -19,13 +21,29 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
     static get STROBE_PATTERN_NAMES() {
         return this._strobePatternNames || (this._strobePatternNames = Object.freeze({
             all: 'ALL AT ONCE', chase: 'CHASE', circle: 'CIRCLE', reverse: 'CIRCLE BACK', pingpong: 'PING-PONG',
-            sides: 'LEFT / RIGHT', frontback: 'FRONT / BACK', cross: 'CROSS', build: 'BUILD UP', random: 'RANDOM'
+            sides: 'LEFT / RIGHT', frontback: 'FRONT / BACK', cross: 'CROSS', build: 'BUILD UP',
+            random: 'IRREGULAR FLASH'
         }));
     }
 
     /** The patterns that need an even tempo to read as a pattern. */
     static get STROBE_STEADY() {
-        return this._strobeSteady || (this._strobeSteady = new Set(['circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build']));
+        return this._strobeSteady || (this._strobeSteady = new Set(
+            ['all', 'chase', 'circle', 'reverse', 'pingpong', 'sides', 'frontback', 'cross', 'build']));
+    }
+
+    /** Free-running interval: IRREGULAR alternates short stabs with clearly longer pauses. */
+    static strobeInterval(pattern, baseInterval, speed = 1, rand = Math.random) {
+        const safeSpeed = Math.max(0.1, speed);
+        if (pattern === 'random') {
+            const quick = rand() < 0.58;
+            const interval = quick
+                ? 0.34 + rand() * 0.20
+                : 0.85 + rand() * 0.75;
+            return Math.max(STROBE_MIN_INTERVAL_S, interval / Math.sqrt(safeSpeed));
+        }
+        const variation = this.STROBE_STEADY.has(pattern) ? 1 : 0.85 + rand() * 0.30;
+        return Math.max(STROBE_MIN_INTERVAL_S, (baseInterval * variation) / safeSpeed);
     }
 
     /**
@@ -39,39 +57,48 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
      * @param {number} [last] the single strobe the previous burst used, or -1 (so 'random' never repeats it)
      * @returns {number[]} indices into the strobes, never empty
      */
-    static strobeTargets(pattern, count, step, rand = Math.random, last = -1) {
+    static strobeTargets(pattern, count, step, rand = Math.random, last = -1, out = []) {
         const n = Math.max(1, count | 0);
-        const all = Array.from({ length: n }, (_, i) => i);
-        if (n === 1) return all;
-        const ring = n === 4 ? [0, 1, 3, 2] : all;
+        out.length = 0;
+        if (n === 1) { out.push(0); return out; }
         const s = Math.max(0, step | 0);
         switch (pattern) {
-            case 'circle': return [ring[s % n]];
-            case 'reverse': return [ring[(n - 1) - (s % n)]];
+            case 'circle': out.push(strobeRingIndex(n, s % n)); return out;
+            case 'reverse': out.push(strobeRingIndex(n, (n - 1) - (s % n))); return out;
             case 'pingpong': {
                 const period = 2 * (n - 1);
                 const k = s % period;
-                return [ring[k < n ? k : period - k]];
+                out.push(strobeRingIndex(n, k < n ? k : period - k));
+                return out;
             }
-            case 'sides': return all.filter(i => i % 2 === (s % 2));
-            case 'frontback': return all.filter(i => (i < n / 2) === (s % 2 === 0));
-            case 'cross': return [ring[s % 2], ring[(s % 2) + 2]].filter(i => i !== undefined);
-            case 'build': return ring.slice(0, (s % n) + 1);
+            case 'sides':
+                for (let i = 0; i < n; i++) if (i % 2 === (s % 2)) out.push(i);
+                return out;
+            case 'frontback':
+                for (let i = 0; i < n; i++) if ((i < n / 2) === (s % 2 === 0)) out.push(i);
+                return out;
+            case 'cross':
+                out.push(strobeRingIndex(n, s % 2));
+                if ((s % 2) + 2 < n) out.push(strobeRingIndex(n, (s % 2) + 2));
+                return out;
+            case 'build':
+                for (let i = 0; i < (s % n) + 1; i++) out.push(strobeRingIndex(n, i));
+                return out;
             case 'random': {
-                const pick = () => {
-                    let i = Math.floor(rand() * n);
-                    if (i === last) i = (i + 1) % n;
-                    return i;
-                };
-                const first = pick();
+                let first = Math.floor(rand() * n);
+                if (first === last) first = (first + 1) % n;
                 // Now and then two corners at once, so it does not read as a metronome.
                 if (rand() < 0.3) {
                     const second = (first + 1 + Math.floor(rand() * (n - 1))) % n;
-                    return [first, second];
+                    out.push(first, second);
+                    return out;
                 }
-                return [first];
+                out.push(first);
+                return out;
             }
-            default: return all;
+            default:
+                for (let i = 0; i < n; i++) out.push(i);
+                return out;
         }
     }
 
@@ -165,7 +192,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                     } else if (pattern !== 'all' && VRClubAnimationFinish.STROBE_PATTERNS.includes(pattern)) {
                         this._strobePatternStep = (Number.isInteger(this._strobePatternStep) ? this._strobePatternStep : -1) + 1;
                         targets = VRClubAnimationFinish.strobeTargets(pattern, this.strobes.length, this._strobePatternStep,
-                            Math.random, this._lastStrobeTarget);
+                            Math.random, this._lastStrobeTarget, this._strobeTargetBuffer || (this._strobeTargetBuffer = []));
                         this._lastStrobeTarget = targets.length === 1 ? targets[0] : -1;
                     }
                     this.strobes.forEach((strobe, index) => {
@@ -186,16 +213,10 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
                         }
                     });
                     const baseInterval = inDropMode ? 0.18 : (inBuildMode ? 0.32 : 0.65);
-                    // A stepping pattern (a circle, a sweep) only reads as one at an even tempo; the improvised patterns
-                    // keep their irregular timing.
-                    const steady = VRClubAnimationFinish.STROBE_STEADY.has(pattern);
-                    const intervalVariation = steady ? 1 : 0.6 + Math.random() * 1.0;
-                    // Never faster than the three-flashes-a-second limit, whatever the speed or
-                    // drop state: the free-running timer used to reach 9 a second in a drop.
-                    this._nextStrobeBurstTime = time + Math.max(
-                        STROBE_MIN_INTERVAL_S,
-                        (baseInterval * intervalVariation) / strobeSpeedMultiplier
-                    );
+                    // Never faster than the shared room governor. IRREGULAR deliberately
+                    // alternates short stabs and longer silences instead of metronomic jitter.
+                    this._nextStrobeBurstTime = time + VRClubAnimationFinish.strobeInterval(
+                        pattern, baseInterval, strobeSpeedMultiplier);
                 }
                 
                 this.strobes.forEach((strobe) => {
@@ -495,7 +516,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         // this private timer must not also advance it — otherwise the wall drifts
         // off whatever the current cue chose a few beats after every change.
         const showOwnsPattern = !!(this.showDirector && this.showDirector.isDriving());
-        if (!showOwnsPattern && time - this.ledPatternSwitchTime > patternChangeTime) {
+        if (!showOwnsPattern && !this.colorLockActive && time - this.ledPatternSwitchTime > patternChangeTime) {
             this.ledPattern = (this.ledPattern + 1) % patterns.length;
             this.ledPatternSwitchTime = time;
         }
@@ -520,7 +541,7 @@ class VRClubAnimationFinish extends VRClubAnimationFixtures {
         
         // Execute current pattern with error handling
         const currentPattern = patterns[this.ledPattern];
-        const activeColor = showOwnsPattern && !this.ledMonochrome && this.ledShowColor
+        const activeColor = (showOwnsPattern || this.colorLockActive) && !this.ledMonochrome && this.ledShowColor
             ? this.ledShowColor
             : colors[this.ledColorIndex % colors.length];
         if (currentPattern && typeof currentPattern === 'function') {

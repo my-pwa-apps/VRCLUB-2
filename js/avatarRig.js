@@ -74,7 +74,8 @@ class AvatarRig {
         // --- bones by name -----------------------------------------------------------
         const strip = `${prefix}_`;
         const nodes = {};
-        root.getChildTransformNodes(false).forEach(node => {
+        const hierarchy = root.getChildTransformNodes(false);
+        hierarchy.forEach(node => {
             if (node.name.startsWith(strip)) nodes[node.name.slice(strip.length)] = node;
         });
         this.bone = nodes;
@@ -91,8 +92,9 @@ class AvatarRig {
         for (const name of AvatarRig.BONES) {
             for (let n = nodes[name]; n && n !== root; n = n.parent) needed.add(n);
         }
-        const depth = n => { let d = 0; for (let p = n; p && p !== root; p = p.parent) d++; return d; };
-        this.order = Array.from(needed).sort((a, b) => depth(a) - depth(b));
+        // Babylon returns a parent-before-child hierarchy walk. Filtering that one walk is
+        // enough; sorting every node by repeatedly walking its ancestors was quadratic.
+        this.order = hierarchy.filter(node => needed.has(node));
         this.index = new Map();
         this.order.forEach((n, i) => this.index.set(n, i));
         this.ix = {};
@@ -148,7 +150,8 @@ class AvatarRig {
     static createTrackedArms(root, prefix) {
         const rig = Object.create(AvatarRig.prototype);
         const nodes = {};
-        root.getChildTransformNodes(false).forEach(node => {
+        const hierarchy = root.getChildTransformNodes(false);
+        hierarchy.forEach(node => {
             if (node.name.startsWith(prefix)) nodes[node.name.slice(prefix.length)] = node;
         });
         const names = {};
@@ -164,8 +167,7 @@ class AvatarRig {
             if (!nodes[name]) return null;
             for (let node = nodes[name]; node && node !== root; node = node.parent) needed.add(node);
         }
-        const depth = node => { let d = 0; for (let p = node.parent; p && p !== root; p = p.parent) d++; return d; };
-        rig.order = [...needed].sort((a, b) => depth(a) - depth(b));
+        rig.order = hierarchy.filter(node => needed.has(node));
         rig.index = new Map(rig.order.map((node, i) => [node, i]));
         rig.ix = {};
         for (const [key, name] of Object.entries(names)) rig.ix[key] = rig.index.get(nodes[name]);
@@ -311,10 +313,13 @@ class AvatarRig {
         this.par = new Int16Array(n);
         this.ext = new Array(n);
         this.Lt = new Array(n); this.Ls = new Array(n); this.Lq = new Array(n); this.restQ = new Array(n);
-        this.W = new Array(n); this.pos = new Array(n); this.desc = new Array(n);
+        this.W = new Array(n); this.pos = new Array(n); this.children = new Array(n);
+        this._limbL1 = new Float64Array(n); this._limbL2 = new Float64Array(n);
+        for (let i = 0; i < n; i++) this.children[i] = [];
         this.order.forEach((node, i) => {
             const p = this.index.has(node.parent) ? this.index.get(node.parent) : -1;
             this.par[i] = p;
+            if (p >= 0) this.children[p].push(i);
             this.ext[i] = p < 0 ? node.parent : null;
             this.Lt[i] = node.position.clone();
             this.Ls[i] = node.scaling.clone();
@@ -323,13 +328,6 @@ class AvatarRig {
             this.W[i] = new M();
             this.pos[i] = new V();
         });
-        for (let i = 0; i < n; i++) {
-            const list = [];
-            for (let j = i + 1; j < n; j++) {
-                for (let a = this.par[j]; a >= 0; a = this.par[a]) { if (a === i) { list.push(j); break; } }
-            }
-            this.desc[i] = list;
-        }
         this._extNodes = Array.from(new Set(this.ext.filter(Boolean)));
     }
 
@@ -345,8 +343,8 @@ class AvatarRig {
     /** Recompute node `i` and everything below it. */
     _refreshFrom(i) {
         this._updateNode(i);
-        const d = this.desc[i];
-        for (let k = 0; k < d.length; k++) this._updateNode(d[k]);
+        const children = this.children[i];
+        for (let k = 0; k < children.length; k++) this._refreshFrom(children[k]);
     }
 
     _refreshCache() {
@@ -409,10 +407,21 @@ class AvatarRig {
      * direction (poleX, poleY, poleZ). Reach is clamped, so an out-of-range target
      * straightens the limb instead of stretching it.
      */
+    _reach(upper, mid, end) {
+        let l1 = this._limbL1[upper], l2 = this._limbL2[upper];
+        if (!(l1 > 0 && l2 > 0)) {
+            const S = this.pos[upper], E = this.pos[mid], H = this.pos[end];
+            l1 = this._limbL1[upper] = Math.hypot(S.x - E.x, S.y - E.y, S.z - E.z);
+            l2 = this._limbL2[upper] = Math.hypot(E.x - H.x, E.y - H.y, E.z - H.z);
+        }
+        return l1 + l2;
+    }
+
     _limb(upper, mid, end, target, poleX, poleY, poleZ) {
         const v = this._v;
         const S = this.pos[upper], E = this.pos[mid], H = this.pos[end];
-        const l1 = BABYLON.Vector3.Distance(S, E), l2 = BABYLON.Vector3.Distance(E, H);
+        this._reach(upper, mid, end);
+        const l1 = this._limbL1[upper], l2 = this._limbL2[upper];
         const dir = v[0];
         target.subtractToRef(S, dir);
         const dist = dir.length();
@@ -604,7 +613,7 @@ class AvatarRig {
             const opp = legs[(a === 0) === (this.sideL < 0) ? 1 : 0].u;
             const upper = ix[`upperarm_${sfx}`], lower = ix[`lowerarm_${sfx}`], hand = ix[`hand_${sfx}`];
             const sh = this.pos[upper];
-            const reach = BABYLON.Vector3.Distance(sh, this.pos[lower]) + BABYLON.Vector3.Distance(this.pos[lower], this.pos[hand]);
+            const reach = this._reach(upper, lower, hand);
             const t = v[4];
             const h = a === 0 ? pose.left : pose.right;
             if (h && Number.isFinite(h.x)) {
@@ -657,6 +666,8 @@ class AvatarRig {
         const yaw = this.root.rotation.y, pos = this.root.position.clone();
         this.order.forEach((n, i) => n.rotationQuaternion.copyFrom(this.restQ[i]));
         this._measure(Math.min(2.1, eyeHeight));
+        this._limbL1.fill(0);
+        this._limbL2.fill(0);
         this.root.rotation.y = yaw;
         this.root.position.copyFrom(pos);
     }

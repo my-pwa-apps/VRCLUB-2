@@ -26,6 +26,10 @@ export const PODCAST_FEED_PATH = '/podcast/colourizon/feed.xml';
 export const PODCAST_STREAM_PREFIX = '/podcast/colourizon/stream/';
 export const MAX_FEED_BYTES = 2 * 1024 * 1024;
 export const FEED_CACHE_SECONDS = 600;
+export const METADATA_TIMEOUT_MS = 8000;
+export const STREAM_HEADERS_TIMEOUT_MS = 10000;
+export const HTTP_LIMIT_CAPACITY = 120;
+export const HTTP_LIMIT_REFILL_PER_SECOND = 2;
 
 /** `<track id>-missmelera-<slug>.mp3`: only Miss Melera's own uploads. */
 const STREAM_NAME = /^\d{6,20}-missmelera-[a-z0-9-]{1,200}\.mp3$/;
@@ -45,6 +49,8 @@ const SOUNDCLOUD_SITE_PAGES = new Set(['discover', 'stream', 'upload', 'you', 's
     'tags', 'settings', 'messages', 'notifications', 'jobs', 'imprint', 'terms-of-use', 'feed', 'popular', 'trending']);
 /** Second segments that are a profile's tabs or a playlist, not one track. */
 const SOUNDCLOUD_PROFILE_TABS = new Set(['sets', 'tracks', 'albums', 'reposts', 'likes', 'following', 'followers', 'popular-tracks', 'comments']);
+const httpLimits = new Map();
+const MAX_LIMIT_KEYS = 2048;
 
 export function isStreamName(name) {
     return typeof name === 'string' && STREAM_NAME.test(name);
@@ -135,6 +141,85 @@ function concatBytes(chunks, size) {
 
 const json = (status, body, headers) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 
+function cacheApi() {
+    try { return typeof caches !== 'undefined' ? caches.default : null; } catch { return null; }
+}
+
+async function cachedMetadata(key) {
+    const cache = cacheApi();
+    if (!cache) return null;
+    try {
+        const hit = await cache.match(key);
+        return hit ? await hit.json() : null;
+    } catch {
+        return null;
+    }
+}
+
+async function storeMetadata(key, value, ttl) {
+    const cache = cacheApi();
+    if (!cache) return;
+    try {
+        await cache.put(key, new Response(JSON.stringify(value), {
+            headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${ttl}` }
+        }));
+    } catch { /* cache failure degrades to a normal upstream request */ }
+}
+
+async function fetchCapped(url, init, limit) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+    try {
+        const response = await fetch(url, { ...init, signal: controller.signal });
+        const body = response.ok ? await readCapped(response, limit) : '';
+        if (!response.ok) {
+            try { await response.body?.cancel(); } catch { /* ignore */ }
+        }
+        return { response, body };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function fetchHeaders(url, init, timeoutMs = STREAM_HEADERS_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+        // Audio bodies deliberately outlive this header deadline and remain streamed.
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Best-effort abuse control only: isolates do not share this map and may be evicted.
+ * Durable, globally consistent rate limits would require additional infrastructure.
+ */
+function takeHttpLimit(request, origin, cost = 1, now = Date.now()) {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const key = `${ip}\n${origin}`;
+    let bucket = httpLimits.get(key);
+    if (!bucket) {
+        if (httpLimits.size >= MAX_LIMIT_KEYS) {
+            const oldest = httpLimits.keys().next().value;
+            if (oldest !== undefined) httpLimits.delete(oldest);
+        }
+        bucket = { tokens: HTTP_LIMIT_CAPACITY, at: now };
+        httpLimits.set(key, bucket);
+    }
+    bucket.tokens = Math.min(HTTP_LIMIT_CAPACITY,
+        bucket.tokens + Math.max(0, now - bucket.at) * HTTP_LIMIT_REFILL_PER_SECOND / 1000);
+    bucket.at = now;
+    if (bucket.tokens < cost) return false;
+    bucket.tokens -= cost;
+    return true;
+}
+
+export function resetPodcastStateForTests() {
+    httpLimits.clear();
+}
+
 /**
  * Turns a soundcloud.com/<user>/<track> page into a playable relay stream, but ONLY when SoundCloud itself serves that
  * track to podcast players: the track's id comes from SoundCloud's public oEmbed, and the stream is offered only if the
@@ -144,21 +229,30 @@ const json = (status, body, headers) => new Response(JSON.stringify(body), { sta
 async function resolveSoundCloud(url, cors) {
     const track = parseSoundCloudTrackUrl(url.searchParams.get('url'));
     if (!track) return json(400, { error: 'not-a-track' }, cors);
+    const cacheKey = new Request(`${url.origin}${SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(track.href)}`);
     try {
-        const oembed = await fetch(`${SOUNDCLOUD_OEMBED}?format=json&url=${encodeURIComponent(track.href)}`,
-            { cf: { cacheTtl: 3600, cacheEverything: true } });
+        const cached = await cachedMetadata(cacheKey);
+        if (cached) return json(200, cached, cors);
+        const { response: oembed, body } = await fetchCapped(
+            `${SOUNDCLOUD_OEMBED}?format=json&url=${encodeURIComponent(track.href)}`,
+            { cf: { cacheTtl: 3600, cacheEverything: true } },
+            MAX_OEMBED_BYTES
+        );
         if (!oembed.ok) return json(404, { error: 'not-found' }, cors);
-        const info = JSON.parse(await readCapped(oembed, MAX_OEMBED_BYTES));
+        const info = JSON.parse(body);
         const id = trackIdFromOembed(info);
         if (!id) return json(404, { error: 'not-a-track' }, cors);
         const name = `${id}-${track.user}-${track.slug}.mp3`;
         if (!isSoundCloudStreamName(name)) return json(404, { error: 'not-a-track' }, cors);
-        const probe = await fetch(`${SOUNDCLOUD_STREAM_BASE}${name}`, { redirect: 'follow', headers: { Range: 'bytes=0-0' } });
+        const probe = await fetchHeaders(`${SOUNDCLOUD_STREAM_BASE}${name}`,
+            { redirect: 'follow', headers: { Range: 'bytes=0-0' } }, METADATA_TIMEOUT_MS);
         try { await probe.body?.cancel(); } catch { /* ignore */ }
         if (probe.status !== 200 && probe.status !== 206) return json(404, { error: 'not-published' }, cors);
         // eslint-disable-next-line no-control-regex
         const title = String(info.title || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-        return json(200, { name, title, path: `${SOUNDCLOUD_STREAM_PREFIX}${name}` }, cors);
+        const resolved = { name, title, path: `${SOUNDCLOUD_STREAM_PREFIX}${name}` };
+        await storeMetadata(cacheKey, resolved, 3600);
+        return json(200, resolved, cors);
     } catch {
         return json(502, { error: 'unavailable' }, cors);
     }
@@ -178,6 +272,10 @@ export async function handlePodcast(request, url, origin) {
     const cors = corsHeaders(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (request.method !== 'GET' && request.method !== 'HEAD') return text(405, 'method not allowed', cors);
+    const cost = isResolve ? 4 : (isFeed ? 2 : 1);
+    if (!takeHttpLimit(request, origin, cost)) {
+        return text(429, 'too many requests', { ...cors, 'Retry-After': '1' });
+    }
 
     if (isResolve) return resolveSoundCloud(url, cors);
     if (isScStream) {
@@ -187,12 +285,28 @@ export async function handlePodcast(request, url, origin) {
     }
 
     if (isFeed) {
-        let upstream;
         try {
-            upstream = await fetch(COLOURIZON_FEED_URL, { cf: { cacheTtl: FEED_CACHE_SECONDS, cacheEverything: true } });
+            const cacheKey = new Request(`${url.origin}${PODCAST_FEED_PATH}`);
+            const cached = await cachedMetadata(cacheKey);
+            if (cached && typeof cached.xml === 'string') {
+                return new Response(request.method === 'HEAD' ? null : cached.xml, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/rss+xml; charset=utf-8',
+                        'Cache-Control': `public, max-age=${FEED_CACHE_SECONDS}`,
+                        ...cors
+                    }
+                });
+            }
+            const { response: upstream, body } = await fetchCapped(
+                COLOURIZON_FEED_URL,
+                { cf: { cacheTtl: FEED_CACHE_SECONDS, cacheEverything: true } },
+                MAX_FEED_BYTES
+            );
             if (!upstream.ok) return text(502, 'the podcast feed is unavailable', cors);
-            const xml = await readCapped(upstream, MAX_FEED_BYTES);
-            return new Response(request.method === 'HEAD' ? null : rewriteFeed(xml, url.origin), {
+            const xml = rewriteFeed(body, url.origin);
+            await storeMetadata(cacheKey, { xml }, FEED_CACHE_SECONDS);
+            return new Response(request.method === 'HEAD' ? null : xml, {
                 status: 200,
                 headers: {
                     'Content-Type': 'application/rss+xml; charset=utf-8',
@@ -220,7 +334,7 @@ async function streamEpisode(request, base, name, cors) {
     try {
         // `follow` crosses the 302 to the CDN. The signed URL is fetched here, per request, so it never goes stale
         // under a long set: every seek the browser makes asks this route again and gets a fresh signature.
-        const upstream = await fetch(`${base}${name}`, {
+        const upstream = await fetchHeaders(`${base}${name}`, {
             method: request.method,
             redirect: 'follow',
             headers: range ? { Range: range } : {}

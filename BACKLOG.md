@@ -1117,7 +1117,12 @@ Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
   The production bundle does not tree-shake the vendored files. **Option:** a custom Babylon build (ES
   modules and esbuild) that includes only what the club uses; it would also cut parse time on Quest.
   Measure parse and start-up on a headset before deciding.
-- [ ] **Entering XR logs about 250 "Framebuffer is incomplete: Attachment has zero size" warnings**
+- [x] **Entering XR logs about 250 "Framebuffer is incomplete: Attachment has zero size" warnings**
+
+  **Resolved 2026-10-09 in IWER.** The render loop now skips only Babylon's
+  `ENTERING_XR` / `EXITING_XR` transition window, when the compositor attachments are
+  transiently zero-sized, and resumes after VR/desktop settings are applied. A physical
+  Quest check remains part of the headset baseline rather than being inferred from IWER.
   **Priority:** Low. Seen in the IWER emulator on 8.30.5 and 9.28.0 alike, all during the first frames of
   the session (none during load or desktop rendering), each a draw into a render target that has no size
   yet. Cheap to find (log the render-target names while XR starts); check whether a real Quest does it too.
@@ -1877,7 +1882,15 @@ material freeze in the hot path; image-processing notifications stay at 0.
   **Product value:** Medium
   **Technical debt reduction:** Low
 
-- [ ] **Crowd skeletal interpolation dominates allocation (~15 MB/s)**
+- [x] **Crowd skeletal interpolation dominates allocation (~15 MB/s)**
+
+  **Resolved 2026-10-09 (code path; physical Quest allocation trace still pending).**
+  Each crowd-clone `Animation` now owns one reusable Vector3 or Quaternion interpolation
+  result. Babylon's `RuntimeAnimation` copies that result immediately, so poses remain
+  exact without globally patching Babylon. The real-rig suite verifies reuse and identical
+  output across all 23 live groove channels; this removes 322 transient result objects per
+  frame for the ultra-tier 14-dancer floor. The original acceptance criterion still needs
+  a new CDP/Quest allocation trace before claiming a measured below-3-MB/s result.
 
   **Priority:** Medium
   **Category:** Crowd
@@ -1905,7 +1918,13 @@ material freeze in the hot path; image-processing notifications stay at 0.
   **Product value:** Medium
   **Technical debt reduction:** Medium
 
-- [ ] **The desktop start stutters for ~12 s after the club appears**
+- [x] **The desktop start stutters for ~12 s after the club appears**
+
+  **Resolved 2026-10-09 (implementation; cold-machine timing still pending).**
+  The base scene now waits behind the splash for `scene.whenReadyAsync()` with a bounded
+  diagnostic timeout. Imported models are hidden while each unique material is prewarmed
+  once with `forceCompilationAsync()`, yielding between variants, instead of compiling
+  synchronously once per mesh after it becomes visible.
 
   **Priority:** Medium
   **Category:** Performance

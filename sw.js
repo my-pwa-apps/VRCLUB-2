@@ -15,15 +15,15 @@
 const VERSION = 'vrclub-v20261009-1';
 const CACHE_TOKEN = '20261009-1';
 const CACHE_NAME = `vrclub-cache-${VERSION}`;
+// Vendor URLs change with CACHE_TOKEN, not with every first-party bundle hash. Keep
+// the 9.5 MB runtime cache across ordinary app deploys and rotate it on a version bump.
+const VENDOR_CACHE_NAME = `vrclub-vendor-${CACHE_TOKEN}`;
 
 /** Canonical key for the navigation/app-shell document. */
 const SHELL_URL = './index.html';
 
 const APP_SHELL_SOURCES = [
     './css/styles.css',
-    './js/vendor/babylon.js',
-    './js/vendor/babylonjs.proceduralTextures.min.js',
-    './js/vendor/babylonjs.loaders.min.js',
     './js/assetCache.js',
     './js/audioUtils.js',
     './js/textureLoader.js',
@@ -57,6 +57,11 @@ const PRECACHE = [
 
 /** Binary assets owned by IndexedDBAssetCache - the SW must not duplicate them. */
 const IDB_OWNED = /\.(glb|gltf|bin|env|jpe?g|png|webp|ktx2?|basis)$/i;
+const VENDOR_SCRIPTS = new Set([
+    './js/vendor/babylon.js',
+    './js/vendor/babylonjs.proceduralTextures.min.js',
+    './js/vendor/babylonjs.loaders.min.js'
+].map(path => new URL(path, self.registration.scope).pathname));
 
 self.addEventListener('install', (event) => {
     event.waitUntil((async () => {
@@ -85,11 +90,32 @@ self.addEventListener('activate', (event) => {
         const keys = await caches.keys();
         await Promise.all(keys.map(key => {
             if (key.startsWith('vrclub-cache-') && key !== CACHE_NAME) return caches.delete(key);
+            if (key.startsWith('vrclub-vendor-') && key !== VENDOR_CACHE_NAME) return caches.delete(key);
             return undefined;
         }));
+        // Registration happens after the first page load, so a newly installed worker
+        // never observed that page's vendor requests. Warm from the browser HTTP cache
+        // during activation to make the next offline start complete without putting the
+        // 9.5 MB payload back on the install-critical path.
+        await warmVendorCache();
         await self.clients.claim();
     })());
 });
+
+async function warmVendorCache() {
+    const cache = await caches.open(VENDOR_CACHE_NAME);
+    await Promise.all([...VENDOR_SCRIPTS].map(async pathname => {
+        const url = new URL(pathname, self.registration.scope);
+        url.searchParams.set('v', CACHE_TOKEN);
+        if (await cache.match(url.href)) return;
+        try {
+            const response = await fetch(url.href);
+            if (response && response.status === 200 && response.type === 'basic') {
+                await cache.put(url.href, response);
+            }
+        } catch (_) { /* offline activation degrades to the normal network fallback */ }
+    }));
+}
 
 self.addEventListener('fetch', (event) => {
     const request = event.request;
@@ -106,6 +132,14 @@ self.addEventListener('fetch', (event) => {
     if (request.destination === 'audio' || request.destination === 'media') return;
     if (IDB_OWNED.test(url.pathname)) return;
 
+    // Babylon is ~9.5 MB. Do not make installation download it a second time or
+    // fail the offline shell on a constrained connection. Cache these three pinned
+    // same-origin scripts on first successful use, then serve them cache-first.
+    if (VENDOR_SCRIPTS.has(url.pathname)) {
+        event.respondWith(handleVendor(event, request));
+        return;
+    }
+
     // App shell: always answer navigations from the cached shell when offline.
     if (request.mode === 'navigate') {
         event.respondWith(handleNavigation(request));
@@ -114,6 +148,29 @@ self.addEventListener('fetch', (event) => {
 
     event.respondWith(handleAsset(event, request));
 });
+
+async function handleVendor(event, request) {
+    const cache = await caches.open(VENDOR_CACHE_NAME);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    try {
+        const response = await fetch(request);
+        if (response && response.status === 200 && response.type === 'basic') {
+            const copy = response.clone();
+            event.waitUntil((async () => {
+                await cache.put(request, copy);
+                // The allow-list is the bound: no other URL can enter this cache.
+                const keys = await cache.keys();
+                if (keys.length > VENDOR_SCRIPTS.size) {
+                    await Promise.all(keys.slice(0, keys.length - VENDOR_SCRIPTS.size).map(key => cache.delete(key)));
+                }
+            })());
+        }
+        return response;
+    } catch (_) {
+        return cached || Response.error();
+    }
+}
 
 async function handleNavigation(request) {
     try {
