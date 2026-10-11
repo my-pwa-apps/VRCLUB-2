@@ -59,7 +59,7 @@ const UI_TIMING = Object.freeze({
  */
 const TOGGLE_CONTROLS = Object.freeze(new Set([
     'lightsActive', 'lasersActive', 'ledWallActive', 'ledMonochrome',
-    'strobesActive', 'mirrorBallActive', 'laserSheetActive',
+    'strobesActive', 'mirrorBallActive', 'mirrorBallRaysActive', 'laserSheetActive',
     'smokeActive', 'spotStrobeActive'
 ]));
 
@@ -879,6 +879,9 @@ function initVJMenu() {
                 setToggleState(button, !!(vrClubInstance.showDirector && vrClubInstance.showDirector.enabled));
             } else if (TOGGLE_CONTROLS.has(control)) {
                 setToggleState(button, vrClubInstance[control]);
+                if (control === 'mirrorBallRaysActive') {
+                    button.textContent = `MIRROR BEAMS: ${vrClubInstance[control] ? 'ON' : 'OFF'}`;
+                }
             }
             // Momentary actions (changeColor, cycle*, nextMovement, showCountdown,
             // reverseGoboSpin) carry no persistent state and are deliberately skipped.

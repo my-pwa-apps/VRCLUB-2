@@ -343,7 +343,7 @@ class VRClubUI extends VRClubAnimationFinish {
     static get LIGHT_TOGGLES() {
         return this._lightToggles || (this._lightToggles = Object.freeze(new Set([
             'lightsActive', 'lasersActive', 'laserSheetActive', 'mirrorBallActive', 'ledWallActive', 'ledMonochrome',
-            'strobesActive', 'smokeActive', 'spotStrobeActive'
+            'strobesActive', 'smokeActive', 'spotStrobeActive', 'mirrorBallRaysActive'
         ])));
     }
 
@@ -563,6 +563,7 @@ class VRClubUI extends VRClubAnimationFinish {
             ledMonochrome: false,
             strobesActive: true,
             mirrorBallActive: false,
+            mirrorBallRaysActive: true,
             laserSheetActive: false,
             smokeActive: false,
             spotStrobeActive: true,
@@ -813,8 +814,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'SPOT STROBE', control: 'spotStrobeActive' },
                 { label: 'SMOKE', control: 'smokeActive' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
+                { label: 'MIRROR BEAMS', control: 'mirrorBallRaysActive' },
                 { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
-                { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
                 { label: 'PROJECT GOBO', control: 'goboActive' },
                 { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
                 { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },

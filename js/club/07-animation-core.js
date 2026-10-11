@@ -868,7 +868,7 @@ class VRClubAnimationCore extends VRClubEffects {
             
             if (this.mirrorReflectionBatch) {
                 this.mirrorReflectionBatch.spots.setEnabled(true);
-                this.mirrorReflectionBatch.rays.setEnabled(true);
+                this.mirrorReflectionBatch.rays.setEnabled(this.mirrorBallRaysActive !== false);
                 const hz = this.isInVRMode ? (this.tierSettings?.vrMirrorUpdateHz || 0) : 0;
                 const black = (this.masterIntensity ?? 1) <= 0.001;
                 const blackChanged = this._mirrorCadenceBlack !== black;

@@ -516,6 +516,7 @@ class VRClubCore {
         // 'roll' = every kick and every offbeat (the build-up roll).
         this.strobeSync = 'free';
         this.mirrorBallActive = false; // Mirror ball effect (turns off all other lights)
+        this.mirrorBallRaysActive = true; // Outgoing mirror-ball rays; reflected spots remain visible when disabled
         this.laserSheetActive = false; // Laser sheet effect
         this.laserSheetOrigin = 'both'; // truss mount: 'both' (default), 'ceilingLeft' or 'ceilingRight'
         this.laserSheetMotion = 'vertical'; // 'vertical' or 'lateral'
