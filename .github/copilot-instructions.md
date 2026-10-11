@@ -1302,7 +1302,7 @@ the relay URL. Private rooms successfully joined on this device are also remembe
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.onlineSafety` (accepted guide version), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1439,7 +1439,11 @@ the Music controls). The Access button (`.payment-toggle`) follows the corner-bu
 
 **Plain-language UI rule.** Every control must say what it does without a tooltip (touch screens and the headset never
 show one): the corner buttons carry a word under the icon (Lights, Music, People, Go to), every VJ section has a
-one-sentence `.vj-help`, and the Multiplayer panel is a form read top to bottom. Before joining it shows only *Join a
+one-sentence `.vj-help`, and the Multiplayer panel is a form read top to bottom. Before the first online use it shows
+only the versioned **Before you go online** guide: private details/contact accounts stay private, pressured off-platform
+contact is unsafe, and Report & block or leaving are immediate options. **Start a private room** is recommended;
+acknowledgement is stored as `vrclub.onlineSafety`, and Safety can reopen the guide later. After acceptance, before
+joining it shows only *Join a
 room* (labelled name and room fields, a primary **Join room**, *Start a private room*, and the relay URL tucked in an
 *Advanced* disclosure); in a room it shows *Talk*, *React*, *People*, and *Host tools* only to the host. A control that
 cannot do anything is **hidden** when it belongs to a state the user is not in (in-room sections before joining, host
@@ -1612,7 +1616,7 @@ protocol only grew, so older clients keep working.
   alpha-blended labels as black shapes (mobile and Quest have no SSR, so it only showed on desktop). Any new
   alpha-blended, canvas-textured billboard in the scene needs the same.
 - `js/multiplayer.js` (`ClubMultiplayer`, `club.multiplayer`) owns the session: preferences (`vrclub.networkUid`,
-  `blockedPeers`, `personalSpace`, `nameTags`, `autoNod` and the existing server/room/name keys), connect/disconnect, mic, emoji,
+  `blockedPeers`, `personalSpace`, `nameTags`, `autoNod`, versioned `vrclub.onlineSafety` acceptance and the existing server/room/name keys), connect/disconnect, mic, emoji,
   gestures (dance ends when the guest walks 0.6 m; a head nod in VR, detected from camera pitch, sends `nod` unless
   turned off), reroll, mute, block list, host-only kick/ban/lock, and shared music. Both the DOM panel (`initNetworkMenu`
   in `js/ui-init.js`) and the VR menu call it and redraw from `onChange`; neither reimplements an action, and
@@ -1621,7 +1625,7 @@ protocol only grew, so older clients keep working.
   phrases: one tap sends a ready-made message; there is no keyboard in a headset), so the things people do most are
   one press away; out of a room that row is absent. HOME → **ONLINE** → NETWORK / MIC / **LOOK** (women / men / anyone,
   new look) / **GESTURES** (wave, nod, dance, 7 emoji) /
-  **PEOPLE** (9 per page, then a person page: MUTE, BLOCK, KICK, BAN; kick and ban need a second tap within 4 s) /
+  **PEOPLE** (9 per page, then a person page: MUTE, BLOCK, REPORT + BLOCK, KICK, BAN; kick and ban need a second tap within 4 s) /
   **SAFETY** (personal space, lower music, name tags, mute all, lock room, nod to nod, unblock all, leave room) / NEW
   PRIVATE ROOM / JOIN ROOM / PUBLIC LOBBY. Music follows the visible host automatically, so ONLINE has no separate
   listen button. A page's BACK returns to where it was opened from
@@ -1634,9 +1638,12 @@ protocol only grew, so older clients keep working.
   `ClubMultiplayer.sendChat()` / `chat` (the session's log, last 50, cleared per room) / `chatUnread` /
   `markChatRead()`. A received message shows in a speech bubble over the sender (`AvatarManager.showChat`, one plane per
   guest, `wrapText` to three lines, 5-12 s), which is how a headset user reads it.
-- **Outgoing audiences are independent.** `ClubMultiplayer.chatAudience` / `voiceAudience` are null (Everyone)
+- **Outgoing audiences are independent and private-room-only when restricted.** `ClubMultiplayer.chatAudience` / `voiceAudience` are null (Everyone)
   or explicit session-ID arrays. `setAudience()` / `toggleAudiencePeer()` own both DOM and VR selectors.
-  Restricted selections stay restricted when emptied, on departure, reconnect and new rooms; they are never persisted.
+  Selected recipients are available only in `private-*` rooms. In public rooms both audiences are forced to Everyone,
+  selected-recipient controls are disabled with **PRIVATE ROOMS ONLY**, and the relay drops a hostile client's targeted
+  chat so public communication remains visible to the room and host. Restricted selections stay restricted when emptied,
+  on departure, reconnect and another private room; they are never persisted.
   The chat box and People/Talk contain the desktop selectors; VR CHAT/CHAT RECIPIENTS and ONLINE/MIC / WHO HEARS ME
   use the same setters. Quick phrases respect the chat audience. Relay `chat.targets` is validated and routed only
   to the selected visible peers (empty/malformed lists fail closed); `restricted` marks the log and bubble.
@@ -1644,8 +1651,14 @@ protocol only grew, so older clients keep working.
   targets field cannot leak a message. `NetworkClient.setVoiceAudience()` stops excluded microphone senders
   with `replaceTrack(null)` and reuses the same senders when re-selected, avoiding renegotiation races. Every
   track-attachment path is gated, including late joins; muting stops capture and also clears sender tracks.
-  Incoming voice and `musicPc` are untouched. These are outgoing recipients, not private group membership, and
+  Public-room voice enforcement is necessarily client-side because the relay never receives or inspects direct WebRTC
+  media; a modified client is outside that guarantee. Incoming voice and `musicPc` are untouched. These are outgoing recipients, not private group membership, and
   recipients can still record or forward what they receive. Deploy the changed relay before using targeted chat.
+- **Report & block is one protective action.** `ClubMultiplayer.reportAndBlockPeer()` sends the categorized report
+  before blocking because blocking removes the target from the peer map. The relay validates and rate-limits reports
+  and sends them only to the current host; it never persists or broadcasts them. The host client keeps at most twelve
+  transient `moderationReports`, displays an immediate visible notice, and offers confirmed kick/ban or dismiss actions
+  on desktop. Changing rooms clears the list. Reports are not emergency support.
 - **Lowering the music for voice** (`vrclub.duckForVoice`, on by default): while my mic is on or anyone is audibly
   speaking (`AvatarManager.anyoneSpeaking()`), `VRClub.setVoiceDuck(true)` fades a dedicated `voiceDuckGain` (after the
   compressor, before the master gain) to 0.25 in 80 ms, and it comes back over 0.5 s, 1.5 s after the last word

@@ -7596,17 +7596,32 @@ test('a following VJDirector leaves scene choice to the host', () => {
     assert.equal(picked, 1, 'a guest\'s own auto-scene picker must stand down');
 });
 
-test('VR menu: the room-code keypad types six digits, deletes, and the online page offers it', () => {
+test('VR menu: the safety guide precedes online options and the room-code keypad types six digits', async () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {}, log: { info() {}, warn() {}, error() {} }, document: {} });
     const proto = window.VRClubUI.prototype;
     const joined = [];
     const club = Object.create(proto);
-    club.multiplayer = { joinRoom: code => { joined.push(code); return true; }, currentRoom: 'lobby', connected: false };
+    let accepted = false;
+    club.multiplayer = {
+        joinRoom: code => { joined.push(code); return true; },
+        currentRoom: 'lobby',
+        connected: false,
+        hasAcceptedOnlineSafety: () => accepted,
+        acceptOnlineSafety: () => { accepted = true; },
+        joinNewPrivateRoom: () => true
+    };
     club.showErrorMessage = () => {};
     const shown = [];
     club._showVRQuickMenuPage = page => shown.push(page);
     window.ClubMultiplayer = class { static EMOJI = []; };
     const common = { back: { label: 'BACK', action: 'back' }, close: { label: 'CLOSE', action: 'close' } };
+
+    const safety = proto._vrNetPageDefinitions.call(club, 'onlineSafety', common);
+    assert.ok(safety.some(b => b.label === 'START PRIVATE ROOM' && b.op === 'safetyPrivate'));
+    assert.ok(safety.some(b => b.label === 'STAY OFFLINE' && b.op === 'safetyOffline'));
+    await proto._runVRNetworkAction.call(club, safety.find(b => b.op === 'safetyAccept'));
+    assert.equal(accepted, true);
+    assert.equal(shown.at(-1), 'online');
 
     const keypad = proto._vrNetPageDefinitions.call(club, 'room', common);
     assert.deepEqual([...keypad.slice(0, 10).map(b => b.label)], ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']);
@@ -7986,6 +8001,7 @@ test('VR menu: unavailable buttons are drawn disabled and say why; the chat page
     club.multiplayer = {
         connected: false, following: false, chat: [], chatUnread: 0, duckForVoice: true,
         isHost: () => false, blockedList: () => [],
+        canRestrictAudience: () => false,
         audienceLabel: () => 'Everyone',
         sendChat: text => { sent.push(text); return true; }, setDuckForVoice(v) { this.duckForVoice = v; }
     };
@@ -8025,6 +8041,7 @@ test('VR recipient pages fit all seven peers and delegate separate chat and voic
     club.showErrorMessage = () => {};
     club.multiplayer = {
         connected: true, chatAudience: ['p1'], voiceAudience: [],
+        canRestrictAudience: () => true,
         people: () => Array.from({ length: 7 }, (_, i) => ({ id: `p${i + 1}`, name: `Guest ${i + 1}` })),
         setAudience: (scope, ids) => calls.push([scope, ids]),
         toggleAudiencePeer: (scope, id) => calls.push([scope, id]),

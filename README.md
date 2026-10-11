@@ -150,7 +150,7 @@ entirely opt-in: nobody connects until a guest presses **Join room**. In a room,
 **Mic**, **React** and **Chat** (keys **M** and **T**), and the music is lowered while anyone talks (switchable). In VR the quick menu's first row in a room is **TALK**, **REACT** and **CHAT** (one-tap ready-made messages).
 For faster access, click the **right thumbstick** while in a room to open the social wheel, tilt toward Chat,
 Reactions or Microphone, click to choose, and center the stick before choosing again. Microphone and chat
-can target Everyone, nobody, or selected guests. Right-stick turning pauses while the wheel is open; the
+can target Everyone in public rooms, or Everyone, nobody, or selected guests in private rooms. Right-stick turning pauses while the wheel is open; the
 left-stick click and grips still sprint, and `Y`/`B` still opens the complete quick menu.
 Both local testing and the deployed site default to the hosted relay:
 `wss://vrclub-network.garfieldapp.workers.dev`. No local Worker is required.
@@ -215,17 +215,20 @@ unmeasured on hardware.
 
 **Choose who receives your chat and microphone separately.** On desktop, **People → Talk**
 contains **Who hears my microphone**; the chat box contains **Send chat to**. In VR, use
-**ONLINE → MIC / WHO HEARS ME** and **CHAT → CHAT RECIPIENTS**. Each can target Everyone,
-one guest, or a selected group. This is an outgoing audience, not a private room: you can
-still receive other guests' public chat and voice. Restricted chat is marked in the log
+**ONLINE → MIC / WHO HEARS ME** and **CHAT → CHAT RECIPIENTS**. In an unlisted private room, each can target Everyone,
+nobody, one guest, or a selected group. Public-room chat and voice stay room-visible so the host can moderate them;
+the client and relay reject selected-recipient chat there. This is an outgoing audience, not private group membership:
+you can still receive other guests' room-wide chat and voice. Restricted chat is marked in the log
 and speech bubbles and routed only to selected, unblocked recipients by the relay.
 Microphone tracks go only to selected peers; changing the audience replaces excluded sender tracks with silence
 without closing incoming voice or music connections. Music broadcasting is unchanged.
 An empty selection sends nothing. Departing guests are removed; reconnecting or changing
-rooms clears restricted selections to Nobody, never Everyone. Choices are session-only.
+private rooms clears restricted selections to Nobody, never Everyone. Entering a public room resets both audiences
+to Everyone. Choices are session-only.
 Selected-recipient chat requires the updated relay; older relays are detected and the
 client refuses to send restricted messages instead of broadcasting them. Messages and
-voice are not protected against recording or forwarding by their intended recipients.
+voice are not protected against recording or forwarding by their intended recipients. Voice is direct peer-to-peer
+WebRTC, so its public-room audience rule is enforced by the official client, not inspected or enforced by the relay.
 
 **Rooms, the host and sharing.** Type a room name (or the 6 digits of a private room's code) in the
 panel, or open an invite link (`?room=...`, **Copy invite link**), to join an existing room; **New
@@ -272,11 +275,17 @@ When the last person leaves a public room, its listing is deleted immediately. P
 bookmarks stay until forgotten; reusing an empty private room starts a fresh session,
 with no old lock, ban list, music or lights carried over.
 
-**Safety controls (QuestProtect).** Every guest can mute or block another person locally; blocking is two-way and
-persists across reconnects. The People list and VR person page also provide **REPORT**, with reasons for harassment,
+**Safety controls (QuestProtect).** The first attempt to open online features shows a versioned safety guide on desktop
+and in VR before any join controls: keep identifying/contact details private, do not move pressured conversations
+elsewhere, and leave or report unwanted contact. Starting an unlisted private room with trusted people is the recommended
+choice; the acknowledgement is remembered locally and the guide remains available from Safety.
+
+Every guest can mute or block another person locally; blocking is two-way and persists across reconnects. The People
+list and VR person page provide **REPORT & BLOCK**, which sends the report before immediately ending contact, with reasons for harassment,
 grooming or pressure for private contact, sexual content, hate, unwanted contact, impersonation or other concerns.
 Reports are validated and rate-limited by the relay and delivered only to the current host; they are not broadcast to
-the room or stored by the relay. The host can act immediately with **KICK**, **BAN** and **LOCK ROOM**. A report is
+the room or stored by the relay. Hosts receive an immediate notice and a transient report list with **KICK**, **BAN**
+and dismiss actions; reports clear when the client changes rooms. A report is
 not emergency support: leave the room and contact local emergency services if someone is in immediate danger.
 
 Relay deployment requires D1 migration `0006_room_directory.sql` before the new Worker.

@@ -20,6 +20,11 @@ test('room browser is opt-in on desktop, remembers only known private codes and 
     await enterClub(page);
     expect(calls).toHaveLength(0);
     await page.locator('#networkToggle').click();
+    await expect(page.locator('#networkSafetyGate')).toBeVisible();
+    await expect(page.locator('#networkRoomBrowser')).toBeHidden();
+    await page.locator('#networkSafetyContinue').click();
+    expect(await page.evaluate(() => localStorage.getItem('vrclub.onlineSafety'))).toBe('1');
+    await expect(page.locator('#networkSafetyGate')).toBeHidden();
     await expect(page.locator('#networkMoreRooms')).toBeHidden();
     await page.locator('#networkBrowseRooms').click();
     await expect(page.locator('#networkRoomsList')).toContainText('lobby — 3/8 people');
@@ -32,6 +37,9 @@ test('room browser is opt-in on desktop, remembers only known private codes and 
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vrclub.privateRooms'))[0].room)).toBe('private-123456');
     await page.getByRole('button', { name: 'Forget private-123456', exact: true }).click();
     await expect(page.locator('#networkRoomsList')).not.toContainText('123456');
+    await page.locator('#networkToggle').click();
+    await page.locator('#networkToggle').click();
+    await expect(page.locator('#networkSafetyGate')).toBeHidden();
     await page.locator('#networkToggle').click();
     await enterVR(page);
     const menu = await page.evaluate(() => {
@@ -60,6 +68,7 @@ test('desktop and VR host handover use the real relay without either guest leavi
     await context.addInitScript(() => {
         localStorage.setItem('vrclub.graphicsTier', 'balanced');
         localStorage.setItem('vrclub.networkServerUrl', 'wss://vrclub-network.garfieldapp.workers.dev');
+        localStorage.setItem('vrclub.onlineSafety', '1');
         window.NOCTURNE_PAYMENT_API = window.location.origin;
     });
     await context.route('**/payments/**', route => route.fulfill({

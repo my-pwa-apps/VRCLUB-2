@@ -497,10 +497,28 @@
                 <div id="networkStatus" class="audio-now-playing" role="status" aria-live="polite">Not in a room</div>
             </div>
 
+            <section class="audio-section network-safety-gate" id="networkSafetyGate" aria-labelledby="networkSafetyGateTitle" tabindex="-1">
+                <div class="vj-section-title" id="networkSafetyGateTitle">Before you go online</div>
+                <p class="network-safety-lead">Other guests are real people. Keep control of who can contact you.</p>
+                <ul class="network-safety-rules">
+                    <li>Keep your location, address, school or workplace, phone, email and other accounts private.</li>
+                    <li>Do not move a conversation elsewhere or meet someone because they pressure you.</li>
+                    <li>Harassment, grooming, sexual pressure or content, hate and repeated unwanted contact are not allowed.</li>
+                    <li>Your microphone starts off and personal space starts on. Use <strong>Report &amp; block</strong> at the first unwanted contact, or leave immediately.</li>
+                </ul>
+                <p class="network-help">Reports go to the room host; they are not emergency support. If anyone is in immediate danger, leave and contact local emergency services.</p>
+                <button class="audio-button network-primary" id="networkSafetyPrivate" type="button">
+                    <span>Start a private room</span>
+                    <small>Recommended: invite only people you know and trust</small>
+                </button>
+                <button class="audio-button" id="networkSafetyContinue" type="button">I understand — show online options</button>
+                <button class="vj-button network-wide" id="networkSafetyCancel" type="button">Stay offline</button>
+            </section>
+
             <!-- Step 1, before joining: who you are and which room. Everything a first-time visitor needs, nothing else. -->
-            <div class="audio-section" id="networkJoin">
+            <div class="audio-section" id="networkJoin" hidden>
                 <div class="vj-section-title">Join a room</div>
-                <p class="network-help">Meet other people in the club: you will see each other, and can talk, type and react.</p>
+                <p class="network-help"><strong>Public rooms can include strangers.</strong> Messages and voice are shared with the room so the host can moderate them. Use a private code for people you know.</p>
                 <label class="network-field" for="networkName">Your name</label>
                 <input type="text" class="audio-input" id="networkName" maxlength="32" autocomplete="nickname">
                 <label class="network-field" for="networkRoom">Room</label>
@@ -524,7 +542,7 @@
                 </details>
             </div>
 
-            <div class="audio-section">
+            <div class="audio-section" id="networkRoomBrowser" hidden>
                 <div class="vj-section-title">Browse rooms</div>
                 <p class="network-help">Public rooms are visible to everyone. Private rooms stay unlisted: only codes you save or rooms you have joined appear here. Counts are approximate; joining checks again.</p>
                 <button class="audio-button" id="networkBrowseRooms" type="button">Refresh available rooms</button>
@@ -588,13 +606,13 @@
             <div class="audio-section" id="networkPeople" hidden>
                 <div class="vj-section-title">👥 People here</div>
                 <p class="network-help">The host can choose Make host beside another person to hand over music and lights without leaving. Press again to confirm.</p>
-                <p class="network-help">If someone makes you uncomfortable, block them first and report the incident to the host.</p>
+                <p class="network-help">If someone makes you uncomfortable, use <strong>Report &amp; block</strong>: contact stops both ways and the host is notified.</p>
                 <div id="networkPeerCount" class="network-help">Nobody else yet</div>
                 <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
             </div>
 
             <!-- How others see you. The pool is chosen before or after joining and remembered. -->
-            <div class="audio-section" id="networkAvatarPool">
+            <div class="audio-section" id="networkAvatarPool" hidden>
                 <div class="vj-section-title">🧍 How others see you</div>
                 <p class="network-help">You get a random character. Choose who it can be:</p>
                 <div class="audio-podcasts" role="radiogroup" aria-label="Which random characters you can get">
@@ -612,7 +630,7 @@
             </div>
 
             <!-- Social safety. Block, mute and personal space are this guest's own; kick, ban and lock are the host's. -->
-            <div class="audio-section" id="networkSafety">
+            <div class="audio-section" id="networkSafety" hidden>
                 <div class="vj-section-title">🛡️ Safety and comfort</div>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" id="networkPersonalSpace" aria-pressed="true"
@@ -623,6 +641,7 @@
                             title="Silence every voice in the room">Mute everyone: OFF</button>
                 </div>
                 <p class="network-help" id="networkSafetyNote">Personal space hides anyone who comes within arm's length. To stop seeing and hearing one person, use <strong>Block</strong> next to their name: it works both ways and is remembered.</p>
+                <button class="vj-button network-wide" type="button" id="networkReviewSafety">Review online safety guide</button>
                 <div class="vj-section-title">Blocked</div>
                 <ul id="networkBlockedList" class="network-people" aria-label="People you have blocked"></ul>
             </div>
@@ -633,6 +652,9 @@
                 <p class="network-help">You are the host: your music and lights are what everyone gets.</p>
                 <button class="vj-button network-wide" type="button" id="networkLockRoom" aria-pressed="false"
                         title="Stop anyone new from joining this room">Lock room: OFF</button>
+                <div class="vj-section-title">Safety reports</div>
+                <p class="network-help">Reports are private to you. Review them promptly, then kick or ban the reported guest if needed.</p>
+                <ul id="networkModerationReports" class="network-people" aria-label="Safety reports"></ul>
             </div>
         </div>
     </div>

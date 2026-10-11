@@ -11,7 +11,7 @@
  *     { type: 'state', state: {x,y,z,rotY,hands?} } - eye position/facing; hands are eye-relative positions and world forward/up vectors
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
  *     { type: 'gesture', gesture: 'wave'|'nod'|'dance'|'stop' } - body language (allow-listed; 'dance' runs until 'stop')
- *     { type: 'chat', text, targets? }                - typed message; optional explicit recipient session IDs (empty/invalid never broadcasts)
+ *     { type: 'chat', text, targets? }                - typed message; targets are private-room-only recipient IDs (empty/invalid never broadcasts)
  *     { type: 'avatar', pool? }                       - ask for a different random avatar, optionally from 'women', 'men' or 'any'
  *     { type: 'music', url, playing, position, podcast?, title? } - host only; shared track state (http(s) only)
  *     { type: 'show', m, mv, cue, ... }               - host only; the light show (see sanitizeShow)
@@ -498,6 +498,9 @@ export class ClubRoom {
                 if (msg.targets === undefined) {
                     this._relay(session, { type: 'chat', id: session.id, text }, ws);
                 } else {
+                    // Public-room messages remain visible to the room and its host. Selected-recipient chat is for
+                    // unlisted private rooms only, reducing covert harassment and pressure in stranger spaces.
+                    if (!privateRoomName(this._roomName)) return;
                     // Explicit but invalid/empty audiences must never fall back to a room broadcast.
                     if (!Array.isArray(msg.targets) || msg.targets.length > MAX_ROOM_SIZE ||
                         msg.targets.some(id => typeof id !== 'string' || id.length > 64)) return;

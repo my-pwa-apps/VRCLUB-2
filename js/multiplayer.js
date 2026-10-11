@@ -32,9 +32,11 @@ class ClubMultiplayer {
         duckForVoice: 'vrclub.duckForVoice',
         autoNod: 'vrclub.autoNod',
         avatarPool: 'vrclub.avatarPool',
-        privateRooms: 'vrclub.privateRooms'
+        privateRooms: 'vrclub.privateRooms',
+        onlineSafety: 'vrclub.onlineSafety'
     });
 
+    static ONLINE_SAFETY_VERSION = '1';
     static HOSTED_RELAY = 'wss://vrclub-network.garfieldapp.workers.dev';
     static EMOJI = Object.freeze(['🎉', '🔥', '❤️', '😂', '👋', '🙌', '💃', '🕺']);
     /** What each reaction means, for buttons and screen readers. */
@@ -147,6 +149,7 @@ class ClubMultiplayer {
         this.dancing = false;
         this._danceFrom = null;
         this.muteAll = false;
+        this._onlineSafetyAccepted = this._read(ClubMultiplayer.PREFS.onlineSafety) === ClubMultiplayer.ONLINE_SAFETY_VERSION;
         this.autoNod = this._read(ClubMultiplayer.PREFS.autoNod) !== '0';
         /** Which random people this guest may appear as: 'any', 'women' or 'men'. */
         this.avatarPool = ClubMultiplayer.cleanPool(this._read(ClubMultiplayer.PREFS.avatarPool));
@@ -185,9 +188,29 @@ class ClubMultiplayer {
     // ───────────────────────── preferences ─────────────────────────
 
     _read(key) { try { return this.storage ? this.storage.getItem(key) : null; } catch (_) { return null; } }
-    _write(key, value) { try { if (this.storage) this.storage.setItem(key, value); } catch (_) { /* private browsing */ } }
+    _write(key, value) {
+        try {
+            if (!this.storage) return false;
+            this.storage.setItem(key, value);
+            return true;
+        } catch (_) { return false; }
+    }
 
     get serverUrl() { return ClubMultiplayer.defaultServerUrl(this.storage); }
+
+    hasAcceptedOnlineSafety() {
+        return this._onlineSafetyAccepted ||
+            this._read(ClubMultiplayer.PREFS.onlineSafety) === ClubMultiplayer.ONLINE_SAFETY_VERSION;
+    }
+
+    acceptOnlineSafety() {
+        this._onlineSafetyAccepted = true;
+        if (!this._write(ClubMultiplayer.PREFS.onlineSafety, ClubMultiplayer.ONLINE_SAFETY_VERSION)) {
+            this.club.showErrorMessage?.('Online safety guidance accepted for this visit, but this browser could not remember the choice.');
+        }
+        this.notice = '';
+        this._emit();
+    }
 
     get room() {
         let params = null;
@@ -249,6 +272,8 @@ class ClubMultiplayer {
         return url.href;
     }
     get currentRoom() { return this.client ? this.client.room : this.room; }
+    isPrivateRoom(room = this.currentRoom) { return /^private-/i.test(room || ''); }
+    canRestrictAudience() { return this.connected && this.isPrivateRoom(); }
 
     /** The room as a person would say it: a private room by its code, any other by its name. */
     roomLabel(room = this.currentRoom) {
@@ -330,8 +355,13 @@ class ClubMultiplayer {
         // A new room starts a new conversation.
         this.chat = [];
         this.chatUnread = 0;
+        this.moderationReports = [];
         this.chatAudience = this.chatAudience === null ? null : [];
         this.voiceAudience = this.voiceAudience === null ? null : [];
+        if (!this.isPrivateRoom(room)) {
+            this.chatAudience = null;
+            this.voiceAudience = null;
+        }
 
         const club = this.club;
         const client = new NetworkClient({ serverUrl, room, name, uid: this.uid, avatarPool: this.avatarPool, blocked: this.blockedList().map(item => item.pid) });
@@ -565,7 +595,8 @@ class ClubMultiplayer {
             const target = report.target?.name || 'guest';
             this.moderationReports.unshift({ ...report, at: Date.now() });
             this.moderationReports.splice(12);
-            this.notice = `Safety report from ${reporter} about ${target}: ${ClubMultiplayer.REPORT_REASONS[report.reason] || 'Review needed'}.`;
+            this.notice = `Safety report: ${reporter} reported ${target} for ${ClubMultiplayer.REPORT_REASONS[report.reason] || 'a safety concern'}. Open People to remove or ban them.`;
+            if (typeof club.showErrorMessage === 'function') club.showErrorMessage(this.notice);
             this._emit();
         };
         client.onGesture = (id, gesture) => manager.playGesture(id, gesture);
@@ -639,6 +670,10 @@ class ClubMultiplayer {
     setAudience(scope, ids) {
         if (!['chat', 'voice'].includes(scope) || (ids !== null && !Array.isArray(ids))) {
             this.club.showErrorMessage('Choose a chat or microphone audience.');
+            return false;
+        }
+        if (ids !== null && !this.canRestrictAudience()) {
+            this.club.showErrorMessage('Selected recipients are available only in private rooms. Public-room chat and voice stay visible to the room so the host can moderate them.');
             return false;
         }
         this[`${scope}Audience`] = ids === null ? null : [...new Set(ids)].filter(id => this.client?.peers.has(id));
@@ -819,6 +854,23 @@ class ClubMultiplayer {
             !Object.prototype.hasOwnProperty.call(ClubMultiplayer.REPORT_REASONS, reason)) return false;
         if (!this.client.sendReport(id, reason)) return false;
         this.notice = 'Report sent to the room host.';
+        this._emit();
+        return true;
+    }
+
+    reportAndBlockPeer(id, reason) {
+        const peer = this.client?.peers.get(id);
+        if (!peer || !peer.pid || !this.reportPeer(id, reason)) return false;
+        if (!this.blockPeer(id)) return false;
+        this.notice = `${peer.name || 'Guest'} was reported and blocked. You cannot see, hear or contact each other.`;
+        this._emit();
+        return true;
+    }
+
+    dismissModerationReport(at) {
+        const before = this.moderationReports.length;
+        this.moderationReports = this.moderationReports.filter(report => report.at !== at);
+        if (this.moderationReports.length === before) return false;
         this._emit();
         return true;
     }

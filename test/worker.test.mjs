@@ -55,6 +55,7 @@ test('room world time is shared with late joiners and survives handover, but res
 
 test('selected chat is delivered only to distinct selected visible guests, with sender fixed by the relay', () => {
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room, 'A'), b = join(room, 'B'), c = join(room, 'C'), d = join(room, 'D');
     const e = join(room, 'E');
     assert.equal(a.ws.last('welcome').targetedChat, true);
@@ -73,14 +74,26 @@ test('selected chat is delivered only to distinct selected visible guests, with 
     assert.equal(c.ws.last('chat').text, 'public', 'a departed target never becomes a broadcast');
 });
 
+test('public rooms reject selected-recipient chat while room-visible chat still works', () => {
+    const room = new ClubRoom({});
+    room._roomName = 'lobby';
+    const a = join(room, 'A'), b = join(room, 'B');
+    a.ws.message({ type: 'chat', text: 'hidden', targets: [b.session.id] });
+    assert.equal(b.ws.last('chat'), undefined);
+    a.ws.message({ type: 'chat', text: 'visible' });
+    assert.equal(b.ws.last('chat').text, 'visible');
+});
+
 test('empty and malformed chat target lists never broadcast', () => {
     for (const targets of [[], null, 'everyone', [42], [{}], Array(9).fill('id'), ['x'.repeat(65)]]) {
         const room = new ClubRoom({});
+        room._roomName = 'private-123456';
         const a = join(room), b = join(room);
         a.ws.message({ type: 'chat', text: 'must not leak', targets });
         assert.equal(b.ws.last('chat'), undefined);
     }
     const room = new ClubRoom({});
+    room._roomName = 'private-123456';
     const a = join(room), b = join(room);
     a.session.blocked.add(b.session.pid);
     a.ws.message({ type: 'chat', text: 'blocked', targets: [b.session.id] });
