@@ -207,6 +207,14 @@ test('tracked hands are bounded eye-relative poses with normalised orientation a
     assert.equal(c.ws.last('state').state.hands, undefined, 'desktop/exit clears tracking');
 });
 
+test('intentional seated state is bounded and old position frames remain standing', () => {
+    const seated = sanitizeState({ x: 2, y: 1.1, z: -4, rotY: 0.2, seated: true, floorY: 3 });
+    assert.deepEqual({ ...seated, rotY: 0.2 }, { x: 2, y: 1.1, z: -4, rotY: 0.2, seated: true, floorY: 3 });
+    assert.ok(Math.abs(seated.rotY - 0.2) < 1e-12);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seated: false }).seated, undefined);
+    assert.equal(sanitizeState({ x: 0, y: 1.7, z: 0, seated: 'true' }).seated, undefined);
+});
+
 test('rtc-signal is relayed only to a different, existing peer', () => {
     const room = new ClubRoom({});
     const a = join(room);

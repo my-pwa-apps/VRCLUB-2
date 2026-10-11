@@ -60,8 +60,16 @@ class VRClubAnimationCore extends VRClubEffects {
         if (!cam) return;
         const rotY = cam.rotationQuaternion ? cam.rotationQuaternion.toEulerAngles().y : (cam.rotation ? cam.rotation.y : 0);
         const position = cam.globalPosition || cam.position;
-        const state = this._networkPose || (this._networkPose = { x: 0, y: 0, z: 0, rotY: 0, hands: null });
-        state.x = position.x; state.y = position.y; state.z = position.z; state.rotY = rotY;
+        const state = this._networkPose || (this._networkPose = {
+            x: 0, y: 0, z: 0, rotY: 0, hands: null, seated: false, floorY: 0
+        });
+        const seat = this._activeSeat;
+        state.x = seat ? seat.x : position.x;
+        state.y = position.y;
+        state.z = seat ? seat.z : position.z;
+        state.rotY = seat ? seat.facing : rotY;
+        state.seated = !!seat;
+        state.floorY = seat ? seat.floorY : (this._walkLevel || 0);
         state.hands = null;
         if (this.isInVRMode) {
             const hands = this._networkHands || (this._networkHands = { left: null, right: null });

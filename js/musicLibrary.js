@@ -2,6 +2,7 @@
 
 class MusicLibrary {
     static KEY = 'vrclub.questMusic';
+    static PLAYBACK_KEY = 'vrclub.questMusicPlayback';
     static MAX_SETS = 8;
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
@@ -27,6 +28,8 @@ class MusicLibrary {
         this.selected = 0;
         this.resolvedUrls = new Map();
         this._episodeLists = new Map();
+        this.playback = null;
+        this._startupResumePending = true;
         this.onChange = null;
         try {
             this.storage = storage || window.localStorage;
@@ -39,6 +42,14 @@ class MusicLibrary {
             this.items = data.items.map(item => this._item(item.url, item.name, item.episode));
             this.selected = Number.isInteger(data.selected) && data.selected >= 0 && data.selected < this.items.length
                 ? data.selected : 0;
+            const playbackRaw = this.storage.getItem(MusicLibrary.PLAYBACK_KEY);
+            if (playbackRaw) {
+                const playback = JSON.parse(playbackRaw);
+                if (playback && typeof playback.savedUrl === 'string' && Number.isFinite(playback.position)
+                    && playback.position >= 0 && Number.isFinite(playback.updatedAt)) {
+                    this.playback = playback;
+                }
+            }
         } catch (error) {
             this.items = [];
             console.warn('[Music] Could not read saved sets:', error);
@@ -217,6 +228,42 @@ class MusicLibrary {
         }
     }
 
+    _resumePosition(item, playbackUrl) {
+            if (!this._startupResumePending) return 0;
+            this._startupResumePending = false;
+            const saved = this.playback;
+            if (!saved || !item || saved.savedUrl !== item.url || saved.position < 1) return 0;
+            try {
+                if (saved.playbackUrl && new URL(saved.playbackUrl).href !== new URL(playbackUrl).href
+                    && item.kind === 'direct') return 0;
+            } catch (_) {
+                return 0;
+            }
+            return saved.position;
+        }
+
+        /** Persist a finite on-demand set's current clock so a reload of the same saved source resumes it. */
+    capturePlayback() {
+            const item = this.current();
+            const info = this.club && typeof this.club.getPlaybackInfo === 'function' ? this.club.getPlaybackInfo() : null;
+            const playbackUrl = this.club && this.club._audioStreamUrl;
+            if (!item || !info || !info.seekable || !playbackUrl || !this.matchesPlaybackUrl(item.url, playbackUrl)) return false;
+            const playback = {
+                savedUrl: item.url,
+                playbackUrl,
+                position: Math.min(Math.max(0, info.position), Math.max(0, info.duration - 1)),
+                updatedAt: Date.now()
+            };
+            try {
+                this.storage.setItem(MusicLibrary.PLAYBACK_KEY, JSON.stringify(playback));
+                this.playback = playback;
+                return true;
+            } catch (error) {
+                console.warn('[Music] Could not save playback position:', error);
+                return false;
+        }
+    }
+
     _persist(items, selected) {
         try {
             this.storage.setItem(MusicLibrary.KEY, JSON.stringify({ items, selected }));
@@ -276,7 +323,9 @@ class MusicLibrary {
         if (item.kind === 'soundcloud') {
             const episode = await this._resolveSoundCloud(item);
             this.resolvedUrls.set(item.url, episode.url);
-            await this.club.startAudioStream(episode.url, { onDemand: true });
+            await this.club.startAudioStream(episode.url, {
+                onDemand: true, resumeAt: this._resumePosition(item, episode.url)
+            });
             if (episode.title) label = episode.title;
             this._adoptTitle(item, episode.title);
         } else if (item.kind === 'feed') {
@@ -290,10 +339,14 @@ class MusicLibrary {
                 episode = (await this._feedEpisodes(item))[0];
             }
             this.resolvedUrls.set(item.url, episode.url);
-            await this.club.startAudioStream(episode.url, { onDemand: true });
+            await this.club.startAudioStream(episode.url, {
+                onDemand: true, resumeAt: this._resumePosition(item, episode.url)
+            });
             label = episode.title || item.name;
         } else {
-            await this.club.startAudioStream(item.url, { onDemand: true });
+            await this.club.startAudioStream(item.url, {
+                onDemand: true, resumeAt: this._resumePosition(item, item.url)
+            });
         }
         this.club.nowPlayingLabel = label;
         if (this.onChange) this.onChange(item);

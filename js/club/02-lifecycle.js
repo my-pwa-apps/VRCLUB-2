@@ -323,6 +323,7 @@ class VRClubLifecycle extends VRClubCore {
         this.createSafetyDetails(); // Exit signs only
         this.createEntranceArea(); // Door, vestibule and street door (after createLights: its accent light sorts first)
         this.createBar(); // Counter, back bar, bottles, stools (the bartender joins with the crowd)
+        this.createLoungeBench(); // Lightweight three-seat Chesterfield in the back corner
         this.createMezzanine(); // Steel balcony and stair along the left wall
     }
 

@@ -243,30 +243,24 @@ test('crouching lowers the pelvis with the feet still on the floor', async () =>
     assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'the feet left the floor in a crouch');
 });
 
-test('re-fitting eye height across XR and desktop transitions keeps the feet grounded', async () => {
+test('intentional seating bends the legs while physical seated play retains a full standing body', async () => {
     const { rig } = await loadRig();
     const pose = makePose();
     for (let i = 0; i < 30; i++) rig.update(DT, pose);
+    const standingPelvis = pos(rig, 'pelvis').y;
+    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.7) < 0.02);
 
-    rig.setEyeHeight(1.0);
-    pose.eyeY = 1.0;
-    for (let i = 0; i < 30; i++) rig.update(DT, pose);
-    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.0) < 0.02, 'the seated XR fit missed 1.00 m eyes');
-    assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'the seated XR fit lifted a foot off the floor');
+    for (const groundY of [0, 0.5, 3]) {
+        Object.assign(pose, { groundY, eyeY: groundY + 1.7, seatY: groundY + 0.76, seated: true, bodyYaw: 0 });
+        for (let i = 0; i < 30; i++) rig.update(DT, pose);
+        assert.ok(Math.abs(pos(rig, 'pelvis').y - pose.seatY) < 0.035, `pelvis missed seat at floor ${groundY}`);
+        assert.ok(Math.abs(pos(rig, 'foot_l').y - (groundY + rig.ankleH)) < 0.015, `left foot floated at floor ${groundY}`);
+        assert.ok(Math.abs(pos(rig, 'foot_r').y - (groundY + rig.ankleH)) < 0.015, `right foot floated at floor ${groundY}`);
+    }
 
-    rig.setEyeHeight(1.7);
-    pose.eyeY = 1.7;
+    Object.assign(pose, { groundY: 0, eyeY: 1.7, seated: false, seatY: 0 });
     for (let i = 0; i < 30; i++) rig.update(DT, pose);
-    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.7) < 0.02, 'desktop refit did not restore 1.70 m eyes');
-    assert.ok(Math.abs(pos(rig, 'foot_l').y - rig.ankleH) < 0.01, 'desktop refit left the feet floating');
-
-    rig.setEyeHeight(1.0);
-    pose.eyeY = 1.5;
-    pose.groundY = 0.5;
-    pose.z = -18;
-    for (let i = 0; i < 30; i++) rig.update(DT, pose);
-    assert.ok(Math.abs(pos(rig, 'Head').y + rig.eyeAbove - 1.5) < 0.02, 'the seated booth fit missed the measured head height');
-    assert.ok(Math.abs(pos(rig, 'foot_l').y - (rig.ankleH + 0.5)) < 0.01, 'the seated booth fit ignored the riser floor');
+    assert.ok(Math.abs(pos(rig, 'pelvis').y - standingPelvis) < 0.03, 'standing after a seat left the body shortened');
 });
 
 test('hands: a reachable target is met, an unreachable one straightens the arm without stretching it', async () => {
@@ -487,6 +481,55 @@ test('the mingling guest raises a drink to his face without sliding his feet', a
         + `palm ${closestSample.sample.palm.toString()}, `
         + `head ${closestSample.sample.head.toString()})`);
     assert.ok(footTravel('leftFoot') < 0.015 && footTravel('rightFoot') < 0.015, 'a foot slides while he drinks');
+    scene.dispose();
+});
+
+test('the bar regular stays seated on the stool, plants both feet and raises the bottle to her face', async () => {
+    const { scene, container, B } = await loadContainer('club-crowd-f6.glb');
+    const entry = container.instantiateModelsToScene(name => name, false, { doNotInstantiate: true });
+    const root = entry.rootNodes[0];
+    root.rotationQuaternion = null;
+    root.rotation.y = Math.PI / 2;
+    root.position.set(9.08, 0, -11.6);
+    root.computeWorldMatrix(true);
+    let bounds = root.getHierarchyBoundingVectors(true);
+    root.scaling.setAll(1.66 / (bounds.max.y - bounds.min.y));
+    root.computeWorldMatrix(true);
+    bounds = root.getHierarchyBoundingVectors(true);
+    root.position.y -= bounds.min.y;
+    const node = name => root.getDescendants(false, n => n.name === name)[0];
+    const at = name => { const n = node(name); n.computeWorldMatrix(true); return n.getAbsolutePosition().clone(); };
+    const idle = entry.animationGroups.find(animation => animation.name.endsWith('Seated_Bar_Idle_Loop'));
+    const drink = entry.animationGroups.find(animation => animation.name.endsWith('Seated_Bar_Drink_Loop'));
+    assert.ok(idle && drink, 'club-crowd-f6.glb has no authored seated bar clips');
+
+    idle.start(false);
+    idle.pause();
+    const feet = [];
+    for (let i = 0; i <= 32; i++) {
+        idle.goToFrame(idle.from + (idle.to - idle.from) * i / 32);
+        root.computeWorldMatrix(true);
+        feet.push([at('Foot.L'), at('Foot.R')]);
+        const hips = at('Body');
+        assert.ok(hips.y > 0.62 && hips.y < 0.92, `her hips miss the stool seat at ${hips.y.toFixed(3)} m`);
+    }
+    for (const side of [0, 1]) {
+        const travel = Math.max(...feet.map(pair => B.Vector3.Distance(pair[side], feet[0][side])));
+        const high = Math.max(...feet.map(pair => pair[side].y));
+        assert.ok(travel < 0.02, `seated foot ${side} slides ${travel.toFixed(3)} m`);
+        assert.ok(high < 0.12, `seated foot ${side} floats ${high.toFixed(3)} m over the floor`);
+    }
+
+    idle.stop();
+    drink.start(false);
+    drink.pause();
+    let closest = Infinity;
+    for (let i = 0; i <= 48; i++) {
+        drink.goToFrame(drink.from + (drink.to - drink.from) * i / 48);
+        root.computeWorldMatrix(true);
+        closest = Math.min(closest, B.Vector3.Distance(at('Wrist.R'), at('Head')));
+    }
+    assert.ok(closest < 0.25, `the bottle hand stays ${closest.toFixed(3)} m from her face`);
     scene.dispose();
 });
 

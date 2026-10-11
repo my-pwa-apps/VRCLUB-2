@@ -2026,9 +2026,67 @@ class VRClubUI extends VRClubAnimationFinish {
         root.computeWorldMatrix(true);
     }
 
+    _seatFromPick(pickResult) {
+        const metadata = pickResult?.pickedMesh?.metadata;
+        const seats = metadata?.vrclubSeats;
+        if (!Array.isArray(seats) || !seats.length) return null;
+        if (seats.length === 1 || !pickResult.pickedPoint) return seats[0];
+        const point = pickResult.pickedPoint;
+        let best = seats[0], bestDistance = Infinity;
+        for (const seat of seats) {
+            const distance = (point.x - seat.x) ** 2 + (point.z - seat.z) ** 2;
+            if (distance < bestDistance) { best = seat; bestDistance = distance; }
+        }
+        return best;
+    }
+
+    _pressSeat(pickResult) {
+        const seat = this._seatFromPick(pickResult);
+        if (!seat) return false;
+        if (this._activeSeat?.id === seat.id) this.standFromSeat(true);
+        else this.sitAtSeat(seat);
+        return true;
+    }
+
+    sitAtSeat(seat) {
+        if (!seat || !Number.isFinite(seat.x) || !Number.isFinite(seat.z)) return false;
+        this._activeSeat = seat;
+        const camera = this._playerCamera();
+        if (camera) {
+            camera.position.x = seat.viewX;
+            camera.position.z = seat.viewZ;
+            if (this.isInVRMode) {
+                const height = this._xrHeadHeight();
+                if (Number.isFinite(height)) camera.position.y = seat.floorY + height;
+                if (camera._deferOnly && camera._deferredUpdated) camera._deferredPositionUpdate.copyFrom(camera.position);
+            } else {
+                camera.position.y = seat.floorY + 1.2;
+                const target = this._seatLookTarget || (this._seatLookTarget = new BABYLON.Vector3());
+                target.set(seat.x + Math.sin(seat.facing) * 2, seat.floorY + 1.15, seat.z + Math.cos(seat.facing) * 2);
+                if (typeof camera.setTarget === 'function') camera.setTarget(target);
+            }
+        }
+        this._walkLevel = seat.floorY;
+        if (this.jumpState) this.jumpState.active = false;
+        this.showErrorMessage(`Sitting on ${seat.label}. Move or select it again to stand.`);
+        return true;
+    }
+
+    standFromSeat(notify = true) {
+        const seat = this._activeSeat;
+        if (!seat) return false;
+        this._activeSeat = null;
+        if (!this.isInVRMode) {
+            const camera = this._playerCamera();
+            if (camera) camera.position.y = seat.floorY + 1.7;
+        }
+        if (notify) this.showErrorMessage('Standing up');
+        return true;
+    }
+
     /**
      * Pointer routing for everything pickable in the world: the VR quick menu, its seek bar and the VJ desk at the
-     * DJ table (js/vjDesk.js), whose two touch panels and faders answer a mouse click and a controller ray alike.
+     * DJ table (js/vjDesk.js), plus the room's seats. A mouse click and a controller ray use the same path.
      */
     setupVJControlInteraction() {
         this.scene.onPointerDown = (evt, pickResult) => {
@@ -2043,6 +2101,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 this._activateVRQuickMenuButton(vrMenuButton);
                 return;
             }
+            if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
         };
 
@@ -2139,8 +2198,8 @@ class VRClubUI extends VRClubAnimationFinish {
      * @param {string} src
      * @param {'stream'|'file'} kind
      * @param {string} label
-     * @param {{ loop?: boolean }} [options] `loop: false` lets an on-demand episode reach its
-     *        end so the caller can queue the next one. Everything else loops, as before.
+     * @param {{ loop?: boolean, resumeAt?: number }} [options] `loop: false` lets an on-demand episode reach its
+     *        end so the caller can queue the next one. `resumeAt` restores a finite saved set after a reload.
      */
     _playAudio(src, kind, label, options = {}) {
         this._stopSoundCloudPlayer();
@@ -2157,6 +2216,15 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         this._setAudioSrc(src);
         this._connectAudioSourceOnce();
+        const resumeAt = Number.isFinite(options.resumeAt) && options.resumeAt > 0 ? options.resumeAt : 0;
+        if (resumeAt > 0) {
+            const seek = () => {
+                if (!Number.isFinite(audio.duration)) return;
+                audio.currentTime = Math.min(resumeAt, Math.max(0, audio.duration - 1));
+            };
+            if (audio.readyState >= 1) seek();
+            else audio.addEventListener('loadedmetadata', seek, { once: true });
+        }
         audio.load();
 
         return audio.play().then(() => {
@@ -2170,7 +2238,7 @@ class VRClubUI extends VRClubAnimationFinish {
         });
     }
 
-    /** @param {{ onDemand?: boolean }} [options] an on-demand episode plays once instead of looping */
+    /** @param {{ onDemand?: boolean, resumeAt?: number }} [options] an on-demand episode plays once instead of looping */
     startAudioStream(url, options = {}) {
         if (!this._isSafeAudioUrl(url)) {
             log.warn(`🎵 Rejected unsafe audio URL: ${url}`);
@@ -2179,7 +2247,7 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         this._localPlaylist = null;
         this.nowPlayingLabel = url; // a podcast episode replaces this with its title once it has started
-        return this._playAudio(url, 'stream', url, { loop: !options.onDemand });
+        return this._playAudio(url, 'stream', url, { loop: !options.onDemand, resumeAt: options.resumeAt });
     }
 
     static _loadSoundCloudAPI() {

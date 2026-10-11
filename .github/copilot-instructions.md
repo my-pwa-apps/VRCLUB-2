@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio, relay-resolved Miss Melera Colourizon links and official-player fallback for other SoundCloud saved sets)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall and bar), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall, bar and lounge bench), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -151,7 +151,10 @@ lift and step, two-bone IK to the ankles), hips that follow the eyes with a dead
 turn-in-place, head/neck/spine sharing the remaining twist and pitch, arm swing against the
 legs, VR arms IK'd to the controllers with the hand taking the controller's orientation,
 crouch and flight from the same root-height maths, and the torso backing off as you look
-down (the body mesh is open at the neck).
+down (the body mesh is open at the neck). Physical headset height never rescales the body:
+a seated, short or wheelchair-using guest still has the same 1.7 m standing avatar as everyone
+else. Only selecting tagged room furniture sets `pose.seated`; that separately lowers the pelvis
+onto `seatY`, fixes the body to the furniture's facing and plants both feet on its floor.
 
 Rules when editing it:
 - **World-space rotations only.** Every pose step is "rotate this world vector onto that
@@ -849,8 +852,8 @@ and fail `npm test`.
   and hand motion. It never moves a rail grip, dancer, rig-driven character, mingler, or somebody currently talking to
   the mingler. The absolute-time wave plus elapsed-time yaw easing is refresh-rate independent and allocates nothing.
 - **The guest who works the room** (`js/club/11-audio-crowd.js`). Exactly one side guest (slot 2, `m6`, carrying
-  `mingles: true` and `clips: ['Walk', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop']`) does not stand
-  still: he walks a round, joins the other standing guests' conversations, visits the bartender, watches the dance
+  `mingles: true` and `clips: ['Walk', 'Dance_Loop', 'Idle_Loop', 'Idle_Talking_Loop', 'Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop']`) does not stand
+  still: he walks a round, joins the other standing guests' conversations, visits the bartender, watches and sometimes joins the dance
   floor, goes outside to smoke, and visits the balcony. `_updateMingler(dt)` runs from `updateDancers()` next to
   `_updateBouncer`. **He lingers**: a conversation is 22-38 s, watching the floor 25-40 s, the bar is two sips with a
   chat between them (~25 s), a cigarette 75-105 s and the balcony 25-40 s at the rail plus 25-40 s talking. He walks
@@ -866,8 +869,9 @@ and fail `npm test`.
   - **The round is hand-placed, never derived or random** (`_minglerRoute()`): a chain walked up and
     back down (`state.node` / `state.dir` ping-pong), with `home` (index 1) his own placed spot. `guest` on a node is
     the guest slot he stops at; `bartender` marks the one customer-side bar stop; `activity` marks the intentional
-    solo `watch`, `smoke` or `balcony` stops; a node without any of those is a corner. Every indoor leg was measured
-    to clear all 14 dance-floor slots, every standing guest and the bar furniture by at least 0.8 m, and the outside
+    solo `watch`, `dance`, `smoke` or `balcony` stops; a node without any of those is a corner. Every indoor leg was measured
+    to clear all 14 dance-floor slots, every standing guest and the bar furniture by at least 0.8 m; the route approaches
+    and leaves the bar through the measured gap between stools instead of cutting diagonally through a seat. The outside
     route uses the centre of both doors to stay clear of the bouncer and queue. A unit test re-measures it. Corners
     are navigation only and are passed without a dwell; only social and named activity nodes stop. Moving any crowd,
     guest, bar, entrance or mezzanine slot means re-running that test.
@@ -927,6 +931,13 @@ and fail `npm test`.
     the rail within 8 cm, a conversation with f7, the physical bar sequence, closest approach 0.8 m to 22 floor
     characters, street z 7.1 and balcony y 3.0). After changing his clips: `node scripts/build-crowd-glbs.mjs
     --refresh-static --only m6 --optimize` (no asset packs needed).
+- **The seated bar regular.** Guest slot 1 (`f6`) sits on the stool at z -11.6 with authored
+  `Seated_Bar_Idle_Loop` / `Seated_Bar_Drink_Loop` clips: her pelvis stays on the measured seat, both feet remain
+  planted, and her hands rest at the counter. `_updateBarPatron()` alternates long idle periods, bartender conversation
+  and an occasional drink from one persistent counter bottle; the prop is either fixed on the counter or fixed to her
+  hand, never interpolated through open space. The bartender gives the mingler's physical service priority and otherwise
+  turns naturally toward the regular while they talk. Refresh these clips with
+  `node scripts/build-crowd-glbs.mjs --refresh-static --only f6 --optimize`.
 - **Generic DJs are local choices.** `VRClub.DJ_LOOKS` (`js/club/11-audio-crowd.js`) maps `male` (1.78 m)
   and `female` (1.68 m) to `club-dj-male.glb` / `club-dj-female.glb`, built from CC0 Quaternius
   guests. `chooseDJ()` persists `vrclub.questDJ`; neither music nor remote podcast metadata selects
@@ -978,8 +989,9 @@ Treat `CLUB_POSITIONS` and `ROOM_BOUNDS` as the source of truth; do not re-deriv
 coordinates from documentation. The bar and vestibule numbers live in `window.VenueLayout`
 (`js/venueDressing.js`); the guest slots, the bartender and the tests read them from there.
 
-### Entrance and bar (`js/venueDressing.js`, `js/barProps.js`)
-`VenueDressing` is a mixin like `LEDPatterns`: `createEntranceArea()` and `createBar()` run at the end of
+### Entrance, bar and lounge (`js/venueDressing.js`, `js/barProps.js`)
+`VenueDressing` is a mixin like `LEDPatterns`: `createEntranceArea()`, `createBar()` and
+`createLoungeBench()` run at the end of
 `_buildVenue()`, after `createLights()`. Rules:
 - **One draw per material.** Boxes and cylinders are collected per material by `_dressingBuilder()` and merged.
   Do not add per-bottle or per-prop meshes. The 130+ bottles are ONE vertex-coloured mesh (`barBottles`): glass tint is
@@ -1015,6 +1027,12 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   bar footprint (tested).
 - **Stools**: Poly Haven *Metal Stool 03* (`ModelLoader` key `bar_stool`) placed once by the loader and instanced four more
   times by `_furnishBarStools()`; its emissive floor is lowered there because the loader's generic 0.12 reads as pale paint.
+  Every empty stool is tagged as a seat; f6's occupied stool is deliberately not.
+- **Player seating.** Clicking or ray-selecting tagged furniture calls `sitAtSeat()`. The bar's empty stools, both balcony
+  stools and the three cushions of the Chesterfield-style bench are available. Selecting the same seat or moving 0.75 m
+  stands up. XR keeps the real tracked eye height; desktop uses a seated camera height. The lounge bench is procedural,
+  two merged materials and one collider at `VenueLayout.lounge` in the back-right corner. The linked Meshy model was not
+  shipped: although CC BY, its ~454k faces and authenticated download are inappropriate for the Quest budget.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.
@@ -1036,6 +1054,8 @@ A steel balcony (deck at y 3.0, x -12.2..-9.5, z -19..-10.4) on the left wall wi
 from z -6.2. It reuses `_dressingBuilder()` and `_createScopedAccent()` from `venueDressing.js`, so it is four merged meshes
 (`mezzDeck`, `mezzPanel`, `mezzRails`, `mezzGlowCyan`), one accent light (`balconyLight`, first slot, no budget change) and the
 bar's stool GLB instanced twice. Textures are Poly Haven `steelDeck` / `steelPanel` (`textureLoader` configs, CC0).
+- Both stools are tagged player seats. Their seat floor is the 3 m deck, so selecting one uses the same explicit seated
+  pose as the bar and lounge without confusing physical headset height with avatar stature.
 - **Walking**: `Mezzanine._walkSurfaceLevel()` decides the surface a walker stands on: `VenueLayout.vestibule.walkLevel()` from the
   club's front wall outward (the entrance stair and the street), otherwise `MezzanineLayout.walkLevel()`. The collision system carries the desktop
   camera UP the stair (no gravity there), so `_updateWalkSurface()` only records the level on ascent and lowers the eye on
@@ -1300,7 +1320,7 @@ the relay URL. Private rooms successfully joined on this device are also remembe
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questMusicPlayback` (selected finite source and last playback position), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1579,7 +1599,10 @@ protocol only grew, so older clients keep working.
   crowd uses; one draw each). A clip state machine plays Idle/Walk/Run from the interpolated speed, plus Wave, Yes
   (nod) and a Dance_Loop toggle. `MAX_PEOPLE` (8) are people; the rest, and any guest still loading, are a capsule +
   head (the capsule always remains as the invisible collision body). `state.y` on the wire is the sender's **eye**
-  height; the avatar root is placed `EYE_HEIGHT` below it. Name tag (a 0.6 x 0.15 m pill sized to the name, mipmapped,
+  height; the avatar root is placed `EYE_HEIGHT` below it. An intentional seat adds `state.seated: true` and a bounded
+  `floorY`; the receiver puts the root on that surface and plays the shared `Seated_Loop` carried by all 17 assignable
+  crowd looks (the capsule fallback lowers too). Physical seated play sends no flag and therefore remains standing.
+  Name tag (a 0.6 x 0.15 m pill sized to the name, mipmapped,
   with a host crown and mute marker; `setNameTags()` hides them, emoji stay), an
   analyser-driven speaking frame, per-guest mute and mute-all through the gain node, and a **personal-space bubble**
   (a guest hides within 0.7 m and returns beyond 0.95 m). Each remote voice is also attached to

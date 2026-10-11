@@ -64,7 +64,7 @@ const CAST = [
     { id: 'f3', base: 'women', file: 'Punk', skin: 'tan', colors: { Pink: '#16b8c8' } },
     { id: 'f4', base: 'women', file: 'Formal', skin: 'brown', mirror: true, colors: { LimeGreen: '#7c1733', 'Head:Red': BLACK_HAIR } },
     { id: 'f5', base: 'women', file: 'Formal', skin: 'light', colors: { LimeGreen: '#1c3270', 'Head:Red': '#b9893d' } },
-    { id: 'f6', base: 'women', file: 'Suit', skin: 'fair', guest: true, colors: { Hair_Blond: SILVER, Hair_Brown: '#9a9aa2', Black: '#2b2230', White: '#cdd2ea' } },
+    { id: 'f6', base: 'women', file: 'Suit', skin: 'fair', guest: true, seated: true, colors: { Hair_Blond: SILVER, Hair_Brown: '#9a9aa2', Black: '#2b2230', White: '#cdd2ea' } },
     { id: 'f7', base: 'women', file: 'Suit', skin: 'espresso', guest: true, colors: { Hair_Blond: '#0d0b0a', Hair_Brown: '#0d0b0a', Black: '#7b1e2c' } },
     { id: 'f8', base: 'women', file: 'Casual', skin: 'medium', guest: true, colors: { Hair_Blond: '#2b1b12', White: '#e8d6a0', Orange: '#3a2a4a' } },
     // Men
@@ -579,6 +579,62 @@ const DRINK_POSE = {
     }
 };
 
+// A regular at the bar sits on the real stool, with both feet planted under the counter and the pelvis supported by
+        // the seat. The idle keeps subtle breathing and small, asymmetric attention changes; the drink clip reaches the
+        // bottle on the counter, brings it to the lips, swallows, and returns it to exactly the same point.
+const SEATED_BAR_IDLE_POSE = {
+            name: 'Seated_Bar_Idle_Loop',
+            beats: 24,
+            pose: b => {
+                const breath = Math.sin(TAU * b / 6);
+                const look = 0.72 * Math.sin(TAU * b / 24) + 0.28 * Math.sin(TAU * b / 9 + 0.7);
+                return {
+                    hip: [0, -0.15, 0.10], hipRot: [-0.08, 0.025 * look, 0],
+                    spine: [0.08 + 0.012 * breath, 0.04 * look, -0.015 * look],
+                    head: [-0.035 + 0.012 * breath, 0.32 * look, 0.025 * Math.sin(TAU * b / 13)],
+                    hands: {
+                        R: { at: [0.12, -0.27, 0.48], pole: [0.65, -0.3, -0.4], fingers: [0, -0.2, 1] },
+                        L: { at: [-0.12, -0.28, 0.46], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
+                    },
+                    feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] },
+                    shrug: { R: 0.015 * breath, L: -0.01 * breath }
+                };
+            }
+        };
+
+// Every network avatar can intentionally use the room's seats. This is kept separate from f6's bar-specific clip so
+// AvatarManager has one stable clip name regardless of which of the seventeen looks the relay assigned.
+const SEATED_IDLE_POSE = { ...SEATED_BAR_IDLE_POSE, name: 'Seated_Loop' };
+
+const SEATED_BAR_DRINK_POSE = {
+            name: 'Seated_Bar_Drink_Loop',
+            beats: 8,
+            pose: b => {
+                const phase = b / 8;
+                const lift = phase < 0.2 ? 0
+                    : phase < 0.42 ? (phase - 0.2) / 0.22
+                        : phase < 0.72 ? 1
+                            : phase < 0.94 ? 1 - (phase - 0.72) / 0.22 : 0;
+                const eased = lift * lift * (3 - 2 * lift);
+                const counter = [0.11, -0.27, 0.49];
+                const lips = [-0.12, 0.13, 0.01];
+                return {
+                    hip: [0, -0.15, 0.10], hipRot: [-0.08, 0, 0],
+                    spine: [0.08 + 0.035 * eased, 0, -0.03 * eased],
+                    head: [-0.035 - 0.1 * eased, 0.02, 0],
+                    hands: {
+                        R: {
+                            at: counter.map((value, i) => value + (lips[i] - value) * eased),
+                            pole: [0.65, -0.28, -0.38], fingers: [0, 0.25 + 0.7 * eased, 1]
+                        },
+                        L: { at: [-0.12, -0.28, 0.46], pole: [-0.65, -0.3, -0.4], fingers: [0, -0.15, 1] }
+                    },
+                    feet: { R: [0.07, 0, 0.31], L: [-0.07, 0, 0.31] },
+                    shrug: { R: 0.06 * eased, L: 0 }
+                };
+    }
+};
+
 // A cigarette, one drag every 12 s (24 beats): it is held low with the forearm forward and the palm turned in, the
 // ash is flicked, then the hand comes up with the PALM TOWARD THE FACE, so the cigarette between the index and
 // middle fingers points back at the lips while the fingers stay in front of the nose. He draws on it, lowers it and
@@ -908,6 +964,11 @@ async function build(person) {
     const results = all.filter(clip => wanted.includes(clip.name)).map(clip => retarget(src, tgt, clip, !!person.mirror));
     if (person.drink) results.push(synthesize(tgt, DRINK_POSE, !!person.mirror));
     if (person.smoke) results.push(synthesize(tgt, SMOKE_POSE, !!person.mirror));
+    if (person.id !== 'bouncer') results.push(synthesize(tgt, SEATED_IDLE_POSE, !!person.mirror));
+    if (person.seated) {
+        results.push(synthesize(tgt, SEATED_BAR_IDLE_POSE, !!person.mirror));
+        results.push(synthesize(tgt, SEATED_BAR_DRINK_POSE, !!person.mirror));
+    }
     // The dancers on the floor also get the procedural grooves (the guests and the bouncer stand about; they do not).
     // A groove drives exactly the bones the retargeted Dance_Loop drives, so a dancer can switch between any of them
     // without a joint keeping the last clip's pose (the stock Idle drives others, which is why the still pose is ours).
@@ -937,10 +998,16 @@ async function build(person) {
 }
 
 async function refreshStaticClips() {
-    const specs = [
-        { id: 'f7', name: 'club-crowd-f7.glb', poses: [RAILING_POSE] },
-        { id: 'm6', name: 'club-crowd-m6.glb', poses: [DRINK_POSE, SMOKE_POSE, MINGLER_RAILING_POSE] }
-    ].filter(spec => !only || only.split(',').includes(spec.id));
+    const extras = new Map([
+        ['f6', [SEATED_BAR_IDLE_POSE, SEATED_BAR_DRINK_POSE]],
+        ['f7', [RAILING_POSE]],
+        ['m6', [DRINK_POSE, SMOKE_POSE, MINGLER_RAILING_POSE]]
+    ]);
+    const specs = CAST.filter(person => person.id !== 'bouncer').map(person => ({
+        id: person.id,
+        name: `club-crowd-${person.id}.glb`,
+        poses: [SEATED_IDLE_POSE, ...(extras.get(person.id) || [])]
+    })).filter(spec => !only || only.split(',').includes(spec.id));
     const names = [];
     for (const spec of specs) {
         const path = join(outDir, spec.name);

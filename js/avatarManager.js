@@ -65,7 +65,8 @@ class AvatarManager {
         this._armObserver = this.scene.onAfterAnimationsObservable.add(() => {
             for (const peer of this.remotes.values()) {
                 if (peer.person?.arms && peer.root.isEnabled() && this._hasTrackedHands(peer)) {
-                    peer.person.arms.updateTrackedArms(peer.hands, peer.root.rotation.y, AvatarManager.EYE_HEIGHT);
+                    peer.person.arms.updateTrackedArms(peer.hands, peer.root.rotation.y,
+                        peer.seated ? 1.2 : AvatarManager.EYE_HEIGHT);
                 }
             }
         });
@@ -109,13 +110,13 @@ class AvatarManager {
         peer = {
             id, name: name || 'Guest', pid: info.pid || null, avatarId: null,
             root, body, head, nameplate: null, person: null,
-            muted: false, speaking: false, isHost: false, hidden: false,
+            muted: false, speaking: false, isHost: false, hidden: false, seated: false,
             pose: null,
             emojiPlane: null, emojiTimer: 0, lastEmojiAt: -Infinity,
             chatPlane: null, chatTimer: 0,
             gesture: { until: 0, last: -Infinity, dancing: false },
             speed: 0, prevX: NaN, prevZ: NaN,
-            target: { x: root.position.x, y: root.position.y, z: root.position.z, rotY: 0 },
+            target: { x: root.position.x, y: root.position.y, z: root.position.z, rotY: 0, seated: false },
             hasState: false,
             handTargets: { left: null, right: null },
             hands: { left: null, right: null },
@@ -186,7 +187,7 @@ class AvatarManager {
         });
 
         // Keep the clips a guest can play; any other would still be evaluated every frame.
-        const wanted = new Set(['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop']);
+        const wanted = new Set(['Idle', 'Walk', 'Run', 'Wave', 'Yes', 'Dance_Loop', 'Seated_Loop']);
         const groups = {};
         for (const group of entry.animationGroups) {
             const clip = group.name.startsWith(prefix) ? group.name.slice(prefix.length) : group.name;
@@ -354,7 +355,7 @@ class AvatarManager {
 
     // ───────────────────────── state, emoji ─────────────────────────
 
-    /** @param {{x:number,y:number,z:number,rotY:number}} state - y is the sender's eye height */
+    /** @param {{x:number,y:number,z:number,rotY:number,seated?:boolean,floorY?:number}} state */
     updatePeerState(id, name, state, info) {
         if (!state) return;
         const peer = this.ensurePeer(id, name, info || {});
@@ -362,7 +363,8 @@ class AvatarManager {
         peer.target.x = finite(state.x);
         // Place the root on the sender's floor so the head (root + EYE_HEIGHT) lands at
         // their eye. Using the eye height as the root floated every guest ~1.7 m up.
-        peer.target.y = finite(state.y) - AvatarManager.EYE_HEIGHT;
+        peer.target.seated = state.seated === true;
+        peer.target.y = peer.target.seated ? finite(state.floorY) : finite(state.y) - AvatarManager.EYE_HEIGHT;
         peer.target.z = finite(state.z);
         peer.target.rotY = finite(state.rotY);
         for (const side of ['left', 'right']) {
@@ -582,6 +584,9 @@ class AvatarManager {
             // JavaScript's % keeps the dividend's sign, so the previous wrap left
             // differences below -PI unwrapped and avatars spun the long way round.
             root.rotation.y += AvatarManager.shortestAngle(root.rotation.y, peer.target.rotY) * lerpK;
+            peer.seated = peer.target.seated;
+            peer.body.position.y = peer.seated ? 0.62 : 0.9;
+            peer.head.position.y = peer.seated ? 1.22 : 1.75;
             this._updateTrackedHands(peer, lerpK);
 
             if (peer.hasState) {
@@ -597,7 +602,7 @@ class AvatarManager {
 
             if (peer.audio && peer.audio.panner) {
                 AudioUtils.setPannerPosition(peer.audio.panner,
-                    root.position.x, root.position.y + AvatarManager.EYE_HEIGHT, root.position.z);
+                    root.position.x, root.position.y + (peer.seated ? 1.2 : AvatarManager.EYE_HEIGHT), root.position.z);
                 if (this._frame % 6 === 0) this._updateSpeaking(peer);
             }
 
@@ -728,6 +733,11 @@ class AvatarManager {
 
     _updateClip(peer) {
         const person = peer.person;
+        if (peer.seated && person.groups.Seated_Loop) {
+            peer.gesture.dancing = false;
+            this._play(peer, 'Seated_Loop', true, 1);
+            return;
+        }
         const moving = peer.speed > AvatarManager.WALK_SPEED;
         // A gesture plays to its end; walking away from a dance ends it.
         const tracked = this._hasTrackedHands(peer);

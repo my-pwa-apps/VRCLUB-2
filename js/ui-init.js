@@ -14,7 +14,17 @@ const uiLog = {
 };
 
 function ensureMusicLibrary(club) {
-    if (!club.musicLibrary) club.musicLibrary = new window.MusicLibrary(club);
+    if (!club.musicLibrary) {
+        club.musicLibrary = new window.MusicLibrary(club);
+        const savePosition = () => club.musicLibrary && club.musicLibrary.capturePlayback();
+        const timer = setInterval(savePosition, 5000);
+        window.addEventListener('pagehide', savePosition);
+        uiTeardowns.push(() => {
+            clearInterval(timer);
+            window.removeEventListener('pagehide', savePosition);
+            savePosition();
+        });
+    }
     return club.musicLibrary;
 }
 

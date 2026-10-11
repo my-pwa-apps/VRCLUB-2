@@ -17,6 +17,11 @@ const VENUE_BAR = {
     bartender: { x: 10.85, z: -9.9 }
 };
 
+const VENUE_LOUNGE = {
+    x: 8.7, z: -19.0, width: 3.2, depth: 1.0, seatY: 0.5, facing: 0,
+    seats: [-0.85, 0, 0.85]
+};
+
 const VENUE_VESTIBULE = {
     halfWidth: 3.85,
     wallZ: 0.25,     // outer face of the front wall
@@ -177,6 +182,19 @@ const VenueDressing = {
         block.freezeWorldMatrix();
         block.doNotSyncBoundingInfo = true;
         return block;
+    },
+
+    _seat(label, id, x, z, floorY, seatY, facing, viewX, viewZ) {
+        return Object.freeze({ label, id, x, z, floorY, seatY, facing, viewX, viewZ });
+    },
+
+    _tagSeatMeshes(meshes, seats) {
+        const list = Array.isArray(meshes) ? meshes : [meshes];
+        for (const mesh of list) {
+            if (!mesh) continue;
+            mesh.isPickable = true;
+            mesh.metadata = { ...(mesh.metadata || {}), vrclubSeats: seats };
+        }
     },
 
     // ------------------------------------------------------------------------------------------
@@ -560,6 +578,7 @@ const VenueDressing = {
         const home = VENUE_BAR.stoolZ[0];
         const placed = [...meshes];
         VENUE_BAR.stoolZ.forEach((z, index) => {
+            let seatMeshes = meshes;
             if (index > 0) {
                 const entry = container.instantiateModelsToScene(name => `barStool${index}_${name}`, false, { doNotInstantiate: false });
                 const root = entry.rootNodes[0];
@@ -568,11 +587,19 @@ const VenueDressing = {
                 root.position.z = rootMesh.position.z + (z - home);
                 root.rotation.y = rootMesh.rotation.y + ((index * 37) % 11 - 5) * 0.05;
                 root.computeWorldMatrix(true);
-                root.getChildMeshes().forEach(mesh => { mesh.isPickable = false; placed.push(mesh); });
+                seatMeshes = root.getChildMeshes();
+                seatMeshes.forEach(mesh => placed.push(mesh));
+            }
+            // f6 is the resident at index 1; the other stools are available to the player.
+            if (index !== 1) {
+                const seat = this._seat('a bar stool', `bar-${index}`, VENUE_BAR.stoolX, z, 0, 0.76,
+                    Math.PI / 2, VENUE_BAR.stoolX - 0.45, z);
+                this._tagSeatMeshes(seatMeshes, [seat]);
+            } else {
+                seatMeshes.forEach(mesh => { mesh.isPickable = false; });
             }
             this._collisionBlock(`barStoolBlock${index}`, 0.46, 1.1, 0.46, VENUE_BAR.stoolX, 0.55, z);
         });
-        placed.forEach(mesh => { mesh.isPickable = false; });
         // ModelLoader gives every import a 0.12 emissive floor and 0.2 ambient; on dark rusted steel that reads
         // as pale grey paint, so the stool keeps only a small floor against show blackouts.
         const stoolMaterial = meshes[0] && meshes[0].material;
@@ -582,7 +609,37 @@ const VenueDressing = {
         }
         this._extendAccentLight(this._barLight, placed);
         this._barStools = placed;
+    },
+
+    createLoungeBench() {
+        const L = VENUE_LOUNGE;
+        const b = this._dressingBuilder('chesterfield');
+        const leather = b.group('Leather', this.materialFactory.createPBRMaterial('chesterfieldLeather', {
+            baseColor: [0.075, 0.018, 0.022], metallic: 0.08, roughness: 0.34
+        }));
+        const wood = b.group('Feet', this.materialFactory.getPreset('table'));
+        b.box(leather, L.width, 0.24, L.depth, L.x, 0.23, L.z);
+        b.box(leather, L.width - 0.55, 0.18, 0.66, L.x, L.seatY, L.z + 0.08);
+        b.box(leather, L.width, 1.02, 0.24, L.x, 0.98, L.z - 0.38);
+        b.cylinder(leather, 0.46, 0.94, L.x - L.width / 2 + 0.22, 0.68, L.z, 'z', 18);
+        b.cylinder(leather, 0.46, 0.94, L.x + L.width / 2 - 0.22, 0.68, L.z, 'z', 18);
+        for (const ox of L.seats) {
+            b.box(leather, 0.76, 0.1, 0.58, L.x + ox, L.seatY + 0.1, L.z + 0.1);
+            for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
+                b.cylinder(leather, 0.055, 0.035, L.x + ox + (col - 1) * 0.2,
+                    0.78 + row * 0.22, L.z - 0.245, 'z', 10);
+            }
+        }
+        for (const ox of [-1.3, 1.3]) for (const oz of [-0.32, 0.32]) {
+            b.box(wood, 0.12, 0.2, 0.12, L.x + ox, 0.1, L.z + oz);
+        }
+        const built = b.finish();
+        const seats = L.seats.map((ox, index) => this._seat('the Chesterfield bench', `lounge-${index}`,
+            L.x + ox, L.z + 0.04, 0, L.seatY + 0.1, L.facing, L.x + ox, L.z + 0.62));
+        this._tagSeatMeshes(Object.values(built), seats);
+        this._collisionBlock('chesterfieldBlock', L.width, 1.35, L.depth, L.x, 0.675, L.z);
+        this._loungeBench = Object.values(built);
     }
 };
-window.VenueLayout = { bar: VENUE_BAR, vestibule: VENUE_VESTIBULE };
+window.VenueLayout = { bar: VENUE_BAR, lounge: VENUE_LOUNGE, vestibule: VENUE_VESTIBULE };
 window.VenueDressing = VenueDressing;

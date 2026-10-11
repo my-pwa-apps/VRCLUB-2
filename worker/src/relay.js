@@ -8,7 +8,8 @@
  *
  * Message protocol (all JSON, one object per frame):
  *   client -> server
- *     { type: 'state', state: {x,y,z,rotY,hands?} } - eye position/facing; hands are eye-relative positions and world forward/up vectors
+ *     { type: 'state', state: {x,y,z,rotY,seated?,floorY?,hands?} } - eye position/facing and intentional seat state;
+ *       hands are eye-relative positions and world forward/up vectors
  *     { type: 'emoji', emoji: '🎉' }                  - one-shot reaction (allow-listed)
  *     { type: 'gesture', gesture: 'wave'|'nod'|'dance'|'stop' } - body language (allow-listed; 'dance' runs until 'stop')
  *     { type: 'chat', text, targets? }                - typed message; optional explicit recipient session IDs (empty/invalid never broadcasts)
@@ -205,6 +206,10 @@ export function sanitizeState(state) {
         // Normalised to (-PI, PI] so every receiver interpolates along the short arc.
         rotY: Number.isFinite(rot) ? Math.atan2(Math.sin(rot), Math.cos(rot)) : 0
     };
+    if (state.seated === true) {
+        result.seated = true;
+        result.floorY = coord(state.floorY);
+    }
     if (state.hands && typeof state.hands === 'object') {
         result.hands = { left: sanitizeHand(state.hands.left), right: sanitizeHand(state.hands.right) };
     }

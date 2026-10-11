@@ -202,7 +202,13 @@ const Mezzanine = {
             root.position.z = stool.z;
             root.rotation.y = rootMesh.rotation.y + stool.face;
             root.computeWorldMatrix(true);
-            root.getChildMeshes().forEach(mesh => { mesh.isPickable = false; placed.push(mesh); });
+            const meshes = root.getChildMeshes();
+            const facing = index === 0 ? 0 : Math.PI;
+            const fx = Math.sin(facing), fz = Math.cos(facing);
+            const seat = this._seat('a balcony stool', `balcony-${index}`, stool.x, stool.z,
+                MEZZANINE.deck.top, MEZZANINE.deck.top + 0.76, facing, stool.x - fx * 0.45, stool.z - fz * 0.45);
+            this._tagSeatMeshes(meshes, [seat]);
+            meshes.forEach(mesh => placed.push(mesh));
         });
         this._extendAccentLight(this._mezzLight, placed);
         this._mezzStools = placed;

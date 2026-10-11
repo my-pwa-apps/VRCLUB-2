@@ -10,9 +10,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(path.join(root, 'js', 'musicLibrary.js'), 'utf8');
 const audioUtilsSource = readFileSync(path.join(root, 'js', 'audioUtils.js'), 'utf8');
 
-function libraryFixture(raw = null, feed = '') {
+function libraryFixture(raw = null, feed = '', playbackRaw = null) {
     const messages = [], plays = [];
     const store = new Map(raw ? [['vrclub.questMusic', raw]] : []);
+    if (playbackRaw) store.set('vrclub.questMusicPlayback', playbackRaw);
     const storage = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value) };
     const fetches = [];
     const context = vm.createContext({
@@ -26,7 +27,11 @@ function libraryFixture(raw = null, feed = '') {
     const club = {
         showErrorMessage: message => messages.push(message),
         guardHostControl: () => true,
-        startAudioStream: async (...args) => plays.push(['direct', ...args]),
+        startAudioStream: async (...args) => {
+            club._audioStreamUrl = args[0];
+            plays.push(['direct', ...args]);
+        },
+        getPlaybackInfo: () => ({ seekable: true, position: 0, duration: 3600, playing: true }),
         startSoundCloud: async (...args) => plays.push(['soundcloud', ...args])
     };
     const fetchBuffer = async (url, options) => {
@@ -136,6 +141,33 @@ test('saved playback uses the shared audio API, plays once and respects host own
     f.club.guardHostControl = () => true;
     f.club.startAudioStream = async () => { throw new Error('CORS unavailable'); };
     await assert.rejects(f.library.play(), /CORS unavailable/);
+});
+
+test('restarting the same saved stream resumes its last finite playback position', async () => {
+    const first = libraryFixture();
+    first.library.save('https://audio.example/long-set.mp3', 'Long set');
+    await first.library.play();
+    first.club.getPlaybackInfo = () => ({ seekable: true, position: 1834.5, duration: 7200, playing: false });
+    assert.equal(first.library.capturePlayback(), true);
+
+    const restored = libraryFixture(
+        first.store.get('vrclub.questMusic'),
+        '',
+        first.store.get('vrclub.questMusicPlayback')
+    );
+    await restored.library.play();
+    assert.equal(restored.plays[0][2].resumeAt, 1834.5);
+    await restored.library.play();
+    assert.equal(restored.plays[1][2].resumeAt, 0, 'the startup checkpoint must not re-seek every manual replay');
+
+    restored.library.save('https://audio.example/different.mp3', 'Different');
+    const different = libraryFixture(
+        restored.store.get('vrclub.questMusic'),
+        '',
+        first.store.get('vrclub.questMusicPlayback')
+    );
+    await different.library.play();
+    assert.equal(different.plays[0][2].resumeAt, 0, 'a different selected source inherited another set’s clock');
 });
 
 test('Miss Melera SoundCloud links resolve to the main-branch relay audio stream', async () => {

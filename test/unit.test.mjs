@@ -553,6 +553,12 @@ test('remote avatars stand on the floor under the sender eye and snap on their f
     assert.ok(Math.abs(peer.root.position.y - 0.95) < 1e-6);
     manager.updatePeerState('p', null, { x: NaN, y: Infinity, z: 0, rotY: 0 });
     assert.ok(Number.isFinite(peer.target.x) && Number.isFinite(peer.target.y));
+
+    manager.updatePeerState('p', null, { x: -11.3, y: 4.1, z: -17.55, rotY: 0, seated: true, floorY: 3 });
+    for (let i = 0; i < 600; i++) manager.update(1 / 72);
+    assert.ok(Math.abs(peer.root.position.y - 3) < 1e-6, 'a seated balcony guest must stay on the deck');
+    assert.equal(peer.seated, true);
+    assert.equal(peer.body.position.y, 0.62, 'the capsule fallback must visibly sit too');
 });
 
 test('remote avatar turns follow the shortest arc', () => {
@@ -588,6 +594,7 @@ test('network presence sends both eye-relative controllers only in VR and retain
     assert.ok(Math.abs(samples[0].hands.right.y + 0.4) < 1e-8);
     assert.equal(samples[0].hands.left.fz, 1);
     assert.equal(samples[0].y, 4.7);
+    assert.equal(samples[0].seated, false);
     club.updateNetworkPresence({ time: 1.02, dt: 1 / 60 });
     assert.equal(samples.length, 1);
     club._handPose = side => side === 'left' ? left : null;
@@ -597,7 +604,12 @@ test('network presence sends both eye-relative controllers only in VR and retain
     club.updateNetworkPresence({ time: 1.12, dt: 1 / 60 });
     assert.equal(samples.length, 2, 'desktop cadence is slower');
     club.updateNetworkPresence({ time: 1.17, dt: 1 / 60 });
-    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null });
+    assert.deepEqual(samples[2], { x: 1, y: 1.7, z: 2, rotY: 0.2, hands: null, seated: false, floorY: 0 });
+
+    club._activeSeat = { x: -11.3, z: -17.55, facing: 0, floorY: 3 };
+    club.updateNetworkPresence({ time: 1.28, dt: 1 / 60 });
+    assert.deepEqual({ x: samples[3].x, z: samples[3].z, rotY: samples[3].rotY, seated: samples[3].seated, floorY: samples[3].floorY },
+        { x: -11.3, z: -17.55, rotY: 0, seated: true, floorY: 3 });
 });
 
 test('remote hands interpolate, expire, override gesture clips only while tracked, and unregister on disposal', () => {
@@ -2778,7 +2790,7 @@ test('every guest slot asks for a clip its character file carries, inside the ro
             assert.ok(clipsOf(file).has(clip), `slot ${index} keeps "${clip}", which ${file} does not carry`);
         }
         if (slot.clips) assert.ok(slot.clips.includes(slot.clip), `slot ${index} does not keep the clip it starts in`);
-        if (!slot.mingles) {
+        if (!slot.mingles && !slot.barPatron) {
             assert.ok(slot.ambient && slot.ambient.period >= 8,
                 `fixed guest ${index} has no slow ambient timing`);
         }
@@ -2852,6 +2864,8 @@ function minglerHarness(guestTarget = 8) {
     const minglerIndex = slots.findIndex(slot => slot.mingles);
     const mingler = npcs[minglerIndex];
     club._startMingling(mingler, slots[minglerIndex]);
+    const patronIndex = slots.findIndex(slot => slot.barPatron);
+    if (patronIndex >= 0 && npcs[patronIndex]) club._startBarPatron(npcs[patronIndex]);
     const playing = npc => (npc.poses ? npc.poses.current.name : npc.animations[0].name);
     return { Crowd, club, slots, npcs, mingler, minglerIndex, playing };
 }
@@ -2867,6 +2881,7 @@ test('exactly one side guest walks the room, and his round never crosses anybody
         'the walking guest must keep a walk and a talking pose');
     assert.ok(mingling[0].clips.includes('Drink_Loop'), 'the walking guest must keep his bar pose');
     assert.ok(mingling[0].clips.includes('Smoke_Loop'), 'the walking guest must keep his outdoor smoking pose');
+    assert.ok(mingling[0].clips.includes('Dance_Loop'), 'the walking guest cannot join the dance floor');
 
     const route = Crowd.prototype._minglerRoute.call({});
     assert.ok(route.nodes.length >= 4, 'a round of fewer than four points is not walking the room');
@@ -2888,7 +2903,7 @@ test('exactly one side guest walks the room, and his round never crosses anybody
     assert.ok(barStop.x < barLayout.counter.xFront - 0.1 && Math.abs(barStop.z - barLayout.bartender.z) < 0.4,
         'the drink stop is not on the customer side opposite the bartender');
     assert.deepEqual(Array.from(route.nodes.filter(node => node.activity), node => node.activity),
-        ['watch', 'smoke', 'balcony'], 'the route must include the three intentional solo stops');
+        ['watch', 'dance', 'smoke', 'balcony'], 'the route must include the natural solo stops and a dance-floor visit');
     // `home` is his own spot, where he stands on his own and where he starts.
     const home = route.nodes[route.home];
     assert.equal(home.guest, undefined);
@@ -2919,6 +2934,13 @@ test('exactly one side guest walks the room, and his round never crosses anybody
             assert.ok(node.bartender
                 || !(node.x > bar.stoolX - 0.7 && node.z > bar.backBar.z0 - 0.5 && node.z < bar.backBar.z1 + 0.5),
                 `round point ${i} walks through the bar`);
+            if (i > 0) {
+                for (const z of bar.stoolZ) {
+                    const gap = clearance(route.nodes[i - 1], node, { x: bar.stoolX, z });
+                    assert.ok(node.bartender || gap >= 0.58,
+                        `the leg to round point ${i} cuts through the stool at ${bar.stoolX}, ${z} (${gap.toFixed(2)} m)`);
+                }
+            }
             // Under the deck is open floor (its top is at y 3); the stair itself is the only thing in his way.
             const followsMezzStair = node.x >= mezz.stairs.x0 - 0.1 && node.x <= mezz.stairs.x1 + 0.1
                 && node.z <= mezz.stairs.zBottom && node.z >= mezz.stairs.zTop;
@@ -2997,7 +3019,7 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         // He spends more of his time with people than on the way to them.
         assert.ok(walkingFrames < 0.4 * frames, `he walks ${(100 * walkingFrames / frames).toFixed(0)}% of the time`);
         assert.ok(drank && partners.has('bartender'), 'he never got a drink from the bartender');
-        assert.deepEqual([...soloActivities], ['watch', 'smoke', 'balcony'],
+        assert.deepEqual([...soloActivities], ['watch', 'dance', 'smoke', 'balcony'],
             'he did not complete every intentional solo destination');
         assert.deepEqual([...drinkStages], ['order', 'serve', 'served', 'pickup', 'drink', 'return', 'returned', 'clear'],
             'the bartender service, pickup, drink, return and clearing sequence did not run in order');
@@ -3015,6 +3037,28 @@ test('the mingling guest walks his round, talks with the people he stops at, and
         assert.ok(route.nodes.length > 0);
     } finally {
         Math.random = random;
+    }
+});
+
+test('a seated bar regular naturally alternates bartender conversation and drinking from the counter bottle', () => {
+    const { club, slots, npcs, playing } = minglerHarness(8);
+    const index = slots.findIndex(slot => slot.barPatron);
+    assert.ok(index >= 0, 'there is no seated bar patron');
+    const patron = npcs[index];
+    assert.equal(slots[index].x, 9.08);
+    assert.equal(slots[index].z, -11.6, 'the patron is not aligned with a real stool');
+    assert.ok(slots[index].clips.includes('Seated_Bar_Idle_Loop')
+        && slots[index].clips.includes('Seated_Bar_Drink_Loop'), 'the patron lacks authored seated poses');
+    const activities = new Set();
+    for (let frame = 0; frame < 60 * 240; frame++) {
+        club._updateMingler(1 / 60);
+        activities.add(patron.barPatron.activity);
+        assert.ok(/^Seated_Bar_/.test(playing(patron)), `the patron stood up during ${patron.barPatron.activity}`);
+        assert.ok(Math.abs(patron.root.position.x - slots[index].x) < 1e-9
+            && Math.abs(patron.root.position.z - slots[index].z) < 1e-9, 'the seated patron slid off the stool');
+    }
+    for (const activity of ['idle', 'talk', 'pickup', 'drink', 'return']) {
+        assert.ok(activities.has(activity), `the bar regular never reached ${activity}`);
     }
 });
 
@@ -3164,8 +3208,9 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway', 'Groove_Still'];
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
-            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives).sort();
+            : ['Dance_Loop', 'Yes', ...grooves]).concat(natives, id === 'bouncer' ? [] : ['Seated_Loop']).sort();
         if (id === 'f7') expected.push('Idle_Railing_Loop');
+        if (id === 'f6') expected.push('Seated_Bar_Idle_Loop', 'Seated_Bar_Drink_Loop');
         if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop');
         expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
@@ -4836,7 +4881,7 @@ test('clear-air test suppresses fog and particles despite smoke cues in both mod
     }
 });
 
-test('the local body is posed from the camera, the DJ riser and the controllers', () => {
+test('the local body stays full standing height until a room seat is intentionally selected', () => {
     const BABYLON = {
         Axis: { Z: 'Z', Y: 'Y' },
         Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } }
@@ -4853,22 +4898,24 @@ test('the local body is posed from the camera, the DJ riser and the controllers'
     const calls = [];
     const club = {
         isInVRMode: false, camera, _xrControllers: [],
-        _localRig: { ok: true, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
-        _playerCamera: proto._playerCamera, _handPose: proto._handPose
+        _localRig: { ok: true, standEye: 1.7, setEyeHeight(h) { calls.push(['eye', h]); }, update(dt, pose) { calls.push(['update', dt, { ...pose }]); } },
+        _playerCamera: proto._playerCamera, _handPose: proto._handPose,
+        standFromSeat: () => { club._activeSeat = null; }
     };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     let pose = calls.at(-1)[2];
     assert.ok(Math.abs(pose.headYaw - yaw) < 1e-9, 'yaw must come from the camera forward vector');
     assert.ok(Math.abs(pose.headPitch - up) < 1e-9, 'a camera looking up must give a positive head pitch');
     assert.equal(pose.groundY, 0);
+    assert.equal(pose.eyeY, 1.7);
+    assert.equal(pose.seated, false);
     assert.equal(pose.left, null, 'desktop has no hands');
 
     camera.position = { x: 0, y: 2.2, z: -18 };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     assert.equal(calls.at(-1)[2].groundY, 0.5, 'on the DJ riser the feet stand 0.5 m higher');
 
-    // VR: eye height is refitted once on entry, hands come from the controllers, and an
-    // untracked controller (at the origin) is ignored rather than reached for.
+    // VR: a physically seated headset does not rescale or crouch the visible body.
     const tracked = (handedness, x, y, z) => ({
         inputSource: { handedness },
         grip: { getAbsolutePosition: () => ({ x, y, z }) },
@@ -4876,31 +4923,65 @@ test('the local body is posed from the camera, the DJ riser and the controllers'
     });
     club.isInVRMode = true;
     club.vrHelper = { baseExperience: { camera } };
-    camera.globalPosition = { x: 0, y: 1.6, z: -12 };
-    club._xrControllers = [tracked('left', -0.3, 1.2, -11.7), tracked('right', 0, 0, 0)];
+    camera.globalPosition = { x: 0, y: 1.05, z: -12 };
+    club._xrControllers = [tracked('left', -0.3, 0.8, -11.7), tracked('right', 0, 0, 0)];
     proto._updateLocalPlayerBody.call(club, 1 / 60);
     proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.equal(calls.filter(c => c[0] === 'eye').length, 1, 'the body is refitted once per VR session');
+    assert.equal(calls.filter(c => c[0] === 'eye').length, 0, 'physical headset height must never rescale the body');
     pose = calls.at(-1)[2];
+    assert.equal(pose.eyeY, 1.7);
+    assert.equal(pose.seated, false);
     assert.equal(pose.left.x, -0.3);
     assert.equal(pose.left.fz, 1);
     assert.equal(pose.right, null, 'an untracked controller must not drag the arm to the origin');
 
-    // Back on desktop the fixed standing calibration must be restored, even on the DJ riser.
-    club.isInVRMode = false;
-    delete camera.globalPosition;
-    camera.position = { x: 0, y: 2.2, z: -18 };
+    const seat = { id: 'balcony-0', x: -11.3, z: -17.55, viewX: -11.3, viewZ: -18,
+        floorY: 3, seatY: 3.76, facing: 0 };
+    club._activeSeat = seat;
+    camera.globalPosition = { x: seat.viewX, y: 4.05, z: seat.viewZ };
     proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.deepEqual(calls.filter(c => c[0] === 'eye').map(c => c[1]), [1.6, 1.7]);
     pose = calls.at(-1)[2];
-    assert.equal(pose.groundY, 0.5, 'desktop booth placement still needs the riser offset');
-
-    // Re-entering VR keeps the measured seated/standing height again.
-    club.isInVRMode = true;
-    camera.globalPosition = { x: 0, y: 1.5, z: -18 };
-    proto._updateLocalPlayerBody.call(club, 1 / 60);
-    assert.deepEqual(calls.filter(c => c[0] === 'eye').map(c => c[1]), [1.6, 1.7, 1.0]);
+    assert.equal(pose.seated, true);
+    assert.equal(pose.x, seat.x);
+    assert.equal(pose.z, seat.z);
+    assert.equal(pose.groundY, 3);
+    assert.equal(pose.seatY, 3.76);
+    assert.equal(pose.eyeY, 4.7, 'the rig retains full standing calibration while applying a separate seat pose');
 });
+
+test('seat picks choose the nearest cushion and preserve tracked VR height', () => {
+    const BABYLON = { Vector3: class {
+        constructor() { this.x = 0; this.y = 0; this.z = 0; }
+        set(x, y, z) { Object.assign(this, { x, y, z }); }
+    } };
+    const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON });
+    const proto = window.VRClubUI.prototype;
+    const seats = [
+        { id: 'lounge-0', label: 'the Chesterfield bench', x: 7.85, z: -18.96, viewX: 7.85, viewZ: -18.38, floorY: 0, seatY: 0.6, facing: 0 },
+        { id: 'lounge-1', label: 'the Chesterfield bench', x: 8.7, z: -18.96, viewX: 8.7, viewZ: -18.38, floorY: 0, seatY: 0.6, facing: 0 }
+    ];
+    const camera = { position: { x: 0, y: 1.05, z: 0, copyFrom() {} }, _deferOnly: false };
+    const notes = [];
+    const club = {
+        isInVRMode: true,
+        _playerCamera: () => camera,
+        _xrHeadHeight: () => 1.05,
+        showErrorMessage: message => notes.push(message),
+        _seatFromPick: proto._seatFromPick,
+        sitAtSeat: proto.sitAtSeat,
+        standFromSeat: proto.standFromSeat
+    };
+    const mesh = { metadata: { vrclubSeats: seats } };
+    const picked = proto._seatFromPick.call(club, { pickedMesh: mesh, pickedPoint: { x: 8.62, z: -19 } });
+    assert.equal(picked.id, 'lounge-1');
+    assert.equal(proto.sitAtSeat.call(club, picked), true);
+    assert.equal(camera.position.y, 1.05, 'sitting must not replace the tracked headset height');
+    assert.equal(club._activeSeat.id, 'lounge-1');
+    assert.match(notes.at(-1), /Move or select it again to stand/);
+    assert.equal(proto.standFromSeat.call(club, true), true);
+    assert.equal(club._activeSeat, null);
+});
+
 test('beams light the smoke they cross and dust is only seen inside them', () => {
     const { window } = loadClassic('js/club/07-animation-core.js', { VRClubEffects: class {} });
     const proto = window.VRClubAnimationCore.prototype;
@@ -6030,8 +6111,17 @@ test('the bar layout leaves room for guests, stools and the bartender', () => {
     const slots = window.VRClubAudioCrowd.prototype._guestSlots.call({});
     for (const slot of slots) {
         const inFootprint = slot.x > stoolX - 0.7 && slot.z > backBar.z0 - 0.5 && slot.z < backBar.z1 + 0.5;
-        assert.ok(!inFootprint, `a guest at ${slot.x}, ${slot.z} stands in the bar`);
+        if (slot.barPatron) {
+            assert.ok(inFootprint && Math.abs(slot.x - stoolX) < 0.2 && stoolZ.includes(slot.z),
+                `the seated bar patron at ${slot.x}, ${slot.z} misses a stool`);
+        } else {
+            assert.ok(!inFootprint, `a guest at ${slot.x}, ${slot.z} stands in the bar`);
+        }
     }
+    const lounge = loadClassic('js/venueDressing.js').window.VenueLayout.lounge;
+    assert.ok(lounge.x - lounge.width / 2 > 6.5 && lounge.z < -18,
+        'the lounge bench must stay in the free back-right corner, behind the bar and clear of the DJ riser');
+    assert.equal(lounge.seats.length, 3, 'the Chesterfield must offer three seats');
 });
 
 // ---------------------------------------------------------------------------

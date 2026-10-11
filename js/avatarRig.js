@@ -14,7 +14,9 @@
  *     hips after their eyes), the head/neck/spine share the remaining twist;
  *   - arms swing against the legs on desktop; in VR each arm is IK'd to its controller
  *     and the hand takes the controller's orientation;
- *   - crouching, flying and the DJ riser fall out of the same maths (root height).
+ *   - crouching, flying and the DJ riser fall out of the same maths (root height);
+ *   - an explicit seat pose lowers the pelvis onto furniture and keeps both feet planted,
+ *     independently of the physical headset height.
  *
  * Maths policy: every rotation is expressed as a rotation of WORLD vectors (aim A at B)
  * and converted to a bone-local quaternion through the parent's world matrix. That keeps
@@ -474,6 +476,7 @@ class AvatarRig {
      * Pose the skeleton for one frame.
      * @param {number} dt seconds
      * @param {{x:number,z:number,groundY:number,eyeY:number,headYaw:number,headPitch:number,
+     *   bodyYaw?:number,seated?:boolean,seatY?:number,
      *   left?:object|null,right?:object|null}} pose  headPitch > 0 looks up. Hands carry a
      *   world position (x,y,z), forward (fx,fy,fz) and up (ux,uy,uz); null = relaxed arm.
      */
@@ -487,22 +490,27 @@ class AvatarRig {
         const ground = num(pose.groundY, 0);
         const eyeY = num(pose.eyeY, ground + this.standEye);
         const headYaw = num(pose.headYaw, 0);
+        const seated = pose.seated === true;
+        const facingYaw = num(pose.bodyYaw, headYaw);
 
         // --- velocity, from where the player actually moved ------------------------
         let wvx = 0, wvz = 0;
-        if (this._placed) {
+        if (this._placed && !seated) {
             wvx = (px - this._prevX) / dt;
             wvz = (pz - this._prevZ) / dt;
             if (wvx * wvx + wvz * wvz > 144) { wvx = 0; wvz = 0; }     // a teleport is not a sprint
         } else {
-            this.bodyYaw = headYaw;
+            this.bodyYaw = facingYaw;
             this._placed = true;
         }
         this._prevX = px; this._prevZ = pz;
 
         // --- body yaw: hips follow the eyes with a dead-zone -----------------------
-        const off = AvatarRig.shortestAngle(this.bodyYaw, headYaw);
-        if (this.speed > 0.3) {
+        const off = AvatarRig.shortestAngle(this.bodyYaw, facingYaw);
+        if (seated) {
+            this.bodyYaw = facingYaw;
+            this.turning = false;
+        } else if (this.speed > 0.3) {
             this.turning = false;
             this.bodyYaw += off * (1 - Math.exp(-6 * dt));
         } else {
@@ -519,9 +527,15 @@ class AvatarRig {
         this.vF += ((wvx * F.x + wvz * F.z) - this.vF) * kv;
         this.vR += ((wvx * R.x + wvz * R.z) - this.vR) * kv;
         this.speed = Math.hypot(this.vF, this.vR);
+        if (seated) {
+            this.vF = 0;
+            this.vR = 0;
+            this.speed = 0;
+        }
         const mF = this.speed > 1e-3 ? this.vF / this.speed : 1;
         const mR = this.speed > 1e-3 ? this.vR / this.speed : 0;
         this.walkW += ((this.speed > 0.15 ? 1 : 0) - this.walkW) * (1 - Math.exp(-8 * dt));
+        if (seated) this.walkW = 0;
         const sp = Math.min(this.speed, 7);
         const L = Math.max(0.35, Math.min(0.95, 0.40 + 0.20 * sp));         // step length, m
         this.phase = (this.phase + this.speed * dt / (2 * L)) % 1;
@@ -539,9 +553,10 @@ class AvatarRig {
         const back = 0.06 + 0.13 * Math.min(1, down / 1.0);
         const cx = px - F.x * back, cz = pz - F.z * back;
         root.rotation.y = (this.bodyYaw - this.yaw0) * this.yawDir;
+        const rootY = seated ? num(pose.seatY, ground + 0.48) - this.pelvisH : Math.max(ground - 0.7, bodyFloor) + bob;
         root.position.set(
             cx - (F.x * this.pelvisF + R.x * this.pelvisR),
-            Math.max(ground - 0.7, bodyFloor) + bob,
+            rootY,
             cz - (F.z * this.pelvisF + R.z * this.pelvisR)
         );
         root.computeWorldMatrix(true);
@@ -554,7 +569,7 @@ class AvatarRig {
         const lean = Math.min(0.12, 0.02 + 0.012 * sp) * walkW + 0.01;
         const breath = 0.012 * Math.sin(this.time * 1.7);
         // An optional extra forward bend (radians), spread over the spine: a DJ leaning over the decks.
-        const bend = Math.max(0, Math.min(0.6, num(pose.lean, 0)));
+        const bend = Math.max(0, Math.min(0.6, num(pose.lean, 0) + (seated ? 0.08 : 0)));
         this._yawBy(ix.pelvis, -0.08 * tw);
         this._tiltBy(ix.spine_01, lean * 0.45 + bend * 0.4, F.x, F.z);
         this._yawBy(ix.spine_01, 0.06 * tw);
@@ -581,11 +596,28 @@ class AvatarRig {
         legs[1].thigh = ix.thigh_r; legs[1].calf = ix.calf_r; legs[1].foot = ix.foot_r; legs[1].ball = ix.ball_r; legs[1].side = -this.sideL;
         for (let i = 0; i < 2; i++) {
             const leg = legs[i];
+            if (seated) {
+                leg.u = 0;
+                const t = v[4];
+                t.set(
+                    cx + F.x * 0.38 + R.x * leg.side * hip,
+                    ground + this.ankleH,
+                    cz + F.z * 0.38 + R.z * leg.side * hip
+                );
+                this._limb(leg.thigh, leg.calf, leg.foot, t, F.x + R.x * leg.side * 0.15, 0.2, F.z + R.z * leg.side * 0.15);
+                v[6].set(F.x * Math.cos(this.restBallPitch), Math.sin(this.restBallPitch), F.z * Math.cos(this.restBallPitch));
+                this._aim(leg.foot, leg.ball, v[6]);
+                continue;
+            }
             const psi = (this.phase + leg.psi) % 1;
             let u, lift = 0, toe = 0;
             if (psi < 0.6) {
                 u = 0.6 * L - 2 * L * psi;
                 if (psi > 0.45) { const k = (psi - 0.45) / 0.15; toe = -0.5 * k * k * (3 - 2 * k); }  // heel lifts
+            } else if (seated) {
+                const out = sideSign * 0.12;
+                t.set(sh.x + F.x * 0.26 + R.x * out, sh.y - 0.36, sh.z + F.z * 0.26 + R.z * out);
+                this._limb(upper, lower, hand, t, -F.x * 0.55 + R.x * sideSign * 0.45, -0.2, -F.z * 0.55 + R.z * sideSign * 0.45);
             } else {
                 const s = (psi - 0.6) / 0.4, e = s * s * (3 - 2 * s);
                 u = -0.6 * L + 1.2 * L * e;
