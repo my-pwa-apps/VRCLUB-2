@@ -4,7 +4,7 @@
 //
 //   left  SHOW    who runs the lights, show navigation, live moments, personal safety and two faders
 //   right LIGHTS  every fixture on or off, plus spotlight movement, aim path, projected gobo image and wall picture
-//   centre PLAYER play, pause and stop above a seek strip immediately in front of the mixer
+//   centre PLAYER previous, play/pause, stop and next symbols above a seek strip in front of the mixer
 //
 // Every button says what it is and what it is doing now, on the panel itself (a headset shows no tooltip), and the
 // panel's header always says who has the lights. The panels are one mesh each: a canvas texture redrawn only when
@@ -27,11 +27,11 @@ const VJ_DESK = Object.freeze({
     // Where someone working the desk stands: on the riser, behind the decks.
     booth: Object.freeze({ x0: -3.2, x1: 3.2, z0: -20.2, z1: -17.6 }),
     transport: Object.freeze({
-        width: 1.46,
-        depth: 0.4,
+        width: 1,
+        depth: 0.27,
         tilt: Math.PI / 12,
         lift: 0.025,
-        canvas: Object.freeze({ width: 1536, height: 400 })
+        canvas: Object.freeze({ width: 1024, height: 300 })
     }),
     redrawEvery: 0.2,            // seconds between checks for a changed panel
     pressMs: 160
@@ -56,15 +56,15 @@ function vjDeskLayout() {
     const lights = grid(4, [82, 82, 82, 82, 82, 82]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
         ({ id, panel: 'lights', kind: 'light', label, control, colour, rect: lights(col, row), ...extra });
-    const playerMargin = 28, playerGap = 12;
-    const playerWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 2) / 3;
+    const playerMargin = 24, playerGap = 12;
+    const playerWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 3) / 4;
     const player = (id, label, action, col, colour, extra = {}) => ({
         id, panel: 'transport', kind: 'transport', label, action, colour,
         rect: {
             x: Math.round(playerMargin + col * (playerWidth + playerGap)),
-            y: 136,
+            y: 132,
             w: Math.round(playerWidth),
-            h: 92
+            h: 72
         },
         ...extra
     });
@@ -104,21 +104,23 @@ function vjDeskLayout() {
             light('gobo', 'PROJECT GOBO', 'goboActive', 3, 2, '#39e0c8'),
             light('picture', 'WALL PICTURE', 'cycleLedPattern', 0, 3, '#3aa0ff', { step: true }),
             light('mono', 'LED MONO', 'ledMonochrome', 1, 3, '#d0d0d0'),
-            light('mirrorColour', 'MIRROR COLOUR', 'changeMirrorBallColor', 2, 3, '#ffd23a', { step: true }),
+            light('mirrorRays', 'MIRROR BEAMS', 'mirrorBallRaysActive', 2, 3, '#ffd23a'),
             light('goboShape', 'GOBO IMAGE', 'cycleGoboPattern', 3, 3, '#39e0c8', { step: true }),
             { id: 'strobePattern', panel: 'lights', kind: 'light', label: 'STROBE PATTERN', control: 'cycleStrobePattern', colour: '#f2f4ff', rect: lights(0, 4, 2), step: true },
             { id: 'holdMode', panel: 'lights', kind: 'holdMode', label: 'AFTER MY CHANGE', rect: lights(2, 4), colour: '#19c37d' },
             { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
-            { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5, 2), step: true },
+            { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5), step: true },
+            { id: 'mirrorColour', panel: 'lights', kind: 'light', label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', colour: '#ffd23a', rect: lights(1, 5), step: true },
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
         ]),
         transport: Object.freeze([
-            player('play', 'PLAY', 'play', 0, '#19c37d'),
-            player('pause', 'PAUSE', 'pause', 1, '#ffc247'),
-            player('stop', 'STOP', 'stop', 2, '#ff5d7a'),
+            player('previousSource', 'PREVIOUS', 'sourceStep', 0, '#7aa7ff', { icon: 'previous', delta: -1 }),
+            player('playPause', 'PLAY / PAUSE', 'playPause', 1, '#19c37d', { icon: 'playPause' }),
+            player('stop', 'STOP', 'stop', 2, '#ff5d7a', { icon: 'stop' }),
+            player('nextSource', 'NEXT', 'sourceStep', 3, '#7aa7ff', { icon: 'next', delta: 1 }),
             {
                 id: 'seek', panel: 'transport', kind: 'seek', label: 'SET POSITION', colour: '#7aa7ff',
-                rect: { x: playerMargin, y: 244, w: VJ_DESK.transport.canvas.width - playerMargin * 2, h: 120 }
+                rect: { x: playerMargin, y: 212, w: VJ_DESK.transport.canvas.width - playerMargin * 2, h: 72 }
             }
         ])
     });
@@ -130,7 +132,7 @@ function vjDeskFaderTrack(rect) {
 }
 
 function vjDeskSeekTrack(rect) {
-    return { left: rect.x + 34, right: rect.x + rect.w - 34, y: rect.y + 78 };
+    return { left: rect.x + 28, right: rect.x + rect.w - 28, y: rect.y + 50 };
 }
 
 function deskRoundRect(ctx, x, y, w, h, r) {
@@ -205,7 +207,7 @@ const VJDesk = {
             x: 0,
             yaw: 0,
             panelLift: VJ_DESK.transport.lift,
-            frontOffset: -0.11,
+            frontOffset: -0.19,
             canvas: VJ_DESK.transport.canvas
         }));
         const housing = BABYLON.Mesh.MergeMeshes(housings, true);
@@ -371,12 +373,14 @@ const VJDesk = {
 
     _runVJDeskTransport(button) {
         if (!this.guardHostControl('music')) return;
-        if (button.action === 'seek') {
-            if (!this.seekAudioBy(button.delta)) this.showErrorMessage('This set cannot be skipped: live streams have no timeline.');
-            return;
-        }
-        if (button.action === 'pause') {
-            this.setAudioPlayback(false);
+        if (button.action === 'sourceStep') {
+            if (!this._vjDeskHasMultipleSources()) {
+                this.showErrorMessage('Add another saved set or load a folder with more than one audio file.');
+                return;
+            }
+            Promise.resolve(this.stepAudioSource(button.delta))
+                .then(() => { if (this._vjDesk) this._vjDesk.dirty = true; })
+                .catch(error => this.showErrorMessage(`Could not change the set: ${error.message}`));
             return;
         }
         if (button.action === 'stop') {
@@ -385,7 +389,8 @@ const VJDesk = {
         }
         const audio = this.audioElement;
         if ((audio && audio.src) || this._stoppedAudioSource) {
-            this.setAudioPlayback(true);
+            const info = this.getPlaybackInfo();
+            this.setAudioPlayback(!info.playing);
             return;
         }
         const selected = this.musicLibrary && this.musicLibrary.current();
@@ -396,6 +401,11 @@ const VJDesk = {
         Promise.resolve(this.musicLibrary.play())
             .then(() => { if (this._vjDesk) this._vjDesk.dirty = true; })
             .catch(error => this.showErrorMessage(`Could not start the set: ${error.message}`));
+    },
+
+    _vjDeskHasMultipleSources() {
+        if (this._localPlaylist) return this._localPlaylist.order.length > 1;
+        return !!(this.musicLibrary && this.musicLibrary.items && this.musicLibrary.items.length > 1);
     },
 
     /** Is the player standing at the desk (on the riser, behind the decks)? */
@@ -478,12 +488,11 @@ const VJDesk = {
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
         if (this.isFollowingHost()) return 'HOST ONLY';
         if (button.kind === 'transport') {
-            const info = this.getPlaybackInfo();
             const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src) || this._stoppedAudioSource);
             const selected = !!(this.musicLibrary && this.musicLibrary.current());
-            if (button.action === 'play') return loaded || selected ? '' : 'ADD MUSIC FIRST';
+            if (button.action === 'playPause') return loaded || selected ? '' : 'ADD MUSIC FIRST';
+            if (button.action === 'sourceStep') return this._vjDeskHasMultipleSources() ? '' : 'ONE SOURCE';
             if (!loaded) return 'NOTHING LOADED';
-            if (button.action === 'seek' && !info.seekable) return 'LIVE: NO SEEK';
         }
         if (button.kind === 'seek') {
             const info = this.getPlaybackInfo();
@@ -523,16 +532,13 @@ const VJDesk = {
             case 'transport': {
                 const info = this.getPlaybackInfo();
                 const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src) || this._stoppedAudioSource);
-                if (button.action === 'play') {
+                if (button.action === 'playPause') {
                     out.active = info.playing;
-                    out.value = info.playing ? 'PLAYING' : loaded ? 'READY' : 'START SELECTED SET';
-                } else if (button.action === 'pause') {
-                    out.active = loaded && !info.playing;
-                    out.value = info.playing ? 'TAP TO PAUSE' : loaded ? 'PAUSED' : 'NOTHING LOADED';
+                    out.value = info.playing ? 'PAUSE' : loaded ? 'PLAY' : 'ADD MUSIC FIRST';
+                } else if (button.action === 'sourceStep') {
+                    out.value = button.delta < 0 ? 'PREVIOUS' : 'NEXT';
                 } else if (button.action === 'stop') {
                     out.value = loaded ? 'RETURN TO START' : 'NOTHING LOADED';
-                } else {
-                    out.value = info.seekable ? `NOW ${vjDeskClock(info.position)}` : loaded ? 'LIVE: NO SEEK' : 'NOTHING LOADED';
                 }
                 break;
             }
@@ -702,11 +708,11 @@ const VJDesk = {
             const track = vjDeskSeekTrack(button.rect);
             ctx.textAlign = 'left';
             ctx.fillStyle = ink;
-            ctx.font = 'bold 30px sans-serif';
-            ctx.fillText(button.label, x + 26, y + 28, 300);
+            ctx.font = 'bold 22px sans-serif';
+            ctx.fillText(button.label, x + 20, y + 18, 240);
             ctx.textAlign = 'right';
             ctx.fillStyle = sub;
-            ctx.fillText(state.value, x + w - 26, y + 28, 360);
+            ctx.fillText(state.value, x + w - 20, y + 18, 300);
             deskRoundRect(ctx, track.left, track.y - 11, track.right - track.left, 22, 11);
             ctx.fillStyle = '#273042';
             ctx.fill();
@@ -721,6 +727,38 @@ const VJDesk = {
             ctx.arc(knob, track.y, 24, 0, Math.PI * 2);
             ctx.fillStyle = state.disabled ? '#3a404c' : '#e9eef7';
             ctx.fill();
+            return;
+        }
+        if (button.icon) {
+            const cx = x + w / 2, cy = y + 27;
+            ctx.fillStyle = ink;
+            if (button.icon === 'playPause' && state.active) {
+                ctx.fillRect(cx - 17, cy - 17, 12, 34);
+                ctx.fillRect(cx + 5, cy - 17, 12, 34);
+            } else if (button.icon === 'playPause') {
+                ctx.beginPath();
+                ctx.moveTo(cx - 13, cy - 19);
+                ctx.lineTo(cx + 19, cy);
+                ctx.lineTo(cx - 13, cy + 19);
+                ctx.closePath();
+                ctx.fill();
+            } else if (button.icon === 'stop') {
+                ctx.fillRect(cx - 17, cy - 17, 34, 34);
+            } else {
+                const previous = button.icon === 'previous';
+                const direction = previous ? -1 : 1;
+                ctx.fillRect(cx + direction * 17 - 3, cy - 18, 6, 36);
+                ctx.beginPath();
+                ctx.moveTo(cx - direction * 10, cy - 18);
+                ctx.lineTo(cx + direction * 14, cy);
+                ctx.lineTo(cx - direction * 10, cy + 18);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.textAlign = 'center';
+            ctx.fillStyle = sub;
+            ctx.font = 'bold 17px sans-serif';
+            ctx.fillText(state.value, cx, y + h - 10, w - 24);
             return;
         }
         const swatch = state.swatch && !state.disabled;

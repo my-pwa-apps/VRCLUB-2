@@ -182,6 +182,7 @@ class ModelLoader {
                 scale: new BABYLON.Vector3(1, 1, 1),
                 placement: { fitAxis: 'x', fitSize: 2.1, centerX: 7.1, centerZ: -0.72, bottomY: 0 },
                 emissiveFloor: 0,
+                disableEmission: true,
                 attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
             }
         };
@@ -573,6 +574,13 @@ class ModelLoader {
                         mesh.material.emissiveColor.r = Math.max(mesh.material.emissiveColor.r, visibilityFloor);
                         mesh.material.emissiveColor.g = Math.max(mesh.material.emissiveColor.g, visibilityFloor);
                         mesh.material.emissiveColor.b = Math.max(mesh.material.emissiveColor.b, visibilityFloor);
+                    }
+
+                    if (config.disableEmission) {
+                        if (mesh.material.emissiveColor) mesh.material.emissiveColor.set(0, 0, 0);
+                        if (mesh.material.ambientColor) mesh.material.ambientColor.set(0, 0, 0);
+                        if (mesh.material.emissiveTexture) mesh.material.emissiveTexture = null;
+                        if ('unlit' in mesh.material) mesh.material.unlit = false;
                     }
                     
                     // A model can darken its own albedo (the bass bin's carpet is a mid grey, the PA above it is near black).

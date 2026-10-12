@@ -57,9 +57,35 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         press('dj');
         const djAfter = club.isPeopleVisible('dj');
         press('dj');
+        const mirrorRaysBefore = club.mirrorBallRaysActive;
+        press('mirrorRays');
+        const mirrorRaysAfter = club.mirrorBallRaysActive;
+        press('mirrorRays');
+        const transport = club._vjDesk.panels.find(item => item.id === 'transport').mesh.getBoundingInfo().boundingBox;
+        const show = club._vjDesk.panels.find(item => item.id === 'show').mesh.getBoundingInfo().boundingBox;
+        const lights = club._vjDesk.panels.find(item => item.id === 'lights').mesh.getBoundingInfo().boundingBox;
+        const mixer = scene.getMeshByName('console_final').getBoundingInfo().boundingBox;
+        const couchMeshes = club.modelLoader.loadedModels.lounge_couch.container.meshes
+            .filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+        const couchGlow = couchMeshes.reduce((result, mesh) => {
+            const material = mesh.material;
+            const emissive = material && material.emissiveColor;
+            const ambient = material && material.ambientColor;
+            result.emissive = Math.max(result.emissive, emissive ? emissive.r : 0, emissive ? emissive.g : 0, emissive ? emissive.b : 0);
+            result.ambient = Math.max(result.ambient, ambient ? ambient.r : 0, ambient ? ambient.g : 0, ambient ? ambient.b : 0);
+            result.texture ||= !!(material && material.emissiveTexture);
+            return result;
+        }, { emissive: 0, ambient: 0, texture: false });
         return {
             misses, facingDot: BABYLON.Vector3.Dot(facing, toEye), up: facing.y,
             lightsBefore, afterSpots, redrawn, afterAuto, djBefore, djAfter, djBack: club.isPeopleVisible('dj'),
+            mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive,
+            clearance: {
+                left: transport.minimumWorld.x - show.maximumWorld.x,
+                right: lights.minimumWorld.x - transport.maximumWorld.x,
+                mixer: mixer.minimumWorld.z - transport.maximumWorld.z
+            },
+            couchGlow,
             meshes: scene.meshes.filter(mesh => /^vjDesk/.test(mesh.name)).map(mesh => mesh.name),
             oldDesk: scene.meshes.filter(mesh => /^toggleBtn_|speedSlider|audioStreamBtn|vjConsole$/.test(mesh.name)).length
         };
@@ -76,6 +102,12 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.djBefore).toBe(true);
     expect(result.djAfter, 'the RESIDENT DJ button must send the DJ home').toBe(false);
     expect(result.djBack).toBe(true);
+    expect(result.mirrorRaysAfter).toBe(!result.mirrorRaysBefore);
+    expect(result.mirrorRaysBack).toBe(result.mirrorRaysBefore);
+    expect(result.clearance.left, 'the player overlaps the SHOW panel').toBeGreaterThan(0.02);
+    expect(result.clearance.right, 'the player overlaps the LIGHTS panel').toBeGreaterThan(0.02);
+    expect(result.clearance.mixer, 'the player extends under the mixer').toBeGreaterThan(0.02);
+    expect(result.couchGlow).toEqual({ emissive: 0, ambient: 0, texture: false });
     expect(result.meshes.sort()).toEqual(['vjDeskHousing', 'vjDesk_lights', 'vjDesk_show', 'vjDesk_transport']);
     expect(result.oldDesk, 'the old unlabelled buttons are still in the scene').toBe(0);
 

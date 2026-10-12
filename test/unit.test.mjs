@@ -6747,8 +6747,10 @@ test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC 
     assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
     assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
-    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b/,
-        'the couch must not receive the generic imported-model emission floor');
+    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b/,
+        'the couch must receive neither the generic imported-model emission floor nor its ambient glow');
+    assert.match(source, /if \(config\.disableEmission\)[\s\S]*?emissiveColor\.set\(0, 0, 0\)[\s\S]*?ambientColor\.set\(0, 0, 0\)/,
+        'disableEmission must clear both emission and the generic ambient floor');
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /"Old Couch"[\s\S]{0,400}Oliver Triplett[\s\S]{0,300}CC BY 4\.0/, 'the credit must name title, creator and licence');
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /old_couch\.glb/);
@@ -7946,12 +7948,14 @@ function deskHarness() {
         togglePeopleVisible: name => (people[name] = people[name] === false),
         audioElement: { src: 'https://example.com/set.mp3' },
         _audioKind: 'url',
+        _localPlaylist: { order: [0, 1], position: 0 },
         _playbackInfo: { playing: false, seekable: true, position: 75, duration: 3600 },
         getPlaybackInfo() { return this._playbackInfo; },
         setAudioPlayback(playing) { calls.push(`playback ${playing}`); this._playbackInfo.playing = playing; return true; },
         stopAudioPlayback() { calls.push('stop'); this._playbackInfo.playing = false; this._playbackInfo.position = 0; return true; },
         seekAudioBy(delta) { calls.push(`seek ${delta}`); this._playbackInfo.position += delta; return true; },
         seekAudioToFraction(fraction) { calls.push(`seekFraction ${fraction}`); this._playbackInfo.position = fraction * this._playbackInfo.duration; return true; },
+        stepAudioSource(delta) { calls.push(`sourceStep ${delta}`); return true; },
         setPhotosensitiveSafeMode(value) { calls.push(`safe ${value}`); this.photosensitiveSafeMode = value; },
         resetVJControls() { calls.push('reset'); this.vjManualMode = false; },
         vjDirector: {
@@ -7987,7 +7991,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             assert.ok(b.label && b.label === b.label.toUpperCase(), `${b.id} needs a plain upper-case label`);
             const r = b.rect;
             assert.ok(r.x >= 0 && r.y >= 130 && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            const minimumWidth = panel === 'transport' ? 250 : b.kind === 'section' ? 270 : 300;
+            const minimumWidth = panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
             assert.ok(r.h >= 70 && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
@@ -8000,7 +8004,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
                 assert.ok(track.left > r.x + 200 && track.right < r.x + r.w - 100 && track.right - track.left > 400, `${b.id}'s track`);
             } else if (b.kind === 'seek') {
                 const track = VJDeskLayout.seekTrack(r);
-                assert.ok(track.left > r.x && track.right < r.x + r.w && track.right - track.left > 1200, `${b.id}'s seek track`);
+                assert.ok(track.left > r.x && track.right < r.x + r.w && track.right - track.left > 800, `${b.id}'s seek track`);
             }
         }
     }
@@ -8012,9 +8016,12 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     const labels = VJDeskLayout.buttons.lights.map(button => button.label);
     assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');
     assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
+    assert.ok(labels.includes('MIRROR BEAMS'), 'the physical desk cannot switch from mirror rays to surface spots only');
     assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
     assert.deepEqual([...VJDeskLayout.buttons.transport.map(button => button.label)],
-        ['PLAY', 'PAUSE', 'STOP', 'SET POSITION']);
+        ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
+    assert.ok(VJDeskLayout.config.transport.width <= 1 && VJDeskLayout.config.transport.depth <= 0.3,
+        'the compact player can overlap the mixer or side panels');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
@@ -8041,6 +8048,9 @@ test('the VJ desk: touching a light hands you the lights, AUTO SHOW hands them b
     press('mirror');
     assert.equal(club.mirrorBallActive, true);
     assert.equal(club.lasersActive, false, 'the one-aerial-idea rule applies at the desk too');
+    club.mirrorBallRaysActive = true;
+    press('mirrorRays');
+    assert.equal(club.mirrorBallRaysActive, false, 'MIRROR BEAMS leaves the reflected surface spots on their own');
 
     calls.length = 0;
     press('drop');
@@ -8105,17 +8115,21 @@ test('the VJ desk under Photosensitive Safe Mode: the strobes cannot be switched
     assert.equal(club.photosensitiveSafeMode, false, 'the personal desk switch turns Safe Mode back off');
 });
 
-test('the VJ desk set player delegates play, pause and stop, then seeks once when its slider is released', () => {
+test('the VJ desk set player delegates source steps, play/pause and stop, then seeks once when its slider is released', async () => {
     const { club, press, calls, button, VJDeskLayout } = deskHarness();
-    press('play');
-    press('pause');
+    press('previousSource');
+    press('playPause');
+    press('playPause');
     press('stop');
+    press('nextSource');
+    await Promise.resolve();
     const track = VJDeskLayout.seekTrack(button('seek').rect);
     assert.equal(club._vjDeskSetSeekPreview(button('seek'), track.left + (track.right - track.left) * 0.25), true);
-    assert.deepEqual(calls, ['playback true', 'playback false', 'stop'], 'dragging only previews; it does not repeatedly seek');
+    assert.deepEqual(calls, ['sourceStep -1', 'playback true', 'playback false', 'stop', 'sourceStep 1'],
+        'dragging only previews; it does not repeatedly seek');
     assert.equal(club._vjDeskButtonState(button('seek')).value, '15:00 / 60:00');
     club.releaseVJDesk();
-    assert.deepEqual(calls, ['playback true', 'playback false', 'stop', 'seekFraction 0.25']);
+    assert.deepEqual(calls, ['sourceStep -1', 'playback true', 'playback false', 'stop', 'sourceStep 1', 'seekFraction 0.25']);
     assert.equal(club._vjDeskPlayerStatus().title, 'SET PLAYER');
     assert.match(club._vjDeskPlayerStatus().detail, /PAUSED.*15:00 \/ 60:00/);
 });
@@ -8126,9 +8140,12 @@ test('the VJ desk set player explains live and host-owned controls instead of pr
     assert.equal(club._vjDeskDisabledReason(button('seek')), 'LIVE: NO TIMELINE');
     assert.equal(club._vjDeskSetSeekPreview(button('seek'), 500), false);
     club.multiplayer = { following: true, hostName: () => 'Bo' };
-    press('play');
+    press('playPause');
     assert.deepEqual(calls, [], 'a guest must not change the host music');
-    assert.equal(club._vjDeskButtonState(button('play')).value, 'HOST ONLY');
+    assert.equal(club._vjDeskButtonState(button('playPause')).value, 'HOST ONLY');
+    club.multiplayer = null;
+    club._localPlaylist.order = [0];
+    assert.equal(club._vjDeskDisabledReason(button('previousSource')), 'ONE SOURCE');
 });
 
 test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom of COMFORT', () => {

@@ -1042,6 +1042,8 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   z -0.72, facing the DJ): *Old Couch* by Oliver Triplett (CC BY 4.0; `ModelLoader` key `lounge_couch`), optimised by
   `npm run optimize:models` to one mesh, 936 triangles, 512 px WebP maps, 0.5 MB. The model's front is local +z and
   `rotation.y = PI` turns it to face -z; keep `modelConfigs.lounge_couch.placement` and `VenueLayout.lounge` in step.
+  Its config uses `disableEmission: true`, which clears both emissive and generic imported-model ambient colour so the
+  upholstery is lit only by the room.
   `_furnishLoungeCouch()` tags the two cushions and derives one collider from the placed bounds; the camera stands just
   in front of that collider (as for the stools) so desktop collisions cannot trap a sitter. The linked Meshy model was not
   shipped: its ~454k faces were inappropriate for Quest.
@@ -1425,7 +1427,7 @@ GOBO** / **GOBO IMAGE** on the floor or wall. The internal `circle` gobo means a
 It replaced eleven unlabelled coloured boxes, a speed slider and an audio box that opened a DOM dialog (useless in a
 headset) along the table's front lip. Now there are SHOW and LIGHTS touch panels either side of the DJ controller,
 tilted 30° and turned toward the operator, plus a shallower SET PLAYER panel centred immediately in front of the mixer.
-The side panels use 1536x720 canvas textures and the player uses 1536x400; all three housings merge into one mesh, so
+The side panels use 1536x720 canvas textures and the compact player uses 1024x300; all three housings merge into one mesh, so
 the desk is four meshes. Panels are redrawn only when what they show changes (a signature checked every 0.2 s), and a press is
 mapped from the pick point into the panel's own plane to a button rect, like the VR seek bar. A mouse click and a
 controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `releaseVJDesk`, from
@@ -1439,11 +1441,13 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
   path, projected gobo image, wall picture (n of 20) and mirror colour, and a last row: STROBE PATTERN, AFTER MY CHANGE
   (keep / return to auto / shuffle colours) and TIMING, followed by LASER COLOUR (lasers and sheet) and MATCH ALL
-  COLOURS. The two hold buttons are personal like RESIDENT DJ (never
+  COLOURS. MIRROR BEAMS independently removes the outgoing rays while leaving the reflected surface spots. The two
+  hold buttons are personal like RESIDENT DJ (never
   host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
   why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
-- **SET PLAYER** (centre): three large buttons — play, pause and stop — above a full-width position slider. The buttons
-  delegate to `setAudioPlayback` and `stopAudioPlayback`; dragging the slider previews the time and calls
+- **SET PLAYER** (centre): compact previous, combined play/pause, stop and next symbols above a full-width position
+  slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
+  delegate to `stepAudioSource`; the other buttons delegate to `setAudioPlayback` and `stopAudioPlayback`. Dragging the slider previews the time and calls
   `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
   written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title.
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
