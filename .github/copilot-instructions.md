@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio, relay-resolved Miss Melera Colourizon links and official-player fallback for other SoundCloud saved sets)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall, bar and lounge couch), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall, bar and lounge couch), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's show, lights and set-player touch panels at the DJ table), all mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -1382,7 +1382,8 @@ Teleport blockers are derived from enabled collidable scene meshes, excluding th
 and refreshed on every comfort reapplication. XR entry preserves tracked eye height.
 `moveCameraToPreset()` routes to the XR camera when active,
 preserving head orientation and measured seated height with a booth floor offset.
-The paged quick menu includes lighting, effects, show/reset, a CROWD page (who is in the club), comfort (locomotion,
+The paged quick menu separates LIGHTS (fixtures, colours and movement), EFFECTS (LED wall, strobes, smoke, mirror
+beams and gobos), SHOW (automatic-show actions plus a five-movement section page), a CROWD page (who is in the club), comfort (locomotion,
 safe mode, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
@@ -1422,17 +1423,18 @@ GOBO** / **GOBO IMAGE** on the floor or wall. The internal `circle` gobo means a
 
 **The VJ desk** (`js/vjDesk.js`, mixed into `VRClub.prototype`; `createVJDesk()` is called from `createDJBooth()`).
 It replaced eleven unlabelled coloured boxes, a speed slider and an audio box that opened a DOM dialog (useless in a
-headset) along the table's front lip. Now there are two touch panels either side of the DJ controller, tilted 30° and
-turned toward the operator. Each is ONE plane with a 1536x720 canvas texture plus one merged housing, so the desk is
-three meshes. Panels are redrawn only when what they show changes (a signature checked every 0.2 s), and a press is
+headset) along the table's front lip. Now there are SHOW and LIGHTS touch panels either side of the DJ controller,
+tilted 30° and turned toward the operator, plus a shallower SET PLAYER panel centred immediately in front of the mixer.
+The side panels use 1536x720 canvas textures and the player uses 1536x400; all three housings merge into one mesh, so
+the desk is four meshes. Panels are redrawn only when what they show changes (a signature checked every 0.2 s), and a press is
 mapped from the pick point into the panel's own plane to a button rect, like the VR seek bar. A mouse click and a
 controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `releaseVJDesk`, from
 `setupVJControlInteraction`).
 - **SHOW** (left): the header always says who has the lights (AUTOMATIC SHOW with the NOCTURNE movement, YOU ARE THE
-  VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, RESIDENT DJ (`togglePeopleVisible('dj')`,
-  personal so never host-gated), MUSIC (play/pause, or the selected user-saved set), DROP (the show's countdown
-  while it drives, else the director's peak look), BLACKOUT, NEXT SECTION (automatic show only, and says so),
-  TAP TEMPO, BEAMS TO FLOOR, RESET LIGHTS, a row of five section buttons (ARRIVAL..AFTERGLOW, `pickShowSection`; the playing
+  VJ, or THE HOST HAS THE LIGHTS in someone else's room). Buttons: AUTO SHOW, DROP (the show's countdown
+  while it drives, else the director's peak look), NEXT SECTION (automatic show only, and says so), BLACKOUT,
+  BEAMS TO FLOOR, TAP TEMPO, RESIDENT DJ (`togglePeopleVisible('dj')`, personal so never host-gated), SAFE MODE
+  (also personal) and RESET LIGHTS, then a row of five section buttons (ARRIVAL..AFTERGLOW, `pickShowSection`; the playing
   one lights and says KEPT while held), plus BRIGHTNESS (the director's master) and MOVEMENT SPEED faders.
 - **LIGHTS** (right): every fixture on/off, plus steppers for spot colour (with a swatch), movement mode, spot aim
   path, projected gobo image, wall picture (n of 20) and mirror colour, and a last row: STROBE PATTERN, AFTER MY CHANGE
@@ -1440,6 +1442,10 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   COLOURS. The two hold buttons are personal like RESIDENT DJ (never
   host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
   why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
+- **SET PLAYER** (centre): three large buttons — play, pause and stop — above a full-width position slider. The buttons
+  delegate to `setAudioPlayback` and `stopAudioPlayback`; dragging the slider previews the time and calls
+  `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
+  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title.
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
   (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,
   the guest's hold policy (`vrclub.lightHold`; default resume after 60 s, `VJ_TIMEOUT` is the legacy fallback, counted down

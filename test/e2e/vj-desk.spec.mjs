@@ -14,20 +14,20 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     const result = await page.evaluate(async () => {
         const club = window.vrClub, scene = club.scene;
         await club.modelLoadPromise;
-        const { buttons, config } = window.VJDeskLayout;
+        const { buttons } = window.VJDeskLayout;
         const eye = new BABYLON.Vector3(0, 2.2, -19.4);   // the DJ Booth viewpoint
         const pickAt = (panelId, button) => {
             const panel = club._vjDesk.panels.find(item => item.id === panelId);
             const local = new BABYLON.Vector3(
-                ((button.rect.x + button.rect.w / 2) / config.canvas.width - 0.5) * config.width,
-                (0.5 - (button.rect.y + button.rect.h / 2) / config.canvas.height) * config.depth,
+                ((button.rect.x + button.rect.w / 2) / panel.canvas.width - 0.5) * panel.width,
+                (0.5 - (button.rect.y + button.rect.h / 2) / panel.canvas.height) * panel.depth,
                 0);
             const target = BABYLON.Vector3.TransformCoordinates(local, panel.mesh.getWorldMatrix());
             const ray = new BABYLON.Ray(eye, target.subtract(eye).normalize(), 5);
             return scene.pickWithRay(ray, mesh => mesh.isPickable && mesh.isEnabled() && mesh.isVisible);
         };
         const misses = [];
-        for (const panelId of ['show', 'lights']) {
+        for (const panelId of ['show', 'lights', 'transport']) {
             for (const button of buttons[panelId]) {
                 const pick = pickAt(panelId, button);
                 const hit = club._vjDeskHit(pick);
@@ -42,7 +42,7 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         const toEye = eye.subtract(panel.getAbsolutePosition()).normalize();
 
         const press = id => {
-            const [panelId, button] = ['show', 'lights'].map(p => [p, buttons[p].find(b => b.id === id)]).find(([, b]) => b);
+            const [panelId, button] = ['show', 'lights', 'transport'].map(p => [p, buttons[p].find(b => b.id === id)]).find(([, b]) => b);
             return club.pressVJDesk(pickAt(panelId, button));
         };
         const lightsBefore = club.lightsActive;
@@ -76,11 +76,15 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.djBefore).toBe(true);
     expect(result.djAfter, 'the RESIDENT DJ button must send the DJ home').toBe(false);
     expect(result.djBack).toBe(true);
-    expect(result.meshes.sort()).toEqual(['vjDeskHousing', 'vjDesk_lights', 'vjDesk_show']);
+    expect(result.meshes.sort()).toEqual(['vjDeskHousing', 'vjDesk_lights', 'vjDesk_show', 'vjDesk_transport']);
     expect(result.oldDesk, 'the old unlabelled buttons are still in the scene').toBe(0);
 
     // What the person who replaced the DJ sees, one panel at a time (kept with the test results for review).
-    for (const [name, eyeX, lookX] of [['vj-desk-show', -0.75, -1.28], ['vj-desk-lights', 0.75, 1.28]]) {
+    for (const [name, eyeX, lookX] of [
+        ['vj-desk-show', -0.75, -1.28],
+        ['vj-desk-player', 0, 0],
+        ['vj-desk-lights', 0.75, 1.28]
+    ]) {
         await page.evaluate(({ eyeX, lookX }) => {
             const club = window.vrClub;
             if (club.isPeopleVisible('dj')) club.togglePeopleVisible('dj');

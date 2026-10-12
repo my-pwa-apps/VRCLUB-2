@@ -2,9 +2,9 @@
 // The VJ desk at the DJ table: two angled touch panels either side of the DJ controller, for whoever takes over from
 // the DJ. Mixed into VRClub.prototype by club_hyperrealistic.js.
 //
-//   left  SHOW    who runs the lights (the automatic show, or you), the resident DJ, the music, the live moments
-//                 (drop, blackout, next section, tap tempo, beams to the floor, reset) and two faders
+//   left  SHOW    who runs the lights, show navigation, live moments, personal safety and two faders
 //   right LIGHTS  every fixture on or off, plus spotlight movement, aim path, projected gobo image and wall picture
+//   centre PLAYER play, pause and stop above a seek strip immediately in front of the mixer
 //
 // Every button says what it is and what it is doing now, on the panel itself (a headset shows no tooltip), and the
 // panel's header always says who has the lights. The panels are one mesh each: a canvas texture redrawn only when
@@ -26,6 +26,13 @@ const VJ_DESK = Object.freeze({
     canvas: Object.freeze({ width: 1536, height: 720 }),
     // Where someone working the desk stands: on the riser, behind the decks.
     booth: Object.freeze({ x0: -3.2, x1: 3.2, z0: -20.2, z1: -17.6 }),
+    transport: Object.freeze({
+        width: 1.46,
+        depth: 0.4,
+        tilt: Math.PI / 12,
+        lift: 0.025,
+        canvas: Object.freeze({ width: 1536, height: 400 })
+    }),
     redrawEvery: 0.2,            // seconds between checks for a changed panel
     pressMs: 160
 });
@@ -49,18 +56,30 @@ function vjDeskLayout() {
     const lights = grid(4, [82, 82, 82, 82, 82, 82]);
     const light = (id, label, control, col, row, colour, extra = {}) =>
         ({ id, panel: 'lights', kind: 'light', label, control, colour, rect: lights(col, row), ...extra });
+    const playerMargin = 28, playerGap = 12;
+    const playerWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 2) / 3;
+    const player = (id, label, action, col, colour, extra = {}) => ({
+        id, panel: 'transport', kind: 'transport', label, action, colour,
+        rect: {
+            x: Math.round(playerMargin + col * (playerWidth + playerGap)),
+            y: 136,
+            w: Math.round(playerWidth),
+            h: 92
+        },
+        ...extra
+    });
     const sectionButton = (id, label, col, colour) =>
         ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
     return Object.freeze({
         show: Object.freeze([
             { id: 'auto', panel: 'show', kind: 'auto', label: 'AUTO SHOW', rect: show(0, 0), colour: '#19c37d' },
-            { id: 'dj', panel: 'show', kind: 'dj', label: 'RESIDENT DJ', rect: show(1, 0), colour: '#7aa7ff' },
-            { id: 'music', panel: 'show', kind: 'music', label: 'MUSIC', rect: show(2, 0), colour: '#7aa7ff' },
-            { id: 'drop', panel: 'show', kind: 'drop', label: 'DROP', rect: show(0, 1), colour: '#ff5d7a' },
-            { id: 'blackout', panel: 'show', kind: 'blackout', label: 'BLACKOUT', rect: show(1, 1), colour: '#9aa3b5' },
-            { id: 'next', panel: 'show', kind: 'next', label: 'NEXT SECTION', rect: show(2, 1), colour: '#b48cff' },
-            { id: 'tap', panel: 'show', kind: 'tap', label: 'TAP TEMPO', rect: show(0, 2), colour: '#ffc247' },
-            { id: 'lock', panel: 'show', kind: 'lock', label: 'BEAMS TO FLOOR', rect: show(1, 2), colour: '#ffc247' },
+            { id: 'drop', panel: 'show', kind: 'drop', label: 'COUNTDOWN / DROP', rect: show(1, 0), colour: '#ff5d7a' },
+            { id: 'next', panel: 'show', kind: 'next', label: 'NEXT SECTION', rect: show(2, 0), colour: '#b48cff' },
+            { id: 'blackout', panel: 'show', kind: 'blackout', label: 'BLACKOUT', rect: show(0, 1), colour: '#9aa3b5' },
+            { id: 'lock', panel: 'show', kind: 'lock', label: 'BEAMS TO FLOOR', rect: show(1, 1), colour: '#ffc247' },
+            { id: 'tap', panel: 'show', kind: 'tap', label: 'TAP TEMPO', rect: show(2, 1), colour: '#ffc247' },
+            { id: 'dj', panel: 'show', kind: 'dj', label: 'RESIDENT DJ', rect: show(0, 2), colour: '#7aa7ff' },
+            { id: 'safeMode', panel: 'show', kind: 'safeMode', label: 'SAFE MODE', rect: show(1, 2), colour: '#39d0ff' },
             { id: 'reset', panel: 'show', kind: 'reset', label: 'RESET LIGHTS', rect: show(2, 2), colour: '#9aa3b5' },
             sectionButton('arrival', 'ARRIVAL', 0, '#7aa7ff'),
             sectionButton('pulse', 'PULSE', 1, '#39d0ff'),
@@ -92,6 +111,15 @@ function vjDeskLayout() {
             { id: 'holdTiming', panel: 'lights', kind: 'holdTiming', label: 'TIMING', rect: lights(3, 4), colour: '#19c37d' },
             { id: 'laserColour', panel: 'lights', kind: 'light', label: 'LASER COLOUR', control: 'changeLaserColor', colour: '#38e870', rect: lights(0, 5, 2), step: true },
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
+        ]),
+        transport: Object.freeze([
+            player('play', 'PLAY', 'play', 0, '#19c37d'),
+            player('pause', 'PAUSE', 'pause', 1, '#ffc247'),
+            player('stop', 'STOP', 'stop', 2, '#ff5d7a'),
+            {
+                id: 'seek', panel: 'transport', kind: 'seek', label: 'SET POSITION', colour: '#7aa7ff',
+                rect: { x: playerMargin, y: 244, w: VJ_DESK.transport.canvas.width - playerMargin * 2, h: 120 }
+            }
         ])
     });
 }
@@ -99,6 +127,10 @@ function vjDeskLayout() {
 /** Where a fader's track runs inside its button rect (pixels), so pressing, dragging and drawing agree. */
 function vjDeskFaderTrack(rect) {
     return { left: rect.x + 330, right: rect.x + rect.w - 170, y: rect.y + rect.h / 2 };
+}
+
+function vjDeskSeekTrack(rect) {
+    return { left: rect.x + 34, right: rect.x + rect.w - 34, y: rect.y + 78 };
 }
 
 function deskRoundRect(ctx, x, y, w, h, r) {
@@ -116,6 +148,11 @@ const deskCss = colour => {
     return colour ? `rgb(${c(colour.r)}, ${c(colour.g)}, ${c(colour.b)})` : '#000';
 };
 
+const vjDeskClock = seconds => {
+    const total = Math.max(0, Math.floor(Number(seconds) || 0));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+};
+
 const VJDesk = {
     /**
      * Build both panels on the DJ table. `top` is the table's surface height, `frontZ` its edge on the operator's side.
@@ -125,20 +162,19 @@ const VJDesk = {
         const { width: W, depth: D, tilt, turn, centreX, lift } = VJ_DESK;
         const layout = vjDeskLayout();
         const housings = [];
-        const panels = ['show', 'lights'].map(id => {
-            const side = id === 'show' ? -1 : 1;   // the operator faces +z, so -x is on their left
+        const createPanel = ({ id, width, depth, panelTilt, x, yaw, panelLift, frontOffset, canvas }) => {
             // A plane faces -z; tipping it back by (90 deg - tilt) about x lays it on the desk facing up and toward the
             // operator, with its texture's top along the far edge and its left on the operator's left. The yaw then
             // turns each panel toward the middle of the table.
-            const mesh = BABYLON.MeshBuilder.CreatePlane(`vjDesk_${id}`, { width: W, height: D }, this.scene);
-            mesh.rotation.set(Math.PI / 2 - tilt, side * turn, 0);
+            const mesh = BABYLON.MeshBuilder.CreatePlane(`vjDesk_${id}`, { width, height: depth }, this.scene);
+            mesh.rotation.set(Math.PI / 2 - panelTilt, yaw, 0);
             mesh.computeWorldMatrix(true);
             const up = mesh.getDirection(BABYLON.Axis.Y);       // up the slope, toward the far edge
             const into = mesh.getDirection(BABYLON.Axis.Z);     // from the glass into the console
-            const centre = new BABYLON.Vector3(side * centreX, top + lift, frontZ + 0.03).addInPlace(up.scale(D / 2));
+            const centre = new BABYLON.Vector3(x, top + panelLift, frontZ + frontOffset).addInPlace(up.scale(depth / 2));
             mesh.position.copyFrom(centre);
             mesh.isPickable = true;
-            const texture = new BABYLON.DynamicTexture(`vjDeskTexture_${id}`, VJ_DESK.canvas, this.scene, true);
+            const texture = new BABYLON.DynamicTexture(`vjDeskTexture_${id}`, canvas, this.scene, true);
             texture.anisotropicFilteringLevel = 8;
             texture.hasAlpha = false;
             mesh.material = this.materialFactory.createStandardMaterial(`vjDeskMat_${id}`, {
@@ -148,12 +184,30 @@ const VJDesk = {
             mesh.freezeWorldMatrix();
 
             // A console body under the glass, so the desk reads as hardware from the dance floor too.
-            const body = BABYLON.MeshBuilder.CreateBox(`vjDeskBody_${id}`, { width: W + 0.05, height: D + 0.05, depth: 0.05 }, this.scene);
+            const body = BABYLON.MeshBuilder.CreateBox(`vjDeskBody_${id}`, { width: width + 0.05, height: depth + 0.05, depth: 0.05 }, this.scene);
             body.position.copyFrom(centre).addInPlace(into.scale(0.029));
             body.rotation.copyFrom(mesh.rotation);
             housings.push(body);
-            return { id, mesh, texture, buttons: layout[id], signature: '' };
+            return { id, mesh, texture, buttons: layout[id], width, depth, canvas, signature: '' };
+        };
+        const panels = ['show', 'lights'].map(id => {
+            const side = id === 'show' ? -1 : 1;   // the operator faces +z, so -x is on their left
+            return createPanel({
+                id, width: W, depth: D, panelTilt: tilt, x: side * centreX, yaw: side * turn,
+                panelLift: lift, frontOffset: 0.03, canvas: VJ_DESK.canvas
+            });
         });
+        panels.push(createPanel({
+            id: 'transport',
+            width: VJ_DESK.transport.width,
+            depth: VJ_DESK.transport.depth,
+            panelTilt: VJ_DESK.transport.tilt,
+            x: 0,
+            yaw: 0,
+            panelLift: VJ_DESK.transport.lift,
+            frontOffset: -0.11,
+            canvas: VJ_DESK.transport.canvas
+        }));
         const housing = BABYLON.Mesh.MergeMeshes(housings, true);
         if (housing) {
             housing.name = 'vjDeskHousing';
@@ -163,6 +217,7 @@ const VJDesk = {
         }
         this._vjDesk = { panels, housing, clock: 0, dirty: true };
         this._vjDeskDrag = null;
+        this._vjDeskSeek = null;
         this._vjDeskPressed = null;
         for (const panel of panels) this._drawVJDeskPanel(panel);
     },
@@ -174,8 +229,8 @@ const VJDesk = {
         const panel = desk.panels.find(item => item.mesh === pickResult.pickedMesh);
         if (!panel) return null;
         const local = BABYLON.Vector3.TransformCoordinates(pickResult.pickedPoint, panel.mesh.getWorldMatrix().clone().invert());
-        const x = (local.x / VJ_DESK.width + 0.5) * VJ_DESK.canvas.width;
-        const y = (0.5 - local.y / VJ_DESK.depth) * VJ_DESK.canvas.height;
+        const x = (local.x / panel.width + 0.5) * panel.canvas.width;
+        const y = (0.5 - local.y / panel.depth) * panel.canvas.height;
         const button = panel.buttons.find(b => x >= b.rect.x && x <= b.rect.x + b.rect.w && y >= b.rect.y && y <= b.rect.y + b.rect.h) || null;
         return { panel, button, x, y };
     },
@@ -189,6 +244,8 @@ const VJDesk = {
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
             if (this._vjDeskSetFader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+        } else if (button.kind === 'seek') {
+            if (this._vjDeskSetSeekPreview(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
         } else {
             this._runVJDeskButton(button);
         }
@@ -196,18 +253,23 @@ const VJDesk = {
         return true;
     },
 
-    /** Pointer move: a fader follows the pointer for as long as it stays on its panel. */
+    /** Pointer move: a fader or seek preview follows the pointer for as long as it stays on its panel. */
     dragVJDesk(pickResult) {
         const drag = this._vjDeskDrag;
         if (!drag) return;
         const hit = this._vjDeskHit(pickResult);
         if (!hit || hit.panel !== drag.panel) return;
-        this._vjDeskSetFader(drag.button, hit.x);
+        if (drag.button.kind === 'seek') this._vjDeskSetSeekPreview(drag.button, hit.x);
+        else this._vjDeskSetFader(drag.button, hit.x);
         this._vjDesk.dirty = true;
     },
 
     releaseVJDesk() {
+        const seek = this._vjDeskSeek;
         this._vjDeskDrag = null;
+        this._vjDeskSeek = null;
+        if (seek) this.seekAudioToFraction(seek.fraction);
+        if (this._vjDesk) this._vjDesk.dirty = true;
     },
 
     /** Set a fader from a pixel position along its track. Returns false when the guest may not change it. */
@@ -224,6 +286,20 @@ const VJDesk = {
         return true;
     },
 
+    /** Preview a timeline position while dragging. The shared player seeks once, on release. */
+    _vjDeskSetSeekPreview(button, x) {
+        if (!this.guardHostControl('music')) return false;
+        const info = this.getPlaybackInfo();
+        if (!info.seekable || !Number.isFinite(info.duration) || info.duration <= 0) {
+            this.showErrorMessage('This set cannot be scrubbed: live streams have no timeline.');
+            return false;
+        }
+        const track = vjDeskSeekTrack(button.rect);
+        const fraction = Math.min(1, Math.max(0, (x - track.left) / (track.right - track.left)));
+        this._vjDeskSeek = { fraction, position: fraction * info.duration };
+        return true;
+    },
+
     _runVJDeskButton(button) {
         const toast = text => this.showErrorMessage(text);
         // The resident DJ is a personal choice (who is in YOUR club); the music has its own owner check; everything
@@ -234,6 +310,12 @@ const VJDesk = {
             return;
         }
         if (button.kind === 'music') { this._vjDeskMusic(); return; }
+        if (button.kind === 'safeMode') {
+            this.setPhotosensitiveSafeMode(!this.photosensitiveSafeMode);
+            toast(`Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'on' : 'off'}`);
+            return;
+        }
+        if (button.kind === 'transport') { this._runVJDeskTransport(button); return; }
         // What happens after YOUR change is a personal setting, like the DJ: it never needs the host.
         if (button.kind === 'holdMode') { this.cycleLightHoldMode(); toast(`After my change: ${this.lightHoldSummary()}`); return; }
         if (button.kind === 'holdTiming') {
@@ -285,6 +367,35 @@ const VJDesk = {
         } else {
             this.showErrorMessage('No music yet: use ADD LINKS in the Music menu to save your own set.');
         }
+    },
+
+    _runVJDeskTransport(button) {
+        if (!this.guardHostControl('music')) return;
+        if (button.action === 'seek') {
+            if (!this.seekAudioBy(button.delta)) this.showErrorMessage('This set cannot be skipped: live streams have no timeline.');
+            return;
+        }
+        if (button.action === 'pause') {
+            this.setAudioPlayback(false);
+            return;
+        }
+        if (button.action === 'stop') {
+            this.stopAudioPlayback();
+            return;
+        }
+        const audio = this.audioElement;
+        if ((audio && audio.src) || this._stoppedAudioSource) {
+            this.setAudioPlayback(true);
+            return;
+        }
+        const selected = this.musicLibrary && this.musicLibrary.current();
+        if (!selected) {
+            this.showErrorMessage('No music yet: open Music and add a link, file or folder.');
+            return;
+        }
+        Promise.resolve(this.musicLibrary.play())
+            .then(() => { if (this._vjDesk) this._vjDesk.dirty = true; })
+            .catch(error => this.showErrorMessage(`Could not start the set: ${error.message}`));
     },
 
     /** Is the player standing at the desk (on the riser, behind the decks)? */
@@ -351,11 +462,33 @@ const VJDesk = {
         return { tone: 'auto', title: 'AUTOMATIC SHOW', detail: 'CLASSIC LIGHT CYCLE. TOUCH ANY CONTROL TO TAKE OVER.' };
     },
 
+    _vjDeskPlayerStatus() {
+        const info = this.getPlaybackInfo();
+        const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src));
+        const title = String(this.nowPlayingLabel || this.musicLibrary?.current()?.name || 'NO SET LOADED').toUpperCase();
+        if (!loaded) return { tone: 'host', title: 'SET PLAYER', detail: `${title}. ADD MUSIC FROM THE MUSIC MENU.` };
+        const state = info.playing ? 'PLAYING' : 'PAUSED';
+        const clock = info.seekable ? ` • ${vjDeskClock(info.position)} / ${vjDeskClock(info.duration)}` : ' • LIVE';
+        return { tone: info.playing ? 'music' : 'manual', title: 'SET PLAYER', detail: `${state}${clock} • ${title}` };
+    },
+
     /** Why a button cannot do anything right now, or '' when it can. */
     _vjDeskDisabledReason(button) {
-        if (button.kind === 'dj' || button.kind === 'holdMode') return '';
+        if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
         if (this.isFollowingHost()) return 'HOST ONLY';
+        if (button.kind === 'transport') {
+            const info = this.getPlaybackInfo();
+            const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src) || this._stoppedAudioSource);
+            const selected = !!(this.musicLibrary && this.musicLibrary.current());
+            if (button.action === 'play') return loaded || selected ? '' : 'ADD MUSIC FIRST';
+            if (!loaded) return 'NOTHING LOADED';
+            if (button.action === 'seek' && !info.seekable) return 'LIVE: NO SEEK';
+        }
+        if (button.kind === 'seek') {
+            const info = this.getPlaybackInfo();
+            if (!info.seekable) return this._audioKind || (this.audioElement && this.audioElement.src) ? 'LIVE: NO TIMELINE' : 'NOTHING LOADED';
+        }
         if (this.photosensitiveSafeMode && (button.control === 'strobesActive' || button.control === 'spotStrobeActive')) return 'SAFE MODE';
         if (button.kind === 'next' && !(this.showDirector && this.showDirector.isDriving())) return 'AUTO SHOW ONLY';
         if (button.kind === 'section' && !(this.showDirector && this.showDirector.enabled)) return 'AUTO SHOW ONLY';
@@ -384,6 +517,32 @@ const VJDesk = {
                 const loaded = !!(this.audioElement && this.audioElement.src);
                 out.active = info.playing;
                 out.value = !loaded ? 'TAP TO START A SET' : info.playing ? 'PLAYING' : 'PAUSED';
+                break;
+            }
+            case 'safeMode': onOff(this.photosensitiveSafeMode); break;
+            case 'transport': {
+                const info = this.getPlaybackInfo();
+                const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src) || this._stoppedAudioSource);
+                if (button.action === 'play') {
+                    out.active = info.playing;
+                    out.value = info.playing ? 'PLAYING' : loaded ? 'READY' : 'START SELECTED SET';
+                } else if (button.action === 'pause') {
+                    out.active = loaded && !info.playing;
+                    out.value = info.playing ? 'TAP TO PAUSE' : loaded ? 'PAUSED' : 'NOTHING LOADED';
+                } else if (button.action === 'stop') {
+                    out.value = loaded ? 'RETURN TO START' : 'NOTHING LOADED';
+                } else {
+                    out.value = info.seekable ? `NOW ${vjDeskClock(info.position)}` : loaded ? 'LIVE: NO SEEK' : 'NOTHING LOADED';
+                }
+                break;
+            }
+            case 'seek': {
+                const info = this.getPlaybackInfo();
+                const preview = this._vjDeskSeek;
+                const position = preview ? preview.position : info.position;
+                out.level = preview ? preview.fraction
+                    : info.seekable && info.duration > 0 ? info.position / info.duration : 0;
+                out.value = info.seekable ? `${vjDeskClock(position)} / ${vjDeskClock(info.duration)}` : 'NO TIMELINE';
                 break;
             }
             case 'drop': out.value = this.showDirector && this.showDirector.isDriving() ? 'COUNTDOWN, THEN DROP' : 'PEAK LOOK NOW'; break;
@@ -455,7 +614,11 @@ const VJDesk = {
     },
 
     _vjDeskSignature(panel) {
-        let signature = panel.id === 'show' ? JSON.stringify(this._vjDeskStatus()) : String(this.vjManualMode);
+        let signature = panel.id === 'show'
+            ? JSON.stringify(this._vjDeskStatus())
+            : panel.id === 'transport'
+                ? JSON.stringify(this._vjDeskPlayerStatus())
+                : String(this.vjManualMode);
         for (const button of panel.buttons) {
             const s = this._vjDeskButtonState(button);
             signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
@@ -465,15 +628,16 @@ const VJDesk = {
 
     _drawVJDeskPanel(panel) {
         const ctx = panel.texture.getContext();
-        const { width: W, height: H } = VJ_DESK.canvas;
+        const { width: W, height: H } = panel.canvas;
         ctx.fillStyle = '#06080d';
         ctx.fillRect(0, 0, W, H);
         ctx.textBaseline = 'middle';
 
         // Header: who has the lights (SHOW), what the panel is for (LIGHTS).
-        const status = panel.id === 'show' ? this._vjDeskStatus() : null;
+        const status = panel.id === 'show' ? this._vjDeskStatus()
+            : panel.id === 'transport' ? this._vjDeskPlayerStatus() : null;
         const tone = status ? status.tone : (this.isFollowingHost() ? 'host' : this.vjManualMode ? 'manual' : 'auto');
-        const toneColour = { auto: '#19c37d', manual: '#ffb020', host: '#8a93a6' }[tone];
+        const toneColour = { auto: '#19c37d', manual: '#ffb020', host: '#8a93a6', music: '#39d0ff' }[tone];
         deskRoundRect(ctx, 28, 16, W - 56, 108, 18);
         ctx.fillStyle = '#10151f';
         ctx.fill();
@@ -534,6 +698,31 @@ const VJDesk = {
             ctx.fillText(state.value, x + w - 24, y + h / 2, 140);
             return;
         }
+        if (button.kind === 'seek') {
+            const track = vjDeskSeekTrack(button.rect);
+            ctx.textAlign = 'left';
+            ctx.fillStyle = ink;
+            ctx.font = 'bold 30px sans-serif';
+            ctx.fillText(button.label, x + 26, y + 28, 300);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = sub;
+            ctx.fillText(state.value, x + w - 26, y + 28, 360);
+            deskRoundRect(ctx, track.left, track.y - 11, track.right - track.left, 22, 11);
+            ctx.fillStyle = '#273042';
+            ctx.fill();
+            const level = Math.min(1, Math.max(0, state.level || 0));
+            const knob = track.left + level * (track.right - track.left);
+            if (!state.disabled) {
+                deskRoundRect(ctx, track.left, track.y - 11, Math.max(22, knob - track.left), 22, 11);
+                ctx.fillStyle = colour;
+                ctx.fill();
+            }
+            ctx.beginPath();
+            ctx.arc(knob, track.y, 24, 0, Math.PI * 2);
+            ctx.fillStyle = state.disabled ? '#3a404c' : '#e9eef7';
+            ctx.fill();
+            return;
+        }
         const swatch = state.swatch && !state.disabled;
         const textWidth = w - (swatch ? 92 : 36);
         ctx.textAlign = 'left';
@@ -557,4 +746,9 @@ const VJDesk = {
 
 window.VJDesk = VJDesk;
 // The layout and geometry, for tests and tools (kept off VRClub.prototype, which only takes the methods above).
-window.VJDeskLayout = Object.freeze({ buttons: vjDeskLayout(), config: VJ_DESK, faderTrack: vjDeskFaderTrack });
+window.VJDeskLayout = Object.freeze({
+    buttons: vjDeskLayout(),
+    config: VJ_DESK,
+    faderTrack: vjDeskFaderTrack,
+    seekTrack: vjDeskSeekTrack
+});

@@ -685,6 +685,9 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'autoShow') return !this.vjManualMode;
         if (button.action === 'dj') return this._initialDJId() === button.dj;
         if (button.action === 'playPause' || button.action === 'play') return this.getPlaybackInfo().playing;
+        if (button.action === 'showSection') {
+            return !!(this.showDirector && this.showDirector._movementName === button.section);
+        }
         if (button.action === 'folderMode') {
             return this._localPlaylist ? !!this._localPlaylist.shuffle : !!this._localPlaylistShuffle;
         }
@@ -697,7 +700,7 @@ class VRClubUI extends VRClubAnimationFinish {
     /** Buttons that change the room's music or lights: in someone else's room they belong to the host. */
     _isHostOwnedVRButton(button) {
         if (['seek', 'playPause', 'play', 'pause', 'stop', 'sourceStep', 'folderMode', 'savedSet', 'setStep',
-            'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection'].includes(button.action)) return true;
+            'musicSetup', 'autoShow', 'reset', 'cycle', 'nextSection', 'showDrop', 'showSection'].includes(button.action)) return true;
         return !!button.control && !button.action && !['vrComfortMode', 'photosensitiveSafeMode'].includes(button.control);
     }
 
@@ -761,6 +764,13 @@ class VRClubUI extends VRClubAnimationFinish {
             const status = this.showDirector && this.showDirector.getStatus();
             return status ? String(status.movement).slice(0, 22) : '';
         }
+        if (button.action === 'showDrop') {
+            return this.showDirector && this.showDirector.isDriving() ? 'COUNTDOWN, THEN DROP' : 'PEAK LOOK NOW';
+        }
+        if (button.action === 'showSection') {
+            const held = this.showDirector && this.showDirector.isHeld && this.showDirector.isHeld();
+            return active ? (held ? 'PLAYING \u2022 KEPT' : 'PLAYING') : 'TAP TO JUMP HERE';
+        }
         if (button.action === 'autoShow') return active ? 'ON' : 'MANUAL';
         if (button.control) return active ? 'ON' : 'OFF';
         return '';
@@ -784,7 +794,7 @@ class VRClubUI extends VRClubAnimationFinish {
             home: [
                 ...social,
                 { label: 'MUSIC', action: 'page', target: 'music' },
-                { label: 'LIGHTING', action: 'page', target: 'lighting' },
+                { label: 'LIGHTS', action: 'page', target: 'lights' },
                 { label: 'EFFECTS', action: 'page', target: 'effects' },
                 { label: 'SHOW', action: 'page', target: 'show' },
                 // Who is in the club gets its own page: it used to sit at the bottom of COMFORT, where nobody found it.
@@ -794,15 +804,15 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
                 common.close
             ],
-            lighting: [
+            lights: [
                 { label: 'SPOTS', control: 'lightsActive' },
                 { label: 'LASERS', control: 'lasersActive' },
                 { label: 'LASER SHEET', control: 'laserSheetActive' },
                 { label: 'MIRROR BALL', control: 'mirrorBallActive' },
-                { label: 'LED WALL', control: 'ledWallActive' },
-                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
                 { label: 'LASER COLOUR', control: 'changeLaserColor', action: 'cycle' },
+                { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
+                { label: 'MATCH ALL COLOURS', control: 'matchAllColors', action: 'cycle' },
                 { label: 'SPOT MODE', control: 'cycleSpotMode', action: 'cycle' },
                 { label: 'SPOT AIM PATH', control: 'cyclePattern', action: 'cycle' },
                 common.back,
@@ -813,12 +823,12 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'STROBE PATTERN', control: 'cycleStrobePattern', action: 'cycle' },
                 { label: 'SPOT STROBE', control: 'spotStrobeActive' },
                 { label: 'SMOKE', control: 'smokeActive' },
+                { label: 'LED WALL', control: 'ledWallActive' },
+                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
                 { label: 'LED MONO', control: 'ledMonochrome' },
                 { label: 'MIRROR BEAMS', control: 'mirrorBallRaysActive' },
-                { label: 'MIRROR COLOUR', control: 'changeMirrorBallColor', action: 'cycle' },
-                { label: 'PROJECT GOBO', control: 'goboActive' },
+                { label: 'PROJECTED GOBO', control: 'goboActive' },
                 { label: 'GOBO IMAGE', control: 'cycleGoboPattern', action: 'cycle' },
-                { label: 'SAFE MODE', control: 'photosensitiveSafeMode' },
                 common.back,
                 common.close
             ],
@@ -851,13 +861,22 @@ class VRClubUI extends VRClubAnimationFinish {
             ],
             show: [
                 { label: 'AUTO SHOW', action: 'autoShow' },
+                { label: 'COUNTDOWN / DROP', action: 'showDrop' },
                 { label: 'NEXT SECTION', action: 'nextSection' },
-                { label: 'LED NEXT', control: 'cycleLedPattern', action: 'cycle' },
-                { label: 'SPOT COLOUR', control: 'changeColor', action: 'cycle' },
+                { label: 'CHOOSE SECTION', action: 'page', target: 'showSections' },
                 // What happens after a change of yours: keep it, return to auto after a time, or shuffle the colours.
                 { label: 'AFTER MY CHANGE', action: 'holdMode' },
                 { label: holdMode === 'shuffle' ? 'COLOUR EVERY' : (holdMode === 'resume' ? 'AUTO AFTER' : 'TIMING'), action: 'holdTiming' },
                 { label: 'RESET SHOW', action: 'reset' },
+                common.back,
+                common.close
+            ],
+            showSections: [
+                { label: 'ARRIVAL', action: 'showSection', section: 'arrival' },
+                { label: 'PULSE', action: 'showSection', section: 'pulse' },
+                { label: 'ASCENT', action: 'showSection', section: 'ascent' },
+                { label: 'IGNITION', action: 'showSection', section: 'ignition' },
+                { label: 'AFTERGLOW', action: 'showSection', section: 'afterglow' },
                 common.back,
                 common.close
             ],
@@ -915,6 +934,7 @@ class VRClubUI extends VRClubAnimationFinish {
             button.pool = null;
             button.phrase = null;
             button.people = null;
+            button.section = null;
             button.room = null;
             button.capacity = null;
             button.locked = false;
@@ -945,13 +965,14 @@ class VRClubUI extends VRClubAnimationFinish {
             context.fillText(titles[page] || page.toUpperCase(), 54, 72);
             context.fillStyle = '#b4bccb';
             // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
-            const hostOwned = ['home', 'lighting', 'effects', 'show', 'music'].includes(page) && this.isFollowingHost();
+            const hostOwned = ['home', 'lights', 'effects', 'show', 'showSections', 'music'].includes(page) && this.isFollowingHost();
             const host = hostOwned ? (this.multiplayer.hostName() || 'THE HOST').toUpperCase().slice(0, 18) : '';
             // What each page is for, in plain words: the first thing a new visitor reads.
             const about = {
-                lighting: 'SWITCH LIGHTS ON OR OFF, CHANGE COLOURS',
-                effects: 'STROBES, SMOKE AND THE MIRROR BALL',
+                lights: 'FIXTURES, COLOURS AND SPOT MOVEMENT',
+                effects: 'LED WALL, STROBES, SMOKE, BEAMS AND GOBOS',
                 show: 'THE AUTOMATIC SHOW THAT FOLLOWS THE MUSIC',
+                showSections: 'JUMP TO A MOVEMENT AND KEEP IT BY YOUR HOLD RULE',
                 comfort: 'HOW YOU MOVE, WHAT YOU SEE AND FEEL',
                 crowd: 'SEND THE DANCERS, GUESTS OR DJ HOME',
                 travel: 'POINT AT A PLACE TO JUMP THERE',
@@ -1624,6 +1645,20 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         if (button.action === 'nextSection') {
             const title = this.nextShowSection();
+            if (title) this.showErrorMessage(`Section: ${title}. ${this.lightHoldSummary().toLowerCase()}`);
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'showDrop') {
+            if (!this.guardHostControl('lights')) return;
+            if (this.showDirector && this.showDirector.isDriving()) this.showDirector.triggerShowDrop();
+            else if (this.vjDirector) this.vjDirector.triggerDrop();
+            this.showErrorMessage(this.showDirector && this.showDirector.isDriving() ? 'Countdown started' : 'Peak look triggered');
+            this._refreshVRQuickMenu();
+            return;
+        }
+        if (button.action === 'showSection') {
+            const title = this.pickShowSection(button.section);
             if (title) this.showErrorMessage(`Section: ${title}. ${this.lightHoldSummary().toLowerCase()}`);
             this._refreshVRQuickMenu();
             return;

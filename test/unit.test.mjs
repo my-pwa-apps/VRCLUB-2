@@ -7348,7 +7348,7 @@ test('the VR Music page: its seek row is free, every button is wired, and the ac
 
     const home = club._vrQuickMenuPageDefinitions('home');
     assert.ok(home.some(item => item && item.target === 'music'), 'the home page must reach the Music page');
-    for (const page of ['home', 'lighting', 'effects', 'comfort', 'crowd', 'travel', 'show', 'music', 'musicSources']) {
+    for (const page of ['home', 'lights', 'effects', 'comfort', 'crowd', 'travel', 'show', 'showSections', 'music', 'musicSources']) {
         assert.ok(club._vrQuickMenuPageDefinitions(page).length <= 12, `${page} has more buttons than the menu has slots`);
     }
     const music = club._vrQuickMenuPageDefinitions('music');
@@ -7944,7 +7944,15 @@ function deskHarness() {
         showErrorMessage: text => toasts.push(text),
         isPeopleVisible: name => people[name] !== false,
         togglePeopleVisible: name => (people[name] = people[name] === false),
-        getPlaybackInfo: () => ({ playing: false }),
+        audioElement: { src: 'https://example.com/set.mp3' },
+        _audioKind: 'url',
+        _playbackInfo: { playing: false, seekable: true, position: 75, duration: 3600 },
+        getPlaybackInfo() { return this._playbackInfo; },
+        setAudioPlayback(playing) { calls.push(`playback ${playing}`); this._playbackInfo.playing = playing; return true; },
+        stopAudioPlayback() { calls.push('stop'); this._playbackInfo.playing = false; this._playbackInfo.position = 0; return true; },
+        seekAudioBy(delta) { calls.push(`seek ${delta}`); this._playbackInfo.position += delta; return true; },
+        seekAudioToFraction(fraction) { calls.push(`seekFraction ${fraction}`); this._playbackInfo.position = fraction * this._playbackInfo.duration; return true; },
+        setPhotosensitiveSafeMode(value) { calls.push(`safe ${value}`); this.photosensitiveSafeMode = value; },
         resetVJControls() { calls.push('reset'); this.vjManualMode = false; },
         vjDirector: {
             bpm: 124, targetMasterIntensity: 1,
@@ -7963,15 +7971,15 @@ function deskHarness() {
         camera: { position: { x: 0, y: 2.2, z: -19.4 } },
         _playerCamera() { return this.camera; }
     });
-    const button = id => [...VJDeskLayout.buttons.show, ...VJDeskLayout.buttons.lights].find(b => b.id === id);
+    const button = id => Object.values(VJDeskLayout.buttons).flat().find(b => b.id === id);
     const press = id => club._runVJDeskButton(button(id));
     return { club, toasts, calls, people, press, button, VJDeskLayout, VRClubUI, setNow: ms => { now = ms; } };
 }
 
 test('the VJ desk: every button fits its panel, nothing overlaps, and every light is one the club knows', () => {
     const { VJDeskLayout, VRClubUI } = deskHarness();
-    const { width, height } = VJDeskLayout.config.canvas;
     for (const [panel, buttons] of Object.entries(VJDeskLayout.buttons)) {
+        const { width, height } = panel === 'transport' ? VJDeskLayout.config.transport.canvas : VJDeskLayout.config.canvas;
         const ids = new Set();
         for (const b of buttons) {
             assert.ok(!ids.has(b.id), `${panel}: ${b.id} twice`);
@@ -7979,7 +7987,8 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             assert.ok(b.label && b.label === b.label.toUpperCase(), `${b.id} needs a plain upper-case label`);
             const r = b.rect;
             assert.ok(r.x >= 0 && r.y >= 130 && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            assert.ok(r.h >= 70 && r.w >= (b.kind === 'section' ? 270 : 300), `${b.id} is too small to hit with a controller ray`);
+            const minimumWidth = panel === 'transport' ? 250 : b.kind === 'section' ? 270 : 300;
+            assert.ok(r.h >= 70 && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
                 const o = other.rect;
@@ -7989,6 +7998,9 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             if (b.kind === 'fader') {
                 const track = VJDeskLayout.faderTrack(r);
                 assert.ok(track.left > r.x + 200 && track.right < r.x + r.w - 100 && track.right - track.left > 400, `${b.id}'s track`);
+            } else if (b.kind === 'seek') {
+                const track = VJDeskLayout.seekTrack(r);
+                assert.ok(track.left > r.x && track.right < r.x + r.w && track.right - track.left > 1200, `${b.id}'s seek track`);
             }
         }
     }
@@ -8001,6 +8013,8 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     assert.ok(labels.includes('SPOT AIM PATH'), 'the desk calls a movement path a shape or pattern');
     assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
     assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
+    assert.deepEqual([...VJDeskLayout.buttons.transport.map(button => button.label)],
+        ['PLAY', 'PAUSE', 'STOP', 'SET POSITION']);
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
     const source = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
     const listed = (source.match(/const TOGGLE_CONTROLS = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\)/)[1])
@@ -8087,6 +8101,34 @@ test('the VJ desk under Photosensitive Safe Mode: the strobes cannot be switched
     assert.equal(club.strobesActive, false);
     assert.equal(club._vjDeskButtonState(button('strobes')).value, 'SAFE MODE');
     assert.equal(club._vjDeskButtonState(button('flash')).value, 'SAFE MODE');
+    press('safeMode');
+    assert.equal(club.photosensitiveSafeMode, false, 'the personal desk switch turns Safe Mode back off');
+});
+
+test('the VJ desk set player delegates play, pause and stop, then seeks once when its slider is released', () => {
+    const { club, press, calls, button, VJDeskLayout } = deskHarness();
+    press('play');
+    press('pause');
+    press('stop');
+    const track = VJDeskLayout.seekTrack(button('seek').rect);
+    assert.equal(club._vjDeskSetSeekPreview(button('seek'), track.left + (track.right - track.left) * 0.25), true);
+    assert.deepEqual(calls, ['playback true', 'playback false', 'stop'], 'dragging only previews; it does not repeatedly seek');
+    assert.equal(club._vjDeskButtonState(button('seek')).value, '15:00 / 60:00');
+    club.releaseVJDesk();
+    assert.deepEqual(calls, ['playback true', 'playback false', 'stop', 'seekFraction 0.25']);
+    assert.equal(club._vjDeskPlayerStatus().title, 'SET PLAYER');
+    assert.match(club._vjDeskPlayerStatus().detail, /PAUSED.*15:00 \/ 60:00/);
+});
+
+test('the VJ desk set player explains live and host-owned controls instead of pretending they worked', () => {
+    const { club, press, calls, button } = deskHarness();
+    club._playbackInfo.seekable = false;
+    assert.equal(club._vjDeskDisabledReason(button('seek')), 'LIVE: NO TIMELINE');
+    assert.equal(club._vjDeskSetSeekPreview(button('seek'), 500), false);
+    club.multiplayer = { following: true, hostName: () => 'Bo' };
+    press('play');
+    assert.deepEqual(calls, [], 'a guest must not change the host music');
+    assert.equal(club._vjDeskButtonState(button('play')).value, 'HOST ONLY');
 });
 
 test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom of COMFORT', () => {
@@ -8103,12 +8145,23 @@ test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom
 test('all VJ surfaces distinguish spotlight aim paths from projected gobo images', () => {
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON: {} });
     const club = Object.create(window.VRClubUI.prototype);
-    const lighting = club._vrQuickMenuPageDefinitions('lighting');
+    const lighting = club._vrQuickMenuPageDefinitions('lights');
     const effects = club._vrQuickMenuPageDefinitions('effects');
     assert.ok(lighting.some(button => button && button.label === 'SPOT AIM PATH' && button.control === 'cyclePattern'));
-    assert.ok(effects.some(button => button && button.label === 'PROJECT GOBO' && button.control === 'goboActive'));
+    assert.ok(lighting.some(button => button && button.label === 'MATCH ALL COLOURS'));
+    assert.ok(!lighting.some(button => button && /^LED /.test(button.label)), 'LED effects leaked onto the Lights page');
+    assert.ok(effects.some(button => button && button.label === 'PROJECTED GOBO' && button.control === 'goboActive'));
     assert.ok(effects.some(button => button && button.label === 'GOBO IMAGE' && button.control === 'cycleGoboPattern'));
+    assert.ok(effects.some(button => button && button.label === 'LED WALL'));
+    assert.ok(!effects.some(button => button && button.control === 'photosensitiveSafeMode'), 'Safe Mode is duplicated outside Comfort');
     assert.ok(lighting.length <= 12 && effects.length <= 12, 'clarified controls overflow the VR menu');
+
+    const show = club._vrQuickMenuPageDefinitions('show');
+    const sections = club._vrQuickMenuPageDefinitions('showSections');
+    assert.ok(show.some(button => button && button.action === 'showDrop'));
+    assert.ok(show.some(button => button && button.target === 'showSections'));
+    assert.deepEqual([...sections.filter(button => button.action === 'showSection').map(button => button.section)],
+        ['arrival', 'pulse', 'ascent', 'ignition', 'afterglow']);
 
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /data-control="cyclePattern">AIM PATH: RANDOM</);
