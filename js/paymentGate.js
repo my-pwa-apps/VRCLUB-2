@@ -7,7 +7,7 @@
     let access = { entitled: false, verified: false, deviceRegistered: false, devices: [] };
     let dialog, content, status, close, opener, checkPromise, checkError, challenge, nextFocus;
     let accessRevision = 0, recoveryEmail = '', recoveryCode = '';
-    let invitationCode = '', invitationStep = null;
+    let invitationCode = '', invitationStep = null, accessPath = null;
     const SETUP_LEASE_HOLD_MS = 10 * 60 * 1000;
     let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0, setupHoldUntil = 0;
     let renewTimer, expiryTimer, setupHoldTimer, exiting = false;
@@ -173,7 +173,13 @@
                 setStatus('Invitation saved for this flow. Verify your email to activate it; it has not been used yet.');
             }
         });
-        button('Cancel invitation', () => { invitationStep = null; invitationCode = ''; render(); setStatus(message()); });
+        button('Back to access options', () => {
+            invitationStep = null;
+            invitationCode = '';
+            accessPath = null;
+            render();
+            setStatus(message());
+        });
     }
     function syncControls() {
         if (!content) return;
@@ -218,15 +224,40 @@
     function render() {
         content.replaceChildren();
         content.scrollTop = 0;
+        if (access.entitled && (!access.verified || access.recoveryRequired)) accessPath = 'restore';
         if (!access.entitled && invitationStep === 'code') {
             invitationEntry();
             syncControls();
             return;
         }
-        if (!access.entitled && !invitationStep && (!access.verified || access.recoveryRequired)) {
-            button('Use invitation code', () => { invitationStep = 'code'; render(); setStatus('Enter your eight-digit invitation using the keypad.'); });
+        if (!access.entitled && !invitationStep && !accessPath) {
+            content.append(element('p', access.verified
+                ? `Email verified: ${access.email || 'verified'}. Choose how to add VR access.`
+                : 'Desktop mode is free. Choose one path when you want immersive VR.'));
+            const paths = element('div', '', 'payment-paths');
+            button('Use an invitation', () => {
+                accessPath = 'invite';
+                invitationStep = 'code';
+                render();
+                setStatus('Enter your eight-digit invitation using the keypad.');
+            }, paths);
+            if (!access.verified || access.recoveryRequired) {
+                button('Restore existing access', () => {
+                    accessPath = 'restore';
+                    render();
+                    setStatus('Verify the email previously linked to your access.');
+                }, paths);
+            }
+            button('Buy VR access — €1.99', () => {
+                accessPath = 'buy';
+                render();
+                setStatus('Enter the email for your receipt, then continue to secure checkout.');
+            }, paths);
+            content.append(paths);
+            syncControls();
+            return;
         }
-        if (!access.verified || access.recoveryRequired) {
+        if ((!access.verified || access.recoveryRequired) && accessPath !== 'buy') {
             const guided = invitationStep === 'email';
             content.append(element('p', invitationStep === 'email'
                 ? challenge
@@ -297,7 +328,11 @@
                         invitationStep = 'code';
                         await activateInvitation(invitationCode);
                     }
-                } else { render(); setStatus(message()); }
+                } else {
+                    if (accessPath === 'restore' && !access.entitled) accessPath = null;
+                    render();
+                    setStatus(access.entitled ? message() : 'That email is verified but has no VR access to restore. Choose an invitation or purchase.');
+                }
             });
             if (guided && !challenge) {
                 code.parentElement.hidden = true;
@@ -308,9 +343,16 @@
             if (invitationStep === 'email') button('Change invitation code', () => {
                 invitationStep = 'code'; render(); setStatus('Your invitation has not been used yet.');
             });
-        } else {
+            else if (!access.entitled) button('Back to access options', () => {
+                accessPath = null;
+                challenge = null;
+                recoveryCode = '';
+                render();
+                setStatus(message());
+            });
+        } else if (access.verified) {
             content.append(element('p', `Verified email: ${access.email || 'verified'}`));
-            if (!access.entitled) {
+            if (!access.entitled && accessPath !== 'buy') {
                 invitationEntry();
             }
             if (access.entitled) {
@@ -386,16 +428,21 @@
                 });
             }
         }
-        if (!access.entitled && !invitationStep) {
-            content.append(element('p', 'Desktop mode is free. Immersive VR costs €1.99 once, or use an invitation after email verification.'));
+        if (!access.entitled && !invitationStep && accessPath === 'buy') {
+            content.append(element('p', 'Immersive VR costs €1.99 once. Desktop mode stays free.'));
             const email = input('Email for your receipt', 'email');
             email.required = true;
             email.autocomplete = 'email';
-            button('Buy VR access — €1.99', async () => {
+            primaryButton('Continue to secure checkout', async () => {
                 if (!validEmail(email)) return;
                 const result = await post('/checkout', { email: email.value.trim() });
                 if (!result.url) throw new Error('Checkout did not return a secure payment URL.');
                 window.location.assign(result.url);
+            });
+            button('Back to access options', () => {
+                accessPath = null;
+                render();
+                setStatus(message());
             });
         }
         syncControls();
@@ -601,7 +648,7 @@
     // Same pattern as the other corner buttons: an icon over one word.
     const toggle = element('button', '', 'payment-toggle');
     toggle.type = 'button';
-    const toggleIcon = element('span', '\uD83D\uDD11');
+    const toggleIcon = element('span', '', 'payment-icon');
     toggleIcon.setAttribute('aria-hidden', 'true');
     toggle.append(toggleIcon, element('span', 'Access', 'toggle-word'));
     toggle.addEventListener('click', showGate);

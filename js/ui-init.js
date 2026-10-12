@@ -47,6 +47,83 @@ function closeOtherSidePanels(openId) {
     }
 }
 
+function initPanelSwitchers() {
+    const toggleByPanel = {
+        vjMenu: 'vjToggle',
+        audioMenu: 'audioToggle',
+        networkMenu: 'networkToggle'
+    };
+    document.querySelectorAll('[data-open-panel]').forEach(button => {
+        button.addEventListener('click', () => {
+            const panelId = button.dataset.openPanel;
+            const panel = document.getElementById(panelId);
+            const toggle = document.getElementById(toggleByPanel[panelId]);
+            if (!panel || !toggle || !panel.classList.contains('hidden')) return;
+            toggle.click();
+        });
+    });
+}
+
+function initVJTabs() {
+    const tabs = Array.from(document.querySelectorAll('[data-vj-tab-target]'));
+    const panels = Array.from(document.querySelectorAll('[data-vj-tab-panel]'));
+    const select = tab => {
+        const target = tab.dataset.vjTabTarget;
+        tabs.forEach(candidate => {
+            const selected = candidate === tab;
+            candidate.classList.toggle('active', selected);
+            candidate.setAttribute('aria-selected', String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+        });
+        panels.forEach(panel => { panel.hidden = panel.dataset.vjTabPanel !== target; });
+    };
+    tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => select(tab));
+        tab.addEventListener('keydown', event => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            const direction = event.key === 'ArrowRight' ? 1 : -1;
+            const next = tabs[(index + direction + tabs.length) % tabs.length];
+            select(next);
+            next.focus();
+        });
+    });
+    if (tabs[0]) select(tabs.find(tab => tab.getAttribute('aria-selected') === 'true') || tabs[0]);
+}
+
+function initAudioSourceTabs() {
+    const tabs = Array.from(document.querySelectorAll('[data-audio-source]'));
+    const panels = {
+        link: document.getElementById('audioSourceLink'),
+        file: document.getElementById('audioSourceFile'),
+        folder: document.getElementById('audioSourceFolder')
+    };
+    const select = tab => {
+        const target = tab.dataset.audioSource;
+        tabs.forEach(candidate => {
+            const selected = candidate === tab;
+            candidate.classList.toggle('active', selected);
+            candidate.setAttribute('aria-selected', String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+        });
+        Object.entries(panels).forEach(([name, panel]) => {
+            if (panel) panel.hidden = name !== target;
+        });
+    };
+    tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => select(tab));
+        tab.addEventListener('keydown', event => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            const direction = event.key === 'ArrowRight' ? 1 : -1;
+            const next = tabs[(index + direction + tabs.length) % tabs.length];
+            select(next);
+            next.focus();
+        });
+    });
+    if (tabs[0]) select(tabs[0]);
+}
+
 /**
  * Every UI timing constant in one place. These were previously six different
  * hard-coded setTimeout values with no rationale, one of which (the 1500 ms label
@@ -93,6 +170,15 @@ function setToggleState(button, on) {
     if (!button) return;
     button.classList.toggle('active', !!on);
     if (button.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(!!on));
+    if (!button.matches('.vj-button[data-control], .vj-button[data-people]')) return;
+    let state = button.querySelector('.button-state');
+    if (!state && !/:\s*(?:ON|OFF)\s*$/i.test(button.textContent)) {
+        state = document.createElement('span');
+        state.className = 'button-state';
+        state.setAttribute('aria-hidden', 'true');
+        button.append(state);
+    }
+    if (state) state.textContent = on ? 'ON' : 'OFF';
 }
 
 // =============================================================================
@@ -210,7 +296,7 @@ function startEntryMusic(club, pointAtAudioMenu) {
     const item = library.current();
     const nowPlaying = document.getElementById('audioNowPlaying');
     if (!item) {
-        entryNowPlaying = 'No music included. Open Music to add your own set.';
+        entryNowPlaying = 'No music selected. Add a link, file or folder below.';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
         pointAtAudioMenu();
         return;
@@ -325,6 +411,7 @@ function hideSplashWhenReady() {
         // stay out of the tab order or focus walks behind it invisibly.
         if (mainExperience) mainExperience.removeAttribute('inert');
         if (canvas) canvas.focus({ preventScroll: true });
+        showFirstRunHint();
     };
 
     const capTimer = setTimeout(() => {
@@ -351,6 +438,28 @@ function hideSplashWhenReady() {
     });
 }
 
+function showFirstRunHint() {
+    const hint = document.getElementById('firstRunHint');
+    const close = document.getElementById('firstRunHintClose');
+    if (!hint || !close) return;
+    let dismissed = false;
+    try {
+        dismissed = localStorage.getItem('vrclub.welcomeDismissed') === '1';
+    } catch (error) {
+        uiLog.warn('Could not read the welcome hint preference:', error);
+    }
+    if (dismissed) return;
+    hint.hidden = false;
+    close.addEventListener('click', () => {
+        hint.hidden = true;
+        try {
+            localStorage.setItem('vrclub.welcomeDismissed', '1');
+        } catch (error) {
+            uiLog.warn('Could not save the welcome hint preference:', error);
+        }
+    }, { once: true });
+}
+
 // =============================================================================
 // VJ MENU CONTROLS
 // =============================================================================
@@ -373,6 +482,9 @@ function initMenus() {
     initVJMenu();
     initAudioMenu();
     initNetworkMenu();
+    initPanelSwitchers();
+    initVJTabs();
+    initAudioSourceTabs();
     initKeyboardShortcuts();
     uiLog.info('VJ/Audio menus initialized');
 }
@@ -415,7 +527,7 @@ function initVJMenu() {
             const minimized = vjMenu.classList.toggle('minimized');
             const glyph = vjMinimize.querySelector('span') || vjMinimize;
             glyph.textContent = minimized ? '+' : '\u2212';
-            vjMinimize.setAttribute('aria-label', minimized ? 'Expand VJ panel' : 'Minimize VJ panel');
+            vjMinimize.setAttribute('aria-label', minimized ? 'Expand Show and Lights panel' : 'Minimize Show and Lights panel');
             vjMinimize.setAttribute('aria-expanded', String(!minimized));
         });
     }
@@ -888,10 +1000,10 @@ function initVJMenu() {
             } else if (control === 'toggleShow') {
                 setToggleState(button, !!(vrClubInstance.showDirector && vrClubInstance.showDirector.enabled));
             } else if (TOGGLE_CONTROLS.has(control)) {
-                setToggleState(button, vrClubInstance[control]);
                 if (control === 'mirrorBallRaysActive') {
                     button.textContent = `MIRROR BEAMS: ${vrClubInstance[control] ? 'ON' : 'OFF'}`;
                 }
+                setToggleState(button, vrClubInstance[control]);
             }
             // Momentary actions (changeColor, cycle*, nextMovement, showCountdown,
             // reverseGoboSpin) carry no persistent state and are deliberately skipped.
@@ -1432,11 +1544,21 @@ function initAudioMenu() {
     const seekTotal = document.getElementById('audioSeekTotal');
     const seekBack = document.getElementById('audioSeekBack');
     const seekForward = document.getElementById('audioSeekForward');
+    const transportSection = document.getElementById('audioTransportSection');
+    const previousSource = document.getElementById('audioPreviousSource');
+    const playbackToggle = document.getElementById('audioPlaybackToggle');
+    const stopPlayback = document.getElementById('audioStop');
+    const nextSource = document.getElementById('audioNextSource');
+    const transportButtons = [previousSource, playbackToggle, stopPlayback, nextSource].filter(Boolean);
     let seekDragging = false;
     const SEEK_STEPS = 1000;
     const renderSeek = () => {
         if (!seek || !seekSection) return;
         const info = vrClubInstance.getPlaybackInfo();
+        const hasSource = !!(vrClubInstance._audioKind ||
+            (vrClubInstance.audioElement && vrClubInstance.audioElement.src));
+        if (transportSection) transportSection.setAttribute('aria-disabled', String(!hasSource));
+        transportButtons.forEach(button => { button.disabled = !hasSource; });
         // Keep the Play/Pause label honest when something else (the VR menu, a media key) changed it.
         if (vrClubInstance._audioKind === 'soundcloud') {
             if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Player open';
@@ -1477,10 +1599,6 @@ function initAudioMenu() {
     const runTransport = action => Promise.resolve(action()).then(() => renderSeek()).catch(error => {
         showStatus(error.message, 'error');
     });
-    const previousSource = document.getElementById('audioPreviousSource');
-    const playbackToggle = document.getElementById('audioPlaybackToggle');
-    const stopPlayback = document.getElementById('audioStop');
-    const nextSource = document.getElementById('audioNextSource');
     if (previousSource) previousSource.addEventListener('click', () => runTransport(() => vrClubInstance.stepAudioSource(-1)));
     if (playbackToggle) playbackToggle.addEventListener('click', () => runTransport(() => vrClubInstance.toggleAudioPlayback()));
     if (stopPlayback) stopPlayback.addEventListener('click', () => runTransport(() => vrClubInstance.stopAudioPlayback()));
@@ -1646,8 +1764,8 @@ function initAudioMenu() {
 function initRoomGuestLock(mp) {
     const club = vrClubInstance;
     const panels = [
-        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming' },
-        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, #djStyle' }
+        { id: 'vjMenu', what: 'show controls', keep: '#vjSafeModeBtn, #vjVRComfortBtn, #vjMinimize, #vjClose, [data-open-panel], [data-vj-tab-target], [data-control="cycleGraphicsQuality"], [data-people], [data-hold], #vjHoldTiming, #djStyle' },
+        { id: 'audioMenu', what: 'music', keep: '#audioMinimize, #audioClose, #audioVolume, #crowdAmbience, [data-open-panel]' }
     ];
     const renders = [];
     for (const panel of panels) {

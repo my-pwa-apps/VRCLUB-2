@@ -139,6 +139,23 @@ html, body {
     letter-spacing: 0.02em;
 }
 
+.ui-icon-defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.app-icon {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .camera-controls-toggle:hover,
 .camera-controls-toggle[aria-expanded="true"] {
     background: rgba(102, 126, 234, 0.65);
@@ -328,6 +345,17 @@ html, body {
     transition: opacity var(--transition-normal);
 }
 
+/* A side panel can cover the corner controls on compact viewports. Do not leave a visible button that cannot receive
+   a click; the panel's own switcher replaces Show, Music and Online until it is closed. */
+body:has(.panel:not(.hidden)) .payment-toggle,
+#mainExperience:has(.panel:not(.hidden)) > #vjToggle,
+#mainExperience:has(.panel:not(.hidden)) > #audioToggle,
+#mainExperience:has(.panel:not(.hidden)) > #networkToggle,
+#mainExperience:has(.panel:not(.hidden)) > #cameraControls {
+    visibility: hidden;
+    pointer-events: none;
+}
+
 .panel-header {
     display: flex;
     justify-content: space-between;
@@ -355,6 +383,54 @@ html, body {
 .panel-header-actions {
     display: flex;
     gap: 8px;
+}
+
+.panel-switcher {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 10px;
+    padding: 3px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.panel-switcher button,
+.vj-tabs button,
+.audio-source-tab {
+    min-height: 38px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    font: 600 11px/1 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.panel-switcher button:hover,
+.panel-switcher button[aria-current="page"],
+.vj-tabs button:hover,
+.vj-tabs button.active,
+.audio-source-tab:hover,
+.audio-source-tab.active {
+    border-color: rgba(122, 162, 255, 0.6);
+    background: rgba(102, 126, 234, 0.35);
+    color: #ffffff;
+}
+
+.vj-tabs,
+.audio-source-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.audio-source-tabs {
+    grid-template-columns: repeat(3, 1fr);
+    margin-top: 8px;
 }
 
 /* 44px: the practical minimum for a Quest raycast pointer, which jitters far more
@@ -392,6 +468,20 @@ html, body {
        on every laptop/phone/Quest viewport, and offers no scrollbar - which put the
        accessibility section permanently out of reach. It also ends above the credits link. */
     max-height: calc(100dvh - 120px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    overscroll-behavior: contain;
+}
+
+#vjMenu .panel-header,
+#vjMenu .panel-switcher,
+#vjMenu .vj-tabs {
+    flex-shrink: 0;
+}
+
+#vjMenu .vj-content {
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
 }
@@ -405,6 +495,13 @@ html, body {
 }
 
 #vjMenu.minimized .vj-content {
+    display: none;
+}
+
+#vjMenu.minimized .panel-switcher,
+#vjMenu.minimized .vj-tabs,
+#audioMenu.minimized .panel-switcher,
+#networkMenu.minimized .panel-switcher {
     display: none;
 }
 
@@ -454,6 +551,15 @@ html, body {
     transition: transform var(--transition-fast), background var(--transition-fast);
     text-align: center;
     font-weight: 500;
+}
+
+.button-state {
+    display: block;
+    margin-top: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
 }
 
 .vj-button-wide {
@@ -1056,6 +1162,105 @@ html, body {
 
 .audio-section {
     margin-bottom: 12px;
+}
+
+.audio-source-panel {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.audio-source-panel > .audio-primary-button {
+    width: 100%;
+    justify-content: center;
+}
+
+.audio-optional {
+    opacity: 0.62;
+    font-weight: 400;
+}
+
+#audioTransportSection[aria-disabled="true"] {
+    opacity: 0.55;
+}
+
+.audio-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    transform: none;
+}
+
+.panel,
+.vj-content,
+.audio-content,
+.payment-card {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(122, 162, 255, 0.65) rgba(255, 255, 255, 0.06);
+}
+
+.panel::-webkit-scrollbar,
+.vj-content::-webkit-scrollbar,
+.audio-content::-webkit-scrollbar,
+.payment-card::-webkit-scrollbar {
+    width: 8px;
+}
+
+.panel::-webkit-scrollbar-thumb,
+.vj-content::-webkit-scrollbar-thumb,
+.audio-content::-webkit-scrollbar-thumb,
+.payment-card::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 8px;
+    background: rgba(122, 162, 255, 0.65);
+    background-clip: padding-box;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.first-run-hint {
+    position: fixed;
+    left: 50%;
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    z-index: 104;
+    display: grid;
+    gap: 3px;
+    width: min(430px, calc(100vw - 32px));
+    box-sizing: border-box;
+    padding: 14px 48px 14px 16px;
+    border: 1px solid rgba(122, 162, 255, 0.65);
+    border-radius: 10px;
+    background: rgba(6, 8, 18, 0.94);
+    color: white;
+    box-shadow: var(--shadow-lg);
+    font: 13px/1.45 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.first-run-hint strong {
+    color: #a8bcff;
+    letter-spacing: 0.04em;
+}
+
+.first-run-hint span {
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.first-run-hint button {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    background: transparent;
+    color: white;
+    font-size: 22px;
+    cursor: pointer;
 }
 
 .audio-section:last-child {
@@ -2074,6 +2279,8 @@ button:active,
     font-weight: 700;
 }
 .payment-primary:hover { background: #009090; }
+.payment-paths { display: grid; gap: .65rem; }
+.payment-paths .audio-button { width: 100%; justify-content: center; }
 .payment-content > *, .payment-content input { min-width: 0; }
 .payment-keypad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
 .payment-keypad button { min-height: 48px; padding: .5rem; font-size: 1.05rem; }
@@ -2108,6 +2315,13 @@ button:active,
 }
 .payment-toggle:hover { background: var(--accent); transform: scale(1.05); }
 .payment-toggle:focus-visible { outline: 3px solid #7aa2ff; outline-offset: 2px; }
+.payment-icon {
+    width: 22px;
+    height: 22px;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='8' cy='12' r='4'/%3E%3Cpath d='M12 12h9M17 12v3M20 12v2'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='8' cy='12' r='4'/%3E%3Cpath d='M12 12h9M17 12v3M20 12v2'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 .payment-close {
     min-width: 64px;
     padding: .5rem .75rem;

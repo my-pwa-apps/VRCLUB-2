@@ -1335,7 +1335,7 @@ the relay URL. Private rooms successfully joined on this device are also remembe
 |-------|-----|
 | IndexedDB `VRClubTextureCache` / `textures` | asset URL |
 | IndexedDB `VRClubModelCache` / `models` | asset URL |
-| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questMusicPlayback` (selected finite source and last playback position), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`) |
+| `localStorage` | `vrclub.safeMode`, `vrclub.graphicsTier`, `vrclub.avatarStyle` (`female`/`male`), `vrclub.crowdAmbience`, `vrclub.questMusic` (saved links/names/selection), `vrclub.questMusicPlayback` (selected finite source and last playback position), `vrclub.questDJ` (`male`/`female`), `vrclub.lightHold` (JSON hold policy), `vrclub.networkServerUrl`, `vrclub.networkRoom`, `vrclub.networkName`, `vrclub.networkUid` (secret; never shown), `vrclub.blockedPeers`, `vrclub.personalSpace`, `vrclub.autoNod`, `vrclub.avatarPool`, `vrclub.nameTags` (`'0'` = hidden), `vrclub.duckForVoice` (`'0'` = off), `vrclub.hiddenPeople` (a comma-separated list of the groups sent home: `dancers`, `bystanders`, `dj`), `vrclub.welcomeDismissed` (`'1'` after dismissing the one-time in-club controls hint) |
 
 VR comfort is persisted separately as `vrclub.vrComfort` (off for new visitors; only stored `1` enables it).
 The splash and constructor use `resolveVRComfortMode()` so existing saved choices are preserved.
@@ -1457,22 +1457,26 @@ writing `instance[attributeValue]` directly.
 could synthesize its own hues and visibly break the one-colour rig.
 
 Panel layout (`css/styles.css`): the panels (`.panel`, z-index 102) sit above the corner toggle buttons (101) and the
-credits link (100), because on a phone a full-width panel otherwise sat under the Multiplayer toggle, which covered its
-close button; every panel has its own close. Each panel has a definite `width` (VJ 480, Audio 340, Multiplayer 380 px,
+credits link (100), because on a phone a full-width panel otherwise sat under a corner toggle, which covered its
+close button; every panel has its own close. Show & Lights, Music and Online each carry the same in-panel switcher, so
+the covered corner controls are never needed to move between panels. Show & Lights has four progressive tabs:
+Show, Lights, Effects and Club; DJ choice belongs to Club rather than Music. Each panel has a definite `width`
+(Show & Lights 480, Music 340, Online 380 px,
 `auto` under 720 px wide), so a long line wraps instead of widening the panel (a room-guest note once stretched the
-Multiplayer panel across the screen). Multi-line explanations use `.network-help` (and `.vj-help` under a VJ section
+Online panel across the screen). Multi-line explanations use `.network-help` (and `.vj-help` under a VJ section
 title); `.audio-file-name` is single-line with an ellipsis and is only for short status lines.
 The Quest Music panel is height-bounded at every viewport width, with a fixed header and a scrollable
 `.audio-content`; focusing the URL must never move the close/Enter VR path offscreen. It leads with the link field and
 its Paste / Save & play actions; the long "what can I paste" explanation is a `<details class="audio-help">`, so the
-controls are never pushed below the fold. **The VJ, Music and Multiplayer panels are mutually exclusive:** each
+controls are never pushed below the fold. Link, File and Folder are exclusive source tabs, and transport stays disabled
+until a source is active. **The Show & Lights, Music and Online panels are mutually exclusive:** each
 `open*Menu()` calls `closeOtherSidePanels(id)` first (they used to open on top of each other, the wide VJ panel hiding
 the Music controls). The Access button (`.payment-toggle`) follows the corner-button pattern (icon over one word).
 `[hidden]` must beat any `display:` set on a component (`.audio-source-hint[hidden]`): a hidden hint once still drew its bullet.
 
 **Plain-language UI rule.** Every control must say what it does without a tooltip (touch screens and the headset never
-show one): the corner buttons carry a word under the icon (Lights, Music, People, Go to), every VJ section has a
-one-sentence `.vj-help`, and the Multiplayer panel is a form read top to bottom. Before joining it shows only *Join a
+show one): the corner buttons carry a word under the monochrome SVG icon (Show, Music, Online, Go to), every VJ section has a
+one-sentence `.vj-help`, and the Online panel is a form read top to bottom. Before joining it shows only *Join a
 room* (labelled name and room fields, a primary **Join room**, *Start a private room*, and the relay URL tucked in an
 *Advanced* disclosure); in a room it shows *Talk*, *React*, *People*, and *Host tools* only to the host. A control that
 cannot do anything is **hidden** when it belongs to a state the user is not in (in-room sections before joining, host

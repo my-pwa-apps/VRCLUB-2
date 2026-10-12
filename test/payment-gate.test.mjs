@@ -67,6 +67,7 @@ function loadPaymentGate(handler, search = '') {
         async open() { await window.VRPayment.refreshEntitlement(); window.VRPayment.showGate(); await window.VRPayment.refreshEntitlement(); },
         async click(text) { assert.ok(button(text), `Missing ${text}`); await button(text).listeners.click(); },
         async verify() {
+            if (button('Restore existing access')) await this.click('Restore existing access');
             input('Email for access recovery').value = 'guest@example.com';
             await this.click('Send verification code');
             input('Eight-digit email verification code').value = '12345678';
@@ -131,12 +132,12 @@ test('verify email, redeem, register, prepare: each server-confirmed step is req
     })[path]);
     await gate.open();
     assert.equal(gate.button('Redeem invitation — no payment'), undefined);
+    await gate.click('Restore existing access');
     await gate.click('Verify email');
     assert.match(gate.status(), /Request a code/);
     await gate.verify();
     assert.deepEqual(gate.requests.find(r => r.path === '/recovery/start').body, { email: 'guest@example.com', intent: 'restore' });
-    await gate.click('Redeem invitation — no payment');
-    assert.match(gate.status(), /Enter your invitation/);
+    await gate.click('Use an invitation');
     gate.input('One-use VR invitation code').value = '00123456';
     await gate.click('Redeem invitation — no payment');
     assert.equal(gate.window.VRPayment.hasEntitlement(), true);
@@ -192,6 +193,7 @@ test('invalid invitation stays retryable and does not unlock access', async () =
         const gate = loadPaymentGate(path => path === '/entitlement'
             ? { ...fresh, verified: true } : failure);
         await gate.open();
+        await gate.click('Use an invitation');
         gate.input('One-use VR invitation code').value = '87654321';
         await gate.click('Redeem invitation — no payment');
         assert.equal(gate.window.VRPayment.hasEntitlement(), false);
@@ -203,7 +205,7 @@ test('invalid invitation stays retryable and does not unlock access', async () =
 test('numeric keypads preserve zeros, support correction and reject non-numeric paste without a headset keyboard', async () => {
     const gate = loadPaymentGate(() => fresh);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     assert.equal(gate.button('Use an older letter-and-number invitation'), undefined);
     assert.equal(gate.button('Use a new numeric invitation'), undefined);
     const field = gate.input('One-use VR invitation code');
@@ -237,7 +239,7 @@ test('guided invitation activation retains the code through email verification a
         '/devices/register': { entitled: true, deviceRegistered: true }
     })[path]);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     for (const digit of '00123456') await gate.click(digit);
     await gate.click('Continue with invitation');
     assert.equal(gate.input('Eight-digit email verification code').parentElement.hidden, true,
@@ -265,7 +267,7 @@ test('an invalid guided invitation stays editable after verification without rep
         '/redeem': { status: 409, body: { message: 'Code already used.' } }
     })[path]);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     for (const digit of '00123456') await gate.click(digit);
     await gate.click('Continue with invitation');
     await gate.verify();
@@ -283,7 +285,7 @@ test('restoring an already entitled email does not consume the staged invitation
         '/recovery/verify': { ...registered, email: 'guest@example.com' }
     })[path]);
     await gate.open();
-    await gate.click('Use invitation code');
+    await gate.click('Use an invitation');
     for (const digit of '00123456') await gate.click(digit);
     await gate.click('Continue with invitation');
     await gate.verify();
@@ -296,10 +298,12 @@ test('checkout preserves €1.99 and excludes duplicate or concurrent submission
     const gate = loadPaymentGate(async path => path === '/checkout'
         ? new Promise(resolve => { release = () => resolve({ url: 'https://checkout.stripe.com/test' }); }) : fresh);
     await gate.open();
-    gate.input('Email for your receipt').value = 'user@example.com';
-    const pending = gate.click('Buy VR access — €1.99');
-    assert.equal(gate.button('Send verification code').disabled, true);
     await gate.click('Buy VR access — €1.99');
+    assert.equal(gate.input('Email for access recovery'), undefined, 'purchase does not expose recovery controls');
+    gate.input('Email for your receipt').value = 'user@example.com';
+    const pending = gate.click('Continue to secure checkout');
+    assert.equal(gate.button('Continue to secure checkout').disabled, true);
+    await gate.click('Continue to secure checkout');
     assert.equal(gate.requests.filter(r => r.path === '/checkout').length, 1);
     release(); await pending;
     assert.equal(gate.window.location.assigned, 'https://checkout.stripe.com/test');
@@ -504,11 +508,12 @@ test('dialog preflight locks controls and preserves email; delayed challenge and
         return {};
     });
     gate.window.VRPayment.showGate();
-    assert.equal(gate.button('Send verification code').disabled, true);
-    await gate.click('Send verification code');
+    assert.equal(gate.button('Restore existing access').disabled, true);
+    await gate.click('Restore existing access');
     assert.equal(gate.requests.filter(request => request.path === '/recovery/start').length, 0);
     finishCheck(); await gate.window.VRPayment.refreshEntitlement();
-    assert.equal(gate.button('Send verification code').disabled, false);
+    assert.equal(gate.button('Restore existing access').disabled, false);
+    await gate.click('Restore existing access');
     const email = gate.input('Email for access recovery');
     email.value = 'guest@example.com';
     email.listeners.input();
@@ -526,7 +531,7 @@ test('dialog preflight locks controls and preserves email; delayed challenge and
     await gate.click('Verify email');
     assert.deepEqual(gate.requests.find(request => request.path === '/recovery/verify').body,
         { challenge: 'slow-challenge', code: '12345678' });
-    assert.ok(gate.input('One-use VR invitation code'));
+    assert.ok(gate.button('Use an invitation'));
 });
 
 test('VR entry checks the prepared lease synchronously and keeps enterXRAsync in the original click', async () => {

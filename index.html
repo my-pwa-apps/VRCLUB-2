@@ -163,9 +163,36 @@
     <main id="mainExperience" inert>
     <canvas id="canvas" class="hidden" tabindex="0"
             aria-label="Club scene. Use W, A, S, D or the arrow keys to move and drag with the mouse to look around."></canvas>
+
+    <svg class="ui-icon-defs" aria-hidden="true">
+        <symbol id="icon-show" viewBox="0 0 24 24">
+            <path d="M4 6h7M15 6h5M11 3v6M4 12h3M11 12h9M7 9v6M4 18h11M19 18h1M15 15v6"/>
+        </symbol>
+        <symbol id="icon-music" viewBox="0 0 24 24">
+            <path d="M9 18V6l10-2v12M9 9l10-2"/>
+            <circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>
+        </symbol>
+        <symbol id="icon-online" viewBox="0 0 24 24">
+            <circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/>
+            <path d="M2.5 20c.4-4 2.2-6 5.5-6s5.1 2 5.5 6M13 15c1-.9 2.2-1.4 3.8-1.4 2.8 0 4.3 1.8 4.7 5.4"/>
+        </symbol>
+        <symbol id="icon-travel" viewBox="0 0 24 24">
+            <path d="M12 22s7-7 7-13a7 7 0 1 0-14 0c0 6 7 13 7 13Z"/><circle cx="12" cy="9" r="2.5"/>
+        </symbol>
+        <symbol id="icon-access" viewBox="0 0 24 24">
+            <circle cx="8" cy="12" r="4"/><path d="M12 12h9M17 12v3M20 12v2"/>
+        </symbol>
+    </svg>
+
+    <aside id="firstRunHint" class="first-run-hint" aria-label="Getting started" hidden>
+        <button id="firstRunHintClose" type="button" aria-label="Dismiss getting started">×</button>
+        <strong>Welcome to NOCTURNE</strong>
+        <span>WASD to move · drag to look</span>
+        <span>Add your own set in Music · use Go to for instant viewpoints</span>
+    </aside>
     
     <!-- VJ Toggle Button -->
-    <button id="vjToggle" type="button" title="Show controls" aria-label="Open show controls" aria-expanded="false" aria-controls="vjMenu"><span aria-hidden="true">🎛️</span><span class="toggle-word" aria-hidden="true">Show</span></button>
+    <button id="vjToggle" type="button" title="Show and lighting controls" aria-label="Open Show and Lights panel" aria-expanded="false" aria-controls="vjMenu"><svg class="app-icon" aria-hidden="true"><use href="#icon-show"></use></svg><span class="toggle-word" aria-hidden="true">Show</span></button>
     
     <!-- VJ Control Menu.
          Deliberately NOT role="dialog": these are non-modal disclosure panels layered
@@ -175,21 +202,34 @@
     <div id="vjMenu" class="panel hidden" role="group" aria-labelledby="vjMenuTitle">
         <div class="panel-header">
             <h2 class="panel-title" id="vjMenuTitle" tabindex="-1">
-                <span aria-hidden="true">🎛️</span>
-                <span>VJ Controls</span>
+                <svg class="app-icon" aria-hidden="true"><use href="#icon-show"></use></svg>
+                <span>Show &amp; Lights</span>
             </h2>
             <div class="panel-header-actions">
                 <button class="panel-btn-icon" id="vjMinimize" type="button" title="Minimize" aria-label="Minimize VJ panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
                 <button class="panel-btn-icon" id="vjClose" type="button" title="Close" aria-label="Close VJ panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
+
+        <nav class="panel-switcher" aria-label="Open control panel">
+            <button type="button" data-open-panel="vjMenu" aria-current="page">Show</button>
+            <button type="button" data-open-panel="audioMenu">Music</button>
+            <button type="button" data-open-panel="networkMenu">Online</button>
+        </nav>
+
+        <div class="vj-tabs" role="tablist" aria-label="Show and Lights sections">
+            <button type="button" role="tab" id="vjTabShow" data-vj-tab-target="show" aria-selected="true" aria-controls="vjTabPanelShow">Show</button>
+            <button type="button" role="tab" id="vjTabLights" data-vj-tab-target="lights" aria-selected="false" aria-controls="vjTabPanelLights">Lights</button>
+            <button type="button" role="tab" id="vjTabEffects" data-vj-tab-target="effects" aria-selected="false" aria-controls="vjTabPanelEffects">Effects</button>
+            <button type="button" role="tab" id="vjTabClub" data-vj-tab-target="club" aria-selected="false" aria-controls="vjTabPanelClub">Club</button>
+        </div>
         
         <div class="vj-content">
             <!-- Accessibility & Comfort.
                  FIRST section by design: the strobes are on by default, so the control
                  that turns them off must be above the fold on every viewport. -->
-            <div class="vj-section">
-                <div class="vj-section-title">♿ Accessibility &amp; Comfort</div>
+            <div class="vj-section" data-vj-tab-panel="club" id="vjTabPanelClub" role="tabpanel" aria-labelledby="vjTabClub" hidden>
+                <div class="vj-section-title">Accessibility &amp; Comfort</div>
                 <p class="vj-help">For you only: Safe Mode turns off every strobe and flash, VR Comfort makes headset movement gentler.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" id="vjSafeModeBtn" type="button" aria-pressed="false" title="Photosensitive Safe Mode — disables ALL strobes and bright flashes. Recommended for users with photosensitive epilepsy or migraine.">SAFE MODE</button>
@@ -199,8 +239,8 @@
 
             <!-- Who is in the club. A personal, local choice (not the host's), so it stays live in someone
                  else's room: see initRoomGuestLock's keep list. -->
-            <div class="vj-section">
-                <div class="vj-section-title">🧍 Who is in the club</div>
+            <div class="vj-section" data-vj-tab-panel="club" hidden>
+                <div class="vj-section-title">Crowd</div>
                 <p class="vj-help">For you only: send a group of people home to get the room to yourself. Bystanders are everyone who is not dancing — the guests at the sides, the bartender, and the doorman and the queue outside. A lit button means they are here.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button active" id="vjPeopleDancers" type="button" aria-pressed="true" data-people="dancers">DANCERS</button>
@@ -208,20 +248,31 @@
                     <button class="vj-button active" id="vjPeopleDJ" type="button" aria-pressed="true" data-people="dj">DJ</button>
                 </div>
                 <button class="vj-button vj-button-wide active" id="vjPeopleAll" type="button" aria-pressed="true" data-people="all">EVERYONE</button>
+                <label class="vj-field-label" for="djStyle">Resident DJ</label>
+                <select class="audio-input" id="djStyle">
+                    <option value="male">Male DJ</option>
+                    <option value="female">Female DJ</option>
+                </select>
             </div>
 
-            <!-- Main Toggles -->
-            <div class="vj-section">
-                <div class="vj-section-title">💡 Main Controls</div>
-                <p class="vj-help">Switch the club's lights and effects on or off. A lit button is on.</p>
+            <div class="vj-section" data-vj-tab-panel="lights" id="vjTabPanelLights" role="tabpanel" aria-labelledby="vjTabLights" hidden>
+                <div class="vj-section-title">Fixture power</div>
+                <p class="vj-help">Switch the main lighting fixtures on or off.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button active" type="button" aria-pressed="true" data-control="lightsActive">LIGHTS</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="lasersActive">LASERS</button>
-                    <button class="vj-button active" type="button" aria-pressed="true" data-control="ledWallActive">LED WALL</button>
-                    <button class="vj-button" type="button" aria-pressed="false" data-control="ledMonochrome">B&amp;W WALL</button>
-                    <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="mirrorBallActive">MIRROR BALL</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="laserSheetActive">LASER SHEET</button>
+                </div>
+            </div>
+
+            <div class="vj-section" data-vj-tab-panel="effects" id="vjTabPanelEffects" role="tabpanel" aria-labelledby="vjTabEffects" hidden>
+                <div class="vj-section-title">Atmosphere &amp; flashes</div>
+                <p class="vj-help">Control the LED wall, smoke and flashes. Safe Mode always prevents abrupt flashes.</p>
+                <div class="vj-button-grid">
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="ledWallActive">LED WALL</button>
+                    <button class="vj-button" type="button" aria-pressed="false" data-control="ledMonochrome">LED MONO</button>
+                    <button class="vj-button active" type="button" aria-pressed="true" data-control="strobesActive">STROBES</button>
                     <button class="vj-button" type="button" aria-pressed="false" data-control="smokeActive" title="Smoke machines and haze. Off gives clear air: the beams, lasers and the room's fog fade to almost nothing.">SMOKE</button>
                 </div>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleStrobePattern" title="How the four truss strobes fire: regular sequences or an irregular mode with short stabs and longer pauses. Every flash still obeys the shared safety limit.">STROBE PATTERN: ALL AT ONCE</button>
@@ -229,16 +280,16 @@
             </div>
             
             <!-- Spotlight Controls -->
-            <div class="vj-section">
-                <div class="vj-section-title">🔦 Spotlight Settings</div>
+            <div class="vj-section" data-vj-tab-panel="lights" hidden>
+                <div class="vj-section-title">Spotlight settings</div>
                 <p class="vj-help">The moving spotlights over the dance floor: their colour, movement mode, aim path, and speed.</p>
                 <div class="vj-button-grid">
-                    <button class="vj-button" type="button" data-control="changeColor">COLOR</button>
-                    <button class="vj-button" type="button" data-control="changeLaserColor" title="Change the ceiling lasers and the laser sheet together.">LASER COLOR</button>
-                    <button class="vj-button" type="button" data-control="matchAllColors" title="Use one colour for the moving heads, lasers, laser sheet, mirror ball and colour-following LED wall.">MATCH ALL COLORS</button>
+                    <button class="vj-button" type="button" data-control="changeColor">COLOUR</button>
+                    <button class="vj-button" type="button" data-control="changeLaserColor" title="Change the ceiling lasers and the laser sheet together.">LASER COLOUR</button>
+                    <button class="vj-button" type="button" data-control="matchAllColors" title="Use one colour for the moving heads, lasers, laser sheet, mirror ball and colour-following LED wall.">MATCH ALL COLOURS</button>
                     <button class="vj-button" type="button" data-control="cycleSpotMode">MODE: STROBE+SWEEP</button>
                     <button class="vj-button" type="button" data-control="cyclePattern">AIM PATH: RANDOM</button>
-                    <button class="vj-button" type="button" aria-pressed="true" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT FLASH</button>
+                    <button class="vj-button" type="button" aria-pressed="true" data-control="spotStrobeActive" title="Enable rapid flashes from the moving-head beams when the selected mode includes strobing.">SPOT STROBE</button>
                 </div>
                 <div class="vj-slider-container">
                     <input type="range" class="vj-slider" id="spotSpeed" min="0.1" max="2.0" step="0.1" value="1.0"
@@ -252,8 +303,8 @@
             </div>
             
             <!-- Gobo Filter Controls -->
-            <div class="vj-section">
-                <div class="vj-section-title">🎭 Projected Gobo Images</div>
+            <div class="vj-section" data-vj-tab-panel="lights" hidden>
+                <div class="vj-section-title">Projected gobo images</div>
                 <p class="vj-help">A gobo replaces each spotlight's soft pool with a rotating image projected where its beam meets the floor or wall. Open means the normal soft pool.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" aria-pressed="false" data-control="goboActive">PROJECT GOBO</button>
@@ -272,10 +323,10 @@
             </div>
             
             <!-- Mirror Ball Controls -->
-            <div class="vj-section">
-                <div class="vj-section-title">🪩 Mirror Ball</div>
+            <div class="vj-section" data-vj-tab-panel="lights" hidden>
+                <div class="vj-section-title">Mirror ball</div>
                 <p class="vj-help">The colour of the light on the mirror ball.</p>
-                <button class="vj-button vj-button-wide" type="button" data-control="changeMirrorBallColor">CHANGE COLOR</button>
+                <button class="vj-button vj-button-wide" type="button" data-control="changeMirrorBallColor">CHANGE COLOUR</button>
                 <button class="vj-button vj-button-wide" type="button" data-control="mirrorBallRaysActive"
                         title="Toggle the visible rays spreading out from the mirror ball. The reflected spots around the room stay on.">
                     MIRROR BEAMS: ON
@@ -283,15 +334,15 @@
             </div>
 
             <!-- Graphics Quality -->
-            <div class="vj-section">
-                <div class="vj-section-title">🎨 Graphics Quality</div>
+            <div class="vj-section" data-vj-tab-panel="club" hidden>
+                <div class="vj-section-title">Graphics quality</div>
                 <p class="vj-help">Higher looks better; lower runs smoother on a slow computer or headset.</p>
                 <button class="vj-button vj-button-wide" type="button" data-control="cycleGraphicsQuality" title="Cycle render quality: BALANCED / HIGH / ULTRA. Ultra adds screen-space reflections, contact-hardening shadows, motion blur and supersampling (desktop only).">QUALITY: AUTO</button>
             </div>
 
             <!-- Show Director: the composed, beat-locked light show -->
-            <div class="vj-section">
-                <div class="vj-section-title">🎭 Light Show</div>
+            <div class="vj-section" data-vj-tab-panel="show" id="vjTabPanelShow" role="tabpanel" aria-labelledby="vjTabShow">
+                <div class="vj-section-title">Automatic show</div>
                 <p class="vj-help">When on, the lights change by themselves with the music. Pick a section to jump to it and keep it; what happens next is set under <em>After I change something</em>.</p>
                 <button class="vj-button vj-button-wide" type="button" aria-pressed="true" data-control="toggleShow" title="NOCTURNE — the composed, beat-locked light show. When on, cues advance on musical bars and phrases instead of a wall-clock timer. Turn off to hand the rig back to the legacy auto-cycler.">SHOW: ON</button>
                 <div class="vj-button-grid" id="vjSections" role="group" aria-label="Show sections">
@@ -310,8 +361,8 @@
             </div>
 
             <!-- What the lights do after a hand-made change: keep it, return to auto, or shuffle the colours. -->
-            <div class="vj-section">
-                <div class="vj-section-title">⏱ After I change something</div>
+            <div class="vj-section" data-vj-tab-panel="show">
+                <div class="vj-section-title">After I change something</div>
                 <p class="vj-help">When you pick a colour, a section or an effect by hand, choose what the lights do next. This choice is saved on this device.</p>
                 <div class="vj-button-grid" role="group" aria-label="After a change">
                     <button class="vj-button" id="vjHoldKeep" type="button" aria-pressed="false" data-hold="keep" title="Keep exactly what I chose until I press Auto show.">KEEP IT</button>
@@ -325,8 +376,8 @@
             </div>
 
             <!-- VJ Director: Live Macros (the buttons every VJ has on a console) -->
-            <div class="vj-section">
-                <div class="vj-section-title">🎬 Live Macros</div>
+            <div class="vj-section" data-vj-tab-panel="show">
+                <div class="vj-section-title">Live macros</div>
                 <p class="vj-help">One-press moments for the dance floor, like a real lighting desk.</p>
                 <div class="vj-button-grid">
                     <button class="vj-button" id="vjDropBtn" type="button" title="Slam to DROP scene on the next beat (peak look + strobes + crossed beams). Shortcut: F">DROP</button>
@@ -356,20 +407,25 @@
     <button id="vrButton" type="button" title="Enter immersive VR" hidden>🥽 Enter VR</button>
     
     <!-- Audio Toggle Button -->
-    <button id="audioToggle" type="button" title="Audio Stream" aria-label="Open audio stream panel" aria-expanded="false" aria-controls="audioMenu"><span aria-hidden="true">🎵</span><span class="toggle-word" aria-hidden="true">Music</span></button>
+    <button id="audioToggle" type="button" title="Music" aria-label="Open Music panel" aria-expanded="false" aria-controls="audioMenu"><svg class="app-icon" aria-hidden="true"><use href="#icon-music"></use></svg><span class="toggle-word" aria-hidden="true">Music</span></button>
     
     <!-- Audio Upload Menu. See the note on #vjMenu for why this is not role="dialog". -->
     <div id="audioMenu" class="panel hidden" role="group" aria-labelledby="audioMenuTitle">
         <div class="panel-header">
             <h2 class="panel-title" id="audioMenuTitle" tabindex="-1">
-                <span aria-hidden="true">🎵</span>
-                <span>Your Music</span>
+                <svg class="app-icon" aria-hidden="true"><use href="#icon-music"></use></svg>
+                <span>Music</span>
             </h2>
             <div class="panel-header-actions">
                 <button class="panel-btn-icon" id="audioMinimize" type="button" title="Minimize" aria-label="Minimize audio panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
                 <button class="panel-btn-icon" id="audioClose" type="button" title="Close" aria-label="Close audio panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
+        <nav class="panel-switcher" aria-label="Open control panel">
+            <button type="button" data-open-panel="vjMenu">Show</button>
+            <button type="button" data-open-panel="audioMenu" aria-current="page">Music</button>
+            <button type="button" data-open-panel="networkMenu">Online</button>
+        </nav>
         
         <div class="audio-content">
             <!-- Now playing -->
@@ -380,66 +436,78 @@
             <!-- User-provided music only -->
             <div class="audio-section">
                 <div class="vj-section-title">Add music</div>
-                <div class="audio-input-group">
-                    <input type="url" class="audio-input" id="streamUrl" placeholder="Paste a music link (https://...)"
-                              inputmode="url" autocomplete="off"
-                           aria-label="Music link">
-                    <button class="audio-button audio-paste-button" id="pasteStreamBtn" type="button"
-                            aria-label="Paste a music link from the clipboard">Paste</button>
+                <p class="network-help">NOCTURNE includes no music. Add a link, file or folder below.</p>
+                <div class="audio-source-tabs" role="tablist" aria-label="Choose a music source">
+                    <button class="audio-source-tab active" type="button" role="tab" id="audioSourceTabLink" data-audio-source="link" aria-selected="true" aria-controls="audioSourceLink">Link</button>
+                    <button class="audio-source-tab" type="button" role="tab" id="audioSourceTabFile" data-audio-source="file" aria-selected="false" aria-controls="audioSourceFile">File</button>
+                    <button class="audio-source-tab" type="button" role="tab" id="audioSourceTabFolder" data-audio-source="folder" aria-selected="false" aria-controls="audioSourceFolder">Folder</button>
+                </div>
+
+                <div id="audioSourceLink" class="audio-source-panel" role="tabpanel" aria-labelledby="audioSourceTabLink">
+                    <div class="audio-input-group">
+                        <input type="url" class="audio-input" id="streamUrl" placeholder="Paste a music link (https://...)"
+                                  inputmode="url" autocomplete="off"
+                               aria-label="Music link">
+                        <button class="audio-button audio-paste-button" id="pasteStreamBtn" type="button"
+                                aria-label="Paste a music link from the clipboard">Paste</button>
+                    </div>
+                    <label for="setName">Set name <span class="audio-optional">(optional)</span></label>
+                    <input class="audio-input" id="setName" maxlength="60" placeholder="A name you will recognise in VR">
                     <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
-                        <span aria-hidden="true">▶️</span>
                         <span id="playStreamBtnLabel">Save &amp; play</span>
                     </button>
+                    <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
+                    <div id="feedEpisodeRow" class="audio-episode-row" hidden>
+                        <label for="feedEpisode">Episode</label>
+                        <select class="audio-input" id="feedEpisode" aria-label="Podcast episode"></select>
+                    </div>
+                    <div id="soundCloudFallback" class="audio-fallback" role="alert" hidden>
+                        <p class="network-help" id="soundCloudFallbackText"></p>
+                        <button class="audio-button" id="soundCloudFallbackBtn" type="button">Open in SoundCloud player</button>
+                    </div>
+                    <div id="soundCloudPlayer" class="soundcloud-player" hidden>
+                        <p class="network-help">SoundCloud's own player cannot be analysed: the crowd and DJ dance at an independent tempo and the lights run their own show. Use its controls for position and volume. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
+                    </div>
+                    <details class="audio-help">
+                        <summary>What can I paste?</summary>
+                        <ul class="network-help">
+                            <li><strong>A direct audio link:</strong> an HTTPS MP3, M4A, OGG or stream. The host must allow CORS.</li>
+                            <li><strong>A SoundCloud track.</strong> It plays through the club's own audio, so the crowd, DJ and lights follow it, whenever the creator shares the track with podcast players.</li>
+                            <li><strong>Hernan Cattaneo's Resident feed:</strong> then pick any episode.</li>
+                            <li>YouTube and Spotify pages are not playable audio.</li>
+                            <li>No music is included: you bring your own.</li>
+                        </ul>
+                    </details>
                 </div>
-                <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
-                <div id="feedEpisodeRow" class="audio-episode-row" hidden>
-                    <label for="feedEpisode">Episode</label>
-                    <select class="audio-input" id="feedEpisode" aria-label="Podcast episode"></select>
-                </div>
-                <div id="soundCloudFallback" class="audio-fallback" role="alert" hidden>
-                    <p class="network-help" id="soundCloudFallbackText"></p>
-                    <button class="audio-button" id="soundCloudFallbackBtn" type="button">Open in SoundCloud player</button>
-                </div>
-                <div id="soundCloudPlayer" class="soundcloud-player" hidden>
-                    <p class="network-help">SoundCloud's own player cannot be analysed: the crowd and DJ dance at an independent tempo and the lights run their own show. Use its controls for position and volume. Beat-synced lights, spatial audio and room sharing are unavailable for this source.</p>
-                </div>
-                <div class="audio-file-upload">
+
+                <div id="audioSourceFile" class="audio-source-panel" role="tabpanel" aria-labelledby="audioSourceTabFile" hidden>
                     <input type="file" id="audioFileInput" class="audio-file-input" accept="audio/*">
                     <label for="audioFileInput" class="audio-file-label">
                         Choose one audio file
                     </label>
+                    <div id="audioFileName" class="audio-file-name"></div>
                 </div>
-                <div class="audio-folder-options">
-                    <label for="folderPlaybackMode">Folder play mode</label>
-                    <select class="audio-input" id="folderPlaybackMode">
-                        <option value="order">Play in filename order</option>
-                        <option value="shuffle">Shuffle</option>
-                    </select>
+
+                <div id="audioSourceFolder" class="audio-source-panel" role="tabpanel" aria-labelledby="audioSourceTabFolder" hidden>
+                    <div class="audio-folder-options">
+                        <label for="folderPlaybackMode">Folder play mode</label>
+                        <select class="audio-input" id="folderPlaybackMode">
+                            <option value="order">Play in filename order</option>
+                            <option value="shuffle">Shuffle</option>
+                        </select>
+                    </div>
+                    <div class="audio-file-upload">
+                        <input type="file" id="audioFolderInput" class="audio-file-input" accept="audio/*"
+                               webkitdirectory directory multiple>
+                        <label for="audioFolderInput" class="audio-file-label">
+                            Choose a music folder
+                        </label>
+                    </div>
+                    <p class="network-help">A folder plays continuously in order or shuffled for this session. Browsers cannot remember access to local folders after the page closes. In VR, choosing a folder briefly exits the headset session so the system picker can open; choose Enter VR when finished.</p>
                 </div>
-                <div class="audio-file-upload">
-                    <input type="file" id="audioFolderInput" class="audio-file-input" accept="audio/*"
-                           webkitdirectory directory multiple>
-                    <label for="audioFolderInput" class="audio-file-label">
-                        Choose a music folder
-                    </label>
-                </div>
-                <div id="audioFileName" class="audio-file-name"></div>
-                <p class="network-help">A folder plays continuously in order or shuffled for this session. Browsers cannot remember access to local folders after the page closes. In VR, ADD URL / FILE / FOLDER briefly exits the headset session so the system keyboard or file picker can open; choose Enter VR when finished.</p>
-                <details class="audio-help">
-                    <summary>What can I paste?</summary>
-                    <ul class="network-help">
-                        <li><strong>A direct audio link:</strong> an HTTPS MP3, M4A, OGG or stream. The host must allow CORS.</li>
-                        <li><strong>A SoundCloud track.</strong> It plays through the club's own audio, so the crowd, DJ and lights follow it, whenever the creator shares the track with podcast players.</li>
-                        <li><strong>Hernan Cattaneo's Resident feed:</strong> then pick any episode.</li>
-                        <li>YouTube and Spotify pages are not playable audio.</li>
-                        <li>No music is included: you bring your own.</li>
-                    </ul>
-                </details>
             </div>
 
             <div class="audio-section">
-                <label for="setName">Set name (optional)</label>
-                <input class="audio-input" id="setName" maxlength="60" placeholder="A name you will recognise in VR">
                 <label for="savedSets">Saved sets on this device</label>
                 <select class="audio-input" id="savedSets" aria-label="Saved sets"></select>
                 <div class="audio-input-group">
@@ -447,20 +515,15 @@
                     <button class="audio-button" id="removeSavedSetBtn" type="button">Remove saved set</button>
                 </div>
                 <p class="network-help">Save up to eight sets and choose them from the VR Music menu. Only sets you save here can resume on entry. Links stay on this device; the audio host receives your IP when you play. Share music in a room only when you have permission.</p>
-                <label for="djStyle">DJ at the decks</label>
-                <select class="audio-input" id="djStyle">
-                    <option value="male">Male DJ</option>
-                    <option value="female">Female DJ</option>
-                </select>
             </div>
 
-            <div class="audio-section">
+            <div class="audio-section" id="audioTransportSection" aria-disabled="true">
                 <div class="vj-section-title">Transport</div>
                 <div class="audio-transport" role="group" aria-label="Music transport">
-                    <button class="audio-button" id="audioPreviousSource" type="button">Previous source</button>
-                    <button class="audio-button" id="audioPlaybackToggle" type="button">Play / pause</button>
-                    <button class="audio-button" id="audioStop" type="button">Stop</button>
-                    <button class="audio-button" id="audioNextSource" type="button">Next source</button>
+                    <button class="audio-button" id="audioPreviousSource" type="button" disabled>Previous source</button>
+                    <button class="audio-button" id="audioPlaybackToggle" type="button" disabled>Play / pause</button>
+                    <button class="audio-button" id="audioStop" type="button" disabled>Stop</button>
+                    <button class="audio-button" id="audioNextSource" type="button" disabled>Next source</button>
                 </div>
             </div>
 
@@ -507,14 +570,19 @@
     <div id="networkMenu" class="panel hidden" role="group" aria-labelledby="networkMenuTitle">
         <div class="panel-header">
             <h2 class="panel-title" id="networkMenuTitle" tabindex="-1">
-                <span aria-hidden="true">👥</span>
-                <span>Multiplayer</span>
+                <svg class="app-icon" aria-hidden="true"><use href="#icon-online"></use></svg>
+                <span>Online</span>
             </h2>
             <div class="panel-header-actions">
-                <button class="panel-btn-icon" id="networkMinimize" type="button" title="Minimize" aria-label="Minimize multiplayer panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
-                <button class="panel-btn-icon" id="networkClose" type="button" title="Close" aria-label="Close multiplayer panel"><span aria-hidden="true">×</span></button>
+                <button class="panel-btn-icon" id="networkMinimize" type="button" title="Minimize" aria-label="Minimize Online panel" aria-expanded="true"><span aria-hidden="true">−</span></button>
+                <button class="panel-btn-icon" id="networkClose" type="button" title="Close" aria-label="Close Online panel"><span aria-hidden="true">×</span></button>
             </div>
         </div>
+        <nav class="panel-switcher" aria-label="Open control panel">
+            <button type="button" data-open-panel="vjMenu">Show</button>
+            <button type="button" data-open-panel="audioMenu">Music</button>
+            <button type="button" data-open-panel="networkMenu" aria-current="page">Online</button>
+        </nav>
 
         <div class="audio-content">
             <div class="audio-section">
@@ -586,7 +654,7 @@
             </div>
 
             <div class="audio-section" id="networkTalk" hidden>
-                <div class="vj-section-title">🎤 Talk</div>
+                <div class="vj-section-title">Talk</div>
                 <div id="networkVoiceAudience"></div>
                 <button class="audio-button network-primary" id="networkMicBtn" type="button" aria-pressed="false">
                     <span aria-hidden="true">🎤</span>
@@ -599,7 +667,7 @@
             </div>
 
             <div class="audio-section" id="networkReact" hidden>
-                <div class="vj-section-title">😀 React</div>
+                <div class="vj-section-title">React</div>
                 <div class="vj-button-grid" id="networkEmojiGrid">
                     <button class="vj-button" type="button" data-emoji="🎉" aria-label="Party" title="Party">🎉</button>
                     <button class="vj-button" type="button" data-emoji="🔥" aria-label="Fire" title="Fire">🔥</button>
@@ -620,7 +688,7 @@
             </div>
 
             <div class="audio-section" id="networkPeople" hidden>
-                <div class="vj-section-title">👥 People here</div>
+                <div class="vj-section-title">People here</div>
                 <p class="network-help">The host can choose Make host beside another person to hand over music and lights without leaving. Press again to confirm.</p>
                 <div id="networkPeerCount" class="network-help">Nobody else yet</div>
                 <ul id="networkPeopleList" class="network-people" aria-label="Guests in this room"></ul>
@@ -628,7 +696,7 @@
 
             <!-- How others see you. The pool is chosen before or after joining and remembered. -->
             <div class="audio-section" id="networkAvatarPool">
-                <div class="vj-section-title">🧍 How others see you</div>
+                <div class="vj-section-title">How others see you</div>
                 <p class="network-help">You get a random character. Choose who it can be:</p>
                 <div class="audio-podcasts" role="radiogroup" aria-label="Which random characters you can get">
                     <button class="audio-podcast-choice" type="button" role="radio" aria-checked="true" data-avatar-pool="any">Anyone</button>
@@ -646,7 +714,7 @@
 
             <!-- Social safety. Block, mute and personal space are this guest's own; kick, ban and lock are the host's. -->
             <div class="audio-section" id="networkSafety">
-                <div class="vj-section-title">🛡️ Safety and comfort</div>
+                <div class="vj-section-title">Safety and comfort</div>
                 <div class="vj-button-grid">
                     <button class="vj-button" type="button" id="networkPersonalSpace" aria-pressed="true"
                             title="Hide anyone who comes within arm's length of you">Personal space: ON</button>
@@ -662,7 +730,7 @@
 
             <!-- Only the room's host sees this. -->
             <div class="audio-section" id="networkHostTools" hidden>
-                <div class="vj-section-title">👑 Host tools</div>
+                <div class="vj-section-title">Host tools</div>
                 <p class="network-help">You are the host: your music and lights are what everyone gets.</p>
                 <button class="vj-button network-wide" type="button" id="networkLockRoom" aria-pressed="false"
                         title="Stop anyone new from joining this room">Lock room: OFF</button>
@@ -670,20 +738,20 @@
         </div>
     </div>
     <!-- Multiplayer Toggle Button -->
-    <button id="networkToggle" type="button" title="Multiplayer" aria-label="Open multiplayer panel" aria-expanded="false" aria-controls="networkMenu"><span aria-hidden="true">👥</span><span class="toggle-word" aria-hidden="true">People</span></button>
+    <button id="networkToggle" type="button" title="Online rooms" aria-label="Open Online panel" aria-expanded="false" aria-controls="networkMenu"><svg class="app-icon" aria-hidden="true"><use href="#icon-online"></use></svg><span class="toggle-word" aria-hidden="true">Online</span></button>
 
     <!-- Camera Controls -->
     <div id="cameraControls">
         <button id="cameraPresetToggle" class="camera-controls-toggle" type="button"
-                title="Camera viewpoints" aria-label="Show camera viewpoints"
-                aria-expanded="false" aria-controls="cameraPresetGrid"><span aria-hidden="true">📷</span><span class="toggle-word" aria-hidden="true">Go to</span></button>
+                title="Travel to a viewpoint" aria-label="Open Travel menu"
+                aria-expanded="false" aria-controls="cameraPresetGrid"><svg class="app-icon" aria-hidden="true"><use href="#icon-travel"></use></svg><span class="toggle-word" aria-hidden="true">Go to</span></button>
         <div class="preset-grid" id="cameraPresetGrid" hidden>
-            <button type="button" data-camera-preset="arrival" title="Enter the room with the full club opening ahead">🚪 Arrival</button>
-            <button type="button" data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">💃 Floor</button>
-            <button type="button" data-camera-preset="djBooth" title="Take the DJ's view across the decks and dance floor">🎧 Booth</button>
-            <button type="button" data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">💡 Lights</button>
-            <button type="button" data-camera-preset="balcony" title="Stand on the steel balcony above the dance floor">🪜 Balcony</button>
-            <button type="button" data-camera-preset="street" title="Step out through the street door onto the avenue">🌃 Street</button>
+            <button type="button" data-camera-preset="arrival" title="Enter the room with the full club opening ahead">Arrival</button>
+            <button type="button" data-camera-preset="danceFloor" title="Stand among the crowd with the stage filling your view">Dance floor</button>
+            <button type="button" data-camera-preset="djBooth" title="Take the DJ's view across the decks and dance floor">DJ Booth</button>
+            <button type="button" data-camera-preset="lightingGallery" title="Look across the room beneath the lighting rig">Lighting gallery</button>
+            <button type="button" data-camera-preset="balcony" title="Stand on the steel balcony above the dance floor">Balcony</button>
+            <button type="button" data-camera-preset="street" title="Step out through the street door onto the avenue">Street</button>
         </div>
     </div>
 

@@ -96,3 +96,61 @@ test('the Access button follows the corner-button pattern (icon over one word) a
     assert.match(css, /\.audio-source-hint\[hidden\]\s*\{\s*display:\s*none;/, 'a hidden hint must not render its bullet');
     assert.match(css, /\.audio-input-group \.audio-paste-button\s*\{/, 'the Paste button style must out-rank .audio-button');
 });
+
+test('desktop control panels use the same language and can switch without exposed corner controls', () => {
+    const html = read('index.html');
+    assert.match(html, /<span>Show &amp; Lights<\/span>/);
+    assert.match(html, /id="networkMenuTitle"[\s\S]{0,160}<span>Online<\/span>/);
+    assert.match(html, /id="networkToggle"[\s\S]{0,240}<span class="toggle-word" aria-hidden="true">Online<\/span>/);
+    assert.match(html, /id="cameraPresetToggle"[\s\S]{0,420}<span class="toggle-word" aria-hidden="true">Go to<\/span>/);
+    assert.equal((html.match(/class="panel-switcher"/g) || []).length, 3);
+    for (const panel of ['vjMenu', 'audioMenu', 'networkMenu']) {
+        assert.equal((html.match(new RegExp(`data-open-panel="${panel}"`, 'g')) || []).length, 3, `${panel} appears in every switcher`);
+    }
+    for (const id of ['vjToggle', 'audioToggle', 'networkToggle', 'cameraPresetToggle']) {
+        const control = new RegExp(`<button id="${id}"[\\s\\S]*?<\\/button>`).exec(html)?.[0] || '';
+        assert.match(control, /<svg class="app-icon"/, `${id} uses the shared monochrome icon`);
+        assert.doesNotMatch(control, /\p{Extended_Pictographic}/u, `${id} does not use a platform emoji`);
+    }
+    assert.match(read('css/styles.css'), /body:has\(\.panel:not\(\.hidden\)\) \.payment-toggle[\s\S]*?visibility: hidden;/,
+        'covered corner controls are not left looking clickable');
+});
+
+test('Show and Lights progressively owns show, fixture, effect and club controls', () => {
+    const html = read('index.html');
+    assert.deepEqual([...html.matchAll(/data-vj-tab-target="([^"]+)"/g)].map(match => match[1]),
+        ['show', 'lights', 'effects', 'club']);
+    for (const owner of ['show', 'lights', 'effects', 'club']) {
+        assert.match(html, new RegExp(`data-vj-tab-panel="${owner}"`), `${owner} has owned content`);
+    }
+    assert.match(html, /data-vj-tab-panel="club"[\s\S]*?<select class="audio-input" id="djStyle">/,
+        'resident DJ belongs to Club');
+    assert.doesNotMatch(/id="audioMenu"[\s\S]*?id="networkMenu"/.exec(html)?.[0] || '', /id="djStyle"/,
+        'Music does not own the resident DJ');
+    assert.match(html, />COLOUR<\/button>/);
+    assert.match(html, />SPOT STROBE<\/button>/);
+    assert.match(html, />LED MONO<\/button>/);
+});
+
+test('Music presents one source path at a time and disables transport until playback starts', () => {
+    const html = read('index.html');
+    assert.deepEqual([...html.matchAll(/data-audio-source="([^"]+)"/g)].map(match => match[1]),
+        ['link', 'file', 'folder']);
+    const addMusic = /<div class="vj-section-title">Add music<\/div>([\s\S]*?)<details class="audio-help">/.exec(html)?.[1] || '';
+    assert.ok(addMusic.indexOf('id="setName"') < addMusic.indexOf('id="playStreamBtn"'),
+        'the optional name is chosen before Save & play');
+    assert.match(html, /id="audioTransportSection" aria-disabled="true"/);
+    for (const id of ['audioPreviousSource', 'audioPlaybackToggle', 'audioStop', 'audioNextSource']) {
+        assert.match(html, new RegExp(`id="${id}"[^>]* disabled`), `${id} starts disabled`);
+    }
+    assert.match(read('js/ui-init.js'), /No music selected\. Add a link, file or folder below\./);
+});
+
+test('Access starts with invitation, restore and purchase as separate paths', () => {
+    const source = read('js/paymentGate.js');
+    assert.match(source, /button\('Use an invitation'/);
+    assert.match(source, /button\('Restore existing access'/);
+    assert.match(source, /button\('Buy VR access — €1\.99'/);
+    assert.match(source, /primaryButton\('Continue to secure checkout'/);
+    assert.match(source, /accessPath === 'buy'/);
+});
