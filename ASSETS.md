@@ -37,7 +37,7 @@ in `index.html`).
 | `js/models/paspeakers/source/stage_speaker___black.glb` | [Stage Speaker — Black](https://sketchfab.com/3d-models/stage-speaker-black-f3209a6a45b844df92560099f982a508) | Sousinho (<https://sketchfab.com/sousinho>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/bassbin/source/bass_bin_3.glb` | [Bass Bin 3 - Subwoofer](https://sketchfab.com/3d-models/bass-bin-3-subwoofer-0f5b16da5e704357aa94fbf632a88455) | darksoundlab (<https://sketchfab.com/darksoundlab>) | CC BY 4.0 | Yes, including source and derivative notice |
 | `js/models/barstool/source/bar_stool.glb` | [Metal Stool 03](https://polyhaven.com/a/metal_stool_03) | Flo Tasser, Poly Haven | CC0 1.0 | Credited as courtesy |
-| `js/models/lounge/source/l_couch.glb` | [L Couch](https://poly.pizza/u/Quaternius) | [Quaternius](https://quaternius.com) | CC0 1.0 | Credited as courtesy |
+| `js/models/lounge/source/old_couch.glb` | [Old Couch](https://sketchfab.com/3d-models/old-couch-8da7e0d122f544e2862b4e592988e183) | Oliver Triplett (<https://sketchfab.com/OliverTriplett>) | CC BY 4.0 | Yes, with source and modification notice |
 | `js/models/city/downtown.glb` | [Downtown City MegaKit (Standard)](https://quaternius.com), [Car Pack](https://quaternius.com) and [Ultimate House Interior Pack](https://quaternius.com) | Quaternius (<https://quaternius.com>) | CC0 1.0 | Credited as courtesy |
 
 ### Textures bundled with the models
@@ -68,9 +68,11 @@ regenerates both texture sets.
 
 ### The lounge couch
 
-The back-right lounge uses Quaternius's CC0 *L Couch*, downloaded as a direct GLB from Poly Pizza. The shipped file is
-30 KB, 1,423 triangles, two opaque materials and no textures. Runtime placement scales it to 3 m wide; the two standard
-cushions are interactive seats while the chaise remains visual. No geometry or materials were added to the source file.
+A worn two-seat sofa stands against the entrance wall, centred between the doorway and the bar-side wall and facing the DJ. It is
+*Old Couch* by Oliver Triplett (CC BY 4.0), downloaded from Sketchfab while signed in. It is an **optimised derivative**,
+produced by `npm run optimize:models`: its three 1024 px PNG maps become 512 px WebP and its seven parts are joined into one
+mesh, so it is one draw, 936 triangles and 0.5 MB (the source was 4.3 MB). Geometry and materials are otherwise unchanged. At
+run time the loader sizes it to 2.1 m wide and turns it toward the DJ; the two cushions are the interactive seats.
 
 ### The street
 

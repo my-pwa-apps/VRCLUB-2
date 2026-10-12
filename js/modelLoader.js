@@ -173,15 +173,16 @@ class ModelLoader {
                 placement: { fitAxis: 'y', fitSize: 1.12, centerX: 9.2, centerZ: -12.9, bottomY: 0 },
                 attribution: 'Metal Stool 03 by Flo Tasser, Poly Haven (CC0)'
             },
-            // Quaternius "L Couch" (CC0). The two standard cushions are interactive; the chaise is visual.
+            // "Old Couch" by Oliver Triplett (CC BY 4.0): a worn two-seat sofa against the entrance wall.
+            // Its front is local +z; the yaw turns it toward the DJ (-z). Keep in step with VenueLayout.lounge.
             lounge_couch: {
                 name: 'Lounge Couch',
-                url: './js/models/lounge/source/l_couch.glb',
-                rotation: new BABYLON.Vector3(0, 0, 0),
+                url: './js/models/lounge/source/old_couch.glb',
+                rotation: new BABYLON.Vector3(0, Math.PI, 0),
                 scale: new BABYLON.Vector3(1, 1, 1),
-                placement: { fitAxis: 'x', fitSize: 3.0, centerX: 8.7, centerZ: -18.75, bottomY: 0 },
-                emissiveFloor: 0.025,
-                attribution: 'L Couch by Quaternius (CC0)'
+                placement: { fitAxis: 'x', fitSize: 2.1, centerX: 7.1, centerZ: -0.72, bottomY: 0 },
+                emissiveFloor: 0.03,
+                attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
             }
         };
     }

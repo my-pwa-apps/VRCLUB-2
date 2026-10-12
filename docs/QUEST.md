@@ -91,18 +91,23 @@ larger native renderer port; the TWA remains the supported browser route.
 
 ## User music
 
-Music → local file, direct HTTPS audio link or SoundCloud track/set page → optional name → Save & play.
+Music → local file, direct HTTPS audio link or one SoundCloud track page → optional name → Save & play.
 Eight saved sets are available in VR via Previous/Next and Play saved set.
 Finite sets play once, do not auto-queue and are seekable when the server supports it.
-SoundCloud pages open only in SoundCloud's official visible iframe player. They are not
-extracted or proxied, do not enter the Web Audio graph, and therefore have no VR Club seek,
-volume, beat analysis, spatialization or multiplayer sharing.
-Their official playback events do enable varied crowd/DJ movement at an independent
-120 BPM animation tempo. Pause/end/error returns to calm movement; this is not beat detection.
-Files use the existing device picker. Local files cannot be broadcast to a room.
+SoundCloud tracks play as analysed audio when their creator publishes them to podcast players.
+The Worker obtains the track id from SoundCloud's public oEmbed response, verifies the public
+podcast stream and relays it through the normal Web Audio graph; it never scrapes or unlocks
+audio SoundCloud does not publish that way. Playlists are not supported. An unavailable track
+stays saved and shows a persistent explanation. The guest may then explicitly choose
+**Open in SoundCloud player**; only that fallback uses the visible iframe and the independent
+120 BPM crowd/DJ clock, without club seeking, analysis, spatialization or room sharing.
+Deploy `worker/` changes before relying on the resolver or stream routes in production.
+Files use the existing device picker. A room host can offer a local file to consenting
+listeners over the separate WebRTC music connection; the file is not uploaded to the Worker.
 
 No third-party host is implicitly trusted for room music. A guest must select
-Listen along before contacting the host's audio provider. URLs are not proxied.
+Listen along before contacting the host's audio provider. Direct URLs are not proxied;
+the verified SoundCloud podcast-stream route above is the documented exception.
 Do not publish private/signed URLs into public rooms. Users need permission to
 play/share their audio; user-supplied links do not automatically clear public music rights.
 

@@ -421,7 +421,7 @@ class AvatarRig {
 
     _limb(upper, mid, end, target, poleX, poleY, poleZ) {
         const v = this._v;
-        const S = this.pos[upper], E = this.pos[mid], H = this.pos[end];
+        const S = this.pos[upper];
         this._reach(upper, mid, end);
         const l1 = this._limbL1[upper], l2 = this._limbL2[upper];
         const dir = v[0];
@@ -614,10 +614,6 @@ class AvatarRig {
             if (psi < 0.6) {
                 u = 0.6 * L - 2 * L * psi;
                 if (psi > 0.45) { const k = (psi - 0.45) / 0.15; toe = -0.5 * k * k * (3 - 2 * k); }  // heel lifts
-            } else if (seated) {
-                const out = sideSign * 0.12;
-                t.set(sh.x + F.x * 0.26 + R.x * out, sh.y - 0.36, sh.z + F.z * 0.26 + R.z * out);
-                this._limb(upper, lower, hand, t, -F.x * 0.55 + R.x * sideSign * 0.45, -0.2, -F.z * 0.55 + R.z * sideSign * 0.45);
             } else {
                 const s = (psi - 0.6) / 0.4, e = s * s * (3 - 2 * s);
                 u = -0.6 * L + 1.2 * L * e;

@@ -5060,8 +5060,8 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
     const { window } = loadClassic('js/club/10-ui.js', { VRClubAnimationFinish: class {}, BABYLON });
     const proto = window.VRClubUI.prototype;
     const seats = [
-        { id: 'lounge-0', label: 'the lounge couch', x: 8.95, z: -19.22, viewX: 8.95, viewZ: -18.47, floorY: 0, seatY: 0.58, facing: 0 },
-        { id: 'lounge-1', label: 'the lounge couch', x: 9.7, z: -19.22, viewX: 9.7, viewZ: -18.47, floorY: 0, seatY: 0.58, facing: 0 }
+        { id: 'lounge-0', label: 'the lounge couch', x: 6.68, z: -0.89, viewX: 6.68, viewZ: -1.29, floorY: 0, seatY: 0.4, facing: Math.PI },
+        { id: 'lounge-1', label: 'the lounge couch', x: 7.52, z: -0.89, viewX: 7.52, viewZ: -1.29, floorY: 0, seatY: 0.4, facing: Math.PI }
     ];
     const camera = { position: { x: 0, y: 1.05, z: 0, copyFrom() {} }, _deferOnly: false };
     const notes = [];
@@ -5075,7 +5075,7 @@ test('seat picks choose the nearest cushion and preserve tracked VR height', () 
         standFromSeat: proto.standFromSeat
     };
     const mesh = { metadata: { vrclubSeats: seats } };
-    const picked = proto._seatFromPick.call(club, { pickedMesh: mesh, pickedPoint: { x: 9.6, z: -19.1 } });
+    const picked = proto._seatFromPick.call(club, { pickedMesh: mesh, pickedPoint: { x: 7.4, z: -0.8 } });
     assert.equal(picked.id, 'lounge-1');
     assert.equal(proto.sitAtSeat.call(club, picked), true);
     assert.equal(camera.position.y, 1.05, 'sitting must not replace the tracked headset height');
@@ -6222,12 +6222,26 @@ test('the bar layout leaves room for guests, stools and the bartender', () => {
         }
     }
     const lounge = loadClassic('js/venueDressing.js').window.VenueLayout.lounge;
-    assert.ok(lounge.x - lounge.width / 2 > 6.5 && lounge.z < -18,
-        'the lounge bench must stay in the free back-right corner, behind the bar and clear of the DJ riser');
-    assert.equal(lounge.seats.length, 2, 'the sectional must expose exactly its two standard cushions');
+    // Against the front wall (inner face z -0.25), centred between the doorway and the bar-side wall.
+    const entranceEdge = 2;
+    const barWall = 12.25;
+    assert.ok(lounge.z + lounge.depth / 2 <= -0.25, 'the couch must not pass through the front wall');
+    assert.ok(lounge.x - lounge.width / 2 > entranceEdge + 1.5,
+        'the couch must leave a generous path beside the entrance');
+    assert.ok(lounge.x + lounge.width / 2 < barWall - 1.5,
+        'the couch must leave a generous path beside the bar wall');
+    assert.ok(Math.abs(lounge.x - (entranceEdge + barWall) / 2) < 0.1,
+        'the couch must be centred between the entrance and bar wall');
+    assert.ok(lounge.z - lounge.depth / 2 > -1.3, 'the couch must stay against the entrance wall');
+    assert.equal(lounge.seats.length, 2, 'the sofa must expose exactly its two cushions');
     assert.ok(lounge.seats[1] - lounge.seats[0] >= 0.7, 'the two couch seats overlap');
-    assert.ok(lounge.seats.every(offset => offset > 0 && offset < lounge.width / 2),
-        'a seat anchor drifted onto the mirrored chaise or arm');
+    assert.ok(lounge.seats.every(offset => Math.abs(offset) < lounge.width / 2 - 0.4),
+        'a seat anchor drifted onto an arm rest');
+    const ModelLoaderSource = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    const couch = /lounge_couch: \{[\s\S]*?placement: \{([^}]*)\}/.exec(ModelLoaderSource)[1];
+    assert.match(couch, new RegExp(`fitSize: ${lounge.width}\\b`));
+    assert.match(couch, new RegExp(`centerX: ${lounge.x}\\b`));
+    assert.match(couch, new RegExp(`centerZ: ${lounge.z}\\b`));
 });
 
 // ---------------------------------------------------------------------------
@@ -6711,6 +6725,15 @@ test('credits stay one click away and the splash names every CC BY creator', () 
     const splash = html.match(/<p class="splash-hint splash-credits">([\s\S]*?)<\/p>/);
     assert.ok(splash, 'the splash must carry the credits line');
     for (const creator of creators) assert.ok(splash[1].includes(creator), `${creator} is not named on the splash`);
+});
+
+test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC BY credit is in the product', () => {
+    const json = readGlbJson('js/models/lounge/source/old_couch.glb');
+    assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
+    assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /"Old Couch"[\s\S]{0,400}Oliver Triplett[\s\S]{0,300}CC BY 4\.0/, 'the credit must name title, creator and licence');
+    assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /old_couch\.glb/);
 });
 
 test('the bass bin GLB is optimised: six draws, 512 px maps, and its credit is in the product', () => {
@@ -9676,7 +9699,7 @@ test('a host\u2019s strobe pattern reaches guests through the allow-listed fixtu
     assert.equal(mp.club.strobePattern, 'chase', 'an index this build does not have is ignored');
 });
 test('the VJ desk: section buttons, strobe pattern and the after-my-change hold are on the panels and work', () => {
-    const { club, press, button, calls, toasts, VJDeskLayout, VRClubUI } = deskHarness();
+    const { club, press, button, calls, toasts, VJDeskLayout } = deskHarness();
     club.lightHold = { mode: 'resume', delay: 60, shuffle: 15 };
     club.showDirector.pickSection = name => { calls.push(`pick ${name}`); return name.toUpperCase(); };
     club.showDirector.isHeld = () => false;

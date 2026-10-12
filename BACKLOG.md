@@ -6,6 +6,180 @@ they are carried forward and re-prioritised.
 
 ---
 
+## Review - 2026-10-12 - Repository quality and release readiness
+
+Review and implementation pass over the current `Quest` worktree. The 533-test Node suite,
+syntax check, lint, production build, model-optimizer check, 59.62 MiB asset budget, root
+dependency audit, and generated-artifact check pass. The repaired spatial-audio spec passes
+three consecutive isolated runs and also passed in the full suite. That full run then timed
+out entering XR in the first mezzanine case after 12 of 49 cases; it was stopped after
+continuing to case 14. The separately locked Worker toolchain still reports the already-tracked
+four high-severity development dependency nodes; the production dependency audit remains clean.
+
+- [ ] **Restore deterministic saved-music playback in the spatial-audio browser test**
+
+  **Implemented 2026-10-12; global suite acceptance remains open.** The synthetic finite
+  track now lasts beyond the allowed scene startup, then loops only after the real saved-set
+  entry path has started. Failure output records the media/context state. Three rendered
+  frames are retained after each pose so listener updates settle, while steady-noise
+  sampling is halved and the case ceiling covers the real SwiftShader cost. All eight
+  desktop/XR direction checks pass in three consecutive isolated runs, and the case passed
+  in the full suite. The checkbox remains open only because that suite later timed out in
+  an unrelated mezzanine XR-entry case instead of exiting 0.
+
+  **Priority:** High
+  **Category:** Testing / Reliability
+  **Confidence:** High that the release-gating test is broken; Medium that this demonstrates
+  a product playback defect
+  **Area:** Entry music, Web Audio PA graph, Playwright XR validation
+  **Affected files:** `test/e2e/audio-spatial.spec.mjs`, `test/e2e/support.mjs`,
+  `js/ui-init.js`, `js/club/10-ui.js`, `js/club/11-audio-crowd.js`
+  **Evidence:** The full Playwright run failed the spatial-audio case after the media element
+  reported playing: both master-bus channels measured exactly zero. An isolated rerun failed
+  earlier because `audioContext.state === 'running' && audioSource && !audioElement.paused`
+  never became true within 120 seconds. The page otherwise reached the ready club. The test
+  replaces the harness's silent route with a 90-second WAV before entry and waits for the real
+  entry-music path; no directional assertion is reached in the isolated failure.
+  **Problem:** CI's required `e2e` job cannot pass, and the only real-browser protection for
+  left/right PA orientation currently cannot establish a reliable audio source.
+  **Impact:** Quest and Pages deployment remain blocked even after lint is repaired. If the
+  same state occurs outside Playwright, a saved set may appear selected while producing no
+  audible PA output; current evidence does not yet establish that production behavior.
+  **Recommended solution:** Capture the media element events, network response, ready state,
+  error, current source, audio-context state and entry-music rejection in the test artifact.
+  Determine whether the failure is route/WAV delivery, autoplay timing, media decoding, or
+  graph routing. Fix the root cause, then make the test wait on an observable audible-sample
+  condition rather than only `paused === false`.
+  **Regression considerations:** Preserve the user-gesture entry path, CORS enforcement,
+  analysed pre-PA tap, left/right spatial orientation, XR listener updates and explicit
+  playback error UX. Do not mute the assertion or substitute a synthetic graph that bypasses
+  the real media-element path.
+  **Acceptance criteria:** The isolated spatial-audio spec passes repeatedly, measures
+  non-zero output before directional assertions on desktop and XR, and the complete
+  Playwright suite exits 0.
+  **Validation:** Run the isolated spec at least three times, then `npm run test:e2e`.
+  **Estimated effort:** Medium
+  **Business value:** High
+  **Technical debt reduction:** Medium
+
+- [x] **Update SoundCloud documentation to match analysed relay playback**
+
+  **Resolved 2026-10-12.** `README.md` and `docs/QUEST.md` now describe verified relay
+  playback for individual SoundCloud tracks published to podcast players, the playlist and
+  publication restrictions, the explicit iframe fallback, the Worker deployment dependency,
+  listen-along privacy, and local-file WebRTC sharing. Quest music tests and searches for
+  the obsolete player-only claims pass.
+
+  **Priority:** Medium
+  **Category:** Documentation
+  **Confidence:** High
+  **Area:** User music setup and Quest release guidance
+  **Affected files:** `README.md`, `docs/QUEST.md`, `js/musicLibrary.js`, `test/quest.test.mjs`
+  **Evidence:** `README.md` says SoundCloud always uses the visible official player, cannot
+  be analysed or shared, and is not proxied. `docs/QUEST.md` repeats that it only opens in
+  the iframe player. In contrast, `MusicLibrary.play()` calls `_resolveSoundCloud()` and
+  starts the returned relay stream as analysed audio by default. The passing Quest tests
+  explicitly assert relay playback for a podcast-published SoundCloud track and reserve
+  `playInSoundCloudPlayer()` for an explicit fallback after a clear refusal.
+  **Problem:** The two primary user and release guides describe behavior that no longer
+  exists and omit the actual limitations: only individual tracks published to podcast
+  players can be resolved, playlists are refused, and the embedded player is opt-in fallback.
+  **Impact:** Users can wrongly expect no light/PA/multiplayer integration, while operators
+  can overlook that SoundCloud playback depends on the deployed Worker resolver and stream
+  routes.
+  **Recommended solution:** Rewrite both music sections around the tested default relay flow,
+  its publication and single-track restrictions, the persistent error/fallback path, and the
+  Worker's deployment requirement. Keep the permission and listen-along privacy warnings.
+  **Regression considerations:** Do not imply that arbitrary SoundCloud audio is extracted
+  or unlocked; only describe audio SoundCloud itself publishes to podcast players. Preserve
+  the explicit user action required for listen-along and iframe fallback.
+  **Acceptance criteria:** Both guides match `MusicLibrary.play()` and
+  `playInSoundCloudPlayer()`; neither claims all SoundCloud pages use the iframe or that no
+  relay is involved; limitations and Worker dependency are stated in plain language.
+  **Validation:** Run the Quest music tests and a documentation search for the obsolete
+  player-only/no-proxy claims.
+  **Estimated effort:** Small
+  **Business value:** Medium
+  **Technical debt reduction:** Medium
+
+---
+
+## Review - 2026-10-09 - Current Quest release readiness
+
+Review-only pass over the current `Quest` worktree, including the Old Couch replacement. The
+533-test Node suite, syntax check, production build, model-optimizer check, asset budget,
+patch whitespace check, and focused real-browser lounge test pass. The built site is 61.37 MiB
+and the referenced asset payload is 59.62 MiB, below the 75 MiB CI limit. Root dependencies
+audit clean. This pass did not repeat the full IWER suite or physical Quest checks; the focused
+lounge scenario passed in 1.1 minutes with one couch draw, two usable seats, ready textures,
+working collision, and the scoped light in the first material slot.
+
+- [x] **Restore the lint-gated Quest deployment**
+
+  **Resolved 2026-10-12.** The unreachable cross-loop seated-arm block was removed, unused
+  locals were cleared, and the correct Node/Worker runtime globals were declared. The stale
+  `no-control-regex` suppression was removed rather than broadening a disable. `npm run lint`
+  exits 0; syntax, production build, and the affected contract, Quest, rig, unit and Worker
+  tests pass.
+
+  **Priority:** High
+  **Category:** Correctness / CI
+  **Certainty:** High
+  **Area:** Avatar rig, test environments, Worker lint configuration
+  **Affected files:** [avatarRig.js](js/avatarRig.js), [unit.test.mjs](test/unit.test.mjs),
+  [worker.test.mjs](test/worker.test.mjs), [podcast.js](worker/src/podcast.js),
+  [eslint.config.mjs](eslint.config.mjs), [ci.yml](.github/workflows/ci.yml)
+  **Evidence:** `npm run lint` exits 1 with 14 errors and 5 warnings. Nine `no-undef`
+  errors come from a dead `else if (seated)` arm-pose block nested inside the leg loop after
+  the live seated path has already executed `continue`; it references `sideSign`, `sh`,
+  `upper`, `lower`, and `hand`, which exist only in the later arm loop. The remaining errors
+  are undeclared runtime globals in lint scopes: `performance` in a Node unit test,
+  `AbortSignal` in Worker tests, and `caches` in Worker source. The new lounge test also has
+  one unused local. The full Node suite still passes because the malformed avatar block is
+  unreachable.
+  **Problem:** Every `verify` matrix job runs lint, and both production deploy jobs depend on
+  `verify`; no commit can pass the protected deployment workflow in this state.
+  **Recommended solution:** Delete or relocate the unreachable avatar block according to the
+  intended seated-arm behavior, add the correct standard globals to the relevant ESLint
+  scopes instead of disabling `no-undef`, and remove the unused lounge local. Keep the gate
+  strict.
+  **Regression considerations:** Preserve planted seated feet and controller-driven arms;
+  do not move the dead block into a live per-leg path. Run the real-skeleton seated/standing
+  rig tests after the cleanup.
+  **Acceptance criteria:** `npm run lint` exits 0 with no new disables; `npm test`,
+  `npm run check`, the focused lounge spec, and rig tests still pass.
+  **Estimated effort:** Small
+  **Business value:** High
+  **Technical debt reduction:** Medium
+
+- [ ] **Refresh the Worker's two-year-old compatibility date under regression coverage**
+
+  **Priority:** Medium
+  **Category:** Deployment / Reliability
+  **Certainty:** High that the date is stale; Low that it currently causes a user-visible bug
+  **Area:** Payment API, access recovery, invitation administration, multiplayer relay
+  **Affected files:** [wrangler.toml](worker/wrangler.toml), [worker.test.mjs](test/worker.test.mjs),
+  [payment-gate.test.mjs](test/payment-gate.test.mjs)
+  **Evidence:** The Worker is pinned to `compatibility_date = "2024-09-23"` while the
+  application and dependency set are maintained in October 2026. No current failure was
+  reproduced, but the gap leaves production on legacy runtime semantics and makes a future
+  forced upgrade harder to isolate.
+  **Recommended solution:** Advance the date deliberately in bounded increments after
+  checking current Cloudflare compatibility changes. Run payment, recovery, invitation,
+  relay, WebSocket, email-binding, D1, cookie, and CORS tests against the updated runtime,
+  then deploy to a non-production environment before production.
+  **Regression considerations:** Preserve Durable Object migration tags, HttpOnly
+  `SameSite=Lax` cookies, exact-origin credentialed CORS, Stripe webhook verification, and
+  WebSocket hibernation behavior.
+  **Acceptance criteria:** The date is current within the repository's maintenance policy;
+  all Worker/payment tests pass locally and in CI; a staging smoke test covers entitlement,
+  lease acquire/renew/release, room join, and recovery email dispatch before production.
+  **Estimated effort:** Medium
+  **Business value:** Medium
+  **Technical debt reduction:** Medium
+
+---
+
 ## Feature - 2026-10-09 - Clarify spotlight and gobo controls
 
 - [x] **Distinguish moving-head aim paths from projected gobo images on every control surface**
@@ -824,8 +998,12 @@ Shipped: doorway and vestibule, bar with a female bartender, five stools and a 1
   three stools, 10 radial bottle segments (`BarProps.SEGMENTS`) or thin the top shelf; every one is a constant.
   **Acceptance criteria:** No frame-time regression versus the dance-floor baseline at the bar on balanced tier.
 
-- [ ] **Give the bartender a job**
+- [x] **Give the bartender a job**
 
+  **Resolved 2026-10-09.** The rig-driven bartender now cycles through washing, wiping the
+  counter, surveying the room, and arranging bottles, and yields to the measured service,
+  conversation, glass hand-off, and clearing choreography. Unit, real-skeleton, bar-browser,
+  and full crowd scenarios cover her motion and physical contacts.
   **Priority:** Low
   **Category:** Animation
   **Evidence:** She plays the shared `Idle_Talking_Loop`; the Quaternius libraries carry no pour or wipe clip.
@@ -1129,6 +1307,19 @@ Babylon.js moved 8.30.5 -> 9.28.0 (see CHANGELOG). Items it left behind:
 - Not adopted: `fixedFoveation` is exposed on the XR session manager in both versions (not new in 9);
   setting it changes the headset's sharpness against its cost, so it belongs with the Quest baseline.
 - [ ] **Resolve the relay tooling advisory chain and audit its separate lockfile in CI**
+
+  **Rechecked 2026-10-12:** Root production and full audits still report zero.
+  `npm --prefix worker audit --audit-level=high` still exits 1 with four high-severity
+  development-tooling nodes in the Wrangler/Miniflare Sharp and Undici chain. CI still
+  audits only the root lockfile.
+
+  **Rechecked 2026-10-09:** Root `npm audit --audit-level=high` reports zero. The Worker
+  audit still exits 1 with four high-severity development-tooling nodes in the
+  Wrangler/Miniflare Sharp and Undici chain. The reported Sharp boundary is 0.35.5 and the
+  Undici findings include decompression DoS, response splitting, cookie disclosure, TLS
+  option loss, and unsafe retry/cache behavior. npm still proposes a forced Wrangler
+  downgrade, so an automatic `npm audit fix --force` is not acceptable. CI still audits
+  only the root lockfile.
 
   **Rechecked 2026-10-08:** Root audit and both production-only audits report zero.
   `npm --prefix worker audit --audit-level=high` still exits 1 with four high-severity
@@ -6233,7 +6424,7 @@ zero console errors and zero WebGL warnings.
   Business value: Low
   Technical debt reduction: Medium
 
-- [ ] Pack proper ORM textures instead of reusing a greyscale roughness map
+- [x] Pack proper ORM textures instead of reusing a greyscale roughness map
   Priority: Low
   Category: Performance
   Area: Textures

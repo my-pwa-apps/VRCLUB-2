@@ -25,7 +25,7 @@ emits one minified, content-hashed production bundle with esbuild.
 5. `js/audioUtils.js`, then `js/musicLibrary.js` (`window.MusicLibrary`: user-provided direct audio, relay-resolved Miss Melera Colourizon links and official-player fallback for other SoundCloud saved sets)
 6. loaders/factories (`textureLoader`, `modelLoader`, `materialFactory`, `lightFactory`)
 7. `js/vjDirector.js`, then `js/showDirector.js`
-8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall, bar and lounge bench), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
+8. `js/ledPatterns.js`, then `js/barProps.js` (bottle geometry and label atlas; no club dependency), then `js/venueDressing.js` (entrance stair hall, bar and lounge couch), `js/mezzanine.js` (steel balcony and stair, and the walking-surface follow) and `js/cityDistrict.js` (the street outside, at street level) and `js/vjDesk.js` (the VJ desk's two touch panels at the DJ table), all mixed into `VRClub.prototype`
 9. `js/avatarRig.js` (the local player's procedural body), `js/djPerformer.js` (the DJ's live set, posed through the rig), `js/crowdDance.js` (the crowd's choreographer), `js/minglerClock.js` (the shared room-time round), then `js/networkClient.js`, `js/avatarManager.js` and `js/multiplayer.js` (`ClubMultiplayer`) — optional multiplayer (no instance until a guest connects)
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
@@ -1037,11 +1037,14 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   Every empty stool is tagged as a seat; f6's occupied stool is deliberately not.
 - **Player seating.** Clicking or ray-selecting tagged furniture calls `sitAtSeat()`. The bar's empty stools, both balcony
   stools and the two standard cushions of the lounge couch are available. Selecting the same seat or moving 0.75 m
-  stands up. XR keeps the real tracked eye height; desktop uses a seated camera height. The lounge is the local CC0
-  Quaternius *L Couch* (`ModelLoader` key `lounge_couch`): 30 KB, 1,423 triangles, two opaque materials, no textures.
-  `_furnishLoungeCouch()` tags exactly the two standard cushions, leaves the chaise visual, and derives a main-body and
-  chaise collider from the placed model bounds, avoiding an invisible box across the L-shaped footwell. The linked Meshy
-  model was not shipped: its ~454k faces were inappropriate for Quest.
+  stands up. XR keeps the real tracked eye height; desktop uses a seated camera height. The lounge is a worn two-seat
+  sofa against the entrance wall, centred between the doorway and the bar-side wall (`VenueLayout.lounge`, x 7.1,
+  z -0.72, facing the DJ): *Old Couch* by Oliver Triplett (CC BY 4.0; `ModelLoader` key `lounge_couch`), optimised by
+  `npm run optimize:models` to one mesh, 936 triangles, 512 px WebP maps, 0.5 MB. The model's front is local +z and
+  `rotation.y = PI` turns it to face -z; keep `modelConfigs.lounge_couch.placement` and `VenueLayout.lounge` in step.
+  `_furnishLoungeCouch()` tags the two cushions and derives one collider from the placed bounds; the camera stands just
+  in front of that collider (as for the stools) so desktop collisions cannot trap a sitter. The linked Meshy model was not
+  shipped: its ~454k faces were inappropriate for Quest.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.

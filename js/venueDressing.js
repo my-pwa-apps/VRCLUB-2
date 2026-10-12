@@ -17,10 +17,12 @@ const VENUE_BAR = {
     bartender: { x: 10.85, z: -9.9 }
 };
 
+// A two-seat sofa against the front wall, centred between the entrance and the bar-side wall, facing the DJ (-z).
+// `z` is the centre of its 0.9 m depth, `width` runs along x, `seats` are the two cushion centres along x, and
+// `seatZ` is where a sitter's head column goes (pelvis on the cushion, 6 cm behind it).
 const VENUE_LOUNGE = {
-    x: 8.7, z: -18.75, width: 3.0, depth: 2.35, seatY: 0.58, seatZ: -19.22, facing: 0,
-    // Babylon mirrors the source model's X axis. These are the two standard cushions; the chaise stays visual.
-    seats: [0.25, 1.0]
+    x: 7.1, z: -0.72, width: 2.1, depth: 0.9, seatY: 0.4, facing: Math.PI,
+    seatZ: -0.89, seats: [-0.42, 0.42]
 };
 
 const VENUE_VESTIBULE = {
@@ -621,17 +623,16 @@ const VenueDressing = {
         if (!record?.rootMesh || !record.placed) return;
         const L = VENUE_LOUNGE;
         const meshes = record.container.meshes.filter(mesh => mesh.getTotalVertices && mesh.getTotalVertices() > 0);
+        // The camera stands just in front of the collider (as for the stools), so the desktop collision ellipsoid
+        // does not trap a sitter inside the couch.
+        const viewZ = L.z - L.depth / 2 - 0.12;
         const seats = L.seats.map((offset, index) => this._seat('the lounge couch', `lounge-${index}`,
-            L.x + offset, L.seatZ, 0, L.seatY, L.facing, L.x + offset, L.seatZ + 0.75));
+            L.x + offset, L.seatZ, 0, L.seatY, L.facing, L.x + offset, viewZ));
         this._tagSeatMeshes(meshes, seats);
 
         const { min, max, center } = record.placed;
-        const mainFront = L.seatZ + 0.55;
-        this._collisionBlock('loungeCouchMainBlock', max.x - min.x, max.y - min.y, mainFront - min.z,
-            center.x, center.y, (min.z + mainFront) / 2);
-        const chaiseMaxX = L.x - 0.12;
-        this._collisionBlock('loungeCouchChaiseBlock', chaiseMaxX - min.x, max.y - min.y, max.z - min.z,
-            (min.x + chaiseMaxX) / 2, center.y, center.z);
+        this._collisionBlock('loungeCouchBlock', max.x - min.x, max.y - min.y, max.z - min.z,
+            center.x, center.y, center.z);
         this._loungeCouch = meshes;
     }
 };

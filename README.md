@@ -11,17 +11,17 @@ Run `npm run build:quest` for the web payload. See [docs/QUEST.md](docs/QUEST.md
 signing, Meta Bubblewrap packaging, Digital Asset Links, release checks and remaining blockers.
 
 No music is included. Open **Music**, choose a local file, paste a direct HTTPS audio link,
-or paste a SoundCloud track/set page in the same **Choose a file or paste a URL** section,
+or paste one SoundCloud track page in the same **Choose a file or paste a URL** section,
 optionally name it, and press **Save & play**. Up to eight sets are saved on this device.
 Choose them from the VR Music menu; **ADD MUSIC** returns to the setup panel for the Quest
-keyboard/file picker, then **Enter VR** returns to the club. SoundCloud uses its official
-visible player: its seek/volume controls work, but VR Club cannot analyse, spatialize or
-share that audio. YouTube/Spotify page URLs are not playable. Direct audio hosts must allow
-CORS; no proxy is provided.
-SoundCloud's official Widget API is loaded only when a set is chosen. Confirmed playback
-gives the crowd varied dance moves and the DJ an active performance on a shared 120 BPM
-animation clock, not detected beats. Pause, finish, errors and source changes restore calm
-movement; choosing a set or blocked autoplay alone never starts the dance fallback.
+keyboard/file picker, then **Enter VR** returns to the club. A SoundCloud track plays through
+the club's analysed audio graph when its creator publishes it to podcast players: the relay
+verifies that public stream, and the PA, lights, crowd, DJ, seeking and room sharing work as
+for other audio. Playlists are not supported. If SoundCloud does not publish the track that
+way, the saved link is kept and Music explains why; **Open in SoundCloud player** is an
+explicit fallback whose audio cannot be analysed, spatialized or shared. The Widget API is
+loaded only for that fallback. YouTube and Spotify page URLs are not playable. Other direct
+audio hosts must allow CORS.
 Only explicitly saved music resumes on entry; historical podcast/stream preferences are ignored.
 Generic **Male DJ / Female DJ** choices are in the Music panel and VR CROWD → CHOOSE DJ.
 The Quest payload uses CC0 dancers only; historical Mixamo files do not ship.
@@ -125,7 +125,7 @@ while their cookie is present; otherwise contact the issuer. See
 - **A DJ who plays the set:** the DJ mixes on the jog wheels, works the mixer knobs, holds a headphone cup to one ear, looks out over the crowd (with a fist pump when it is loud), throws both hands up when a drop lands, and waves at you when you walk up to the booth. They nod and bounce on the beat, harder when the music is louder. With no music they keep a calm groove of their own.
 - **A crowd that dances on the beat:** the people on the floor switch between nine moves (a bounce, side taps, clapping, fist pumps, the twist, hands up, a sway and the original dance), each at the track's tempo and locked to its beat, each dancer with their own favourites, changing on bar lines. More clapping in a build, hands up on the drop; when the kick drops out they sway slowly or just stand until it returns.
 - **A show that follows the kick:** the club listens to the kick drum on its own (a 120 Hz band, separate from the bass/mid/treble analyser), so the beat grid locks to real kicks rather than the bassline. The whole rig dips between kicks and hits on them (at most 2.5 hits a second, whatever the tempo), the moving heads dip toward the floor on each kick, and fixture speed and the show's energy follow how loud the low end is now against the last ~20 seconds: a breakdown calms the room, a drop lifts it. Photosensitive Safe Mode keeps the old shallow breathing.
-- **Direct audio hosts** must provide CORS for reactive lighting. Music is not extracted from webpage links or proxied through the multiplayer relay.
+- **Direct audio hosts** must provide CORS for reactive lighting. SoundCloud is the narrow exception: the relay resolves and streams only individual tracks that SoundCloud itself publishes to podcast players; it does not scrape or unlock other audio.
 - **`js/paymentGate.js`** keeps desktop preview free while requiring a server-verified Stripe entitlement before immersive VR entry.
 - **📷 Go to** (bottom-centre): jump to a viewpoint (entrance, dance floor, booth, lights, balcony, street).
 

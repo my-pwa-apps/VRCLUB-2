@@ -248,7 +248,6 @@ async function resolveSoundCloud(url, cors) {
             { redirect: 'follow', headers: { Range: 'bytes=0-0' } }, METADATA_TIMEOUT_MS);
         try { await probe.body?.cancel(); } catch { /* ignore */ }
         if (probe.status !== 200 && probe.status !== 206) return json(404, { error: 'not-published' }, cors);
-        // eslint-disable-next-line no-control-regex
         const title = String(info.title || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
         const resolved = { name, title, path: `${SOUNDCLOUD_STREAM_PREFIX}${name}` };
         await storeMetadata(cacheKey, resolved, 3600);
