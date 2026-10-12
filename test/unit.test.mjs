@@ -2845,7 +2845,22 @@ test('every guest slot asks for a clip its character file carries, inside the ro
     assert.equal(slots[3].ambient.yawRange || 0, 0, 'ambient attention must not turn the balcony guest away from the rail');
     assert.equal(slots[0].clip, 'Idle_Loop', 'a fixed guest must not talk before a visible partner arrives');
     assert.ok(slots[0].clips.includes('Idle_Talking_Loop'), 'the first guest cannot answer the mingler');
+    const hoodie = Crowd.sourceIndex('m4');
+    assert.equal(slots.filter(slot => slot.src === hoodie).length, 1, 'the rust-hoodie guest must not appear twice');
+    const hoodieYaw = Math.atan2(-slots[0].x, -18 - slots[0].z);
+    assert.ok(Math.abs(Math.atan2(Math.sin(slots[0].yaw - hoodieYaw), Math.cos(slots[0].yaw - hoodieYaw))) < 1e-9,
+        'the rust-hoodie guest must face the dance floor from his base position');
     assert.equal(slots[5].clip, 'Idle_Loop', 'a one-shot Yes gesture must not be used as a permanent idle');
+    const slotsBySource = new Map();
+    slots.forEach(slot => {
+        const peers = slotsBySource.get(slot.src) || [];
+        for (const peer of peers) {
+            assert.ok(Math.hypot(slot.x - peer.x, slot.z - peer.z) >= 12,
+                'a repeated upper-tier guest look must be placed on the opposite side of the club');
+        }
+        peers.push(slot);
+        slotsBySource.set(slot.src, peers);
+    });
     for (let a = 0; a < slots.length; a++) {
         for (let b = a + 1; b < slots.length; b++) {
             const apart = Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z);
@@ -6731,6 +6746,9 @@ test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC 
     const json = readGlbJson('js/models/lounge/source/old_couch.glb');
     assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
     assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
+    const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
+    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b/,
+        'the couch must not receive the generic imported-model emission floor');
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
     assert.match(html, /"Old Couch"[\s\S]{0,400}Oliver Triplett[\s\S]{0,300}CC BY 4\.0/, 'the credit must name title, creator and licence');
     assert.match(readFileSync(join(ROOT, 'ASSETS.md'), 'utf8'), /old_couch\.glb/);

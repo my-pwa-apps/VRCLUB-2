@@ -181,7 +181,7 @@ class ModelLoader {
                 rotation: new BABYLON.Vector3(0, Math.PI, 0),
                 scale: new BABYLON.Vector3(1, 1, 1),
                 placement: { fitAxis: 'x', fitSize: 2.1, centerX: 7.1, centerZ: -0.72, bottomY: 0 },
-                emissiveFloor: 0.03,
+                emissiveFloor: 0,
                 attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
             }
         };

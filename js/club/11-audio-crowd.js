@@ -1726,7 +1726,7 @@ class VRClubAudioCrowd extends VRClubUI {
         return [
             // He waits naturally until the mingler reaches him; a conversation animation without a visible partner
             // reads as talking to an invisible person.
-            { src: at('m4'), clip: 'Idle_Loop', x: 7.45, z: -7.3, yaw: 0.35, height: 1.80,
+            { src: at('m4'), clip: 'Idle_Loop', x: 7.45, z: -7.3, yaw: towardDJ(7.45, -7.3), height: 1.80,
                 clips: talks('Idle_Loop'),
                 ambient: { speedVariation: 0.035, period: 19, phase: 0.4 } },
             // A regular sits on the second bar stool. Authored seated clips keep her pelvis on the seat, both feet on
@@ -1746,9 +1746,9 @@ class VRClubAudioCrowd extends VRClubUI {
             // `Yes` is a short gesture, not an idle; looping it made him point and nod continuously.
             { src: at('m8'), clip: 'Idle_Loop', x: 7.7, z: -12.6, yaw: towardDJ(7.7, -12.6), height: 1.77,
                 ambient: { yawRange: 0.1, speedVariation: 0.03, period: 25, phase: 4.1 } },
-            { src: at('f6'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.63,
+            { src: at('m8'), clip: 'Idle_Loop', x: -8.4, z: -14.4, yaw: towardDJ(-8.4, -14.4), height: 1.77,
                 clips: talks('Idle_Loop'), ambient: { yawRange: 0.14, speedVariation: 0.05, period: 18, phase: 5.3 } },
-            { src: at('m4'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.70,
+            { src: at('f8'), clip: 'Idle_Loop', x: 9.4, z: -15.8, yaw: towardDJ(9.4, -15.8) + 0.4, height: 1.68,
                 ambient: { yawRange: 0.12, speedVariation: 0.04, period: 24, phase: 0.9 } }
         ];
     }

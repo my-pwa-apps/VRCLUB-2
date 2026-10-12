@@ -34,7 +34,9 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
             backsZ: mean(backs), seatsZ: mean(seats),
             seatsTagged: seatsTagged.map(s => s.id), sit, active: club._activeSeat && club._activeSeat.id,
             blocker: !!blocker && blocker.checkCollisions, ready: mesh.material.getActiveTextures().every(t => t.isReady()),
-            lights: mesh.lightSources.map(l => l.name), layout
+            lights: mesh.lightSources.map(l => l.name),
+            emissive: mesh.material.emissiveColor && mesh.material.emissiveColor.asArray(),
+            layout
         };
         club.standFromSeat(false);
         return result;
@@ -51,6 +53,7 @@ test('the lounge couch faces the DJ from the entrance wall and two people can si
     expect(state.blocker).toBe(true);
     expect(state.ready).toBe(true);
     expect(state.lights).not.toContain('loungeLight');
+    expect(state.emissive).toEqual([0, 0, 0]);
     await page.evaluate(() => {
         const club = window.vrClub, cam = club.camera;
         club._walkLevel = 0;
