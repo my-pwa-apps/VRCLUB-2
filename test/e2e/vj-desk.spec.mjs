@@ -27,7 +27,11 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
             return scene.pickWithRay(ray, mesh => mesh.isPickable && mesh.isEnabled() && mesh.isVisible);
         };
         const misses = [];
-        for (const panelId of ['show', 'lights', 'transport']) {
+        const transportPanel = club._vjDesk.panels.find(item => item.id === 'transport');
+        const playerHiddenWithDJ = !transportPanel.mesh.isEnabled();
+        const djBefore = club.isPeopleVisible('dj');
+        club.togglePeopleVisible('dj');
+        for (const panelId of ['show', 'lights']) {
             for (const button of buttons[panelId]) {
                 const pick = pickAt(panelId, button);
                 const hit = club._vjDeskHit(pick);
@@ -36,6 +40,17 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
                 }
             }
         }
+        for (const pageName of ['player', 'fx']) {
+            club._vjDeskPlayerPage = pageName;
+            for (const button of buttons.transport.filter(item => !item.page || item.page === pageName)) {
+                const pick = pickAt('transport', button);
+                const hit = club._vjDeskHit(pick);
+                if (!hit || !hit.button || hit.button.id !== button.id) {
+                    misses.push(`${pageName}:${button.id} -> ${pick && pick.pickedMesh ? pick.pickedMesh.name : 'nothing'} ${hit && hit.button ? hit.button.id : ''}`);
+                }
+            }
+        }
+        club._vjDeskPlayerPage = 'player';
         // The panel faces the person at the desk (its front, readable side), tilted up from the table.
         const panel = club._vjDesk.panels[0].mesh;
         const facing = panel.getDirection(new BABYLON.Vector3(0, 0, -1));
@@ -53,10 +68,16 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
         const redrawn = club._vjDesk.panels[1].signature !== signatureBefore;
         press('auto');
         const afterAuto = { manual: club.vjManualMode, title: club._vjDeskStatus().title };
-        const djBefore = club.isPeopleVisible('dj');
-        press('dj');
         const djAfter = club.isPeopleVisible('dj');
+        press('playerPage');
+        const fxPage = club._vjDeskPlayerPage;
+        press('echo');
+        press('channel');
+        const effectsChanged = { ...club._djEffectsState() };
         press('dj');
+        const playerHiddenOnReturn = !transportPanel.mesh.isEnabled();
+        const pageOnReturn = club._vjDeskPlayerPage;
+        const effectsOnReturn = { ...club._djEffectsState() };
         const mirrorRaysBefore = club.mirrorBallRaysActive;
         press('mirrorRays');
         const mirrorRaysAfter = club.mirrorBallRaysActive;
@@ -73,12 +94,14 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
             const ambient = material && material.ambientColor;
             result.emissive = Math.max(result.emissive, emissive ? emissive.r : 0, emissive ? emissive.g : 0, emissive ? emissive.b : 0);
             result.ambient = Math.max(result.ambient, ambient ? ambient.r : 0, ambient ? ambient.g : 0, ambient ? ambient.b : 0);
+            result.metallic = Math.max(result.metallic, Number(material && material.metallic) || 0);
             result.texture ||= !!(material && material.emissiveTexture);
             return result;
-        }, { emissive: 0, ambient: 0, texture: false });
+        }, { emissive: 0, ambient: 0, metallic: 0, texture: false });
         return {
             misses, facingDot: BABYLON.Vector3.Dot(facing, toEye), up: facing.y,
             lightsBefore, afterSpots, redrawn, afterAuto, djBefore, djAfter, djBack: club.isPeopleVisible('dj'),
+            playerHiddenWithDJ, playerHiddenOnReturn, fxPage, pageOnReturn, effectsChanged, effectsOnReturn,
             mirrorRaysBefore, mirrorRaysAfter, mirrorRaysBack: club.mirrorBallRaysActive,
             clearance: {
                 left: transport.minimumWorld.x - show.maximumWorld.x,
@@ -102,13 +125,20 @@ test('the VJ desk: every button is where it is drawn, and presses hand the light
     expect(result.djBefore).toBe(true);
     expect(result.djAfter, 'the RESIDENT DJ button must send the DJ home').toBe(false);
     expect(result.djBack).toBe(true);
+    expect(result.playerHiddenWithDJ, 'the resident DJ must hide the replacement player').toBe(true);
+    expect(result.fxPage).toBe('fx');
+    expect(result.effectsChanged.echo).toBeGreaterThan(0);
+    expect(result.effectsChanged.channel).toBeLessThan(1);
+    expect(result.playerHiddenOnReturn, 'returning the DJ must hide the replacement player').toBe(true);
+    expect(result.pageOnReturn).toBe('player');
+    expect(result.effectsOnReturn).toEqual({ lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 });
     expect(result.mirrorRaysAfter).toBe(!result.mirrorRaysBefore);
     expect(result.mirrorRaysBack).toBe(result.mirrorRaysBefore);
     expect(result.clearance.left, 'the player overlaps the SHOW panel').toBeGreaterThan(0.02);
     expect(result.clearance.right, 'the player overlaps the LIGHTS panel').toBeGreaterThan(0.02);
     expect(result.clearance.mixer, 'the player extends under the mixer').toBeGreaterThan(0.02);
-    expect(result.couchGlow).toEqual({ emissive: 0, ambient: 0, texture: false });
-    expect(result.meshes.sort()).toEqual(['vjDeskHousing', 'vjDesk_lights', 'vjDesk_show', 'vjDesk_transport']);
+    expect(result.couchGlow).toEqual({ emissive: 0, ambient: 0, metallic: 0, texture: false });
+    expect(result.meshes.sort()).toEqual(['vjDeskHousing', 'vjDeskTransportHousing', 'vjDesk_lights', 'vjDesk_show', 'vjDesk_transport']);
     expect(result.oldDesk, 'the old unlabelled buttons are still in the scene').toBe(0);
 
     // What the person who replaced the DJ sees, one panel at a time (kept with the test results for review).

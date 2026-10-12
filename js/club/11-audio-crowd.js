@@ -169,6 +169,7 @@ class VRClubAudioCrowd extends VRClubUI {
                 // the full track and the lights do not calm down while you chat.
                 this.voiceDuckGain = this.audioContext.createGain();
                 this.voiceDuckGain.gain.value = this._voiceDucked ? VRClubAudioCrowd.VOICE_DUCK_LEVEL : 1;
+                this._createDJEffects();
 
                 // Reverb return folds back into the mastering bus.
                 this.roomConvolver.connect(this.reverbReturn);
@@ -244,6 +245,125 @@ class VRClubAudioCrowd extends VRClubUI {
         }
 
         return ir;
+    }
+
+    _djEffectsState() {
+        return this._djEffects || (this._djEffects = {
+            lowpass: 0,
+            highpass: 0,
+            echo: 0,
+            flanger: 0,
+            reverb: 0,
+            channel: 1
+        });
+    }
+
+    _createDJEffects() {
+        const ctx = this.audioContext;
+        try {
+            const input = ctx.createGain();
+            const lowpass = ctx.createBiquadFilter();
+            lowpass.type = 'lowpass';
+            lowpass.Q.value = 0.7;
+            const highpass = ctx.createBiquadFilter();
+            highpass.type = 'highpass';
+            highpass.Q.value = 0.7;
+            const mix = ctx.createGain();
+            const echoDelay = ctx.createDelay(1);
+            echoDelay.delayTime.value = 0.375;
+            const echoFeedback = ctx.createGain();
+            const echoWet = ctx.createGain();
+            const flangerDelay = ctx.createDelay(0.02);
+            flangerDelay.delayTime.value = 0.003;
+            const flangerWet = ctx.createGain();
+            const flangerLfo = ctx.createOscillator();
+            flangerLfo.type = 'sine';
+            flangerLfo.frequency.value = 0.25;
+            const flangerDepth = ctx.createGain();
+            flangerDepth.gain.value = 0.002;
+            const channel = ctx.createGain();
+            const output = ctx.createGain();
+            const reverb = ctx.createGain();
+
+            input.connect(lowpass);
+            lowpass.connect(highpass);
+            highpass.connect(mix);
+            highpass.connect(echoDelay);
+            echoDelay.connect(echoWet);
+            echoWet.connect(mix);
+            echoDelay.connect(echoFeedback);
+            echoFeedback.connect(echoDelay);
+            highpass.connect(flangerDelay);
+            flangerDelay.connect(flangerWet);
+            flangerWet.connect(mix);
+            flangerLfo.connect(flangerDepth);
+            flangerDepth.connect(flangerDelay.delayTime);
+            mix.connect(channel);
+            channel.connect(output);
+            if (this.roomConvolver) {
+                output.connect(reverb);
+                reverb.connect(this.roomConvolver);
+            }
+            flangerLfo.start();
+
+            this.djFxInput = input;
+            this.djFxOutput = output;
+            this.djFxLowpass = lowpass;
+            this.djFxHighpass = highpass;
+            this.djFxEchoFeedback = echoFeedback;
+            this.djFxEchoWet = echoWet;
+            this.djFxFlangerWet = flangerWet;
+            this.djFxFlangerLfo = flangerLfo;
+            this.djFxChannel = channel;
+            this.djFxReverb = reverb;
+            this._writeDJEffects(0);
+        } catch (error) {
+            this.djFxInput = null;
+            this.djFxOutput = null;
+            log.warn('🎚️ DJ effects unavailable:', error);
+        }
+    }
+
+    _setDJAudioParam(param, value, timeConstant) {
+        if (!param || !this.audioContext) return;
+        const now = this.audioContext.currentTime;
+        if (param.cancelScheduledValues) param.cancelScheduledValues(now);
+        if (timeConstant > 0 && param.setTargetAtTime) param.setTargetAtTime(value, now, timeConstant);
+        else if (param.setValueAtTime) param.setValueAtTime(value, now);
+        else param.value = value;
+    }
+
+    _writeDJEffects(timeConstant = 0.025) {
+        const state = this._djEffectsState();
+        const lowpassHz = 20000 * Math.pow(250 / 20000, state.lowpass);
+        const highpassHz = 20 * Math.pow(4000 / 20, state.highpass);
+        this._setDJAudioParam(this.djFxLowpass?.frequency, lowpassHz, timeConstant);
+        this._setDJAudioParam(this.djFxHighpass?.frequency, highpassHz, timeConstant);
+        this._setDJAudioParam(this.djFxEchoWet?.gain, state.echo * 0.65, timeConstant);
+        this._setDJAudioParam(this.djFxEchoFeedback?.gain, state.echo > 0 ? 0.2 + state.echo * 0.45 : 0, timeConstant);
+        this._setDJAudioParam(this.djFxFlangerWet?.gain, state.flanger * 0.7, timeConstant);
+        this._setDJAudioParam(this.djFxReverb?.gain, state.reverb * 0.7, timeConstant);
+        this._setDJAudioParam(this.djFxChannel?.gain, state.channel, timeConstant);
+    }
+
+    setDJEffect(name, value) {
+        if (!this.guardHostControl('music')) return false;
+        const state = this._djEffectsState();
+        if (!Object.hasOwn(state, name)) throw new Error(`Unknown DJ effect: ${name}`);
+        state[name] = Math.min(1, Math.max(0, Number(value) || 0));
+        this._writeDJEffects();
+        return true;
+    }
+
+    resetDJEffects() {
+        const state = this._djEffectsState();
+        state.lowpass = 0;
+        state.highpass = 0;
+        state.echo = 0;
+        state.flanger = 0;
+        state.reverb = 0;
+        state.channel = 1;
+        this._writeDJEffects(0.08);
     }
 
     /**
@@ -388,9 +508,14 @@ class VRClubAudioCrowd extends VRClubUI {
         source.connect(this.audioAnalyser);
         if (this.kickFilter) source.connect(this.kickFilter);
         if (this.rhythmFilter) source.connect(this.rhythmFilter);
+        let audible = source;
+        if (this.djFxInput && this.djFxOutput) {
+            source.connect(this.djFxInput);
+            audible = this.djFxOutput;
+        }
         if (this.pannerLeft && this.pannerRight && this.airAbsorptionFilter && this.audioCompressor) {
-            source.connect(this.airAbsorptionFilter);
-            if (this.subFilter && this.subGain) source.connect(this.subFilter);
+            audible.connect(this.airAbsorptionFilter);
+            if (this.subFilter && this.subGain) audible.connect(this.subFilter);
         }
     }
 
@@ -2012,6 +2137,8 @@ class VRClubAudioCrowd extends VRClubUI {
     /** The DJ is not a crowd slot: an AvatarRig posed by DJPerformer, replaced on local selection. */
     _applyDJVisibility() {
         const enabled = this.isPeopleVisible('dj');
+        if (typeof this._applyVJDeskPlayerVisibility === 'function') this._applyVJDeskPlayerVisibility();
+        if (enabled && typeof this.resetDJEffects === 'function') this.resetDJEffects();
         if (enabled && this._djWanted && this._djWanted !== this._djId) {
             this.setDJ(this._djWanted).then(applied => {
                 if (!applied) this.showErrorMessage('The selected DJ could not load. Try again later.');

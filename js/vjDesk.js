@@ -59,7 +59,7 @@ function vjDeskLayout() {
     const playerMargin = 24, playerGap = 12;
     const playerWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 3) / 4;
     const player = (id, label, action, col, colour, extra = {}) => ({
-        id, panel: 'transport', kind: 'transport', label, action, colour,
+        id, panel: 'transport', page: 'player', kind: 'transport', label, action, colour,
         rect: {
             x: Math.round(playerMargin + col * (playerWidth + playerGap)),
             y: 132,
@@ -67,6 +67,16 @@ function vjDeskLayout() {
             h: 72
         },
         ...extra
+    });
+    const effectWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 2) / 3;
+    const effect = (id, label, col, row, colour, kind = 'effect') => ({
+        id, panel: 'transport', page: 'fx', kind, effect: id, label, colour,
+        rect: {
+            x: Math.round(playerMargin + col * (effectWidth + playerGap)),
+            y: 132 + row * 80,
+            w: Math.round(effectWidth),
+            h: 70
+        }
     });
     const sectionButton = (id, label, col, colour) =>
         ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
@@ -114,14 +124,24 @@ function vjDeskLayout() {
             { id: 'matchColours', panel: 'lights', kind: 'light', label: 'MATCH ALL COLOURS', control: 'matchAllColors', colour: '#ffffff', rect: lights(2, 5, 2), step: true }
         ]),
         transport: Object.freeze([
+            {
+                id: 'playerPage', panel: 'transport', kind: 'playerPage', label: 'FX',
+                colour: '#b48cff', rect: { x: 834, y: 28, w: 160, h: 70 }
+            },
             player('previousSource', 'PREVIOUS', 'sourceStep', 0, '#7aa7ff', { icon: 'previous', delta: -1 }),
             player('playPause', 'PLAY / PAUSE', 'playPause', 1, '#19c37d', { icon: 'playPause' }),
             player('stop', 'STOP', 'stop', 2, '#ff5d7a', { icon: 'stop' }),
             player('nextSource', 'NEXT', 'sourceStep', 3, '#7aa7ff', { icon: 'next', delta: 1 }),
             {
-                id: 'seek', panel: 'transport', kind: 'seek', label: 'SET POSITION', colour: '#7aa7ff',
+                id: 'seek', panel: 'transport', page: 'player', kind: 'seek', label: 'SET POSITION', colour: '#7aa7ff',
                 rect: { x: playerMargin, y: 212, w: VJ_DESK.transport.canvas.width - playerMargin * 2, h: 72 }
-            }
+            },
+            effect('lowpass', 'LOW PASS', 0, 0, '#39d0ff'),
+            effect('highpass', 'HIGH PASS', 1, 0, '#7aa7ff'),
+            effect('echo', 'ECHO', 2, 0, '#b48cff'),
+            effect('flanger', 'FLANGER', 0, 1, '#ffb020'),
+            effect('reverb', 'REVERB', 1, 1, '#39e0c8'),
+            effect('channel', 'CHANNEL', 2, 1, '#ff5d7a', 'effectFader')
         ])
     });
 }
@@ -189,8 +209,8 @@ const VJDesk = {
             const body = BABYLON.MeshBuilder.CreateBox(`vjDeskBody_${id}`, { width: width + 0.05, height: depth + 0.05, depth: 0.05 }, this.scene);
             body.position.copyFrom(centre).addInPlace(into.scale(0.029));
             body.rotation.copyFrom(mesh.rotation);
-            housings.push(body);
-            return { id, mesh, texture, buttons: layout[id], width, depth, canvas, signature: '' };
+            if (id !== 'transport') housings.push(body);
+            return { id, mesh, body, texture, buttons: layout[id], width, depth, canvas, signature: '' };
         };
         const panels = ['show', 'lights'].map(id => {
             const side = id === 'show' ? -1 : 1;   // the operator faces +z, so -x is on their left
@@ -210,6 +230,11 @@ const VJDesk = {
             frontOffset: -0.19,
             canvas: VJ_DESK.transport.canvas
         }));
+        const transportHousing = panels.find(panel => panel.id === 'transport').body;
+        transportHousing.name = 'vjDeskTransportHousing';
+        transportHousing.material = this.materialFactory.getPreset('cdjBody');
+        transportHousing.isPickable = false;
+        transportHousing.freezeWorldMatrix();
         const housing = BABYLON.Mesh.MergeMeshes(housings, true);
         if (housing) {
             housing.name = 'vjDeskHousing';
@@ -217,10 +242,12 @@ const VJDesk = {
             housing.isPickable = false;
             housing.freezeWorldMatrix();
         }
-        this._vjDesk = { panels, housing, clock: 0, dirty: true };
+        this._vjDesk = { panels, housing, transportHousing, playerVisible: null, clock: 0, dirty: true };
         this._vjDeskDrag = null;
         this._vjDeskSeek = null;
         this._vjDeskPressed = null;
+        this._vjDeskPlayerPage = 'player';
+        this._applyVJDeskPlayerVisibility();
         for (const panel of panels) this._drawVJDeskPanel(panel);
     },
 
@@ -233,8 +260,30 @@ const VJDesk = {
         const local = BABYLON.Vector3.TransformCoordinates(pickResult.pickedPoint, panel.mesh.getWorldMatrix().clone().invert());
         const x = (local.x / panel.width + 0.5) * panel.canvas.width;
         const y = (0.5 - local.y / panel.depth) * panel.canvas.height;
-        const button = panel.buttons.find(b => x >= b.rect.x && x <= b.rect.x + b.rect.w && y >= b.rect.y && y <= b.rect.y + b.rect.h) || null;
+        const button = panel.buttons.find(b => this._vjDeskButtonOnPage(b) &&
+            x >= b.rect.x && x <= b.rect.x + b.rect.w && y >= b.rect.y && y <= b.rect.y + b.rect.h) || null;
         return { panel, button, x, y };
+    },
+
+    _vjDeskButtonOnPage(button) {
+        return !button.page || button.page === (this._vjDeskPlayerPage || 'player');
+    },
+
+    _applyVJDeskPlayerVisibility() {
+        const desk = this._vjDesk;
+        if (!desk) return;
+        const visible = !this.isPeopleVisible('dj');
+        if (desk.playerVisible === visible) return;
+        desk.playerVisible = visible;
+        const panel = desk.panels.find(item => item.id === 'transport');
+        if (panel) panel.mesh.setEnabled(visible);
+        if (desk.transportHousing) desk.transportHousing.setEnabled(visible);
+        if (!visible) {
+            this._vjDeskDrag = null;
+            this._vjDeskSeek = null;
+            this._vjDeskPlayerPage = 'player';
+        }
+        desk.dirty = true;
     },
 
     /** Pointer down. Returns true when the desk took the press. */
@@ -246,6 +295,8 @@ const VJDesk = {
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
             if (this._vjDeskSetFader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+        } else if (button.kind === 'effect' || button.kind === 'effectFader') {
+            if (this._vjDeskSetEffect(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
         } else if (button.kind === 'seek') {
             if (this._vjDeskSetSeekPreview(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
         } else {
@@ -262,6 +313,7 @@ const VJDesk = {
         const hit = this._vjDeskHit(pickResult);
         if (!hit || hit.panel !== drag.panel) return;
         if (drag.button.kind === 'seek') this._vjDeskSetSeekPreview(drag.button, hit.x);
+        else if (drag.button.kind === 'effect' || drag.button.kind === 'effectFader') this._vjDeskSetEffect(drag.button, hit.x);
         else this._vjDeskSetFader(drag.button, hit.x);
         this._vjDesk.dirty = true;
     },
@@ -302,6 +354,17 @@ const VJDesk = {
         return true;
     },
 
+    _vjDeskSetEffect(button, x) {
+        if (this.isPeopleVisible('dj')) return false;
+        if (this._audioKind === 'soundcloud') return false;
+        const inset = button.kind === 'effectFader' ? 18 : 0;
+        const fraction = Math.min(1, Math.max(0,
+            (x - button.rect.x - inset) / (button.rect.w - inset * 2)));
+        if (!this.setDJEffect(button.effect, fraction)) return false;
+        if (this._vjDesk) this._vjDesk.dirty = true;
+        return true;
+    },
+
     _runVJDeskButton(button) {
         const toast = text => this.showErrorMessage(text);
         // The resident DJ is a personal choice (who is in YOUR club); the music has its own owner check; everything
@@ -315,6 +378,11 @@ const VJDesk = {
         if (button.kind === 'safeMode') {
             this.setPhotosensitiveSafeMode(!this.photosensitiveSafeMode);
             toast(`Photosensitive Safe Mode: ${this.photosensitiveSafeMode ? 'on' : 'off'}`);
+            return;
+        }
+        if (button.kind === 'playerPage') {
+            this._vjDeskPlayerPage = this._vjDeskPlayerPage === 'fx' ? 'player' : 'fx';
+            if (this._vjDesk) this._vjDesk.dirty = true;
             return;
         }
         if (button.kind === 'transport') { this._runVJDeskTransport(button); return; }
@@ -420,6 +488,7 @@ const VJDesk = {
     updateVJDesk(ctx) {
         const desk = this._vjDesk;
         if (!desk) return;
+        this._applyVJDeskPlayerVisibility();
         const now = performance.now();
         if (this.vjManualMode && this._operatorAtVJDesk()) this.lastVJInteraction = now / 1000;
         if (this._vjDeskPressed && now > this._vjDeskPressed.until) {
@@ -473,6 +542,9 @@ const VJDesk = {
     },
 
     _vjDeskPlayerStatus() {
+        if (this._vjDeskPlayerPage === 'fx') {
+            return { tone: 'music', title: 'DJ EFFECTS', detail: 'DRAG A KNOB OR FADER. PLAYER RETURNS TO TRANSPORT.' };
+        }
         const info = this.getPlaybackInfo();
         const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src));
         const title = String(this.nowPlayingLabel || this.musicLibrary?.current()?.name || 'NO SET LOADED').toUpperCase();
@@ -485,8 +557,13 @@ const VJDesk = {
     /** Why a button cannot do anything right now, or '' when it can. */
     _vjDeskDisabledReason(button) {
         if (button.kind === 'dj' || button.kind === 'holdMode' || button.kind === 'safeMode') return '';
+        if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
         if (this.isFollowingHost()) return 'HOST ONLY';
+        if (button.kind === 'effect' || button.kind === 'effectFader') {
+            if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
+            return this._audioKind === 'soundcloud' ? 'PLAYER AUDIO ONLY' : '';
+        }
         if (button.kind === 'transport') {
             const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src) || this._stoppedAudioSource);
             const selected = !!(this.musicLibrary && this.musicLibrary.current());
@@ -529,6 +606,10 @@ const VJDesk = {
                 break;
             }
             case 'safeMode': onOff(this.photosensitiveSafeMode); break;
+            case 'playerPage':
+                out.active = this._vjDeskPlayerPage === 'fx';
+                out.value = this._vjDeskPlayerPage === 'fx' ? 'SHOW PLAYER' : 'OPEN EFFECTS';
+                break;
             case 'transport': {
                 const info = this.getPlaybackInfo();
                 const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src) || this._stoppedAudioSource);
@@ -540,6 +621,16 @@ const VJDesk = {
                 } else if (button.action === 'stop') {
                     out.value = loaded ? 'RETURN TO START' : 'NOTHING LOADED';
                 }
+                break;
+            }
+            case 'effect':
+            case 'effectFader': {
+                const state = this._djEffectsState();
+                out.level = state[button.effect];
+                out.active = button.effect === 'channel' ? state.channel < 0.999 : state[button.effect] > 0.001;
+                out.value = button.effect === 'channel' && state.channel <= 0.001
+                    ? 'SILENT'
+                    : `${Math.round(state[button.effect] * 100)}%`;
                 break;
             }
             case 'seek': {
@@ -625,7 +716,9 @@ const VJDesk = {
             : panel.id === 'transport'
                 ? JSON.stringify(this._vjDeskPlayerStatus())
                 : String(this.vjManualMode);
+        if (panel.id === 'transport') signature += `|${this._vjDeskPlayerPage || 'player'}`;
         for (const button of panel.buttons) {
+            if (!this._vjDeskButtonOnPage(button)) continue;
             const s = this._vjDeskButtonState(button);
             signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
         }
@@ -653,12 +746,15 @@ const VJDesk = {
         ctx.textAlign = 'left';
         ctx.fillStyle = toneColour;
         ctx.font = 'bold 50px sans-serif';
-        ctx.fillText(status ? status.title : 'LIGHTS', 68, 50, W - 120);
+        const headerWidth = panel.id === 'transport' ? W - 340 : W - 120;
+        ctx.fillText(status ? status.title : 'LIGHTS', 68, 50, headerWidth);
         ctx.fillStyle = '#c3cad6';
         ctx.font = 'bold 28px sans-serif';
-        ctx.fillText(status ? status.detail : 'TOUCH A LIGHT TO SWITCH IT ON OR OFF, OR TO STEP TO THE NEXT ONE', 68, 98, W - 120);
+        ctx.fillText(status ? status.detail : 'TOUCH A LIGHT TO SWITCH IT ON OR OFF, OR TO STEP TO THE NEXT ONE', 68, 98, headerWidth);
 
-        for (const button of panel.buttons) this._drawVJDeskButton(ctx, button, this._vjDeskButtonState(button));
+        for (const button of panel.buttons) {
+            if (this._vjDeskButtonOnPage(button)) this._drawVJDeskButton(ctx, button, this._vjDeskButtonState(button));
+        }
         panel.texture.update();
     },
 
@@ -727,6 +823,45 @@ const VJDesk = {
             ctx.arc(knob, track.y, 24, 0, Math.PI * 2);
             ctx.fillStyle = state.disabled ? '#3a404c' : '#e9eef7';
             ctx.fill();
+            return;
+        }
+        if (button.kind === 'effect' || button.kind === 'effectFader') {
+            const level = Math.min(1, Math.max(0, state.level || 0));
+            ctx.fillStyle = ink;
+            ctx.textAlign = 'left';
+            ctx.font = 'bold 23px sans-serif';
+            ctx.fillText(button.label, x + (button.kind === 'effectFader' ? 18 : 76), y + 24, w - 88);
+            ctx.fillStyle = sub;
+            ctx.font = 'bold 19px sans-serif';
+            ctx.textAlign = button.kind === 'effectFader' ? 'right' : 'left';
+            ctx.fillText(state.value, x + (button.kind === 'effectFader' ? w - 18 : 76), y + (button.kind === 'effectFader' ? 24 : 50), w - 88);
+            if (button.kind === 'effectFader') {
+                const left = x + 18, right = x + w - 18, trackY = y + 52;
+                deskRoundRect(ctx, left, trackY - 6, right - left, 12, 6);
+                ctx.fillStyle = '#273042';
+                ctx.fill();
+                const knobX = left + level * (right - left);
+                ctx.beginPath();
+                ctx.arc(knobX, trackY, 12, 0, Math.PI * 2);
+                ctx.fillStyle = state.disabled ? '#3a404c' : '#e9eef7';
+                ctx.fill();
+            } else {
+                const cx = x + 40, cy = y + h / 2;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 23, 0, Math.PI * 2);
+                ctx.fillStyle = state.disabled ? '#252a34' : '#30394a';
+                ctx.fill();
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = state.disabled ? '#3a404c' : colour;
+                ctx.stroke();
+                const angle = -Math.PI * 0.75 + level * Math.PI * 1.5;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + Math.cos(angle) * 17, cy + Math.sin(angle) * 17);
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = state.disabled ? '#5f6673' : '#ffffff';
+                ctx.stroke();
+            }
             return;
         }
         if (button.icon) {

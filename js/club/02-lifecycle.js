@@ -937,6 +937,9 @@ class VRClubLifecycle extends VRClubCore {
         }
         if (typeof this._stopSoundCloudPlayer === 'function') this._stopSoundCloudPlayer();
         if (this.audioContext && this.audioContext.state !== 'closed') {
+            if (this.djFxFlangerLfo) {
+                try { this.djFxFlangerLfo.stop(); } catch (_) { /* already stopped */ }
+            }
             if (this.crowdAmbienceSource) {
                 try { this.crowdAmbienceSource.stop(); } catch (_) { /* already stopped */ }
                 this.crowdAmbienceSource = null;
@@ -946,6 +949,17 @@ class VRClubLifecycle extends VRClubCore {
         this.audioContext = null;
         this.audioAnalyser = null;
         this.audioSource = null;
+        this._djEffects = null;
+        this.djFxInput = null;
+        this.djFxOutput = null;
+        this.djFxLowpass = null;
+        this.djFxHighpass = null;
+        this.djFxEchoFeedback = null;
+        this.djFxEchoWet = null;
+        this.djFxFlangerWet = null;
+        this.djFxFlangerLfo = null;
+        this.djFxChannel = null;
+        this.djFxReverb = null;
 
         if (this.vjDirector) this.vjDirector = null;
         if (this.showDirector) this.showDirector = null;

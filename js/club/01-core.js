@@ -293,6 +293,17 @@ class VRClubCore {
         this.audioElement = null;
         this.audioMasterGain = null;     // Master gain node (post-analyser, pre-destination)
         this.audioCompressor = null;     // Mastering compressor for "loud club" feel without clipping
+        this._djEffects = null;
+        this.djFxInput = null;
+        this.djFxOutput = null;
+        this.djFxLowpass = null;
+        this.djFxHighpass = null;
+        this.djFxEchoFeedback = null;
+        this.djFxEchoWet = null;
+        this.djFxFlangerWet = null;
+        this.djFxFlangerLfo = null;
+        this.djFxChannel = null;
+        this.djFxReverb = null;
 
         // === ACCESSIBILITY ===
         // Photosensitive Safe Mode: globally disables all strobe lights and sharp flashes.

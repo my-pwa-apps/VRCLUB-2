@@ -1046,7 +1046,9 @@ coordinates from documentation. The bar and vestibule numbers live in `window.Ve
   upholstery is lit only by the room.
   `_furnishLoungeCouch()` tags the two cushions and derives one collider from the placed bounds; the camera stands just
   in front of that collider (as for the stools) so desktop collisions cannot trap a sitter. The linked Meshy model was not
-  shipped: its ~454k faces were inappropriate for Quest.
+  shipped: its ~454k faces were inappropriate for Quest. The shipped couch forces zero emission/ambient floor and
+  `metallicFactor: 0`; its packed source ORM has a near-white metallic channel that otherwise reflects the warehouse
+  environment like a lamp in VR.
 - `node scripts/build-bar-assets.mjs` regenerates `textures/barWood/` and the stool GLB from Poly Haven.
 - Everything is measured on desktop SwiftShader only; the extra triangles (about 48k bottles, 33k stools, 33k bartender) are
   unmeasured on a headset.
@@ -1427,8 +1429,9 @@ GOBO** / **GOBO IMAGE** on the floor or wall. The internal `circle` gobo means a
 It replaced eleven unlabelled coloured boxes, a speed slider and an audio box that opened a DOM dialog (useless in a
 headset) along the table's front lip. Now there are SHOW and LIGHTS touch panels either side of the DJ controller,
 tilted 30° and turned toward the operator, plus a shallower SET PLAYER panel centred immediately in front of the mixer.
-The side panels use 1536x720 canvas textures and the compact player uses 1024x300; all three housings merge into one mesh, so
-the desk is four meshes. Panels are redrawn only when what they show changes (a signature checked every 0.2 s), and a press is
+The side panels use 1536x720 canvas textures and the compact player uses 1024x300. The side housings merge into one mesh;
+the independently hidden player housing is another, so the desk is five meshes. Panels are redrawn only when what they
+show changes (a signature checked every 0.2 s), and a press is
 mapped from the pick point into the panel's own plane to a button rect, like the VR seek bar. A mouse click and a
 controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `releaseVJDesk`, from
 `setupVJControlInteraction`).
@@ -1445,11 +1448,17 @@ controller ray therefore use the same path (`pressVJDesk` / `dragVJDesk` / `rele
   hold buttons are personal like RESIDENT DJ (never
   host-gated); TIMING is grey while the mode is keep. Every button's second line is its live value; unavailable ones are grey and say
   why (HOST ONLY, SAFE MODE, AUTO SHOW ONLY). Buttons under 90 px tall use smaller type.
-- **SET PLAYER** (centre): compact previous, combined play/pause, stop and next symbols above a full-width position
-  slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
+- **SET PLAYER** (centre): shown only while the resident DJ is sent home. One corner button switches the same compact
+  surface between PLAYER and FX pages. PLAYER has previous, combined play/pause, stop and next symbols above a full-width
+  position slider. Previous/next enable only when an active local folder or the saved-set library has more than one source and
   delegate to `stepAudioSource`; the other buttons delegate to `setAudioPlayback` and `stopAudioPlayback`. Dragging the slider previews the time and calls
   `seekAudioToFraction()` once on release, never repeatedly while the controller moves. Unavailable/live states are
-  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title.
+  written on the controls, and room guests see HOST ONLY. Its header shows playing/paused, position and set title. FX has
+  low-pass, high-pass, echo, flanger and reverb amounts plus a fast channel fader. The analyser taps remain before these
+  effects, while PA, sub and local-file listener broadcast receive the processed signal. Returning the DJ smoothly opens
+  both filters, clears the wet effects, restores full channel gain, returns the page to PLAYER and hides the panel. The
+  explicit SoundCloud embedded-player fallback cannot enter Web Audio, so those controls say PLAYER AUDIO ONLY and do
+  nothing in that mode.
 - **Who has the lights.** Touching any light or fader calls `takeLightControl()`. While the player stands in the booth
   (`VJ_DESK.booth`), `updateVJDesk()` keeps `lastVJInteraction` fresh, so the lights stay theirs. Once they walk away,
   the guest's hold policy (`vrclub.lightHold`; default resume after 60 s, `VJ_TIMEOUT` is the legacy fallback, counted down

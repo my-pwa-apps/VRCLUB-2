@@ -1579,6 +1579,12 @@ function createAudioHarness(options = {}) {
         createBiquadFilter() { return Object.assign(new Node('biquad'), { frequency: new Param(350), Q: new Param(1) }); }
         createGain() { return Object.assign(new Node('gain'), { gain: new Param(1) }); }
         createDelay() { return Object.assign(new Node('delay'), { delayTime: new Param() }); }
+        createOscillator() {
+            const n = Object.assign(new Node('oscillator'), { frequency: new Param() });
+            n.start = () => started.add(n);
+            n.stop = () => started.delete(n);
+            return n;
+        }
         createConvolver() { return new Node('convolver'); }
         createDynamicsCompressor() {
             const n = new Node('compressor');
@@ -1670,6 +1676,10 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     // The analyser is fed straight from the source, never after spatial attenuation,
     // or walking away from the PA would dim the light show.
     assert.ok(connected(club.audioSource, club.audioAnalyser));
+    assert.ok(connected(club.audioSource, club.djFxInput));
+    assert.ok(!downstream(club.djFxInput).has(club.audioAnalyser), 'DJ effects must not alter the light-show analyser');
+    assert.ok(downstream(club.djFxOutput).has(club.pannerLeft));
+    assert.ok(downstream(club.djFxOutput).has(club.subGain));
     assert.ok(!downstream(club.pannerLeft).has(club.audioAnalyser));
     assert.equal(club.audioAnalyser.fftSize, 256);
 
@@ -1684,6 +1694,21 @@ test('the Web Audio graph spatialises the PA, keeps the analyser pre-spatial and
     assert.ok(!downstream(club.voiceDuckGain).has(club.audioAnalyser));
     assert.ok(connected(club.audioMasterGain, ctx.destination));
     assert.ok(downstream(club.audioSource).has(club.roomConvolver));
+    assert.ok(started.has(club.djFxFlangerLfo));
+
+    club._djEffects.lowpass = 1;
+    club._djEffects.highpass = 1;
+    club._djEffects.echo = 1;
+    club._djEffects.flanger = 1;
+    club._djEffects.reverb = 1;
+    club._djEffects.channel = 0;
+    club._writeDJEffects();
+    assert.equal(club.djFxLowpass.frequency.value, 250);
+    assert.equal(club.djFxHighpass.frequency.value, 4000);
+    assert.equal(club.djFxChannel.gain.value, 0);
+    club.resetDJEffects();
+    assert.equal(JSON.stringify(club._djEffects), JSON.stringify({ lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 }));
+    assert.equal(club.djFxChannel.gain.value, 1);
 
     // The crowd bed runs, spatialised, into the same bus.
     assert.ok(started.has(club.crowdAmbienceSource));
@@ -1886,7 +1911,7 @@ test('disposing the club releases VR access, stops every audio source and closes
     club._onVRButtonClick = () => {};
     club._connectAudioSourceOnce();
     const ctx = club.audioContext;
-    assert.equal(started.size, 1);
+    assert.equal(started.size, 2, 'the crowd ambience and flanger oscillator should be running');
 
     const { window } = loadClassic('js/club/02-lifecycle.js', {
         VRClubCore: class {}, log: { info() {}, warn() {} }, URL: { revokeObjectURL() {} },
@@ -1897,7 +1922,7 @@ test('disposing the club releases VR access, stops every audio source and closes
     window.VRClubLifecycle.prototype.dispose.call(club);
     window.VRClubLifecycle.prototype.dispose.call(club);
     assert.deepEqual(xrStates, [false], 'teardown must stop lease renewal exactly once');
-    assert.equal(started.size, 0, 'the crowd ambience source is still running after dispose');
+    assert.equal(started.size, 0, 'an audio source or DJ-effect oscillator is still running after dispose');
     assert.equal(ctx.state, 'closed');
     assert.equal(club.audioContext, null);
     assert.equal(club.audioSource, null);
@@ -6747,8 +6772,8 @@ test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC 
     assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
     assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
-    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b/,
-        'the couch must receive neither the generic imported-model emission floor nor its ambient glow');
+    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b[\s\S]*?metallicFactor:\s*0\b/,
+        'the couch must be non-emissive and dielectric instead of reflecting the room like polished metal');
     assert.match(source, /if \(config\.disableEmission\)[\s\S]*?emissiveColor\.set\(0, 0, 0\)[\s\S]*?ambientColor\.set\(0, 0, 0\)/,
         'disableEmission must clear both emission and the generic ambient floor');
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -7950,6 +7975,9 @@ function deskHarness() {
         _audioKind: 'url',
         _localPlaylist: { order: [0, 1], position: 0 },
         _playbackInfo: { playing: false, seekable: true, position: 75, duration: 3600 },
+        _djEffects: { lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 },
+        _djEffectsState() { return this._djEffects; },
+        setDJEffect(name, value) { calls.push(`effect ${name} ${value}`); this._djEffects[name] = value; return true; },
         getPlaybackInfo() { return this._playbackInfo; },
         setAudioPlayback(playing) { calls.push(`playback ${playing}`); this._playbackInfo.playing = playing; return true; },
         stopAudioPlayback() { calls.push('stop'); this._playbackInfo.playing = false; this._playbackInfo.position = 0; return true; },
@@ -7990,11 +8018,13 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             ids.add(b.id);
             assert.ok(b.label && b.label === b.label.toUpperCase(), `${b.id} needs a plain upper-case label`);
             const r = b.rect;
-            assert.ok(r.x >= 0 && r.y >= 130 && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            const minimumWidth = panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
+            const minimumY = b.kind === 'playerPage' ? 0 : 130;
+            assert.ok(r.x >= 0 && r.y >= minimumY && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
+            const minimumWidth = b.kind === 'playerPage' ? 150 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
             assert.ok(r.h >= 70 && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
+                if (b.page && other.page && b.page !== other.page) continue;
                 const o = other.rect;
                 const overlap = r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h;
                 assert.ok(!overlap, `${b.id} overlaps ${other.id}`);
@@ -8018,8 +8048,10 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     assert.ok(labels.includes('PROJECT GOBO') && labels.includes('GOBO IMAGE'), 'the desk does not explain what the gobo controls do');
     assert.ok(labels.includes('MIRROR BEAMS'), 'the physical desk cannot switch from mirror rays to surface spots only');
     assert.ok(labels.every(label => !/GOBO SHAPE|SPOT PATTERN/.test(label)), 'the desk still has an ambiguous shape/pattern label');
-    assert.deepEqual([...VJDeskLayout.buttons.transport.map(button => button.label)],
+    assert.deepEqual([...VJDeskLayout.buttons.transport.filter(button => button.page === 'player').map(button => button.label)],
         ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
+    assert.deepEqual([...VJDeskLayout.buttons.transport.filter(button => button.page === 'fx').map(button => button.label)],
+        ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'CHANNEL']);
     assert.ok(VJDeskLayout.config.transport.width <= 1 && VJDeskLayout.config.transport.depth <= 0.3,
         'the compact player can overlap the mixer or side panels');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
@@ -8146,6 +8178,34 @@ test('the VJ desk set player explains live and host-owned controls instead of pr
     club.multiplayer = null;
     club._localPlaylist.order = [0];
     assert.equal(club._vjDeskDisabledReason(button('previousSource')), 'ONE SOURCE');
+    club._audioKind = 'soundcloud';
+    club.togglePeopleVisible('dj');
+    assert.equal(club._vjDeskDisabledReason(button('echo')), 'PLAYER AUDIO ONLY');
+    assert.equal(club._vjDeskSetEffect(button('echo'), button('echo').rect.x + 100), false);
+});
+
+test('the VJ desk set player switches to compact effects and resets to PLAYER when the DJ returns', () => {
+    const { club, press, calls, people, button } = deskHarness();
+    club._vjDesk = {
+        panels: [{ id: 'transport', mesh: { setEnabled() {} } }],
+        transportHousing: { setEnabled() {} },
+        playerVisible: null,
+        dirty: false
+    };
+    club._applyVJDeskPlayerVisibility();
+    assert.equal(club._vjDesk.playerVisible, false, 'the resident DJ hides the replacement player');
+    people.dj = false;
+    club._applyVJDeskPlayerVisibility();
+    assert.equal(club._vjDesk.playerVisible, true, 'sending the DJ home reveals the player');
+    press('playerPage');
+    assert.equal(club._vjDeskPlayerPage, 'fx');
+    assert.equal(club._vjDeskButtonState(button('playerPage')).value, 'SHOW PLAYER');
+    assert.match(club._vjDeskPlayerStatus().title, /DJ EFFECTS/);
+    assert.equal(club._vjDeskSetEffect(button('echo'), button('echo').rect.x + button('echo').rect.w / 2), true);
+    assert.match(calls.at(-1), /^effect echo /);
+    people.dj = true;
+    club._applyVJDeskPlayerVisibility();
+    assert.equal(club._vjDeskPlayerPage, 'player', 'returning the DJ restores the transport page');
 });
 
 test('VR menu: who is in the club has its own CROWD page on HOME, not the bottom of COMFORT', () => {

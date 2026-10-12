@@ -183,6 +183,7 @@ class ModelLoader {
                 placement: { fitAxis: 'x', fitSize: 2.1, centerX: 7.1, centerZ: -0.72, bottomY: 0 },
                 emissiveFloor: 0,
                 disableEmission: true,
+                metallicFactor: 0,
                 attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
             }
         };
@@ -581,6 +582,10 @@ class ModelLoader {
                         if (mesh.material.ambientColor) mesh.material.ambientColor.set(0, 0, 0);
                         if (mesh.material.emissiveTexture) mesh.material.emissiveTexture = null;
                         if ('unlit' in mesh.material) mesh.material.unlit = false;
+                    }
+
+                    if (config.metallicFactor !== undefined && mesh.material.metallic !== undefined) {
+                        mesh.material.metallic = config.metallicFactor;
                     }
                     
                     // A model can darken its own albedo (the bass bin's carpet is a mid grey, the PA above it is near black).

@@ -993,7 +993,7 @@ class ClubMultiplayer {
         try {
             if (!this._localMusicDestination) {
                 this._localMusicDestination = club.audioContext.createMediaStreamDestination();
-                this._localMusicSource = club.audioSource;
+                this._localMusicSource = club.djFxOutput || club.audioSource;
                 this._localMusicSource.connect(this._localMusicDestination);
             }
             client.setLocalMusic(this._localMusicDestination.stream, {
