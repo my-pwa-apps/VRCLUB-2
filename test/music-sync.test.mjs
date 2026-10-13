@@ -66,7 +66,7 @@ test('saved music needs a verified session and is empty until first saved', { sk
     assert.equal((await call('music/save', { items: [] })).status, 401);
     const cookie = await verify();
     const first = await (await call('music', undefined, cookie)).json();
-    assert.deepEqual(first, { items: null, updatedAt: 0 }, 'never saved means null, so a headset keeps its local list');
+    assert.deepEqual(first, { items: null, updatedAt: 0, email: 'owner@example.com' }, 'never saved means null, so a headset keeps its local list');
 });
 
 test('the owner saves a list on the phone and the headset reads the same list back, per account', { skip: !DatabaseSync }, async t => {
@@ -85,6 +85,7 @@ test('the owner saves a list on the phone and the headset reads the same list ba
     assert.ok(result.updatedAt > 0);
     const read = await (await call('music', undefined, phone)).json();
     assert.deepEqual(read.items, result.items);
+    assert.equal(read.email, 'owner@example.com', 'the headset can say which account the phone must use');
 
     // Saving again replaces the list (removing a link is a save without it) and an empty list is a real answer, not null.
     await call('music/save', { items: [result.items[1]] }, phone);
@@ -132,6 +133,32 @@ test('saving is rate limited per account', { skip: !DatabaseSync }, async t => {
     let last;
     for (let i = 0; i < 61; i++) last = await call('music/save', { items: [] }, cookie);
     assert.equal(last.status, 429);
+});
+
+test('signing out of the phone page ends only that email session, never a headset\u2019s device session', { skip: !DatabaseSync }, async t => {
+    const { call, verify, sqlite } = await setup(t);
+    const phone = await verify('owner@example.com');
+    assert.equal((await call('music', undefined, phone)).status, 200);
+    const out = await call('recovery/signout', {}, phone);
+    assert.equal(out.status, 200);
+    assert.match(out.headers.get('set-cookie'), /nocturne_vr_session=;.*Max-Age=0/);
+    assert.equal((await call('music', undefined, phone)).status, 401, 'the old cookie no longer works');
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM access_audit WHERE action = 'signed_out'").get().n, 1);
+    // Already signed out (or never signed in) is fine and still clears the cookie.
+    assert.equal((await call('recovery/signout', {}, '')).status, 200);
+    // The same browser can now verify a different address.
+    const other = await verify('other@example.com');
+    assert.equal((await (await call('music', undefined, other)).json()).email, 'other@example.com');
+
+    // A registered device's session is refused: ending it would unlink the headset.
+    const user = sqlite.prepare("SELECT id FROM users WHERE email = 'other@example.com'").get();
+    sqlite.prepare(`INSERT INTO purchases (checkout_session_id, user_id, amount, currency, status, updated_at, livemode)
+        VALUES (?, ?, 199, 'eur', 'paid', 'fixture', 1)`).run(crypto.randomUUID(), user.id);
+    const registered = await call('devices/register', { name: 'Quest' }, other);
+    assert.equal(registered.status, 200, await registered.clone().text());
+    const refused = await call('recovery/signout', {}, other);
+    assert.equal(refused.status, 409);
+    assert.equal((await call('music', undefined, other)).status, 200, 'the headset session is untouched');
 });
 
 test('cleanMusicItems keeps only url and a trimmed name', () => {

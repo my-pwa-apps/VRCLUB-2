@@ -369,7 +369,10 @@ headset keeps tracking. The music is muted while it is up.
 picker, so the VR Music page cannot take a link. The owner keeps the list on a phone instead: `/link/?music=1` (the
 pairing page in a second mode: verify the email once, then add or remove up to eight HTTPS links or SoundCloud tracks).
 It is stored per account (`account_music`, migration `0008_account_music.sql`; `GET /payments/music`,
-`POST /payments/music/save`, `worker/src/musicSync.js`). The headset loads it when VR starts, after linking, and on
+`POST /payments/music/save`, `worker/src/musicSync.js`). **The list belongs to the account the headset is linked to**, so the
+phone must verify the SAME email: the headset names its account, partly hidden (`b***@outlook.com`), on the SYNC NOW button, and the
+phone page's "Use a different email" button signs the phone out (`POST /payments/recovery/signout`; it refuses a registered
+device's own session, which would unlink the headset). The headset loads it when VR starts, after linking, and on
 Music, Sources, ADD FROM PHONE, SYNC NOW (`MusicLibrary.replaceAll`: the saved sets become exactly the phone's list).
 Local files and folders are not available in the immersive app: they need a browser. In the immersive app the
 panels that used to leave VR (music setup, credits) show a message instead, because there is no page to return to.

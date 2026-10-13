@@ -1,7 +1,7 @@
 // Music links that follow the account. An immersive-only headset app cannot type a link (no keyboard, no 2D page), so the
 // owner manages the list on a phone (link/?music=1) and the headset reads it.
 //
-//   GET  /payments/music       any verified session (phone or registered headset) -> { items: [...] | null, updatedAt }
+//   GET  /payments/music       any verified session (phone or registered headset) -> { items: [...] | null, updatedAt, email }
 //   POST /payments/music/save  any verified session, { items: [{ url, name }] }    -> { items, updatedAt }
 //
 // `items: null` means the account has never saved a list, so a headset keeps whatever it has locally. Validation here only
@@ -70,10 +70,11 @@ export async function handleMusicSync(request, env, headers, helpers) {
 
         if (request.method === 'GET') {
             const row = await env.DB.prepare('SELECT items, updated_at FROM account_music WHERE user_id = ?').bind(session.user_id).first();
-            if (!row) return respond({ items: null, updatedAt: 0 });
+            // The email lets a headset (which cannot show a keyboard) tell its owner which account the phone must use.
+            if (!row) return respond({ items: null, updatedAt: 0, email: session.email });
             let items;
             try { items = JSON.parse(row.items); } catch (_) { items = []; }
-            return respond({ items: Array.isArray(items) ? items : [], updatedAt: row.updated_at });
+            return respond({ items: Array.isArray(items) ? items : [], updatedAt: row.updated_at, email: session.email });
         }
 
         const body = await readBounded(request);

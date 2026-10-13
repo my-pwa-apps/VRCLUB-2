@@ -222,6 +222,24 @@ test('an expired code is replaced by itself, and NEW CODE asks for another on re
     t.launch.dispose();
 });
 
+test('the music status names the headset\u2019s account, masked, so the owner knows which email the phone must use', async () => {
+    const empty = setup({ music: async () => ({ items: null, email: 'bart@outlook.com' }) });
+    await empty.launch.start();
+    await until(() => empty.launch.musicStatus === 'NOTHING SAVED FOR B***@OUTLOOK.COM', 'the account in the status');
+    empty.launch.handleMenuAction('musicSync');
+    await until(() => /SAME email/.test(empty.calls.toast.at(-1) || ''), 'the message');
+    assert.match(empty.calls.toast.at(-1), /b\*\*\*@outlook\.com/);
+    assert.ok(!JSON.stringify(empty.calls.toast).includes('bart@outlook.com'), 'the full address is never shown');
+
+    const loaded = setup({ music: async () => ({ items: [{ url: 'https://audio.example/a.mp3' }], email: 'bart@outlook.com' }) });
+    await loaded.launch.start();
+    await until(() => loaded.launch.musicStatus === '1 LINK LOADED FOR B***@OUTLOOK.COM', 'the loaded status');
+
+    const { ImmersiveLaunch } = setup();
+    assert.equal(ImmersiveLaunch.maskEmail('anna.smith@example.org'), 'a***@example.org');
+    for (const bad of ['', 'nope', null, undefined, '@x.com', 'a@']) assert.equal(ImmersiveLaunch.maskEmail(bad), '', String(bad));
+});
+
 test('a server error shows a plain message and keeps trying instead of freezing the screen', async () => {
     const t = setup({ prepare: { state: 'needs-access' }, polls: [new Error('down'), 'approved'] });
     await t.launch.start();

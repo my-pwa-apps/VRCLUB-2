@@ -160,10 +160,17 @@ class ImmersiveLaunch {
         this._afterWelcome();
     }
 
+    /** "b***@outlook.com": enough to tell which of a person's addresses this is, without printing it in a headset. */
+    static maskEmail(email) {
+        const match = /^([^@\s])[^@\s]*(@[^@\s]+)$/.exec(String(email || ''));
+        return match ? `${match[1]}***${match[2]}` : '';
+    }
+
     /**
      * Loads the music links the owner keeps on their phone (worker/src/musicSync.js) into the saved sets. An immersive-only
-     * app cannot type a link or open a file picker, so this is how a headset gets its music. `manual` is the SYNC NOW
-     * button: it answers with a message even when nothing changed. Never throws.
+     * app cannot type a link or open a file picker, so this is how a headset gets its music. The list belongs to the account
+     * the headset is linked to, so the status names that account (masked): the phone must verify the SAME email. `manual` is
+     * the SYNC NOW button: it answers with a message even when nothing changed. Never throws.
      */
     async syncMusic(manual = false) {
         const library = this.club.musicLibrary;
@@ -174,12 +181,17 @@ class ImmersiveLaunch {
         try {
             const result = await this.payment.fetchMusic();
             if (this._disposed) return;
+            const account = ImmersiveLaunch.maskEmail(result && result.email);
+            const whose = account ? ` FOR ${account.toUpperCase()}` : '';
             if (!result || result.items === null || result.items === undefined) {
-                this.musicStatus = result && result.signedIn === false ? 'LINK THIS HEADSET FIRST' : 'NOTHING SAVED YET';
-                if (manual) say(result && result.signedIn === false ? 'Link this headset to your account first.' : 'Nothing saved yet. Add links on your phone, then press SYNC NOW.');
+                this.musicStatus = result && result.signedIn === false ? 'LINK THIS HEADSET FIRST' : `NOTHING SAVED${whose || ' YET'}`;
+                if (manual) {
+                    say(result && result.signedIn === false ? 'Link this headset to your account first.'
+                        : `Nothing saved yet${account ? ` for ${account}` : ''}. On your phone use the SAME email, add links, then press SYNC NOW.`);
+                }
             } else {
                 const outcome = library.replaceAll(result.items);
-                this.musicStatus = `${outcome.count} LINK${outcome.count === 1 ? '' : 'S'} LOADED`;
+                this.musicStatus = `${outcome.count} LINK${outcome.count === 1 ? '' : 'S'} LOADED${whose}`;
                 if (outcome.skipped) say(`${outcome.skipped} link${outcome.skipped === 1 ? '' : 's'} could not be used. Check the list on your phone.`);
                 else if (outcome.changed || manual) say(outcome.count ? `Loaded ${outcome.count} music link${outcome.count === 1 ? '' : 's'} from your phone.` : 'Your phone list is empty.');
             }

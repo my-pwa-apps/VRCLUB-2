@@ -101,6 +101,21 @@ export async function handleRecovery(request, env, headers, helpers) {
         const body = await readBody(request);
         if (!body || typeof body !== 'object') return respond({ message: 'Invalid request.' }, 400);
         const ip = await hash(request.headers.get('CF-Connecting-IP') || 'unknown');
+        if (path === '/payments/recovery/signout') {
+            // Ends this browser's email session, so the next visitor can verify a different address. A registered VR device's
+            // own session is refused: ending it would silently unlink the headset (remove devices from the Access menu instead).
+            if (!session) return respond({ signedOut: true }, 200, { 'set-cookie': cookie('', 0) });
+            if (session.device_id) {
+                return respond({ error: 'device_session', message: 'This browser is a registered VR device and stays signed in. Remove the device from the Access menu to unlink it.' }, 409);
+            }
+            const now = Date.now();
+            await env.DB.batch([
+                env.DB.prepare('UPDATE access_sessions SET revoked_at = ? WHERE token_hash = ? AND device_id IS NULL AND revoked_at IS NULL').bind(now, session.token_hash),
+                env.DB.prepare(`INSERT INTO access_audit (user_id, action, actor, device_id, created_at) VALUES (?, 'signed_out', ?, NULL, ?)`)
+                    .bind(session.user_id, session.email, now)
+            ]);
+            return respond({ signedOut: true }, 200, { 'set-cookie': cookie('', 0) });
+        }
         if (path === '/payments/recovery/start') {
             if (!env.EMAIL || !env.RECOVERY_FROM) return respond({ message: 'Recovery email delivery is unavailable. Contact support.' }, 503);
             const email = normalizeEmail(body.email);

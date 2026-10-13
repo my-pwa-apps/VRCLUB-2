@@ -98,7 +98,9 @@
     function emailStep() {
         const { wrapper, input } = field('Your email', 'email', { autocomplete: 'email', placeholder: 'you@example.com' });
         show('Verify your email',
-            el('p', 'We send an eight-digit code to confirm the account that owns VR access. Use the email you bought with or were invited under.'),
+            el('p', MUSIC_MODE
+                ? 'Use the SAME email your headset is linked to: your music list belongs to that account. The headset shows it, partly hidden, under Music, Sources, ADD FROM PHONE, SYNC NOW. We send an eight-digit code to confirm it.'
+                : 'We send an eight-digit code to confirm the account that owns VR access. Use the email you bought with or were invited under.'),
             wrapper,
             action('Email me a code', async () => {
                 const email = input.value.trim();
@@ -254,6 +256,12 @@
                 nodes.push(el('p', `You have saved ${MAX} links, the most the headset keeps. Remove one to add another.`, 'link-note'));
             }
             nodes.push(el('p', 'Works with direct HTTPS audio links (MP3, M4A, OGG or a stream) and SoundCloud tracks their creator has published to podcast players. YouTube and Spotify pages do not work. Local files need a browser, not the headset app.', 'link-note'));
+            nodes.push(action('Use a different email', async () => {
+                await api('/recovery/signout', {});
+                access = null;
+                say('');
+                emailStep();
+            }, true));
             show('Your headset music', ...nodes);
         };
         render();

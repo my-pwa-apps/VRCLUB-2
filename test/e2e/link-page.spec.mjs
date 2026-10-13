@@ -34,6 +34,7 @@ async function fakeApi(page, { verified = false, entitled = true, devices = [], 
             state.approved = body;
             return reply(route, { linked: true, email: 'owner@example.com', devices: state.devices });
         }
+        if (path === '/recovery/signout') { state.verified = false; state.signedOut = (state.signedOut || 0) + 1; return reply(route, { signedOut: true }); }
         if (path === '/music') return state.verified ? reply(route, { items: state.music, updatedAt: state.music ? 1 : 0 }) : reply(route, { message: 'Verify your email first.' }, 401);
         if (path === '/music/save') {
             if (!state.verified) return reply(route, { message: 'Verify your email first.' }, 401);
@@ -136,6 +137,18 @@ test('the owner manages the headset\u2019s music list from the phone: add, rejec
     await page.getByRole('button', { name: 'Remove Friday set' }).click();
     await expect(page.getByText('No music saved yet.')).toBeVisible();
     expect(state.music).toEqual([]);
+});
+
+test('the phone can switch to the email the headset uses: sign out, then verify the other address', async ({ page }) => {
+    const state = await fakeApi(page, { verified: true, music: [] });
+    await page.goto('/link/?music=1');
+    await expect(page.getByRole('heading', { name: 'Your headset music' })).toBeVisible();
+    await page.getByRole('button', { name: 'Use a different email' }).click();
+    await expect(page.getByRole('heading', { name: 'Verify your email' })).toBeVisible();
+    expect(state.signedOut).toBe(1);
+    // The email step tells the owner which address to use.
+    await expect(page.locator('#step')).toContainText('SAME email your headset is linked to');
+    await expect(page.locator('#step')).toContainText('ADD FROM PHONE');
 });
 
 test('an unverified owner verifies their email and lands on the music list, not the pairing flow', async ({ page }) => {
