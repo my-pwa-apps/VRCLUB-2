@@ -289,7 +289,9 @@ arbitrary HTTP(S) connections.
 ## Offline use
 
 After one successful online visit, the app shell (service worker) and the models, textures and
-environment (IndexedDB) are cached on the device.
+environment (IndexedDB) are cached on the device. NOCTURNE is an installable PWA: in a supporting browser, open
+**About, Credits & licences** and press **Install app** (or use the browser's own install button) to run it in its own
+window.
 
 | Workflow | Needs a network? |
 |----------|------------------|

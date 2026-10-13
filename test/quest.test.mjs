@@ -69,6 +69,40 @@ test('Quest music starts empty, persists user sets and wraps selection without a
     assert.throws(() => restored.step(1), /No saved sets/);
 });
 
+test('the Link tab offers Play now and Save to my sets, never Pause, and explains what each does while another set plays', () => {
+    const f = libraryFixture();
+    const playing = { url: 'https://audio.example/playing.mp3', playing: true };
+    // Nothing pasted: nothing to save.
+    let action = f.library.linkAction('', {});
+    assert.deepEqual([action.play.label, action.play.disabled, action.save.disabled, action.note], ['Play now', false, true, '']);
+    // A new link while another set plays: both choices are explained, and neither is a Pause button.
+    f.library.save('https://audio.example/playing.mp3', 'Playing');
+    action = f.library.linkAction('https://audio.example/other.mp3', playing);
+    assert.equal(action.play.label, 'Play now');
+    assert.equal(action.save.label, 'Save to my sets');
+    assert.equal(action.save.disabled, false);
+    assert.match(action.note, /Another set is playing/);
+    assert.match(action.note, /Save to my sets adds it and keeps the current set playing/);
+    // Saving it changes the offer: it can now be played as a saved set, and is no longer savable.
+    f.library.save('https://audio.example/other.mp3', 'Other');
+    action = f.library.linkAction('https://audio.example/other.mp3', playing);
+    assert.equal(action.play.label, 'Play this set');
+    assert.deepEqual([action.save.label, action.save.disabled], ['Saved in my sets', true]);
+    assert.match(action.note, /switches to it/);
+    // The link that is playing says so, and offers Resume only when paused.
+    action = f.library.linkAction('https://audio.example/playing.mp3', playing);
+    assert.deepEqual([action.play.label, action.play.disabled], ['Playing now', true]);
+    action = f.library.linkAction('https://audio.example/playing.mp3', { ...playing, playing: false });
+    assert.deepEqual([action.play.label, action.play.disabled], ['Resume', false]);
+    // A full library cannot take another link; an unusable link still lets Play now report why.
+    for (let i = 0; i < 6; i++) f.library.save(`https://audio.example/fill-${i}.mp3`, `Fill ${i}`);
+    assert.equal(f.library.items.length, 8);
+    action = f.library.linkAction('https://audio.example/ninth.mp3', playing);
+    assert.deepEqual([action.save.label, action.save.disabled], ['Sets full (8)', true]);
+    action = f.library.linkAction('not a link', playing);
+    assert.equal(action.play.disabled, false);
+});
+
 test('Quest music rejects unsafe and website links, invalid selection and capacity overflow', () => {
     const { library } = libraryFixture();
     for (const url of ['http://audio.example/a', 'javascript:alert(1)', 'blob:https://audio.example/a',

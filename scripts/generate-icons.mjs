@@ -115,6 +115,7 @@ mkdirSync(OUT, { recursive: true });
 const written = [];
 for (const [name, size, maskable] of [
     ['icon-192.png', 192, false],
+    ['icon-180.png', 180, false],
     ['icon-512.png', 512, false],
     ['icon-maskable-512.png', 512, true]
 ]) {

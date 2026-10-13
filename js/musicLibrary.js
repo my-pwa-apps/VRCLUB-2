@@ -254,6 +254,37 @@ class MusicLibrary {
         }
     }
 
+    /**
+     * What the Link tab's two buttons say for the link in its field, given what is playing right now.
+     * `active` is `{ url, playing }`: the address being played (if any) and whether anything is playing.
+     * Pure: the panel only draws the answer. "Play now" saves AND plays; "Save to my sets" only saves.
+     */
+    linkAction(url, active = {}) {
+        const text = String(url || '').trim();
+        let normalised = null;
+        try { if (text) normalised = this._item(text).url; } catch (_) { normalised = null; }
+        const saved = !!normalised && this.items.some(item => item.url === normalised);
+        const isActive = !!(text && active.url && this.matchesPlaybackUrl(normalised || text, active.url));
+        const full = this.items.length >= MusicLibrary.MAX_SETS;
+        const play = !text ? { label: 'Play now', disabled: false }
+            : isActive ? (active.playing ? { label: 'Playing now', disabled: true } : { label: 'Resume', disabled: false })
+                : { label: saved ? 'Play this set' : 'Play now', disabled: false };
+        const save = !text ? { label: 'Save to my sets', disabled: true }
+            : saved ? { label: 'Saved in my sets', disabled: true }
+                : full ? { label: 'Sets full (8)', disabled: true } : { label: 'Save to my sets', disabled: false };
+        let note = '';
+        if (text && !isActive && active.playing) {
+            note = saved
+                ? 'Another set is playing. Play this set switches to it.'
+                : 'Another set is playing. Play now switches to this link. Save to my sets adds it and keeps the current set playing.';
+        } else if (text && !saved && !isActive) {
+            note = 'Play now saves this link and plays it. Save to my sets only saves it.';
+        } else if (text && saved && !isActive) {
+            note = 'This link is already in your saved sets.';
+        }
+        return { play, save, note, saved, active: isActive };
+    }
+
     _resumePosition(item, playbackUrl) {
             if (!this._startupResumePending) return 0;
             this._startupResumePending = false;

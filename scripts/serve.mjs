@@ -114,11 +114,16 @@ const server = createServer(async (req, res) => {
         // importScripts() is served FROM the HTTP cache - `immutable, max-age=1y`
         // would pin it for a year and make worker updates impossible to ship.
         const isWorker = /(^|[\\/])(sw|serviceworker)\.js$/i.test(realPath);
-        const cacheControl = (ext === '.html' || isWorker || !IS_DIST)
+        // The manifest and its icons keep stable names (they are not content-hashed), so they must revalidate or an
+        // edited manifest would be pinned for a year.
+        const isPwaMetadata = /(^|[\\/])manifest\.json$/i.test(realPath) || /[\\/](icons|screenshots)[\\/]/i.test(realPath);
+        const cacheControl = (ext === '.html' || isWorker || isPwaMetadata || !IS_DIST)
             ? 'no-cache'
             : 'public, max-age=31536000, immutable';
 
-        const contentType = MIME[ext] || 'application/octet-stream';
+        const contentType = /(^|[\\/])manifest\.json$/i.test(realPath)
+            ? 'application/manifest+json; charset=utf-8'
+            : (MIME[ext] || 'application/octet-stream');
         const headers = {
             'Content-Type': contentType,
             'Cache-Control': cacheControl,

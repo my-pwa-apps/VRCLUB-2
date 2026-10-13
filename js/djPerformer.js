@@ -249,10 +249,11 @@ class DJPerformer {
                 break;
             }
             case 'cue': {
-                // Left hand holds the headphone cup to the left ear; right hand on a mixer knob.
+                // Left hand holds the headphone cup to the left ear; right hand on a mixer knob. The thumb side points
+                // back (not forward), which turns the PALM onto the cup and the back of the hand outward.
                 const headY = this.home.groundY + this.eye - 0.02;
                 L.x = this.home.x - 0.11; L.y = headY; L.z = this.home.z + 0.06;
-                L.fx = 0; L.fy = 1; L.fz = 0.1; L.ux = 0; L.uy = 0; L.uz = 1;
+                L.fx = 0.12; L.fy = 1; L.fz = 0.1; L.ux = 0; L.uy = 0; L.uz = -1;
                 this._knobAt(this._knob.right, 1, R, mixZ, top);
                 palmDown(R, 1, twistAmp * Math.sin(TAU * (t * beatRate * 0.25)));
                 yaw = -0.12; pitch = -0.38; lean = 0.36;
@@ -288,8 +289,9 @@ class DJPerformer {
                 const y = this.home.groundY + this.eye + 0.32 + 0.08 * pump;
                 L.x = this.home.x - 0.32; L.y = y; L.z = this.home.z + 0.18;
                 R.x = this.home.x + 0.32; R.y = y; R.z = this.home.z + 0.18;
-                L.fx = -0.25; L.fy = 1; L.fz = 0.15; L.ux = 0; L.uy = 0; L.uz = 1;
-                R.fx = 0.25; R.fy = 1; R.fz = 0.15; R.ux = 0; R.uy = 0; R.uz = 1;
+                // Palms face forward, over the crowd: the thumb side is toward the middle.
+                L.fx = -0.25; L.fy = 1; L.fz = 0.15; L.ux = 1; L.uy = 0; L.uz = 0;
+                R.fx = 0.25; R.fy = 1; R.fz = 0.15; R.ux = -1; R.uy = 0; R.uz = 0;
                 pitch = 0.18; lean = 0;
                 break;
             }
@@ -301,7 +303,7 @@ class DJPerformer {
                 pitch = Math.max(-0.3, Math.min(0.15, Math.atan2(1.6 - (this.home.groundY + this.eye), Math.hypot(dx, dz))));
                 const swing = Math.sin(t * 2 * Math.PI * 1.7);
                 R.x = this.home.x + 0.3 + 0.09 * swing; R.y = this.home.groundY + this.eye + 0.22; R.z = this.home.z + 0.28;
-                R.fx = 0.25 * swing; R.fy = 1; R.fz = 0.15; R.ux = 0; R.uy = 0; R.uz = 1;
+                R.fx = 0.25 * swing; R.fy = 1; R.fz = 0.15; R.ux = -1; R.uy = 0; R.uz = 0;   // palm toward the visitor
                 L.x = d.cx - 0.22; L.z = d.near + 0.06; L.y = top;
                 palmDown(L, -1, 0);
                 lean = 0.05;

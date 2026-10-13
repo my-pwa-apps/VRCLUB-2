@@ -19,7 +19,7 @@ class VRClubFixtures extends VRClubEnvironment {
         //   LED wall plane          z = -20.00   (210 emissive panels - keep clear)
         //   operator standing zone  z = -20.00 .. -19.00  (1.0 m, on the riser)
         //   deck row                z = -19.00 .. -18.00
-        //   booth front barrier     z = -18.05 .. -17.55  (collisionWall5)
+        //   booth front face        z = -18.00 (the table itself is the collider)
         const RISER_TOP_Y = 0.5;    // top face of djPlatform / djPlatformTop
         const DECK_Z = -18.5;       // centre of the deck row
         const DECK_DEPTH = 1.0;     // front edge lands on the booth barrier at z = -18
@@ -62,8 +62,7 @@ class VRClubFixtures extends VRClubEnvironment {
         
         // Front edge nosing on the deck plinth. This used to be a free-floating
         // bar at z = -19, which the re-layout puts inside the standing zone at
-        // shin height; as a nosing it instead marks the plinth's front face,
-        // which is exactly where the invisible booth barrier (collisionWall5) sits.
+        // shin height; as a nosing it instead marks the plinth's front face.
         const frontRail = BABYLON.MeshBuilder.CreateBox("frontRail", {
             width: 4,
             height: 0.08,
@@ -85,6 +84,7 @@ class VRClubFixtures extends VRClubEnvironment {
         
         const tableMat = this.materialFactory.getPreset('table');
         djTable.material = tableMat;
+        djTable.checkCollisions = true;
         
         // === CDJ DECKS ===
         const cdjMat = this.materialFactory.getPreset('cdjBody');
@@ -254,6 +254,22 @@ class VRClubFixtures extends VRClubEnvironment {
         });
         wallMat.backFaceCulling = false; // Ensure visible from both sides
         wall.material = wallMat;
+        wall.checkCollisions = true;
+
+        // The visible wall is tiled geometry with deliberate bezel gaps. A continuous thin backing prevents a
+        // camera at the booth from slipping through a seam and falling into the narrow space behind it.
+        const wallCollider = BABYLON.MeshBuilder.CreateBox('ledWallCollider', {
+            width: wallWidth,
+            height: rows * panelHeight,
+            depth: 0.2
+        }, this.scene);
+        wallCollider.position.set(0, rows * panelHeight / 2 + 0.05, -20.1);
+        wallCollider.checkCollisions = true;
+        wallCollider.isPickable = false;
+        wallCollider.isVisible = false;
+        wallCollider.freezeWorldMatrix();
+        wallCollider.doNotSyncBoundingInfo = true;
+        this._ledWallCollider = wallCollider;
 
         // PERFORMANCE: static geometry
         wall.freezeWorldMatrix();

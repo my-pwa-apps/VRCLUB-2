@@ -6,7 +6,10 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
+  "prefer_related_applications": false,
   "categories": ["entertainment", "games", "music", "social"],
   "lang": "en",
   "dir": "ltr",
@@ -30,6 +33,29 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/club-wide-gallery.jpg",
+      "sizes": "1280x720",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "The dance floor and light rig seen from the lighting gallery"
+    },
+    {
+      "src": "screenshots/club-wide-floor.jpg",
+      "sizes": "1280x720",
+      "type": "image/jpeg",
+      "form_factor": "wide",
+      "label": "The crowd on the dance floor in front of the DJ booth"
+    },
+    {
+      "src": "screenshots/club-narrow-balcony.jpg",
+      "sizes": "720x1280",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "The club from the balcony on a phone"
     }
   ]
 }

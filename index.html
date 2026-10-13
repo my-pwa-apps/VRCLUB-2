@@ -88,6 +88,7 @@
     <!-- WebXR and mobile browser support -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="NOCTURNE">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     
     <!-- Performance Hints: the Babylon runtime is the critical path and is same-origin. -->
@@ -97,7 +98,7 @@
     
     <link rel="manifest" href="manifest.json?v=20261009-1">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=20261009-1">
-    <link rel="apple-touch-icon" href="icons/icon-192.png?v=20261009-1">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png?v=20261009-1">
     <link rel="stylesheet" href="css/styles.css?v=20261009-1">
 </head>
 <body>
@@ -453,9 +454,13 @@
                     </div>
                     <label for="setName">Set name <span class="audio-optional">(optional)</span></label>
                     <input class="audio-input" id="setName" maxlength="60" placeholder="A name you will recognise in VR">
-                    <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
-                        <span id="playStreamBtnLabel">Save &amp; play</span>
-                    </button>
+                    <div class="audio-link-actions">
+                        <button class="audio-button audio-primary-button" id="playStreamBtn" type="button">
+                            <span id="playStreamBtnLabel">Play now</span>
+                        </button>
+                        <button class="audio-button" id="saveStreamBtn" type="button" disabled>Save to my sets</button>
+                    </div>
+                    <p id="audioLinkNote" class="network-help" role="status" aria-live="polite" hidden></p>
                     <div id="audioSourceHint" class="audio-source-hint" role="status" aria-live="polite" hidden></div>
                     <div id="feedEpisodeRow" class="audio-episode-row" hidden>
                         <label for="feedEpisode">Episode</label>
@@ -830,6 +835,11 @@
                 <li>Use Photosensitive Safe Mode and optional VR comfort movement at any time.</li>
             </ul>
         </section>
+        <div class="install-app" id="installApp" hidden>
+            <div class="credits-heading"><strong>Install NOCTURNE</strong></div>
+            <p class="credits-note">Add NOCTURNE to this device to open it like an app, in its own window, with the app shell available offline.</p>
+            <button type="button" id="installAppBtn">Install app</button>
+        </div>
         <div class="credits-heading"><strong>3D models and textures</strong></div>
         <div>
             • <a href="https://sketchfab.com/3d-models/pioneer-dj-console-0ba527fa6b164c34aa050dcecbaa2ffb" target="_blank" rel="noopener noreferrer" class="credit-link">"Pioneer DJ Console"</a>

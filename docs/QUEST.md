@@ -91,7 +91,7 @@ larger native renderer port; the TWA remains the supported browser route.
 
 ## User music
 
-Music → local file, direct HTTPS audio link or one SoundCloud track page → optional name → Save & play.
+Music → local file, direct HTTPS audio link or one SoundCloud track page → optional name → Play now (saves and plays) or Save to my sets (keeps whatever is playing).
 Eight saved sets are available in VR via Previous/Next and Play saved set.
 Finite sets play once, do not auto-queue and are seekable when the server supports it.
 SoundCloud tracks play as analysed audio when their creator publishes them to podcast players.

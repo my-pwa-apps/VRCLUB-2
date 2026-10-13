@@ -24,10 +24,10 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
         };
     });
     expect(setup.dancers).toBeGreaterThanOrEqual(4);
-    expect(setup.repertoire).toBe(8);
+    expect(setup.repertoire).toBe(11);
     expect(setup.playing.every(count => count === 1), 'one clip plays per dancer').toBe(true);
     // No music in the harness: nobody dances to a beat that is not there.
-    expect(setup.moves.every(move => move === 'Groove_Sway')).toBe(true);
+    expect(setup.moves.every(move => ['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp'].includes(move))).toBe(true);
 
     const run = await page.evaluate(() => {
         const club = window.vrClub, scene = club.scene;
@@ -98,11 +98,11 @@ test('the crowd dances varied moves locked to the beat, and keeps swaying when t
     expect(run.mean).toBeLessThan(0.01);
     expect(run.worst).toBeLessThan(0.08);
     // Varied: over half a minute the floor does many different moves, claps included or not by chance, but not one dance.
-    expect(run.moves.filter(move => move !== 'Groove_Sway').length).toBeGreaterThanOrEqual(4);
-    expect(run.presentMoves, 'a dancer chose the free sway while the kick was present').not.toContain('Groove_Sway');
+    expect(run.moves.filter(move => !['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp'].includes(move)).length).toBeGreaterThanOrEqual(4);
+    for (const free of ['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp']) expect(run.presentMoves, 'a dancer chose a free move while the kick was present').not.toContain(free);
     // With the kick gone they all keep swaying; nobody freezes or dances on.
     expect(run.quietMoves.length).toBeGreaterThan(0);
-    expect(run.quietMoves.every(move => move === 'Groove_Sway')).toBe(true);
+    expect(run.quietMoves.every(move => ['Groove_Sway', 'Groove_ArmsWide', 'Groove_ArmsUp'].includes(move))).toBe(true);
     expect(run.moved, 'every dancer keeps moving while behind the camera').toBe(run.dancers);
     await expectHealthyRuntime(page);
 });
@@ -138,7 +138,7 @@ test('a side guest walks the room and stops to talk to the people standing in it
             clips: new Set(), talkedWith: new Set(), bothTalking: 0, drankAtBar: 0, cupVisible: false,
             drinkStages: new Set(), servedOnCounter: false, pickedUp: false, returnedToCounter: false, clearedByBartender: false,
             washingAfterClear: false, glassLeftAHand: false,
-            serverCounterGap: 99, pickupCounterGap: 99, returnCounterGap: 99, mouthGap: 99,
+            serverCounterGap: 99, pickupCounterGap: 99, returnCounterGap: 99, mouthGap: 99, drinkTilt: 0,
             soloActivities: new Set(), smokeVisible: false, watchFacingFloor: false, balconyFacingFloor: false,
             maxY: npc.root.position.y, maxZ: npc.root.position.z,
             soloClip: true, closest: 99, others: others.length, colliderOff: 0, shadowOff: 0
@@ -251,9 +251,16 @@ test('a side guest walks the room and stops to talk to the people standing in it
                             const head = npc.root.getChildTransformNodes(false).find(node => /Head$/.test(node.name));
                             if (head) {
                                 head.computeWorldMatrix(true);
+                                const yaw = npc.root.rotation.y, scale = npc.root.scaling.y;
                                 const hp = head.absolutePosition;
-                                const gap = Math.hypot(cup.position.x - hp.x, cup.position.y - hp.y, cup.position.z - hp.z);
+                                const lips = { x: hp.x + Math.sin(yaw) * 0.115 * scale, y: hp.y + 0.006 * scale, z: hp.z + Math.cos(yaw) * 0.115 * scale };
+                                const cupMatrix = cup.computeWorldMatrix(true);
+                                // The rim is the cup's open end: 6 cm along its own axis from its centre.
+                                const rim = BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(0, 0.06, 0), cupMatrix).add(cup.position);
+                                const gap = Math.hypot(rim.x - lips.x, rim.y - lips.y, rim.z - lips.z);
                                 out.mouthGap = Math.min(out.mouthGap, gap);
+                                out.drinkTilt = Math.max(out.drinkTilt, Math.acos(Math.min(1, Math.max(-1,
+                                    BABYLON.Vector3.TransformNormal(new BABYLON.Vector3(0, 1, 0), cupMatrix).normalize().y))));
                             }
                         }
                     }
@@ -309,7 +316,9 @@ test('a side guest walks the room and stops to talk to the people standing in it
     expect(run.glassLeftAHand, 'the glass flew independently instead of staying in a hand or on the counter').toBe(false);
     expect(run.serverCounterGap, 'the bartender never brought her hand to the counter').toBeLessThan(0.12);
     expect(run.pickupCounterGap, 'his hand never reached the glass before pickup').toBeLessThan(0.12);
-    expect(run.mouthGap, 'he never brought the glass to his mouth').toBeLessThan(0.12);
+    // The lips are approximated as in front of the head joint without the head's own tilt back; the rig test holds the tighter bound.
+    expect(run.mouthGap, 'he never brought the rim of the glass to his mouth').toBeLessThan(0.10);
+    expect(run.drinkTilt, 'the glass never tipped for the sip').toBeGreaterThan(0.5);
     expect(run.returnCounterGap, 'his hand never returned the glass to the counter').toBeLessThan(0.12);
     expect(run.soloActivities).toEqual(['watch', 'smoke', 'balcony']);
     expect(run.watchFacingFloor, 'his indoor idle faces away from the dance floor').toBe(true);

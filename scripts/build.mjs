@@ -90,6 +90,7 @@ const distPrecache = [
     './index.html',
     './manifest.json',
     './icons/icon-192.png',
+    './icons/icon-180.png',
     './icons/icon-512.png',
     `./assets/${jsName}`,
     `./assets/${cssName}`
@@ -135,6 +136,7 @@ await Promise.all([
     cp(path.join(root, 'js/vendor'), path.join(dist, 'js/vendor'), { recursive: true }),
     cp(path.join(root, 'textures'), path.join(dist, 'textures'), { recursive: true }),
     cp(path.join(root, 'icons'), path.join(dist, 'icons'), { recursive: true }),
+    cp(path.join(root, 'screenshots'), path.join(dist, 'screenshots'), { recursive: true }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
     cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
     cp(path.join(root, 'sitemap.xml'), path.join(dist, 'sitemap.xml')),

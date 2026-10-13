@@ -180,7 +180,7 @@ test('the audio menu exposes labelled levels and a clipboard paste action', asyn
     });
     const elements = Object.fromEntries([
         'audioToggle', 'audioMenu', 'audioMinimize', 'audioClose', 'streamUrl',
-        'pasteStreamBtn', 'playStreamBtn', 'playStreamBtnLabel', 'audioFileInput', 'audioFileName',
+        'pasteStreamBtn', 'playStreamBtn', 'playStreamBtnLabel', 'saveStreamBtn', 'audioLinkNote', 'audioFileInput', 'audioFileName',
         'audioStatus', 'audioMenuTitle', 'audioNowPlaying', 'audioVolume',
         'audioVolumeValue', 'crowdAmbience', 'crowdAmbienceValue', 'savedSets',
         'setName', 'playSavedSetBtn', 'removeSavedSetBtn', 'djStyle'
@@ -229,7 +229,10 @@ test('the audio menu exposes labelled levels and a clipboard paste action', asyn
         AudioUtils: { isResidentEpisodeUrl: () => false, formatClock: String },
         Podcasts: { get: () => ({ id: 'resident', artist: 'Hernan Cattaneo' }) },
         // The podcast player and its choice buttons are exercised by their own tests (podcasts.js).
-        ensureMusicLibrary: () => ({ current: () => null, items: [], selected: 0 }),
+        ensureMusicLibrary: () => ({
+            current: () => null, items: [], selected: 0,
+            linkAction: () => ({ play: { label: 'Play now', disabled: false }, save: { label: 'Save to my sets', disabled: true }, note: '' })
+        }),
         refreshPodcastChoices() {},
         setInterval() { return 1; },
         clearInterval() {},
@@ -242,6 +245,7 @@ test('the audio menu exposes labelled levels and a clipboard paste action', asyn
             scene: null,
             _initialDJId: () => 'male',
             _isSafeAudioUrl() { return true; },
+            isFollowingHost() { return false; },
             getPlaybackInfo() { return { seekable: false, position: 0, duration: 0, playing: false }; },
             setAudioVolume(value) { calls.push(['music', value]); },
             getCrowdAmbienceLevel() { calls.push(['getAmbience']); return 0.25; },
@@ -2952,6 +2956,33 @@ test('the bartender rotates through distinct work activities and rests her hands
     assert.ok(Math.abs(pose.left.y - window.VenueLayout.bar.counter.top) < 0.12
         && Math.abs(pose.right.y - window.VenueLayout.bar.counter.top) < 0.12,
     'the bartender does not rest her hands near the counter while talking');
+
+    // Working, she looks down at her hands; when the regular lifts her bottle she looks up and across at her.
+    club._barPatron = { root: { position: { x: 9.08, z: -11.6 } }, barPatron: { activity: 'idle' } };
+    club._bartenderActivity = 'wash';
+    club._bartenderActivityTime = 99;
+    club._bartenderWashTime = 0;
+    club._updateBartender(1 / 60, null);
+    assert.ok(pose.headPitch < -0.2, 'she is not looking down at her work');
+    assert.ok(Math.abs(pose.headYaw - pose.bodyYaw) < 0.05, 'her head leaves her work with nothing to look at');
+    club._barPatron.barPatron.activity = 'drink';
+    club._updateBartender(1 / 60, null);
+    assert.ok(pose.headPitch > -0.1, 'she keeps staring at her hands while the regular drinks');
+    assert.ok(Math.abs(pose.headYaw - pose.bodyYaw) > 0.3, 'she does not turn her head toward the regular');
+    assert.ok(Math.abs(pose.eyeY - 1.58) <= 0.006, 'her breathing moves her eyes out of range');
+});
+
+test('the bar regular tips her bottle only while it is at her lips', () => {
+    const BABYLON = makeBabylonStub();
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    const tilt = window.VRClubAudioCrowd.barBottleTilt;
+    assert.equal(tilt(0), 0, 'the bottle is upright on the bar');
+    assert.equal(tilt(0.25), 0, 'it is lifted upright first');
+    assert.equal(tilt(0.45), 1, 'it is fully tipped for the sip');
+    assert.equal(tilt(0.72), 0, 'it is upright again before it is lowered');
+    assert.equal(tilt(0.94), 0, 'it is set down upright');
+    let previous = 0;
+    for (let p = 0.3; p <= 0.4; p += 0.01) { assert.ok(tilt(p) >= previous - 1e-9, 'the tip eases in monotonically'); previous = tilt(p); }
 });
 
 /** The mingling guest, the people on his round, and a club stub that can be stepped a frame at a time. */
@@ -3302,7 +3333,7 @@ test('a higher quality tier fetches only the missing characters, then places the
     const requested = [];
     const club = Object.assign(Object.create(Crowd.prototype), {
         tierSettings: { crowdSize: 2, guestSize: 0 }, npcAvatars: [], _disposed: false,
-        _crowdSlots: [{ x: 0, z: 0, src: 6, height: 1.7, facing: 0 }, { x: 1, z: 1, src: 7, height: 1.7, facing: 0 }, { x: 2, z: 2, src: 8, height: 1.7, facing: 0 }],
+        _crowdSlots: [{ x: 0, z: 0, src: Crowd.sourceIndex('f1'), height: 1.7, facing: 0 }, { x: 1, z: 1, src: Crowd.sourceIndex('f2'), height: 1.7, facing: 0 }, { x: 2, z: 2, src: Crowd.sourceIndex('f3'), height: 1.7, facing: 0 }],
         _loadAvatarSource(url) { requested.push(url.split('/').pop()); return Promise.resolve({ url }); },
         _refreshContactShadows() {}
     });
@@ -3315,7 +3346,7 @@ test('a higher quality tier fetches only the missing characters, then places the
     club._spawnAvatar = function (source, name) { spawned.push([name, source.url.split('/').pop()]); this.npcAvatars.push({ name, root: { setEnabled() {} }, animations: [] }); };
     club._spawnGuestsTo = () => {};
 
-    await club._loadCrowdSources([6, 7, 6]);
+    await club._loadCrowdSources([Crowd.sourceIndex('f1'), Crowd.sourceIndex('f2'), Crowd.sourceIndex('f1')]);
     assert.deepEqual(requested, ['club-crowd-f1.glb', 'club-crowd-f2.glb'], 'a source was fetched twice');
     club._spawnCrowdTo(3);
     assert.deepEqual(spawned.map(item => item[0]), ['dancer0', 'dancer1'], 'a dancer whose file is not loaded yet must wait, not be replaced');
@@ -3332,10 +3363,10 @@ test('a higher quality tier fetches only the missing characters, then places the
 test('the crowd character files: one skin, one draw, vertex-coloured, only the clips they are used for, and all different', async () => {
     const dir = join(ROOT, 'js/models/avatars');
     const files = readdirSync(dir).filter(file => /^club-crowd-.*\.glb$/.test(file));
-    assert.equal(files.length, 18, 'the cast is 8 women, 9 men and the bouncer');
+    assert.equal(files.length, 18 + 13, 'the cast is 8 women, 9 men, the bouncer and 13 recoloured variants');
     const { createHash } = await import('node:crypto');
     const hashes = new Set();
-    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8', 'bouncer']);
+    const guests = new Set(['f6', 'f7', 'f8', 'm4', 'm6', 'm8', 'bouncer', 'vf5', 'vf6', 'vf7', 'vm5', 'vm6']);
     for (const file of files) {
         const id = file.replace(/^club-crowd-|\.glb$/g, '');
         const json = readGlbJson(`js/models/avatars/${file}`);
@@ -3348,17 +3379,19 @@ test('the crowd character files: one skin, one draw, vertex-coloured, only the c
         const clips = json.animations.map(animation => animation.name).sort();
         const natives = ['Idle', 'Run', 'Walk', 'Wave'];   // the packs' own clips, kept for the guests who walk the room
         // The dancers on the floor also carry the procedural grooves the choreographer switches between (js/crowdDance.js).
-        const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway', 'Groove_Still'];
+        const grooves = ['Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_ClapUp', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway',
+            'Groove_ArmsWide', 'Groove_ArmsUp', 'Groove_Still'];
         const expected = (guests.has(id)
             ? ['Dance_Loop', 'Idle_FoldArms_Loop', 'Idle_Loop', 'Idle_TalkingPhone_Loop', 'Idle_Talking_Loop', 'Yes']
             : ['Dance_Loop', 'Yes', ...grooves]).concat(natives, id === 'bouncer' ? [] : ['Seated_Loop']).sort();
-        if (id === 'f7') expected.push('Idle_Railing_Loop');
+        if (id === 'f7' || id === 'vf6') expected.push('Idle_Railing_Loop');
         if (id === 'f6') expected.push('Seated_Bar_Idle_Loop', 'Seated_Bar_Drink_Loop');
         if (id === 'm6') expected.push('Drink_Loop', 'Smoke_Loop', 'Idle_Railing_Loop');
         expected.sort();
         assert.deepEqual(clips, expected, `${file} carries the wrong clips`);
         const bytes = readFileSync(join(dir, file));
-        assert.ok(bytes.length < 1.1 * 1048576, `${file} is too heavy (${bytes.length})`);
+        // 1.2 MB: the overhead clap and the two free no-beat moves added ~33 KB to every dancer.
+        assert.ok(bytes.length < 1.2 * 1048576, `${file} is too heavy (${bytes.length})`);
         hashes.add(createHash('sha1').update(bytes).digest('hex'));
     }
     assert.equal(hashes.size, files.length, 'two crowd files are identical');
@@ -6160,7 +6193,7 @@ test('VJ panel toggles are allow-listed rather than written by DOM attribute nam
     assert.deepEqual(missing, [], `data-control toggles missing from TOGGLE_CONTROLS: ${missing.join(', ')}`);
 });
 
-test('PWA manifest declares an installable configuration', () => {
+test('PWA manifest declares an installable configuration', async () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
     assert.equal(manifest.name, 'NOCTURNE - Virtual Nightclub');
     assert.equal(manifest.display, 'standalone');
@@ -6169,6 +6202,44 @@ test('PWA manifest declares an installable configuration', () => {
     assert.ok(manifest.id, 'manifest.json must declare an `id`');
     assert.ok(manifest.scope, 'manifest.json must declare a `scope`');
     assert.ok(Array.isArray(manifest.icons) && manifest.icons.length > 0, 'manifest.json declares no icons');
+    assert.ok(manifest.short_name && manifest.short_name.length <= 12, 'short_name must fit under a home-screen icon');
+    assert.ok(manifest.start_url && manifest.theme_color && manifest.background_color && manifest.description && manifest.lang);
+    assert.equal(manifest.prefer_related_applications, false);
+    assert.ok(manifest.display_override.includes('standalone'), 'display_override must start from the preferred mode');
+    // Every declared image exists and is exactly the size it claims (a lying size breaks the install sheet).
+    const sharp = (await import('sharp')).default;
+    const sized = async entry => {
+        const info = await sharp(join(ROOT, entry.src)).metadata();
+        assert.equal(`${info.width}x${info.height}`, entry.sizes, `${entry.src} is not ${entry.sizes}`);
+        assert.equal(`image/${info.format === 'jpeg' ? 'jpeg' : info.format}`, entry.type, `${entry.src} has the wrong type`);
+    };
+    for (const icon of manifest.icons) await sized(icon);
+    assert.ok(manifest.icons.some(icon => icon.purpose === 'any' && icon.sizes === '192x192'), 'no 192px "any" icon');
+    assert.ok(manifest.icons.some(icon => icon.purpose === 'any' && icon.sizes === '512x512'), 'no 512px "any" icon');
+    assert.ok(manifest.icons.some(icon => icon.purpose === 'maskable'), 'no maskable icon');
+    // The rich install sheet needs both form factors, and each group the same aspect ratio.
+    for (const factor of ['wide', 'narrow']) {
+        const shots = manifest.screenshots.filter(shot => shot.form_factor === factor);
+        assert.ok(shots.length >= 1, `no ${factor} screenshot`);
+        assert.equal(new Set(shots.map(shot => shot.sizes)).size, 1, `${factor} screenshots differ in size`);
+        for (const shot of shots) { await sized(shot); assert.ok(shot.label, `${shot.src} has no label`); }
+    }
+    // iOS ignores the manifest icons: it wants a 180px apple-touch-icon and a title.
+    const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    assert.match(html, /<link rel="apple-touch-icon" sizes="180x180" href="icons\/icon-180\.png\?v=[^"]+">/);
+    assert.match(html, /<meta name="apple-mobile-web-app-title" content="NOCTURNE">/);
+    assert.match(html, /<meta name="theme-color" content="#030308">/);
+    await sized({ src: 'icons/icon-180.png', sizes: '180x180', type: 'image/png' });
+    // The manifest has a stable name, so it must revalidate and be served as the manifest media type.
+    const headers = readFileSync(join(ROOT, '_headers'), 'utf8');
+    assert.match(headers, /\/manifest\.json\s+Content-Type: application\/manifest\+json\s+Cache-Control: no-cache/);
+    const serve = readFileSync(join(ROOT, 'scripts/serve.mjs'), 'utf8');
+    assert.match(serve, /application\/manifest\+json/);
+    assert.match(serve, /isPwaMetadata/);
+    // The install prompt is offered from the About panel, never forced, and torn down with the UI.
+    const ui = readFileSync(join(ROOT, 'js/ui-init.js'), 'utf8');
+    assert.ok(/addEventListener\('beforeinstallprompt'/.test(ui) && /addEventListener\('appinstalled'/.test(ui));
+    assert.match(html, /<div class="install-app" id="installApp" hidden>/);
 });
 
 
@@ -6772,8 +6843,10 @@ test('the lounge couch GLB is optimised: one mesh, 512 px WebP maps, and its CC 
     assert.equal(json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0), 1, 'the couch must cost one draw');
     assert.ok(json.images.length <= 3 && json.images.every(image => image.mimeType === 'image/webp'));
     const source = readFileSync(join(ROOT, 'js/modelLoader.js'), 'utf8');
-    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b[\s\S]*?metallicFactor:\s*0\b/,
-        'the couch must be non-emissive and dielectric instead of reflecting the room like polished metal');
+    assert.match(source, /lounge_couch:\s*\{[\s\S]*?emissiveFloor:\s*0\b[\s\S]*?disableEmission:\s*true\b[\s\S]*?metallicFactor:\s*0\b[\s\S]*?disableNormalMap:\s*true\b/,
+        'the couch must be non-emissive, dielectric and free of the tiny-scale tangent-space normal map that breaks on medium precision');
+    assert.match(source, /if \(config\.disableNormalMap && mesh\.material\.bumpTexture\)[\s\S]*?bumpTexture = null/,
+        'disableNormalMap must actually remove the normal texture');
     assert.match(source, /if \(config\.disableEmission\)[\s\S]*?emissiveColor\.set\(0, 0, 0\)[\s\S]*?ambientColor\.set\(0, 0, 0\)/,
         'disableEmission must clear both emission and the generic ambient floor');
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -7977,12 +8050,13 @@ function deskHarness() {
         _playbackInfo: { playing: false, seekable: true, position: 75, duration: 3600 },
         _djEffects: { lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 },
         _djEffectsState() { return this._djEffects; },
+        resetDJEffects() { calls.push('resetFx'); Object.assign(this._djEffects, { lowpass: 0, highpass: 0, echo: 0, flanger: 0, reverb: 0, channel: 1 }); },
         setDJEffect(name, value) { calls.push(`effect ${name} ${value}`); this._djEffects[name] = value; return true; },
         getPlaybackInfo() { return this._playbackInfo; },
         setAudioPlayback(playing) { calls.push(`playback ${playing}`); this._playbackInfo.playing = playing; return true; },
         stopAudioPlayback() { calls.push('stop'); this._playbackInfo.playing = false; this._playbackInfo.position = 0; return true; },
         seekAudioBy(delta) { calls.push(`seek ${delta}`); this._playbackInfo.position += delta; return true; },
-        seekAudioToFraction(fraction) { calls.push(`seekFraction ${fraction}`); this._playbackInfo.position = fraction * this._playbackInfo.duration; return true; },
+        seekAudioFraction(fraction) { calls.push(`seekFraction ${fraction}`); this._playbackInfo.position = fraction * this._playbackInfo.duration; return true; },
         stepAudioSource(delta) { calls.push(`sourceStep ${delta}`); return true; },
         setPhotosensitiveSafeMode(value) { calls.push(`safe ${value}`); this.photosensitiveSafeMode = value; },
         resetVJControls() { calls.push('reset'); this.vjManualMode = false; },
@@ -8020,8 +8094,10 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
             const r = b.rect;
             const minimumY = b.kind === 'playerPage' ? 0 : 130;
             assert.ok(r.x >= 0 && r.y >= minimumY && r.x + r.w <= width && r.y + r.h <= height, `${b.id} is off the panel or under the header`);
-            const minimumWidth = b.kind === 'playerPage' ? 150 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
-            assert.ok(r.h >= 70 && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
+            const minimumWidth = b.kind === 'playerPage' ? 150 : b.kind === 'effect' ? 180 : b.kind === 'effectMute' ? 400
+                : b.kind === 'effectClear' ? 220 : panel === 'transport' ? 220 : b.kind === 'section' ? 270 : 300;
+            const minimumHeight = b.kind === 'effectMute' || b.kind === 'effectClear' ? 48 : 70;
+            assert.ok(r.h >= minimumHeight && r.w >= minimumWidth, `${b.id} is too small to hit with a controller ray`);
             for (const other of buttons) {
                 if (other === b) continue;
                 if (b.page && other.page && b.page !== other.page) continue;
@@ -8051,7 +8127,7 @@ test('the VJ desk: every button fits its panel, nothing overlaps, and every ligh
     assert.deepEqual([...VJDeskLayout.buttons.transport.filter(button => button.page === 'player').map(button => button.label)],
         ['PREVIOUS', 'PLAY / PAUSE', 'STOP', 'NEXT', 'SET POSITION']);
     assert.deepEqual([...VJDeskLayout.buttons.transport.filter(button => button.page === 'fx').map(button => button.label)],
-        ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'CHANNEL']);
+        ['LOW PASS', 'HIGH PASS', 'ECHO', 'FLANGER', 'REVERB', 'MUTE MUSIC', 'CLEAR FX']);
     assert.ok(VJDeskLayout.config.transport.width <= 1 && VJDeskLayout.config.transport.depth <= 0.3,
         'the compact player can overlap the mixer or side panels');
     // The desktop panel keeps its own allow-list literal (a test reads it): it must be the same set.
@@ -8147,6 +8223,24 @@ test('the VJ desk under Photosensitive Safe Mode: the strobes cannot be switched
     assert.equal(club.photosensitiveSafeMode, false, 'the personal desk switch turns Safe Mode back off');
 });
 
+test('every club method the VJ desk calls exists, so a button can never throw inside the XR frame', () => {
+    // A press that threw (seekAudioToFraction was never a method) stopped the headset's frame loop: the picture froze
+    // while the music played on. The harness above stubs methods by name, so only the real source can catch a typo.
+    const defined = new Set();
+    const sources = [...readdirSync(join(ROOT, 'js')).filter(name => name.endsWith('.js')).map(name => join('js', name)),
+        ...readdirSync(join(ROOT, 'js/club')).filter(name => name.endsWith('.js')).map(name => join('js/club', name))];
+    for (const file of sources) {
+        const text = readFileSync(join(ROOT, file), 'utf8');
+        for (const match of text.matchAll(/^\s*(?:static\s+|async\s+|get\s+|set\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/gm)) defined.add(match[1]);
+        for (const match of text.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*:\s*(?:async\s*)?(?:function\s*)?\(/gm)) defined.add(match[1]);
+    }
+    const used = new Set();
+    for (const match of readFileSync(join(ROOT, 'js/vjDesk.js'), 'utf8').matchAll(/\bthis\.([A-Za-z_$][\w$]*)\(/g)) used.add(match[1]);
+    assert.ok(used.size > 40, 'the scan found suspiciously few calls');
+    const missing = [...used].filter(name => !defined.has(name));
+    assert.deepEqual(missing, [], `the VJ desk calls methods nothing defines: ${missing.join(', ')}`);
+});
+
 test('the VJ desk set player delegates source steps, play/pause and stop, then seeks once when its slider is released', async () => {
     const { club, press, calls, button, VJDeskLayout } = deskHarness();
     press('previousSource');
@@ -8167,7 +8261,7 @@ test('the VJ desk set player delegates source steps, play/pause and stop, then s
 });
 
 test('the VJ desk set player explains live and host-owned controls instead of pretending they worked', () => {
-    const { club, press, calls, button } = deskHarness();
+    const { club, press, calls, button, VJDeskLayout } = deskHarness();
     club._playbackInfo.seekable = false;
     assert.equal(club._vjDeskDisabledReason(button('seek')), 'LIVE: NO TIMELINE');
     assert.equal(club._vjDeskSetSeekPreview(button('seek'), 500), false);
@@ -8181,11 +8275,189 @@ test('the VJ desk set player explains live and host-owned controls instead of pr
     club._audioKind = 'soundcloud';
     club.togglePeopleVisible('dj');
     assert.equal(club._vjDeskDisabledReason(button('echo')), 'PLAYER AUDIO ONLY');
-    assert.equal(club._vjDeskSetEffect(button('echo'), button('echo').rect.x + 100), false);
+    const k = VJDeskLayout.knob(button('echo').rect);
+    assert.equal(club._vjDeskGrabKnob(button('echo'), { panel: {}, x: k.x, y: k.y - k.r }), false);
+    assert.ok(!club._vjDeskDrag, 'a knob that cannot be used must not be grabbed');
+});
+
+test('a VJ desk effect knob falls back to circling the dial for a mouse: relative to the grab, clockwise up, with a detent', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const echo = button('echo');
+    const k = VJDeskLayout.knob(echo.rect);
+    const spec = VJDeskLayout.knobSpec;
+    const at = degrees => ({ panel: {}, x: k.x + 50 * Math.cos(degrees * Math.PI / 180), y: k.y + 50 * Math.sin(degrees * Math.PI / 180) });
+
+    // Grabbing anywhere does not move it.
+    assert.equal(club._vjDeskGrabKnob(echo, at(-20)), true);
+    assert.deepEqual(calls, [], 'grabbing a knob moved it');
+    // Clockwise on screen (a growing canvas angle) turns it up by the swept fraction of the 270 degree travel.
+    club._vjDeskTurnKnob(club._vjDeskDrag, at(25));
+    const quarter = Number(/effect echo (.+)/.exec(calls.at(-1))[1]);
+    assert.ok(Math.abs(quarter - 45 / 270) < 1e-6, `45 degrees turned it ${quarter}`);
+    // Anticlockwise comes back down, and it stops at the ends instead of wrapping round.
+    club._vjDeskTurnKnob(club._vjDeskDrag, at(-20));
+    assert.ok(Math.abs(Number(/effect echo (.+)/.exec(calls.at(-1))[1])) < 1e-6, 'turning back did not return it');
+    for (let degrees = -20; degrees < 400; degrees += 20) club._vjDeskTurnKnob(club._vjDeskDrag, at(degrees));
+    assert.equal(club._djEffects.echo, 1, 'a knob turned past its end stop must stay at full');
+    for (let degrees = 400; degrees > -400; degrees -= 20) club._vjDeskTurnKnob(club._vjDeskDrag, at(degrees));
+    assert.equal(club._djEffects.echo, 0, 'turning back past zero must stop at off');
+    // Straight over the spindle there is no angle to read.
+    const before = calls.length;
+    club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: k.x + 2, y: k.y + 1 });
+    assert.equal(calls.length, before);
+
+    // The dial and a margin round it can be grabbed; the corner of the cell with the label cannot.
+    club.releaseVJDesk();
+    assert.equal(club._vjDeskGrabKnob(echo, { panel: {}, x: echo.rect.x + echo.rect.w - 2, y: echo.rect.y + echo.rect.h - 2 }), false);
+    assert.equal(club._vjDeskGrabKnob(echo, { panel: {}, x: k.x + spec.radius, y: k.y }), true);
+    assert.ok(spec.grab >= spec.radius * 2, 'the knob is too fiddly to grab with a controller ray');
+    assert.equal(club._vjDeskDrag.controller, null, 'a mouse has no controller, so it turns by circling the dial');
+
+    // There is no hidden double-tap: grabbing and letting go twice changes nothing.
+    club.releaseVJDesk();
+    club._djEffects.echo = 0.6;
+    calls.length = 0;
+    for (let i = 0; i < 2; i++) { club._vjDeskGrabKnob(echo, at(-90)); club.releaseVJDesk(); }
+    assert.deepEqual(calls, [], 'a quick double tap must not reset or move the knob');
+    assert.equal(club._djEffects.echo, 0.6);
+});
+
+/** A fake XR controller whose pointer pose is a world matrix we can roll, pointing along +z from the origin. */
+function fakeController(grip = false) {
+    const pose = { right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1], origin: [0, 0, 0] };
+    const node = {
+        getWorldMatrix: () => ({ m: [...pose.right, 0, ...pose.up, 0, ...pose.forward, 0, ...pose.origin, 1] })
+    };
+    const state = { grip };
+    const controller = {
+        pointer: node,
+        motionController: { getComponent: id => (id === 'xr-standard-squeeze' ? { pressed: state.grip } : null) }
+    };
+    // Roll the wrist: positive turns the top of the controller toward its right (clockwise from behind).
+    const rollBy = degrees => {
+        const a = degrees * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+        const up = pose.up.map((v, i) => v * c + pose.right[i] * s);
+        const right = pose.right.map((v, i) => v * c - pose.up[i] * s);
+        pose.up = up; pose.right = right;
+    };
+    return { controller, pose, state, rollBy };
+}
+
+test('a VJ desk knob turns with the twist of the wrist, relative to the grab, with a fine mode on the grip', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const echo = button('echo');
+    const k = VJDeskLayout.knob(echo.rect);
+    const spec = VJDeskLayout.knobSpec;
+    const hit = { panel: {}, x: k.x, y: k.y - 20 };
+    const onRay = { pickedPoint: { x: 0, y: 0, z: 3 } };
+
+    // The pure twist: up toward right is positive, about the old pointing axis, and a wobble of the aim is ignored.
+    const base = { right: [1, 0, 0], up: [0, 1, 0], forward: [0, 0, 1] };
+    const rolled = degrees => {
+        const a = degrees * Math.PI / 180;
+        return { right: [Math.cos(a), -Math.sin(a), 0], up: [Math.sin(a), Math.cos(a), 0], forward: [0, 0, 1] };
+    };
+    assert.ok(Math.abs(VJDeskLayout.wristTwist(base, rolled(90)) - Math.PI / 2) < 1e-9, 'a quarter turn clockwise is +90 degrees');
+    assert.ok(Math.abs(VJDeskLayout.wristTwist(base, rolled(-30)) + Math.PI / 6) < 1e-9, 'anticlockwise is negative');
+    assert.equal(VJDeskLayout.wristTwist(base, base), 0);
+    const wobble = { right: [1, 0, 0.05], up: [0, 1, 0.1], forward: [0.02, 0.1, 1] };
+    assert.ok(Math.abs(VJDeskLayout.wristTwist(base, wobble)) < 0.02, 'aiming a little differently is not a twist');
+
+    // Pointing at the dial with the trigger grabs it without moving it.
+    const hand = fakeController();
+    club._xrControllers = [hand.controller];
+    assert.equal(club._vjDeskGrabKnob(echo, hit, onRay), true);
+    assert.equal(club._vjDeskDrag.controller, hand.controller, 'the controller pointing at the knob should hold it');
+    assert.deepEqual(calls, [], 'grabbing a knob moved it');
+    club._vjDeskTwistKnob();
+    assert.deepEqual(calls, [], 'holding a still wrist moved the knob');
+
+    // A 120 degree twist of the wrist sweeps the dial by wristGain x 120 of its 270 degrees; back again returns it.
+    hand.rollBy(120);
+    club._vjDeskTwistKnob();
+    const turned = Number(/effect echo (.+)/.exec(calls.at(-1))[1]);
+    assert.ok(Math.abs(turned - spec.wristGain * (120 / 270)) < 1e-6, `120 degrees of wrist turned it ${turned}`);
+    hand.rollBy(-120);
+    club._vjDeskTwistKnob();
+    assert.equal(club._djEffects.echo, 0, 'twisting back did not return it to off');
+    // It stops at both end stops instead of wrapping round.
+    for (let i = 0; i < 6; i++) { hand.rollBy(60); club._vjDeskTwistKnob(); }
+    assert.equal(club._djEffects.echo, 1);
+    for (let i = 0; i < 12; i++) { hand.rollBy(-60); club._vjDeskTwistKnob(); }
+    assert.equal(club._djEffects.echo, 0);
+
+    // Holding the grip as well is fine control: the same twist moves it by `fine` of the amount.
+    club.releaseVJDesk();
+    club._djEffects.echo = 0;
+    club._vjDeskGrabKnob(echo, hit, onRay);
+    hand.state.grip = true;
+    club._vjDeskPlayerPage = 'fx';
+    assert.match(club._vjDeskPlayerStatus().detail, /FINE CONTROL/);
+    hand.rollBy(120);
+    club._vjDeskTwistKnob();
+    assert.ok(Math.abs(club._djEffects.echo - spec.wristGain * spec.fine * (120 / 270)) < 1e-6, 'the grip did not slow the knob');
+
+    // The grab belongs to the controller whose ray is on the knob, not just any controller.
+    club.releaseVJDesk();
+    const other = fakeController();
+    other.pose.origin = [3, 0, 0];
+    club._xrControllers = [other.controller, hand.controller];
+    club._vjDeskGrabKnob(echo, hit, onRay);
+    assert.equal(club._vjDeskDrag.controller, hand.controller, 'the knob was given to the wrong hand');
+    // A press with no controller near it (a mouse click) falls back to circling the dial.
+    club.releaseVJDesk();
+    club._vjDeskGrabKnob(echo, hit, { pickedPoint: { x: 40, y: 40, z: 40 } });
+    assert.equal(club._vjDeskDrag.controller, null);
+    // Nothing is grabbed, and so nothing twists, while the effects cannot be used.
+    club.releaseVJDesk();
+    people.dj = true;
+    assert.equal(club._vjDeskGrabKnob(echo, hit, onRay), false);
+    assert.equal(club._vjDeskTwistKnob(), false);
+});
+
+test('MUTE MUSIC is a single quick toggle and CLEAR FX puts every knob back, with no long channel fader', () => {
+    const { club, calls, people, button, VJDeskLayout } = deskHarness();
+    people.dj = false;
+    club._vjDesk = { panels: [], dirty: false };
+    const mute = button('channel'), clear = button('clearFx');
+    assert.equal(mute.kind, 'effectMute');
+    assert.ok(mute.rect.h >= 48 && mute.rect.w >= 400, 'the mute button is too small to hit quickly');
+    assert.ok(!VJDeskLayout.buttons.transport.some(b => b.kind === 'effectFader'), 'the long channel fader is back');
+    assert.equal(club._vjDeskButtonState(mute).value, 'TAP TO MUTE');
+    club._runVJDeskButton(mute);
+    assert.equal(calls.at(-1), 'effect channel 0');
+    club._djEffects.channel = 0;
+    assert.equal(club._vjDeskButtonState(mute).active, true);
+    assert.match(club._vjDeskButtonState(mute).value, /UNMUTE/);
+    // The press path (a click or a controller trigger) works the same way.
+    club.pressVJDesk({ hit: true, pickedMesh: null, pickedPoint: null });
+    club._vjDeskToggleMute();
+    assert.equal(calls.at(-1), 'effect channel 1', 'the second press did not unmute');
+    // CLEAR FX: every knob and the channel back to clean, through the shared reset.
+    Object.assign(club._djEffects, { lowpass: 0.7, echo: 0.4, channel: 0 });
+    assert.equal(club._vjDeskButtonState(clear).value, 'ALL KNOBS OFF');
+    club._runVJDeskButton(clear);
+    assert.equal(calls.at(-1), 'resetFx');
+    assert.equal(club._vjDeskButtonState(clear).value, 'ALREADY CLEAR');
+    // Both are unavailable, and say why, while the resident DJ is at the decks, and are host-owned in a room.
+    people.dj = true;
+    assert.equal(club._vjDeskDisabledReason(mute), 'SEND DJ HOME');
+    assert.equal(club._vjDeskDisabledReason(clear), 'SEND DJ HOME');
+    calls.length = 0;
+    assert.equal(club._vjDeskToggleMute(), false);
+    assert.deepEqual(calls, []);
+    people.dj = false;
+    club.multiplayer = { following: true, hostName: () => 'Bo' };
+    assert.equal(club._vjDeskDisabledReason(mute), 'HOST ONLY');
+    assert.equal(club._vjDeskClearEffects(), false, 'a guest must not clear the host\'s effects');
 });
 
 test('the VJ desk set player switches to compact effects and resets to PLAYER when the DJ returns', () => {
-    const { club, press, calls, people, button } = deskHarness();
+    const { club, press, calls, people, button, VJDeskLayout } = deskHarness();
     club._vjDesk = {
         panels: [{ id: 'transport', mesh: { setEnabled() {} } }],
         transportHousing: { setEnabled() {} },
@@ -8201,7 +8473,9 @@ test('the VJ desk set player switches to compact effects and resets to PLAYER wh
     assert.equal(club._vjDeskPlayerPage, 'fx');
     assert.equal(club._vjDeskButtonState(button('playerPage')).value, 'SHOW PLAYER');
     assert.match(club._vjDeskPlayerStatus().title, /DJ EFFECTS/);
-    assert.equal(club._vjDeskSetEffect(button('echo'), button('echo').rect.x + button('echo').rect.w / 2), true);
+    const knob = VJDeskLayout.knob(button('echo').rect);
+    assert.equal(club._vjDeskGrabKnob(button('echo'), { panel: {}, x: knob.x, y: knob.y - 40 }), true);
+    club._vjDeskTurnKnob(club._vjDeskDrag, { panel: {}, x: knob.x + 40, y: knob.y });
     assert.match(calls.at(-1), /^effect echo /);
     people.dj = true;
     club._applyVJDeskPlayerVisibility();
@@ -8940,8 +9214,31 @@ test('the bouncer stands beside the street door and the queue waits behind the r
     const balancedQueue = ids(queue.slice(0, sizes[2]));
     assert.equal(new Set(balancedQueue).size, balancedQueue.length, 'the queue repeats a person');
     const balancedInside = ids(Crowd.prototype._guestSlots.call({}).slice(0, 2));
-    for (const id of ['f1', 'm2', 'hipHop', 'm1', 'f3', 'f2']) balancedInside.push(id);
+    for (const id of ['f1', 'm2', 'vm1', 'm1', 'f3', 'f2']) balancedInside.push(id);
     assert.deepEqual([...balancedQueue.filter(id => balancedInside.includes(id))], [], 'a balanced queue shows someone who is also inside');
+});
+
+test('every person in the club is a different person: no source file appears in two slots', () => {
+    const BABYLON = makeBabylonStub();
+    BABYLON.Vector3 = class { constructor(x, y, z) { this.x = x; this.y = y; this.z = z; } };
+    const { window } = loadClassic('js/club/11-audio-crowd.js', { BABYLON, VRClubUI: class {} });
+    window.CityLayout = loadClassic('js/cityDistrict.js').window.CityLayout;
+    const Crowd = window.VRClubAudioCrowd;
+    const source = readFileSync(join(ROOT, 'js/club/11-audio-crowd.js'), 'utf8');
+    const block = source.slice(source.indexOf('const crowdSlots = ['), source.indexOf('this._crowdSlots = crowdSlots'));
+    const dancers = [...block.matchAll(/src: at\('(\w+)'\)/g)].map(match => match[1]);
+    assert.equal(dancers.length, 14);
+    const ids = slots => slots.map(slot => Crowd.AVATAR_SOURCES[slot.src].id);
+    const street = Crowd.prototype._streetSlots.call({});
+    const everyone = [
+        ...dancers, ...ids(Crowd.prototype._guestSlots.call({})), ...ids(street.queue), Crowd.AVATAR_SOURCES[street.bouncer.src].id
+    ];
+    assert.ok(everyone.length >= 31);
+    const repeated = everyone.filter((id, index) => everyone.indexOf(id) !== index);
+    assert.deepEqual(repeated, [], `these people appear more than once: ${repeated.join(', ')}`);
+    // Two ids must not be one file under two names (that was how a "different" dancer was the same man twice).
+    const files = Crowd.AVATAR_SOURCES.map(item => item.url);
+    assert.equal(new Set(files).size, files.length, 'two source ids load the same file');
 });
 
 function streetCrowdHarness() {
@@ -8983,7 +9280,7 @@ test('the street people wait for the street, load their files once in the backgr
     club._applyStreetPeople();
     club._applyStreetPeople();
     await club._streetTopUp;
-    assert.deepEqual(requested.sort(), ['club-crowd-bouncer.glb', 'club-crowd-f8.glb', 'club-crowd-m8.glb'], 'each file is fetched once');
+    assert.deepEqual(requested.sort(), ['club-crowd-bouncer.glb', 'club-crowd-vf6.glb', 'club-crowd-vm6.glb'], 'each file is fetched once');
     assert.deepEqual(spawned.map(item => item[0]), ['bouncer', 'queue0', 'queue1']);
     assert.ok(lit.length === 6 && lit.every(([, count]) => count === 1), 'everyone outside takes the door lamp and the street fill');
     assert.equal(club._bouncer.name, 'bouncer');
@@ -9177,6 +9474,8 @@ function loadCrowdDance(seed = 11) {
     return { CrowdDance: window.CrowdDance, choreographer: new window.CrowdDance({ rng }), rng };
 }
 const ALL_MOVES = ['Dance_Loop', 'Groove_Bounce', 'Groove_SideTap', 'Groove_Clap', 'Groove_Pump', 'Groove_Twist', 'Groove_HandsUp', 'Groove_Sway'];
+// What a freshly built dancer file carries: the older moves plus the overhead clap and the two free no-beat moves.
+const FULL_MOVES = [...ALL_MOVES, 'Groove_ClapUp', 'Groove_ArmsWide', 'Groove_ArmsUp'];
 
 /**
  * Play a dancer like the club does: the clip advances at the speed the choreographer asks for (a loop is beats x 0.5 s at
@@ -9201,7 +9500,7 @@ function playDancer(CrowdDance, choreographer, dancer, { seconds = 20, bpm = 124
 
 test('every move the choreographer knows is in the dancers\' files, as long as it says', () => {
     const { CrowdDance } = loadCrowdDance();
-    assert.deepEqual(Object.keys(CrowdDance.MOVES).sort(), [...ALL_MOVES].sort());
+    assert.deepEqual(Object.keys(CrowdDance.MOVES).sort(), [...FULL_MOVES].sort());
     for (const file of ['club-crowd-f1.glb', 'club-crowd-m7.glb']) {
         const json = readGlbJson(`js/models/avatars/${file}`);
         for (const [name, meta] of Object.entries(CrowdDance.MOVES)) {
@@ -9211,6 +9510,53 @@ test('every move the choreographer knows is in the dancers\' files, as long as i
             assert.ok(Math.abs(duration - meta.beats * 60 / CrowdDance.CLIP_BPM) < 0.02, `${file} ${name}: ${duration} s is not ${meta.beats} beats`);
         }
     }
+});
+
+test('with no beat at all most dancers sway, some open their arms wide or reach up, and they change their minds only after a long while', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance();
+    const dancers = Array.from({ length: 300 }, () => choreographer.createDancer(FULL_MOVES));
+    const out = {};
+    const quiet = { beatPresent: false, rhythm: false, beat: 0, bpm: 120, energy: 0, build: false, drop: false, time: 100 };
+    const counts = {};
+    for (const dancer of dancers) {
+        choreographer.step(dancer, quiet, null, out);
+        assert.ok(CrowdDance.MOVES[out.move].free, `${out.move} is not a free move`);
+        assert.equal(out.speed, CrowdDance.MOVES[out.move].freeSpeed || CrowdDance.FREE_SPEED, 'a free move runs at its own pace');
+        counts[out.move] = (counts[out.move] || 0) + 1;
+    }
+    const share = name => (counts[name] || 0) / dancers.length;
+    assert.ok(share('Groove_Sway') > 0.45 && share('Groove_Sway') < 0.8, `the plain sway is ${Math.round(share('Groove_Sway') * 100)}% of a quiet floor`);
+    assert.ok(share('Groove_ArmsWide') > 0.07, 'nobody spreads their arms wide');
+    assert.ok(share('Groove_ArmsUp') > 0.05, 'nobody reaches up high');
+    // They keep a move for at least the shortest hold, then some of them change.
+    const [lo, hi] = CrowdDance.FREE_HOLD;
+    const before = dancers.map(dancer => dancer.move);
+    quiet.time = 100 + lo - 1;
+    for (const dancer of dancers) choreographer.step(dancer, quiet, null, out);
+    assert.deepEqual(dancers.map(dancer => dancer.move), before, 'somebody changed move before the hold was over');
+    quiet.time = 100 + hi + 1;
+    let changed = 0;
+    for (const [i, dancer] of dancers.entries()) { choreographer.step(dancer, quiet, null, out); if (dancer.move !== before[i]) changed++; }
+    assert.ok(changed > dancers.length * 0.2, `only ${changed} of ${dancers.length} changed after a long quiet`);
+    // A dancer whose file lacks the new moves (an older avatar) still just sways.
+    const old = choreographer.createDancer(ALL_MOVES);
+    choreographer.step(old, quiet, null, out);
+    assert.equal(out.move, 'Groove_Sway');
+});
+
+test('the free moves never appear while there is a pulse, and the overhead clap is a beat move', () => {
+    const { CrowdDance, choreographer } = loadCrowdDance();
+    const seen = new Set();
+    for (const pulse of [{ beatPresent: true }, { beatPresent: false, rhythm: true }]) {
+        for (let i = 0; i < 200; i++) {
+            const dancer = choreographer.createDancer(FULL_MOVES);
+            const frames = playDancer(CrowdDance, choreographer, dancer, { seconds: 90, music: { energy: 0.7, ...pulse }, fps: 30 });
+            for (const f of frames) seen.add(f.move);
+        }
+        for (const name of ['Groove_ArmsWide', 'Groove_ArmsUp']) assert.ok(!seen.has(name), `${name} was chosen while the music had a pulse`);
+    }
+    assert.ok(seen.has('Groove_ClapUp'), 'nobody ever claps above their head');
+    assert.ok(CrowdDance.MOVES.Groove_ClapUp.halfAnchor !== undefined, 'the overhead clap lands on the backbeat at half time like the other clap');
 });
 
 test('dancers lock onto the beat: claps land on it, at any tempo, from any starting point', () => {

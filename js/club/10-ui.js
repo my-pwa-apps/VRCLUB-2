@@ -2127,7 +2127,15 @@ class VRClubUI extends VRClubAnimationFinish {
      * DJ table (js/vjDesk.js), plus the room's seats. A mouse click and a controller ray use the same path.
      */
     setupVJControlInteraction() {
-        this.scene.onPointerDown = (evt, pickResult) => {
+        // A press that throws inside the XR frame callback stops the headset's frame loop (the picture freezes while the
+        // music plays on), so nothing a pointer does may escape these handlers: it is logged and the frame carries on.
+        const guarded = (name, action) => {
+            try { action(); } catch (error) {
+                log.warn(`Pointer ${name} failed:`, error);
+                if (this.recordDiagnostic) this.recordDiagnostic('error', `Pointer ${name} failed: ${error.message}`);
+            }
+        };
+        this.scene.onPointerDown = (evt, pickResult) => guarded('press', () => {
             if (!pickResult || !pickResult.hit || !pickResult.pickedMesh) return;
             const vrMenuButton = this._vrQuickMenuButtons &&
                 this._vrQuickMenuButtons.find(button => button.mesh === pickResult.pickedMesh);
@@ -2141,17 +2149,17 @@ class VRClubUI extends VRClubAnimationFinish {
             }
             if (this._pressSeat(pickResult)) return;
             if (typeof this.pressVJDesk === 'function') this.pressVJDesk(pickResult);
-        };
+        });
 
-        this.scene.onPointerUp = () => {
+        this.scene.onPointerUp = () => guarded('release', () => {
             this._endVRSeek();
             if (typeof this.releaseVJDesk === 'function') this.releaseVJDesk();
-        };
+        });
 
-        this.scene.onPointerMove = (evt, pickResult) => {
+        this.scene.onPointerMove = (evt, pickResult) => guarded('move', () => {
             this._moveVRSeek(pickResult);
             if (typeof this.dragVJDesk === 'function') this.dragVJDesk(pickResult);
-        };
+        });
     }
 
     _ensureAudioElement() {

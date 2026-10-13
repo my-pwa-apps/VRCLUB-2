@@ -25,6 +25,9 @@ test('lowering and raising the graphics tier brings every character back moving'
     await page.evaluate(() => { window.vrClub.setGraphicsTier('ultra'); });
     await page.waitForFunction(() => window.vrClub.npcAvatars.filter(npc => /^(dancer|guest)/.test(npc.name) && npc.root.isEnabled()).length >= 22,
         null, { timeout: 300_000 });
+    // The street people load their own files in the background; count them from the start so the tiers compare like with like.
+    await page.waitForFunction(() => window.vrClub.npcAvatars.some(npc => npc.name === 'bouncer') && !window.vrClub._streetTopUp,
+        null, { timeout: 300_000 });
     const ultra = await frozenCharacters(page);
     expect(ultra.frozen).toEqual([]);
 

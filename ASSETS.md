@@ -188,6 +188,26 @@ script authors procedurally onto the rig itself (no third-party animation; see `
 | `js/models/avatars/club-crowd-m8.glb` | Men / Beach | Light skin, blond hair, cream shirt, blue shorts | all six |
 | `js/models/avatars/club-crowd-m9.glb` | Men / Casual 2 | Medium skin, brown hair, purple tee | `Dance_Loop` |
 | `js/models/avatars/club-crowd-bouncer.glb` | Men / Suit | The bouncer at the street door: espresso skin, black hair, black suit, shirt and tie, pistol removed | all six |
+| `js/models/avatars/club-crowd-vf1.glb` | Women / Formal (f4) | Olive skin, chestnut hair, emerald dress | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vf2.glb` | Women / Casual (f1) | Golden skin, platinum hair, mustard top, black trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vf3.glb` | Women / Punk (f3) | Pale skin, pink mohawk, plum outfit | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vf5.glb` | Women / Casual (f8) | Light skin, auburn hair, rose top, slate trousers | all six |
+| `js/models/avatars/club-crowd-vf6.glb` | Women / Suit (f7) | Tan skin, dark hair, pale blazer, indigo trousers | all six + `Idle_Railing_Loop` |
+| `js/models/avatars/club-crowd-vf7.glb` | Women / Casual (f8) | Deep skin, black hair, jade top, black trousers | all six |
+| `js/models/avatars/club-crowd-vm1.glb` | Men / Casual 2 (m1) | Umber skin, auburn hair, red jacket, charcoal trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm2.glb` | Men / Casual 2 (m9) | Pale skin, ginger hair, teal shirt, navy trousers | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm3.glb` | Men / Casual Hoodie (m3) | Espresso skin, black hair, light-grey hoodie | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm4.glb` | Men / Suit (m7) | Tan skin, dark hair, navy suit, white shirt | `Dance_Loop` |
+| `js/models/avatars/club-crowd-vm5.glb` | Men / Casual Hoodie (m4) | Medium skin, brown hair, steel-blue hoodie | all six |
+| `js/models/avatars/club-crowd-vm6.glb` | Men / Beach (m8) | Umber skin, white hair, orange shirt, blue shorts | all six |
+| `js/models/avatars/club-crowd-vm7.glb` | Men / Punk (m5) | Brown skin, green mohawk, white shirt, dark-red jacket | `Dance_Loop` |
+
+The thirteen `v*` files are **recoloured copies** of the cast above, made by `node scripts/build-crowd-glbs.mjs --variants`
+(`VARIANTS` in that script; no asset packs needed, and `--refresh-static` and a full build regenerate them). A person is
+one vertex-coloured mesh whose colours fall into flat clusters (skin, hair, top, trousers, shoes), so a variant swaps the
+skin tone, hair and garment colours and copies the body, skeleton and every clip unchanged. They exist so that nobody in
+the club is the same person twice (dancers, side guests and the queue outside use one file each). They are not player
+avatars: the relay's pool stays `f1`..`m9`. They are derived works under the same CC0 licence as their base.
 
 "All six" is `Dance_Loop`, `Idle_Loop`, `Idle_Talking_Loop`, `Idle_FoldArms_Loop`, `Idle_TalkingPhone_Loop` and `Yes`:
 the guests, who stand and talk instead of dancing, need the idle poses. Every file also keeps the packs' own `Idle`,

@@ -68,15 +68,22 @@ function vjDeskLayout() {
         },
         ...extra
     });
-    const effectWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 2) / 3;
-    const effect = (id, label, col, row, colour, kind = 'effect') => ({
-        id, panel: 'transport', page: 'fx', kind, effect: id, label, colour,
-        rect: {
-            x: Math.round(playerMargin + col * (effectWidth + playerGap)),
-            y: 132 + row * 80,
-            w: Math.round(effectWidth),
-            h: 70
-        }
+    // The FX page: five real knobs in a row (the whole cell is the control, the dial sits in its top half), and under them
+    // two big buttons: MUTE MUSIC (a quick mute and unmute) and CLEAR FX (every knob back to off).
+    const knobWidth = (VJ_DESK.transport.canvas.width - playerMargin * 2 - playerGap * 4) / 5;
+    const effect = (id, label, col, colour) => ({
+        id, panel: 'transport', page: 'fx', kind: 'effect', effect: id, label, colour,
+        rect: { x: Math.round(playerMargin + col * (knobWidth + playerGap)), y: 130, w: Math.round(knobWidth), h: 106 }
+    });
+    const fxRowWidth = VJ_DESK.transport.canvas.width - playerMargin * 2;
+    const muteWidth = Math.round((fxRowWidth - playerGap) * 0.64);
+    const effectMute = (colour) => ({
+        id: 'channel', panel: 'transport', page: 'fx', kind: 'effectMute', effect: 'channel', label: 'MUTE MUSIC', colour,
+        rect: { x: playerMargin, y: 244, w: muteWidth, h: 50 }
+    });
+    const effectClear = (colour) => ({
+        id: 'clearFx', panel: 'transport', page: 'fx', kind: 'effectClear', label: 'CLEAR FX', colour,
+        rect: { x: playerMargin + muteWidth + playerGap, y: 244, w: fxRowWidth - muteWidth - playerGap, h: 50 }
     });
     const sectionButton = (id, label, col, colour) =>
         ({ id: `section-${id}`, panel: 'show', kind: 'section', section: id, label, rect: sections(col, 3), colour });
@@ -136,12 +143,13 @@ function vjDeskLayout() {
                 id: 'seek', panel: 'transport', page: 'player', kind: 'seek', label: 'SET POSITION', colour: '#7aa7ff',
                 rect: { x: playerMargin, y: 212, w: VJ_DESK.transport.canvas.width - playerMargin * 2, h: 72 }
             },
-            effect('lowpass', 'LOW PASS', 0, 0, '#39d0ff'),
-            effect('highpass', 'HIGH PASS', 1, 0, '#7aa7ff'),
-            effect('echo', 'ECHO', 2, 0, '#b48cff'),
-            effect('flanger', 'FLANGER', 0, 1, '#ffb020'),
-            effect('reverb', 'REVERB', 1, 1, '#39e0c8'),
-            effect('channel', 'CHANNEL', 2, 1, '#ff5d7a', 'effectFader')
+            effect('lowpass', 'LOW PASS', 0, '#39d0ff'),
+            effect('highpass', 'HIGH PASS', 1, '#7aa7ff'),
+            effect('echo', 'ECHO', 2, '#b48cff'),
+            effect('flanger', 'FLANGER', 3, '#ffb020'),
+            effect('reverb', 'REVERB', 4, '#39e0c8'),
+            effectMute('#ff5d7a'),
+            effectClear('#9aa3b5')
         ])
     });
 }
@@ -153,6 +161,48 @@ function vjDeskFaderTrack(rect) {
 
 function vjDeskSeekTrack(rect) {
     return { left: rect.x + 28, right: rect.x + rect.w - 28, y: rect.y + 50 };
+}
+
+// An effect knob sweeps 270 degrees like a real mixer pot: from 7:30 (off) clockwise to 4:30 (full).
+//   wrist   a controller grabs a knob with its trigger and TURNS IT BY TWISTING THE WRIST: the knob follows the
+//           controller's roll about its pointing axis, `wristGain` knob degrees per wrist degree (1.5, so a comfortable
+//           half-turn of the wrist sweeps the whole dial). Holding the grip as well is fine control, `fine` of that,
+//           as in Tribe XR's "low sensitivity" grab.
+//   canvas  without a controller (a mouse, a touch screen) the knob follows the pointer circling its centre: a pointer
+//           circling clockwise on screen (canvas y is down) turns it up.
+const VJ_KNOB = Object.freeze({
+    start: -Math.PI * 0.75, sweep: Math.PI * 1.5, radius: 36, grab: 78,
+    wristGain: 1.5, fine: 0.5, aimTolerance: 0.4
+});
+
+/**
+ * The signed twist, in radians, between two poses of one controller about its pointing axis: positive when its top
+ * turns toward its right (clockwise, seen from behind it, like turning a knob). A pose is the controller's world
+ * `right`, `up` and `forward` axes as plain [x, y, z] arrays. Pure, so it can be tested without a headset.
+ */
+function vjDeskWristTwist(before, now) {
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    // Take the part of the new "up" that lies across the old pointing axis, then compare it with the old up and right.
+    const along = dot(now.up, before.forward);
+    const flat = [now.up[0] - before.forward[0] * along, now.up[1] - before.forward[1] * along, now.up[2] - before.forward[2] * along];
+    const x = dot(flat, before.up), y = dot(flat, before.right);
+    return x * x + y * y < 1e-9 ? 0 : Math.atan2(y, x);
+}
+
+/** A controller node's axes from its world matrix (rows of a Babylon matrix are the node's right, up and forward). */
+function vjDeskAxes(node) {
+    // Ask for a fresh matrix: Babylon only refreshes a node once per rendered frame, and a twist can be read between.
+    const m = (typeof node.computeWorldMatrix === 'function' ? node.computeWorldMatrix(true) : node.getWorldMatrix()).m;
+    const unit = (i) => {
+        const l = Math.hypot(m[i], m[i + 1], m[i + 2]) || 1;
+        return [m[i] / l, m[i + 1] / l, m[i + 2] / l];
+    };
+    return { right: unit(0), up: unit(4), forward: unit(8), origin: [m[12], m[13], m[14]] };
+}
+
+/** The dial's centre inside its cell: the top of the cell, centred, with its label beneath. */
+function vjDeskKnob(rect) {
+    return { x: rect.x + rect.w / 2, y: rect.y + 44, r: VJ_KNOB.radius };
 }
 
 function deskRoundRect(ctx, x, y, w, h, r) {
@@ -295,8 +345,8 @@ const VJDesk = {
         this._vjDeskPressed = { id: button.id, until: performance.now() + VJ_DESK.pressMs };
         if (button.kind === 'fader') {
             if (this._vjDeskSetFader(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
-        } else if (button.kind === 'effect' || button.kind === 'effectFader') {
-            if (this._vjDeskSetEffect(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
+        } else if (button.kind === 'effect') {
+            this._vjDeskGrabKnob(button, hit, pickResult);
         } else if (button.kind === 'seek') {
             if (this._vjDeskSetSeekPreview(button, hit.x)) this._vjDeskDrag = { panel: hit.panel, button };
         } else {
@@ -313,7 +363,7 @@ const VJDesk = {
         const hit = this._vjDeskHit(pickResult);
         if (!hit || hit.panel !== drag.panel) return;
         if (drag.button.kind === 'seek') this._vjDeskSetSeekPreview(drag.button, hit.x);
-        else if (drag.button.kind === 'effect' || drag.button.kind === 'effectFader') this._vjDeskSetEffect(drag.button, hit.x);
+        else if (drag.button.kind === 'effect') { if (!drag.controller) this._vjDeskTurnKnob(drag, hit); }
         else this._vjDeskSetFader(drag.button, hit.x);
         this._vjDesk.dirty = true;
     },
@@ -322,7 +372,7 @@ const VJDesk = {
         const seek = this._vjDeskSeek;
         this._vjDeskDrag = null;
         this._vjDeskSeek = null;
-        if (seek) this.seekAudioToFraction(seek.fraction);
+        if (seek) this.seekAudioFraction(seek.fraction);
         if (this._vjDesk) this._vjDesk.dirty = true;
     },
 
@@ -354,15 +404,106 @@ const VJDesk = {
         return true;
     },
 
-    _vjDeskSetEffect(button, x) {
-        if (this.isPeopleVisible('dj')) return false;
-        if (this._audioKind === 'soundcloud') return false;
-        const inset = button.kind === 'effectFader' ? 18 : 0;
-        const fraction = Math.min(1, Math.max(0,
-            (x - button.rect.x - inset) / (button.rect.w - inset * 2)));
-        if (!this.setDJEffect(button.effect, fraction)) return false;
+    /** Why an effect control cannot be used right now (empty when it can); the panel shows the same words. */
+    _vjDeskEffectBlocked() {
+        if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
+        if (this._audioKind === 'soundcloud') return 'PLAYER AUDIO ONLY';
+        return this.isFollowingHost() ? 'HOST ONLY' : '';
+    },
+
+    /** MUTE MUSIC: one press silences the PA mix, the next brings it back (a quick fade, not a click). */
+    _vjDeskToggleMute() {
+        if (this._vjDeskEffectBlocked()) return false;
+        const muted = (this._djEffectsState().channel || 0) < 0.5;
+        return this.setDJEffect('channel', muted ? 1 : 0);
+    },
+
+    /** CLEAR FX: every knob back to off and the music unmuted, smoothly. */
+    _vjDeskClearEffects() {
+        if (this._vjDeskEffectBlocked() || !this.guardHostControl('music')) return false;
+        this.resetDJEffects();
         if (this._vjDesk) this._vjDesk.dirty = true;
         return true;
+    },
+
+    /** The controller whose ray is on `point` (a world position), or null for a mouse or a touch. */
+    _vjDeskControllerAt(point) {
+        const controllers = this._xrControllers;
+        if (!point || !controllers || !controllers.length) return null;
+        let best = null, bestDistance = VJ_KNOB.aimTolerance;
+        for (const controller of controllers) {
+            const node = controller.pointer;
+            if (!node || typeof node.getWorldMatrix !== 'function') continue;
+            const axes = vjDeskAxes(node);
+            const dx = point.x - axes.origin[0], dy = point.y - axes.origin[1], dz = point.z - axes.origin[2];
+            const f = axes.forward;
+            const along = dx * f[0] + dy * f[1] + dz * f[2];
+            if (along <= 0) continue;
+            const miss = Math.hypot(dx - f[0] * along, dy - f[1] * along, dz - f[2] * along);
+            if (miss < bestDistance) { bestDistance = miss; best = { controller, node }; }
+        }
+        return best;
+    },
+
+    /** Is this controller's grip held? Holding it as well as the trigger is the half-speed fine control. */
+    _vjDeskGripHeld(controller) {
+        const component = controller && controller.motionController && controller.motionController.getComponent
+            ? controller.motionController.getComponent('xr-standard-squeeze') : null;
+        return !!(component && component.pressed);
+    },
+
+    /**
+     * Take hold of a knob. Only the dial and a little margin around it can be grabbed. From a controller the knob then
+     * turns with the twist of the wrist (see VJ_KNOB); from a mouse it follows the pointer circling its centre. Either
+     * way it is relative to where it was grabbed, so it never jumps under the hand.
+     */
+    _vjDeskGrabKnob(button, hit, pickResult) {
+        if (this._vjDeskEffectBlocked()) return false;
+        const knob = vjDeskKnob(button.rect);
+        const dx = hit.x - knob.x, dy = hit.y - knob.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > VJ_KNOB.grab) return false;
+        const value = this._djEffectsState()[button.effect] || 0;
+        const aimed = this._vjDeskControllerAt(pickResult && pickResult.pickedPoint);
+        this._vjDeskDrag = {
+            panel: hit.panel, button, knob: true, value, moved: false,
+            controller: aimed ? aimed.controller : null,
+            node: aimed ? aimed.node : null,
+            pose: aimed ? vjDeskAxes(aimed.node) : null,
+            last: distance > 8 ? Math.atan2(dy, dx) : null
+        };
+        return true;
+    },
+
+    /** Per frame while a controller holds a knob: turn it by however far the wrist has twisted since the last frame. */
+    _vjDeskTwistKnob() {
+        const drag = this._vjDeskDrag;
+        if (!drag || !drag.controller || !drag.node) return false;
+        const now = vjDeskAxes(drag.node);
+        const twist = vjDeskWristTwist(drag.pose, now);
+        drag.pose = now;
+        if (!twist) return false;
+        const gain = VJ_KNOB.wristGain * (this._vjDeskGripHeld(drag.controller) ? VJ_KNOB.fine : 1);
+        drag.value = Math.min(1, Math.max(0, drag.value + twist * gain / VJ_KNOB.sweep));
+        if (Math.abs(twist) > 0.004) drag.moved = true;
+        // A soft detent at zero, where a mixer's pot clicks into "off".
+        return this.setDJEffect(drag.button.effect, drag.value < 0.02 ? 0 : drag.value);
+    },
+
+    /** A mouse or touch: the knob follows the pointer circling its centre. */
+    _vjDeskTurnKnob(drag, hit) {
+        const knob = vjDeskKnob(drag.button.rect);
+        const dx = hit.x - knob.x, dy = hit.y - knob.y;
+        if (Math.hypot(dx, dy) < 8) return false;   // straight over the spindle there is no angle to read
+        const angle = Math.atan2(dy, dx);
+        if (drag.last === null) { drag.last = angle; return false; }
+        let delta = angle - drag.last;
+        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+        drag.last = angle;
+        drag.value = Math.min(1, Math.max(0, drag.value + delta / VJ_KNOB.sweep));
+        if (Math.abs(delta) > 0.02) drag.moved = true;
+        // A soft detent at zero, where a mixer's pot clicks into "off".
+        return this.setDJEffect(drag.button.effect, drag.value < 0.02 ? 0 : drag.value);
     },
 
     _runVJDeskButton(button) {
@@ -385,6 +526,8 @@ const VJDesk = {
             if (this._vjDesk) this._vjDesk.dirty = true;
             return;
         }
+        if (button.kind === 'effectMute') { this._vjDeskToggleMute(); return; }
+        if (button.kind === 'effectClear') { this._vjDeskClearEffects(); return; }
         if (button.kind === 'transport') { this._runVJDeskTransport(button); return; }
         // What happens after YOUR change is a personal setting, like the DJ: it never needs the host.
         if (button.kind === 'holdMode') { this.cycleLightHoldMode(); toast(`After my change: ${this.lightHoldSummary()}`); return; }
@@ -489,6 +632,8 @@ const VJDesk = {
         const desk = this._vjDesk;
         if (!desk) return;
         this._applyVJDeskPlayerVisibility();
+        // A knob held by a controller follows its wrist every frame, even when the ray itself barely moves.
+        if (this._vjDeskDrag && this._vjDeskDrag.controller && this._vjDeskTwistKnob()) desk.dirty = true;
         const now = performance.now();
         if (this.vjManualMode && this._operatorAtVJDesk()) this.lastVJInteraction = now / 1000;
         if (this._vjDeskPressed && now > this._vjDeskPressed.until) {
@@ -543,7 +688,16 @@ const VJDesk = {
 
     _vjDeskPlayerStatus() {
         if (this._vjDeskPlayerPage === 'fx') {
-            return { tone: 'music', title: 'DJ EFFECTS', detail: 'DRAG A KNOB OR FADER. PLAYER RETURNS TO TRANSPORT.' };
+            const drag = this._vjDeskDrag;
+            if (drag && drag.knob) {
+                const grip = drag.controller && this._vjDeskGripHeld(drag.controller);
+                const level = Math.round((this._djEffectsState()[drag.button.effect] || 0) * 100);
+                return {
+                    tone: 'music', title: 'DJ EFFECTS',
+                    detail: `${drag.button.label} ${level}% • ${grip ? 'FINE CONTROL' : drag.controller ? 'GRIP TOO FOR FINE' : 'TURN IT'}`
+                };
+            }
+            return { tone: 'music', title: 'DJ EFFECTS', detail: 'TRIGGER ON A KNOB, THEN TWIST YOUR WRIST' };
         }
         const info = this.getPlaybackInfo();
         const loaded = !!(this._audioKind || (this.audioElement && this.audioElement.src));
@@ -560,7 +714,7 @@ const VJDesk = {
         if (button.kind === 'playerPage') return '';
         if (button.kind === 'holdTiming') return this.lightHold && this.lightHold.mode === 'keep' ? 'NOT USED WHEN KEPT' : '';
         if (this.isFollowingHost()) return 'HOST ONLY';
-        if (button.kind === 'effect' || button.kind === 'effectFader') {
+        if (button.kind === 'effect' || button.kind === 'effectMute' || button.kind === 'effectClear') {
             if (this.isPeopleVisible('dj')) return 'SEND DJ HOME';
             return this._audioKind === 'soundcloud' ? 'PLAYER AUDIO ONLY' : '';
         }
@@ -623,14 +777,25 @@ const VJDesk = {
                 }
                 break;
             }
-            case 'effect':
-            case 'effectFader': {
+            case 'effect': {
                 const state = this._djEffectsState();
                 out.level = state[button.effect];
-                out.active = button.effect === 'channel' ? state.channel < 0.999 : state[button.effect] > 0.001;
-                out.value = button.effect === 'channel' && state.channel <= 0.001
-                    ? 'SILENT'
-                    : `${Math.round(state[button.effect] * 100)}%`;
+                out.active = state[button.effect] > 0.001;
+                out.value = `${Math.round(state[button.effect] * 100)}%`;
+                break;
+            }
+            case 'effectMute': {
+                const muted = (this._djEffectsState().channel || 0) < 0.5;
+                out.active = muted;
+                out.value = muted ? 'MUTED: TAP TO UNMUTE' : 'TAP TO MUTE';
+                break;
+            }
+            case 'effectClear': {
+                const state = this._djEffectsState();
+                const touched = state.lowpass > 0.001 || state.highpass > 0.001 || state.echo > 0.001 ||
+                    state.flanger > 0.001 || state.reverb > 0.001 || state.channel < 0.999;
+                out.active = false;
+                out.value = touched ? 'ALL KNOBS OFF' : 'ALREADY CLEAR';
                 break;
             }
             case 'seek': {
@@ -707,6 +872,7 @@ const VJDesk = {
         }
         if (disabled) out.value = disabled;
         out.pressed = !!(this._vjDeskPressed && this._vjDeskPressed.id === button.id);
+        out.grabbed = !!(this._vjDeskDrag && this._vjDeskDrag.button.id === button.id);
         return out;
     },
 
@@ -720,7 +886,7 @@ const VJDesk = {
         for (const button of panel.buttons) {
             if (!this._vjDeskButtonOnPage(button)) continue;
             const s = this._vjDeskButtonState(button);
-            signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
+            signature += `|${s.value}${s.active ? 1 : 0}${s.disabled ? 1 : 0}${s.pressed ? 1 : 0}${s.grabbed ? 1 : 0}${s.swatch || ''}${s.level == null ? '' : s.level.toFixed(3)}`;
         }
         return signature;
     },
@@ -761,7 +927,7 @@ const VJDesk = {
     _drawVJDeskButton(ctx, button, state) {
         const { x, y, w, h } = button.rect;
         const colour = button.colour;
-        const lit = state.active && !state.disabled;
+        const lit = state.active && !state.disabled && button.kind !== 'effect';
         deskRoundRect(ctx, x, y, w, h, 16);
         ctx.fillStyle = state.disabled ? '#11141b' : lit ? colour : '#151b26';
         ctx.fill();
@@ -825,42 +991,85 @@ const VJDesk = {
             ctx.fill();
             return;
         }
-        if (button.kind === 'effect' || button.kind === 'effectFader') {
+        if (button.kind === 'effect') {
+            const k = vjDeskKnob(button.rect);
             const level = Math.min(1, Math.max(0, state.level || 0));
-            ctx.fillStyle = ink;
-            ctx.textAlign = 'left';
-            ctx.font = 'bold 23px sans-serif';
-            ctx.fillText(button.label, x + (button.kind === 'effectFader' ? 18 : 76), y + 24, w - 88);
-            ctx.fillStyle = sub;
-            ctx.font = 'bold 19px sans-serif';
-            ctx.textAlign = button.kind === 'effectFader' ? 'right' : 'left';
-            ctx.fillText(state.value, x + (button.kind === 'effectFader' ? w - 18 : 76), y + (button.kind === 'effectFader' ? 24 : 50), w - 88);
-            if (button.kind === 'effectFader') {
-                const left = x + 18, right = x + w - 18, trackY = y + 52;
-                deskRoundRect(ctx, left, trackY - 6, right - left, 12, 6);
-                ctx.fillStyle = '#273042';
-                ctx.fill();
-                const knobX = left + level * (right - left);
+            const a0 = VJ_KNOB.start, a1 = a0 + level * VJ_KNOB.sweep, end = a0 + VJ_KNOB.sweep;
+            ctx.lineCap = 'round';
+            // The scale: a dim 270 degree track with the current setting lit along it.
+            ctx.lineWidth = 8;
+            ctx.strokeStyle = state.disabled ? '#1f242d' : '#273042';
+            ctx.beginPath();
+            ctx.arc(k.x, k.y, k.r + 11, a0, end);
+            ctx.stroke();
+            if (level > 0.004 && !state.disabled) {
+                ctx.strokeStyle = colour;
                 ctx.beginPath();
-                ctx.arc(knobX, trackY, 12, 0, Math.PI * 2);
-                ctx.fillStyle = state.disabled ? '#3a404c' : '#e9eef7';
-                ctx.fill();
+                ctx.arc(k.x, k.y, k.r + 11, a0, a1);
+                ctx.stroke();
+            }
+            // The knob: a fluted rim, a darker cap and a pointer that is easy to read from across the table.
+            ctx.beginPath();
+            ctx.arc(k.x, k.y, k.r, 0, Math.PI * 2);
+            ctx.fillStyle = state.disabled ? '#1c2029' : '#343e52';
+            ctx.fill();
+            ctx.lineWidth = state.grabbed ? 6 : 4;
+            ctx.strokeStyle = state.disabled ? '#2a2f3a' : state.grabbed ? '#ffffff' : '#8793ab';
+            ctx.stroke();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = state.disabled ? '#252a34' : 'rgba(255,255,255,0.18)';
+            for (let i = 0; i < 24; i++) {
+                const a = (i / 24) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.moveTo(k.x + Math.cos(a) * (k.r - 9), k.y + Math.sin(a) * (k.r - 9));
+                ctx.lineTo(k.x + Math.cos(a) * (k.r - 2), k.y + Math.sin(a) * (k.r - 2));
+                ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(k.x, k.y, k.r - 13, 0, Math.PI * 2);
+            ctx.fillStyle = state.disabled ? '#171a21' : '#212839';
+            ctx.fill();
+            ctx.lineWidth = 7;
+            ctx.strokeStyle = state.disabled ? '#4a505c' : '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(k.x + Math.cos(a1) * 6, k.y + Math.sin(a1) * 6);
+            ctx.lineTo(k.x + Math.cos(a1) * (k.r - 6), k.y + Math.sin(a1) * (k.r - 6));
+            ctx.stroke();
+            ctx.lineCap = 'butt';
+            if (state.disabled) {
+                // The reason it cannot be used goes under the name, small.
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#5f6673';
+                ctx.font = 'bold 21px sans-serif';
+                ctx.fillText(button.label, x + w / 2, y + 86, w - 12);
+                ctx.fillStyle = '#7b8392';
+                ctx.font = 'bold 15px sans-serif';
+                ctx.fillText(state.value, x + w / 2, y + 102, w - 12);
             } else {
-                const cx = x + 40, cy = y + h / 2;
-                ctx.beginPath();
-                ctx.arc(cx, cy, 23, 0, Math.PI * 2);
-                ctx.fillStyle = state.disabled ? '#252a34' : '#30394a';
-                ctx.fill();
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = state.disabled ? '#3a404c' : colour;
-                ctx.stroke();
-                const angle = -Math.PI * 0.75 + level * Math.PI * 1.5;
-                ctx.beginPath();
-                ctx.moveTo(cx, cy);
-                ctx.lineTo(cx + Math.cos(angle) * 17, cy + Math.sin(angle) * 17);
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = state.disabled ? '#5f6673' : '#ffffff';
-                ctx.stroke();
+                // Name on the left and the setting on the right, on one line under the dial.
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 21px sans-serif';
+                ctx.fillText(button.label, x + 14, y + 94, w - 78);
+                ctx.textAlign = 'right';
+                ctx.fillStyle = state.grabbed ? '#ffffff' : colour;
+                ctx.font = 'bold 21px sans-serif';
+                ctx.fillText(state.value, x + w - 12, y + 94, 64);
+            }
+            return;
+        }
+        if (button.kind === 'effectMute' || button.kind === 'effectClear') {
+            // One row: what it is on the left, what pressing it does (or its state) on the right.
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = ink;
+            ctx.font = 'bold 28px sans-serif';
+            ctx.fillText(button.label, x + 20, y + h / 2, button.kind === 'effectMute' ? 250 : w - 40);
+            if (button.kind === 'effectMute') {
+                ctx.textAlign = 'right';
+                ctx.fillStyle = sub;
+                ctx.font = 'bold 22px sans-serif';
+                ctx.fillText(state.value, x + w - 20, y + h / 2, w - 300);
             }
             return;
         }
@@ -923,5 +1132,8 @@ window.VJDeskLayout = Object.freeze({
     buttons: vjDeskLayout(),
     config: VJ_DESK,
     faderTrack: vjDeskFaderTrack,
-    seekTrack: vjDeskSeekTrack
+    seekTrack: vjDeskSeekTrack,
+    knob: vjDeskKnob,
+    knobSpec: VJ_KNOB,
+    wristTwist: vjDeskWristTwist
 });

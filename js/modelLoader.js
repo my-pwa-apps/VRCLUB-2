@@ -184,6 +184,9 @@ class ModelLoader {
                 emissiveFloor: 0,
                 disableEmission: true,
                 metallicFactor: 0,
+                // The headset runs medium-precision shaders and this import is scaled 0.0089 (mirrored) with mesh tangents,
+                // which puts its tangent-space normal map on a precision-sensitive path (white-hot edges under bloom).
+                disableNormalMap: true,
                 attribution: 'Old Couch by Oliver Triplett (CC BY 4.0; optimized textures)'
             }
         };
@@ -586,6 +589,10 @@ class ModelLoader {
 
                     if (config.metallicFactor !== undefined && mesh.material.metallic !== undefined) {
                         mesh.material.metallic = config.metallicFactor;
+                    }
+
+                    if (config.disableNormalMap && mesh.material.bumpTexture) {
+                        mesh.material.bumpTexture = null;
                     }
                     
                     // A model can darken its own albedo (the bass bin's carpet is a mid grey, the PA above it is near black).

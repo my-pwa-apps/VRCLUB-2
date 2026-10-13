@@ -284,9 +284,7 @@ function announceNowPlaying(label) {
     const nowPlaying = document.getElementById('audioNowPlaying');
     if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
     const playLabel = document.getElementById('playStreamBtnLabel');
-    if (playLabel) playLabel.textContent = 'Pause';
-    const playBtn = document.getElementById('playStreamBtn');
-    if (playBtn) playBtn.setAttribute('aria-label', 'Pause audio');
+    if (playLabel && typeof window.refreshMusicLinkButtons === 'function') window.refreshMusicLinkButtons();
 }
 
 /** Resume only an explicitly saved set, with the ENTER click's autoplay permission. */
@@ -1192,11 +1190,36 @@ function initAudioMenu() {
         if (remembered && vrClubInstance._isSafeAudioUrl(remembered)) streamUrl.value = remembered;
     }
 
-    /** Update the play/pause affordance without destroying its icon/label spans. */
-    const setPlayLabel = (playing) => {
-        if (playStreamBtnLabel) playStreamBtnLabel.textContent = playing ? 'Pause' : 'Play';
-        if (playStreamBtn) playStreamBtn.setAttribute('aria-label', playing ? 'Pause audio' : 'Play audio');
+    /**
+     * The Link tab's buttons follow the link in the field and what is playing: "Play now" saves and plays it, "Save to my
+     * sets" only saves it (so another set can keep playing). Pause and resume live in Transport, not here.
+     */
+    let linkBusy = false;
+    const saveStreamBtn = document.getElementById('saveStreamBtn');
+    const audioLinkNote = document.getElementById('audioLinkNote');
+    const refreshLinkButtons = () => {
+        if (!playStreamBtn || linkBusy || vrClubInstance.isFollowingHost()) return;
+        const audio = vrClubInstance.audioElement;
+        const info = vrClubInstance.getPlaybackInfo();
+        const active = {
+            url: vrClubInstance._audioKind !== 'network' && audio && audio.src ? audio.src : null,
+            playing: !!info.playing
+        };
+        const action = ensureMusicLibrary(vrClubInstance).linkAction(streamUrl ? streamUrl.value : '', active);
+        if (playStreamBtnLabel) playStreamBtnLabel.textContent = action.play.label;
+        playStreamBtn.setAttribute('aria-label', action.play.label);
+        playStreamBtn.disabled = action.play.disabled;
+        if (saveStreamBtn) {
+            saveStreamBtn.textContent = action.save.label;
+            saveStreamBtn.disabled = action.save.disabled;
+        }
+        if (audioLinkNote) {
+            audioLinkNote.textContent = action.note;
+            audioLinkNote.hidden = !action.note;
+        }
     };
+    window.refreshMusicLinkButtons = refreshLinkButtons;
+    uiTeardowns.push(() => { if (window.refreshMusicLinkButtons === refreshLinkButtons) delete window.refreshMusicLinkButtons; });
     const setNowPlaying = (text) => { if (nowPlaying) nowPlaying.textContent = text; };
     const setSourceHint = (url) => {
         if (!audioSourceHint) return;
@@ -1232,7 +1255,7 @@ function initAudioMenu() {
     };
 
     if (vrClubInstance.audioElement && !vrClubInstance.audioElement.paused) {
-        setPlayLabel(true);
+        refreshLinkButtons();
         setNowPlaying(entryNowPlaying || '\u25B6 Playing');
     }
     
@@ -1363,7 +1386,7 @@ function initAudioMenu() {
 
     // Play stream URL
     if (playStreamBtn && streamUrl) {
-        streamUrl.addEventListener('input', () => setSourceHint(streamUrl.value));
+        streamUrl.addEventListener('input', () => { setSourceHint(streamUrl.value); refreshLinkButtons(); });
         if (pasteStreamBtn) {
             pasteStreamBtn.addEventListener('click', async () => {
                 if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
@@ -1385,9 +1408,10 @@ function initAudioMenu() {
                     streamUrl.value = nextValue;
                     streamUrl.setCustomValidity('');
                     setSourceHint(nextValue);
+                    refreshLinkButtons();
                     streamUrl.focus();
                     streamUrl.setSelectionRange(nextValue.length, nextValue.length);
-                    showStatus('URL pasted. Choose Save & play when ready.', 'success');
+                    showStatus('URL pasted. Choose Play now, or Save to my sets to keep it for later.', 'success');
                 } catch (error) {
                     uiLog.warn('Clipboard read was blocked:', error);
                     streamUrl.focus();
@@ -1416,25 +1440,41 @@ function initAudioMenu() {
             const requestedUrl = new URL(url, window.location.href).href;
             const matchesActiveUrl = activeAudio && library.matchesPlaybackUrl(requestedUrl, activeAudio.src);
             if (matchesActiveUrl && !activeAudio.paused) {
-                activeAudio.pause();
-                setPlayLabel(false);
-                showStatus('Stream paused', 'success');
-                // If this guest is the room host, tell everyone else to pause too.
-                if (vrClubInstance.networkManager && vrClubInstance.networkManager.isHost()) {
-                    vrClubInstance.networkManager.sendMusic({ url: requestedUrl, playing: false, position: activeAudio.currentTime });
-                }
+                showStatus('That set is already playing. Use Transport to pause it.', 'success');
                 return;
             }
             // Paused on this very source part-way through: resume it, do not start it over.
             if (matchesActiveUrl && activeAudio.paused && !activeAudio.ended && activeAudio.currentTime > 0) {
                 vrClubInstance.toggleAudioPlayback();
-                setPlayLabel(true);
+                refreshLinkButtons();
                 showStatus('Resumed', 'success');
                 return;
             }
 
             playUrl(url, document.getElementById('setName').value);
         });
+        // Keep a link for later without interrupting whatever is playing now.
+        if (saveStreamBtn) {
+            saveStreamBtn.addEventListener('click', () => {
+                const url = streamUrl.value.trim();
+                streamUrl.setCustomValidity('');
+                if (!url || !vrClubInstance._isSafeAudioUrl(url)) {
+                    streamUrl.setCustomValidity('Enter a music link to save.');
+                    streamUrl.reportValidity();
+                    showStatus('Paste a music link first', 'error');
+                    return;
+                }
+                const nextUrl = window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function'
+                    ? window.MusicLibrary.normalizeSoundCloudUrl(url) : url;
+                try {
+                    const item = library.save(nextUrl, document.getElementById('setName').value);
+                    showStatus(`Saved “${item.name}” to your sets. It keeps playing the current set; choose it under Saved sets and press Play saved set when you want it.`, 'success');
+                } catch (error) {
+                    showStatus(error.message, 'error');
+                }
+                refreshLinkButtons();
+            });
+        }
     }
 
     const library = ensureMusicLibrary(vrClubInstance);
@@ -1496,6 +1536,7 @@ function initAudioMenu() {
         streamUrl.value = item ? item.url : '';
         document.getElementById('setName').value = item ? item.name : '';
         setSourceHint(streamUrl.value);
+        refreshLinkButtons();
         renderEpisodes();
         if (playing) announceNowPlaying(playing.name);
         if (vrClubInstance._vrQuickMenuVisible) vrClubInstance._refreshVRQuickMenu();
@@ -1559,21 +1600,19 @@ function initAudioMenu() {
             (vrClubInstance.audioElement && vrClubInstance.audioElement.src));
         if (transportSection) transportSection.setAttribute('aria-disabled', String(!hasSource));
         transportButtons.forEach(button => { button.disabled = !hasSource; });
-        // Keep the Play/Pause label honest when something else (the VR menu, a media key) changed it.
+        // Keep the link buttons honest when something else (the VR menu, a media key) changed what is playing.
         if (vrClubInstance._audioKind === 'soundcloud') {
-            if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Player open';
-            if (playStreamBtn) playStreamBtn.setAttribute('aria-label', 'SoundCloud player open');
             if (volume) {
                 volume.disabled = true;
                 volume.title = 'Use the SoundCloud player volume control';
             }
         } else if (vrClubInstance.audioElement && vrClubInstance.audioElement.src) {
-            setPlayLabel(info.playing);
             if (volume) {
                 volume.disabled = false;
                 volume.title = 'Music playback volume';
             }
         }
+        refreshLinkButtons();
         if (vrClubInstance._audioKind && vrClubInstance.nowPlayingLabel) {
             setNowPlaying(`${info.playing ? '\u25B6' : '\u23F8'} ${vrClubInstance.nowPlayingLabel}`);
         }
@@ -1632,7 +1671,7 @@ function initAudioMenu() {
             library.playInSoundCloudPlayer()
                 .then(() => {
                     hideSoundCloudFallback();
-                    if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Player open';
+                    refreshLinkButtons();
                     showStatus('SoundCloud player opened — no beat analysis, so lights run on their own tempo', 'success');
                     setNowPlaying(`\u25B6 ${library.current().name}`);
                 })
@@ -1641,22 +1680,24 @@ function initAudioMenu() {
     }
 
     function playUrl(url, label) {
-        const previousLabel = playStreamBtnLabel ? playStreamBtnLabel.textContent : '';
         const nextUrl = (typeof window !== 'undefined' && window.MusicLibrary && typeof window.MusicLibrary.normalizeSoundCloudUrl === 'function')
             ? window.MusicLibrary.normalizeSoundCloudUrl(url)
             : url;
+        const finish = () => {
+            linkBusy = false;
+            if (playStreamBtn) playStreamBtn.removeAttribute('aria-busy');
+            refreshLinkButtons();
+        };
+        linkBusy = true;
         if (playStreamBtn) {
             playStreamBtn.disabled = true;
             playStreamBtn.setAttribute('aria-busy', 'true');
         }
+        if (saveStreamBtn) saveStreamBtn.disabled = true;
         if (playStreamBtnLabel) playStreamBtnLabel.textContent = 'Starting…';
         try { library.save(nextUrl, label); }
         catch (error) {
-            if (playStreamBtn) {
-                playStreamBtn.disabled = false;
-                playStreamBtn.removeAttribute('aria-busy');
-            }
-            if (playStreamBtnLabel) playStreamBtnLabel.textContent = previousLabel || 'Save & play';
+            finish();
             showStatus(error.message, 'error');
             return Promise.resolve(false);
         }
@@ -1666,19 +1707,10 @@ function initAudioMenu() {
                 hideSoundCloudFallback();
                 showStatus(current.kind === 'soundcloud' ? 'Playing as analysed audio — lights and dancing are synced' :
                     `Playing: ${current.name}`, 'success');
-                setPlayLabel(true);
                 setNowPlaying(`\u25B6 ${vrClubInstance.nowPlayingLabel || current.name}`);
             })
             .catch(err => reportPlayError(err))
-            .finally(() => {
-                if (playStreamBtn) {
-                    playStreamBtn.disabled = false;
-                    playStreamBtn.removeAttribute('aria-busy');
-                }
-                if (playStreamBtnLabel && playStreamBtnLabel.textContent === 'Starting…') {
-                    playStreamBtnLabel.textContent = previousLabel || 'Save & play';
-                }
-            });
+            .finally(finish);
     }
     
     // Handle file upload
@@ -1698,7 +1730,7 @@ function initAudioMenu() {
             vrClubInstance.startAudioFromFile(file)
                 .then(() => {
                     showStatus(`\ud83c\udfb5 Playing: ${file.name}`, 'success');
-                    setPlayLabel(true);
+                    refreshLinkButtons();
                     setNowPlaying(`\u25B6 ${file.name}`);
                     const net = vrClubInstance.networkManager;
                     if (net && net.connected && net.isHost()) {
@@ -1723,7 +1755,7 @@ function initAudioMenu() {
                     audioFileName.textContent = `${folder}: ${count} audio track${count === 1 ? '' : 's'}`;
                     showStatus(`Playing ${folder} ${shuffle ? 'shuffled' : 'in filename order'}`, 'success');
                     setNowPlaying(`\u25B6 ${file.name}`);
-                    setPlayLabel(true);
+                    refreshLinkButtons();
                 })
                 .catch(err => showStatus(`Could not play folder: ${err.message}`, 'error'))
                 .finally(() => { audioFolderInput.value = ''; });
@@ -2382,6 +2414,56 @@ function initNetworkMenu() {
 
     uiLog.info('Multiplayer menu initialized');
 }
+
+// =============================================================================
+// INSTALL PROMPT (PWA)
+// =============================================================================
+// Browsers that support installation fire `beforeinstallprompt`; keep the event and offer an Install button in the
+// About panel, since the event can only be replayed from a user gesture. Nothing shows in an installed window, in a
+// browser that never fires the event, or after the app has been installed.
+const initInstallPrompt = () => {
+    const panel = document.getElementById('installApp');
+    const button = document.getElementById('installAppBtn');
+    if (!panel || !button) return;
+    const isInstalled = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+        || navigator.standalone === true;
+    let deferred = null;
+    const onBeforeInstall = (event) => {
+        event.preventDefault();
+        if (isInstalled()) return;
+        deferred = event;
+        panel.hidden = false;
+    };
+    const onInstalled = () => {
+        deferred = null;
+        panel.hidden = true;
+    };
+    const onClick = async () => {
+        const prompt = deferred;
+        if (!prompt) return;
+        // The saved event is single-use: the browser refuses a second prompt() on it.
+        deferred = null;
+        button.disabled = true;
+        try {
+            await prompt.prompt();
+            await prompt.userChoice;
+        } catch (error) {
+            uiLog.info('Install prompt unavailable:', error);
+        }
+        // Accepted or dismissed, this event is spent; a later `beforeinstallprompt` shows the button again.
+        panel.hidden = true;
+        button.disabled = false;
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    button.addEventListener('click', onClick);
+    uiTeardowns.push(() => {
+        window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+        window.removeEventListener('appinstalled', onInstalled);
+        button.removeEventListener('click', onClick);
+    });
+};
+initInstallPrompt();
 
 // =============================================================================
 // SERVICE WORKER REGISTRATION (PWA Offline Shell & Fast Startup)

@@ -389,12 +389,9 @@ class VRClubEnvironment extends VRClubRendering {
             alpha: 0 // Completely invisible
         });
         
-        // The visible shell already collides. The old perimeter band put an invisible
-        // partition across open floor at z=-5; only equipment clearance belongs here.
+        // The visible shell and DJ table already collide. The old perimeter band put an invisible
+        // partition across open floor at z=-5; only isolated equipment clearance belongs here.
         const boundaries = [
-            // DJ Booth protection area (prevent walking through equipment)
-            { width: 8, height: 2, depth: 0.5, 
-              pos: new BABYLON.Vector3(0, 1, -17.8) }, // Front of DJ booth
             { width: 0.5, height: 2, depth: 2, 
               pos: new BABYLON.Vector3(-4.5, 1, -17) }, // Left side
             { width: 0.5, height: 2, depth: 2, 
