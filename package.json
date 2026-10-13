@@ -10,6 +10,7 @@
     "build": "node scripts/build.mjs",
     "build:quest": "node scripts/build.mjs",
     "deploy:cloudflare": "npm run build && npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-vr --branch Quest",
+    "deploy:sidequest": "npm run build && npx --yes wrangler@4.141.0 pages deploy dist --project-name nocturne-sidequest --branch SideQuest",
     "deploy:worker": "npx --yes wrangler@4.141.0 deploy --config worker/wrangler.toml",
     "build:native-poc": "node scripts/build-native-poc.mjs",
     "quest:prepare": "node scripts/prepare-quest.mjs",

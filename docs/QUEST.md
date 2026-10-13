@@ -373,6 +373,17 @@ veil, approval) and `test/e2e/link-page.spec.mjs` (the phone page).
 
 ## Build and publish the app (SideQuest or Meta Horizon Store)
 
+**SideQuest hosting.** The SideQuest build lives on its own host, `https://sidequest.nocturne.mitwee.nl/`, served by the
+Cloudflare Pages project `nocturne-sidequest` (production branch `SideQuest`), separate from the main site
+(`nocturne-vr`, branch `Quest`). Deploy it with `npm run deploy:sidequest`; it never touches the main domain. The shared
+API (`api.mitwee.nl`) accepts both sites: `APP_ORIGIN` is the main one and `EXTRA_APP_ORIGINS` in `worker/wrangler.toml`
+lists the SideQuest one (also in `ALLOWED_ORIGINS` for the multiplayer relay). Checkout returns, CORS and the emails'
+"enter it only at" line follow the origin that made the request. One-time dashboard step: Workers & Pages →
+`nocturne-sidequest` → Custom domains → add `sidequest.nocturne.mitwee.nl` (Cloudflare creates the DNS record itself).
+Until then the same site answers at `https://nocturne-sidequest.pages.dev/`, but the API refuses that origin. Use
+`--url https://sidequest.nocturne.mitwee.nl/` in `quest:prepare`: the Digital Asset Links file must be served from the
+host the app opens. The page's canonical URL still names the main site, so search engines treat the SideQuest host as a copy.
+
 Everything below runs from the repository root in PowerShell. `npm run quest:doctor` lists what is still missing at any
 point (add `-- --url https://nocturne.mitwee.nl/` after the site is deployed to check it too). Only the steps marked
 **YOU** need your accounts, passwords or a headset. Pick the package id once (chosen: `nocturne.vrnightclub`): it can never change.
@@ -391,15 +402,15 @@ point (add `-- --url https://nocturne.mitwee.nl/` after the site is deployed to 
 3. **Prepare the wrapper** (reads the key's fingerprint itself):
    ```powershell
    # SideQuest: no Meta App ID exists
-   npm run quest:prepare -- --url https://nocturne.mitwee.nl/ --package-id nocturne.vrnightclub --keystore "C:\PrivateSigning\nocturne.keystore" --alias nocturne --target sidequest --mode immersive --version-code 1
+   npm run quest:prepare -- --url https://sidequest.nocturne.mitwee.nl/ --package-id nocturne.vrnightclub --keystore "C:\PrivateSigning\nocturne.keystore" --alias nocturne --target sidequest --mode immersive --version-code 1
    # Meta Horizon Store: add your numeric App ID from the developer dashboard
-   npm run quest:prepare -- --url https://nocturne.mitwee.nl/ --package-id nocturne.vrnightclub --keystore "C:\PrivateSigning\nocturne.keystore" --alias nocturne --target meta --app-id YOUR_APP_ID --mode immersive --version-code 1
+   npm run quest:prepare -- --url https://sidequest.nocturne.mitwee.nl/ --package-id nocturne.vrnightclub --keystore "C:\PrivateSigning\nocturne.keystore" --alias nocturne --target meta --app-id YOUR_APP_ID --mode immersive --version-code 1
    ```
    `--mode immersive` starts the club at `/?immersive=1` with `horizonOSAppMode: immersive`; `--mode 2D` keeps the
    setup-panel flow.
-4. **Publish Digital Asset Links, then check.** `npm run deploy:cloudflare` builds `dist/` (which now carries
+4. **Publish Digital Asset Links, then check.** `npm run deploy:sidequest` (or `deploy:cloudflare` for the main site) builds `dist/` (which now carries
    `.well-known/assetlinks.json` from `quest-package/`) and publishes it. Then
-   `npm run quest:doctor -- --url https://nocturne.mitwee.nl/` must show no FAIL.
+   `npm run quest:doctor -- --url https://sidequest.nocturne.mitwee.nl/` must show no FAIL.
 5. **Build and verify the APK:** `npm run quest:apk`. It runs Meta's Bubblewrap (through `npx`, pinned; the Google
    `@bubblewrap/cli` of the same command name ignores `horizonOSAppMode`), builds on Node 20.11.1 because newer Node
    cannot start Gradle's `.bat` on Windows (`spawn EINVAL`), keeps your version code (`--skipVersionUpgrade`), and

@@ -1286,6 +1286,11 @@ the build runs Bubblewrap on Node 20.11.1 through `npx -p`. `update` bumps the v
 (`enableNotifications`, `splashScreenFadeOutDuration`), or the Gradle file does not compile; a test pins them.
 `quest-build.mjs` fails unless `apksigner` reports the APK's certificate equals the fingerprint in `assetlinks.json`.
 Keystores and passwords never enter the repo: passwords travel only in `BUBBLEWRAP_*` environment variables.
+The SideQuest build is hosted separately (`nocturne-sidequest` Pages project, `npm run deploy:sidequest`, host
+`sidequest.nocturne.mitwee.nl`). The shared Worker serves several app origins: `resolveAppOrigin()` in
+`worker/src/payments.js` accepts `APP_ORIGIN` or an exact https entry of `EXTRA_APP_ORIGINS`, and `handlePayments`
+rewrites `env.APP_ORIGIN` to it so CORS, Stripe returns and email text follow the caller. A new host must be added to
+`EXTRA_APP_ORIGINS` and `ALLOWED_ORIGINS` and the Worker redeployed.
 
 ### Headset pairing and immersive launch
 

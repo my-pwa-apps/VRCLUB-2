@@ -19,6 +19,18 @@ function corsHeaders(origin, allowedOrigin) {
         : {};
 }
 
+/**
+ * The origin this request may act as. APP_ORIGIN is the main site; EXTRA_APP_ORIGINS (comma-separated) lists further
+ * sites that run the same app, such as the SideQuest build's own host. Only an exact, https, path-less match is used:
+ * anything else falls back to APP_ORIGIN and is then refused by the origin check.
+ */
+export function resolveAppOrigin(env, requestOrigin) {
+    const primary = env.APP_ORIGIN || 'https://nocturne-vr.pages.dev';
+    if (!requestOrigin || requestOrigin === primary) return primary;
+    const extra = String(env.EXTRA_APP_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
+    return extra.includes(requestOrigin) && /^https:\/\/[a-z0-9.-]+$/i.test(requestOrigin) ? requestOrigin : primary;
+}
+
 function normalizeEmail(value) {
     const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 254 ? email : null;
@@ -255,6 +267,8 @@ async function legacyAccess(request, env) {
 export async function handlePayments(request, env, appOrigin) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/payments/')) return null;
+    // Emails and checkout returns must name the site the guest is actually on.
+    env = { ...env, APP_ORIGIN: appOrigin };
     if (env.STRIPE_MODE === 'live') {
         env = {
             ...env,
