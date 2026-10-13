@@ -35,3 +35,6 @@
   Cache-Control: no-cache
 /screenshots/*
   Cache-Control: no-cache
+# The phone page that pairs a headset: plain, unhashed files.
+/link/*
+  Cache-Control: no-cache

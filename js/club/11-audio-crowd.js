@@ -918,12 +918,15 @@ class VRClubAudioCrowd extends VRClubUI {
      * for users with photosensitive epilepsy or migraine sensitivity.
      * Persists across sessions.
      */
-    setPhotosensitiveSafeMode(enabled) {
+    setPhotosensitiveSafeMode(enabled, { persist = true } = {}) {
         this.photosensitiveSafeMode = !!enabled;
         if (this.flashGovernor && this.photosensitiveSafeMode) {
             this.flashGovernor.lastSource = null;
         }
-        try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        // `persist: false` is a temporary hold (immersive launch, until the guest has chosen): it must not become their saved choice.
+        if (persist) {
+            try { localStorage.setItem('vrclub.safeMode', this.photosensitiveSafeMode ? '1' : '0'); } catch (_) {}
+        }
         // Immediately quiet any in-flight strobe state
         if (this.photosensitiveSafeMode && this.strobes) {
             this.strobes.forEach((strobe) => {

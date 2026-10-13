@@ -127,6 +127,7 @@ while their cookie is present; otherwise contact the issuer. See
 - **A show that follows the kick:** the club listens to the kick drum on its own (a 120 Hz band, separate from the bass/mid/treble analyser), so the beat grid locks to real kicks rather than the bassline. The whole rig dips between kicks and hits on them (at most 2.5 hits a second, whatever the tempo), the moving heads dip toward the floor on each kick, and fixture speed and the show's energy follow how loud the low end is now against the last ~20 seconds: a breakdown calms the room, a drop lifts it. Photosensitive Safe Mode keeps the old shallow breathing.
 - **Direct audio hosts** must provide CORS for reactive lighting. SoundCloud is the narrow exception: the relay resolves and streams only individual tracks that SoundCloud itself publishes to podcast players; it does not scrape or unlock other audio.
 - **`js/paymentGate.js`** keeps desktop preview free while requiring a server-verified Stripe entitlement before immersive VR entry.
+- **`js/immersiveLaunch.js`** (opt-in, `?immersive=1`) opens the club straight into VR for a headset app: the photosensitivity choice, access check, a short free preview and a phone-paired code screen, all inside the headset.
 - **📷 Go to** (bottom-centre): jump to a viewpoint (entrance, dance floor, booth, lights, balcony, street).
 
 ### Keyboard shortcuts

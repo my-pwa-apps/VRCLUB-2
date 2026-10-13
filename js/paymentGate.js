@@ -7,6 +7,7 @@
     let access = { entitled: false, verified: false, deviceRegistered: false, devices: [] };
     let dialog, content, status, close, opener, checkPromise, checkError, challenge, nextFocus;
     let accessRevision = 0, recoveryEmail = '', recoveryCode = '';
+    let preview = false;
     let invitationCode = '', invitationStep = null, accessPath = null;
     const SETUP_LEASE_HOLD_MS = 10 * 60 * 1000;
     let busy = false, inXR = false, leaseExpires = 0, leaseGeneration = 0, setupHoldUntil = 0;
@@ -402,24 +403,7 @@
                 } else if (window.vrClub?._vrAvailable === false) {
                     content.append(element('p', 'Your access is saved. To use VR, open NOCTURNE in your headset browser or on a VR-compatible device.'));
                 } else primaryButton('Prepare VR', async () => {
-                    const generation = leaseGeneration;
-                    const startedAt = performance.now();
-                    let result;
-                    try { result = await post('/vr/acquire', { tab }); }
-                    catch (error) {
-                        if (error.status === 403 || error.status === 409) void releaseLease();
-                        throw error;
-                    }
-                    if (generation !== leaseGeneration) {
-                        void post('/vr/release', { tab }, { keepalive: true }).catch(() => {});
-                        return;
-                    }
-                    const deadline = leaseDeadline(result, startedAt);
-                    if (result.active !== true || deadline <= performance.now()) {
-                        throw new Error('VR preparation was not confirmed. Try again.');
-                    }
-                    leaseExpires = deadline;
-                    scheduleExpiry();
+                    if (!await acquireLease()) return;
                     setStatus(message());
                     content.replaceChildren(element('h3', 'You are ready for VR'),
                         element('p', '1. Press Close at the top right.'),
@@ -590,6 +574,71 @@
             }
         }
     }
+    /** Takes this tab's VR lease. Resolves false when something released it while the request was in flight. */
+    async function acquireLease() {
+        const generation = leaseGeneration;
+        const startedAt = performance.now();
+        let result;
+        try { result = await post('/vr/acquire', { tab }); }
+        catch (error) {
+            if (error.status === 403 || error.status === 409) void releaseLease();
+            throw error;
+        }
+        if (generation !== leaseGeneration) {
+            void post('/vr/release', { tab }, { keepalive: true }).catch(() => {});
+            return false;
+        }
+        const deadline = leaseDeadline(result, startedAt);
+        if (result.active !== true || deadline <= performance.now()) {
+            throw new Error('VR preparation was not confirmed. Try again.');
+        }
+        leaseExpires = deadline;
+        scheduleExpiry();
+        return true;
+    }
+    /**
+     * Immersive launch has no dialog to click through, so this checks access and takes the VR lease in one call.
+     * 'ready': this device may enter VR now (the lease is held and renewed while the session starts);
+     * 'needs-access': not verified, entitled or registered, so the headset must be paired; 'in-use': another device or tab
+     * holds the single VR lease; 'error': the service could not be reached.
+     */
+    async function autoPrepare() {
+        await refreshEntitlement();
+        if (checkError) return { state: 'error', message: checkError.message };
+        if (!ready()) {
+            return { state: 'needs-access', verified: !!access.verified, entitled: !!access.entitled, deviceRegistered: !!access.deviceRegistered };
+        }
+        try {
+            if (!await acquireLease()) return { state: 'error', message: 'VR preparation was cancelled.' };
+        } catch (error) {
+            return { state: error.body?.error === 'vr_in_use' ? 'in-use' : 'error', message: error.message };
+        }
+        holdLeaseForSetup(2 * 60 * 1000);
+        return { state: 'ready' };
+    }
+    /** Asks the service for a pairing code to enter on a phone (see worker/src/deviceLink.js). */
+    async function linkStart() {
+        const result = await post('/link/start', {});
+        return {
+            linkId: result.linkId, secret: result.secret, code: result.code,
+            expiresInMs: (result.expiresInSeconds || 600) * 1000, intervalMs: (result.intervalSeconds || 3) * 1000
+        };
+    }
+    /**
+     * One poll of a pairing code. Resolves 'pending', 'expired' (ask for a new code), or 'approved' once this device has
+     * been registered and given its own session, in which case the access state is updated like any other check.
+     */
+    async function linkPoll(link) {
+        try {
+            const result = await post('/link/poll', { linkId: link.linkId, secret: link.secret });
+            if (result.status !== 'approved') return result.status === 'pending' ? 'pending' : 'expired';
+            update({ ...result, recoveryRequired: false });
+            return 'approved';
+        } catch (error) {
+            if (error.status === 410 || error.status === 404) return 'expired';
+            throw error;
+        }
+    }
     function holdLeaseForSetup(durationMs = SETUP_LEASE_HOLD_MS) {
         if (!ready() || leaseExpires <= performance.now()) return false;
         const holdMs = Math.min(SETUP_LEASE_HOLD_MS, Math.max(0, Number(durationMs) || 0));
@@ -614,6 +663,8 @@
             void releaseLease();
             return;
         }
+        // The free preview and the pairing screen of an immersive launch run without a lease: there is no access yet.
+        if (preview && (!ready() || leaseExpires <= performance.now())) return;
         if (!ready() || leaseExpires <= performance.now()) {
             void endXR('VR access is not prepared. Open Access to prepare it.');
             void releaseLease();
@@ -624,6 +675,21 @@
         setupHoldTimer = null;
         if (!renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
         scheduleExpiry();
+    }
+    /** Immersive launch only: allow an XR session that has no access yet (the free preview, then the pairing screen). */
+    function setPreview(on) {
+        preview = !!on;
+    }
+    /**
+     * A headset that was paired during its preview takes the lease for the session already running, and the usual renewal
+     * and expiry rules start to apply to it. Resolves false when access is still missing.
+     */
+    async function upgradeToMember() {
+        if (!ready()) return false;
+        if (!await acquireLease()) return false;
+        preview = false;
+        if (inXR && !renewTimer) renewTimer = setInterval(() => { void renewLease(); }, 20000);
+        return true;
     }
     function dispose() {
         window.removeEventListener('pagehide', onPageHide);
@@ -641,7 +707,8 @@
     window.VRPayment = Object.freeze({
         apiOrigin, hasEntitlement: () => access.entitled,
         canEnterVR: () => !!ready() && leaseExpires > performance.now(),
-        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup,
+        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll,
+        setPreview, upgradeToMember,
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose
     });

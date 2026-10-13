@@ -1,4 +1,5 @@
 import { accessSession, accessInfo, accountEntitled, handleRecovery, limit } from './accessRecovery.js';
+import { handleDeviceLink } from './deviceLink.js';
 export { generateNumericCode as generateInvitationCode } from './accessRecovery.js';
 
 const SESSION_COOKIE = 'nocturne_vr_session';
@@ -274,6 +275,8 @@ export async function handlePayments(request, env, appOrigin) {
         json, readBody: readInvitationBody, normalizeEmail, legacyAccess
     });
     if (recovery) return recovery;
+    const deviceLink = await handleDeviceLink(request, env, headers, { json, readBody: readInvitationBody });
+    if (deviceLink) return deviceLink;
 
     if (url.pathname === '/payments/entitlement' && request.method === 'GET') {
         return json(await entitlement(request, env), 200, headers);
@@ -340,14 +343,16 @@ export async function handlePayments(request, env, appOrigin) {
         const body = await request.json().catch(() => null);
         const email = normalizeEmail(body?.email);
         if (!email) return json({ error: 'valid_email_required' }, 400, headers);
+        // Buying from the phone page that pairs a headset returns there, not to the club.
+        const returnPath = body?.returnTo === 'link' ? '/link/' : '/';
         try {
             const session = await stripeRequest('checkout/sessions', {
                 mode: 'payment',
                 'line_items[0][price]': env.STRIPE_PRICE_ID,
                 'line_items[0][quantity]': '1',
                 customer_email: email,
-                success_url: `${appOrigin}/?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${appOrigin}/?payment=cancelled`,
+                success_url: `${appOrigin}${returnPath}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${appOrigin}${returnPath}?payment=cancelled`,
                 'metadata[product]': 'nocturne_vr_access'
             }, env);
             if (session.livemode !== (env.STRIPE_MODE === 'live')) throw new Error('Stripe checkout mode does not match the configured payment mode');

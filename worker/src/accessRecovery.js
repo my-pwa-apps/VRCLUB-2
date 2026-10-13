@@ -281,3 +281,6 @@ export async function handleRecovery(request, env, headers, helpers) {
         return respond({ message: 'Access service is unavailable. Please retry or contact support.' }, 503);
     }
 }
+
+// Shared with deviceLink.js, which issues the same kind of device session without an email round trip.
+export { hash, randomToken, cookie as sessionCookieHeader, devices as listDevices, deviceName, SESSION_TTL, CODE_TTL };

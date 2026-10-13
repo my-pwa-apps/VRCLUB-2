@@ -567,3 +567,59 @@ test('VR entry checks the prepared lease synchronously and keeps enterXRAsync in
         assert.deepEqual(calls.slice(-2), [true, false]);
     }
 });
+
+const plain = value => JSON.parse(JSON.stringify(value));
+
+test('immersive launch: autoPrepare takes the VR lease for a registered device and reports why it cannot otherwise', async () => {
+    const lease = { active: true, expiresAt: 160000, expiresInMs: 60000 };
+    const ready = loadPaymentGate(path => ({ '/entitlement': registered, '/vr/acquire': lease, '/vr/renew': lease })[path]);
+    assert.deepEqual(plain(await ready.window.VRPayment.autoPrepare()), { state: 'ready' });
+    assert.equal(ready.window.VRPayment.canEnterVR(), true);
+    assert.deepEqual(ready.requests.map(request => request.path), ['/entitlement', '/vr/acquire']);
+    assert.ok([...ready.timers.values()].some(timer => timer.interval), 'the lease must be renewed while the session starts');
+
+    const unpaired = loadPaymentGate(() => fresh);
+    assert.deepEqual(plain(await unpaired.window.VRPayment.autoPrepare()),
+        { state: 'needs-access', verified: false, entitled: false, deviceRegistered: false });
+    assert.equal(unpaired.requests.length, 1, 'no lease is requested without access');
+    assert.equal(unpaired.window.VRPayment.canEnterVR(), false);
+
+    const noDevice = loadPaymentGate(() => ({ ...registered, deviceRegistered: false }));
+    assert.equal((await noDevice.window.VRPayment.autoPrepare()).state, 'needs-access');
+
+    const busy = loadPaymentGate(path => path === '/entitlement' ? registered
+        : { status: 409, body: { error: 'vr_in_use', message: 'VR is already active on another device or tab.' } });
+    const inUse = await busy.window.VRPayment.autoPrepare();
+    assert.equal(inUse.state, 'in-use');
+    assert.match(inUse.message, /another device/);
+    assert.equal(busy.window.VRPayment.canEnterVR(), false);
+
+    const down = loadPaymentGate(() => ({ status: 503, body: { message: 'Access service is unavailable.' } }));
+    assert.equal((await down.window.VRPayment.autoPrepare()).state, 'error');
+});
+
+test('headset pairing: linkStart asks for a code and linkPoll reports pending, then registers this device', async () => {
+    const gate = loadPaymentGate(path => ({
+        '/entitlement': fresh,
+        '/link/start': { linkId: 'link-id', secret: 'a'.repeat(64), code: '12345678', expiresInSeconds: 600, intervalSeconds: 3 }
+    })[path] || { status: 404, body: {} });
+    const link = await gate.window.VRPayment.linkStart();
+    assert.deepEqual(plain(link), { linkId: 'link-id', secret: 'a'.repeat(64), code: '12345678', expiresInMs: 600000, intervalMs: 3000 });
+    const start = gate.requests.find(request => request.path === '/link/start');
+    assert.equal(start.options.credentials, 'include');
+
+    let answer = { body: { status: 'pending' } };
+    const polled = loadPaymentGate(path => path === '/link/poll' ? answer : fresh);
+    assert.equal(await polled.window.VRPayment.linkPoll(link), 'pending');
+    assert.deepEqual(polled.requests.at(-1).body, { linkId: 'link-id', secret: 'a'.repeat(64) });
+    assert.equal(polled.window.VRPayment.canEnterVR(), false);
+
+    answer = { body: { status: 'approved', verified: true, email: 'owner@example.com', entitled: true, deviceRegistered: true, devices: [] } };
+    assert.equal(await polled.window.VRPayment.linkPoll(link), 'approved');
+    assert.equal(polled.window.VRPayment.hasEntitlement(), true);
+
+    answer = { status: 410, body: { status: 'expired' } };
+    assert.equal(await polled.window.VRPayment.linkPoll(link), 'expired');
+    answer = { status: 503, body: { message: 'Pairing is unavailable.' } };
+    await assert.rejects(() => polled.window.VRPayment.linkPoll(link), /Pairing is unavailable/);
+});

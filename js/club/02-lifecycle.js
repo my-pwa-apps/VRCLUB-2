@@ -818,6 +818,7 @@ class VRClubLifecycle extends VRClubCore {
         if (this._disposed) return;
         this._disposed = true;
         window.VRPayment?.onXRStateChange?.(false);
+        try { this._immersive?.dispose(); } catch (_) { /* launch state only */ }
 
         try {
             if (this._renderLoop) this.engine.stopRenderLoop(this._renderLoop);

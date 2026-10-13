@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { questConfiguration } from '../scripts/prepare-quest.mjs';
+import { questConfiguration, parseKeytoolFingerprint } from '../scripts/prepare-quest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(path.join(root, 'js', 'musicLibrary.js'), 'utf8');
@@ -375,6 +375,55 @@ test('Quest packaging rejects incomplete identity, insecure URLs and in-tree sig
         { keystore: path.join(root, 'quest.keystore') }, { keystore: 'relative.keystore' },
         { versionCode: '1.5' }, { versionCode: '-1' }, { versionCode: 0 }, { versionCode: '2100000001' }
     ]) assert.throws(() => questConfiguration({ ...options, ...change }, '1.1.0'));
+});
+
+test('the generated manifest carries every field the Bubblewrap template renders, so the Gradle file compiles', () => {
+    const manifest = questConfiguration(options, '1.1.0').manifest;
+    assert.equal(manifest.enableNotifications, false);
+    assert.equal(manifest.splashScreenFadeOutDuration, 300);
+    assert.equal(manifest.appVersion, '1.1.0');
+    assert.equal(manifest.appVersionName, '1.1.0');
+});
+
+test('a two-segment package id such as nocturne.vrnightclub is accepted; one segment or a bad character is not', () => {
+    const manifest = questConfiguration({ ...options, packageId: 'nocturne.vrnightclub' }, '1.1.0');
+    assert.equal(manifest.manifest.packageId, 'nocturne.vrnightclub');
+    assert.equal(manifest.assetlinks[0].target.package_name, 'nocturne.vrnightclub');
+    for (const packageId of ['nocturne', 'nocturne.', '.nocturne.vr', 'Nocturne.vr', 'nocturne.1vr', 'nocturne.vr-club']) {
+        assert.throws(() => questConfiguration({ ...options, packageId }, '1.1.0'), /package id/);
+    }
+});
+
+test('Quest packaging rejects an unknown target or mode', () => {
+    for (const change of [{ target: 'playstore' }, { mode: 'vr' }]) {
+        assert.throws(() => questConfiguration({ ...options, ...change }, '1.1.0'));
+    }
+});
+
+test('the immersive app starts the club in VR through ?immersive=1; the setup-panel app does not', () => {
+    const immersive = questConfiguration({ ...options, mode: 'immersive' }, '1.1.0').manifest;
+    assert.equal(immersive.horizonOSAppMode, 'immersive');
+    assert.equal(immersive.startUrl, '/nocturne/?immersive=1');
+    const home = questConfiguration({ ...options, url: 'https://club.example/', mode: 'immersive' }, '1.1.0').manifest;
+    assert.equal(home.startUrl, '/?immersive=1');
+    assert.equal(questConfiguration(options, '1.1.0').manifest.startUrl, '/nocturne/');
+});
+
+test('a SideQuest build needs no Meta App ID and carries none; a Meta build still requires one', () => {
+    const withoutAppId = { ...options, appId: undefined };
+    const sideQuest = questConfiguration({ ...withoutAppId, target: 'sidequest', mode: 'immersive' }, '1.1.0').manifest;
+    assert.equal('applicationId' in sideQuest, false);
+    assert.equal(sideQuest.packageId, options.packageId);
+    assert.throws(() => questConfiguration({ ...withoutAppId, target: 'meta' }, '1.1.0'), /App ID/);
+    assert.throws(() => questConfiguration(withoutAppId, '1.1.0'), /App ID/);
+});
+
+test('the certificate fingerprint is read from keytool output', () => {
+    const fingerprint = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0').toUpperCase()).join(':');
+    const output = `Alias name: nocturne\nCertificate fingerprints:\n\t SHA1: 11:22\n\t SHA256: ${fingerprint.toLowerCase()}\n`;
+    assert.equal(parseKeytoolFingerprint(output), fingerprint);
+    assert.equal(parseKeytoolFingerprint('keytool error: Keystore was tampered with'), null);
+    assert.equal(parseKeytoolFingerprint('SHA256: AB:CD'), null);
 });
 
 test('Quest entry references no catalogue, artist DJs or Mixamo model files', () => {

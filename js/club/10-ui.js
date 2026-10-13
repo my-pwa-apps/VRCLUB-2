@@ -112,7 +112,10 @@ class VRClubUI extends VRClubAnimationFinish {
             setLabel('\u{1F97D} Preparing VR\u2026', false);
         }
 
-        Promise.all([supported, entryReady]).then(([ok]) => {
+        const entryCheck = Promise.all([supported, entryReady]);
+        // Immersive launch (js/immersiveLaunch.js) waits on this instead of the button: true when VR can be entered now.
+        this._vrEntryReady = entryCheck.then(([ok]) => !!(ok && vrHelper && vrHelper.baseExperience));
+        entryCheck.then(([ok]) => {
             if (this._disposed) return;
             if (!ok || !vrHelper || !vrHelper.baseExperience) {
                 vrButton.hidden = true;
@@ -707,6 +710,10 @@ class VRClubUI extends VRClubAnimationFinish {
     _vrQuickMenuButtonValue(button, active) {
         if (button.op || button.action === 'person') return this._vrNetValue(button, active);
         if (button.action === 'people') return active ? 'HERE' : 'SENT HOME';
+        if (button.action === 'welcomeSafe') return 'NO STROBES';
+        if (button.action === 'welcomeFull') return 'STROBES ON';
+        if (button.action === 'accessNewCode') return 'IF THIS ONE FAILED';
+        if (button.action === 'accessExit') return 'CLOSES NOCTURNE';
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
         if (button.action === 'dj') return active ? 'SELECTED' : '';
         if (button.action === 'savedSet') {
@@ -802,7 +809,20 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'ONLINE', action: 'page', target: 'online' },
                 { label: 'TRAVEL', action: 'page', target: 'travel' },
                 { label: 'COMFORT', action: 'page', target: 'comfort' },
+                // A headset in its free preview (or waiting to be paired) can always get back to its pairing code.
+                ...(this._immersive && this._immersive.needsAccess() ? [{ label: 'ACCESS', action: 'page', target: 'access' }] : []),
                 common.close
+            ],
+            // Immersive launch (js/immersiveLaunch.js): the first-run photosensitivity choice, and the headset pairing code.
+            welcome: [
+                { label: 'SAFE MODE', action: 'welcomeSafe' },
+                { label: 'FULL LIGHTS', action: 'welcomeFull' }
+            ],
+            access: [
+                { label: 'NEW CODE', action: 'accessNewCode' },
+                this._immersive && this._immersive.mode === 'locked'
+                    ? { label: 'EXIT VR', action: 'accessExit' }
+                    : { label: 'BACK TO CLUB', action: 'back', target: 'home' }
             ],
             lights: [
                 { label: 'SPOTS', control: 'lightsActive' },
@@ -909,6 +929,8 @@ class VRClubUI extends VRClubAnimationFinish {
                 common.close
             ]
         };
+        // The panel has twelve button slots: in a room the extra ACCESS row would push CLOSE off the end.
+        if (pages.home.length > 12) pages.home = [...pages.home.slice(0, 11), common.close];
         return pages[page] || pages.home;
     }
 
@@ -961,8 +983,10 @@ class VRClubUI extends VRClubAnimationFinish {
             context.textAlign = 'left';
             context.textBaseline = 'middle';
             const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
-                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS' };
-            context.fillText(titles[page] || page.toUpperCase(), 54, 72);
+                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT' };
+            // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
+            const immersiveText = (page === 'welcome' || page === 'access') && this._immersive ? this._immersive.pageText(page) : null;
+            context.fillText(immersiveText ? immersiveText.title : (titles[page] || page.toUpperCase()), 54, 72);
             context.fillStyle = '#b4bccb';
             // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
             const hostOwned = ['home', 'lights', 'effects', 'show', 'showSections', 'music'].includes(page) && this.isFollowingHost();
@@ -979,7 +1003,7 @@ class VRClubUI extends VRClubAnimationFinish {
                 music: 'CONTROL THE CURRENT TRACK OR CHANGE SOURCE',
                 musicSources: 'SAVED LINKS AND THIS SESSION\u2019S LOCAL FOLDER'
             };
-            const subtitle = hostOwned
+            const subtitle = immersiveText ? immersiveText.subtitle : hostOwned
                 ? `${host} IS THE HOST: THEIR MUSIC AND LIGHTS`
                 : about[page] || this._vrNetSubtitle(page) || `${this.graphicsTier.toUpperCase()} QUALITY  \u2022  POINT + TRIGGER`;
             // Large enough to read in a headset (it was 30 px, about 1 degree); long lines shrink to fit instead of overflowing.
@@ -1214,6 +1238,9 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     static get VR_NET_PAGES() { return ['online', 'rooms', 'gestures', 'chat', 'people', 'person', 'safety', 'room', 'look', 'voiceAudience', 'chatAudience']; }
+
+    /** Babylon's default layer mask plus one extra bit: the quick menu is on both, the world only on the first. */
+    static get MENU_LAYER_MASK() { return 0x1FFFFFFF; }
 
     /** The five pages' buttons. Names come from other guests, so they are shortened and never interpreted. */
     _vrNetPageDefinitions(page, common) {
@@ -1589,6 +1616,10 @@ class VRClubUI extends VRClubAnimationFinish {
             this.toggleVRQuickMenu(false);
             return;
         }
+        if (['welcomeSafe', 'welcomeFull', 'accessNewCode', 'accessExit'].includes(button.action)) {
+            if (this._immersive) this._immersive.handleMenuAction(button.action);
+            return;
+        }
         if (button.action === 'page') {
             // Remember where this page was opened from, so its BACK returns there (REACT is reached from HOME and ONLINE).
             this._vrPageParent = { ...(this._vrPageParent || {}), [button.target]: this._vrQuickMenuPage || 'home' };
@@ -1814,6 +1845,9 @@ class VRClubUI extends VRClubAnimationFinish {
         this._showVRQuickMenuPage('home');
         root.setEnabled(false);
         this._vrQuickMenuRoot = root;
+        // The menu stays visible when immersive launch hides the world (see ImmersiveLaunch.setVeil): it also lives on
+        // the extra layer the veil camera looks at.
+        for (const mesh of root.getChildMeshes()) mesh.layerMask = VRClubUI.MENU_LAYER_MASK;
         // The ONLINE pages show live state (who joined, who is speaking): redraw them when the session changes.
         const mp = this._multiplayer();
         if (mp) {
@@ -1831,6 +1865,10 @@ class VRClubUI extends VRClubAnimationFinish {
     }
 
     toggleVRQuickMenu(force) {
+        // The first-run photosensitivity choice and a locked pairing code cannot be waved away.
+        if (this._immersive && this._immersive.menuLocked() && (force === false || (force === undefined && this._vrQuickMenuRoot?.isEnabled()))) {
+            return true;
+        }
         if (force !== false) this._closeVRSocialWheel();
         this._createVRQuickMenu();
         const camera = this.isInVRMode

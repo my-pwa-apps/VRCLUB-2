@@ -20,6 +20,17 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
 
 ### Added
 
+- **Scripted APK packaging.** `npm run quest:keystore`, `quest:prepare`, `quest:apk`, `quest:doctor` and `quest:art`
+  create the signing key, write the wrapper config (new `--target sidequest` needs no Meta App ID, `--mode immersive`
+  starts the club in VR), build the APK with Meta's Bubblewrap and verify it is signed with the certificate named in
+  `assetlinks.json`, check the deployed site, and draw the SideQuest banner and icon. The generated manifest now sets
+  the fields Bubblewrap's Gradle template needs. Runbook: `docs/QUEST.md`; listing draft: `docs/STORE_LISTING.md`.
+- **Headset pairing and an immersive launch.** A Quest has no keyboard, so a headset can now be linked to an account
+  from a phone: it shows an eight-digit code, the owner enters it at `/link` (verifying their email, redeeming an
+  invitation or buying access there if needed) and the headset enters VR by itself. Started with `?immersive=1`, the
+  club opens straight into VR: a registered headset enters at once, a new guest is asked the photosensitivity question
+  in the headset, and an unlinked headset gets a two-minute free preview and then a veiled pairing screen. Everything
+  falls back to the normal 2D flow. Needs the Worker redeployed and migration `0007_device_links.sql` applied.
 - **The crowd dances, on the beat, in many ways.** Everyone on the floor used to do the same single dance. Now each
   dancer moves between nine moves: the original dance, a knee bounce, side taps, clapping, fist pumps, the twist,
   hands in the air and a slow sway. Every move is locked to the music's beat at any tempo, so knees bend and hands

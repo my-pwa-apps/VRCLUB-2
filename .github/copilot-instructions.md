@@ -30,7 +30,8 @@ emits one minified, content-hashed production bundle with esbuild.
 10. `js/club/01-core.js` through `js/club/11-audio-crowd.js`, in numeric order
 11. `js/club_hyperrealistic.js` — final public `VRClub` bridge and LED mixin
 12. `js/paymentGate.js` — public `window.VRPayment`, verified access/device management and prepared VR leases
-13. `js/ui-init.js` — instantiates `new VRClub()`
+13. `js/immersiveLaunch.js` — `window.ImmersiveLaunch`, the opt-in (`?immersive=1`) in-headset launch
+14. `js/ui-init.js` — instantiates `new VRClub()`
 
 `npm test` enforces this ordering, plus "every referenced script exists" and "every class
 is exported onto `window`". Run it after touching `index.html` or adding a file.
@@ -1273,6 +1274,45 @@ independent support identification and the Access dashboard's confirmed `link-le
 which only transfers an existing unlinked grant to an already email-verified user and audits
 the signed admin. Recovery history is available only behind Access. See `docs/QUEST.md`.
 Real SQLite migration/redemption/concurrency tests run under Node 24; Node 20 runs the remaining unit tests.
+
+### Quest packaging scripts
+
+The Quest packaging scripts (`scripts/quest-keystore.mjs`, `prepare-quest.mjs`, `quest-build.mjs`, `quest-doctor.mjs`,
+`build-store-art.mjs`; runbook in `docs/QUEST.md`) share three facts that are easy to get wrong. The `bubblewrap`
+command on a developer machine may be Google's `@bubblewrap/cli`, which ignores `horizonOSAppMode`: builds always run
+Meta's `@meta-quest/bubblewrap-cli` through `npx`, pinned. Node 20.12+ cannot start `gradlew.bat` (`spawn EINVAL`), so
+the build runs Bubblewrap on Node 20.11.1 through `npx -p`. `update` bumps the version unless given
+`--skipVersionUpgrade`. The generated `twa-manifest.json` must set every field the Bubblewrap template prints bare
+(`enableNotifications`, `splashScreenFadeOutDuration`), or the Gradle file does not compile; a test pins them.
+`quest-build.mjs` fails unless `apksigner` reports the APK's certificate equals the fingerprint in `assetlinks.json`.
+Keystores and passwords never enter the repo: passwords travel only in `BUBBLEWRAP_*` environment variables.
+
+### Headset pairing and immersive launch
+
+A headset has no keyboard, so it is linked to an account from a phone with an OAuth-style device code.
+`worker/src/deviceLink.js` (routed from `payments.js`; migration `0007_device_links.sql`, hashes only) serves
+`POST /payments/link/start` (headset, anonymous: pairing id, secret, eight-digit code, ten-minute expiry),
+`/link/approve` (phone, verified server session: registers the headset as one of the two device slots, or replaces a
+chosen one) and `/link/poll` (headset, with its secret: collects its own device session cookie). The phone page is
+`link/` (plain unhashed files, copied by `build.mjs`, `no-cache` in `_headers`); it holds the code only in
+`sessionStorage` so it survives the Stripe round trip. The client side is `VRPayment.linkStart/linkPoll`,
+`autoPrepare` (check access and take the lease in one call), `setPreview` and `upgradeToMember`.
+
+`js/immersiveLaunch.js` (`ImmersiveLaunch`, enabled only by `?immersive=1`; `ui-init.js` clicks ENTER itself, as the
+LAST statement of the file because the click handler uses menu state declared above it) runs the splash and Access
+dialog inside the headset. It is a small state machine: `booting` → `member` | `preview` → `locked` → `member`, or
+`manual` when anything fails (the normal 2D flow takes over; desktop is free, so it never traps a guest). Until a
+guest has a saved photosensitivity choice Safe Mode is held with `setPhotosensitiveSafeMode(true, {persist:false})`
+and a locked WELCOME menu page asks. A headset without access gets `PREVIEW_MS` (2 min) of the club, then the
+**veil**: the XR camera's `layerMask` drops to `VEIL_LAYER_MASK` so only the quick menu (on `MENU_LAYER_MASK`, both
+layers) is drawn, the music is muted, and a locked ACCESS page shows the code until the poll is approved and the
+session is upgraded. `VRClub` knows it only through `this._immersive` (`needsAccess`, `menuLocked`, `pageText`,
+`handleMenuAction`, `dispose`) and `this._vrEntryReady` (a promise: VR can be entered now). Keep the world on the
+default layers: anything that sets a camera `layerMask` elsewhere would break the veil. Tests:
+`test/immersive-launch.test.mjs` (stubs, including the layer-mask contract), `test/e2e/immersive-launch.spec.mjs`
+(Quest emulator: automatic entry, welcome, preview, veil under 40 active meshes, approval), `test/e2e/link-page.spec.mjs`.
+Unproven on a headset: whether Meta's immersive app mode starts a session without a click and whether a controller
+press counts as audio user activation (fallbacks: the Enter VR button and the first-press audio retry).
 
 ## Audio
 

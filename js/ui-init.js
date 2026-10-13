@@ -362,6 +362,14 @@ if (enterClubBtn) {
 
         // Only explicitly saved user music may resume. Keep this in the click for autoplay permission.
         startEntryMusic(window.vrClub, pointAtAudioMenu);
+
+        // Immersive launch has no click to resume audio with: the first controller press does it (see ImmersiveLaunch).
+        if (window.ImmersiveLaunch && ImmersiveLaunch.requested()) {
+            window.vrClub._immersive = new ImmersiveLaunch(window.vrClub, {
+                onFirstGesture: () => startEntryMusic(window.vrClub, pointAtAudioMenu)
+            });
+            void window.vrClub._immersive.start();
+        }
         
         // Show loading state
         enterClubBtn.style.display = 'none';
@@ -2540,3 +2548,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         window.location.reload();
     });
 }
+
+// The Quest app opens the club with ?immersive=1 and nobody to press ENTER: the launch module runs the rest in VR.
+// Last in the file on purpose: the click handler reaches menu state declared above, which must exist by now.
+if (enterClubBtn && window.ImmersiveLaunch && ImmersiveLaunch.requested()) enterClubBtn.click();
