@@ -9,7 +9,8 @@
  *
  *   GET /podcast/colourizon/feed.xml         the feed, with every enclosure rewritten to the stream route below
  *   GET /podcast/colourizon/stream/<name>    the episode, with HTTP Range support, followed through the redirect
- *   GET /soundcloud/resolve?url=<page>       a soundcloud.com/<user>/<track> page -> a stream, but ONLY when SoundCloud
+ *   GET /soundcloud/resolve?url=<page>       a soundcloud.com/<user>/<track> page (or an on.soundcloud.com share link that
+ *                                            leads to one) -> a stream, but ONLY when SoundCloud
  *                                            serves that track to podcast players (oEmbed gives the id, the podcast
  *                                            stream endpoint must answer for it); otherwise 404 "not-published"
  *   GET /soundcloud/stream/<name>            that stream, same Range/redirect handling
@@ -58,6 +59,32 @@ export function isStreamName(name) {
 
 export function isSoundCloudStreamName(name) {
     return typeof name === 'string' && SOUNDCLOUD_STREAM_NAME.test(name) && !name.includes('..');
+}
+
+export const SOUNDCLOUD_SHORT_HOST = 'on.soundcloud.com';
+
+/** The id of an on.soundcloud.com/<id> link (what the SoundCloud app's Share button copies), or null for anything else. */
+export function parseSoundCloudShortUrl(raw) {
+    let url;
+    try { url = new URL(String(raw)); } catch { return null; }
+    if (url.protocol !== 'https:' || url.username || url.password || url.hostname.toLowerCase() !== SOUNDCLOUD_SHORT_HOST) return null;
+    const parts = url.pathname.split('/').filter(Boolean);
+    return parts.length === 1 && /^[A-Za-z0-9]{4,40}$/.test(parts[0]) ? parts[0] : null;
+}
+
+/**
+ * Follows a share link's ONE redirect (fixed host, never automatically followed) and re-validates where it leads: the result
+ * must be an ordinary soundcloud.com/<user>/<track> page, so a share link to a playlist or profile is refused like any other.
+ */
+async function expandSoundCloudShortUrl(id) {
+    const response = await fetchHeaders(`https://${SOUNDCLOUD_SHORT_HOST}/${id}`, { redirect: 'manual' }, METADATA_TIMEOUT_MS);
+    try { await response.body?.cancel(); } catch { /* ignore */ }
+    if (![301, 302, 303, 307, 308].includes(response.status)) return null;
+    const location = response.headers.get('Location');
+    if (!location) return null;
+    let target;
+    try { target = new URL(location, `https://${SOUNDCLOUD_SHORT_HOST}/`); } catch { return null; }
+    return parseSoundCloudTrackUrl(target.href);
 }
 
 /** A soundcloud.com/<user>/<track> page URL, reduced to its two permalinks; null for anything else. */
@@ -227,7 +254,14 @@ export function resetPodcastStateForTests() {
  * here reads, scrapes or unlocks audio SoundCloud does not hand to podcast apps.
  */
 async function resolveSoundCloud(url, cors) {
-    const track = parseSoundCloudTrackUrl(url.searchParams.get('url'));
+    const raw = url.searchParams.get('url');
+    let track = parseSoundCloudTrackUrl(raw);
+    if (!track) {
+        const shortId = parseSoundCloudShortUrl(raw);
+        if (shortId) {
+            try { track = await expandSoundCloudShortUrl(shortId); } catch { return json(502, { error: 'unavailable' }, cors); }
+        }
+    }
     if (!track) return json(400, { error: 'not-a-track' }, cors);
     const cacheKey = new Request(`${url.origin}${SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(track.href)}`);
     try {

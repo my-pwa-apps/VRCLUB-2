@@ -482,6 +482,48 @@ test('the SoundCloud resolver offers a stream only when SoundCloud serves that t
     assert.equal(down.status, 502);
 });
 
+test('an on.soundcloud.com share link is expanded once, from a fixed host, and only a track page is accepted', async () => {
+    assert.equal(podcast.parseSoundCloudShortUrl('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr'), 'NnMSCRNn9Rf5sN25hr');
+    assert.equal(podcast.parseSoundCloudShortUrl('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr?si=x'), 'NnMSCRNn9Rf5sN25hr');
+    for (const bad of ['http://on.soundcloud.com/abcd', 'https://on.soundcloud.com/', 'https://on.soundcloud.com/a/b', 'https://on.soundcloud.com/ab',
+        'https://on.soundcloud.com/a-b_c', 'https://on.soundcloud.com.evil.example/abcd', 'https://evil.example/on.soundcloud.com/abcd',
+        'https://soundcloud.com/abcd', 'https://user:pw@on.soundcloud.com/abcd', 'not a url', '', null]) {
+        assert.equal(podcast.parseSoundCloudShortUrl(bad), null, String(bad));
+    }
+
+    const oembed = new Response(JSON.stringify({
+        title: 'Colourizon 168', html: '<iframe src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F77"></iframe>'
+    }));
+    const requested = [];
+    const resolve = (shortUrl, redirect) => withFetch(async (url, init = {}) => {
+        requested.push({ url: String(url), redirect: init.redirect });
+        if (String(url).startsWith('https://on.soundcloud.com/')) return redirect();
+        if (String(url).startsWith(podcast.SOUNDCLOUD_OEMBED)) return oembed.clone();
+        return new Response(null, { status: 206 });
+    }, () => call(`${podcast.SOUNDCLOUD_RESOLVE_PATH}?url=${encodeURIComponent(shortUrl)}`));
+    const share = 'https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr';
+    const toTrack = () => new Response(null, { status: 302, headers: { Location: 'https://soundcloud.com/missmelera/miss-melera-colourizon-168?utm_source=mobi&si=abc' } });
+
+    const ok = await resolve(share, toTrack);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { name: '77-missmelera-miss-melera-colourizon-168.mp3', title: 'Colourizon 168', path: '/soundcloud/stream/77-missmelera-miss-melera-colourizon-168.mp3' });
+    assert.equal(requested[0].url, share, 'the share link is fetched first');
+    assert.equal(requested[0].redirect, 'manual', 'its redirect is never followed automatically');
+    assert.ok(requested.every(r => r.url.startsWith('https://on.soundcloud.com/') || r.url.startsWith(podcast.SOUNDCLOUD_OEMBED) || r.url.startsWith(podcast.SOUNDCLOUD_STREAM_BASE)),
+        'only the share host, oEmbed and the podcast stream are ever reached');
+
+    // Where it leads must itself be a plain track page: playlists, profiles and other hosts are refused.
+    for (const location of ['https://soundcloud.com/some-dj/sets/summer', 'https://soundcloud.com/some-dj', 'https://evil.example/a/b',
+        'http://soundcloud.com/a/b', 'https://soundcloud.com.evil.example/a/b', 'javascript:alert(1)']) {
+        const refused = await resolve(share, () => new Response(null, { status: 302, headers: { Location: location } }));
+        assert.equal(refused.status, 400, location);
+    }
+    assert.equal((await resolve(share, () => new Response(null, { status: 302 }))).status, 400, 'no Location header');
+    assert.equal((await resolve(share, () => new Response('not a redirect', { status: 200 }))).status, 400, 'an answer that is not a redirect');
+    assert.equal((await resolve(share, () => { throw new Error('offline'); })).status, 502);
+    assert.equal((await resolve('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr/extra', toTrack)).status, 400, 'a malformed share link never reaches SoundCloud');
+});
+
 test('the SoundCloud stream route proxies only validated podcast-stream names from one fixed host', async () => {
     const calls = [];
     await withFetch(async (url, init) => {

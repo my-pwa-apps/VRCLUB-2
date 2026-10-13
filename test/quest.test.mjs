@@ -289,6 +289,21 @@ test('any SoundCloud track the creator shares with podcast players plays as anal
     assert.equal(f.plays.some(play => play[0] === 'soundcloud'), false);
 });
 
+test('the SoundCloud app\u2019s share link (on.soundcloud.com/<id>) is saved without tracking and played through the relay', async () => {
+    const f = libraryFixture(null, url => url.includes('/soundcloud/resolve')
+        ? JSON.stringify({ name: '77-missmelera-miss-melera-colourizon-168.mp3', title: 'Colourizon 168', path: '/soundcloud/stream/77-missmelera-miss-melera-colourizon-168.mp3' })
+        : new Error('unexpected'));
+    const item = f.library.save('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr?si=tracking&utm_source=mobi', 'Melera set');
+    assert.equal(item.kind, 'soundcloud');
+    assert.equal(item.url, 'https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr');
+    assert.equal(await f.library.play(), true);
+    assert.equal(f.plays[0][0], 'direct', 'analysed audio, not SoundCloud\u2019s own player');
+    assert.equal(f.plays[0][1], 'https://vrclub-network.garfieldapp.workers.dev/soundcloud/stream/77-missmelera-miss-melera-colourizon-168.mp3');
+    assert.equal(f.fetches[0][0],
+        'https://vrclub-network.garfieldapp.workers.dev/soundcloud/resolve?url=' + encodeURIComponent('https://on.soundcloud.com/NnMSCRNn9Rf5sN25hr'),
+        'the relay expands the share link: a browser cannot follow its cross-origin redirect');
+});
+
 test('a SoundCloud track that is not shared for analysis fails clearly and never opens the player on its own', async () => {
     const notShared = libraryFixture(null, () => new Error('HTTP 404 Not Found for relay'));
     notShared.library.save('https://soundcloud.com/some-dj/private-mix', 'My mix');

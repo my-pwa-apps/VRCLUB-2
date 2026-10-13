@@ -255,7 +255,7 @@
             } else {
                 nodes.push(el('p', `You have saved ${MAX} links, the most the headset keeps. Remove one to add another.`, 'link-note'));
             }
-            nodes.push(el('p', 'Works with direct HTTPS audio links (MP3, M4A, OGG or a stream) and SoundCloud tracks their creator has published to podcast players. YouTube and Spotify pages do not work. Local files need a browser, not the headset app.', 'link-note'));
+            nodes.push(el('p', 'Works with direct HTTPS audio links (MP3, M4A, OGG or a stream) and SoundCloud tracks their creator has published to podcast players; the Share link from the SoundCloud app works too. YouTube and Spotify pages do not work. Local files need a browser, not the headset app.', 'link-note'));
             nodes.push(action('Use a different email', async () => {
                 await api('/recovery/signout', {});
                 access = null;

@@ -25,6 +25,9 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   starts the club in VR), build the APK with Meta's Bubblewrap and verify it is signed with the certificate named in
   `assetlinks.json`, check the deployed site, and draw the SideQuest banner and icon. The generated manifest now sets
   the fields Bubblewrap's Gradle template needs. Runbook: `docs/QUEST.md`; listing draft: `docs/STORE_LISTING.md`.
+- **SoundCloud share links.** The Share button in the SoundCloud app copies a short `on.soundcloud.com/<id>` link, which the
+  player refused ("use a link to one SoundCloud track"). The relay now expands it (one redirect, from that one host, and
+  the result must be an ordinary track page) and plays it like any track. Needs the Worker redeployed.
 - **Music from your phone in the headset app.** The immersive app has no keyboard or window to type a link into, so the
   list of music links now lives on your account and is edited on a phone at `/link/?music=1` (up to eight HTTPS links or
   SoundCloud tracks). The headset loads it when VR starts, after linking, and from Music, Sources, ADD FROM PHONE, SYNC

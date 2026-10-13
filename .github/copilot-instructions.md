@@ -1401,7 +1401,10 @@ press counts as audio user activation (fallbacks: the Enter VR button and the fi
   number), then asks the relay's `/soundcloud/resolve?url=` (`worker/src/podcast.js`), which takes the track id
   from SoundCloud's public oEmbed and offers a `/soundcloud/stream/<id>-<user>-<slug>.mp3` stream only if
   SoundCloud's podcast-stream endpoint serves that track (it 404s for tracks whose creator has not published
-  them to podcast players). Nothing scrapes or unlocks audio SoundCloud does not give podcast apps: such a
+  them to podcast players). The app's Share button copies an `on.soundcloud.com/<id>` link: a browser cannot follow its
+  cross-origin redirect, so the relay expands it itself (`parseSoundCloudShortUrl`, one hop with `redirect: 'manual'` from
+  that one fixed host, and the Location must be an ordinary `soundcloud.com/<user>/<track>` page) and the client sends the short
+  link unchanged. Nothing scrapes or unlocks audio SoundCloud does not give podcast apps: such a
   track fails with a persistent explanation (`error.code` `soundcloud-not-published`, `-not-a-track`,
   `-relay`) and the saved set is kept. The embedded player (lazily loaded Widget API; the exact
   `https://w.soundcloud.com/player/api.js` is the only remote script CSP exception, `frame-src` its player) is
