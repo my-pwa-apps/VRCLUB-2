@@ -93,16 +93,16 @@ test('Checkout uses dashboard-managed methods and rejects a mismatched Stripe mo
 });
 
 test('a second app origin (the SideQuest host) is allowed only when listed, exactly and over https', () => {
-    const env = { APP_ORIGIN: 'https://nocturne.mitwee.nl', EXTRA_APP_ORIGINS: 'https://sidequest.nocturne.mitwee.nl, https://x.example/path' };
+    const env = { APP_ORIGIN: 'https://nocturne.mitwee.nl', EXTRA_APP_ORIGINS: 'https://sidequest-nocturne.mitwee.nl, https://x.example/path' };
     const main = 'https://nocturne.mitwee.nl';
-    assert.equal(resolveAppOrigin(env, 'https://sidequest.nocturne.mitwee.nl'), 'https://sidequest.nocturne.mitwee.nl');
+    assert.equal(resolveAppOrigin(env, 'https://sidequest-nocturne.mitwee.nl'), 'https://sidequest-nocturne.mitwee.nl');
     assert.equal(resolveAppOrigin(env, main), main);
     assert.equal(resolveAppOrigin(env, null), main);
-    for (const origin of ['https://evil.example', 'http://sidequest.nocturne.mitwee.nl', 'https://sidequest.nocturne.mitwee.nl.evil.example',
+    for (const origin of ['https://evil.example', 'http://sidequest-nocturne.mitwee.nl', 'https://sidequest-nocturne.mitwee.nl.evil.example',
         'https://x.example/path', 'https://SIDEQUEST.evil']) {
         assert.equal(resolveAppOrigin(env, origin), main, origin);
     }
-    assert.equal(resolveAppOrigin({}, 'https://sidequest.nocturne.mitwee.nl'), 'https://nocturne-vr.pages.dev', 'nothing extra configured');
+    assert.equal(resolveAppOrigin({}, 'https://sidequest-nocturne.mitwee.nl'), 'https://nocturne-vr.pages.dev', 'nothing extra configured');
 });
 
 test('the SideQuest origin gets credentialed CORS and its own Stripe return URLs; a stranger still gets 403', async t => {
@@ -114,16 +114,16 @@ test('the SideQuest origin gets credentialed CORS and its own Stripe return URLs
         return Response.json({ url: 'https://checkout.stripe.com/example', livemode: true });
     };
     const env = { DB: {}, STRIPE_PRICE_ID: 'price_live', STRIPE_LIVE_SECRET_KEY: 'test-fixture', STRIPE_MODE: 'live',
-        APP_ORIGIN: 'https://nocturne.mitwee.nl', EXTRA_APP_ORIGINS: 'https://sidequest.nocturne.mitwee.nl' };
+        APP_ORIGIN: 'https://nocturne.mitwee.nl', EXTRA_APP_ORIGINS: 'https://sidequest-nocturne.mitwee.nl' };
     const ask = origin => handlePayments(new Request('https://api.mitwee.nl/payments/checkout', {
         method: 'POST', headers: { Origin: origin }, body: JSON.stringify({ email: 'buyer@example.com', returnTo: 'link' })
     }), env, resolveAppOrigin(env, origin));
-    const side = await ask('https://sidequest.nocturne.mitwee.nl');
+    const side = await ask('https://sidequest-nocturne.mitwee.nl');
     assert.equal(side.status, 200);
-    assert.equal(side.headers.get('access-control-allow-origin'), 'https://sidequest.nocturne.mitwee.nl');
+    assert.equal(side.headers.get('access-control-allow-origin'), 'https://sidequest-nocturne.mitwee.nl');
     assert.equal(side.headers.get('access-control-allow-credentials'), 'true');
-    assert.match(params.get('success_url'), /^https:\/\/sidequest\.nocturne\.mitwee\.nl\/link\/\?payment=success/);
-    assert.match(params.get('cancel_url'), /^https:\/\/sidequest\.nocturne\.mitwee\.nl\/link\//);
+    assert.match(params.get('success_url'), /^https:\/\/sidequest-nocturne\.mitwee\.nl\/link\/\?payment=success/);
+    assert.match(params.get('cancel_url'), /^https:\/\/sidequest-nocturne\.mitwee\.nl\/link\//);
     const main = await ask('https://nocturne.mitwee.nl');
     assert.match(params.get('success_url'), /^https:\/\/nocturne\.mitwee\.nl\/link\//);
     assert.equal(main.headers.get('access-control-allow-origin'), 'https://nocturne.mitwee.nl');
