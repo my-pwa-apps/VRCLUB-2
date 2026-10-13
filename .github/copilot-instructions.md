@@ -778,8 +778,9 @@ The relay Worker is deployed separately with `npm run deploy:worker`. GitHub Pag
 Search engines and link previews use `https://nocturne.mitwee.nl/` as the only canonical URL.
 `index.html` owns the title, description, Open Graph/Twitter metadata and the visible
 `WebApplication` microdata in `#modelCredits`; `robots.txt` points at the one-URL `sitemap.xml`.
-The 1200x630 preview is `icons/social-preview.png`, generated from the editable
-`icons/social-preview.svg`. `scripts/build.mjs` copies all four crawl/preview assets into `dist/`.
+The 1200x630 preview is `icons/social-preview.png`, cropped by `npm run social-preview` from the editable artwork
+`design/social-preview-source.png` (kept outside `icons/` because the build copies that whole folder into `dist/`).
+`npm run quest:art` reuses the same artwork for the SideQuest banner. `scripts/build.mjs` copies all four crawl/preview assets into `dist/`.
 Keep development and `pages.dev` hostnames out of canonical metadata and the sitemap so they do
 not compete with production in search results.
 

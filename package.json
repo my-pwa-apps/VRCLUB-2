@@ -17,6 +17,7 @@
     "quest:keystore": "node scripts/quest-keystore.mjs",
     "quest:doctor": "node scripts/quest-doctor.mjs",
     "quest:art": "node scripts/build-store-art.mjs",
+    "social-preview": "node scripts/build-social-preview.mjs",
     "quest:apk": "node scripts/quest-build.mjs",
     "vr:codes": "node scripts/generate-vr-invitations.mjs",
     "check": "node scripts/check-syntax.mjs",
