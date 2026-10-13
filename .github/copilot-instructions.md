@@ -1316,7 +1316,16 @@ session is upgraded. `VRClub` knows it only through `this._immersive` (`needsAcc
 `handleMenuAction`, `dispose`) and `this._vrEntryReady` (a promise: VR can be entered now). Keep the world on the
 default layers: anything that sets a camera `layerMask` elsewhere would break the veil. Tests:
 `test/immersive-launch.test.mjs` (stubs, including the layer-mask contract), `test/e2e/immersive-launch.spec.mjs`
-(Quest emulator: automatic entry, welcome, preview, veil under 40 active meshes, approval), `test/e2e/link-page.spec.mjs`.
+(Quest emulator: automatic entry, welcome, preview, veil under 40 active meshes, approval, music sync), `test/e2e/link-page.spec.mjs`.
+After the welcome or pairing page finishes, the launch puts the quick menu back on HOME (`_closeMenu`): the menu reopens
+on whatever page it last showed, so leaving `welcome` selected made Y/B reopen it forever.
+**Music has no keyboard in an immersive-only app**, so the list is kept on the account and edited from a phone:
+`link/?music=1` (the pairing page's second mode), `worker/src/musicSync.js` (`GET /payments/music`, `POST
+/payments/music/save`; one `account_music` row per account, at most eight HTTPS links, its own 8 KB body reader because the
+shared one caps at 1 KB), `VRPayment.fetchMusic()` and `MusicLibrary.replaceAll()` (the saved sets become exactly the phone's
+list; the cap counts usable links, not raw entries). `ImmersiveLaunch.syncMusic()` runs when VR starts, after linking and from
+the SYNC NOW button on the `musicPhone` page. In immersive mode `_openQuestPanel()` shows a message and never exits XR: there
+is no 2D page to come back to. Local files and folders are not possible there.
 Unproven on a headset: whether Meta's immersive app mode starts a session without a click and whether a controller
 press counts as audio user activation (fallbacks: the Enter VR button and the first-press audio retry).
 
@@ -1496,8 +1505,8 @@ beams and gobos), SHOW (automatic-show actions plus a five-movement section page
 safe mode, quality), five destinations (entrance, dance floor, DJ booth, balcony, street) and a **Music** page: a seek
 strip (`vrQuickMenuSeek`, click or drag a ray on it; `_beginVRSeek/_moveVRSeek/_endVRSeek` ride the
 scene pointer observables, the seek happens on release), ±1 min, play/pause, saved-set Previous/Next,
-Play saved set and ADD LINKS / FILE. `_openQuestPanel()` exits XR for music entry or licences;
-the guest then presses Enter VR to return. CROWD → CHOOSE DJ offers male/female.
+Play saved set and ADD LINKS / FILE (in the immersive app: ADD FROM PHONE, see below). `_openQuestPanel()` exits XR for music entry or licences;
+the guest then presses Enter VR to return (not in the immersive app, where it only shows a message). CROWD → CHOOSE DJ offers male/female.
 Its clock redraws from a 500 ms ticker that runs only while that page is open;
 Y/B or the runtime menu component opens it, world-locked where the player is looking
 (`_placeVRQuickMenu()`); never parent it to the XR camera. **Its backing is a rounded, translucent glass sheet** drawn

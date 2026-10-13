@@ -714,6 +714,7 @@ class VRClubUI extends VRClubAnimationFinish {
         if (button.action === 'welcomeFull') return 'STROBES ON';
         if (button.action === 'accessNewCode') return 'IF THIS ONE FAILED';
         if (button.action === 'accessExit') return 'CLOSES NOCTURNE';
+        if (button.action === 'musicSync') return this._immersive ? this._immersive.musicStatus : '';
         if (this.isFollowingHost() && this._isHostOwnedVRButton(button)) return 'HOST ONLY';
         if (button.action === 'dj') return active ? 'SELECTED' : '';
         if (button.action === 'savedSet') {
@@ -918,7 +919,15 @@ class VRClubUI extends VRClubAnimationFinish {
                 { label: 'PLAY SOURCE', action: 'savedSet' },
                 { label: 'NEXT SOURCE', action: 'sourceStep', delta: 1 },
                 { label: 'FOLDER PLAY MODE', action: 'folderMode' },
-                { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
+                // An immersive-only app has no keyboard, file picker or 2D page to type a link into: the phone adds them.
+                this._immersive && this._immersive.mode !== 'manual'
+                    ? { label: 'ADD FROM PHONE', action: 'page', target: 'musicPhone' }
+                    : { label: 'ADD URL / FILE / FOLDER', action: 'musicSetup' },
+                common.back,
+                common.close
+            ],
+            musicPhone: [
+                { label: 'SYNC NOW', action: 'musicSync' },
                 common.back,
                 common.close
             ],
@@ -983,9 +992,9 @@ class VRClubUI extends VRClubAnimationFinish {
             context.textAlign = 'left';
             context.textBaseline = 'middle';
             const titles = { home: 'VR CLUB', room: 'JOIN ROOM', look: 'RANDOM LOOK', gestures: 'REACT', chat: 'CHAT', crowd: 'WHO IS HERE',
-                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT' };
+                voiceAudience: 'MICROPHONE AUDIENCE', chatAudience: 'CHAT RECIPIENTS', welcome: 'WELCOME', access: 'LINK YOUR ACCOUNT', musicPhone: 'MUSIC FROM YOUR PHONE' };
             // Immersive launch pages draw their own words: the pairing code is the title, so it is read at arm's length.
-            const immersiveText = (page === 'welcome' || page === 'access') && this._immersive ? this._immersive.pageText(page) : null;
+            const immersiveText = (page === 'welcome' || page === 'access' || page === 'musicPhone') && this._immersive ? this._immersive.pageText(page) : null;
             context.fillText(immersiveText ? immersiveText.title : (titles[page] || page.toUpperCase()), 54, 72);
             context.fillStyle = '#b4bccb';
             // In someone else's room the music and lighting pages say whose they are, not only "HOST ONLY" per button.
@@ -1116,7 +1125,8 @@ class VRClubUI extends VRClubAnimationFinish {
             ctx.textAlign = 'right';
             ctx.fillText(clock(info.duration), right, 178);
         } else {
-            ctx.fillText(this._audioKind ? 'Live stream: no position to seek' : 'ADD MUSIC: FILE OR URL', left, 178);
+            ctx.fillText(this._audioKind ? 'Live stream: no position to seek'
+                : (this._immersive && this._immersive.mode !== 'manual' ? 'ADD MUSIC FROM YOUR PHONE' : 'ADD MUSIC: FILE OR URL'), left, 178);
         }
         this._vrSeek.texture.update();
     }
@@ -1171,6 +1181,13 @@ class VRClubUI extends VRClubAnimationFinish {
 
     async _openQuestPanel(kind) {
         this.toggleVRQuickMenu(false);
+        // An immersive-only app has no 2D page to come back to: leaving VR would strand the guest on an empty window.
+        if (this._immersive && this._immersive.mode !== 'manual') {
+            this.showErrorMessage(kind === 'credits'
+                ? 'Credits and licences: open this site on your phone and tap About.'
+                : 'Add music from your phone: Music, Sources, ADD FROM PHONE.');
+            return;
+        }
         try {
             if (this.isInVRMode && this.vrHelper) {
                 window.VRPayment?.holdLeaseForSetup?.();
@@ -1616,7 +1633,7 @@ class VRClubUI extends VRClubAnimationFinish {
             this.toggleVRQuickMenu(false);
             return;
         }
-        if (['welcomeSafe', 'welcomeFull', 'accessNewCode', 'accessExit'].includes(button.action)) {
+        if (['welcomeSafe', 'welcomeFull', 'accessNewCode', 'accessExit', 'musicSync'].includes(button.action)) {
             if (this._immersive) this._immersive.handleMenuAction(button.action);
             return;
         }

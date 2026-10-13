@@ -30,6 +30,18 @@
         return body;
     }
     const post = (path, body, options) => api(path, { method: 'POST', body: JSON.stringify(body), ...options });
+    /**
+     * The music links the owner keeps on their phone (worker/src/musicSync.js). Resolves { items } where items is the list or
+     * null when the account never saved one; { items: null, signedIn: false } when this device has no session yet.
+     */
+    async function fetchMusic() {
+        try {
+            return await api('/music');
+        } catch (error) {
+            if (error.status === 401) return { items: null, signedIn: false };
+            throw error;
+        }
+    }
     function setStatus(message, error = false) {
         if (!status) return;
         status.textContent = message;
@@ -707,7 +719,7 @@
     window.VRPayment = Object.freeze({
         apiOrigin, hasEntitlement: () => access.entitled,
         canEnterVR: () => !!ready() && leaseExpires > performance.now(),
-        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll,
+        refreshEntitlement, showGate, onXRStateChange, holdLeaseForSetup, autoPrepare, linkStart, linkPoll, fetchMusic,
         setPreview, upgradeToMember,
         setXRHandlers(exit, showReason) { exitXR = exit; notify = showReason; },
         releaseLease, dispose

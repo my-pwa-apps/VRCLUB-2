@@ -20,8 +20,9 @@ NOCTURNE is a virtual nightclub you can walk around in, on a Quest headset or in
   take over the lights yourself at the DJ desk.
 - **A living room.** A resident DJ at the decks, a dancing crowd that moves in time with the music, a bartender, a
   guest who works the room, a balcony, a lounge and a night street outside.
-- **Bring your own music.** There is no built-in music. Play a direct audio link, a file or a folder from your device,
-  or a SoundCloud track its creator has published to podcast players.
+- **Bring your own music.** There is no built-in music. Play a direct audio link or a SoundCloud track its creator has
+  published to podcast players. In the headset app you add links from your phone (the app has no keyboard); on a
+  desktop or in the browser you can also play a file or a folder from your device.
 - **Together.** Optionally join a room of up to eight people with voice, chat, reactions and live hand movement.
   Nothing connects until you choose to.
 - **Made for comfort.** Smooth movement or teleport comfort mode, snap turning, and a Photosensitive Safe Mode that

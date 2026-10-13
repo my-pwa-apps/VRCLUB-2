@@ -5,8 +5,8 @@ const cors = { 'access-control-allow-origin': 'http://localhost:4173', 'access-c
     'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
 
 /** A small stateful stand-in for the access API, so the page's whole decision flow runs in a real browser. */
-async function fakeApi(page, { verified = false, entitled = true, devices = [] } = {}) {
-    const state = { verified, entitled, devices: [...devices], calls: [], approved: null };
+async function fakeApi(page, { verified = false, entitled = true, devices = [], music = null } = {}) {
+    const state = { verified, entitled, devices: [...devices], calls: [], approved: null, music };
     const reply = (route, body, status = 200) => route.fulfill({ status, headers: cors, contentType: 'application/json', body: JSON.stringify(body) });
     await page.route(`${API}/**`, async route => {
         const request = route.request();
@@ -33,6 +33,14 @@ async function fakeApi(page, { verified = false, entitled = true, devices = [] }
             }
             state.approved = body;
             return reply(route, { linked: true, email: 'owner@example.com', devices: state.devices });
+        }
+        if (path === '/music') return state.verified ? reply(route, { items: state.music, updatedAt: state.music ? 1 : 0 }) : reply(route, { message: 'Verify your email first.' }, 401);
+        if (path === '/music/save') {
+            if (!state.verified) return reply(route, { message: 'Verify your email first.' }, 401);
+            const bad = (body.items || []).find(item => !/^https:\/\//.test(item.url));
+            if (bad) return reply(route, { error: 'invalid_music', message: 'Use a direct HTTPS link without a username or password.' }, 400);
+            state.music = body.items.map(item => ({ url: item.url, ...(item.name ? { name: item.name } : {}) }));
+            return reply(route, { items: state.music, updatedAt: 2 });
         }
         return reply(route, { message: 'not found' }, 404);
     });
@@ -96,6 +104,69 @@ test('a full account must choose a device to replace', async ({ page }) => {
     await page.getByRole('button', { name: 'Replace Old Quest' }).click();
     await expect(page.getByRole('heading', { name: 'Headset linked' })).toBeVisible();
     expect(state.approved).toEqual({ code: '11112222', name: 'Meta Quest', replaceDevice: 'a-device' });
+});
+
+test('the owner manages the headset\u2019s music list from the phone: add, reject a bad link, remove', async ({ page }) => {
+    const state = await fakeApi(page, { verified: true, music: [{ url: 'https://audio.example/one.mp3', name: 'One' }] });
+    await page.goto('/link/?music=1');
+    await expect(page.getByRole('heading', { name: 'Your headset music' })).toBeVisible();
+    await expect(page.locator('.music-list li')).toHaveCount(1);
+    await expect(page.locator('#step')).toContainText('owner@example.com');
+    // No pairing code is asked for in this mode.
+    await expect(page.getByLabel('Code shown in your headset')).toHaveCount(0);
+
+    await page.getByLabel('Music link').fill('not a link');
+    await page.getByRole('button', { name: 'Add link' }).click();
+    await expect(page.getByRole('status')).toContainText('https://');
+    await page.getByLabel('Music link').fill('http://insecure.example/a.mp3');
+    await page.getByRole('button', { name: 'Add link' }).click();
+    await expect(page.getByRole('status')).toContainText('Only HTTPS');
+    expect(state.music).toHaveLength(1);
+
+    await page.getByLabel('Music link').fill('https://audio.example/two.mp3');
+    await page.getByLabel('Name (optional)').fill('Friday set');
+    await page.getByRole('button', { name: 'Add link' }).click();
+    await expect(page.locator('.music-list li')).toHaveCount(2);
+    await expect(page.getByRole('status')).toContainText('Sync now');
+    expect(state.music).toEqual([{ url: 'https://audio.example/one.mp3', name: 'One' }, { url: 'https://audio.example/two.mp3', name: 'Friday set' }]);
+
+    await page.getByRole('button', { name: 'Remove One' }).click();
+    await expect(page.locator('.music-list li')).toHaveCount(1);
+    expect(state.music).toEqual([{ url: 'https://audio.example/two.mp3', name: 'Friday set' }]);
+    await page.getByRole('button', { name: 'Remove Friday set' }).click();
+    await expect(page.getByText('No music saved yet.')).toBeVisible();
+    expect(state.music).toEqual([]);
+});
+
+test('an unverified owner verifies their email and lands on the music list, not the pairing flow', async ({ page }) => {
+    await fakeApi(page, { verified: false });
+    await page.goto('/link/?music=1');
+    await expect(page.getByRole('heading', { name: 'Verify your email' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use a different code' })).toHaveCount(0);
+    await page.getByRole('textbox', { name: 'Your email' }).fill('owner@example.com');
+    await page.getByRole('button', { name: 'Email me a code' }).click();
+    await page.getByLabel('Email code').fill('1234 5678');
+    await page.getByRole('button', { name: 'Verify' }).click();
+    await expect(page.getByRole('heading', { name: 'Your headset music' })).toBeVisible();
+    await expect(page.getByText('No music saved yet.')).toBeVisible();
+});
+
+test('a linked headset points the owner at the music list, and a full list stops accepting links', async ({ page }) => {
+    await fakeApi(page, { verified: true, entitled: true });
+    await page.goto('/link/?code=12345678');
+    await page.getByRole('button', { name: 'Link this headset' }).click();
+    await expect(page.getByRole('heading', { name: 'Headset linked' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Add music for your headset' })).toHaveAttribute('href', '?music=1');
+
+    const eight = Array.from({ length: 8 }, (_, i) => ({ url: `https://audio.example/${'long-path-segment-'.repeat(4)}${i}.mp3`, name: `Set ${i + 1}` }));
+    const full = await page.context().newPage();
+    await fakeApi(full, { verified: true, music: eight });
+    await full.setViewportSize({ width: 360, height: 640 });
+    await full.goto('/link/?music=1');
+    await expect(full.locator('.music-list li')).toHaveCount(8);
+    await expect(full.getByText('the most the headset keeps')).toBeVisible();
+    await expect(full.getByRole('button', { name: 'Add link' })).toHaveCount(0);
+    expect(await full.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 });
 
 test('the page works on a phone-sized screen without horizontal scrolling and with labelled fields', async ({ page }) => {

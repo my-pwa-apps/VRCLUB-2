@@ -47,6 +47,52 @@ function libraryFixture(raw = null, feed = '', playbackRaw = null) {
     return { library, club, storage, store, messages, plays, fetches };
 }
 
+test('replaceAll makes the saved sets match the phone\u2019s list, keeping the selection, names and episode choices', () => {
+    const f = libraryFixture();
+    f.library.save('https://audio.example/one.mp3', 'One');
+    f.library.save('https://audio.example/two.mp3', 'Two');
+    f.library.save('https://audio.example/three.mp3', 'Three');
+    f.library.select(1);
+
+    // Re-ordered, one removed, one added; the selected link is still listed, so it stays selected at its new position.
+    let outcome = f.library.replaceAll([
+        { url: 'https://audio.example/three.mp3', name: 'Three' }, { url: 'https://audio.example/two.mp3' },
+        { url: 'https://audio.example/four.mp3', name: 'Four' }
+    ]);
+    assert.deepEqual({ ...outcome }, { count: 3, skipped: 0, changed: true });
+    assert.deepEqual(Array.from(f.library.items.map(item => item.url)), ['https://audio.example/three.mp3', 'https://audio.example/two.mp3', 'https://audio.example/four.mp3']);
+    assert.equal(f.library.current().url, 'https://audio.example/two.mp3');
+    assert.equal(f.library.current().name, 'Two', 'a blank name on the phone keeps the name the headset already has');
+    assert.equal(JSON.parse(f.store.get('vrclub.questMusic')).items.length, 3, 'it is persisted');
+
+    // The same list again is not a change and writes nothing.
+    const before = f.store.get('vrclub.questMusic');
+    f.store.set('vrclub.questMusic', before + ' ');
+    outcome = f.library.replaceAll(f.library.items.map(item => ({ url: item.url, name: item.name })));
+    assert.equal(outcome.changed, false);
+    assert.equal(f.store.get('vrclub.questMusic'), before + ' ');
+
+    // The selected link removed: selection falls back to the first set. An empty list empties the library.
+    f.library.replaceAll([{ url: 'https://audio.example/four.mp3' }]);
+    assert.equal(f.library.current().url, 'https://audio.example/four.mp3');
+    assert.deepEqual({ ...f.library.replaceAll([]) }, { count: 0, skipped: 0, changed: true });
+    assert.equal(f.library.current(), null);
+});
+
+test('replaceAll skips links that cannot be played, drops duplicates, caps at eight and ignores junk input', () => {
+    const f = libraryFixture();
+    const entries = [
+        { url: 'https://audio.example/a.mp3', name: 'A' }, { url: 'https://audio.example/a.mp3', name: 'A again' },
+        { url: 'http://insecure.example/b.mp3' }, { url: 'https://www.youtube.com/watch?v=x' }, { url: 'not a url' }, null, {},
+        ...Array.from({ length: 9 }, (_, i) => ({ url: `https://audio.example/${i}.mp3` }))
+    ];
+    const outcome = f.library.replaceAll(entries);
+    assert.equal(outcome.count, 8);
+    assert.equal(outcome.skipped, 5, 'insecure, YouTube, not a URL, null and an empty object');
+    assert.equal(f.library.items[0].name, 'A', 'the first of two duplicates wins');
+    assert.deepEqual({ ...f.library.replaceAll('nonsense') }, { count: 0, skipped: 0, changed: true });
+});
+
 test('Quest music starts empty, persists user sets and wraps selection without auto-playing', () => {
     const f = libraryFixture();
     assert.equal(f.library.current(), null);

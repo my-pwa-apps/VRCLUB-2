@@ -25,6 +25,11 @@ kept in lockstep with `index.html`, `sw.js` and `serviceworker.js` by
   starts the club in VR), build the APK with Meta's Bubblewrap and verify it is signed with the certificate named in
   `assetlinks.json`, check the deployed site, and draw the SideQuest banner and icon. The generated manifest now sets
   the fields Bubblewrap's Gradle template needs. Runbook: `docs/QUEST.md`; listing draft: `docs/STORE_LISTING.md`.
+- **Music from your phone in the headset app.** The immersive app has no keyboard or window to type a link into, so the
+  list of music links now lives on your account and is edited on a phone at `/link/?music=1` (up to eight HTTPS links or
+  SoundCloud tracks). The headset loads it when VR starts, after linking, and from Music, Sources, ADD FROM PHONE, SYNC
+  NOW. The menu buttons that used to leave VR now explain themselves instead. Fixed: after the first-run welcome choice,
+  Y/B reopened the welcome page instead of the menu. Needs migration `0008_account_music.sql` and the Worker redeployed.
 - **Headset pairing and an immersive launch.** A Quest has no keyboard, so a headset can now be linked to an account
   from a phone: it shows an eight-digit code, the owner enters it at `/link` (verifying their email, redeeming an
   invitation or buying access there if needed) and the headset enters VR by itself. Started with `?immersive=1`, the

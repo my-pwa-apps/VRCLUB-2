@@ -66,3 +66,8 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .link-foot { margin: 20px 0 0; font-size: 14px; }
 a { color: #7ec8ff; }
 .link-done { font-size: 18px; color: #8fffee; }
+.music-list { margin: 0 0 12px; padding: 0; list-style: none; }
+.music-list li { margin: 0 0 10px; padding: 10px 12px; border: 1px solid #3a4358; border-radius: 8px; background: #0a0c14; }
+.music-list strong { display: block; }
+.music-url { display: block; overflow-wrap: anywhere; color: #b4bccb; font-size: 13px; }
+.music-list button { margin-top: 8px; padding: 8px 12px; font-size: 14px; }

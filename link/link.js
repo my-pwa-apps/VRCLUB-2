@@ -11,6 +11,8 @@
     const status = document.getElementById('status');
     let access = null;
     let busy = false;
+    // ?music=1 turns this page into the headset's music list instead of the pairing flow.
+    const MUSIC_MODE = new URLSearchParams(window.location.search).get('music') === '1';
 
     const api = async (path, body) => {
         const response = await fetch(API + path, {
@@ -104,7 +106,7 @@
                 const { challenge } = await api('/recovery/start', { email, intent: 'restore' });
                 verifyStep(challenge, email);
             }),
-            action('Use a different code', () => { clearCode(); codeStep(); say(''); }, true));
+            ...(MUSIC_MODE ? [] : [action('Use a different code', () => { clearCode(); codeStep(); say(''); }, true)]));
         input.focus();
     }
 
@@ -168,7 +170,8 @@
             if (!result) return;
             clearCode();
             show('Headset linked', el('p', 'Your headset will enter NOCTURNE by itself in a few seconds. You can close this page.', 'link-done'),
-                el('p', `Linked to ${result.email || access.email}. You can remove devices later from the Access menu in the club.`, 'link-note'));
+                el('p', `Linked to ${result.email || access.email}. You can remove devices later from the Access menu in the club.`, 'link-note'),
+                musicLink());
             say('');
         });
         if (replaceChoices && replaceChoices.length) {
@@ -185,6 +188,14 @@
         show('Confirm the link', ...nodes);
     }
 
+    function musicLink() {
+        const paragraph = el('p', '', 'link-note');
+        const anchor = el('a', 'Add music for your headset');
+        anchor.href = '?music=1';
+        paragraph.append(anchor, ' — the headset app cannot type a link, so you add them here.');
+        return paragraph;
+    }
+
     async function claimCheckout() {
         const params = new URLSearchParams(window.location.search);
         const sessionId = params.get('session_id');
@@ -198,8 +209,68 @@
         }
     }
 
+    // The headset app cannot type a link or open a file picker, so the owner keeps the list here and the headset loads it.
+    async function musicStep() {
+        const result = await api('/music');
+        let items = Array.isArray(result.items) ? result.items : [];
+        const MAX = 8;
+        const save = async next => { items = (await api('/music/save', { items: next })).items; };
+
+        const render = () => {
+            const url = field('Music link', 'url', { inputMode: 'url', autocomplete: 'off', placeholder: 'https://example.com/set.mp3', maxLength: 500 });
+            const name = field('Name (optional)', 'text', { maxLength: 60, placeholder: 'Friday set' });
+            const nodes = [
+                el('p', `Saved to ${access.email}. Your headset loads this list when it starts, or when you choose Music, Sources, Add from phone, Sync now.`)
+            ];
+            if (items.length) {
+                const list = el('ul', '', 'music-list');
+                items.forEach(item => {
+                    const row = el('li');
+                    row.append(el('strong', item.name || new URL(item.url).hostname), el('span', item.url, 'music-url'));
+                    const remove = action('Remove', async () => {
+                        await save(items.filter(other => other.url !== item.url));
+                        render();
+                        say('Removed. Press Sync now in the headset to update it.');
+                    }, true);
+                    remove.setAttribute('aria-label', `Remove ${item.name || item.url}`);
+                    row.append(remove);
+                    list.append(row);
+                });
+                nodes.push(list);
+            } else {
+                nodes.push(el('p', 'No music saved yet.', 'link-note'));
+            }
+            if (items.length < MAX) {
+                nodes.push(url.wrapper, name.wrapper, action('Add link', async () => {
+                    const text = url.input.value.trim();
+                    let parsed;
+                    try { parsed = new URL(text); } catch (_) { throw new Error('Paste a full web address that starts with https://.'); }
+                    if (parsed.protocol !== 'https:') throw new Error('Only HTTPS links work. Paste a direct audio link or a SoundCloud track.');
+                    await save([...items, { url: text, name: name.input.value.trim() }]);
+                    render();
+                    say('Saved. Press Sync now in the headset to load it.');
+                }));
+            } else {
+                nodes.push(el('p', `You have saved ${MAX} links, the most the headset keeps. Remove one to add another.`, 'link-note'));
+            }
+            nodes.push(el('p', 'Works with direct HTTPS audio links (MP3, M4A, OGG or a stream) and SoundCloud tracks their creator has published to podcast players. YouTube and Spotify pages do not work. Local files need a browser, not the headset app.', 'link-note'));
+            show('Your headset music', ...nodes);
+        };
+        render();
+        say('');
+    }
+
     // Decides the next step from what is known: a code, a verified email, an entitled account.
     async function next() {
+        if (MUSIC_MODE) {
+            if (!access || !access.verified) {
+                try { access = await api('/devices'); }
+                catch (error) { if (error.status !== 401) throw error; access = null; }
+            }
+            if (!access || !access.verified) { emailStep(); return; }
+            await musicStep();
+            return;
+        }
         if (!savedCode()) { codeStep(); return; }
         if (!access || !access.verified) {
             try { access = await api('/devices'); }
@@ -220,6 +291,7 @@
             await claimCheckout().catch(error => { say(error.message, true); });
             await next();
         } catch (error) {
+            if (MUSIC_MODE) { emailStep(); say(error.message, true); return; }
             codeStep();
             say(error.message, true);
         }

@@ -365,11 +365,21 @@ run the migration (`wrangler d1 migrations apply`) before relying on it.
 The veil is the XR camera's layer mask (world on the default layers, the quick menu also on an extra one), so the
 headset keeps tracking. The music is muted while it is up.
 
+**Music in the immersive app.** An immersive-only app has no 2D window, and a WebXR session has no keyboard or file
+picker, so the VR Music page cannot take a link. The owner keeps the list on a phone instead: `/link/?music=1` (the
+pairing page in a second mode: verify the email once, then add or remove up to eight HTTPS links or SoundCloud tracks).
+It is stored per account (`account_music`, migration `0008_account_music.sql`; `GET /payments/music`,
+`POST /payments/music/save`, `worker/src/musicSync.js`). The headset loads it when VR starts, after linking, and on
+Music, Sources, ADD FROM PHONE, SYNC NOW (`MusicLibrary.replaceAll`: the saved sets become exactly the phone's list).
+Local files and folders are not available in the immersive app: they need a browser. In the immersive app the
+panels that used to leave VR (music setup, credits) show a message instead, because there is no page to return to.
+Credits and licences stay on the website's About panel.
+
 **Not proven here:** whether Meta's `horizonOSAppMode: immersive` wrapper starts a WebXR session without a click,
 and whether a controller press counts as the user activation that lets audio start. Both are real-device gates; the
 fallbacks (the Enter VR button, the first-press audio retry) are in place. Tests: `test/immersive-launch.test.mjs`
 (state machine on stubs), `test/e2e/immersive-launch.spec.mjs` (Quest emulator: automatic entry, welcome, preview,
-veil, approval) and `test/e2e/link-page.spec.mjs` (the phone page).
+veil, approval, music sync) and `test/e2e/link-page.spec.mjs` (the phone page, including its music mode).
 
 ## Build and publish the app (SideQuest or Meta Horizon Store)
 

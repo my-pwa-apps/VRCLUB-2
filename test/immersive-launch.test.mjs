@@ -28,8 +28,8 @@ const launches = [];
 afterEach(() => { launches.splice(0).forEach(launch => launch.dispose()); });
 
 /** The launch against a stub club, stub payment gate and manual timers; the real class runs unmodified. */
-function setup({ stored = '1', prepare = { state: 'ready' }, enter, polls = [], upgrade } = {}) {
-    const calls = { enter: [], toast: [], page: [], toggles: [], linkStart: 0, polled: 0, upgrade: 0, preview: [], gesture: 0 };
+function setup({ stored = '1', prepare = { state: 'ready' }, enter, polls = [], upgrade, music = async () => ({ items: null }), skipped = 0 } = {}) {
+    const calls = { enter: [], toast: [], page: [], toggles: [], linkStart: 0, polled: 0, upgrade: 0, preview: [], gesture: 0, music: 0, replaced: [] };
     const timers = [];
     const stateChanged = observable();
     const pointer = observable();
@@ -58,7 +58,8 @@ function setup({ stored = '1', prepare = { state: 'ready' }, enter, polls = [], 
             return menu.enabled;
         },
         _showVRQuickMenuPage(page) { calls.page.push(page); club._vrQuickMenuPage = page; },
-        _ensureAudioContext() { calls.audio = true; }
+        _ensureAudioContext() { calls.audio = true; },
+        musicLibrary: { replaceAll(items) { calls.replaced.push(items); return { count: items.length - skipped, skipped, changed: true }; } }
     };
     const pending = [...polls];
     const payment = {
@@ -66,7 +67,8 @@ function setup({ stored = '1', prepare = { state: 'ready' }, enter, polls = [], 
         setPreview(on) { calls.preview.push(on); },
         async linkStart() { calls.linkStart++; return { linkId: `l${calls.linkStart}`, secret: 's', code: '12345678', expiresInMs: 600000, intervalMs: 3000 }; },
         async linkPoll() { calls.polled++; const next = pending.length ? pending.shift() : 'pending'; if (next instanceof Error) throw next; return next; },
-        async upgradeToMember() { calls.upgrade++; if (upgrade) return upgrade(calls.upgrade); return true; }
+        async upgradeToMember() { calls.upgrade++; if (upgrade) return upgrade(calls.upgrade); return true; },
+        async fetchMusic() { calls.music++; return music(); }
     };
     const window = { location: { search: '?immersive=1', host: 'nocturne.mitwee.nl' }, close() { calls.closed = true; } };
     const context = vm.createContext({
@@ -131,6 +133,7 @@ test('a guest who never chose is held in Safe Mode, temporarily, and asked befor
     assert.deepEqual(t.club.safeModeCalls.at(-1), { value: false, options: undefined }, 'saved like the splash toggle');
     assert.equal(t.launch.menuLocked(), false);
     assert.equal(t.menu.enabled, false);
+    assert.equal(t.club._vrQuickMenuPage, 'home', 'the next Y/B press opens HOME, not the finished welcome page');
     t.launch.handleMenuAction('welcomeSafe');
     assert.equal(t.club.safeModeCalls.length, 2, 'a second press does nothing');
 });
@@ -171,6 +174,7 @@ test('without access the headset gets a free preview, then a veiled pairing code
     assert.equal(t.xrCamera.layerMask, 0x0FFFFFFF);
     assert.equal(t.audioElement.muted, false, 'the guest\u2019s own mute state comes back');
     assert.equal(t.menu.enabled, false);
+    assert.equal(t.club._vrQuickMenuPage, 'home', 'after linking, the menu opens on HOME and not on the pairing page');
     assert.match(t.calls.toast.at(-1), /Linked/);
     assert.equal(t.launch.link, null);
 });
@@ -307,6 +311,70 @@ test('the first controller press resumes audio and the saved set, once, only whe
     await playing.launch.start();
     playing.pointer.fire({ type: 1 });
     assert.equal(playing.calls.gesture, 0, 'music that already started is left alone');
+});
+
+test('a member headset loads the phone\u2019s music list when VR starts, and the page says how many', async () => {
+    const list = [{ url: 'https://audio.example/a.mp3', name: 'A' }, { url: 'https://audio.example/b.mp3' }];
+    const t = setup({ music: async () => ({ items: list }) });
+    await t.launch.start();
+    await until(() => t.calls.replaced.length === 1, 'the sync');
+    assert.deepEqual(JSON.parse(JSON.stringify(t.calls.replaced[0])), list);
+    assert.equal(t.launch.musicStatus, '2 LINKS LOADED');
+    assert.match(t.calls.toast.at(-1), /Loaded 2 music links from your phone/);
+});
+
+test('a headset still in its preview does not ask for music; an account with no saved list leaves the local sets alone', async () => {
+    const preview = setup({ prepare: { state: 'needs-access' }, music: async () => { throw new Error('must not be called'); } });
+    await preview.launch.start();
+    assert.equal(preview.calls.music, 0);
+
+    const none = setup({ music: async () => ({ items: null }) });
+    await none.launch.start();
+    await until(() => none.calls.music === 1, 'the sync');
+    await settle();
+    assert.deepEqual(none.calls.replaced, [], 'null means never saved: nothing is replaced');
+    assert.equal(none.launch.musicStatus, 'NOTHING SAVED YET');
+    none.launch.handleMenuAction('musicSync');
+    await until(() => none.calls.music === 2, 'the manual sync');
+    await until(() => /Nothing saved yet/.test(none.calls.toast.at(-1) || ''), 'its message');
+});
+
+test('SYNC NOW answers every time; an unlinked headset is told to link first and a server error is plain', async () => {
+    const unlinked = setup({ music: async () => ({ items: null, signedIn: false }) });
+    await unlinked.launch.start();
+    unlinked.launch.handleMenuAction('musicSync');
+    await until(() => /Link this headset/.test(unlinked.calls.toast.at(-1) || ''), 'the link message');
+    assert.equal(unlinked.launch.musicStatus, 'LINK THIS HEADSET FIRST');
+
+    const down = setup({ music: async () => { throw new Error('offline'); } });
+    await down.launch.start();
+    down.launch.handleMenuAction('musicSync');
+    await until(() => /Could not reach/.test(down.calls.toast.at(-1) || ''), 'the error');
+    assert.equal(down.launch.musicStatus, 'CANNOT REACH THE SERVER');
+
+    const same = setup({ music: async () => ({ items: [{ url: 'https://audio.example/a.mp3' }] }) });
+    await same.launch.start();
+    await until(() => same.calls.replaced.length === 1, 'the first sync');
+    same.launch.handleMenuAction('musicSync');
+    await until(() => same.calls.replaced.length === 2, 'the manual sync');
+});
+
+test('links that cannot be used are reported instead of silently dropped', async () => {
+    const t = setup({ skipped: 1, music: async () => ({ items: [{ url: 'https://audio.example/a.mp3' }, { url: 'https://bad' }] }) });
+    await t.launch.start();
+    await until(() => /could not be used/.test(t.calls.toast.at(-1) || ''), 'the warning');
+    assert.equal(t.launch.musicStatus, '1 LINK LOADED');
+});
+
+test('linking during the session loads the music too, and the music page has its own words', async () => {
+    const t = setup({ prepare: { state: 'needs-access' }, polls: ['approved'], music: async () => ({ items: [{ url: 'https://audio.example/a.mp3' }] }) });
+    await t.launch.start();
+    await until(() => t.launch.mode === 'member', 'member');
+    await until(() => t.calls.replaced.length === 1, 'the sync after linking');
+    const text = t.launch.pageText('musicPhone');
+    assert.equal(text.title, 'MUSIC FROM YOUR PHONE');
+    assert.equal(text.subtitle, 'OPEN NOCTURNE.MITWEE.NL/LINK/?MUSIC=1 ON YOUR PHONE');
+    assert.ok(text.subtitle.length < 60, 'it must fit one menu line');
 });
 
 test('dispose lifts the veil and releases every observer', async () => {

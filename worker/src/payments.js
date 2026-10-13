@@ -1,5 +1,6 @@
 import { accessSession, accessInfo, accountEntitled, handleRecovery, limit } from './accessRecovery.js';
 import { handleDeviceLink } from './deviceLink.js';
+import { handleMusicSync } from './musicSync.js';
 export { generateNumericCode as generateInvitationCode } from './accessRecovery.js';
 
 const SESSION_COOKIE = 'nocturne_vr_session';
@@ -291,6 +292,8 @@ export async function handlePayments(request, env, appOrigin) {
     if (recovery) return recovery;
     const deviceLink = await handleDeviceLink(request, env, headers, { json, readBody: readInvitationBody });
     if (deviceLink) return deviceLink;
+    const music = await handleMusicSync(request, env, headers, { json });
+    if (music) return music;
 
     if (url.pathname === '/payments/entitlement' && request.method === 'GET') {
         return json(await entitlement(request, env), 200, headers);

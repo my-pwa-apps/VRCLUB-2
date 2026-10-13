@@ -349,6 +349,36 @@ class MusicLibrary {
         return item;
     }
 
+    /**
+     * Makes the saved sets exactly `entries` (the list kept on the owner's phone). Entries that cannot be played are
+     * skipped, the selection stays on its link when that link is still listed, and a feed's episode choice and a name the
+     * player learned survive. Resolves to { count, skipped, changed }; storage is only written when something differs.
+     */
+    replaceAll(entries) {
+        const next = [];
+        let skipped = 0;
+        for (const entry of Array.isArray(entries) ? entries.slice(0, 64) : []) {
+            if (next.length >= MusicLibrary.MAX_SETS) break;
+            try {
+                const item = this._item(entry && entry.url, entry && entry.name);
+                if (next.some(saved => saved.url === item.url)) continue;
+                const old = this.items.find(saved => saved.url === item.url);
+                if (old) {
+                    if (item.kind === 'feed' && old.episode) item.episode = old.episode;
+                    if (!(entry && typeof entry.name === 'string' && entry.name.trim())) item.name = old.name;
+                }
+                next.push(item);
+            } catch (_) {
+                skipped++;
+            }
+        }
+        const currentUrl = this.current() && this.current().url;
+        const selected = Math.max(0, next.findIndex(item => item.url === currentUrl));
+        const changed = JSON.stringify(next) !== JSON.stringify(this.items);
+        if (changed) this._persist(next, selected);
+        return { count: next.length, skipped, changed };
+    }
+
     select(index) {
         if (!Number.isInteger(index) || index < 0 || index >= this.items.length) {
             throw new Error('Choose a saved set first.');

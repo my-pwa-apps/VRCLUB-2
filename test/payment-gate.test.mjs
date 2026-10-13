@@ -598,6 +598,22 @@ test('immersive launch: autoPrepare takes the VR lease for a registered device a
     assert.equal((await down.window.VRPayment.autoPrepare()).state, 'error');
 });
 
+test('fetchMusic returns the account list, null when never saved, and a signed-out marker without a session', async () => {
+    let answer = { body: { items: [{ url: 'https://audio.example/a.mp3', name: 'A' }], updatedAt: 5 } };
+    const gate = loadPaymentGate(path => path === '/music' ? answer : fresh);
+    assert.deepEqual(plain(await gate.window.VRPayment.fetchMusic()), { items: [{ url: 'https://audio.example/a.mp3', name: 'A' }], updatedAt: 5 });
+    const request = gate.requests.find(entry => entry.path === '/music');
+    assert.equal(request.options.credentials, 'include');
+    assert.equal(request.options.method, undefined, 'a plain GET');
+
+    answer = { body: { items: null, updatedAt: 0 } };
+    assert.equal((await gate.window.VRPayment.fetchMusic()).items, null);
+    answer = { status: 401, body: { error: 'verification_required', message: 'Verify your email first.' } };
+    assert.deepEqual(plain(await gate.window.VRPayment.fetchMusic()), { items: null, signedIn: false });
+    answer = { status: 503, body: { message: 'Saving music is not configured.' } };
+    await assert.rejects(() => gate.window.VRPayment.fetchMusic(), /not configured/);
+});
+
 test('headset pairing: linkStart asks for a code and linkPoll reports pending, then registers this device', async () => {
     const gate = loadPaymentGate(path => ({
         '/entitlement': fresh,

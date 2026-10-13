@@ -59,6 +59,7 @@ class ImmersiveLaunch {
         this._xrObserver = null;
         this._gestureObserver = null;
         this._mutedBefore = null;
+        this.musicStatus = 'PRESS SYNC NOW AFTER ADDING LINKS';
 
         // A guest who never chose must not meet strobes before they can. The hold is not their saved choice.
         let chosen = true;
@@ -73,10 +74,13 @@ class ImmersiveLaunch {
     /** The first-run choice and a locked pairing code cannot be dismissed from the menu. */
     menuLocked() { return this.welcomePending || this.mode === 'locked'; }
 
-    /** Words for the two pages this launch adds to the VR menu (see _showVRQuickMenuPage). */
+    /** Words for the pages this launch adds to the VR menu (see _showVRQuickMenuPage). */
     pageText(page) {
         if (page === 'welcome') {
             return { title: 'WELCOME', subtitle: 'THE LIGHTS FLASH. SENSITIVE? CHOOSE SAFE MODE.' };
+        }
+        if (page === 'musicPhone') {
+            return { title: 'MUSIC FROM YOUR PHONE', subtitle: `OPEN ${String(this.host || 'THIS SITE').toUpperCase()}/LINK/?MUSIC=1 ON YOUR PHONE` };
         }
         const code = this.link ? `${this.link.code.slice(0, 4)} ${this.link.code.slice(4)}`.trim() : '';
         if (this.approved) {
@@ -135,6 +139,7 @@ class ImmersiveLaunch {
         // The guarded toggle refuses to close a locked menu; this launch no longer owns it.
         const menu = this.club._vrQuickMenuRoot;
         if (menu && menu.isEnabled()) menu.setEnabled(false);
+        if (this.club._vrQuickMenuPage === 'welcome' || this.club._vrQuickMenuPage === 'access') this.club._showVRQuickMenuPage?.('home');
     }
 
     _watchXR(base) {
@@ -147,11 +152,49 @@ class ImmersiveLaunch {
 
     _enteredXR() {
         this._armGesture();
+        if (this.mode === 'member') void this.syncMusic();
         if (this.welcomePending) {
             this._showPage('welcome');
             return;
         }
         this._afterWelcome();
+    }
+
+    /**
+     * Loads the music links the owner keeps on their phone (worker/src/musicSync.js) into the saved sets. An immersive-only
+     * app cannot type a link or open a file picker, so this is how a headset gets its music. `manual` is the SYNC NOW
+     * button: it answers with a message even when nothing changed. Never throws.
+     */
+    async syncMusic(manual = false) {
+        const library = this.club.musicLibrary;
+        const say = message => this.club.showErrorMessage(message);
+        if (this._disposed || !library || !this.payment || !this.payment.fetchMusic) return;
+        this.musicStatus = 'CHECKING YOUR PHONE LIST';
+        this._refreshMusicPage();
+        try {
+            const result = await this.payment.fetchMusic();
+            if (this._disposed) return;
+            if (!result || result.items === null || result.items === undefined) {
+                this.musicStatus = result && result.signedIn === false ? 'LINK THIS HEADSET FIRST' : 'NOTHING SAVED YET';
+                if (manual) say(result && result.signedIn === false ? 'Link this headset to your account first.' : 'Nothing saved yet. Add links on your phone, then press SYNC NOW.');
+            } else {
+                const outcome = library.replaceAll(result.items);
+                this.musicStatus = `${outcome.count} LINK${outcome.count === 1 ? '' : 'S'} LOADED`;
+                if (outcome.skipped) say(`${outcome.skipped} link${outcome.skipped === 1 ? '' : 's'} could not be used. Check the list on your phone.`);
+                else if (outcome.changed || manual) say(outcome.count ? `Loaded ${outcome.count} music link${outcome.count === 1 ? '' : 's'} from your phone.` : 'Your phone list is empty.');
+            }
+        } catch (error) {
+            this.musicStatus = 'CANNOT REACH THE SERVER';
+            if (manual) say('Could not reach your saved music. Try again in a moment.');
+        }
+        this._refreshMusicPage();
+    }
+
+    _refreshMusicPage() {
+        const club = this.club;
+        if (club._vrQuickMenuRoot && club._vrQuickMenuRoot.isEnabled() && club._vrQuickMenuPage === 'musicPhone') {
+            club._showVRQuickMenuPage('musicPhone');
+        }
     }
 
     _afterWelcome() {
@@ -167,7 +210,7 @@ class ImmersiveLaunch {
             if (!this.welcomePending) return;
             this.club.setPhotosensitiveSafeMode(action === 'welcomeSafe');
             this.welcomePending = false;
-            this.club.toggleVRQuickMenu(false);
+            this._closeMenu();
             this._afterWelcome();
         } else if (action === 'accessNewCode') {
             if (this.approved) return;
@@ -177,6 +220,8 @@ class ImmersiveLaunch {
             this._startLinkLoop(true);
         } else if (action === 'accessExit') {
             void this.exit();
+        } else if (action === 'musicSync') {
+            void this.syncMusic(true);
         }
     }
 
@@ -194,6 +239,13 @@ class ImmersiveLaunch {
         this.setVeil(true);
         this._showPage('access');
         this._startLinkLoop();
+    }
+
+    /** Closes the menu and puts it back on HOME: the next Y/B press must open the real menu, not the finished welcome page. */
+    _closeMenu() {
+        const club = this.club;
+        club._showVRQuickMenuPage('home');
+        club.toggleVRQuickMenu(false);
     }
 
     _showPage(page) {
@@ -286,8 +338,9 @@ class ImmersiveLaunch {
         this._clearTimeout(this._previewTimer);
         this._previewTimer = null;
         this.setVeil(false);
-        this.club.toggleVRQuickMenu(false);
+        this._closeMenu();
         this.club.showErrorMessage('Linked. Welcome to NOCTURNE.');
+        void this.syncMusic();
         return true;
     }
 
