@@ -311,7 +311,7 @@ test('the club\u2019s own set fills silence: it loops, is never saved, and never
     const f = quiet(libraryFixture());
     assert.equal(await f.library.playDefault(), true);
     assert.deepEqual([f.plays[0][0], f.plays[0][1]], ['direct', 'https://club.example/audio/nocturne-house.mp3']);
-    assert.equal(f.plays[0][2], undefined, 'a default set loops: it is not an on-demand episode');
+    assert.deepEqual({ ...f.plays[0][2] }, { quietBlock: true }, 'a default set loops (no onDemand) and a blocked autoplay is quiet: the first gesture retries it');
     assert.equal(f.club.nowPlayingLabel, 'NOCTURNE House (club set)');
     assert.equal(f.library.items.length, 0, 'it is never added to the guest\u2019s list');
     assert.equal(f.store.get('vrclub.questMusic'), undefined, 'and nothing is written to storage');

@@ -154,11 +154,15 @@ test('without access the headset gets a free preview, then a veiled pairing code
     assert.deepEqual(t.calls.preview, [true]);
     assert.equal(t.launch.needsAccess(), true);
     assert.equal(t.launch.menuLocked(), false);
-    assert.equal(t.timers.length, 1);
+    assert.equal(t.timers.length, 2, 'the lock and its 30-second warning');
     assert.equal(t.timers[0].ms, t.ImmersiveLaunch.PREVIEW_MS);
+    assert.equal(t.timers[1].ms, t.ImmersiveLaunch.PREVIEW_MS - t.ImmersiveLaunch.PREVIEW_WARNING_MS);
+    assert.match(t.calls.toast.at(-1), /Free 2-minute preview.*Press B, then ACCESS, to buy or link/);
     assert.equal(t.xrCamera.layerMask, 0x0FFFFFFF, 'the preview shows the club');
     await until(() => t.calls.polled >= 1, 'the first poll');
 
+    t.timers[1].fn();
+    assert.match(t.calls.toast.at(-1), /Preview ends in 30 seconds.*buy or link/, 'a warning before the screen goes dark');
     t.timers[0].fn();
     assert.equal(t.launch.mode, 'locked');
     assert.equal(t.launch.menuLocked(), true);
@@ -184,6 +188,9 @@ test('pairing during the preview upgrades at once, so the preview timer never lo
     await t.launch.start();
     await until(() => t.launch.mode === 'member', 'member');
     assert.equal(t.timers[0].cleared, true);
+    assert.equal(t.timers[1].cleared, true, 'and so does the warning');
+    t.timers[1].fn();
+    assert.ok(!/Preview ends/.test(t.calls.toast.join('|')), 'a stale warning never frightens a member');
     t.timers[0].fn();
     assert.equal(t.launch.mode, 'member', 'a stale timer cannot lock a member');
     assert.equal(t.xrCamera.layerMask, 0x0FFFFFFF);
@@ -195,19 +202,19 @@ test('the preview does not start until the photosensitivity choice is made', asy
     assert.equal(t.timers.length, 0);
     assert.equal(t.calls.linkStart, 0);
     t.launch.handleMenuAction('welcomeSafe');
-    assert.equal(t.timers.length, 1);
+    assert.equal(t.timers.length, 2);
     await until(() => t.calls.linkStart === 1, 'a pairing code');
 });
 
-test('the pairing page shows the code in two groups and says where to enter it', async () => {
+test('the pairing page shows the code in two groups and says it is where to buy or link', async () => {
     const t = setup({ prepare: { state: 'needs-access' } });
     assert.equal(t.launch.pageText('access').title, 'GETTING A CODE');
     await t.launch.start();
     await until(() => t.launch.link, 'a code');
     const text = t.launch.pageText('access');
     assert.equal(text.title, '1234 5678');
-    assert.equal(text.subtitle, 'ENTER IT AT NOCTURNE.MITWEE.NL/LINK ON YOUR PHONE');
-    assert.ok(text.subtitle.length < 60, 'it must fit one menu line');
+    assert.equal(text.subtitle, 'BUY OR LINK AT NOCTURNE.MITWEE.NL/LINK');
+    assert.ok(text.subtitle.length < 52, 'it must fit one menu line at a readable size');
     assert.match(t.launch.pageText('welcome').subtitle, /SAFE MODE/);
     t.launch.dispose();
 });

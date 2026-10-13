@@ -314,16 +314,19 @@ function startEntryMusic(club, pointAtAudioMenu) {
             else noMusic();
         }).catch(err => {
             uiLog.warn(`Club set unavailable: ${err.message}`);
-            noMusic();
-            // The browser held the sound back until a gesture: start it on the first press or key.
+            // The browser held the sound back until a gesture: say so, and start it on the first press or key.
             if (err && err.name === 'NotAllowedError') {
+                entryNowPlaying = 'Press any key or click to start the club\u2019s set.';
+                if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
                 document.addEventListener('pointerdown', retryDefault);
                 document.addEventListener('keydown', retryDefault);
                 uiTeardowns.push(() => {
                     document.removeEventListener('pointerdown', retryDefault);
                     document.removeEventListener('keydown', retryDefault);
                 });
+                return;
             }
+            noMusic();
         });
         return;
     }

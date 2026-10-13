@@ -123,6 +123,9 @@ test('an unpaired headset previews, then shows only a pairing code until the pho
     expect(veiled.menu).toBe(true);
     expect(veiled.closed).toBe(true);
     expect(veiled.active).toBeLessThan(40);
+    // Draw it with the real production host name (the longest line it ever shows) before the screenshot.
+    await page.evaluate(() => { window.vrClub._immersive.host = 'sidequest-nocturne.mitwee.nl'; window.vrClub._showVRQuickMenuPage('access'); });
+    await page.waitForTimeout(500);
     await page.screenshot({ path: test.info().outputPath('veil.png') });
 
     // The owner approves on the phone: the headset collects its session and the world comes back.

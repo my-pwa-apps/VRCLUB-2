@@ -2333,13 +2333,19 @@ class VRClubUI extends VRClubAnimationFinish {
             this._shareAudioPosition();
             return audio;
         }).catch(error => {
+            // The club's own set starts on its own at entry, before any press: the browser holding that back is expected, the
+            // first gesture retries it, and nobody should be told to "press Play again" for music they never asked for.
+            if (options.quietBlock && error && error.name === 'NotAllowedError') {
+                log.warn(`🔇 Autoplay of ${kind} is waiting for the first gesture.`);
+                throw error;
+            }
             log.error(`❌ Failed to play ${kind}:`, error);
             this.showErrorMessage('Audio loaded, but playback was blocked. Press Play again.');
             throw error;
         });
     }
 
-    /** @param {{ onDemand?: boolean, resumeAt?: number }} [options] an on-demand episode plays once instead of looping */
+    /** @param {{ onDemand?: boolean, resumeAt?: number, quietBlock?: boolean }} [options] an on-demand episode plays once instead of looping; `quietBlock` makes a blocked autoplay silent (it is retried on the first gesture) */
     startAudioStream(url, options = {}) {
         if (!this._isSafeAudioUrl(url)) {
             log.warn(`🎵 Rejected unsafe audio URL: ${url}`);
@@ -2348,7 +2354,7 @@ class VRClubUI extends VRClubAnimationFinish {
         }
         this._localPlaylist = null;
         this.nowPlayingLabel = url; // a podcast episode replaces this with its title once it has started
-        return this._playAudio(url, 'stream', url, { loop: !options.onDemand, resumeAt: options.resumeAt });
+        return this._playAudio(url, 'stream', url, { loop: !options.onDemand, resumeAt: options.resumeAt, quietBlock: options.quietBlock });
     }
 
     static _loadSoundCloudAPI() {

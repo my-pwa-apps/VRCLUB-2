@@ -410,7 +410,7 @@ class MusicLibrary {
         if ((info && info.playing) || other) return false;
         this.lastMode = 'analysed';
         this._defaultUrl = item.url;
-        await club.startAudioStream(item.url);
+        await club.startAudioStream(item.url, { quietBlock: true });
         club.nowPlayingLabel = item.name;
         if (this.onChange) this.onChange(item);
         return true;

@@ -347,8 +347,12 @@ or redemption error logs.
 1. **Photosensitivity.** A guest with no saved choice is held in Safe Mode for the session only and sees a locked
    WELCOME page (SAFE MODE / FULL LIGHTS). The answer is saved like the splash toggle.
 2. **Access.** `VRPayment.autoPrepare()` verifies the account and takes the VR lease. A registered, entitled
-   headset enters VR at once. Any other headset gets a **two-minute free preview** (`ImmersiveLaunch.PREVIEW_MS`),
-   then the world is veiled and only a locked pairing screen is drawn: an eight-digit code and `<host>/link`.
+   headset enters VR at once (nothing is shown, because it is already paid and linked). Any other headset gets a
+   **two-minute free preview** (`ImmersiveLaunch.PREVIEW_MS`), with a toast at the start and another 30 seconds before the
+   end, then the world is veiled and only a locked pairing screen is drawn: an eight-digit code and
+   `BUY OR LINK AT <host>/LINK`. **Payment is never taken in the headset**: the owner enters the code on a phone, verifies
+   their email, and buys (Stripe) or redeems an invitation on that page before approving the headset. The preview timer is
+   client-side and restarts with every app launch.
    The headset polls `/payments/link/poll`; when the owner approves on a phone it takes the lease for the session
    that is already running (`VRPayment.upgradeToMember()`) and the veil lifts. HOME → ACCESS reaches the code during
    the preview; EXIT VR closes the app from the locked screen.

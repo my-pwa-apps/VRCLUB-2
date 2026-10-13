@@ -20,6 +20,7 @@
  */
 class ImmersiveLaunch {
     static get PREVIEW_MS() { return 2 * 60 * 1000; }
+    static get PREVIEW_WARNING_MS() { return 30 * 1000; }
     static get WORLD_LAYER_MASK() { return 0x0FFFFFFF; }
     static get VEIL_LAYER_MASK() { return 0x10000000; }
     static get RETRY_MS() { return 5000; }
@@ -56,7 +57,7 @@ class ImmersiveLaunch {
         this._linkToken = 0;
         this._loopActive = false;
         this._previewTimer = null;
-        this._xrObserver = null;
+        this._warnTimer = null;
         this._gestureObserver = null;
         this._mutedBefore = null;
         this.musicStatus = 'PRESS SYNC NOW AFTER ADDING LINKS';
@@ -88,7 +89,7 @@ class ImmersiveLaunch {
         }
         return {
             title: code || (this.linkError ? 'NO CODE YET' : 'GETTING A CODE'),
-            subtitle: this.linkError || `ENTER IT AT ${String(this.host || 'THIS SITE').toUpperCase()}/LINK ON YOUR PHONE`
+            subtitle: this.linkError || `BUY OR LINK AT ${String(this.host || 'THIS SITE').toUpperCase()}/LINK`
         };
     }
 
@@ -126,12 +127,18 @@ class ImmersiveLaunch {
         }
     }
 
+    _clearPreviewTimers() {
+        this._clearTimeout(this._previewTimer);
+        this._clearTimeout(this._warnTimer);
+        this._previewTimer = null;
+        this._warnTimer = null;
+    }
+
     /** Hand over to the regular 2D flow: nothing here may keep the guest out of the club. */
     _manual() {
         if (this.mode === 'manual') return;
         this.mode = 'manual';
-        this._clearTimeout(this._previewTimer);
-        this._previewTimer = null;
+        this._clearPreviewTimers();
         this._linkToken++;
         this.link = null;
         this.payment?.setPreview?.(false);
@@ -211,8 +218,13 @@ class ImmersiveLaunch {
 
     _afterWelcome() {
         if (this.mode !== 'preview') return;
-        this.club.showErrorMessage('Free preview. Open the menu and choose ACCESS to link your account.');
+        this.club.showErrorMessage('Free 2-minute preview. Press B, then ACCESS, to buy or link your account.');
         this._previewTimer = this._setTimeout(() => this._lock(), ImmersiveLaunch.PREVIEW_MS);
+        // A warning before the lock: the screen goes dark and only shows the code, so say what is coming and how to avoid it.
+        this._warnTimer = this._setTimeout(() => {
+            this._warnTimer = null;
+            if (this.mode === 'preview') this.club.showErrorMessage('Preview ends in 30 seconds. Press B, then ACCESS, to buy or link.');
+        }, Math.max(0, ImmersiveLaunch.PREVIEW_MS - ImmersiveLaunch.PREVIEW_WARNING_MS));
         this._startLinkLoop();
     }
 
@@ -246,6 +258,8 @@ class ImmersiveLaunch {
 
     _lock() {
         this._previewTimer = null;
+        this._clearTimeout(this._warnTimer);
+        this._warnTimer = null;
         if (this.mode !== 'preview' || this._disposed) return;
         this.mode = 'locked';
         this.setVeil(true);
@@ -347,8 +361,7 @@ class ImmersiveLaunch {
         this.approved = false;
         this.link = null;
         this.linkError = '';
-        this._clearTimeout(this._previewTimer);
-        this._previewTimer = null;
+        this._clearPreviewTimers();
         this.setVeil(false);
         this._closeMenu();
         this.club.showErrorMessage('Linked. Welcome to NOCTURNE.');
@@ -399,7 +412,7 @@ class ImmersiveLaunch {
         if (this._disposed) return;
         this._disposed = true;
         this._linkToken++;
-        this._clearTimeout(this._previewTimer);
+        this._clearPreviewTimers();
         this.setVeil(false);
         const base = this.club.vrHelper && this.club.vrHelper.baseExperience;
         if (this._xrObserver && base) base.onStateChangedObservable.remove(this._xrObserver);
