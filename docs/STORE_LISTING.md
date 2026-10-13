@@ -20,7 +20,7 @@ NOCTURNE is a virtual nightclub you can walk around in, on a Quest headset or in
   take over the lights yourself at the DJ desk.
 - **A living room.** A resident DJ at the decks, a dancing crowd that moves in time with the music, a bartender, a
   guest who works the room, a balcony, a lounge and a night street outside.
-- **Bring your own music.** There is no built-in music. Play a direct audio link or a SoundCloud track its creator has
+- **Bring your own music.** The club plays its own original house set until you add yours. Play a direct audio link or a SoundCloud track its creator has
   published to podcast players. In the headset app you add links from your phone (the app has no keyboard); on a
   desktop or in the browser you can also play a file or a folder from your device.
 - **Together.** Optionally join a room of up to eight people with voice, chat, reactions and live hand movement.
@@ -38,8 +38,8 @@ and the headset starts by itself.
   first time the app starts, and Safe Mode can be switched on at any time. State this in the listing.
 - **Setting.** A nightclub with a bar. A background character is shown drinking at the bar, and another smokes a
   cigarette outside. No gambling, no violence, no sexual content.
-- **User-supplied music.** The app does not ship or rate any music; what plays depends on the links and files the user
-  chooses.
+- **Music.** The club plays its own original, generated house set when a guest has no music of their own (no third-party
+  recordings). Anything else that plays is what the user chooses: the app does not ship or rate it.
 - **Online features are optional.** In a room, other people can speak and chat. Hosts can kick, ban and lock rooms and
   anyone can block, mute and mute everyone. Voice uses direct peer connections, so other participants can see your IP
   address; say so in the privacy answers.

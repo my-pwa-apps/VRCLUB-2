@@ -4,6 +4,8 @@ class MusicLibrary {
     static KEY = 'vrclub.questMusic';
     static PLAYBACK_KEY = 'vrclub.questMusicPlayback';
     static MAX_SETS = 8;
+    /** The club's own generated set, served from this site (so it is first-party and the audio analyser can read it). */
+    static DEFAULT_SET = Object.freeze({ path: 'audio/nocturne-house.mp3', name: 'NOCTURNE House (club set)' });
     static COLOURIZON_FEED_PATH = '/podcast/colourizon/feed.xml';
     static SOUNDCLOUD_RESOLVE_PATH = '/soundcloud/resolve';
     static DEFAULT_NAMES = new Set(['SoundCloud set', 'Resident by Hernan Cattaneo']);
@@ -377,6 +379,41 @@ class MusicLibrary {
         const changed = JSON.stringify(next) !== JSON.stringify(this.items);
         if (changed) this._persist(next, selected);
         return { count: next.length, skipped, changed };
+    }
+
+    /** The club's own set (scripts/build-default-set.mjs): an absolute URL on the page's own origin, never saved to the list. */
+    defaultItem() {
+        return {
+            url: new URL(MusicLibrary.DEFAULT_SET.path, window.location.href).href,
+            name: MusicLibrary.DEFAULT_SET.name, kind: 'direct', builtin: true
+        };
+    }
+
+    /** True while the club's own set is what is playing (nothing of the guest's is). */
+    isDefaultPlaying() {
+        return !!this._defaultUrl && this.club._audioStreamUrl === this._defaultUrl;
+    }
+
+    /**
+     * Plays the club's own original set so nobody stands in a silent club. It only ever fills silence: it does nothing when
+     * the guest has saved sets (that is what plays), in someone else's room (the host owns the music), or when something
+     * is already playing. It is not saved, so it never appears in, or overwrites, the guest's list, and it loops.
+     */
+    async playDefault() {
+        const club = this.club;
+        if (this.items.length || (club.isFollowingHost && club.isFollowingHost())) return false;
+        const info = club.getPlaybackInfo ? club.getPlaybackInfo() : null;
+        const item = this.defaultItem();
+        // Something else is loaded (a local file, SoundCloud's player, another stream): leave it. The club's own set loaded
+        // but held back by the browser's autoplay rules is fine to retry on the next gesture.
+        const other = club._audioKind && !(club._audioKind === 'stream' && club._audioStreamUrl === item.url);
+        if ((info && info.playing) || other) return false;
+        this.lastMode = 'analysed';
+        this._defaultUrl = item.url;
+        await club.startAudioStream(item.url);
+        club.nowPlayingLabel = item.name;
+        if (this.onChange) this.onChange(item);
+        return true;
     }
 
     select(index) {

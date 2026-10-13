@@ -139,6 +139,7 @@ await Promise.all([
     cp(path.join(root, 'screenshots'), path.join(dist, 'screenshots'), { recursive: true }),
     // The phone page that pairs a headset: plain files, no bundle (it shares nothing with the club).
     cp(path.join(root, 'link'), path.join(dist, 'link'), { recursive: true }),
+    cp(path.join(root, 'audio'), path.join(dist, 'audio'), { recursive: true }),
     cp(path.join(root, 'manifest.json'), path.join(dist, 'manifest.json')),
     cp(path.join(root, 'robots.txt'), path.join(dist, 'robots.txt')),
     cp(path.join(root, 'sitemap.xml'), path.join(dist, 'sitemap.xml')),

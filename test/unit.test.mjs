@@ -5299,7 +5299,8 @@ test('Quest entry uses only explicitly saved music and ships no podcast picker',
     assert.doesNotMatch(html, /id="podcastResidentBtn"|id="podcastColourizonBtn"/);
     assert.match(html, /id="savedSets"/);
     const credits = html.match(/<details id="modelCredits">([\s\S]*?)<\/details>/)[1];
-    assert.match(credits, /No music, podcasts or third-party sound recordings are included/);
+    assert.match(credits, /only music included is the club's own original house set/);
+    assert.match(credits, /No podcasts or third-party sound recordings are included/);
     assert.match(credits, /IP address/, 'the credits must keep the streaming privacy disclosure');
 });
 

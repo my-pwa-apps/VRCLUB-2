@@ -287,16 +287,44 @@ function announceNowPlaying(label) {
     if (playLabel && typeof window.refreshMusicLinkButtons === 'function') window.refreshMusicLinkButtons();
 }
 
-/** Resume only an explicitly saved set, with the ENTER click's autoplay permission. */
+/** Starts the guest's saved set, or the club's own set when nothing is saved, with the ENTER click's autoplay permission. */
 function startEntryMusic(club, pointAtAudioMenu) {
     try { club._ensureAudioContext(); } catch (err) { uiLog.warn(`Audio context unavailable: ${err.message}`); }
     const library = ensureMusicLibrary(club);
     const item = library.current();
     const nowPlaying = document.getElementById('audioNowPlaying');
     if (!item) {
-        entryNowPlaying = 'No music selected. Add a link, file or folder below.';
+        // Nothing saved: the club plays its own original set rather than leave a guest in silence. It never replaces a saved
+        // set, and it stays quiet in someone else's room (the host owns the music there).
+        entryNowPlaying = 'Starting the club\u2019s own set\u2026';
         if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
-        pointAtAudioMenu();
+        const noMusic = () => {
+            entryNowPlaying = 'No music selected. Add a link, file or folder below.';
+            if (nowPlaying) nowPlaying.textContent = entryNowPlaying;
+            pointAtAudioMenu();
+        };
+        const retryDefault = () => {
+            document.removeEventListener('pointerdown', retryDefault);
+            document.removeEventListener('keydown', retryDefault);
+            library.playDefault().then(started => { if (started) announceNowPlaying(library.defaultItem().name); })
+                .catch(error => uiLog.warn(`Club set unavailable: ${error.message}`));
+        };
+        library.playDefault().then(started => {
+            if (started) announceNowPlaying(library.defaultItem().name);
+            else noMusic();
+        }).catch(err => {
+            uiLog.warn(`Club set unavailable: ${err.message}`);
+            noMusic();
+            // The browser held the sound back until a gesture: start it on the first press or key.
+            if (err && err.name === 'NotAllowedError') {
+                document.addEventListener('pointerdown', retryDefault);
+                document.addEventListener('keydown', retryDefault);
+                uiTeardowns.push(() => {
+                    document.removeEventListener('pointerdown', retryDefault);
+                    document.removeEventListener('keydown', retryDefault);
+                });
+            }
+        });
         return;
     }
     entryNowPlaying = `Starting ${item.name}\u2026`;

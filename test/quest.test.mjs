@@ -304,6 +304,70 @@ test('the SoundCloud app\u2019s share link (on.soundcloud.com/<id>) is saved wit
         'the relay expands the share link: a browser cannot follow its cross-origin redirect');
 });
 
+test('the club\u2019s own set fills silence: it loops, is never saved, and never plays over a guest\u2019s music or a host\u2019s room', async () => {
+    const quiet = f => { f.club.getPlaybackInfo = () => ({ seekable: false, position: 0, duration: 0, playing: false }); return f; };
+
+    // Nothing saved, nothing playing: it starts, from this site's own origin, and loops (no onDemand).
+    const f = quiet(libraryFixture());
+    assert.equal(await f.library.playDefault(), true);
+    assert.deepEqual([f.plays[0][0], f.plays[0][1]], ['direct', 'https://club.example/audio/nocturne-house.mp3']);
+    assert.equal(f.plays[0][2], undefined, 'a default set loops: it is not an on-demand episode');
+    assert.equal(f.club.nowPlayingLabel, 'NOCTURNE House (club set)');
+    assert.equal(f.library.items.length, 0, 'it is never added to the guest\u2019s list');
+    assert.equal(f.store.get('vrclub.questMusic'), undefined, 'and nothing is written to storage');
+    f.club._audioKind = 'stream';
+    f.club._audioStreamUrl = f.plays[0][1];
+    assert.equal(f.library.isDefaultPlaying(), true);
+
+    // A browser that held the sound back leaves it loaded but not playing: the next gesture may retry it.
+    assert.equal(await f.library.playDefault(), true);
+    assert.equal(f.plays.length, 2);
+
+    // A guest with saved sets plays their own (that is startEntryMusic's other branch), never the default.
+    const saved = quiet(libraryFixture());
+    saved.library.save('https://audio.example/mine.mp3', 'Mine');
+    assert.equal(await saved.library.playDefault(), false);
+    assert.equal(saved.plays.length, 0);
+
+    // Someone else's room: the host owns the music.
+    const room = quiet(libraryFixture());
+    room.club.isFollowingHost = () => true;
+    assert.equal(await room.library.playDefault(), false);
+    assert.equal(room.plays.length, 0);
+
+    // Something is already playing, or something else is loaded (a local file, SoundCloud's own player).
+    const playing = libraryFixture();
+    assert.equal(await playing.library.playDefault(), false);
+    for (const kind of ['file', 'soundcloud']) {
+        const other = quiet(libraryFixture());
+        other.club._audioKind = kind;
+        assert.equal(await other.library.playDefault(), false, kind);
+        assert.equal(other.plays.length, 0);
+    }
+    const another = quiet(libraryFixture());
+    another.club._audioKind = 'stream';
+    another.club._audioStreamUrl = 'https://audio.example/other.mp3';
+    assert.equal(await another.library.playDefault(), false, 'another stream is left alone');
+    assert.equal(another.library.isDefaultPlaying(), false);
+});
+
+test('the club set ships: a real MP3 under the Pages limit, copied by the build, registered in ASSETS.md and not cached by the service worker', () => {
+    const file = path.join(root, 'audio', 'nocturne-house.mp3');
+    const bytes = readFileSync(file);
+    assert.ok(bytes.length > 10 * 1048576 && bytes.length < 25 * 1048576, `${bytes.length} bytes must be 10-25 MiB (Cloudflare Pages limit)`);
+    const hasId3 = bytes.subarray(0, 3).toString('latin1') === 'ID3';
+    const sync = bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0;
+    assert.ok(hasId3 || sync, 'it starts like an MP3');
+    assert.match(readFileSync(path.join(root, 'scripts', 'build.mjs'), 'utf8'), /cp\(path\.join\(root, 'audio'\), path\.join\(dist, 'audio'\)/);
+    assert.match(readFileSync(path.join(root, 'ASSETS.md'), 'utf8'), /audio\/nocturne-house\.mp3[\s\S]*original work of this project/);
+    assert.match(readFileSync(path.join(root, '_headers'), 'utf8'), /\/audio\/\*\n\s+Cache-Control: no-cache/);
+    assert.doesNotMatch(readFileSync(path.join(root, 'sw.js'), 'utf8'), /nocturne-house|\.mp3/, 'the 19 MiB set is never precached');
+    assert.match(readFileSync(path.join(root, 'scripts', 'build-default-set.mjs'), 'utf8'), /25 \* 1048576/, 'the generator refuses an oversized file');
+    // Entry music uses it only when nothing is saved.
+    const ui = readFileSync(path.join(root, 'js', 'ui-init.js'), 'utf8');
+    assert.match(ui, /if \(!item\) \{[\s\S]*library\.playDefault\(\)/);
+});
+
 test('a SoundCloud track that is not shared for analysis fails clearly and never opens the player on its own', async () => {
     const notShared = libraryFixture(null, () => new Error('HTTP 404 Not Found for relay'));
     notShared.library.save('https://soundcloud.com/some-dj/private-mix', 'My mix');

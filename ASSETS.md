@@ -4,8 +4,9 @@ Every binary shipped in this repository, with its licence and provenance.
 
 ## Quest distribution profile
 
-The `Quest` branch builds a user-music-only candidate. No podcast catalogue is loaded,
-no podcast relay is contacted, and no music recording is bundled. The male/female DJs
+The `Quest` branch builds a user-music-first candidate. No podcast catalogue is loaded,
+no podcast relay is contacted, and the only recording bundled is the club's own generated
+house set (`audio/nocturne-house.mp3`, below). The male/female DJs
 are fictional CC0 characters, selected locally, not named artists or endorsements.
 The three historical Mixamo GLBs remain in the source repository but are not referenced,
 loaded or copied to `dist/`. Their former slot ids now use CC0 crowd models.
@@ -278,6 +279,19 @@ cell and the five were packed into one atlas; the GLB geometry is not shipped. T
 all five listings, the creator and the licence, and states the change. Sketchfab downloads need an account, so to rebuild,
 download the five GLBs and run `node scripts/build-graffiti-atlas.mjs <folder>` (packs are matched by the source URL
 embedded in each GLB, not by file name).
+
+## Music
+
+| Path | What it is | Licence |
+|------|------------|---------|
+| `audio/nocturne-house.mp3` | The club's own original house set: about 21 minutes at 124 BPM, 128 kbps stereo. | MIT, original work of this project |
+
+Every sound in it is synthesised from maths by `scripts/build-default-set.mjs` (kick, claps, hats, bass, pads and a lead,
+arranged in 16-bar phrases with builds, a breakdown and drops so the light show and crowd have a real structure to follow).
+It uses no samples, no recordings and no third-party material, so there is nothing to license or credit. It plays only
+when a guest has no music of their own and is not in someone else's room. Regenerate it with
+`node scripts/build-default-set.mjs` (needs ffmpeg with libmp3lame; the output is deterministic). The file must stay under
+Cloudflare Pages' 25 MiB per-file limit (the script refuses to finish above it).
 
 ## Runtime libraries
 

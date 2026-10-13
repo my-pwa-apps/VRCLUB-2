@@ -126,7 +126,7 @@ const server = createServer(async (req, res) => {
         const isWorker = /(^|[\\/])(sw|serviceworker)\.js$/i.test(realPath);
         // The manifest and its icons keep stable names (they are not content-hashed), so they must revalidate or an
         // edited manifest would be pinned for a year.
-        const isPwaMetadata = /(^|[\\/])manifest\.json$/i.test(realPath) || /[\\/](icons|screenshots|link)[\\/]/i.test(realPath);
+        const isPwaMetadata = /(^|[\\/])manifest\.json$/i.test(realPath) || /[\\/](icons|screenshots|link|audio)[\\/]/i.test(realPath);
         const cacheControl = (ext === '.html' || isWorker || isPwaMetadata || !IS_DIST)
             ? 'no-cache'
             : 'public, max-age=31536000, immutable';
@@ -184,6 +184,30 @@ const server = createServer(async (req, res) => {
         }
         if (encoder) headers['Vary'] = 'Accept-Encoding';
         else headers['Content-Length'] = info.size;
+        // Audio is seekable only when the server honours byte ranges (Cloudflare Pages does; this mirrors it).
+        if (!encoder) headers['Accept-Ranges'] = 'bytes';
+
+        const range = !encoder ? /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || '')) : null;
+        if (range && (range[1] || range[2])) {
+            let start, end;
+            if (range[1] === '') {
+                start = Math.max(0, info.size - Number(range[2]));
+                end = info.size - 1;
+            } else {
+                start = Number(range[1]);
+                end = range[2] === '' ? info.size - 1 : Math.min(Number(range[2]), info.size - 1);
+            }
+            if (start > end || start >= info.size) {
+                res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }).end();
+                return;
+            }
+            headers['Content-Range'] = `bytes ${start}-${end}/${info.size}`;
+            headers['Content-Length'] = end - start + 1;
+            res.writeHead(206, headers);
+            if (req.method === 'HEAD') { res.end(); return; }
+            pipeline(createReadStream(realPath, { start, end }), res, () => { /* client disconnects are normal */ });
+            return;
+        }
 
         res.writeHead(200, headers);
         if (req.method === 'HEAD') { res.end(); return; }

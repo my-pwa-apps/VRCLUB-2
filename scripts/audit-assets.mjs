@@ -5,7 +5,7 @@ import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const ASSET_ROOTS = ['js/models', 'textures'];
+const ASSET_ROOTS = ['js/models', 'textures', 'audio'];
 const LARGE_ASSET_BYTES = 5 * 1024 * 1024;
 
 function collectFiles(directory) {
