@@ -4659,12 +4659,14 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     const sceneMeshes = new Map(['frontWall', 'backWall', 'leftWall', 'rightWall', 'djPlatform', 'djPlatformTop',
         'vestibuleWalls', 'vestibuleFrame', 'barJoinery', 'mezzRails']
         .map(name => [name, { name, checkCollisions: true, isEnabled: () => true }]));
+    const ledWallCollider = { name: 'ledWallCollider', checkCollisions: false, isEnabled: () => true };
     const club = {
         vjManualMode: false,
         movementFeature: null,
         floorMesh: { name: 'floor' },
         _mezzDeck: { name: 'mezzDeck' },
         scene: { meshes: [...sceneMeshes.values()] },
+        _ledWallCollider: ledWallCollider,
         vrHelper: {
             input: { name: 'input' },
             pointerSelection: { name: 'pointer' },
@@ -4726,9 +4728,9 @@ test('VR comfort swaps mutually exclusive movement and teleportation features wi
     club.setVRComfortMode(true);
     assert.deepEqual(
         club.vrHelper.teleportation.options.pickBlockerMeshes.map(mesh => mesh.name).sort(),
-        [...sceneMeshes.keys()].sort()
+        [...sceneMeshes.keys(), 'ledWallCollider'].sort()
     );
-    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size);
+    assert.equal(originalTeleport.options.pickBlockerMeshes.length, sceneMeshes.size + 1);
     // The balcony deck (with its stair treads) is a teleport floor alongside the club floor, registered once.
     assert.deepEqual([...club.vrHelper.teleportation.options.floorMeshes].map(mesh => mesh.name), ['floor', 'mezzDeck']);
     assert.deepEqual([...originalTeleport.options.floorMeshes].map(mesh => mesh.name).sort(), ['floor', 'mezzDeck']);

@@ -259,11 +259,13 @@ class VRClubFixtures extends VRClubEnvironment {
         // The visible wall is tiled geometry with deliberate bezel gaps. A continuous thin backing prevents a
         // camera at the booth from slipping through a seam and falling into the narrow space behind it.
         const wallCollider = BABYLON.MeshBuilder.CreateBox('ledWallCollider', {
-            width: wallWidth,
+            // Overlap the side-wall collision volumes so the camera cannot squeeze
+            // around an edge into the space behind the LED wall.
+            width: wallWidth + 0.4,
             height: rows * panelHeight,
-            depth: 0.2
+            depth: 0.3
         }, this.scene);
-        wallCollider.position.set(0, rows * panelHeight / 2 + 0.05, -20.1);
+        wallCollider.position.set(0, rows * panelHeight / 2 + 0.05, -20.15);
         wallCollider.checkCollisions = true;
         wallCollider.isPickable = false;
         wallCollider.isVisible = false;

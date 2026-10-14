@@ -4,6 +4,18 @@ Actionable engineering items for the VRCLUB repository.
 Items are grouped by the review that produced them. Unresolved items are never removed —
 they are carried forward and re-prioritised.
 
+## Review - 2026-10-14 - LED wall keep-out
+
+- [x] **The LED wall cannot be entered from movement or teleportation**
+
+  **Implemented 2026-10-14.** The continuous `ledWallCollider` now overlaps the side-wall collision
+  volumes and is explicitly retained in the XR teleport blocker list, even if its collision flag is
+  changed independently from the generic scene sweep. The regression test re-applies comfort mode and
+  verifies that the blocker remains registered without duplication.
+
+  **Acceptance criteria:** Smooth movement cannot squeeze around either wall edge, and comfort-mode
+  teleportation cannot land behind the LED wall.
+
 ---
 
 ## Review - 2026-10-14 (later) - Principal experience re-review

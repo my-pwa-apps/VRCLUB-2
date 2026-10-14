@@ -2765,7 +2765,15 @@ class VRClubUI extends VRClubAnimationFinish {
 
     _teleportBlockerMeshes() {
         const floors = this._teleportFloorMeshes();
-        return this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+        const blockers = this.scene.meshes.filter(mesh => mesh.checkCollisions && mesh.isEnabled() && !floors.includes(mesh));
+        // Keep this safety-critical barrier explicit. It is normally covered by the
+        // generic collision sweep, but must remain a teleport blocker if the wall's
+        // render mesh or collision flags are changed independently.
+        if (this._ledWallCollider && this._ledWallCollider.isEnabled() &&
+            !floors.includes(this._ledWallCollider) && !blockers.includes(this._ledWallCollider)) {
+            blockers.push(this._ledWallCollider);
+        }
+        return blockers;
     }
 
     _xrMovementOptions() {
