@@ -283,26 +283,7 @@ class VRClubLifecycle extends VRClubCore {
             this.recordDiagnostic('xr', 'WebXR helper initialization failed', { error: message });
             return null;
         });
-        if (helper) this._enableXRMultiview(helper);
         return helper;
-    }
-
-    _enableXRMultiview(helper) {
-        const name = BABYLON.WebXRFeatureName?.LAYERS;
-        const manager = helper?.baseExperience?.featuresManager;
-        const caps = this.engine.getCaps();
-        if (!name || !manager || !caps.multiview || typeof XRWebGLBinding === 'undefined') return;
-
-        try {
-            const versions = BABYLON.WebXRFeaturesManager.GetAvailableVersions(name) || [];
-            const version = versions.includes('latest') ? 'latest' : versions[0];
-            if (!version) return;
-            manager.enableFeature(name, version, { preferMultiviewOnInit: true });
-            this.recordDiagnostic('xr', 'WebXR multiview projection enabled');
-        } catch (error) {
-            const message = error && error.message ? error.message : String(error);
-            log.info('WebXR multiview unavailable; using the standard stereo layer:', message);
-        }
     }
 
     /** Room, booth, speakers, LED wall, lasers, fixtures, haze, mirror ball and signage (after the floor and XR helper). */

@@ -200,24 +200,24 @@ with new evidence or satisfied criteria are updated in place without duplicates.
   **Product value:** High
   **Technical debt reduction:** Medium
 
-- [x] **Use the Quest Browser multiview projection path instead of submitting the opaque club separately for each eye**
+- [ ] **Find a safe stereo-submission optimization; Babylon WebXR Layers multiview renders black with the current pipeline**
 
-  **Implemented 2026-10-14.** `_initXRHelper()` now calls `_enableXRMultiview()` before session entry. On runtimes that expose `XRWebGLBinding` and a multiview engine capability, Babylon's `xr-layers` feature creates the projection layer with `preferMultiviewOnInit: true`; unsupported browsers and IWER retain the existing standard stereo layer. The same pass sets the XR framebuffer scale to native 1.0, uses 2x pipeline MSAA on Ultra/High and FXAA-only on Balanced, and stops preserving an unread production back buffer. No scene content, people, fixture, transparent effect, interaction, or animation cadence is removed.
+  **Rolled back 2026-10-14.** The physical Quest accepted Babylon's `xr-layers` projection with `preferMultiviewOnInit`, but immersive entry showed only black while Babylon continued rendering and WebGL reported `GL_INVALID_OPERATION` (1282). The apparent 28-31 ms captures were black-frame throughput and are invalid. `_enableXRMultiview()` was removed and a unit contract prevents it from returning. The independent native framebuffer scale, tiered MSAA and unread-buffer changes remain.
 
   **Priority:** High
   **Category:** VR / Performance
-  **Confidence:** High
+  **Confidence:** High that the current Layers path is incompatible; Low that another multiview route is safe
   **Area:** WebXR projection, stereo submissions and fill bandwidth
   **Affected files:** [01-core.js](js/club/01-core.js), [02-lifecycle.js](js/club/02-lifecycle.js), [PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md)
   **Evidence:** The original worn Quest 3S Ultra capture measured 59.1 ms median / 66.5 ms p95 (17.6 fps average). Native scale plus tiered MSAA improved Ultra to 51.7 / 57.7 ms. High was effectively unchanged at 52.8 / 58.8 ms and Balanced reached 48.4 / 53.3 ms. Runtime isolation measured application animation near 1 ms per frame; suppressing all transparent meshes and particles changed the median by less than 1 ms, every character by about 2.5 ms, and post-processing by about 5 ms. With WebXR Layers multiview active, Balanced measured 28.3 / 32.0 ms (35.1 fps average, about 118 submissions) and settled Ultra measured 30.5 / 33.9 ms (32.8 fps average, about 142 submissions).
   **Problem:** Babylon's standard WebXR layer submitted the opaque scene separately for both eyes. Reducing content and alpha overdraw could not recover that constant stereo cost without harming the experience.
-  **User-visible effect:** The compositor kept head motion superficially smooth while animation and lateral motion advanced at roughly 18-21 application frames a second.
-  **Immersion impact:** Multiview preserves the authored room while nearly halving measured application frame time; it is a stronger presence win than removing crowd or atmosphere.
+  **User-visible effect:** The attempted optimization made the immersive display completely black.
+  **Immersion impact:** Release blocker; the standard stereo path is restored.
   **Desktop impact:** None; Layers is enabled only for an immersive runtime with the required WebGL binding and multiview capability.
-  **VR impact:** Large measured Quest 3S improvement, with automatic fallback when unavailable.
-  **Performance impact:** Balanced median 48.4 -> 28.3 ms with the same tier content. The result is near a stable half-rate cadence but does not meet native 72 Hz.
-  **Regression considerations:** Enable the feature before session entry, use Babylon 9.28's available `latest`/version 1 registration rather than the absent `stable` alias, keep it optional, and never assume IWER implements `XRWebGLBinding`. A stale native session can outlive Babylon's NOT_IN_XR state during manual profiling; end it before requesting a replacement session.
-  **Acceptance criteria:** Capability-supported Quest sessions report one projection layer with multiview active; unsupported runtimes still enter XR through the standard layer; existing XR behavior and visual-parity tests pass; a worn Quest capture remains materially below the old 59.1 ms median without removing content.
+  **VR impact:** Standard stereo is restored; no valid multiview performance gain has been demonstrated.
+  **Performance impact:** The valid native-scale Ultra capture remains 51.7 ms median / 57.7 ms p95, improved from 59.1 / 66.5 ms but still below target.
+  **Regression considerations:** Do not infer success from frame counters alone; a physical headset must show the rendered club and `gl.getError()` must remain `NO_ERROR`.
+  **Acceptance criteria:** Any future stereo optimization must render the complete club on a physical Quest, keep WebGL error-free, preserve the post-process look, and improve a visible-frame capture over the valid 51.7 ms median.
   **Validation:** `npm run check`, `npm run lint`, `npm test`, `npx playwright test budget.spec.mjs vr-parity.spec.mjs vrclub.spec.mjs`, then the physical Quest route in `docs/PERFORMANCE_BASELINE.md`.
   **Estimated effort:** Medium
   **Product value:** High

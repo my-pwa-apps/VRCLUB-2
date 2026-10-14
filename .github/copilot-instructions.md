@@ -620,10 +620,10 @@ High and Ultra remain unmeasured on a Quest 3S.
 The XR layer renders at native scale (`framebufferScaleFactor: 1.0`). The old 1.2 scale multiplied every stereo
 post-process target by 1.44 on top of pipeline MSAA and FXAA. Ultra and High retain 2x pipeline MSAA plus FXAA;
 Balanced uses FXAA without multisampling. `vrclub.vrMsaa` can still override the tier with 1, 2 or 4 for diagnostics.
-Before session entry `_enableXRMultiview()` enables Babylon's WebXR Layers projection with
-`preferMultiviewOnInit` only when the runtime exposes `XRWebGLBinding` and the engine reports the multiview
-extension. Quest Browser then submits both eyes through one projection pass; unsupported runtimes and IWER keep
-Babylon's standard stereo layer. Never make Layers required or remove that fallback.
+Do not enable Babylon's WebXR Layers multiview projection. On the physical Quest 3S it created the projection
+layer and continued submitting frames, but the headset stayed black and WebGL reported `GL_INVALID_OPERATION`.
+The apparent frame-time improvement was black-frame throughput, not a rendered-club improvement. The standard
+WebXR stereo layer is required while the current post-process pipeline is active.
 
 The fixed XR effect cadences are CPU/upload budgets, not animation clocks: LED patterns, mirror rotation and laser motion still
 derive from elapsed time, so skipped uploads never slow the show or make it refresh-rate dependent. When three or more transparent

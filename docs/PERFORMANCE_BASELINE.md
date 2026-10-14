@@ -215,9 +215,10 @@ frame; suppressing all transparent meshes and particles changed the median by le
 all characters by about 2.5 ms, and the post-process chain by about 5 ms. The constant cost was
 Babylon's per-eye opaque scene submission.
 
-Quest Browser exposes `XRWebGLBinding`, `XRProjectionLayer`, and the multiview extensions.
-Enabling Babylon 9.28's WebXR Layers projection with `preferMultiviewOnInit` reduced Balanced to
-28.3 ms median / 32.0 ms p95 (35.1 fps average, 118 reported submissions) and settled Ultra to
-30.5 / 33.9 ms (32.8 fps average, about 142 submissions). No people, geometry, fixture, effect,
-interaction, or update cadence was removed. This is a large improvement and still not native
-72 Hz: repeat the full 15-minute route after deployment before calling either tier release-ready.
+Quest Browser exposes `XRWebGLBinding`, `XRProjectionLayer`, and the multiview extensions, but
+Babylon 9.28's WebXR Layers projection is not usable with this rendering pipeline. The physical
+Quest accepted `preferMultiviewOnInit`, created one projection layer and continued reporting
+28-31 ms frames, but the immersive display was completely black and WebGL reported
+`GL_INVALID_OPERATION` (1282). Those captures measured black-frame throughput and are invalid.
+Multiview was rolled back immediately. The valid result for this pass is the native-scale Ultra
+capture at 51.7 ms median / 57.7 ms p95; no 72 Hz or stable half-rate claim is justified.
